@@ -35,6 +35,9 @@ impl Running<'_> {
             self.hooks(&cx, Edge::BeforeDown, &[]).await;
             self.begin(&mut record, Op::Down)?;
             run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
+            // The manifest's steps remove the project's own containers; an ad-hoc attacker box has
+            // no project, so reap it too or it is left running and still read as the lab.
+            self.driver.reap_attacker(&cx).await;
             self.driver.after_down(&cx)?;
             crate::executor::state_files::forget(&cx)?;
             self.forget_seal()?;

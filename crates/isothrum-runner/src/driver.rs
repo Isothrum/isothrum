@@ -217,6 +217,18 @@ impl AnyDriver {
             AnyDriver::Terraform(d) => d.shell_command(cx, attacker),
         }
     }
+
+    /// Removes, best effort, any ad-hoc attacker box this run left running, on teardown. The box is
+    /// a bare container with no Compose project, so a lab's `down` (which removes the project's own
+    /// containers) leaves it running; a workload scan then still groups it under the lab and reports
+    /// the lab as running when nothing of it is. Only Compose stands an ad-hoc box up; the other
+    /// drivers have none, and a run that never attached one has nothing to remove.
+    pub(crate) async fn reap_attacker(&self, cx: &Cx<'_>) {
+        if let AnyDriver::Compose(d) = self {
+            let span = tracing::debug_span!("driver", driver = self.name(), op = "reap-attacker");
+            drop(d.detach(cx, Attacker::AdHoc).instrument(span).await);
+        }
+    }
 }
 
 /// Refuses an action of another driver's (the manifest's actions are each one driver's): step

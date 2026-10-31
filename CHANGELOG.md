@@ -8,6 +8,23 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
+## [1.0.2] — 2026-10-31
+
+### Fixed
+
+- A hot-added ad-hoc attacker box now shows up in a run's status. The box has no
+  Compose service and no manifest machine, so `docker compose ps` never listed it and
+  the status carried no access machine: an embedder's attack-box panel stayed on "not
+  started" and never offered its shell, though the box was up and usable. The Compose
+  driver now probes for the box by its deterministic name (when the lab declares no
+  access machine of its own) and reports it as an access machine with its running
+  state and its address on each lab network. Targets and run readiness are unaffected.
+- A run's `down` now removes the ad-hoc attacker box. The box has no Compose project,
+  so the manifest's teardown (which removes the project's own containers) left it
+  running — an orphaned container that a workload scan still grouped under the lab, so
+  the lab kept showing as running after it was stopped. `down` now reaps the box by its
+  deterministic name, best effort.
+
 ## [1.0.1] — 2026-10-19
 
 ### Added

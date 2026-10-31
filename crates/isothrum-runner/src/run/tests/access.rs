@@ -126,6 +126,23 @@ async fn attach_stands_up_an_ad_hoc_box_when_the_lab_has_no_access_machine() {
 }
 
 #[tokio::test]
+async fn down_reaps_a_leftover_ad_hoc_attack_box() {
+    // The ad-hoc box has no Compose project, so the lab's `down` would leave it running (and a
+    // workload scan would still group it under the lab). `down` must remove it by name.
+    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.attach(None, None, None, &Recorder::new()).await.unwrap();
+
+    run.down(&crate::RunOptions::default(), &Recorder::new()).await.unwrap();
+    assert!(
+        f.fake.last("rm -f flag-portal-isoloom-access").is_some(),
+        "the ad-hoc box is removed on down: {:?}",
+        f.fake.lines()
+    );
+}
+
+#[tokio::test]
 async fn an_ad_hoc_box_defaults_to_kali() {
     let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
     f.set(Containers::Up);
