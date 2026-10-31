@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, ComposeIdentity, SnakeName, Step, Template, access};
+use isoloom_manifest::{Action, ComposeIdentity, Role, SnakeName, Step, Template, access};
 
 use super::{Attached, Attacker, Driver, Observed};
 use crate::Result;
@@ -127,7 +127,16 @@ impl Driver for Compose {
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
-        let (machines, published) = ps::machines(cx.run.manifest(), &ps::parse_ps(&out));
+        let (mut machines, published) = ps::machines(cx.run.manifest(), &ps::parse_ps(&out));
+        // The ad-hoc attacker box has no Compose service, so `ps` never lists it. When the lab
+        // declares no access machine of its own, probe for the box the runner hot-added, so a run
+        // that has one shows it like any other machine (its state, its address, the shell into it);
+        // a lab with its own access machine already has it from `ps`.
+        if !cx.run.manifest().machines.iter().any(|m| m.role == Role::Access)
+            && let Some(access) = self.adhoc_status(cx).await
+        {
+            machines.push(access);
+        }
         // Compose publishes on this computer.
         let hosts = published.keys().map(|(machine, _)| (machine.clone(), "127.0.0.1".to_owned())).collect();
         Ok(Observed {

@@ -4,7 +4,9 @@
 //! default), named after the Compose project, on the lab's network(s), its address read back with
 //! `docker inspect`. `detach` removes it by name, idempotently.
 
-use isoloom_manifest::access;
+use std::collections::BTreeMap;
+
+use isoloom_manifest::{Role, access};
 use serde_json::Value;
 
 use super::{ATTACH_TIMEOUT, CALL_TIMEOUT, Compose, docker_spec};
@@ -12,9 +14,17 @@ use crate::Result;
 use crate::driver::Attached;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::state::Op;
+use crate::status::{MachineState, MachineStatus};
 
 /// The label the ad-hoc box carries, so it is recognisable as one Isothrum stood up.
 const LABEL: &str = "isoloom.access";
+
+/// The name the ad-hoc box reports under in status: Isoloom's reserved namespace, so it is never a
+/// lab machine. Its container is `{project}-isoloom-access` ([`container_name`]).
+const STATUS_NAME: &str = "isoloom-access";
+
+/// The `docker inspect` template reading the box's running flag and its networks, a `|` apart.
+const STATUS_FORMAT: &str = "{{.State.Running}}|{{json .NetworkSettings.Networks}}";
 
 /// What the box runs: idle forever, so it stays up for the learner to `exec` into.
 const IDLE: [&str; 2] = ["sleep", "infinity"];
@@ -49,6 +59,19 @@ fn address_from_inspect(json: &str, docker_net: Option<&str>) -> Option<String> 
         return Some(found.to_owned());
     }
     nets.values().find_map(ip_of).map(str::to_owned)
+}
+
+/// The box's addresses from the inspected `networks` JSON, keyed by lab spec network name (its
+/// `{project}_` prefix stripped); a network outside the project, or one with no readable address,
+/// is dropped.
+fn addresses_by_spec(networks: &str, project: &str) -> BTreeMap<String, String> {
+    let prefix = format!("{project}_");
+    let Ok(Value::Object(nets)) = serde_json::from_str::<Value>(networks) else {
+        return BTreeMap::new();
+    };
+    nets.iter()
+        .filter_map(|(net, cfg)| Some((net.strip_prefix(&prefix)?.to_owned(), ip_of(cfg)?.to_owned())))
+        .collect()
 }
 
 /// The lab's networks by spec name, the chosen one (else the first) at the front: the box lands on
@@ -127,6 +150,32 @@ impl Compose {
         address_from_inspect(&out, docker_net)
     }
 
+    /// The ad-hoc box as a status machine, when one is up on this run: its running state and its
+    /// address on each lab network (by spec name). `None` when there is no ad-hoc box (best
+    /// effort: a box that isn't there, or a `docker inspect` that can't be read, is simply no
+    /// access machine). The box has no Compose service, so the run's `ps` never lists it; this
+    /// finds it by its deterministic name.
+    pub(super) async fn adhoc_status(&self, cx: &Cx<'_>) -> Option<MachineStatus> {
+        let project = self.project(cx).ok()?;
+        let name = container_name(&project);
+        let args = vec!["inspect".to_owned(), "-f".into(), STATUS_FORMAT.into(), name];
+        let out = call_ok(cx, Op::Check.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Quiet)
+            .await
+            .ok()?;
+        let (running, networks) = out.trim().split_once('|')?;
+        Some(MachineStatus {
+            name: STATUS_NAME.to_owned(),
+            role: Role::Access,
+            state: if running.trim() == "true" {
+                MachineState::Running
+            } else {
+                MachineState::Stopped
+            },
+            addresses: addresses_by_spec(networks, &project),
+            published: Vec::new(),
+        })
+    }
+
     /// Removes the box by name: `docker rm -f <name>`. The caller ignores its result where it
     /// wants idempotence (a box already gone is no failure to report).
     pub(super) async fn remove_container(&self, cx: &Cx<'_>, name: &str) -> Result<()> {
@@ -168,5 +217,21 @@ mod tests {
         assert_eq!(address_from_inspect("not json", None), None);
         assert_eq!(address_from_inspect(r#"{"lab":{"IPAddress":""}}"#, Some("lab")), None);
         assert_eq!(address_from_inspect("{}", None), None);
+    }
+
+    #[test]
+    fn status_addresses_are_keyed_by_spec_network_with_the_project_prefix_stripped() {
+        let json = r#"{"flag-portal_lab":{"IPAddress":"10.30.0.123"},"flag-portal_dmz":{"IPAddress":"10.40.0.5"},"bridge":{"IPAddress":"172.17.0.2"},"flag-portal_down":{"IPAddress":""}}"#;
+        let got = addresses_by_spec(json, "flag-portal");
+        assert_eq!(got.get("lab").map(String::as_str), Some("10.30.0.123"));
+        assert_eq!(got.get("dmz").map(String::as_str), Some("10.40.0.5"));
+        assert!(!got.contains_key("bridge"), "a network outside the project is dropped");
+        assert!(!got.contains_key("down"), "a network with no address is dropped");
+    }
+
+    #[test]
+    fn an_unreadable_inspect_yields_no_status_addresses() {
+        assert!(addresses_by_spec("not json", "flag-portal").is_empty());
+        assert!(addresses_by_spec("[]", "flag-portal").is_empty());
     }
 }

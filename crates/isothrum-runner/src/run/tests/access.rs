@@ -62,6 +62,45 @@ async fn detach_removes_just_the_access_service() {
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
+/// The lab's Docker, extended to report the ad-hoc box up when its status is inspected.
+fn adhoc_status_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
+    if call.line().contains("inspect -f") {
+        return Reply::ok(r#"true|{"flag-portal_lab":{"IPAddress":"10.30.0.123"}}"#);
+    }
+    answer(engine, call)
+}
+
+#[tokio::test]
+async fn status_shows_the_ad_hoc_access_box_once_it_is_up() {
+    // flag-portal declares no access machine, so the box is ad-hoc and `ps` never lists it; the
+    // run's status probes for it and shows it as an access machine with its lab address.
+    let f = fixture_answering(FLAG_PORTAL, adhoc_status_answer);
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+
+    let status = run.status().await.unwrap();
+    let access = status
+        .machines
+        .iter()
+        .find(|m| m.role == isoloom_manifest::Role::Access)
+        .expect("the ad-hoc box shows as an access machine");
+    assert_eq!(access.state, crate::MachineState::Running);
+    assert_eq!(access.addresses.get("lab").map(String::as_str), Some("10.30.0.123"));
+    // The lab's own targets are unaffected, and the run is still ready off its targets alone.
+    assert!(status.machines.iter().any(|m| m.name == "web" && m.role == isoloom_manifest::Role::Target));
+    assert_eq!(status.state, crate::RunState::Ready);
+}
+
+#[tokio::test]
+async fn status_has_no_access_machine_when_no_box_is_attached() {
+    // No ad-hoc box: the inspect reads empty, so the status carries no access machine.
+    let f = fixture();
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let status = run.status().await.unwrap();
+    assert!(status.machines.iter().all(|m| m.role != isoloom_manifest::Role::Access));
+}
+
 #[tokio::test]
 async fn attach_stands_up_an_ad_hoc_box_when_the_lab_has_no_access_machine() {
     // flag-portal declares no access machine: attach no longer errors, it makes one ad hoc.
