@@ -779,7 +779,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-cli"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "clap",
  "isothrum-runner",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-compiler"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "indexmap",
  "insta",
@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "flate2",
  "isoloom-manifest",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-wasm"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "indexmap",
  "isoloom-spec",
@@ -1860,7 +1860,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "clap",
  "isothrum-runner",
