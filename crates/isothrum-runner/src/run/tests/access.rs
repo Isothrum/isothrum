@@ -143,6 +143,24 @@ async fn down_reaps_a_leftover_ad_hoc_attack_box() {
 }
 
 #[tokio::test]
+async fn park_reaps_a_leftover_ad_hoc_attack_box() {
+    // Parking stops the lab's own containers but leaves the ad-hoc box (no project) running, so a
+    // workload scan would still read the parked lab as running. Park removes it; a resumed lab
+    // re-attaches one.
+    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.attach(None, None, None, &Recorder::new()).await.unwrap();
+
+    run.park(crate::Park::Shutdown, &Recorder::new()).await.unwrap();
+    assert!(
+        f.fake.last("rm -f flag-portal-isoloom-access").is_some(),
+        "the ad-hoc box is removed on park: {:?}",
+        f.fake.lines()
+    );
+}
+
+#[tokio::test]
 async fn an_ad_hoc_box_defaults_to_kali() {
     let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
     f.set(Containers::Up);

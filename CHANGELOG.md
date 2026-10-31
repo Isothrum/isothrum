@@ -19,11 +19,12 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   driver now probes for the box by its deterministic name (when the lab declares no
   access machine of its own) and reports it as an access machine with its running
   state and its address on each lab network. Targets and run readiness are unaffected.
-- A run's `down` now removes the ad-hoc attacker box. The box has no Compose project,
-  so the manifest's teardown (which removes the project's own containers) left it
-  running — an orphaned container that a workload scan still grouped under the lab, so
-  the lab kept showing as running after it was stopped. `down` now reaps the box by its
-  deterministic name, best effort.
+- A run's `down` and `park` now remove the ad-hoc attacker box. The box has no Compose
+  project, so the manifest's teardown (which removes or stops the project's own
+  containers) left it running — an orphaned container that a workload scan still grouped
+  under the lab, so the lab kept showing as running after it was stopped or parked. Both
+  now reap the box by its deterministic name, best effort; a resumed or relaunched lab
+  re-attaches one.
 
 ## [1.0.1] — 2026-10-19
 

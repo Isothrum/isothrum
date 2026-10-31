@@ -75,6 +75,10 @@ impl Running<'_> {
             self.hooks(&cx, Edge::BeforePark, &[]).await;
             self.begin(&mut record, Op::Park)?;
             run_steps(&mut cx, "lifecycle.park", steps).await?;
+            // The ad-hoc attacker box is no project container, so the park steps leave it running
+            // while the lab is parked (and a workload scan then still reads the lab as running).
+            // Reap it: a resumed lab re-attaches one, as a launched lab does.
+            self.driver.reap_attacker(&cx).await;
             Ok(Done {
                 value: (),
                 ok: true,
