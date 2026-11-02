@@ -153,7 +153,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
             name: m.name.to_string(),
             role: m.role,
             state: machine_state.clone(),
-            addresses: m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect(),
+            addresses: super::static_addresses(m),
             published: Vec::new(),
         })
         .collect();

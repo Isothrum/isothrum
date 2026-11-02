@@ -310,7 +310,7 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, guest
             name: m.name.to_string(),
             role: m.role,
             state,
-            addresses: m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect(),
+            addresses: super::static_addresses(m),
             published,
         });
     }

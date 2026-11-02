@@ -45,14 +45,7 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> R
         return Ok(());
     }
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    let runner = cx.run.runner;
-    for (port, protocol) in config::host_ports(&config) {
-        if runner.reserved_elsewhere(cx.run.name(), port, protocol) || runner.config.ports.in_use(port, protocol) {
-            let protocol = if protocol == isoloom_manifest::Protocol::Udp { "udp" } else { "tcp" };
-            return Err(Error::PortInUse { port, protocol });
-        }
-    }
-    Ok(())
+    cx.run.runner.ensure_ports_free(cx.run.name(), config::host_ports(&config))
 }
 
 /// `compose.remove_stale_networks`: the project's networks its Compose files no longer define

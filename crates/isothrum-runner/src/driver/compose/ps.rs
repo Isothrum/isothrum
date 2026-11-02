@@ -110,7 +110,7 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
             name: m.name.to_string(),
             role: m.role,
             state: entry.map_or(MachineState::Absent, PsEntry::machine_state),
-            addresses: m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect(),
+            addresses: crate::driver::static_addresses(m),
             published: ports,
         });
     }

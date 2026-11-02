@@ -84,13 +84,7 @@ impl Compose {
 
 /// Runs `docker <args>` in the manifest's folder for `step`, returning its standard output.
 pub(super) async fn docker(cx: &Cx<'_>, step: &Step, args: Vec<String>, env: &[(String, String)]) -> Result<String> {
-    let spec = ProcessSpec {
-        program: "docker".into(),
-        args,
-        cwd: Some(cx.run.dir().to_path_buf()),
-        env: env.to_vec(),
-        stdin: None,
-    };
+    let spec = docker_spec(cx, args, env.to_vec());
     call_ok(cx, step.id.as_str(), &spec, CALL_TIMEOUT, Echo::Quiet).await
 }
 

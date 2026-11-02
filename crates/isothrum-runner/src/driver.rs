@@ -11,7 +11,7 @@ pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Action, Delivery, Identity, Manifest, SnakeName, Step, Template, Transport};
+use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, SnakeName, Step, Template, Transport};
 use tracing::Instrument;
 
 use crate::Result;
@@ -242,6 +242,12 @@ pub(crate) fn foreign_action(driver: &str, step: &Step, action: Action) -> Error
 /// What the manifest's `lifecycle.status` prints: the engine's own report of the run.
 pub(crate) async fn status_report(cx: &Cx<'_>) -> Result<String> {
     crate::executor::capture_step(cx, "lifecycle.status", &cx.run.manifest().lifecycle.status).await
+}
+
+/// A machine's static addresses as the status shows them: each lab network's name to the address
+/// the manifest fixes on it.
+pub(crate) fn static_addresses(m: &Machine) -> BTreeMap<String, String> {
+    m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect()
 }
 
 /// An action's name, as the manifest writes it.

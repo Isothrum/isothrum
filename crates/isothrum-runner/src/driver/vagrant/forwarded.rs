@@ -10,7 +10,6 @@ use isoloom_manifest::{Manifest, Protocol, PublishMode, Step};
 
 use super::status;
 use crate::Result;
-use crate::error::Error;
 use crate::executor::Cx;
 use crate::status::MachineState;
 
@@ -34,12 +33,5 @@ pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
         tracing::debug!(step = %step.id, "the run's VMs exist: their forwards are its own");
         return Ok(());
     }
-    let runner = cx.run.runner;
-    for (port, protocol) in forwarded(cx.run.manifest()) {
-        if runner.reserved_elsewhere(cx.run.name(), port, protocol) || runner.config.ports.in_use(port, protocol) {
-            let protocol = if protocol == Protocol::Udp { "udp" } else { "tcp" };
-            return Err(Error::PortInUse { port, protocol });
-        }
-    }
-    Ok(())
+    cx.run.runner.ensure_ports_free(cx.run.name(), forwarded(cx.run.manifest()))
 }

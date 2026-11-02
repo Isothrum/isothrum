@@ -10,6 +10,7 @@ use isoloom_manifest::{HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
+use crate::error::Error;
 use crate::events::Event;
 use crate::hooks::Hooks;
 use crate::manifest::load_manifest;
@@ -214,6 +215,23 @@ impl Runner {
             .unwrap_or_else(PoisonError::into_inner)
             .get(&(port, protocol))
             .is_some_and(|h| h != name)
+    }
+
+    /// Each `ports` entry (a host port and its protocol) must be free before run `name` starts:
+    /// not reserved by another run of this runner starting meanwhile, and not already bound on
+    /// this computer.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
+    pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (u16, Protocol)>) -> Result<()> {
+        for (port, protocol) in ports {
+            if self.reserved_elsewhere(name, port, protocol) || self.config.ports.in_use(port, protocol) {
+                let protocol = if protocol == Protocol::Udp { "udp" } else { "tcp" };
+                return Err(Error::PortInUse { port, protocol });
+            }
+        }
+        Ok(())
     }
 
     /// Frees every port `name` reserved.
