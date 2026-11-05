@@ -8,6 +8,17 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
+## [1.0.3] — 2026-11-05
+
+### Added
+
+- **A local VM lab's published ports now get a free host port, picked by the runner.** On a
+  fresh Vagrant run, each ephemeral published port is forwarded to a free loopback port (or its
+  own `publish` number under `ISOLOOM_PUBLISH_FIXED`), reserved and persisted in the run record
+  so park/resume/status keep the same port, passed to Vagrant in `ISOLOOM_HOSTPORTS`, reported in
+  the lab's status and URL, and released on teardown. A privileged port (`80`/`443`) no longer
+  needs admin rights to forward, and two labs that publish the same port no longer collide.
+
 ## [1.0.2] — 2026-10-31
 
 ### Fixed
