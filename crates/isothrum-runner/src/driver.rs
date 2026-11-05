@@ -20,6 +20,12 @@ use crate::executor::Cx;
 use crate::status::{MachineStatus, ShellCommand};
 use crate::vars::PortKey;
 
+/// The env var naming the host ports a run forwards from this computer, as a JSON object
+/// `{"<machine>/<port>": <host port>}`. A driver that chooses its own host ports (Vagrant,
+/// locally) sets it on a fresh start; the Vagrantfile reads it, defaulting each to the port's
+/// `publish` number.
+pub(crate) const HOSTPORTS: &str = "ISOLOOM_HOSTPORTS";
+
 /// What the engine says about a run.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Observed {
@@ -163,6 +169,17 @@ impl AnyDriver {
             AnyDriver::Compose(d) => d.env(cx),
             AnyDriver::Vagrant(d) => d.env(cx),
             AnyDriver::Terraform(d) => d.env(cx),
+        }
+    }
+
+    /// The host ports a fresh start pins for a driver that chooses its own (Vagrant, locally: a
+    /// free loopback port per ephemeral published port, by `"<machine>/<port>"`), empty for the
+    /// others. Recorded so a resume forwards the same ports; Compose pins its own through its
+    /// `pin_ports` action, and a Terraform (server/cloud) run forwards nothing to this computer.
+    pub(crate) fn forward_ports(&self, cx: &Cx<'_>) -> BTreeMap<String, u16> {
+        match self {
+            AnyDriver::Vagrant(_) => vagrant::pick_forwards(cx),
+            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => BTreeMap::new(),
         }
     }
 

@@ -208,6 +208,22 @@ impl Runner {
         holder == name
     }
 
+    /// A free loopback port over `protocol` that no run of this runner holds, reserved for `name`
+    /// until this operation ends. The returned socket keeps it bound until dropped, so a port is
+    /// never handed out twice; a port another run holds is refused and held meanwhile so it isn't
+    /// offered again.
+    pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> Option<crate::net::HeldPort> {
+        let mut refused = Vec::new();
+        for _ in 0..64 {
+            let port = self.config.ports.pick_free(protocol)?;
+            if self.reserve(name, port.port, protocol) {
+                return Some(port);
+            }
+            refused.push(port);
+        }
+        None
+    }
+
     /// Whether another run than `name` holds `port`.
     pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
         self.reserved

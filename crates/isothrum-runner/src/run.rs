@@ -257,6 +257,9 @@ impl<'r> Running<'r> {
         }
         cx.ssh_jump.clone_from(&record.ssh_jump);
         cx.expires_at = record.expires_at;
+        // The host ports a fresh start pinned: a resume forwards the same ones, and status reads
+        // them back (the Vagrant driver reports its forwards from here, not the manifest's number).
+        cx.vars.set_forwards(record.vm_host_ports.clone());
     }
 
     /// This host, with `provider`.

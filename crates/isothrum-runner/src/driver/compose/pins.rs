@@ -41,17 +41,7 @@ pub(super) fn pick(cx: &Cx<'_>, config: &str) -> Option<String> {
 
 /// A free port over `protocol` that no other run of this runner holds, reserved for this run.
 fn free_port(cx: &Cx<'_>, protocol: Protocol) -> Option<HeldPort> {
-    let runner = cx.run.runner;
-    // A port another run reserved is refused here, and held meanwhile so it isn't offered again.
-    let mut refused = Vec::new();
-    for _ in 0..64 {
-        let port = runner.config.ports.pick_free(protocol)?;
-        if runner.reserve(cx.run.name(), port.port, protocol) {
-            return Some(port);
-        }
-        refused.push(port);
-    }
-    None
+    cx.run.runner.pick_reserved(cx.run.name(), protocol)
 }
 
 /// The manifest's `preferred` number for the machine port `p` publishes.

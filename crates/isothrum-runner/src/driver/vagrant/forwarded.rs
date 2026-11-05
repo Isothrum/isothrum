@@ -1,29 +1,101 @@
 //! `vagrant.check_forwarded_ports` (run-manifest-v0.md §11): a VM forwards each published port
-//! from this computer at its fixed number, so two labs forwarding one port collide, and Vagrant
-//! says so only once the VM was imported. Unless the run's VMs exist (their forwards are this
-//! run's own), each such port must be free over its protocol, and not reserved by another run of
-//! this runner starting meanwhile.
+//! from this computer, at its own `publish` number when it is `fixed`, or at a free one the runner
+//! picks (and pins for the VM's life) when it is `ephemeral`. Two labs forwarding one fixed number
+//! collide, and Vagrant says so only once the VM was imported, so unless the run's VMs exist
+//! (their forwards are this run's own) each host port it will forward must be free over its
+//! protocol, and not reserved by another run of this runner starting meanwhile.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use isoloom_manifest::{Manifest, Protocol, PublishMode, Step};
+use isoloom_manifest::{Machine, Port, Protocol, PublishMode, Step};
 
 use super::status;
 use crate::Result;
 use crate::executor::Cx;
+use crate::net::HeldPort;
 use crate::status::MachineState;
 
-/// The host ports the VMs forward: every published port `fixed` at a number, each once.
-pub(super) fn forwarded(manifest: &Manifest) -> BTreeSet<(u16, Protocol)> {
-    manifest
-        .machines
-        .iter()
-        .flat_map(|m| &m.ports)
-        .filter_map(|p| {
-            let publish = p.publish.as_ref()?;
-            (publish.mode == PublishMode::Fixed).then_some((publish.preferred?.get(), p.kind.transport()))
-        })
-        .collect()
+/// The param asking each port for its own `publish:` number instead of a free one.
+const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
+
+/// The key a chosen host port is held under: `"<machine>/<port>"`.
+pub(super) fn key(m: &Machine, p: &Port) -> String {
+    format!("{}/{}", m.name, p.name)
+}
+
+/// Whether `p` is a published port the runner picks a free host port for.
+fn ephemeral(p: &Port) -> bool {
+    p.publish.as_ref().is_some_and(|x| x.mode == PublishMode::Ephemeral)
+}
+
+/// The host ports a fresh local Vagrant start pins, by `"<machine>/<port>"`: a free loopback port
+/// for each ephemeral published port (every socket held until all are picked so the OS doesn't
+/// hand one out twice), or the port's `preferred` number when `ISOLOOM_PUBLISH_FIXED` asked for it
+/// and it is free. Empty for an ESXi run (which forwards nothing: a VM's ports answer at its own
+/// address) or when no published port is ephemeral.
+pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
+    let mut chosen = BTreeMap::new();
+    if cx.scope.provider.as_deref() == Some(super::ESXI) {
+        return chosen;
+    }
+    let fixed = cx.vars.params().contains_key(PUBLISH_FIXED);
+    let mut held: Vec<HeldPort> = Vec::new();
+    let mut taken: BTreeSet<(u16, Protocol)> = BTreeSet::new();
+    for m in &cx.run.manifest().machines {
+        for p in &m.ports {
+            if !ephemeral(p) {
+                continue;
+            }
+            let protocol = p.kind.transport();
+            let picked = fixed.then(|| fixed_pick(cx, p, protocol, &mut taken)).flatten();
+            if let Some(port) = picked.or_else(|| free_pick(cx, protocol, &mut taken, &mut held)) {
+                chosen.insert(key(m, p), port);
+            }
+        }
+    }
+    drop(held);
+    chosen
+}
+
+/// `publish.preferred` when it is free to reserve for this run and not already picked.
+fn fixed_pick(cx: &Cx<'_>, p: &Port, protocol: Protocol, taken: &mut BTreeSet<(u16, Protocol)>) -> Option<u16> {
+    let preferred = p.publish.as_ref()?.preferred?.get();
+    let free = !taken.contains(&(preferred, protocol)) && cx.run.runner.reserve(cx.run.name(), preferred, protocol);
+    free.then(|| {
+        taken.insert((preferred, protocol));
+        preferred
+    })
+}
+
+/// A free loopback port, reserved for this run and held until the whole pick is done.
+fn free_pick(cx: &Cx<'_>, protocol: Protocol, taken: &mut BTreeSet<(u16, Protocol)>, held: &mut Vec<HeldPort>) -> Option<u16> {
+    let port = cx.run.runner.pick_reserved(cx.run.name(), protocol)?;
+    let number = port.port;
+    taken.insert((number, protocol));
+    held.push(port);
+    Some(number)
+}
+
+/// The host ports this run forwards from this computer: each fixed port at its number, each
+/// ephemeral port at the one it was pinned to (absent before a fresh start pins them).
+fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
+    let forwards = cx.vars.forwards();
+    let mut ports = Vec::new();
+    for m in &cx.run.manifest().machines {
+        for p in &m.ports {
+            let Some(publish) = p.publish.as_ref() else {
+                continue;
+            };
+            let port = match publish.mode {
+                PublishMode::Fixed => publish.preferred.map(std::num::NonZeroU16::get),
+                PublishMode::Ephemeral => forwards.get(&key(m, p)).copied(),
+            };
+            if let Some(port) = port {
+                ports.push((port, p.kind.transport()));
+            }
+        }
+    }
+    ports
 }
 
 /// Runs the action for step `step`.
@@ -33,5 +105,5 @@ pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
         tracing::debug!(step = %step.id, "the run's VMs exist: their forwards are its own");
         return Ok(());
     }
-    cx.run.runner.ensure_ports_free(cx.run.name(), forwarded(cx.run.manifest()))
+    cx.run.runner.ensure_ports_free(cx.run.name(), host_ports(cx))
 }

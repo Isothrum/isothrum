@@ -51,7 +51,11 @@ struct Fixture {
 }
 
 fn fixture(host: HostOs) -> Fixture {
-    let folder = LabFolder::new("vagrant", FLAG_VM);
+    fixture_from(host, FLAG_VM)
+}
+
+fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
+    let folder = LabFolder::new("vagrant", manifest);
     let (engine, fake) = modelled(answer);
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([41000]));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, host)).unwrap();
@@ -62,6 +66,31 @@ fn fixture(host: HostOs) -> Fixture {
         engine,
         runner,
     }
+}
+
+/// The fixture's manifest with its web port made ephemeral and the port-mode choice declared, as
+/// Isoloom now generates a VM's published ports: the runner picks a free host port for each,
+/// unless `ISOLOOM_PUBLISH_FIXED` asks for its own number.
+fn ephemeral_manifest() -> String {
+    let mut v: serde_json::Value = serde_json::from_str(FLAG_VM).expect("the fixture parses");
+    for machine in v["machines"].as_array_mut().into_iter().flatten() {
+        for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
+            if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
+                publish.insert("mode".to_owned(), serde_json::Value::from("ephemeral"));
+            }
+        }
+    }
+    let fixed = serde_json::json!({
+        "name": "ISOLOOM_PUBLISH_FIXED",
+        "description": "Set: each published port takes its `publish:` number instead of an ephemeral one.",
+        "values": ["1"],
+        "set_by": "embedder",
+        "deliver": [{"via": "env", "var": "ISOLOOM_PUBLISH_FIXED", "steps": ["*"]}]
+    });
+    if let Some(params) = v["params"].as_array_mut() {
+        params.push(fixed);
+    }
+    serde_json::to_string(&v).expect("the manifest serializes")
 }
 
 impl Fixture {
@@ -573,6 +602,60 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
         !f.fake.lines().iter().any(|l| l == "vagrant ssh-config isoloom-controller"),
         "the controller publishes nothing"
     );
+}
+
+/// A fresh local start pins a free host port for an ephemeral published port, forwards the VM to
+/// it (the Vagrantfile reads `ISOLOOM_HOSTPORTS`), and the lab answers on it — not on its own 80.
+#[tokio::test]
+async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
+    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let started = run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(
+        f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"),
+        Some(r#"{"web/web":41000}"#),
+        "the pinned port reaches the Vagrantfile"
+    );
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
+}
+
+/// A resume forwards the same pinned port (kept in the record), so the VM's URL doesn't change —
+/// no port is picked again (the fake has none left to hand out).
+#[tokio::test]
+async fn a_resume_forwards_the_same_pinned_port() {
+    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":41000}"#));
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.published.iter().find(|p| p.port == 80).unwrap().host_port, 41000);
+}
+
+/// With `ISOLOOM_PUBLISH_FIXED`, a VM forwards the lab's own port number instead of a free one.
+#[tokio::test]
+async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
+    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let started = run.up(&opts().with_param("ISOLOOM_PUBLISH_FIXED", "1"), &Recorder::new()).await.unwrap();
+    assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":8086}"#));
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:8086/"));
+}
+
+/// A VM with only fixed ports (Isoloom before this change, or a lab that pins a port) picks
+/// nothing and sets no `ISOLOOM_HOSTPORTS`; it forwards each port at its own number.
+#[tokio::test]
+async fn a_vm_with_only_fixed_ports_sets_no_host_ports_env() {
+    let f = fixture(HostOs::Linux);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let started = run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), None);
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:8086/"));
 }
 
 /// An ESXi host's password is a connection slot every Vagrant command needs, reads included: a

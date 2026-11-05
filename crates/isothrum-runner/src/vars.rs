@@ -20,6 +20,9 @@ pub(crate) struct Vars {
     published: BTreeMap<PortKey, u16>,
     hosts: BTreeMap<String, String>,
     machine: Option<String>,
+    /// The host ports a local VM run forwards, by `"<machine>/<port>"`: a free one the runner
+    /// pinned, bound from the record so the Vagrant driver and its forwarded-port check agree.
+    forwards: BTreeMap<String, u16>,
 }
 
 impl Vars {
@@ -36,6 +39,16 @@ impl Vars {
     /// The params bound.
     pub(crate) fn params(&self) -> &BTreeMap<String, String> {
         &self.params
+    }
+
+    /// Binds the host ports a local VM run forwards, by `"<machine>/<port>"`.
+    pub(crate) fn set_forwards(&mut self, forwards: BTreeMap<String, u16>) {
+        self.forwards = forwards;
+    }
+
+    /// The host ports a local VM run forwards, by `"<machine>/<port>"`.
+    pub(crate) fn forwards(&self) -> &BTreeMap<String, u16> {
+        &self.forwards
     }
 
     /// Binds `${published.…}` with what the engine reports.

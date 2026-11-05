@@ -81,6 +81,10 @@ pub struct RunRecord {
     /// Every param the run was started with: a later operation (a `down`) replays them, so it acts
     /// on what was created, not on what the embedder's settings say now.
     pub params: BTreeMap<String, String>,
+    /// The host ports a local VM run forwards from this computer, by `"<machine>/<port>"`: a free
+    /// one the runner pinned at the first start, kept so a resume forwards the same port.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub vm_host_ports: BTreeMap<String, u16>,
     /// When it was last started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
@@ -113,6 +117,7 @@ impl RunRecord {
             host_label: None,
             state: RunState::Absent,
             params: BTreeMap::new(),
+            vm_host_ports: BTreeMap::new(),
             started_at: None,
             slot: None,
             ssh_jump: None,

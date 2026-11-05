@@ -172,7 +172,18 @@ impl Driver for Vagrant {
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
-        Ok(vec![(DOTFILE_VAR.to_owned(), self.dotfile(cx)?.display().to_string())])
+        let mut env = vec![(DOTFILE_VAR.to_owned(), self.dotfile(cx)?.display().to_string())];
+        // The host ports a fresh start pinned (kept in the run's record): as a JSON object the
+        // Vagrantfile reads for its forwards, defaulting each to the port's own `publish` number.
+        let forwards = cx.vars.forwards();
+        if !forwards.is_empty() {
+            let json = serde_json::to_string(forwards).map_err(|e| Error::Param {
+                name: super::HOSTPORTS.to_owned(),
+                reason: e.to_string(),
+            })?;
+            env.push((super::HOSTPORTS.to_owned(), json));
+        }
+        Ok(env)
     }
 
     async fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
@@ -196,7 +207,7 @@ impl Driver for Vagrant {
         } else {
             None
         };
-        Ok(machines(cx.run.manifest(), &read, guests.as_ref()))
+        Ok(machines(cx.run.manifest(), &read, guests.as_ref(), cx.vars.forwards()))
     }
 
     fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {
@@ -271,11 +282,22 @@ fn define_name(m: &isoloom_manifest::Machine) -> &str {
     }
 }
 
+/// The host ports a fresh local Vagrant start pins (`AnyDriver::forward_ports`), by
+/// `"<machine>/<port>"`, ready to be kept in the run's record.
+pub(super) fn pick_forwards(cx: &Cx<'_>) -> BTreeMap<String, u16> {
+    forwarded::pick(cx)
+}
+
 /// Every machine of the manifest as Vagrant reports it, by its define name. Locally a published
-/// port is forwarded to this computer at its fixed number while the VM exists. With `guests`
-/// (ESXi, which forwards nothing), it answers at its VM's address, on the VM's own port, while
-/// that address is known.
-fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, guests: Option<&BTreeMap<String, String>>) -> Observed {
+/// port is forwarded to this computer at the number `chosen` for it (keyed `"<machine>/<port>"`),
+/// else its `preferred` fallback. With `guests` (ESXi, which forwards nothing), it answers at its
+/// VM's address, on the VM's own port, while that address is known.
+fn machines(
+    manifest: &isoloom_manifest::Manifest,
+    read: &status::Reading,
+    guests: Option<&BTreeMap<String, String>>,
+    chosen: &BTreeMap<String, u16>,
+) -> Observed {
     let mut out = Observed::default();
     for m in &manifest.machines {
         let define = define_name(m);
@@ -297,7 +319,11 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, guest
                 let Some(forwarded) = p.publish.as_ref().and_then(|x| x.preferred) else {
                     continue;
                 };
-                let host_port = if guests.is_some() { p.port.get() } else { forwarded.get() };
+                let host_port = if guests.is_some() {
+                    p.port.get()
+                } else {
+                    chosen.get(&forwarded::key(m, p)).copied().unwrap_or_else(|| forwarded.get())
+                };
                 published.push(PublishedPort {
                     port: p.port.get(),
                     protocol: p.kind.transport(),
