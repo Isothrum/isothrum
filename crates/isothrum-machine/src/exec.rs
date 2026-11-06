@@ -53,6 +53,31 @@ pub async fn run_read(runner: &dyn ProcessRunner, program: &str, args: &[&str], 
     within(program, STATUS_TIMEOUT, run(runner, program, args, cwd)).await
 }
 
+/// Runs `program args` in `cwd`, forwarding each output line to `on_line` as it arrives (for a
+/// long tool whose progress is shown), and failing when it exits non-zero.
+///
+/// # Errors
+///
+/// [`Error::Process`] when the tool can't be started, [`Error::Exit`] (with its last error line)
+/// on a non-zero exit.
+pub async fn stream(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>, mut on_line: impl FnMut(&str) + Send) -> Result<()> {
+    let s = spec(program, args, cwd);
+    let mut last_err = String::new();
+    let exit = runner
+        .run(&s, &mut |stream, line| {
+            if stream == Stream::Stderr {
+                line.clone_into(&mut last_err);
+            }
+            on_line(line);
+        })
+        .await?;
+    if exit.success() {
+        return Ok(());
+    }
+    let reason = if last_err.is_empty() { "exited non-zero".to_owned() } else { last_err };
+    Err(Error::Exit { command: s.line(), reason })
+}
+
 /// Awaits `future` with a time limit: past `limit` it is dropped (the runner then ends the process
 /// it started) and [`Error::Timeout`] is returned.
 ///
@@ -115,6 +140,18 @@ mod tests {
         let Error::Exit { command, reason } = err else { panic!("{err:?}") };
         assert_eq!(command, "tool go");
         assert_eq!(reason, "the reason");
+    }
+
+    #[tokio::test]
+    async fn stream_forwards_each_line_and_fails_with_the_last_error_line() {
+        let fake = FakeProcesses::rules(&[("tool go", Reply::ok("one\ntwo"))]);
+        let mut lines = Vec::new();
+        stream(&fake, "tool", &["go"], None, |l| lines.push(l.to_owned())).await.unwrap();
+        assert_eq!(lines, ["one", "two"]);
+
+        let bad = FakeProcesses::rules(&[("tool x", Reply::fail(1, "boom"))]);
+        let err = stream(&bad, "tool", &["x"], None, |_| {}).await.unwrap_err();
+        assert!(matches!(err, Error::Exit { ref reason, .. } if reason == "boom"), "{err:?}");
     }
 
     #[tokio::test]

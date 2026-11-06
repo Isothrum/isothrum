@@ -92,16 +92,21 @@ fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = path.with_file_name(format!(".{name}.{}-{:08x}.tmp", std::process::id(), next_temp_id()));
-    let written = (|| {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        f.write_all(contents)?;
-        f.sync_all()
-    })();
-    let result = written.and_then(|()| std::fs::rename(&tmp, path));
-    if result.is_err() && std::fs::remove_file(&tmp).is_err() {
-        // The stray temporary is harmless; the next write uses a name of its own.
+    if let Err(e) = fill_then_rename(&tmp, path, contents) {
+        if std::fs::remove_file(&tmp).is_err() {
+            // The stray temporary is harmless; the next write uses a name of its own.
+        }
+        return Err(e);
     }
-    result
+    Ok(())
+}
+
+/// Fills the temporary file and flushes it to disk, then renames it over `path`.
+fn fill_then_rename(tmp: &Path, path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(tmp)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    std::fs::rename(tmp, path)
 }
 
 /// A per-process counter making each temporary file's name unique, so two writers never share one.
