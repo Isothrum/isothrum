@@ -11,7 +11,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-publish = false
+description = "Machine-setup domain for Isothrum: detect Docker, Vagrant, the hypervisors and the cloud CLIs, and self-test them by booting a throwaway container or VM."
+publish = true
 
 [lints]
 workspace = true

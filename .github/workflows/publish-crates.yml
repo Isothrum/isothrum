@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           # Leaf crates first: each crate's dependencies are published before it.
-          crates=(isothrum-compiler isothrum-runner isothrum-wasm isothrum-cli)
+          crates=(isothrum-compiler isothrum-runner isothrum-machine isothrum-wasm isothrum-cli)
           version="$(cargo metadata --format-version 1 --no-deps \
             | jq -r '.packages[] | select(.name=="isothrum-compiler") | .version')"
           echo "Publishing Isothrum crates at version ${version}"
