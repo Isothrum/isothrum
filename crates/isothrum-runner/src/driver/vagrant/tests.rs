@@ -93,6 +93,21 @@ fn ephemeral_manifest() -> String {
     serde_json::to_string(&v).expect("the manifest serializes")
 }
 
+/// `ephemeral_manifest`, with each published port's `preferred` number dropped — an ephemeral port
+/// Isoloom emits with no `publish:` number of its own, so its host port can only come from the
+/// runner's pick.
+fn ephemeral_no_preferred_manifest() -> String {
+    let mut v: serde_json::Value = serde_json::from_str(&ephemeral_manifest()).expect("the fixture parses");
+    for machine in v["machines"].as_array_mut().into_iter().flatten() {
+        for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
+            if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
+                publish.remove("preferred");
+            }
+        }
+    }
+    serde_json::to_string(&v).expect("the manifest serializes")
+}
+
 impl Fixture {
     fn engine(&self) -> std::sync::MutexGuard<'_, Engine> {
         self.engine.lock().unwrap_or_else(PoisonError::into_inner)
@@ -617,6 +632,19 @@ async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
         "the pinned port reaches the Vagrantfile"
     );
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
+}
+
+/// R2: a published port with no `preferred` number (an ephemeral port Isoloom emits without a
+/// `publish:` number) was dropped from `status` entirely, so `${published…}`/`${host…}` could not
+/// resolve. Its host port is the runner's pick, so it is reported like any other published port.
+#[tokio::test]
+async fn a_published_port_with_no_preferred_number_is_still_reported() {
+    let f = fixture_from(HostOs::Linux, &ephemeral_no_preferred_manifest());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
     let status = run.status().await.unwrap();
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);

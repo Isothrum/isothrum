@@ -316,13 +316,20 @@ fn machines(
         }
         if host.is_some() {
             for p in &m.ports {
-                let Some(forwarded) = p.publish.as_ref().and_then(|x| x.preferred) else {
+                let Some(publish) = p.publish.as_ref() else {
                     continue;
                 };
                 let host_port = if guests.is_some() {
                     p.port.get()
                 } else {
-                    chosen.get(&forwarded::key(m, p)).copied().unwrap_or_else(|| forwarded.get())
+                    // The runner's pick for this port; else its `preferred` number (a fixed port);
+                    // else the port itself. Gating on `publish` (not `preferred`) keeps an ephemeral
+                    // port with no `publish:` number of its own, whose host port is the pick.
+                    chosen
+                        .get(&forwarded::key(m, p))
+                        .copied()
+                        .or_else(|| publish.preferred.map(std::num::NonZeroU16::get))
+                        .unwrap_or_else(|| p.port.get())
                 };
                 published.push(PublishedPort {
                     port: p.port.get(),
