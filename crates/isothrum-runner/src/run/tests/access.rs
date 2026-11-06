@@ -125,39 +125,46 @@ async fn attach_stands_up_an_ad_hoc_box_when_the_lab_has_no_access_machine() {
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-#[tokio::test]
-async fn down_reaps_a_leftover_ad_hoc_attack_box() {
-    // The ad-hoc box has no Compose project, so the lab's `down` would leave it running (and a
-    // workload scan would still group it under the lab). `down` must remove it by name.
+/// The way a run with a leftover ad-hoc attacker box is torn down.
+enum Teardown {
+    Down,
+    Park,
+}
+
+/// The ad-hoc box has no Compose project, so a workload scan would still group it under the lab:
+/// every teardown must remove it by name.
+async fn teardown_reaps_the_ad_hoc_box(teardown: Teardown) {
     let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.attach(None, None, None, &Recorder::new()).await.unwrap();
 
-    run.down(&crate::RunOptions::default(), &Recorder::new()).await.unwrap();
+    match teardown {
+        Teardown::Down => {
+            run.down(&crate::RunOptions::default(), &Recorder::new()).await.unwrap();
+        }
+        Teardown::Park => {
+            run.park(crate::Park::Shutdown, &Recorder::new()).await.unwrap();
+        }
+    }
     assert!(
         f.fake.last("rm -f flag-portal-isoloom-access").is_some(),
-        "the ad-hoc box is removed on down: {:?}",
+        "the ad-hoc box is removed on teardown: {:?}",
         f.fake.lines()
     );
 }
 
 #[tokio::test]
-async fn park_reaps_a_leftover_ad_hoc_attack_box() {
-    // Parking stops the lab's own containers but leaves the ad-hoc box (no project) running, so a
-    // workload scan would still read the parked lab as running. Park removes it; a resumed lab
-    // re-attaches one.
-    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
-    f.set(Containers::Up);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.attach(None, None, None, &Recorder::new()).await.unwrap();
+async fn down_reaps_a_leftover_ad_hoc_attack_box() {
+    // Without this, `down` leaves the project-less ad-hoc box running.
+    teardown_reaps_the_ad_hoc_box(Teardown::Down).await;
+}
 
-    run.park(crate::Park::Shutdown, &Recorder::new()).await.unwrap();
-    assert!(
-        f.fake.last("rm -f flag-portal-isoloom-access").is_some(),
-        "the ad-hoc box is removed on park: {:?}",
-        f.fake.lines()
-    );
+#[tokio::test]
+async fn park_reaps_a_leftover_ad_hoc_attack_box() {
+    // Park stops the lab's own containers but would leave the ad-hoc box running; a resumed lab
+    // re-attaches one.
+    teardown_reaps_the_ad_hoc_box(Teardown::Park).await;
 }
 
 #[tokio::test]
