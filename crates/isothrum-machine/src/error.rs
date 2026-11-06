@@ -10,6 +10,10 @@ pub enum Error {
     /// A tool couldn't be started (not installed, or an OS error).
     #[error(transparent)]
     Process(#[from] isothrum_runner::process::ProcessError),
+    /// A file the domain owns (the record of what it downloaded, a self-test's scratch folder)
+    /// couldn't be read or written.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     /// A tool the caller needed to succeed exited non-zero.
     #[error("`{command}` failed: {reason}")]
     Exit {
