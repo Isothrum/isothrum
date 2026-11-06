@@ -8,7 +8,12 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The installers build only after the test + quality-ratchet gate passes (a tag skips ci.yml).
+  gate:
+    uses: ./.github/workflows/gate.yml
+
   build:
+    needs: gate
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
