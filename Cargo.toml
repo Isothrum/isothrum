@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-cli", "xtask"]
+members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "xtask"]
 # The desktop app is its own workspace: it needs GTK/WebKit, which the libraries do not. So are the
 # fuzz targets: they build with nightly and libFuzzer (`cargo run -p xtask -- fuzz`).
 exclude = ["apps/desktop/src-tauri", "fuzz"]

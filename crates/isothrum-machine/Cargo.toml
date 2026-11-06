@@ -1,0 +1,28 @@
+# The machine-setup domain shared by the Isothrum desktop app and the Cyber CTF launcher: what
+# this computer can run (Docker, Vagrant, the hypervisors, the cloud CLIs) and the self-tests that
+# boot a throwaway container or VM to prove it. Ported from the launcher's `machine/` and
+# `runtime/providers`, on the Isothrum runner's no-unsafe `ProcessRunner` instead of the launcher's
+# own `platform::exec`.
+[package]
+name = "isothrum-machine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+isothrum-runner.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+isothrum-runner = { workspace = true, features = ["fake"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
