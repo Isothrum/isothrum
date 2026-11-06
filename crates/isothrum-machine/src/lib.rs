@@ -9,5 +9,7 @@
 
 pub mod error;
 pub mod exec;
+pub mod providers;
 
 pub use error::{Error, Result};
+pub use providers::{Provider, ProviderStatus};
