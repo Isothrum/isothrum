@@ -9,15 +9,14 @@ use super::{RunError, Runtime, compose, run, runtime};
 use crate::console::Console;
 
 /// The machine's container, when it runs.
-pub fn running_container(dir: &Path, machine: &str) -> Result<Option<String>, RunError> {
+pub(super) fn running_container(dir: &Path, machine: &str) -> Result<Option<String>, RunError> {
     let id = run(compose(dir, &["ps", "-q", machine]), "Finding the machine")?
-        .trim()
-        .to_string();
+        .trim().to_owned();
     Ok((!id.is_empty()).then_some(id))
 }
 
 /// The machine's container in the running lab.
-pub fn container(dir: &Path, machine: &str) -> Result<String, RunError> {
+pub(crate) fn container(dir: &Path, machine: &str) -> Result<String, RunError> {
     running_container(dir, machine)?.ok_or_else(|| RunError::Command {
         what: format!("`{machine}`"),
         output: "isn't running".into(),
@@ -25,11 +24,11 @@ pub fn container(dir: &Path, machine: &str) -> Result<String, RunError> {
 }
 
 /// A container's shell: bash when it has it, else sh.
-pub const SHELL: &str = "command -v bash >/dev/null && exec bash || exec sh";
+pub(crate) const SHELL: &str = "command -v bash >/dev/null && exec bash || exec sh";
 
 /// The command a console on `machine` runs: a shell in its container, or SSH to a network
 /// appliance's OS (its management address; `admin`/`admin`).
-pub fn console_command(dir: &Path, spec: &Spec, machine: &str) -> Result<Console, RunError> {
+pub(crate) fn console_command(dir: &Path, spec: &Spec, machine: &str) -> Result<Console, RunError> {
     let m = spec
         .machines
         .get(machine)
@@ -86,13 +85,13 @@ fn management_address(id: &str) -> Result<Option<(String, String)>, RunError> {
         .find_map(|l| {
             l.split_once(' ')
                 .filter(|(n, _)| n.ends_with("isoloom-mgmt"))
-                .map(|(n, ip)| (n.to_string(), ip.trim().to_string()))
+                .map(|(n, ip)| (n.to_owned(), ip.trim().to_owned()))
         })
         .filter(|(_, ip)| !ip.is_empty()))
 }
 
 /// Starts, stops or restarts one machine (and its network sidecar, which sets its routes).
-pub fn machine_action(
+pub(crate) fn machine_action(
     dir: &Path,
     spec: &Spec,
     machine: &str,
@@ -149,7 +148,7 @@ pub(super) fn with_sidecar(dir: &Path, machine: &str) -> Result<Vec<String>, Run
         "Reading the lab's services",
     )?;
     let sidecar = format!("{machine}-routes");
-    let mut out = vec![machine.to_string()];
+    let mut out = vec![machine.to_owned()];
     if services.lines().any(|l| l.trim() == sidecar) {
         out.push(sidecar);
     }
@@ -163,7 +162,7 @@ mod tests {
 
     /// Needs Docker (run with `--ignored`): a machine's console and starting/stopping it alone.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn one_machine_stops_starts_and_has_a_console() {
         let dir = std::env::temp_dir().join(format!("isothrum-machine-{}", std::process::id()));
         let yaml = "version: 1\nname: onem\nnetworks:\n  a: { cidr: 10.61.1.0/24 }\n  b: { cidr: 10.61.2.0/24 }\nreach: [{ from: a, to: b }]\nmachines:\n  pc: { networks: { a: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n  srv: { networks: { b: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
@@ -195,6 +194,6 @@ mod tests {
         assert!(routes.contains("10.61.2.0/24 via"), "{routes}");
         assert!(machine_action(&dir, &spec, "nobody", "stop").is_err());
         down(&dir).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

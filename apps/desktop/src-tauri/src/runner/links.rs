@@ -18,13 +18,13 @@ const LINKS: &str = "links.json";
 
 /// One machine's port on one network, cut.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Link {
+pub(crate) struct Link {
     pub network: String,
     pub machine: String,
 }
 
 /// The lab's suspended links.
-pub fn suspended_links(dir: &Path) -> Vec<Link> {
+pub(crate) fn suspended_links(dir: &Path) -> Vec<Link> {
     std::fs::read_to_string(dir.join(LINKS))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -33,7 +33,7 @@ pub fn suspended_links(dir: &Path) -> Vec<Link> {
 
 fn save(dir: &Path, links: &[Link]) -> Result<(), RunError> {
     if links.is_empty() {
-        let _ = std::fs::remove_file(dir.join(LINKS));
+        drop(std::fs::remove_file(dir.join(LINKS)));
         return Ok(());
     }
     let text = serde_json::to_string_pretty(links).map_err(|e| RunError::Io(e.to_string()))?;
@@ -41,7 +41,7 @@ fn save(dir: &Path, links: &[Link]) -> Result<(), RunError> {
 }
 
 /// The links with their networks as the editor names them (a VLAN's is `vlan10`).
-pub fn editor_links(spec: &Spec, links: Vec<Link>) -> Vec<Link> {
+pub(crate) fn editor_links(spec: &Spec, links: Vec<Link>) -> Vec<Link> {
     links
         .into_iter()
         .map(|l| Link {
@@ -52,8 +52,8 @@ pub fn editor_links(spec: &Spec, links: Vec<Link>) -> Vec<Link> {
 }
 
 /// Forgets the suspended links (the lab is stopped: its machines are gone).
-pub fn clear_links(dir: &Path) {
-    let _ = std::fs::remove_file(dir.join(LINKS));
+pub(super) fn clear_links(dir: &Path) {
+    drop(std::fs::remove_file(dir.join(LINKS)));
 }
 
 /// `links` with `cut` added (suspended) or removed (resumed), each once.
@@ -67,7 +67,7 @@ fn with(links: &[Link], cut: &[Link], suspend: bool) -> Vec<Link> {
 
 /// The shell run in the machine's namespace: find its port on the network (by the block's
 /// prefix, digits and dots only) and set it down or up.
-pub fn link_script(prefix: &str, up: bool) -> String {
+pub(super) fn link_script(prefix: &str, up: bool) -> String {
     let state = if up { "up" } else { "down" };
     format!("{} ip link set \"$IF\" {state}", interface_script(prefix))
 }
@@ -115,11 +115,11 @@ fn ports(
 /// lab's suspended links afterwards. A machine that isn't running is only recorded: its port
 /// is cut when it starts. A Cisco appliance's port can't be (its OS owns the address), so a
 /// cable to one is cut at its other end.
-pub fn link_action(
+pub(crate) fn link_action(
     dir: &Path,
     spec: &Spec,
     network: &str,
-    machines: Option<Vec<String>>,
+    machines: Option<&[String]>,
     action: &str,
 ) -> Result<Vec<Link>, RunError> {
     let suspend = match action {
@@ -134,7 +134,7 @@ pub fn link_action(
     // Recorded by the spec's name (what the machines are on); reported by the editor's.
     let network = super::spec_network(spec, network)?;
     let network = network.as_str();
-    let (prefix, names) = ports(spec, network, machines.as_deref())?;
+    let (prefix, names) = ports(spec, network, machines)?;
     let mut failed = Vec::new();
     let mut done = Vec::new();
     for machine in &names {
@@ -170,7 +170,9 @@ fn set_link(
     prefix: &str,
     up: bool,
 ) -> Result<(), RunError> {
-    let m = &spec.machines[machine];
+    let Some(m) = spec.machines.get(machine) else {
+        return Ok(());
+    };
     if m.docker.as_ref().is_some_and(|d| d.appliance.is_some()) {
         return Ok(());
     }
@@ -222,7 +224,7 @@ fn in_container(id: &str, script: &str) -> Command {
 }
 
 /// Cuts again the recorded links of `machine` (it was started, or recreated, with its ports up).
-pub fn reapply_links(dir: &Path, spec: &Spec, machine: &str) -> Result<(), RunError> {
+pub(super) fn reapply_links(dir: &Path, spec: &Spec, machine: &str) -> Result<(), RunError> {
     for l in suspended_links(dir).iter().filter(|l| l.machine == machine) {
         let (prefix, _) = ports(spec, &l.network, Some(std::slice::from_ref(&l.machine)))?;
         set_link(dir, spec, machine, &prefix, false)?;
@@ -231,7 +233,7 @@ pub fn reapply_links(dir: &Path, spec: &Spec, machine: &str) -> Result<(), RunEr
 }
 
 /// Cuts again every recorded link (the lab was started again); what couldn't be, as text.
-pub fn reapply_all_links(dir: &Path, spec: &Spec) -> String {
+pub(super) fn reapply_all_links(dir: &Path, spec: &Spec) -> String {
     let mut notes = Vec::new();
     for l in suspended_links(dir) {
         if let Err(e) = reapply_links(dir, spec, &l.machine) {
@@ -271,11 +273,11 @@ mod tests {
         let (prefix, all) = ports(&spec, "office", None).unwrap();
         assert_eq!(
             (prefix.as_str(), all),
-            ("10.10.1.", vec!["a".to_string(), "b".into()])
+            ("10.10.1.", vec!["a".to_owned(), "b".into()])
         );
-        let (_, one) = ports(&spec, "office", Some(&["b".to_string()])).unwrap();
+        let (_, one) = ports(&spec, "office", Some(&["b".to_owned()])).unwrap();
         assert_eq!(one, ["b"]);
-        assert!(ports(&spec, "office", Some(&["r".to_string()])).is_err());
+        assert!(ports(&spec, "office", Some(&["r".to_owned()])).is_err());
         assert!(ports(&spec, "nowhere", None).is_err());
     }
 
@@ -313,7 +315,7 @@ mod tests {
         assert_eq!(editor_network(&spec, "sw1-vlan20"), "vlan20");
         assert_eq!(editor_network(&spec, "office"), "office");
         let (prefix, on) = ports(&spec, &spec_network(&spec, "vlan10").unwrap(), None).unwrap();
-        assert_eq!((prefix.as_str(), on), ("10.10.10.", vec!["pc".to_string()]));
+        assert_eq!((prefix.as_str(), on), ("10.10.10.", vec!["pc".to_owned()]));
     }
 
     #[test]
@@ -327,7 +329,7 @@ mod tests {
     /// Needs Docker (run with `--ignored`): a suspended link carries nothing, and the machine
     /// has its routes back once it's resumed; a restarted machine finds its link cut as before.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn a_suspended_link_carries_nothing_until_resumed() {
         use crate::runner::{down, machine_action, prepare, up};
         let dir = std::env::temp_dir().join(format!("isothrum-link-{}", std::process::id()));
@@ -343,7 +345,7 @@ mod tests {
         let reaches = || pc("ping -c 1 -W 2 10.63.2.10").is_ok();
         let port_down = || pc("ip -o link show eth0").unwrap().contains("state DOWN");
         assert!(reaches(), "before: pc reaches srv");
-        let links = link_action(&dir, &spec, "a", Some(vec!["pc".into()]), "suspend").unwrap();
+        let links = link_action(&dir, &spec, "a", Some(&["pc".to_owned()]), "suspend").unwrap();
         assert_eq!(links, [link("a", "pc")]);
         assert!(
             port_down() && !reaches(),
@@ -362,7 +364,7 @@ mod tests {
         assert!(port_down(), "restarted: still cut");
         assert_eq!(suspended_links(&dir).len(), 1);
         down(&dir).unwrap();
-        assert!(suspended_links(&dir).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(suspended_links(&dir), Vec::<Link>::new());
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

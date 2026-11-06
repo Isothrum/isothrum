@@ -1,4 +1,8 @@
-fn main() {
+//! Build script: Tauri's codegen, told the app's own commands so the capabilities files can grant
+//! them (to the editor's origin only). A failure is returned so Cargo reports it and fails the
+//! build, rather than panicking or printing.
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The app's own commands, so capabilities can grant them (to the editor's origin only).
     let commands = &[
         "desktop_info",
@@ -23,6 +27,6 @@ fn main() {
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(commands)),
-    )
-    .expect("tauri build");
+    )?;
+    Ok(())
 }

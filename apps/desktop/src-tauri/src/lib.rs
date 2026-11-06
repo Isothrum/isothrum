@@ -29,6 +29,10 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[derive(Serialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent capability the editor checks to decide what to offer"
+)]
 struct DesktopInfo {
     version: &'static str,
     /// Whether `docker` answers (installed, running, and this user may use it).
@@ -48,8 +52,7 @@ async fn desktop_info(app: AppHandle) -> Result<DesktopInfo, String> {
         std::process::Command::new("docker")
             .args(["info", "--format", "{{.ServerVersion}}"])
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+            .is_ok_and(|o| o.status.success())
     })
     .await
     .unwrap_or(false);
@@ -99,7 +102,7 @@ async fn lab_down(
     captures: State<'_, Captures>,
     name: String,
 ) -> Result<String, String> {
-    let name = checked(&name)?.to_string();
+    let name = checked(&name)?.to_owned();
     // Stopping the lab ends its captures too.
     captures.stop_lab(&name);
     let dir = runner::lab_dir(&data_dir(&app)?, &name);
@@ -131,8 +134,7 @@ struct CaptureStarted {
 fn capture_file(data: &Path, lab: &str, network: &str) -> PathBuf {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     data.join("captures")
         .join(format!("{lab}-{network}-{stamp}.pcap"))
 }
@@ -145,7 +147,7 @@ async fn capture_start(
     name: String,
     network: String,
 ) -> Result<CaptureStarted, String> {
-    let name = checked(&name)?.to_string();
+    let name = checked(&name)?.to_owned();
     let data = data_dir(&app)?;
     let dir = runner::lab_dir(&data, &name);
     let file = capture_file(&data, &name, &network);
@@ -157,12 +159,16 @@ async fn capture_start(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
-    let file = capture.file.as_ref().map(|f| f.display().to_string());
+    let saved = capture.file.as_ref().map(|f| f.display().to_string());
     captures.add(&name, &network, capture);
-    Ok(CaptureStarted { file })
+    Ok(CaptureStarted { file: saved })
 }
 
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri hands a command its arguments by value"
+)]
 fn capture_stop(
     captures: State<'_, Captures>,
     name: String,
@@ -175,7 +181,7 @@ fn capture_stop(
 /// Opens a terminal on one machine of the running lab (a shell, or SSH to a network appliance).
 #[tauri::command]
 async fn machine_console(app: AppHandle, name: String, machine: String) -> Result<(), String> {
-    let name = checked(&name)?.to_string();
+    let name = checked(&name)?.to_owned();
     let dir = runner::lab_dir(&data_dir(&app)?, &name);
     tauri::async_runtime::spawn_blocking(move || {
         let spec = runner::lab_spec(&dir)?;
@@ -238,6 +244,10 @@ async fn lab_live(app: AppHandle, name: String) -> Result<Option<runner::LabLive
 
 /// The lab's suspended links (a machine's port on a network, cut).
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri hands a command its arguments by value"
+)]
 fn link_list(app: AppHandle, name: String) -> Result<Vec<runner::Link>, String> {
     let dir = runner::lab_dir(&data_dir(&app)?, checked(&name)?);
     let links = runner::suspended_links(&dir);
@@ -260,7 +270,7 @@ async fn link_action(
     let dir = runner::lab_dir(&data_dir(&app)?, checked(&name)?);
     tauri::async_runtime::spawn_blocking(move || {
         let spec = runner::lab_spec(&dir)?;
-        runner::link_action(&dir, &spec, &network, machines, &action)
+        runner::link_action(&dir, &spec, &network, machines.as_deref(), &action)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -269,6 +279,10 @@ async fn link_action(
 
 /// The lab's snapshots.
 #[tauri::command]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri hands a command its arguments by value"
+)]
 fn snapshot_list(app: AppHandle, name: String) -> Result<Vec<runner::Snapshot>, String> {
     Ok(runner::snapshots(&runner::lab_dir(
         &data_dir(&app)?,
@@ -284,7 +298,7 @@ async fn snapshot_take(
     machine: String,
     label: String,
 ) -> Result<runner::Snapshot, String> {
-    let name = checked(&name)?.to_string();
+    let name = checked(&name)?.to_owned();
     let dir = runner::lab_dir(&data_dir(&app)?, &name);
     tauri::async_runtime::spawn_blocking(move || {
         runner::take_snapshot(&dir, &name, &machine, &label)
@@ -363,9 +377,16 @@ async fn update_install(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
-pub fn run() {
+/// Runs the desktop app: builds the Tauri app, opens the editor window and runs the event loop
+/// until the app exits.
+///
+/// # Errors
+///
+/// Fails when the Tauri app can't be built (a bad generated context, or the window can't open), so
+/// `main` reports it and the process exits non-zero rather than panicking.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     tools::complete_path();
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Captures::<runner::Capture>::default())
         .invoke_handler(tauri::generate_handler![
@@ -392,9 +413,9 @@ pub fn run() {
             capabilities::allow_local_site(app)?;
             open_main_window(app)
         })
-        .build(tauri::generate_context!())
-        .expect("Isothrum desktop failed to start")
-        .run(on_event);
+        .build(tauri::generate_context!())?;
+    app.run(on_event);
+    Ok(())
 }
 
 /// The window: the bundled editor, or the site `ISOTHRUM_URL` names.
@@ -412,6 +433,10 @@ fn open_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 }
 
 /// Leaving the app ends every capture it started.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Tauri's run-event handler takes the event by value"
+)]
 fn on_event(app: &AppHandle, event: tauri::RunEvent) {
     if let tauri::RunEvent::Exit = event
         && let Some(c) = app.try_state::<Captures>()

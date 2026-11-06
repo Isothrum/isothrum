@@ -16,27 +16,29 @@ struct Capability {
     permissions: Vec<String>,
 }
 
-fn editor() -> Capability {
-    serde_json::from_str(EDITOR).expect("capabilities/editor.json is a capability")
+/// The editor capability, parsed from its bundled JSON.
+fn editor() -> serde_json::Result<Capability> {
+    serde_json::from_str(EDITOR)
 }
 
 /// The editor's permissions, for a local build of the site.
-fn local_site() -> CapabilityBuilder {
-    let editor = editor();
+fn local_site() -> serde_json::Result<CapabilityBuilder> {
+    let editor = editor()?;
     let builder = CapabilityBuilder::new("editor-local-site")
         .local(false)
         .remote(LOCAL_SITE.into())
         .windows(editor.windows);
-    editor
+    Ok(editor
         .permissions
         .into_iter()
-        .fold(builder, |b, p| b.permission(p))
+        .fold(builder, tauri::ipc::CapabilityBuilder::permission))
 }
 
 /// Lets a local build of the site call the commands, in debug builds only.
-pub fn allow_local_site<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
+pub(crate) fn allow_local_site<R: Runtime, M: Manager<R>>(app: &M) -> tauri::Result<()> {
     if cfg!(debug_assertions) {
-        app.add_capability(local_site())?;
+        let capability = local_site().map_err(std::io::Error::other)?;
+        app.add_capability(capability)?;
     }
     Ok(())
 }

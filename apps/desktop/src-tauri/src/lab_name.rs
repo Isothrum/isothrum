@@ -1,7 +1,7 @@
 //! Lab names come from the editor and become folder names: kebab-case only, nothing else.
 
 /// `name` when it is a lab name (lowercase letters, digits and dashes, at most 63).
-pub fn checked(name: &str) -> Result<&str, String> {
+pub(crate) fn checked(name: &str) -> Result<&str, String> {
     let ok = !name.is_empty()
         && name.len() <= 63
         && name

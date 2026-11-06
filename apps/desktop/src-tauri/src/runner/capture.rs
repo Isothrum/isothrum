@@ -10,11 +10,11 @@ use super::{RunError, Runtime, compose, run, runtime};
 use crate::tools::has;
 
 /// The image the capture runs in: tcpdump, ip and a shell, nothing to install.
-pub const CAPTURE_IMAGE: &str = "nicolaka/netshoot:v0.13";
+pub(crate) const CAPTURE_IMAGE: &str = "nicolaka/netshoot:v0.13";
 
 /// The first three octets of a /24 to /29 block, with the trailing dot: what every address on
 /// that network starts with (`10.10.1.0/24` -> `10.10.1.`).
-pub fn prefix_of(cidr: &str) -> Option<String> {
+pub(super) fn prefix_of(cidr: &str) -> Option<String> {
     let addr = cidr.split('/').next()?;
     let (head, _) = addr.rsplit_once('.')?;
     Some(format!("{head}."))
@@ -23,7 +23,7 @@ pub fn prefix_of(cidr: &str) -> Option<String> {
 /// The shell that finds the interface whose address starts with `prefix`, in `$IF` (a VLAN's
 /// `eth1.10@eth1` without its parent), or fails. The prefix is checked by the caller to be
 /// digits and dots only, so it can't break out of the quotes.
-pub fn interface_script(prefix: &str) -> String {
+pub(super) fn interface_script(prefix: &str) -> String {
     format!(
         "IF=$(ip -o -4 addr show | awk -v p='{prefix}' 'index($4, p) == 1 {{ print $2; exit }}'); \
          IF=${{IF%%@*}}; \
@@ -33,7 +33,7 @@ pub fn interface_script(prefix: &str) -> String {
 
 /// The shell run inside the capture container: find the interface on `prefix`'s network, then
 /// stream its packets as pcap on stdout.
-pub fn capture_script(prefix: &str) -> String {
+pub(super) fn capture_script(prefix: &str) -> String {
     format!(
         "{} exec tcpdump -i \"$IF\" -U -w -",
         interface_script(prefix)
@@ -41,7 +41,7 @@ pub fn capture_script(prefix: &str) -> String {
 }
 
 /// Where to capture: a machine on the network, by its container, and the network's block.
-pub struct CapturePlan {
+pub(crate) struct CapturePlan {
     pub container: String,
     pub prefix: String,
     /// In a lab with VMs: the lab's folder, its runtime, the machine, and whether it's a
@@ -51,7 +51,7 @@ pub struct CapturePlan {
 
 /// Picks the machine to capture from: on `network`, the first one Isoloom attached to it.
 /// Every machine on a LAN or cable sees its traffic on that segment, so any member works.
-pub fn plan_capture(dir: &Path, spec: &Spec, network: &str) -> Result<CapturePlan, RunError> {
+pub(crate) fn plan_capture(dir: &Path, spec: &Spec, network: &str) -> Result<CapturePlan, RunError> {
     let network = &super::spec_network(spec, network)?;
     let net = spec
         .networks
@@ -102,7 +102,7 @@ fn docker_plan(
         .map(|(name, _)| name.clone())
         .ok_or_else(|| RunError::Spec(format!("no container is on `{network}`")))?;
     let id = run(compose(dir, &["ps", "-q", &machine]), "Finding the machine")?;
-    let container = id.lines().next().unwrap_or("").trim().to_string();
+    let container = id.lines().next().unwrap_or("").trim().to_owned();
     if container.is_empty() {
         return Err(RunError::Spec(format!(
             "`{machine}` isn't running: start the lab first"
@@ -117,7 +117,7 @@ fn docker_plan(
 
 /// The capture process: tcpdump in the machine's network namespace, pcap on stdout. On Docker,
 /// its container is called `name`, so that stopping the capture can remove it.
-pub fn capture_command(plan: &CapturePlan, name: &str) -> Command {
+pub(super) fn capture_command(plan: &CapturePlan, name: &str) -> Command {
     if let Some((dir, rt, machine, in_host)) = &plan.vm {
         return crate::vms::capture_command(
             dir,
@@ -149,7 +149,7 @@ pub fn capture_command(plan: &CapturePlan, name: &str) -> Command {
 }
 
 /// A running capture: the tcpdump container, and Wireshark when it reads from it.
-pub struct Capture {
+pub(crate) struct Capture {
     pub children: Vec<Child>,
     /// Where the packets go when Wireshark isn't there.
     pub file: Option<PathBuf>,
@@ -158,19 +158,19 @@ pub struct Capture {
 }
 
 impl Capture {
-    pub fn stop(&mut self) {
+    pub(crate) fn stop(&mut self) {
         for c in &mut self.children {
             stop_child(c);
         }
         if let Some(name) = &self.container {
-            let _ = remove_container(name).output();
+            drop(remove_container(name).output());
         }
     }
 }
 
 fn stop_child(c: &mut Child) {
-    let _ = c.kill();
-    let _ = c.wait();
+    drop(c.kill());
+    drop(c.wait());
 }
 
 /// `docker rm -f <name>`.
@@ -190,19 +190,18 @@ fn capture_name() -> String {
 /// Whether Wireshark can show a capture live: it hands even a piped capture to `dumpcap`, which
 /// Linux distributions restrict to the `wireshark` group. Without it, Wireshark opens only to
 /// fail with "Couldn't run dumpcap in child process: Permission denied".
-pub fn live_capture_possible() -> bool {
+pub(crate) fn live_capture_possible() -> bool {
     has("wireshark")
         && Command::new("dumpcap")
             .arg("-v")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+            .is_ok_and(|s| s.success())
 }
 
 /// Starts a capture: live into Wireshark when it can show it, otherwise into `file`.
-pub fn start_capture(plan: &CapturePlan, file: &Path) -> Result<Capture, RunError> {
+pub(crate) fn start_capture(plan: &CapturePlan, file: &Path) -> Result<Capture, RunError> {
     let name = capture_name();
     let dump = capture_command(plan, &name);
     let container = plan.vm.is_none().then_some(name);
@@ -283,7 +282,7 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert!(args.windows(2).any(|w| w == ["--net", "container:abc123"]));
-        assert!(args.contains(&CAPTURE_IMAGE.to_string()));
+        assert!(args.contains(&CAPTURE_IMAGE.to_owned()));
         assert!(
             args.windows(2)
                 .any(|w| w == ["--name", "isothrum-capture-1-0"])
@@ -293,7 +292,7 @@ mod tests {
     /// Needs Docker (run with `--ignored`): a capture on a switch's VLAN, named as the editor
     /// names it (`vlan10`), records that VLAN's traffic.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn a_capture_on_a_vlan_records_its_traffic() {
         use crate::runner::{down, prepare, up};
         let dir = std::env::temp_dir().join(format!("isothrum-vcap-{}", std::process::id()));
@@ -328,7 +327,7 @@ mod tests {
         // A pcap header is 24 bytes; three pings and their replies are well over 300.
         let size = std::fs::metadata(&file).unwrap().len();
         down(&dir).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         assert!(size > 300, "the capture has {size} bytes");
     }
 

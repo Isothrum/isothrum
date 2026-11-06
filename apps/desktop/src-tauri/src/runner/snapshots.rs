@@ -14,7 +14,7 @@ const SNAPSHOTS: &str = "snapshots.json";
 pub(super) const SNAPSHOT_OVERRIDE: &str = "snapshots.override.yml";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Snapshot {
+pub(crate) struct Snapshot {
     pub id: String,
     pub machine: String,
     pub image: String,
@@ -26,7 +26,7 @@ pub struct Snapshot {
     pub in_use: bool,
 }
 
-pub fn snapshots(dir: &Path) -> Vec<Snapshot> {
+pub(crate) fn snapshots(dir: &Path) -> Vec<Snapshot> {
     std::fs::read_to_string(dir.join(SNAPSHOTS))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -40,18 +40,22 @@ fn save_snapshots(dir: &Path, list: &[Snapshot]) -> Result<(), RunError> {
     let used: Vec<&Snapshot> = list.iter().filter(|s| s.in_use).collect();
     let path = dir.join(SNAPSHOT_OVERRIDE);
     if used.is_empty() {
-        let _ = std::fs::remove_file(path);
+        drop(std::fs::remove_file(path));
         return Ok(());
     }
     let mut yaml = String::from("# Machines restored from a snapshot (Isothrum).\nservices:\n");
     for s in used {
-        yaml.push_str(&format!("  {}:\n    image: {}\n", s.machine, s.image));
+        yaml.push_str("  ");
+        yaml.push_str(&s.machine);
+        yaml.push_str(":\n    image: ");
+        yaml.push_str(&s.image);
+        yaml.push('\n');
     }
     std::fs::write(path, yaml).map_err(|e| RunError::Io(e.to_string()))
 }
 
 /// Saves a machine's container as an image (the machine pauses for the copy).
-pub fn take_snapshot(
+pub(crate) fn take_snapshot(
     dir: &Path,
     lab: &str,
     machine: &str,
@@ -59,8 +63,7 @@ pub fn take_snapshot(
 ) -> Result<Snapshot, RunError> {
     let created = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let mut list = snapshots(dir);
     let stamp = unique_stamp(&list, machine, created);
     let image = match runtime(dir) {
@@ -87,10 +90,18 @@ pub fn take_snapshot(
 /// machine already has one from that second.
 fn unique_stamp(list: &[Snapshot], machine: &str, created: u64) -> String {
     let taken = |stamp: &str| list.iter().any(|s| s.id == format!("{machine}-{stamp}"));
-    std::iter::once(created.to_string())
-        .chain((2..).map(|n| format!("{created}-{n}")))
-        .find(|stamp| !taken(stamp))
-        .expect("an unused stamp")
+    let mut n = 1u64;
+    loop {
+        let stamp = if n == 1 {
+            created.to_string()
+        } else {
+            format!("{created}-{n}")
+        };
+        if !taken(&stamp) {
+            return stamp;
+        }
+        n += 1;
+    }
 }
 
 /// Saves a machine's container as an image; returns the image.
@@ -124,7 +135,7 @@ fn save_vm(dir: &Path, rt: Runtime, machine: &str, stamp: &str) -> Result<String
 
 /// Runs the machine from a snapshot (or, with `None`, from its own image again), recreating it
 /// with its sidecar.
-pub fn use_snapshot(dir: &Path, machine: &str, id: Option<&str>) -> Result<String, RunError> {
+pub(crate) fn use_snapshot(dir: &Path, machine: &str, id: Option<&str>) -> Result<String, RunError> {
     let mut list = snapshots(dir);
     if let Some(id) = id
         && !list.iter().any(|s| s.id == id && s.machine == machine)
@@ -158,15 +169,17 @@ pub fn use_snapshot(dir: &Path, machine: &str, id: Option<&str>) -> Result<Strin
 }
 
 /// Forgets a snapshot and removes its image (not while the machine runs from it).
-pub fn delete_snapshot(dir: &Path, id: &str) -> Result<(), RunError> {
+pub(crate) fn delete_snapshot(dir: &Path, id: &str) -> Result<(), RunError> {
     let mut list = snapshots(dir);
     let Some(i) = list.iter().position(|s| s.id == id) else {
         return Err(RunError::Spec(format!("no snapshot `{id}`")));
     };
-    if list[i].in_use {
+    if let Some(s) = list.get(i)
+        && s.in_use
+    {
         return Err(RunError::Spec(format!(
             "`{}` runs from this snapshot: bring it back to its own image first",
-            list[i].machine
+            s.machine
         )));
     }
     let snap = list.remove(i);
@@ -174,14 +187,14 @@ pub fn delete_snapshot(dir: &Path, id: &str) -> Result<(), RunError> {
         crate::vms::snapshot_delete(dir, rt, &snap.machine, &snap.id)?;
         return save_snapshots(dir, &list);
     }
-    let _ = run(
+    drop(run(
         {
             let mut c = Command::new("docker");
             c.args(["rmi", &snap.image]);
             c
         },
         "Removing the snapshot",
-    );
+    ));
     save_snapshots(dir, &list)
 }
 
@@ -211,7 +224,7 @@ mod tests {
 
     /// Needs Docker (run with `--ignored`): a snapshot keeps what was in the machine.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn a_snapshot_brings_a_machine_back_as_it_was() {
         let dir = std::env::temp_dir().join(format!("isothrum-snap-{}", std::process::id()));
         let yaml = "version: 1\nname: snap\nnetworks:\n  a: { cidr: 10.62.1.0/24 }\nmachines:\n  pc: { networks: { a: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
@@ -241,6 +254,6 @@ mod tests {
             .unwrap();
         assert!(!gone.status.success(), "its image is removed");
         down(&dir).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

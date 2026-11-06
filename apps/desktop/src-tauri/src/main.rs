@@ -1,6 +1,7 @@
-// No console window on Windows in release.
+//! Isothrum desktop binary: no console window on Windows in release, and start-up failures are
+//! returned so Cargo/the OS report them instead of a panic.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-fn main() {
-    isothrum_desktop_lib::run();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    isothrum_desktop_lib::run()
 }

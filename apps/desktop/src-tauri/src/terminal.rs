@@ -6,7 +6,7 @@ use crate::console::Console;
 use crate::runner::RunError;
 
 /// Opens the system's terminal running `console`, titled `title`.
-pub fn open_terminal(title: &str, console: &Console) -> Result<(), RunError> {
+pub(crate) fn open_terminal(title: &str, console: &Console) -> Result<(), RunError> {
     let mut c = terminal(title, console)?;
     c.stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -18,7 +18,7 @@ pub fn open_terminal(title: &str, console: &Console) -> Result<(), RunError> {
 
 /// Opens `url` (`vnc://...`, `spice://...`) with the system's handler for it: Screen Sharing for
 /// VNC on macOS, the desktop's default viewer elsewhere.
-pub fn open_url(url: &str) -> Result<(), RunError> {
+pub(crate) fn open_url(url: &str) -> Result<(), RunError> {
     let mut c = if cfg!(target_os = "macos") {
         Command::new("open")
     } else if cfg!(windows) {
@@ -37,8 +37,13 @@ pub fn open_url(url: &str) -> Result<(), RunError> {
         .map_err(|e| RunError::Io(format!("couldn't open {url}: {e}")))
 }
 
-/// macOS: Terminal.app, through AppleScript.
+/// macOS: Terminal.app, through `AppleScript`.
 #[cfg(target_os = "macos")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Linux variant can fail; all three share one signature so open_terminal calls \
+              them the same way"
+)]
 fn terminal(_title: &str, console: &Console) -> Result<Command, RunError> {
     let line = console.sh_line().replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!("tell application \"Terminal\"\nactivate\ndo script \"{line}\"\nend tell");
@@ -49,6 +54,11 @@ fn terminal(_title: &str, console: &Console) -> Result<Command, RunError> {
 
 /// Windows: a new `cmd` window. The line is passed raw: Rust's quoting is for programs, not cmd.
 #[cfg(target_os = "windows")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Linux variant can fail; all three share one signature so open_terminal calls \
+              them the same way"
+)]
 fn terminal(title: &str, console: &Console) -> Result<Command, RunError> {
     use std::os::windows::process::CommandExt;
     let title: String = title.chars().filter(|c| !"\"&|<>^%".contains(*c)).collect();

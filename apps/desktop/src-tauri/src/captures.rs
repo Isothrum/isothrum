@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// Something that runs until stopped (a capture).
-pub trait Stop {
+pub(crate) trait Stop {
     fn stop(&mut self);
 }
 
@@ -16,7 +16,7 @@ impl Stop for crate::runner::Capture {
 }
 
 /// Captures in progress, by `<lab>/<network>`.
-pub struct Captures<C: Stop = crate::runner::Capture>(Mutex<HashMap<String, C>>);
+pub(crate) struct Captures<C: Stop = crate::runner::Capture>(Mutex<HashMap<String, C>>);
 
 impl<C: Stop> Default for Captures<C> {
     fn default() -> Self {
@@ -31,25 +31,25 @@ fn key(lab: &str, network: &str) -> String {
 impl<C: Stop> Captures<C> {
     fn all(&self) -> std::sync::MutexGuard<'_, HashMap<String, C>> {
         // A panic while holding the lock leaves the map itself usable.
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Records a capture of `network`, stopping the one it replaces.
-    pub fn add(&self, lab: &str, network: &str, capture: C) {
+    pub(crate) fn add(&self, lab: &str, network: &str, capture: C) {
         if let Some(mut old) = self.all().insert(key(lab, network), capture) {
             old.stop();
         }
     }
 
     /// Stops the capture of `network`, if there is one.
-    pub fn stop(&self, lab: &str, network: &str) {
+    pub(crate) fn stop(&self, lab: &str, network: &str) {
         if let Some(mut c) = self.all().remove(&key(lab, network)) {
             c.stop();
         }
     }
 
     /// Stops every capture of `lab`.
-    pub fn stop_lab(&self, lab: &str) {
+    pub(crate) fn stop_lab(&self, lab: &str) {
         let prefix = key(lab, "");
         for (_, mut c) in self.all().extract_if(|k, _| k.starts_with(&prefix)) {
             c.stop();
@@ -57,7 +57,7 @@ impl<C: Stop> Captures<C> {
     }
 
     /// Stops every capture.
-    pub fn stop_all(&self) {
+    pub(crate) fn stop_all(&self) {
         for (_, mut c) in self.all().drain() {
             c.stop();
         }
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn a_new_capture_of_a_network_stops_the_old_one() {
         let (caps, stopped) = (Captures::default(), Log::default());
-        let fake = |name| Fake(name, stopped.clone());
+        let fake = |name| Fake(name, Arc::clone(&stopped));
         caps.add("lab", "office", fake("first"));
         caps.add("lab", "office", fake("second"));
         assert_eq!(*stopped.lock().unwrap(), ["first"]);
@@ -96,13 +96,13 @@ mod tests {
     #[test]
     fn stopping_a_lab_stops_its_captures_only() {
         let (caps, stopped) = (Captures::default(), Log::default());
-        let fake = |name| Fake(name, stopped.clone());
+        let fake = |name| Fake(name, Arc::clone(&stopped));
         caps.add("lab", "office", fake("office"));
         caps.add("lab", "link-0", fake("link"));
         caps.add("lab-2", "office", fake("other lab"));
         caps.stop_lab("lab");
         let mut done = stopped.lock().unwrap().clone();
-        done.sort();
+        done.sort_unstable();
         assert_eq!(done, ["link", "office"]);
         caps.stop_all();
         assert_eq!(stopped.lock().unwrap().last(), Some(&"other lab"));

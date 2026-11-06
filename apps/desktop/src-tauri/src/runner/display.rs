@@ -21,7 +21,7 @@ use super::{CAPTURE_IMAGE, RunError, Runtime, container, run, runtime};
 const LABEL: &str = "isothrum.vnc";
 
 /// Opens `machine`'s screen; returns what was opened (a `vnc://` address, or the VM's window).
-pub fn open_display(dir: &Path, spec: &Spec, machine: &str) -> Result<String, RunError> {
+pub(crate) fn open_display(dir: &Path, spec: &Spec, machine: &str) -> Result<String, RunError> {
     if !spec.machines.contains_key(machine) {
         return Err(RunError::Spec(format!("no machine named `{machine}`")));
     }
@@ -36,7 +36,7 @@ pub fn open_display(dir: &Path, spec: &Spec, machine: &str) -> Result<String, Ru
 
 /// The first VNC port (5900–5999) among a container's exposed ports, from
 /// `{{json .Config.ExposedPorts}}` (`{"5900/tcp":{},"80/tcp":{}}`).
-pub fn vnc_port(exposed: &str) -> Option<u16> {
+pub(super) fn vnc_port(exposed: &str) -> Option<u16> {
     let ports: serde_json::Value = serde_json::from_str(exposed.trim()).ok()?;
     let mut found: Vec<u16> = ports
         .as_object()?
@@ -44,16 +44,16 @@ pub fn vnc_port(exposed: &str) -> Option<u16> {
         .filter_map(|k| k.strip_suffix("/tcp")?.parse().ok())
         .filter(|p| (5900..=5999).contains(p))
         .collect();
-    found.sort();
+    found.sort_unstable();
     found.first().copied()
 }
 
 /// The host side of `docker port <c> 5900/tcp` (`127.0.0.1:49153`, possibly one per line).
-pub fn published(out: &str) -> Option<String> {
+pub(super) fn published(out: &str) -> Option<String> {
     out.lines()
         .map(str::trim)
         .find(|l| l.starts_with("127.0.0.1:"))
-        .map(str::to_string)
+        .map(str::to_owned)
 }
 
 /// A container's networks and its address on each (`docker inspect`), Isoloom's management
@@ -70,7 +70,7 @@ fn networks(id: &str) -> Result<Vec<(String, String)>, RunError> {
         .lines()
         .filter_map(|l| {
             let (n, ip) = l.split_once(' ')?;
-            (!ip.trim().is_empty()).then(|| (n.to_string(), ip.trim().to_string()))
+            (!ip.trim().is_empty()).then(|| (n.to_owned(), ip.trim().to_owned()))
         })
         .collect();
     nets.sort_by_key(|(n, _)| n.ends_with("isoloom-mgmt"));
@@ -89,7 +89,7 @@ fn lab_of(dir: &Path) -> String {
 }
 
 /// Publishes `ip:port` on 127.0.0.1 through a forwarder on `network`; returns `127.0.0.1:<port>`.
-pub fn forward(
+pub(super) fn forward(
     dir: &Path,
     machine: &str,
     network: &str,
@@ -97,7 +97,7 @@ pub fn forward(
     port: u16,
 ) -> Result<String, RunError> {
     let name = forwarder(dir, machine);
-    let _ = Command::new("docker").args(["rm", "-f", &name]).output();
+    drop(Command::new("docker").args(["rm", "-f", &name]).output());
     let mut c = Command::new("docker");
     c.args([
         "run",
@@ -152,7 +152,7 @@ fn vm_display(dir: &Path, rt: Runtime, machine: &str) -> Result<String, RunError
     let id = |provider: &str| {
         std::fs::read_to_string(state.join(provider).join("id"))
             .ok()
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
     };
     if let Some(id) = id("virtualbox") {
@@ -164,7 +164,7 @@ fn vm_display(dir: &Path, rt: Runtime, machine: &str) -> Result<String, RunError
     if let Some(id) = id("libvirt") {
         let mut c = Command::new("virsh");
         c.args(["-c", "qemu:///system", "domdisplay", &id]);
-        let url = run(c, "Finding the VM's display")?.trim().to_string();
+        let url = run(c, "Finding the VM's display")?.trim().to_owned();
         if url.is_empty() {
             return Err(RunError::Spec(format!("`{machine}` has no display")));
         }
@@ -178,7 +178,7 @@ fn vm_display(dir: &Path, rt: Runtime, machine: &str) -> Result<String, RunError
 }
 
 /// Removes the lab's VNC forwarders (the lab is stopping).
-pub fn remove_forwarders(dir: &Path) {
+pub(super) fn remove_forwarders(dir: &Path) {
     let filter = format!("label={LABEL}={}", lab_of(dir));
     let Ok(ids) = run(
         {
@@ -192,9 +192,11 @@ pub fn remove_forwarders(dir: &Path) {
     };
     let ids: Vec<&str> = ids.split_whitespace().collect();
     if !ids.is_empty() {
-        let _ = Command::new("docker")
-            .args([&["rm", "-f"][..], &ids].concat())
-            .output();
+        drop(
+            Command::new("docker")
+                .args([&["rm", "-f"][..], &ids].concat())
+                .output(),
+        );
     }
 }
 
@@ -229,7 +231,7 @@ mod tests {
     /// Needs Docker (run with `--ignored`): the forwarder reaches a machine's port 5900 from
     /// 127.0.0.1, and stopping the lab removes it.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn a_machines_vnc_port_is_reachable_from_this_computer() {
         use crate::runner::{compose, down, prepare, up};
         use std::io::Read;
@@ -263,7 +265,7 @@ mod tests {
             if let Ok(mut s) = std::net::TcpStream::connect(&at) {
                 s.set_read_timeout(Some(std::time::Duration::from_secs(3)))
                     .unwrap();
-                let _ = s.read_to_string(&mut banner);
+                drop(s.read_to_string(&mut banner));
                 if !banner.is_empty() {
                     break;
                 }
@@ -279,7 +281,7 @@ mod tests {
             ])
             .output()
             .unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         assert!(banner.starts_with("RFB 003.008"), "{banner:?} from {at}");
         assert!(
             left.stdout.is_empty(),

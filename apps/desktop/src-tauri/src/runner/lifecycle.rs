@@ -11,7 +11,7 @@ use crate::tools::has;
 
 /// The runtime that fits the lab and Isoloom's files for it: Docker when every machine has a
 /// container form, else Vagrant (every machine a VM), else hybrid (both).
-pub fn generated(lab: &Lab) -> Result<(Runtime, Vec<GeneratedFile>), RunError> {
+pub(super) fn generated(lab: &Lab) -> Result<(Runtime, Vec<GeneratedFile>), RunError> {
     [Runtime::Docker, Runtime::Vagrant, Runtime::Hybrid]
         .into_iter()
         .find_map(|rt| {
@@ -32,7 +32,7 @@ pub fn generated(lab: &Lab) -> Result<(Runtime, Vec<GeneratedFile>), RunError> {
 /// is a container, else Vagrant's (only VMs) or the hybrid output's (VMs and containers).
 /// `own`: the lab's own files (provisioning scripts, appliance configurations), at the paths
 /// isoloom.yml gives them (relative, inside the lab's folder).
-pub fn prepare(dir: &Path, yaml: &str, own: &[(String, String)]) -> Result<Spec, RunError> {
+pub(crate) fn prepare(dir: &Path, yaml: &str, own: &[(String, String)]) -> Result<Spec, RunError> {
     if let Some((path, _)) = own.iter().find(|(p, _)| !lab_files::inside_lab(p)) {
         return Err(RunError::Spec(format!(
             "`{path}` isn't a path inside the lab"
@@ -69,7 +69,7 @@ fn valid_lab(yaml: &str) -> Result<Lab, RunError> {
 }
 
 /// Starts the lab; the links suspended before it was started again stay cut.
-pub fn up(dir: &Path) -> Result<String, RunError> {
+pub(crate) fn up(dir: &Path) -> Result<String, RunError> {
     let mut out = if let rt @ (Runtime::Vagrant | Runtime::Hybrid) = runtime(dir) {
         crate::vms::up(dir, rt)?
     } else {
@@ -87,7 +87,7 @@ pub fn up(dir: &Path) -> Result<String, RunError> {
 }
 
 /// Stops the lab: its machines are gone, and its suspended links with them.
-pub fn down(dir: &Path) -> Result<String, RunError> {
+pub(crate) fn down(dir: &Path) -> Result<String, RunError> {
     let out = if let rt @ (Runtime::Vagrant | Runtime::Hybrid) = runtime(dir) {
         crate::vms::down(dir, rt)?
     } else {
@@ -102,7 +102,7 @@ pub fn down(dir: &Path) -> Result<String, RunError> {
 }
 
 /// The lab's services and their state, as `docker compose ps` reports them (one JSON per line).
-pub fn status(dir: &Path) -> Result<String, RunError> {
+pub(crate) fn status(dir: &Path) -> Result<String, RunError> {
     if let rt @ (Runtime::Vagrant | Runtime::Hybrid) = runtime(dir) {
         return crate::vms::status(dir, rt);
     }
@@ -149,7 +149,7 @@ machines:
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("isothrum-test-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
         d
     }
 
@@ -213,8 +213,8 @@ machines:
               "db":{"kind":{"vm":{"os":"debian@12","provision":["provision/db.sh"]}},"services":[{"port":5432}],"networks":{"office":null}},
               "user":{"kind":{"vm":{"os":"kali"}},"access":true,"networks":{"office":null}}}}"#,
         );
-        let (rt, _) = generated(&lab_of(&vms).unwrap()).unwrap();
-        assert_eq!(rt, Runtime::Vagrant);
+        let (rt_vms, _) = generated(&lab_of(&vms).unwrap()).unwrap();
+        assert_eq!(rt_vms, Runtime::Vagrant);
     }
 
     #[test]
@@ -230,8 +230,8 @@ machines:
             "    app: { image: \"alpine:3.20\" }\n",
             "    os: windows@11\n",
         );
-        let (rt, _) = generated(&lab_of(&only_vm).unwrap()).unwrap();
-        assert_eq!(rt, Runtime::Vagrant);
+        let (rt_only_vm, _) = generated(&lab_of(&only_vm).unwrap()).unwrap();
+        assert_eq!(rt_only_vm, Runtime::Vagrant);
         // Prepared: the runtime is recorded and the Vagrantfile found (when Vagrant is installed).
         let dir = temp("vm");
         match prepare(&dir, WITH_VM, &[]) {
@@ -241,7 +241,7 @@ machines:
             }
             Err(e) => assert!(!has("vagrant") && e.to_string().contains("Vagrant"), "{e}"),
         }
-        let _ = std::fs::remove_dir_all(dir);
+        drop(std::fs::remove_dir_all(dir));
     }
 
     #[test]

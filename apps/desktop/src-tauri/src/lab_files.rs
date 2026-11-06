@@ -9,14 +9,14 @@ use crate::runner::RunError;
 const WRITTEN: &str = "written.list";
 
 /// Whether `path` is relative and stays inside the lab's folder (no `..`, no root).
-pub fn inside_lab(path: &str) -> bool {
+pub(crate) fn inside_lab(path: &str) -> bool {
     let p = Path::new(path);
     !path.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
 }
 
 /// Writes `files` (relative path, contents) into `dir`, removes those the last write had and
 /// this one hasn't, and records the new list.
-pub fn write_all(dir: &Path, files: &[(&str, &str)]) -> Result<(), RunError> {
+pub(crate) fn write_all(dir: &Path, files: &[(&str, &str)]) -> Result<(), RunError> {
     let paths: Vec<&str> = files.iter().map(|(p, _)| *p).collect();
     remove_stale(dir, &paths);
     for (path, contents) in files {
@@ -26,23 +26,23 @@ pub fn write_all(dir: &Path, files: &[(&str, &str)]) -> Result<(), RunError> {
 }
 
 /// Writes one file, making its folder.
-pub fn write(dir: &Path, path: &str, contents: &str) -> Result<(), RunError> {
+pub(crate) fn write(dir: &Path, path: &str, contents: &str) -> Result<(), RunError> {
     let path = dir.join(path);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(io)?;
+        std::fs::create_dir_all(parent).map_err(|e| io(&e))?;
     }
-    std::fs::write(&path, contents).map_err(io)
+    std::fs::write(&path, contents).map_err(|e| io(&e))
 }
 
 /// Removes the files the last write recorded that `keep` doesn't name.
 fn remove_stale(dir: &Path, keep: &[&str]) {
     let last = std::fs::read_to_string(dir.join(WRITTEN)).unwrap_or_default();
     for old in last.lines().filter(|p| inside_lab(p) && !keep.contains(p)) {
-        let _ = std::fs::remove_file(dir.join(old));
+        drop(std::fs::remove_file(dir.join(old)));
     }
 }
 
-fn io(e: std::io::Error) -> RunError {
+fn io(e: &std::io::Error) -> RunError {
     RunError::Io(e.to_string())
 }
 

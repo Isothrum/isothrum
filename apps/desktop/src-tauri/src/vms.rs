@@ -13,11 +13,11 @@ use crate::console::Console;
 use crate::runner::{RunError, Runtime, SHELL, run};
 
 /// The hybrid output's Docker host VM, and where it keeps the containers' Compose file.
-pub const DOCKER_HOST: &str = "isoloom-docker";
+pub(crate) const DOCKER_HOST: &str = "isoloom-docker";
 const HOST_COMPOSE: &str = "/opt/isoloom/.isoloom/hybrid/compose.yml";
 
 /// The folder Isoloom wrote the Vagrantfile into.
-pub fn dir(lab: &Path, runtime: Runtime) -> PathBuf {
+pub(crate) fn dir(lab: &Path, runtime: Runtime) -> PathBuf {
     lab.join(".isoloom").join(match runtime {
         Runtime::Hybrid => "hybrid",
         _ => "vagrant",
@@ -25,14 +25,14 @@ pub fn dir(lab: &Path, runtime: Runtime) -> PathBuf {
 }
 
 /// `vagrant` in the lab's Vagrant folder.
-pub fn vagrant(lab: &Path, runtime: Runtime, args: &[&str]) -> Command {
+pub(crate) fn vagrant(lab: &Path, runtime: Runtime, args: &[&str]) -> Command {
     let mut c = Command::new("vagrant");
     c.current_dir(dir(lab, runtime)).args(args);
     c
 }
 
 /// Whether `machine` is one of a hybrid lab's containers (those run in the Docker host VM).
-pub fn in_host(spec: &Spec, runtime: Runtime, machine: &str) -> bool {
+pub(crate) fn in_host(spec: &Spec, runtime: Runtime, machine: &str) -> bool {
     runtime == Runtime::Hybrid
         && spec
             .machines
@@ -41,7 +41,7 @@ pub fn in_host(spec: &Spec, runtime: Runtime, machine: &str) -> bool {
 }
 
 /// A shell command run as root in a VM, base64-encoded so that its quotes survive `ssh -c`.
-pub fn ssh_root(lab: &Path, runtime: Runtime, vm: &str, script: &str) -> Command {
+pub(crate) fn ssh_root(lab: &Path, runtime: Runtime, vm: &str, script: &str) -> Command {
     vagrant(
         lab,
         runtime,
@@ -54,11 +54,11 @@ pub fn ssh_root(lab: &Path, runtime: Runtime, vm: &str, script: &str) -> Command
     )
 }
 
-pub fn up(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
+pub(crate) fn up(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
     run(vagrant(lab, runtime, &["up"]), "Starting the lab's VMs")
 }
 
-pub fn down(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
+pub(crate) fn down(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
     run(
         vagrant(lab, runtime, &["destroy", "-f"]),
         "Removing the lab's VMs",
@@ -67,7 +67,7 @@ pub fn down(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
 
 /// The machines' states, in the shape the editor reads (`docker compose ps` JSON lines):
 /// `{"Service": <machine>, "State": "running" | "exited"}`. A hybrid lab adds its containers'.
-pub fn status(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
+pub(crate) fn status(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
     let out = run(
         vagrant(lab, runtime, &["status", "--machine-readable"]),
         "Reading the lab's state",
@@ -91,26 +91,29 @@ pub fn status(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
 }
 
 /// `vagrant status --machine-readable` (`time,machine,state,<state>` lines) as JSON lines.
-pub fn states(machine_readable: &str) -> String {
+pub(crate) fn states(machine_readable: &str) -> String {
     machine_readable
         .lines()
         .filter_map(|l| {
             let f: Vec<&str> = l.split(',').collect();
-            (f.len() >= 4 && f[2] == "state" && !f[1].is_empty()).then(|| {
-                let state = if f[3] == "running" {
-                    "running"
-                } else {
-                    "exited"
-                };
-                serde_json::json!({ "Service": f[1], "State": state }).to_string()
-            })
+            match f.as_slice() {
+                [_, name, "state", state, ..] if !name.is_empty() => {
+                    let state = if *state == "running" {
+                        "running"
+                    } else {
+                        "exited"
+                    };
+                    Some(serde_json::json!({ "Service": *name, "State": state }).to_string())
+                }
+                _ => None,
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 /// A console: `vagrant ssh` to a VM, or a shell in a hybrid lab's container through its host.
-pub fn console_command(lab: &Path, spec: &Spec, runtime: Runtime, machine: &str) -> Console {
+pub(crate) fn console_command(lab: &Path, spec: &Spec, runtime: Runtime, machine: &str) -> Console {
     let console = if in_host(spec, runtime, machine) {
         let shell = format!("sudo docker compose -f {HOST_COMPOSE} exec {machine} sh -c '{SHELL}'");
         Console::new(&["vagrant", "ssh", DOCKER_HOST, "-c", &shell])
@@ -121,7 +124,7 @@ pub fn console_command(lab: &Path, spec: &Spec, runtime: Runtime, machine: &str)
 }
 
 /// Starts, stops or restarts one machine.
-pub fn action(
+pub(crate) fn action(
     lab: &Path,
     spec: &Spec,
     runtime: Runtime,
@@ -160,7 +163,7 @@ pub fn action(
 
 // Snapshots of a VM: Vagrant's (the provider's own: VirtualBox, libvirt...), named by the id.
 
-pub fn snapshot_save(
+pub(crate) fn snapshot_save(
     lab: &Path,
     runtime: Runtime,
     machine: &str,
@@ -172,7 +175,7 @@ pub fn snapshot_save(
     )
 }
 
-pub fn snapshot_restore(
+pub(crate) fn snapshot_restore(
     lab: &Path,
     runtime: Runtime,
     machine: &str,
@@ -188,7 +191,7 @@ pub fn snapshot_restore(
     )
 }
 
-pub fn snapshot_delete(
+pub(crate) fn snapshot_delete(
     lab: &Path,
     runtime: Runtime,
     machine: &str,
@@ -202,7 +205,7 @@ pub fn snapshot_delete(
 
 /// `script`, as root in `machine`'s network namespace: in the VM over `vagrant ssh`, or for a
 /// hybrid lab's container, in the capture image on its host joined to the container's namespace.
-pub fn in_namespace(
+pub(crate) fn in_namespace(
     lab: &Path,
     runtime: Runtime,
     machine: &str,
@@ -222,7 +225,7 @@ pub fn in_namespace(
 
 /// A capture from `machine`: the container capture's script (find the interface on the network,
 /// pcap on stdout) in its namespace, with tcpdump installed first in a VM that lacks it.
-pub fn capture_command(
+pub(crate) fn capture_command(
     lab: &Path,
     runtime: Runtime,
     machine: &str,
@@ -230,7 +233,7 @@ pub fn capture_command(
     script: &str,
 ) -> Command {
     let full = if in_host {
-        script.to_string()
+        script.to_owned()
     } else {
         format!(
             "command -v tcpdump >/dev/null || {{ (apt-get install -y -qq tcpdump || dnf install -y -q tcpdump) >/dev/null 2>&1; }}; {script}"
@@ -242,7 +245,7 @@ pub fn capture_command(
 /// Sets `machine`'s routes again after a link of its came back (the kernel dropped those
 /// through it): Isoloom's `routes` provisioners for a VM, a hybrid lab's container's sidecar
 /// restarted on its host. Best effort: a machine without routes has nothing to set.
-pub fn restore_routes(lab: &Path, runtime: Runtime, machine: &str, in_host: bool) {
+pub(crate) fn restore_routes(lab: &Path, runtime: Runtime, machine: &str, in_host: bool) {
     let cmd = if in_host {
         let script = format!(
             "cd $(dirname {HOST_COMPOSE}) && docker compose -f {HOST_COMPOSE} config --services | grep -qx {machine}-routes && docker compose -f {HOST_COMPOSE} restart {machine}-routes || true"
@@ -260,7 +263,7 @@ pub fn restore_routes(lab: &Path, runtime: Runtime, machine: &str, in_host: bool
             ],
         )
     };
-    let _ = run(cmd, "Setting the routes again");
+    drop(run(cmd, "Setting the routes again"));
 }
 
 /// Standard, padded base64 (one small use: no dependency for it).
@@ -269,14 +272,16 @@ fn base64(bytes: &[u8]) -> String {
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
         let b = [
-            chunk[0],
+            *chunk.first().unwrap_or(&0),
             *chunk.get(1).unwrap_or(&0),
             *chunk.get(2).unwrap_or(&0),
         ];
         let v = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         for i in 0..4 {
             out.push(if i <= chunk.len() {
-                A[((v >> (18 - 6 * i)) & 63) as usize] as char
+                // `& 63` keeps the sextet in 0..64, so the conversion and the lookup always hold.
+                let sextet = u8::try_from((v >> (18 - 6 * i)) & 63).unwrap_or(0);
+                char::from(*A.get(usize::from(sextet)).unwrap_or(&b'A'))
             } else {
                 '='
             });
@@ -358,15 +363,14 @@ mod vagrant_tests {
     /// Vagrant accepts the Vagrantfiles the app prepares (needs `vagrant`; `ISOTHRUM_VM_LAB`
     /// keeps the folder).
     #[test]
-    #[ignore]
+    #[ignore = "needs Vagrant; run with --ignored"]
     fn vagrant_validates_the_prepared_labs() {
         let base = std::env::var("ISOTHRUM_VM_LAB")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir());
+            .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
         // Playbook steps: VMs only (a script's steps would build containers too, run on Docker).
         let mixed = "version: 1\nname: mixed\nnetworks:\n  office: {cidr: 10.10.1.0/24}\nmachines:\n  web:\n    networks: {office: 10}\n    app: {image: \"nginx:1.27\"}\n  pc:\n    networks: {office: 20}\n    os: debian@12\n    app: {steps: [{playbook: provision/pc.yml}]}\n";
         let vms = "version: 1\nname: vms\nnetworks:\n  office: {cidr: 10.10.1.0/24}\nmachines:\n  a:\n    networks: {office: 10}\n    os: debian@12\n    app: {steps: [{playbook: provision/a.yml}]}\n  b:\n    networks: {office: 11}\n    os: ubuntu@24.04\n    app: {steps: [{playbook: provision/b.yml}]}\n";
-        let script = || "- hosts: all\n  tasks: []\n".to_string();
+        let script = || "- hosts: all\n  tasks: []\n".to_owned();
         for (name, yaml, rt) in [
             ("mixed", mixed, Runtime::Hybrid),
             ("vms", vms, Runtime::Vagrant),

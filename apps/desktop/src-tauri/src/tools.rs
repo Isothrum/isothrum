@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Whether a program is on the PATH (on Windows with its extension: `vagrant` is `vagrant.exe`).
-pub fn has(program: &str) -> bool {
+pub(crate) fn has(program: &str) -> bool {
     let Some(paths) = std::env::var_os("PATH") else {
         return false;
     };
@@ -26,13 +26,13 @@ fn extensions() -> Vec<String> {
         .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
         .split(';')
         .filter(|e| !e.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .collect()
 }
 
 /// The file names `program` may have: itself, then with each extension when it has none.
 fn candidates(program: &str, extensions: &[String]) -> Vec<String> {
-    let mut names = vec![program.to_string()];
+    let mut names = vec![program.to_owned()];
     if Path::new(program).extension().is_none() {
         names.extend(extensions.iter().map(|e| format!("{program}{e}")));
     }
@@ -71,13 +71,26 @@ fn with_dirs(path: &OsString, dirs: &[PathBuf]) -> OsString {
     std::env::join_paths(all).unwrap_or_else(|_| path.clone())
 }
 
-/// Adds the tools' usual folders to this process's PATH. Call it first, before any thread starts.
-pub fn complete_path() {
+/// Adds the tools' usual folders to this process's PATH, so a Finder-launched app (whose PATH is
+/// the bare `/usr/bin:/bin:…`) and every tool it later spawns — `docker`, `vagrant`, the
+/// `isothrum-machine` probes — still find them. Call it first, before any thread starts.
+///
+/// This is the one place the crate sets a process-wide environment variable: extending PATH in
+/// place is the only way to reach both the direct `std::process::Command` spawns and the
+/// `isothrum-machine` runner, which inherits the process environment and takes no PATH of its own.
+/// The crate therefore denies (not forbids) `unsafe_code` so this single, audited use can carry an
+/// `#[expect]`; everywhere else stays unsafe-free.
+#[expect(
+    unsafe_code,
+    reason = "set_var is the only way to extend PATH for this process and every tool it spawns; \
+              called once at start-up before any thread exists, so the documented safety holds"
+)]
+pub(crate) fn complete_path() {
     let current = std::env::var_os("PATH").unwrap_or_default();
     let path = with_dirs(&current, &usual_dirs());
     if path != current {
-        // SAFETY: called at start, before the app starts any thread that could read the
-        // environment.
+        // SAFETY: called once at start-up (from `lib::run`), before the app spawns any thread, so
+        // no other thread can read or write the environment while it is being set.
         unsafe { std::env::set_var("PATH", path) };
     }
 }
@@ -88,7 +101,7 @@ mod tests {
 
     #[test]
     fn a_program_may_need_an_extension() {
-        let exts = [".exe".to_string(), ".cmd".to_string()];
+        let exts = [".exe".to_owned(), ".cmd".to_owned()];
         assert_eq!(
             candidates("vagrant", &exts),
             ["vagrant", "vagrant.exe", "vagrant.cmd"]

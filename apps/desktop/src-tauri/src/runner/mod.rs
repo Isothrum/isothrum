@@ -23,16 +23,16 @@ use std::process::Command;
 use isoloom_spec::model::{Spec, Target};
 use isoloom_targets::Lab;
 
-pub use capture::{CAPTURE_IMAGE, Capture, live_capture_possible, plan_capture, start_capture};
-pub use display::open_display;
-pub use lifecycle::{down, prepare, status, up};
-pub use links::{Link, editor_links, link_action, suspended_links};
-pub use live::{LabLive, lab_live};
-pub use machines::{SHELL, console_command, container, machine_action};
-pub use snapshots::{Snapshot, delete_snapshot, snapshots, take_snapshot, use_snapshot};
+pub(crate) use capture::{CAPTURE_IMAGE, Capture, live_capture_possible, plan_capture, start_capture};
+pub(crate) use display::open_display;
+pub(crate) use lifecycle::{down, prepare, status, up};
+pub(crate) use links::{Link, editor_links, link_action, suspended_links};
+pub(crate) use live::{LabLive, lab_live};
+pub(crate) use machines::{SHELL, console_command, container, machine_action};
+pub(crate) use snapshots::{Snapshot, delete_snapshot, snapshots, take_snapshot, use_snapshot};
 
 #[derive(Debug)]
-pub enum RunError {
+pub(crate) enum RunError {
     /// The YAML isn't an Isoloom spec.
     Spec(String),
     /// The spec can run, but not as containers on this machine (it has VMs, for example).
@@ -48,9 +48,7 @@ pub enum RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RunError::Spec(e) => write!(f, "{e}"),
-            RunError::NotDocker(why) => write!(f, "{why}"),
-            RunError::Io(e) => write!(f, "{e}"),
+            RunError::Spec(m) | RunError::NotDocker(m) | RunError::Io(m) => write!(f, "{m}"),
             RunError::Command { what, output } => write!(f, "{what} failed:\n{output}"),
         }
     }
@@ -61,7 +59,7 @@ impl std::error::Error for RunError {}
 /// How a lab runs: Docker Compose, or Vagrant (only VMs, or VMs and a Docker host VM for the
 /// containers).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Runtime {
+pub(crate) enum Runtime {
     Docker,
     Vagrant,
     Hybrid,
@@ -69,7 +67,7 @@ pub enum Runtime {
 
 impl Runtime {
     /// The Isoloom target whose files it runs.
-    pub fn target(self) -> Target {
+    pub(crate) fn target(self) -> Target {
         match self {
             Runtime::Docker => Target::Docker,
             Runtime::Vagrant => Target::Vagrant,
@@ -91,7 +89,7 @@ impl Runtime {
 const RUNTIME: &str = "runtime";
 
 /// The runtime the lab was prepared for (Docker when nothing says otherwise).
-pub fn runtime(dir: &Path) -> Runtime {
+pub(crate) fn runtime(dir: &Path) -> Runtime {
     match std::fs::read_to_string(dir.join(RUNTIME))
         .unwrap_or_default()
         .trim()
@@ -103,7 +101,7 @@ pub fn runtime(dir: &Path) -> Runtime {
 }
 
 /// Whether the lab has been prepared (its generated files are there).
-pub fn prepared(dir: &Path) -> bool {
+pub(crate) fn prepared(dir: &Path) -> bool {
     match runtime(dir) {
         Runtime::Docker => dir.join(".isoloom/docker/compose.yml").is_file(),
         rt => crate::vms::dir(dir, rt).join("Vagrantfile").is_file(),
@@ -111,12 +109,12 @@ pub fn prepared(dir: &Path) -> bool {
 }
 
 /// A lab's folder under the app's data directory: `<data>/labs/<name>/`.
-pub fn lab_dir(data: &Path, name: &str) -> PathBuf {
+pub(crate) fn lab_dir(data: &Path, name: &str) -> PathBuf {
     data.join("labs").join(name)
 }
 
 /// `docker compose` on the lab's file, from its folder.
-pub fn compose(dir: &Path, args: &[&str]) -> Command {
+pub(crate) fn compose(dir: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("docker");
     c.current_dir(dir)
         .args(["compose", "-f", ".isoloom/docker/compose.yml"]);
@@ -129,7 +127,7 @@ pub fn compose(dir: &Path, args: &[&str]) -> Command {
 }
 
 /// Runs a command to the end; its output becomes the error when it fails.
-pub fn run(mut cmd: Command, what: &str) -> Result<String, RunError> {
+pub(crate) fn run(mut cmd: Command, what: &str) -> Result<String, RunError> {
     let out = cmd.output().map_err(|e| RunError::Command {
         what: what.into(),
         output: e.to_string(),
@@ -152,9 +150,9 @@ pub fn run(mut cmd: Command, what: &str) -> Result<String, RunError> {
 /// The spec's network that the editor names `name`. Isoloom flattens a switch's VLANs into
 /// networks of their own (`sw1.vlan10` becomes `sw1-vlan10`), while the editor names a VLAN's
 /// LAN `vlan10` (a name it gives one switch only); a plain LAN or cable keeps its name.
-pub fn spec_network(spec: &Spec, name: &str) -> Result<String, RunError> {
+pub(crate) fn spec_network(spec: &Spec, name: &str) -> Result<String, RunError> {
     if spec.networks.contains_key(name) {
-        return Ok(name.to_string());
+        return Ok(name.to_owned());
     }
     let (lan, vlan) = match name.split_once('.') {
         Some((lan, vlan)) => (Some(lan), vlan),
@@ -173,32 +171,32 @@ pub fn spec_network(spec: &Spec, name: &str) -> Result<String, RunError> {
 }
 
 /// The editor's name for one of the spec's networks: `vlan10` for a VLAN's, else its own.
-pub fn editor_network(spec: &Spec, network: &str) -> String {
+pub(crate) fn editor_network(spec: &Spec, network: &str) -> String {
     match spec.networks.get(network).and_then(|n| n.vlan.as_ref()) {
         Some((_, id)) => format!("vlan{id}"),
-        None => network.to_string(),
+        None => network.to_owned(),
     }
 }
 
 /// The lab in `yaml`, Isoloom's format: the parser's problems when it can't read it.
-pub fn lab_of(yaml: &str) -> Result<Lab, RunError> {
+pub(crate) fn lab_of(yaml: &str) -> Result<Lab, RunError> {
     Lab::parse(yaml).map_err(|problems| RunError::Spec(lines(&problems)))
 }
 
 /// Problems as Isoloom words them, one after the other.
-pub fn lines(problems: &[isoloom_spec::syntax::Problem]) -> String {
+pub(crate) fn lines(problems: &[isoloom_spec::syntax::Problem]) -> String {
     let list: Vec<String> = problems.iter().map(ToString::to_string).collect();
     list.join("\n")
 }
 
 /// The spec in `yaml` as `runtime` runs it: lowered for its target (each machine in the form that
 /// target gives it, a switch's VLANs as networks of their own).
-pub fn spec_for(yaml: &str, runtime: Runtime) -> Result<Spec, RunError> {
+pub(crate) fn spec_for(yaml: &str, runtime: Runtime) -> Result<Spec, RunError> {
     Ok(lab_of(yaml)?.for_target(runtime.target()))
 }
 
 /// The lab's spec as last started (its folder's isoloom.yml), as its runtime runs it.
-pub fn lab_spec(dir: &Path) -> Result<Spec, RunError> {
+pub(crate) fn lab_spec(dir: &Path) -> Result<Spec, RunError> {
     let yaml = std::fs::read_to_string(dir.join("isoloom.yml"))
         .map_err(|_| RunError::Spec("start the lab first".into()))?;
     spec_for(&yaml, runtime(dir))

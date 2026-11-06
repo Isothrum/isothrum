@@ -20,7 +20,7 @@ use super::{RunError, Runtime, compose, run, runtime, status};
 
 /// One machine, now.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct MachineLive {
+pub(crate) struct MachineLive {
     /// `running`, `exited`, `restarting`, `created`, `paused`... (Docker's words; a VM's are
     /// `running` or `exited`).
     pub state: String,
@@ -30,7 +30,7 @@ pub struct MachineLive {
 
 /// One machine's port on one network, now.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct PortLive {
+pub(crate) struct PortLive {
     pub machine: String,
     pub network: String,
     /// Up (carries traffic), down, or `None` when unknown: the machine isn't running, or it is a
@@ -41,7 +41,7 @@ pub struct PortLive {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct LabLive {
+pub(crate) struct LabLive {
     pub machines: BTreeMap<String, MachineLive>,
     pub ports: Vec<PortLive>,
     /// Whether the ports were read from the machines (`false`: inferred, in a lab with VMs or
@@ -51,13 +51,13 @@ pub struct LabLive {
 
 /// The machines' states from `docker compose ps --format json` (or the VMs' in the same shape):
 /// the lab's own machines only, not the sidecars, the router or Isoloom's helpers.
-pub fn machine_states(spec: &Spec, ps: &str) -> BTreeMap<String, MachineLive> {
+pub(super) fn machine_states(spec: &Spec, ps: &str) -> BTreeMap<String, MachineLive> {
     let mut out = BTreeMap::new();
     for line in ps.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        let text = |k: &str| v.get(k).and_then(|s| s.as_str()).unwrap_or("").to_string();
+        let text = |k: &str| v.get(k).and_then(|s| s.as_str()).unwrap_or("").to_owned();
         let service = text("Service");
         if spec.machines.contains_key(&service) {
             out.insert(
@@ -81,7 +81,7 @@ pub fn machine_states(spec: &Spec, ps: &str) -> BTreeMap<String, MachineLive> {
 
 /// The shell the probe runs: for each `(machine, pid)`, a `== machine` line, then its IPv4
 /// addresses and its links (`ip -o`).
-pub fn probe_script(pids: &[(String, u32)]) -> String {
+pub(super) fn probe_script(pids: &[(String, u32)]) -> String {
     pids.iter()
         .map(|(m, pid)| {
             format!(
@@ -94,7 +94,7 @@ pub fn probe_script(pids: &[(String, u32)]) -> String {
 
 /// What the probe saw in one machine: interface -> its IPv4 addresses, and interface -> up.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Seen {
+pub(super) struct Seen {
     pub addresses: Vec<(String, String)>,
     pub up: BTreeMap<String, bool>,
 }
@@ -102,36 +102,40 @@ pub struct Seen {
 /// An interface's name in `ip -o` output, without its peer (`eth0@if12` is `eth0`).
 fn interface_name(field: &str) -> String {
     let name = field.trim_end_matches(':');
-    name.split('@').next().unwrap_or(name).to_string()
+    name.split('@').next().unwrap_or(name).to_owned()
 }
 
 /// The probe's output, by machine.
-pub fn parse_probe(out: &str) -> BTreeMap<String, Seen> {
+pub(super) fn parse_probe(out: &str) -> BTreeMap<String, Seen> {
     let mut all: BTreeMap<String, Seen> = BTreeMap::new();
     let mut current: Option<String> = None;
     for line in out.lines() {
         if let Some(m) = line.strip_prefix("== ") {
-            current = Some(m.trim().to_string());
-            all.entry(m.trim().to_string()).or_default();
+            current = Some(m.trim().to_owned());
+            all.entry(m.trim().to_owned()).or_default();
             continue;
         }
         let Some(seen) = current.as_ref().and_then(|m| all.get_mut(m)) else {
             continue;
         };
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() >= 4 && fields[2] == "inet" {
-            seen.addresses
-                .push((interface_name(fields[1]), fields[3].to_string()));
-        } else if fields.len() >= 3 && fields[2].starts_with('<') {
-            // Up: set up (`UP`) and with a carrier (`LOWER_UP`).
-            let flags: Vec<&str> = fields[2]
-                .trim_matches(|c| c == '<' || c == '>')
-                .split(',')
-                .collect();
-            seen.up.insert(
-                interface_name(fields[1]),
-                flags.contains(&"UP") && flags.contains(&"LOWER_UP"),
-            );
+        match fields.as_slice() {
+            [_, iface, "inet", addr, ..] => {
+                seen.addresses
+                    .push((interface_name(iface), (*addr).to_owned()));
+            }
+            [_, iface, flags, ..] if flags.starts_with('<') => {
+                // Up: set up (`UP`) and with a carrier (`LOWER_UP`).
+                let flags: Vec<&str> = flags
+                    .trim_matches(|c| c == '<' || c == '>')
+                    .split(',')
+                    .collect();
+                seen.up.insert(
+                    interface_name(iface),
+                    flags.contains(&"UP") && flags.contains(&"LOWER_UP"),
+                );
+            }
+            _ => {}
         }
     }
     all
@@ -182,7 +186,7 @@ fn pids(dir: &Path, machines: &BTreeMap<String, MachineLive>) -> Vec<(String, u3
         .filter(|(_, l)| l.state == "running")
         .filter_map(|(name, _)| {
             let id = run(compose(dir, &["ps", "-q", name]), "Finding the machine").ok()?;
-            let id = id.lines().next()?.trim().to_string();
+            let id = id.lines().next()?.trim().to_owned();
             let mut c = Command::new("docker");
             c.args(["inspect", "-f", "{{.State.Pid}}", &id]);
             let pid = run(c, "Finding its process").ok()?.trim().parse().ok()?;
@@ -215,7 +219,7 @@ fn probe(pids: &[(String, u32)]) -> Result<BTreeMap<String, Seen>, RunError> {
 }
 
 /// The lab now: its machines' states and their ports.
-pub fn lab_live(dir: &Path, spec: &Spec) -> Result<LabLive, RunError> {
+pub(crate) fn lab_live(dir: &Path, spec: &Spec) -> Result<LabLive, RunError> {
     let machines = machine_states(spec, &status(dir)?);
     let cut = suspended_links(dir);
     let seen = match runtime(dir) {
@@ -287,19 +291,19 @@ mod tests {
             health: String::new(),
         };
         let machines: BTreeMap<String, MachineLive> = [
-            ("a".to_string(), live("running")),
-            ("b".to_string(), live("exited")),
+            ("a".to_owned(), live("running")),
+            ("b".to_owned(), live("exited")),
         ]
         .into();
         let mut seen = BTreeMap::new();
         seen.insert(
-            "a".to_string(),
+            "a".to_owned(),
             Seen {
                 addresses: vec![
                     ("eth0".into(), "10.10.1.10/24".into()),
                     ("eth1".into(), "10.200.0.2/29".into()),
                 ],
-                up: [("eth0".to_string(), true), ("eth1".to_string(), false)].into(),
+                up: [("eth0".to_owned(), true), ("eth1".to_owned(), false)].into(),
             },
         );
         let ports = ports_from(&spec, &machines, Some(&seen), &[]);
@@ -319,13 +323,17 @@ mod tests {
             network: "wire".into(),
             machine: "a".into(),
         }];
-        let ports = ports_from(&spec, &machines, None, &cut);
+        let from_records = ports_from(&spec, &machines, None, &cut);
         assert_eq!(
-            ports.iter().find(|p| p.network == "wire").unwrap().up,
+            from_records
+                .iter()
+                .find(|p| p.network == "wire")
+                .unwrap()
+                .up,
             Some(false)
         );
         assert_eq!(
-            ports
+            from_records
                 .iter()
                 .find(|p| p.machine == "a" && p.network == "office")
                 .unwrap()
@@ -336,7 +344,7 @@ mod tests {
 
     /// Needs Docker (run with `--ignored`): the probe sees a suspended link down, and up again.
     #[test]
-    #[ignore]
+    #[ignore = "needs Docker; run with --ignored"]
     fn the_probe_sees_a_suspended_link() {
         use crate::runner::{down, link_action, prepare, up};
         let dir = std::env::temp_dir().join(format!("isothrum-live-{}", std::process::id()));
@@ -348,13 +356,13 @@ mod tests {
         assert!(live.probed);
         assert_eq!(live.machines["pc"].state, "running");
         assert_eq!(port(&live, "pc").up, Some(true), "{live:?}");
-        link_action(&dir, &spec, "a", Some(vec!["pc".into()]), "suspend").unwrap();
-        let live = lab_live(&dir, &spec).unwrap();
-        assert_eq!(port(&live, "pc").up, Some(false), "{live:?}");
-        assert_eq!(port(&live, "srv").up, Some(true));
+        link_action(&dir, &spec, "a", Some(&["pc".to_owned()]), "suspend").unwrap();
+        let suspended = lab_live(&dir, &spec).unwrap();
+        assert_eq!(port(&suspended, "pc").up, Some(false), "{suspended:?}");
+        assert_eq!(port(&suspended, "srv").up, Some(true));
         link_action(&dir, &spec, "a", None, "resume").unwrap();
         assert_eq!(port(&lab_live(&dir, &spec).unwrap(), "pc").up, Some(true));
         down(&dir).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
