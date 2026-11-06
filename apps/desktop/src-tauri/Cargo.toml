@@ -24,6 +24,10 @@ serde_json = "1"
 isoloom-spec = { git = "https://github.com/isoloom/isoloom", rev = "690d585efdff4f5b9c78f2af65383b807d0a654a" }
 isoloom-targets = { git = "https://github.com/isoloom/isoloom", rev = "690d585efdff4f5b9c78f2af65383b807d0a654a" }
 tauri-plugin-updater = "2"
+# The machine-setup domain (the same backend the Cyber CTF launcher uses) and the runner whose
+# `SystemProcesses` drives its tools. Path deps on the workspace crates this app is excluded from.
+isothrum-machine = { path = "../../../crates/isothrum-machine" }
+isothrum-runner = { path = "../../../crates/isothrum-runner" }
 
 [dev-dependencies]
 # The tests run what the editor's compiler writes.

@@ -23,6 +23,10 @@
     "allow-snapshot-use",
     "allow-snapshot-delete",
     "allow-update-check",
-    "allow-update-install"
+    "allow-update-install",
+    "allow-system-check",
+    "allow-machine-providers",
+    "allow-machine-selftest",
+    "allow-machine-selftest-prefetch"
   ]
 }

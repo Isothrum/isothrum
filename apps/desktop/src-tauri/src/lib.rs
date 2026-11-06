@@ -7,6 +7,7 @@ mod captures;
 mod console;
 mod lab_files;
 mod lab_name;
+mod machine;
 mod runner;
 mod terminal;
 mod tools;
@@ -407,7 +408,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             snapshot_use,
             snapshot_delete,
             update_check,
-            update_install
+            update_install,
+            machine::system_check,
+            machine::machine_providers,
+            machine::machine_selftest,
+            machine::machine_selftest_prefetch
         ])
         .setup(|app| {
             capabilities::allow_local_site(app)?;

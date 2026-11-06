@@ -23,6 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "snapshot_delete",
         "update_check",
         "update_install",
+        "system_check",
+        "machine_providers",
+        "machine_selftest",
+        "machine_selftest_prefetch",
     ];
     tauri_build::try_build(
         tauri_build::Attributes::new()

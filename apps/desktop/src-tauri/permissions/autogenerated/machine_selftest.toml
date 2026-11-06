@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-machine-selftest"
+description = "Enables the machine_selftest command without any pre-configured scope."
+commands.allow = ["machine_selftest"]
+
+[[permission]]
+identifier = "deny-machine-selftest"
+description = "Denies the machine_selftest command without any pre-configured scope."
+commands.deny = ["machine_selftest"]

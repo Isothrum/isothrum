@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-machine-selftest-prefetch"
+description = "Enables the machine_selftest_prefetch command without any pre-configured scope."
+commands.allow = ["machine_selftest_prefetch"]
+
+[[permission]]
+identifier = "deny-machine-selftest-prefetch"
+description = "Denies the machine_selftest_prefetch command without any pre-configured scope."
+commands.deny = ["machine_selftest_prefetch"]
