@@ -1,6 +1,6 @@
-//! What every operation does around its own work: marked in flight, its events numbered, masked
-//! and logged, the run locked (failing closed), the state moves emitted, the record updated, and
-//! exactly one `result` or `error` at the end.
+//! What every operation does around its own work: its events numbered, masked and logged, the run
+//! locked (failing closed), the op marked in flight, the state moves emitted, the record updated,
+//! and exactly one `result` or `error` at the end.
 
 use crate::Result;
 use tracing::Instrument;
@@ -35,7 +35,6 @@ impl Running<'_> {
         work: impl AsyncFnOnce(&Emitter<'_>) -> Result<Done<T>>,
     ) -> Result<T> {
         let runner = self.runner;
-        let _flight = runner.enter(self.name(), op);
         let emitter = Emitter::new(self.name().as_str(), op, runner.config.clock.as_ref(), events).masking(mask);
         let emitter = match runner.store.event_log(self.name()) {
             Ok(log) => emitter.with_log(log),
@@ -63,6 +62,10 @@ impl Running<'_> {
     async fn locked<T>(&self, op: Op, emitter: &Emitter<'_>, work: impl AsyncFnOnce(&Emitter<'_>) -> Result<Done<T>>) -> Result<Done<T>> {
         let store = &self.runner.store;
         let _lock = self.runner.locks.acquire(self.name(), &store.lock_path(self.name())).await?;
+        // Mark the op in flight and reserve its ports only now that the run is locked: entered
+        // before the lock (R1), a second op on the same run clobbered this entry, and this guard,
+        // dropping after the lock was released, freed the second op's port reservations.
+        let _flight = self.runner.enter(self.name(), op);
         let before = store.record(self.name())?.map_or(RunState::Absent, |r| r.state);
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State { from: before, to: during });

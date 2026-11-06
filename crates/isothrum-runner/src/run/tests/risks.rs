@@ -125,3 +125,34 @@ async fn hooks_go_around_the_lifecycle_and_their_failure_is_a_warning() {
     let expected = ["after_up", "before_park", "after_resume", "before_down"].map(|e| format!("{e} flag-portal flag-portal_lab"));
     assert_eq!(calls, expected);
 }
+
+#[tokio::test]
+async fn an_op_enters_the_flight_map_only_under_the_run_lock() {
+    // R1: `operate` marked the op in flight (and its guard freed the op's port reservations on
+    // drop) BEFORE taking the per-run lock, so two overlapping ops on one run clobbered each
+    // other's in-flight entry and freed each other's reservations. Entering now happens under the
+    // lock, so an op still waiting for the lock is not yet in flight and its guard cannot outlive it.
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let name = run.name().clone();
+    // Hold the run's lock, as another operation on the same run would (whose `operate` created the
+    // run's state folder before it locked).
+    let lock_path = f.runner.store.lock_path(&name);
+    std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    let held = f.runner.locks.acquire(&name, &lock_path).await.unwrap();
+    let o = opts();
+    let events = Recorder::new();
+    let mut up = std::pin::pin!(run.up(&o, &events));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), up.as_mut()).await.is_err(),
+        "up must wait for the held run lock, not run",
+    );
+    assert!(
+        f.runner.in_flight().is_empty(),
+        "an op still waiting for the lock has not marked itself in flight: {:?}",
+        f.runner.in_flight(),
+    );
+    drop(held);
+    up.await.unwrap();
+    assert!(f.runner.in_flight().is_empty(), "the op cleared itself once it finished");
+}
