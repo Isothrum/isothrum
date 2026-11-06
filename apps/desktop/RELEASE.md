@@ -24,7 +24,7 @@ workflow never publishes on its own, and no release is cut by building.
 
 `latest.json` plus the per-platform update bundles and their `.sig` signatures are attached when
 the updater key is set (see below). The updater endpoint is baked into `tauri.conf.json`
-(`https://github.com/isoloom/isothrum/releases/latest/download/latest.json`) and resolves once the
+(`https://github.com/Isothrum/isothrum/releases/latest/download/latest.json`) and resolves once the
 repository is public and the release is published (not a draft).
 
 ## Secrets

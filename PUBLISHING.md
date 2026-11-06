@@ -51,7 +51,7 @@ token over GitHub's OIDC at run time, and `cargo publish` uses it for that run o
 **One-time setup by the maintainer, per publishable crate:** on crates.io, open the crate's
 *Settings → Trusted Publishing* and add a GitHub publisher pointing at:
 
-- repository owner/name: `isoloom/isothrum`
+- repository owner/name: `Isothrum/isothrum`
 - workflow filename: `publish-crates.yml`
 - environment: `crates-io` (the job runs in that environment)
 

@@ -7,7 +7,7 @@ name: Publish crates
 # crates.io, so re-running after a partial failure is safe.
 #
 # Setup (per crate, done once by the maintainer): add a Trusted Publisher on crates.io for the
-# crate, pointing at repository `isoloom/isothrum`, this workflow file (`publish-crates.yml`) and
+# crate, pointing at repository `Isothrum/isothrum`, this workflow file (`publish-crates.yml`) and
 # the `crates-io` environment. A brand-new crate name must be created by one manual `cargo publish`
 # first (trusted publishing cannot create a crate that does not exist). The Isoloom crates this
 # release depends on must already be on crates.io at the requested version (publish isoloom first).

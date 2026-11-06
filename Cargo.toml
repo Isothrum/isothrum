@@ -10,7 +10,7 @@ version = "1.0.3"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
-repository = "https://github.com/isoloom/isothrum"
+repository = "https://github.com/Isothrum/isothrum"
 homepage = "https://www.isothrum.com"
 # Default-deny: a crate opts in with `publish = true`. xtask, the fuzz targets and the desktop
 # app stay unpublished.
