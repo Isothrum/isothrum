@@ -20,8 +20,7 @@ const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 /// The tool's own failure: the daemon is down, or up but refusing this account (see
 /// [`access_denied`]).
 pub(super) async fn daemon_os(runner: &dyn ProcessRunner) -> Result<String> {
-    let probe = exec::run(runner, "docker", &["info", "--format", "{{.OperatingSystem}}"], None);
-    exec::within("docker info", super::STATUS_TIMEOUT, probe).await
+    exec::run_read(runner, "docker", &["info", "--format", "{{.OperatingSystem}}"], None).await
 }
 
 /// Names the running engine from the daemon's OS string and the active CLI context.

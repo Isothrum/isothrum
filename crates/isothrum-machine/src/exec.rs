@@ -12,6 +12,10 @@ use isothrum_runner::{ProcessRunner, ProcessSpec, Stream};
 
 use crate::error::{Error, Result};
 
+/// How long a read-only version or status probe (`--version`, `docker info`, `vagrant box list`)
+/// may take before a stuck tool or a wedged daemon is given up on, so it can't hang the caller.
+pub const STATUS_TIMEOUT: Duration = Duration::from_secs(25);
+
 /// Runs `program args` in `cwd` and returns everything it printed to standard output, whatever its
 /// exit code: a probe reads the output of a tool that may well exit non-zero.
 ///
@@ -36,6 +40,17 @@ pub async fn run(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: 
     }
     let reason = done.err.lines().last().or_else(|| done.out.lines().last()).unwrap_or("exited non-zero").to_owned();
     Err(Error::Exit { command: s.line(), reason })
+}
+
+/// Runs `program args` as a read-only probe: like [`run`], but given up after [`STATUS_TIMEOUT`]
+/// so a wedged tool surfaces as an error instead of hanging the caller.
+///
+/// # Errors
+///
+/// [`Error::Process`] when the tool can't be started, [`Error::Exit`] on a non-zero exit,
+/// [`Error::Timeout`] when the limit passes.
+pub async fn run_read(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
+    within(program, STATUS_TIMEOUT, run(runner, program, args, cwd)).await
 }
 
 /// Awaits `future` with a time limit: past `limit` it is dropped (the runner then ends the process

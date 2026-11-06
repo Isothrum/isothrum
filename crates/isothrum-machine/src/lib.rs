@@ -11,6 +11,7 @@ pub mod dirs;
 pub mod error;
 pub mod exec;
 pub mod providers;
+pub mod storage;
 pub mod system;
 
 pub use dirs::Dirs;

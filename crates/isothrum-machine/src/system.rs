@@ -6,17 +6,12 @@
 pub mod docker;
 pub mod wsl;
 
-use std::time::Duration;
-
 use isothrum_runner::ProcessRunner;
 use serde::Serialize;
 
 use crate::dirs::Dirs;
 use crate::exec;
 use crate::providers::{self, ProviderStatus};
-
-/// How long a read-only version or status probe may take before a stuck tool is given up on.
-const STATUS_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// Whether a tool is installed, and its version when it is.
 #[derive(Serialize, Clone, Debug)]
@@ -140,7 +135,7 @@ pub async fn system_check(runner: &dyn ProcessRunner, dirs: &Dirs) -> SystemRepo
 
 /// A tool's version, timed: a wedged daemon or a held Vagrant lock must not hang the check.
 async fn probe(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Tool {
-    match exec::within(program, STATUS_TIMEOUT, exec::run(runner, program, args, None)).await {
+    match exec::run_read(runner, program, args, None).await {
         Ok(out) => Tool { installed: true, version: first_line(&out) },
         Err(_) => Tool { installed: false, version: None },
     }
@@ -149,7 +144,7 @@ async fn probe(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Tool
 /// `az version` prints JSON (`{"azure-cli": "2.66.0", …}`); the version is read from it so no
 /// quoted `--query` has to pass through cmd.exe (`az` is a batch file on Windows).
 async fn probe_azure(runner: &dyn ProcessRunner) -> Tool {
-    match exec::within("az", STATUS_TIMEOUT, exec::run(runner, "az", &["version", "--output", "json"], None)).await {
+    match exec::run_read(runner, "az", &["version", "--output", "json"], None).await {
         Ok(out) => Tool { installed: true, version: azure_version(&out) },
         Err(_) => Tool { installed: false, version: None },
     }
