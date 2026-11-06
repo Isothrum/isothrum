@@ -28,7 +28,9 @@ impl Dirs {
     ///
     /// [`Error::Invalid`] when the shell never resolved it.
     pub fn data(&self) -> Result<&Path> {
-        self.data.as_deref().ok_or_else(|| Error::Invalid("the app's data folder is unknown".into()))
+        self.data
+            .as_deref()
+            .ok_or_else(|| Error::Invalid("the app's data folder is unknown".into()))
     }
 
     /// The file `name` in the data folder, when that is known.
@@ -43,7 +45,9 @@ impl Dirs {
     ///
     /// [`Error::Invalid`] when the shell never resolved it.
     pub fn cache(&self) -> Result<&Path> {
-        self.cache.as_deref().ok_or_else(|| Error::Invalid("the app's cache folder is unknown".into()))
+        self.cache
+            .as_deref()
+            .ok_or_else(|| Error::Invalid("the app's cache folder is unknown".into()))
     }
 }
 
@@ -55,7 +59,10 @@ mod tests {
     fn a_known_folder_is_returned_and_a_file_joined_onto_it() {
         let dirs = Dirs::new(Some(PathBuf::from("/data")), None);
         assert_eq!(dirs.data().unwrap(), Path::new("/data"));
-        assert_eq!(dirs.data_file("owned.json"), Some(PathBuf::from("/data/owned.json")));
+        assert_eq!(
+            dirs.data_file("owned.json"),
+            Some(PathBuf::from("/data/owned.json"))
+        );
     }
 
     #[test]

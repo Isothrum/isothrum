@@ -94,7 +94,14 @@ impl Provider {
     pub fn is_remote(self) -> bool {
         matches!(
             self,
-            Provider::VmwareEsxi | Provider::Proxmox | Provider::Aws | Provider::Azure | Provider::Gcp | Provider::DigitalOcean | Provider::Linode | Provider::Oci
+            Provider::VmwareEsxi
+                | Provider::Proxmox
+                | Provider::Aws
+                | Provider::Azure
+                | Provider::Gcp
+                | Provider::DigitalOcean
+                | Provider::Linode
+                | Provider::Oci
         )
     }
 
@@ -109,7 +116,11 @@ impl Provider {
     fn applicable(self) -> bool {
         use std::env::consts::{ARCH, OS};
         match self {
-            Provider::Virtualbox | Provider::VmwareDesktop if OS == "windows" && ARCH == "aarch64" => false,
+            Provider::Virtualbox | Provider::VmwareDesktop
+                if OS == "windows" && ARCH == "aarch64" =>
+            {
+                false
+            }
             Provider::Hyperv => OS == "windows",
             Provider::Parallels | Provider::Utm => OS == "macos",
             Provider::Libvirt => OS == "linux",
@@ -169,7 +180,10 @@ const UTM_APP: &str = "/Applications/UTM.app";
 
 /// Whether the Hyper-V feature is on: its Virtual Machine Management service is installed with it.
 fn hyperv_enabled() -> bool {
-    let root = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from("C:\\Windows"), std::path::PathBuf::from);
+    let root = std::env::var_os("SystemRoot").map_or_else(
+        || std::path::PathBuf::from("C:\\Windows"),
+        std::path::PathBuf::from,
+    );
     root.join("System32").join("vmms.exe").is_file()
 }
 
@@ -181,7 +195,12 @@ pub fn kvm_problem() -> Option<String> {
     if !dev.exists() {
         return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor".to_owned());
     }
-    if std::fs::OpenOptions::new().read(true).write(true).open(dev).is_err() {
+    if std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dev)
+        .is_err()
+    {
         return Some("you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in".to_owned());
     }
     None
@@ -247,7 +266,11 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 /// The readiness of every provider usable on this machine: its hypervisor, its plugin, and why it
 /// is not available. `vagrant_installed` is global, so it is a plain argument.
 pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
-    let plugins = if vagrant_installed { installed_plugins(runner).await } else { Vec::new() };
+    let plugins = if vagrant_installed {
+        installed_plugins(runner).await
+    } else {
+        Vec::new()
+    };
     let mut statuses = Vec::new();
     for provider in Provider::ALL {
         if !provider.applicable() {
@@ -259,8 +282,15 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
             None => true,
             Some(needed) => vagrant_installed && plugins.iter().any(|i| i == needed),
         };
-        let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
-        let detection = Detection { hypervisor, unresponsive, plugin: plugin.as_deref(), plugin_installed };
+        let unresponsive = provider == Provider::Virtualbox
+            && hypervisor == Some(true)
+            && vbox_wedged(runner).await;
+        let detection = Detection {
+            hypervisor,
+            unresponsive,
+            plugin: plugin.as_deref(),
+            plugin_installed,
+        };
         let reason = unavailable_reason(provider, vagrant_installed, detection);
         statuses.push(ProviderStatus {
             provider,
@@ -279,7 +309,10 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
 /// ask it something that does and see whether that times out.
 async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
     let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"], None);
-    matches!(exec::within("VBoxManage", VBOX_PROBE, probe).await, Err(crate::Error::Timeout { .. }))
+    matches!(
+        exec::within("VBoxManage", VBOX_PROBE, probe).await,
+        Err(crate::Error::Timeout { .. })
+    )
 }
 
 /// What `detect` learned about one provider, grouped so `unavailable_reason` reads one value
@@ -297,8 +330,17 @@ struct Detection<'a> {
 }
 
 /// Why a provider can't be used here, `None` when it can: the first layer that is missing.
-fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: Detection<'_>) -> Option<String> {
-    let Detection { hypervisor, unresponsive, plugin, plugin_installed } = detection;
+fn unavailable_reason(
+    provider: Provider,
+    vagrant_installed: bool,
+    detection: Detection<'_>,
+) -> Option<String> {
+    let Detection {
+        hypervisor,
+        unresponsive,
+        plugin,
+        plugin_installed,
+    } = detection;
     if !vagrant_installed {
         Some("Vagrant is not installed".to_owned())
     } else if unresponsive {
@@ -306,7 +348,10 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
     } else if hypervisor == Some(false) && provider == Provider::Hyperv {
         Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it".to_owned())
     } else if hypervisor == Some(false) {
-        Some(provider.probe().map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")))
+        Some(provider.probe().map_or_else(
+            || "not installed".to_owned(),
+            |(program, _)| format!("`{program}` was not found"),
+        ))
     } else if let Some(why) = (provider == Provider::Libvirt).then(kvm_problem).flatten() {
         Some(why)
     } else if !plugin_installed {
@@ -338,12 +383,35 @@ mod tests {
     #[tokio::test]
     async fn detect_reports_a_ready_qemu_and_an_unavailable_one_by_its_plugin() {
         // QEMU installed, its plugin present: available. A missing plugin makes it unavailable.
-        let with = FakeProcesses::rules(&[("qemu-system", Reply::ok("QEMU 10.0")), ("vagrant plugin list", Reply::ok("vagrant-qemu (0.6.3, global)"))]);
-        let qemu = detect(&with, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-        assert!(qemu.hypervisor == Some(true) && qemu.plugin_installed && qemu.available, "{qemu:?}");
+        let with = FakeProcesses::rules(&[
+            ("qemu-system", Reply::ok("QEMU 10.0")),
+            (
+                "vagrant plugin list",
+                Reply::ok("vagrant-qemu (0.6.3, global)"),
+            ),
+        ]);
+        let qemu = detect(&with, true)
+            .await
+            .into_iter()
+            .find(|s| s.provider == Provider::Qemu)
+            .unwrap();
+        assert!(
+            qemu.hypervisor == Some(true) && qemu.plugin_installed && qemu.available,
+            "{qemu:?}"
+        );
 
-        let without = FakeProcesses::rules(&[("qemu-system", Reply::ok("QEMU 10.0")), ("vagrant plugin list", Reply::ok(""))]);
-        let no_plugin = detect(&without, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-        assert!(!no_plugin.available && no_plugin.reason.is_some(), "{no_plugin:?}");
+        let without = FakeProcesses::rules(&[
+            ("qemu-system", Reply::ok("QEMU 10.0")),
+            ("vagrant plugin list", Reply::ok("")),
+        ]);
+        let no_plugin = detect(&without, true)
+            .await
+            .into_iter()
+            .find(|s| s.provider == Provider::Qemu)
+            .unwrap();
+        assert!(
+            !no_plugin.available && no_plugin.reason.is_some(),
+            "{no_plugin:?}"
+        );
     }
 }

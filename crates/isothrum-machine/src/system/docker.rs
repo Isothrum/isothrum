@@ -20,12 +20,20 @@ const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 /// The tool's own failure: the daemon is down, or up but refusing this account (see
 /// [`access_denied`]).
 pub(super) async fn daemon_os(runner: &dyn ProcessRunner) -> Result<String> {
-    exec::run_read(runner, "docker", &["info", "--format", "{{.OperatingSystem}}"], None).await
+    exec::run_read(
+        runner,
+        "docker",
+        &["info", "--format", "{{.OperatingSystem}}"],
+        None,
+    )
+    .await
 }
 
 /// Names the running engine from the daemon's OS string and the active CLI context.
 pub(super) async fn engine_in_use(runner: &dyn ProcessRunner, os: &str) -> &'static str {
-    let context = exec::read(runner, "docker", &["context", "show"], None).await.unwrap_or_default();
+    let context = exec::read(runner, "docker", &["context", "show"], None)
+        .await
+        .unwrap_or_default();
     engine_named(os, &context)
 }
 
@@ -71,7 +79,14 @@ fn context_engine(name: &str, os: &str) -> Option<&'static str> {
 
 /// The Docker CLI contexts, each with the engine behind it (unknown contexts are left out).
 async fn engine_contexts(runner: &dyn ProcessRunner) -> Vec<(String, &'static str)> {
-    let out = exec::read(runner, "docker", &["context", "ls", "--format", "{{.Name}}"], None).await.unwrap_or_default();
+    let out = exec::read(
+        runner,
+        "docker",
+        &["context", "ls", "--format", "{{.Name}}"],
+        None,
+    )
+    .await
+    .unwrap_or_default();
     contexts_from(&out, std::env::consts::OS)
 }
 
@@ -89,9 +104,19 @@ fn contexts_from(listing: &str, os: &str) -> Vec<(String, &'static str)> {
 pub(super) async fn running_engines(runner: &dyn ProcessRunner) -> Vec<&'static str> {
     let mut running = Vec::new();
     for (name, engine) in engine_contexts(runner).await {
-        let args = ["--context", name.as_str(), "version", "--format", "{{.Server.Version}}"];
+        let args = [
+            "--context",
+            name.as_str(),
+            "version",
+            "--format",
+            "{{.Server.Version}}",
+        ];
         let probe = exec::run(runner, "docker", &args, None);
-        if exec::within("docker version", ENGINE_PROBE_TIMEOUT, probe).await.is_ok() && !running.contains(&engine) {
+        if exec::within("docker version", ENGINE_PROBE_TIMEOUT, probe)
+            .await
+            .is_ok()
+            && !running.contains(&engine)
+        {
             running.push(engine);
         }
     }
@@ -108,7 +133,8 @@ pub(super) fn access_denied(err: &crate::Error) -> bool {
 /// (`open //./pipe/dockerDesktopLinuxEngine: Access is denied.`).
 fn denied_text(stderr: &str) -> bool {
     let s = stderr.to_lowercase();
-    let socket = s.contains("permission denied") && (s.contains("docker.sock") || s.contains("docker api") || s.contains("docker daemon"));
+    let socket = s.contains("permission denied")
+        && (s.contains("docker.sock") || s.contains("docker api") || s.contains("docker daemon"));
     let pipe = s.contains("access is denied") && s.contains("pipe");
     socket || pipe
 }
@@ -132,7 +158,10 @@ mod tests {
     fn names_the_engine_from_the_daemon_and_the_context() {
         assert_eq!(engine_named("OrbStack", "default"), "orbstack");
         assert_eq!(engine_named("Ubuntu 24.04", "colima"), "colima");
-        assert_eq!(engine_named("Rancher Desktop WSL Distribution", "default"), "rancher-desktop");
+        assert_eq!(
+            engine_named("Rancher Desktop WSL Distribution", "default"),
+            "rancher-desktop"
+        );
         assert_eq!(engine_named("Docker Desktop", "default"), "docker-desktop");
         assert_eq!(engine_named("Debian", "desktop-linux"), "docker-desktop");
         assert_eq!(engine_named("Ubuntu 24.04 LTS", "default"), "docker-engine");
@@ -144,10 +173,20 @@ mod tests {
         let listing = "default *\ndesktop-linux\norbstack\ncolima-dev\nmy-remote\n";
         assert_eq!(
             contexts_from(listing, "macos"),
-            [("desktop-linux".to_owned(), "docker-desktop"), ("orbstack".to_owned(), "orbstack"), ("colima-dev".to_owned(), "colima")]
+            [
+                ("desktop-linux".to_owned(), "docker-desktop"),
+                ("orbstack".to_owned(), "orbstack"),
+                ("colima-dev".to_owned(), "colima")
+            ]
         );
-        assert_eq!(contexts_from("default *\n", "linux"), [("default".to_owned(), "docker-engine")]);
-        assert_eq!(context_engine("podman-machine-default", "macos"), Some("podman"));
+        assert_eq!(
+            contexts_from("default *\n", "linux"),
+            [("default".to_owned(), "docker-engine")]
+        );
+        assert_eq!(
+            context_engine("podman-machine-default", "macos"),
+            Some("podman")
+        );
         assert_eq!(context_engine("default", "macos"), None);
     }
 
@@ -174,18 +213,36 @@ mod tests {
 
     #[tokio::test]
     async fn a_denied_daemon_is_told_apart_from_a_stopped_one() {
-        let down = FakeProcesses::rules(&[("docker info", Reply::fail(1, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"))]);
+        let down = FakeProcesses::rules(&[(
+            "docker info",
+            Reply::fail(
+                1,
+                "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
+            ),
+        )]);
         assert!(!access_denied(&daemon_os(&down).await.unwrap_err()));
 
-        let denied = FakeProcesses::rules(&[("docker info", Reply::fail(1, "permission denied while trying to connect to the Docker daemon socket"))]);
+        let denied = FakeProcesses::rules(&[(
+            "docker info",
+            Reply::fail(
+                1,
+                "permission denied while trying to connect to the Docker daemon socket",
+            ),
+        )]);
         assert!(access_denied(&daemon_os(&denied).await.unwrap_err()));
     }
 
     #[test]
     fn the_denial_text_matches_the_socket_and_the_pipe_refusals() {
-        assert!(denied_text("permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"));
-        assert!(denied_text("open //./pipe/dockerDesktopLinuxEngine: Access is denied."));
-        assert!(!denied_text("Cannot connect to the Docker daemon. Is the docker daemon running?"));
+        assert!(denied_text(
+            "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"
+        ));
+        assert!(denied_text(
+            "open //./pipe/dockerDesktopLinuxEngine: Access is denied."
+        ));
+        assert!(!denied_text(
+            "Cannot connect to the Docker daemon. Is the docker daemon running?"
+        ));
         assert_ne!(denied_hint(), "");
     }
 }

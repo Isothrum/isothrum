@@ -47,17 +47,29 @@ fn compose_file() -> String {
     )
 }
 
-async fn compose(runner: &dyn ProcessRunner, dir: &Path, rest: &[&str], limit: Duration) -> Result<String> {
+async fn compose(
+    runner: &dyn ProcessRunner,
+    dir: &Path,
+    rest: &[&str],
+    limit: Duration,
+) -> Result<String> {
     let mut args = vec!["compose", "-p", PROJECT, "-f", "docker-compose.yml"];
     args.extend_from_slice(rest);
-    exec::within("docker compose", limit, exec::run(runner, "docker", &args, Some(dir))).await
+    exec::within(
+        "docker compose",
+        limit,
+        exec::run(runner, "docker", &args, Some(dir)),
+    )
+    .await
 }
 
 /// Whether an HTTP GET to `addr` (as `docker compose port` gives it, `host:port`) returns a body
 /// carrying `marker`, with every step time-limited so a dead port can't hang the test.
 async fn reaches(addr: &str, marker: &str) -> bool {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let Ok(Ok(mut sock)) = tokio::time::timeout(REACH_TIMEOUT, tokio::net::TcpStream::connect(addr)).await else {
+    let Ok(Ok(mut sock)) =
+        tokio::time::timeout(REACH_TIMEOUT, tokio::net::TcpStream::connect(addr)).await
+    else {
         return false;
     };
     let request = format!("GET / HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
@@ -75,21 +87,40 @@ pub(super) async fn run_test(runner: &dyn ProcessRunner, dir: &Path, r: &Reporte
     std::fs::write(dir.join("docker-compose.yml"), compose_file())?;
     let res = steps(runner, dir, r).await;
     // Always tear the test lab down, even after a failed step.
-    let down = compose(runner, dir, &["down", "-v", "--remove-orphans", "-t", "0"], DOWN_LIMIT).await;
+    let down = compose(
+        runner,
+        dir,
+        &["down", "-v", "--remove-orphans", "-t", "0"],
+        DOWN_LIMIT,
+    )
+    .await;
     r.cleanup("Clean up", &res, down, None);
     res
 }
 
 async fn steps(runner: &dyn ProcessRunner, dir: &Path, r: &Reporter) -> Result<()> {
     r.step("engine", "Container engine answers", async {
-        let v = exec::run_read(runner, "docker", &["info", "--format", "{{.ServerVersion}}"], None).await?;
+        let v = exec::run_read(
+            runner,
+            "docker",
+            &["info", "--format", "{{.ServerVersion}}"],
+            None,
+        )
+        .await?;
         Ok(((), Some(format!("Docker {}", v.trim()))))
     })
     .await?;
 
     r.step("pull", "Download a test image", async {
         let had = ensure_image(runner).await?;
-        Ok(((), Some(if had { format!("{IMAGE} (ready)") } else { IMAGE.to_owned() })))
+        Ok((
+            (),
+            Some(if had {
+                format!("{IMAGE} (ready)")
+            } else {
+                IMAGE.to_owned()
+            }),
+        ))
     })
     .await?;
 
@@ -99,11 +130,36 @@ async fn steps(runner: &dyn ProcessRunner, dir: &Path, r: &Reporter) -> Result<(
     })
     .await?;
 
+    reachability(runner, dir, r).await
+}
+
+/// The two reachability checks, split from [`steps`] to keep it within the line limit: the
+/// containers reach each other on the lab network, and the lab's published port answers from this
+/// machine.
+async fn reachability(runner: &dyn ProcessRunner, dir: &Path, r: &Reporter) -> Result<()> {
     r.step("network", "Containers reach each other", async {
         let mut last = String::new();
         for _ in 0..ANSWER_TRIES {
-            match compose(runner, dir, &["exec", "-T", "probe", "wget", "-qO-", "-T", "2", "http://web"], PROBE_LIMIT).await {
-                Ok(out) if out.contains(MARKER) => return Ok(((), Some("probe → web on the lab network".to_owned()))),
+            match compose(
+                runner,
+                dir,
+                &[
+                    "exec",
+                    "-T",
+                    "probe",
+                    "wget",
+                    "-qO-",
+                    "-T",
+                    "2",
+                    "http://web",
+                ],
+                PROBE_LIMIT,
+            )
+            .await
+            {
+                Ok(out) if out.contains(MARKER) => {
+                    return Ok(((), Some("probe → web on the lab network".to_owned())));
+                }
                 Ok(out) => last = out,
                 Err(e) => last = e.to_string(),
             }
@@ -114,7 +170,10 @@ async fn steps(runner: &dyn ProcessRunner, dir: &Path, r: &Reporter) -> Result<(
     .await?;
 
     r.step("port", "Lab port reachable from this machine", async {
-        let addr = compose(runner, dir, &["port", "web", "80"], PROBE_LIMIT).await?.trim().to_owned();
+        let addr = compose(runner, dir, &["port", "web", "80"], PROBE_LIMIT)
+            .await?
+            .trim()
+            .to_owned();
         for _ in 0..ANSWER_TRIES {
             if reaches(&addr, MARKER).await {
                 return Ok(((), Some(addr)));
@@ -136,8 +195,14 @@ mod tests {
     fn the_test_lab_serves_its_marker_on_a_loopback_port() {
         let f = compose_file();
         assert!(f.contains("image: busybox:1.36"), "{f}");
-        assert!(f.contains("echo cyberctf-selftest-ok > /www/index.html"), "{f}");
-        assert!(f.contains("httpd -f -p 80 -h /www") && f.contains("127.0.0.1::80"), "{f}");
+        assert!(
+            f.contains("echo cyberctf-selftest-ok > /www/index.html"),
+            "{f}"
+        );
+        assert!(
+            f.contains("httpd -f -p 80 -h /www") && f.contains("127.0.0.1::80"),
+            "{f}"
+        );
         assert!(!f.contains('\t'), "YAML forbids tabs in indentation");
     }
 

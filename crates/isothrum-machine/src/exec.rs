@@ -22,7 +22,12 @@ pub const STATUS_TIMEOUT: Duration = Duration::from_secs(25);
 /// # Errors
 ///
 /// [`Error::Process`] when the tool is not installed or the OS refuses to start it.
-pub async fn read(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
+pub async fn read(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<String> {
     Ok(collect(runner, &spec(program, args, cwd)).await?.out)
 }
 
@@ -32,14 +37,28 @@ pub async fn read(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd:
 /// # Errors
 ///
 /// [`Error::Process`] when the tool can't be started, [`Error::Exit`] when it exits non-zero.
-pub async fn run(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
+pub async fn run(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<String> {
     let s = spec(program, args, cwd);
     let done = collect(runner, &s).await?;
     if done.ok {
         return Ok(done.out);
     }
-    let reason = done.err.lines().last().or_else(|| done.out.lines().last()).unwrap_or("exited non-zero").to_owned();
-    Err(Error::Exit { command: s.line(), reason })
+    let reason = done
+        .err
+        .lines()
+        .last()
+        .or_else(|| done.out.lines().last())
+        .unwrap_or("exited non-zero")
+        .to_owned();
+    Err(Error::Exit {
+        command: s.line(),
+        reason,
+    })
 }
 
 /// Runs `program args` as a read-only probe: like [`run`], but given up after [`STATUS_TIMEOUT`]
@@ -49,7 +68,12 @@ pub async fn run(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: 
 ///
 /// [`Error::Process`] when the tool can't be started, [`Error::Exit`] on a non-zero exit,
 /// [`Error::Timeout`] when the limit passes.
-pub async fn run_read(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
+pub async fn run_read(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<String> {
     within(program, STATUS_TIMEOUT, run(runner, program, args, cwd)).await
 }
 
@@ -60,7 +84,13 @@ pub async fn run_read(runner: &dyn ProcessRunner, program: &str, args: &[&str], 
 ///
 /// [`Error::Process`] when the tool can't be started, [`Error::Exit`] (with its last error line)
 /// on a non-zero exit.
-pub async fn stream(runner: &dyn ProcessRunner, program: &str, args: &[&str], cwd: Option<&Path>, mut on_line: impl FnMut(&str) + Send) -> Result<()> {
+pub async fn stream(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    mut on_line: impl FnMut(&str) + Send,
+) -> Result<()> {
     let s = spec(program, args, cwd);
     let mut last_err = String::new();
     let exit = runner
@@ -74,8 +104,15 @@ pub async fn stream(runner: &dyn ProcessRunner, program: &str, args: &[&str], cw
     if exit.success() {
         return Ok(());
     }
-    let reason = if last_err.is_empty() { "exited non-zero".to_owned() } else { last_err };
-    Err(Error::Exit { command: s.line(), reason })
+    let reason = if last_err.is_empty() {
+        "exited non-zero".to_owned()
+    } else {
+        last_err
+    };
+    Err(Error::Exit {
+        command: s.line(),
+        reason,
+    })
 }
 
 /// Awaits `future` with a time limit: past `limit` it is dropped (the runner then ends the process
@@ -84,10 +121,17 @@ pub async fn stream(runner: &dyn ProcessRunner, program: &str, args: &[&str], cw
 /// # Errors
 ///
 /// `what`'s own error, or [`Error::Timeout`] when `limit` passes first.
-pub async fn within<T>(what: &str, limit: Duration, future: impl Future<Output = Result<T>>) -> Result<T> {
+pub async fn within<T>(
+    what: &str,
+    limit: Duration,
+    future: impl Future<Output = Result<T>>,
+) -> Result<T> {
     match tokio::time::timeout(limit, future).await {
         Ok(result) => result,
-        Err(_elapsed) => Err(Error::Timeout { what: what.to_owned(), limit }),
+        Err(_elapsed) => Err(Error::Timeout {
+            what: what.to_owned(),
+            limit,
+        }),
     }
 }
 
@@ -112,12 +156,20 @@ async fn collect(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Done>
     let mut err = String::new();
     let exit = runner
         .run(spec, &mut |stream, line| {
-            let buffer = if stream == Stream::Stdout { &mut out } else { &mut err };
+            let buffer = if stream == Stream::Stdout {
+                &mut out
+            } else {
+                &mut err
+            };
             buffer.push_str(line);
             buffer.push('\n');
         })
         .await?;
-    Ok(Done { out, err, ok: exit.success() })
+    Ok(Done {
+        out,
+        err,
+        ok: exit.success(),
+    })
 }
 
 #[cfg(test)]
@@ -137,7 +189,9 @@ mod tests {
     async fn run_fails_with_the_command_and_its_reason_on_a_non_zero_exit() {
         let fake = FakeProcesses::rules(&[("tool go", Reply::fail(2, "the reason"))]);
         let err = run(&fake, "tool", &["go"], None).await.unwrap_err();
-        let Error::Exit { command, reason } = err else { panic!("{err:?}") };
+        let Error::Exit { command, reason } = err else {
+            panic!("{err:?}")
+        };
         assert_eq!(command, "tool go");
         assert_eq!(reason, "the reason");
     }
@@ -146,12 +200,19 @@ mod tests {
     async fn stream_forwards_each_line_and_fails_with_the_last_error_line() {
         let fake = FakeProcesses::rules(&[("tool go", Reply::ok("one\ntwo"))]);
         let mut lines = Vec::new();
-        stream(&fake, "tool", &["go"], None, |l| lines.push(l.to_owned())).await.unwrap();
+        stream(&fake, "tool", &["go"], None, |l| lines.push(l.to_owned()))
+            .await
+            .unwrap();
         assert_eq!(lines, ["one", "two"]);
 
         let bad = FakeProcesses::rules(&[("tool x", Reply::fail(1, "boom"))]);
-        let err = stream(&bad, "tool", &["x"], None, |_| {}).await.unwrap_err();
-        assert!(matches!(err, Error::Exit { ref reason, .. } if reason == "boom"), "{err:?}");
+        let err = stream(&bad, "tool", &["x"], None, |_| {})
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::Exit { ref reason, .. } if reason == "boom"),
+            "{err:?}"
+        );
     }
 
     #[tokio::test]

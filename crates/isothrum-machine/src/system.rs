@@ -136,8 +136,14 @@ pub async fn system_check(runner: &dyn ProcessRunner, dirs: &Dirs) -> SystemRepo
 /// A tool's version, timed: a wedged daemon or a held Vagrant lock must not hang the check.
 async fn probe(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Tool {
     match exec::run_read(runner, program, args, None).await {
-        Ok(out) => Tool { installed: true, version: first_line(&out) },
-        Err(_) => Tool { installed: false, version: None },
+        Ok(out) => Tool {
+            installed: true,
+            version: first_line(&out),
+        },
+        Err(_) => Tool {
+            installed: false,
+            version: None,
+        },
     }
 }
 
@@ -145,8 +151,14 @@ async fn probe(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Tool
 /// quoted `--query` has to pass through cmd.exe (`az` is a batch file on Windows).
 async fn probe_azure(runner: &dyn ProcessRunner) -> Tool {
     match exec::run_read(runner, "az", &["version", "--output", "json"], None).await {
-        Ok(out) => Tool { installed: true, version: azure_version(&out) },
-        Err(_) => Tool { installed: false, version: None },
+        Ok(out) => Tool {
+            installed: true,
+            version: azure_version(&out),
+        },
+        Err(_) => Tool {
+            installed: false,
+            version: None,
+        },
     }
 }
 
@@ -159,7 +171,10 @@ fn azure_version(json: &str) -> Option<String> {
 /// The first non-blank line, trimmed: a tool whose output opens with a banner's blank line read as
 /// installed with an empty version without this.
 fn first_line(out: &str) -> Option<String> {
-    out.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_owned)
+    out.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned)
 }
 
 /// This OS's package manager, with its version when it is installed.
@@ -177,8 +192,14 @@ fn pkg_manager(version: Option<String>) -> PkgManager {
         "Homebrew"
     };
     let installed = version.is_some();
-    let version = version.and_then(|v| first_line(&v)).filter(|v| !v.is_empty());
-    PkgManager { name: name.to_owned(), installed, version }
+    let version = version
+        .and_then(|v| first_line(&v))
+        .filter(|v| !v.is_empty());
+    PkgManager {
+        name: name.to_owned(),
+        installed,
+        version,
+    }
 }
 
 /// `--version` of this OS's package manager, when it is installed.
@@ -201,11 +222,23 @@ mod tests {
 
     #[test]
     fn a_version_is_the_first_non_blank_line_trimmed() {
-        assert_eq!(first_line("Homebrew 4.6.3 \nHomebrew/core\n").as_deref(), Some("Homebrew 4.6.3"));
+        assert_eq!(
+            first_line("Homebrew 4.6.3 \nHomebrew/core\n").as_deref(),
+            Some("Homebrew 4.6.3")
+        );
         assert_eq!(first_line(""), None);
-        assert_eq!(first_line("\n  \nVagrant 2.4.9\n").as_deref(), Some("Vagrant 2.4.9"));
-        assert_eq!(first_line("Vagrant 2.4.3\r\n\r\n").as_deref(), Some("Vagrant 2.4.3"));
-        assert_eq!(first_line("Terraform v1.9.8").as_deref(), Some("Terraform v1.9.8"));
+        assert_eq!(
+            first_line("\n  \nVagrant 2.4.9\n").as_deref(),
+            Some("Vagrant 2.4.9")
+        );
+        assert_eq!(
+            first_line("Vagrant 2.4.3\r\n\r\n").as_deref(),
+            Some("Vagrant 2.4.3")
+        );
+        assert_eq!(
+            first_line("Terraform v1.9.8").as_deref(),
+            Some("Terraform v1.9.8")
+        );
         assert_eq!(first_line("\r\n"), None);
     }
 
@@ -229,8 +262,15 @@ mod tests {
         assert!(empty.installed && empty.version.is_none());
         let missing = pkg_manager(None);
         assert!(!missing.installed && missing.version.is_none());
-        let json = serde_json::to_value(Tool { installed: true, version: Some("1".to_owned()) }).unwrap();
-        assert_eq!(json, serde_json::json!({ "installed": true, "version": "1" }));
+        let json = serde_json::to_value(Tool {
+            installed: true,
+            version: Some("1".to_owned()),
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "installed": true, "version": "1" })
+        );
     }
 
     #[tokio::test]
@@ -244,7 +284,10 @@ mod tests {
         assert!(!failing.installed && failing.version.is_none());
         assert!(!probe(&fake, "vagrant", &["--version"]).await.installed);
         let found = probe(&fake, "terraform", &["version"]).await;
-        assert_eq!((found.installed, found.version.as_deref()), (true, Some("Terraform v1.9.8")));
+        assert_eq!(
+            (found.installed, found.version.as_deref()),
+            (true, Some("Terraform v1.9.8"))
+        );
         assert!(!probe_azure(&fake).await.installed);
     }
 

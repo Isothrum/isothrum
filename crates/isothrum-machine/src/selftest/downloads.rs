@@ -28,7 +28,9 @@ struct Busy(&'static AtomicBool);
 
 impl Busy {
     fn try_take(flag: &'static AtomicBool) -> Option<Busy> {
-        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).ok().map(|_was_free| Busy(flag))
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_was_free| Busy(flag))
     }
 }
 
@@ -47,11 +49,19 @@ impl Drop for Busy {
 pub(super) async fn ensure_image(runner: &dyn ProcessRunner) -> Result<bool> {
     let mut waited = false;
     loop {
-        if exec::run(runner, "docker", &["image", "inspect", IMAGE], None).await.is_ok() {
+        if exec::run(runner, "docker", &["image", "inspect", IMAGE], None)
+            .await
+            .is_ok()
+        {
             return Ok(true);
         }
         if let Some(_busy) = Busy::try_take(&DOCKER_DL) {
-            exec::within("docker pull", PULL_LIMIT, exec::run(runner, "docker", &["pull", "-q", IMAGE], None)).await?;
+            exec::within(
+                "docker pull",
+                PULL_LIMIT,
+                exec::run(runner, "docker", &["pull", "-q", IMAGE], None),
+            )
+            .await?;
             return Ok(waited);
         }
         waited = true;
@@ -65,15 +75,31 @@ pub(super) async fn ensure_image(runner: &dyn ProcessRunner) -> Result<bool> {
 /// # Errors
 ///
 /// The `vagrant box add` failure.
-pub(super) async fn ensure_box(runner: &dyn ProcessRunner, dir: &Path, bx: &TestBox, mut on_line: impl FnMut(String) + Send) -> Result<bool> {
+pub(super) async fn ensure_box(
+    runner: &dyn ProcessRunner,
+    dir: &Path,
+    bx: &TestBox,
+    mut on_line: impl FnMut(String) + Send,
+) -> Result<bool> {
     let mut waited = false;
     loop {
         if pick_box(runner, bx.provider, bx.arm).await == (bx.name, true) {
             return Ok(true);
         }
         if let Some(_busy) = Busy::try_take(&VM_DL) {
-            on_line(format!("Downloading {} for {}, once…", bx.name, bx.provider.id()));
-            let add = ["box", "add", bx.name, "--provider", box_provider(bx.provider), "--force"];
+            on_line(format!(
+                "Downloading {} for {}, once…",
+                bx.name,
+                bx.provider.id()
+            ));
+            let add = [
+                "box",
+                "add",
+                bx.name,
+                "--provider",
+                box_provider(bx.provider),
+                "--force",
+            ];
             exec::stream(runner, "vagrant", &add, Some(dir), |l| {
                 if let Ok(mut last) = VM_DL_LINE.lock() {
                     last.clear();
@@ -86,7 +112,11 @@ pub(super) async fn ensure_box(runner: &dyn ProcessRunner, dir: &Path, bx: &Test
         }
         waited = true;
         let line = VM_DL_LINE.lock().map(|l| l.clone()).unwrap_or_default();
-        on_line(if line.trim().is_empty() { format!("Finishing the background download of {}…", bx.name) } else { line });
+        on_line(if line.trim().is_empty() {
+            format!("Finishing the background download of {}…", bx.name)
+        } else {
+            line
+        });
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
@@ -112,13 +142,30 @@ mod tests {
     async fn ensure_image_pulls_only_when_the_test_image_is_missing() {
         let present = FakeProcesses::rules(&[("image inspect", Reply::ok("sha256:abc"))]);
         assert!(ensure_image(&present).await.unwrap(), "already local");
-        assert!(!present.lines().iter().any(|l| l.contains("pull")), "nothing pulled: {:?}", present.lines());
+        assert!(
+            !present.lines().iter().any(|l| l.contains("pull")),
+            "nothing pulled: {:?}",
+            present.lines()
+        );
 
-        let pulled = FakeProcesses::rules(&[("image inspect", Reply::fail(1, "Error: No such image")), ("pull", Reply::ok(""))]);
-        assert!(!ensure_image(&pulled).await.unwrap(), "pulled now, not already there");
-        assert!(pulled.lines().iter().any(|l| l.contains("pull -q")), "{:?}", pulled.lines());
+        let pulled = FakeProcesses::rules(&[
+            ("image inspect", Reply::fail(1, "Error: No such image")),
+            ("pull", Reply::ok("")),
+        ]);
+        assert!(
+            !ensure_image(&pulled).await.unwrap(),
+            "pulled now, not already there"
+        );
+        assert!(
+            pulled.lines().iter().any(|l| l.contains("pull -q")),
+            "{:?}",
+            pulled.lines()
+        );
 
-        let failed = FakeProcesses::rules(&[("image inspect", Reply::fail(1, "Error: No such image")), ("pull", Reply::fail(1, "boom"))]);
+        let failed = FakeProcesses::rules(&[
+            ("image inspect", Reply::fail(1, "Error: No such image")),
+            ("pull", Reply::fail(1, "boom")),
+        ]);
         assert!(ensure_image(&failed).await.is_err());
     }
 
@@ -126,14 +173,37 @@ mod tests {
     async fn ensure_box_adds_a_missing_box_and_forwards_its_progress() {
         let dir = std::env::temp_dir().join(format!("isothrum-dl-box-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let fake = FakeProcesses::rules(&[("box list", Reply::ok("")), ("box add", Reply::ok("Progress: 10%\nProgress: 100%"))]);
+        let fake = FakeProcesses::rules(&[
+            ("box list", Reply::ok("")),
+            ("box add", Reply::ok("Progress: 10%\nProgress: 100%")),
+        ]);
         let mut lines = Vec::new();
-        let test_box = TestBox { provider: Provider::Virtualbox, name: "bento/ubuntu-24.04", arm: false };
-        let was_there = ensure_box(&fake, &dir, &test_box, |l| lines.push(l)).await.unwrap();
+        let test_box = TestBox {
+            provider: Provider::Virtualbox,
+            name: "bento/ubuntu-24.04",
+            arm: false,
+        };
+        let was_there = ensure_box(&fake, &dir, &test_box, |l| lines.push(l))
+            .await
+            .unwrap();
         assert!(!was_there, "it had to be downloaded");
-        assert!(fake.lines().iter().any(|l| l.contains("box add bento/ubuntu-24.04 --provider virtualbox")), "{:?}", fake.lines());
-        assert!(lines.iter().any(|l| l.contains("Downloading bento/ubuntu-24.04 for")), "the notice: {lines:?}");
-        assert!(lines.iter().any(|l| l == "Progress: 100%"), "the streamed lines: {lines:?}");
+        assert!(
+            fake.lines()
+                .iter()
+                .any(|l| l.contains("box add bento/ubuntu-24.04 --provider virtualbox")),
+            "{:?}",
+            fake.lines()
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("Downloading bento/ubuntu-24.04 for")),
+            "the notice: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l == "Progress: 100%"),
+            "the streamed lines: {lines:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
