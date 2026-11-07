@@ -8,6 +8,47 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
+## [1.0.4] — 2026-11-07
+
+`isothrum-machine`, the shared machine/setup layer, was first published to crates.io
+standalone at 1.0.3. From this release it is versioned and published with the rest of
+the workspace, so it moves straight to 1.0.4 alongside the other crates.
+
+### Added
+
+- **`isothrum-machine` reaches launcher parity and becomes publishable.** The crate now
+  covers the launcher's machine-layer capabilities while staying no-unsafe: an
+  `ElevatedBoot` injection point runs a VM self-test's `vagrant up` + readiness probe as
+  one elevated batch, an injected `may_manage_hyperv` folds the needs-admin reason into
+  Hyper-V's status without computing the privileged Win32 token check in the crate,
+  Docker engine start/switch (`docker_start_engine`/`docker_use_engine`) are ported over
+  the runner's `ProcessRunner`, granular Docker/VM self-tests are exposed, and
+  `docker_denied_hint` is now a `DockerDenied` code (`SocketRefused`/`PipeAccessDenied`).
+  The crate is flipped to `publish = true` and slotted into the release publish list after
+  its `isothrum-runner` dependency, so it ships with the workspace.
+- **A release tag is now gated on tests and the quality ratchet.** A reusable `gate.yml`
+  (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace --locked`,
+  `cargo run -p xtask -- quality`) now blocks both the crates.io publish and the desktop
+  installer workflows, so a `v*` tag that fails any of them publishes nothing. Push/PR CI
+  stays off as configured.
+
+### Fixed
+
+- **Overlapping operations on one run no longer clobber each other's in-flight entry or
+  free each other's port reservations.** `operate()` entered the in-flight map and reserved
+  ports before taking the per-run lock; two concurrent ops on the same run now enter under
+  the lock instead.
+- **A Vagrant lab's ephemeral published port with no preferred host number is now
+  reported.** Vagrant status skipped a published port whose `publish.preferred` was `None`,
+  leaving its `published`/host templates resolving `Unbound`; it now gates on `publish` and
+  takes the host port from the pick.
+- **Two local QEMU docker-vm labs no longer collide on the helper VM's SSH forward.**
+  `vagrant-qemu` forwarded the helper VM's guest SSH to a fixed host port (`50022`) with
+  weak auto-correct, so two labs — or a half-created VM left by a failed start — collided.
+  On QEMU only, the SSH forward now reserves a free loopback port (held under
+  `<guest>/ssh`), rides in `ISOLOOM_HOSTPORTS` to the Vagrantfile, and is checked free
+  before start, exactly as a published ephemeral port is.
+
 ## [1.0.3] — 2026-11-05
 
 ### Added

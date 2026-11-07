@@ -1890,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-compiler"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "indexmap 2.14.2",
  "isoloom-spec 1.0.7",
@@ -1917,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-machine"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "isothrum-runner",
  "serde",
@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "flate2",
  "isoloom-manifest 1.0.7",
