@@ -63,10 +63,11 @@ pub struct SystemReport {
     /// The Docker daemon answers for this account (an engine is started and usable).
     pub docker_running: bool,
     /// The daemon runs but refused this account (not in the right group yet): starting the engine
-    /// won't help. `docker_denied_hint` says what will.
+    /// won't help. `docker_denied_hint` says which refusal it was.
     pub docker_denied: bool,
-    /// What to do about a denied daemon, in plain words, when `docker_denied`.
-    pub docker_denied_hint: Option<String>,
+    /// Which refusal a denied daemon gave, as a code the UI renders in the player's language (its
+    /// `Display` is the plain-English fallback). `Some` exactly when `docker_denied`.
+    pub docker_denied_hint: Option<docker::DockerDenied>,
     /// Which Docker-compatible engine the CLI uses, when one answers.
     pub docker_engine: Option<&'static str>,
     /// Every engine whose Docker context answers right now; several can run side by side.
@@ -91,7 +92,15 @@ pub struct SystemReport {
 /// Checks the whole machine through `runner`, using `dirs` for anything that reads a file. Every
 /// probe runs concurrently and forgives its own failure, so one stuck or missing tool never sinks
 /// the report.
-pub async fn system_check(runner: &dyn ProcessRunner, dirs: &Dirs) -> SystemReport {
+///
+/// `may_manage_hyperv` is the caller's injected answer to the one fact this crate cannot compute
+/// without `unsafe` (see [`providers::detect`]): the desktop app passes `None`, the launcher its
+/// own token/SID check.
+pub async fn system_check(
+    runner: &dyn ProcessRunner,
+    dirs: &Dirs,
+    may_manage_hyperv: Option<bool>,
+) -> SystemReport {
     let (docker, docker_compose, vagrant, daemon, aws, azure, gcloud, terraform) = tokio::join!(
         probe(runner, "docker", &["--version"]),
         probe(runner, "docker", &["compose", "version", "--short"]),
@@ -103,12 +112,12 @@ pub async fn system_check(runner: &dyn ProcessRunner, dirs: &Dirs) -> SystemRepo
         probe(runner, "terraform", &["version"]),
     );
     let (vm_providers, docker_engines_running, ovftool, pkg_manager) = tokio::join!(
-        providers::detect(runner, vagrant.installed),
+        providers::detect(runner, vagrant.installed, may_manage_hyperv),
         docker::running_engines(runner),
         probe(runner, "ovftool", &["--version"]),
         package_manager(runner),
     );
-    let docker_denied = daemon.as_ref().err().is_some_and(docker::access_denied);
+    let docker_denied_hint = daemon.as_ref().err().and_then(docker::denied_reason_of);
     let docker_engine = match &daemon {
         Ok(os) => Some(docker::engine_in_use(runner, os.trim()).await),
         Err(_) => None,
@@ -119,8 +128,8 @@ pub async fn system_check(runner: &dyn ProcessRunner, dirs: &Dirs) -> SystemRepo
         pkg_manager,
         docker,
         docker_running: daemon.is_ok(),
-        docker_denied,
-        docker_denied_hint: docker_denied.then(docker::denied_hint),
+        docker_denied: docker_denied_hint.is_some(),
+        docker_denied_hint,
         docker_engine,
         docker_engines_running,
         docker_compose,
@@ -298,11 +307,37 @@ mod tests {
             "vagrant" | "az" | "aws" | "gcloud" => Reply::missing(),
             _ => Reply::ok("v1.0\n"),
         });
-        let report = system_check(&fake, &Dirs::default()).await;
+        let report = system_check(&fake, &Dirs::default(), None).await;
         assert!(!report.docker.installed && !report.docker_running && !report.docker_denied);
         assert!(report.docker_denied_hint.is_none());
         assert!(!report.vagrant.installed && !report.cloud_clis.azure.installed);
         assert_eq!(report.os, std::env::consts::OS);
         assert!(report.wsl.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_daemon_that_refuses_this_account_is_reported_as_a_denial_code() {
+        let fake = FakeProcesses::new(|call| {
+            let line = call.line();
+            if line.contains("docker info") {
+                Reply::fail(
+                    1,
+                    "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock",
+                )
+            } else if line.contains("docker --version") {
+                Reply::ok("Docker version 27.3.1\n")
+            } else {
+                Reply::missing()
+            }
+        });
+        let report = system_check(&fake, &Dirs::default(), None).await;
+        assert!(report.docker.installed && !report.docker_running && report.docker_denied);
+        assert_eq!(
+            report.docker_denied_hint,
+            Some(docker::DockerDenied::SocketRefused)
+        );
+        // The code serialises as a short string the UI can localise.
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["dockerDeniedHint"], "socket-refused");
     }
 }

@@ -11,6 +11,7 @@
 
 pub mod docker;
 pub mod downloads;
+pub mod elevate;
 pub mod vm;
 
 use std::future::Future;
@@ -18,6 +19,8 @@ use std::path::PathBuf;
 
 use isothrum_runner::ProcessRunner;
 use serde::Serialize;
+
+pub use elevate::{BootProbe, ElevatedBoot};
 
 use crate::dirs::Dirs;
 use crate::error::Result;
@@ -230,8 +233,18 @@ fn one_at_a_time(kind: Kind) -> &'static tokio::sync::Mutex<()> {
     }
 }
 
-/// Runs the self-test of `kind` (on `provider`, for a VM) through `runner`, each step's event sent
-/// to `events`.
+/// The VM self-test's inputs, carried together so the kind-dispatched [`machine_selftest`] keeps
+/// within its parameter budget (the container test ignores them).
+#[derive(Clone, Copy, Default)]
+pub struct Vm<'a> {
+    /// The preferred local hypervisor; `None` lets the test pick the first ready one.
+    pub provider: Option<Provider>,
+    /// The Hyper-V elevation hook (see [`ElevatedBoot`]); `None` is the unelevated two-call path.
+    pub elevate: Option<&'a dyn ElevatedBoot>,
+}
+
+/// Runs the self-test of `kind` through `runner`, each step's event sent to `events`. `vm` carries
+/// the VM test's provider and optional elevation hook; the container test ignores it.
 ///
 /// # Errors
 ///
@@ -240,7 +253,7 @@ pub async fn machine_selftest(
     runner: &dyn ProcessRunner,
     dirs: &Dirs,
     kind: Kind,
-    provider: Option<Provider>,
+    vm: Vm<'_>,
     events: impl Fn(Event) + Send + Sync + 'static,
 ) -> Result<()> {
     let _alone = one_at_a_time(kind).lock().await;
@@ -249,10 +262,40 @@ pub async fn machine_selftest(
     Box::pin(tracked(runner, dirs, kind, async {
         match kind {
             Kind::Docker => docker::run_test(runner, &work_dir(dirs, "docker")?, &r).await,
-            Kind::Vm => vm::run_test(runner, &work_dir(dirs, "vm")?, provider, &r).await,
+            Kind::Vm => vm::run_test(runner, &work_dir(dirs, "vm")?, vm.provider, vm.elevate, &r).await,
         }
     }))
     .await
+}
+
+/// Runs only the container self-test (see [`machine_selftest`]), the way a caller runs just one
+/// kind.
+///
+/// # Errors
+///
+/// The error of the step that failed.
+pub async fn machine_selftest_docker(
+    runner: &dyn ProcessRunner,
+    dirs: &Dirs,
+    events: impl Fn(Event) + Send + Sync + 'static,
+) -> Result<()> {
+    machine_selftest(runner, dirs, Kind::Docker, Vm::default(), events).await
+}
+
+/// Runs only the VM self-test (see [`machine_selftest`]), on `provider` (preferred) with an
+/// optional Hyper-V elevation hook (`None`: the unelevated two-call path).
+///
+/// # Errors
+///
+/// The error of the step that failed.
+pub async fn machine_selftest_vm(
+    runner: &dyn ProcessRunner,
+    dirs: &Dirs,
+    provider: Option<Provider>,
+    elevate: Option<&dyn ElevatedBoot>,
+    events: impl Fn(Event) + Send + Sync + 'static,
+) -> Result<()> {
+    machine_selftest(runner, dirs, Kind::Vm, Vm { provider, elevate }, events).await
 }
 
 #[cfg(test)]
@@ -420,7 +463,7 @@ mod tests {
     /// order. Shared by the container and VM success tests.
     async fn done_states(fake: &FakeProcesses, kind: Kind) -> Vec<String> {
         let (send, seen) = events();
-        machine_selftest(fake, &work_dirs(), kind, None, send)
+        machine_selftest(fake, &work_dirs(), kind, Vm::default(), send)
             .await
             .unwrap();
         states(&seen)
@@ -440,7 +483,7 @@ mod tests {
         )]);
         let (send, seen) = events();
         assert!(
-            machine_selftest(&fake, &work_dirs(), Kind::Docker, None, send)
+            machine_selftest(&fake, &work_dirs(), Kind::Docker, Vm::default(), send)
                 .await
                 .is_err()
         );
@@ -458,10 +501,11 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn the_vm_test_boots_runs_a_command_and_deletes_the_vm() {
+    /// A machine where the VM self-test can run to success: Vagrant and a hypervisor answer, a box
+    /// is listed, and `vagrant ssh` prints the probe's marker. Shared by the VM success tests.
+    fn vm_fake() -> FakeProcesses {
         let boxes = "generic/alpine319 (virtualbox, 4.3.12)\ngeneric/debian12 (libvirt, 1)\n";
-        let fake = FakeProcesses::new(move |call| {
+        FakeProcesses::new(move |call| {
             let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
             match (call.program.as_str(), args.as_slice()) {
                 ("vagrant", ["plugin", "list"]) => {
@@ -472,7 +516,12 @@ mod tests {
                 ("vagrant", ["ssh", "-c", _]) => Reply::ok("cyberctf-uname:Linux 6.6 x86_64\n"),
                 _ => Reply::ok(""),
             }
-        });
+        })
+    }
+
+    #[tokio::test]
+    async fn the_vm_test_boots_runs_a_command_and_deletes_the_vm() {
+        let fake = vm_fake();
         let done = done_states(&fake, Kind::Vm).await;
         assert_eq!(&done[..2], ["vagrant:ok", "provider:ok"], "{done:?}");
         assert_eq!(
@@ -506,7 +555,7 @@ mod tests {
         });
         let (send, seen) = events();
         assert!(
-            machine_selftest(&fake, &work_dirs(), Kind::Vm, None, send)
+            machine_selftest(&fake, &work_dirs(), Kind::Vm, Vm::default(), send)
                 .await
                 .is_err()
         );
@@ -520,11 +569,105 @@ mod tests {
         let (send, seen) = events();
         let second = tokio::time::timeout(
             std::time::Duration::from_millis(200),
-            machine_selftest(&fake, &work_dirs(), Kind::Docker, None, send),
+            machine_selftest(&fake, &work_dirs(), Kind::Docker, Vm::default(), send),
         )
         .await;
         assert!(second.is_err(), "it waits for the first to finish");
         assert!(fake.lines().is_empty() && seen.lock().unwrap().is_empty());
         drop(first);
+    }
+
+    #[tokio::test]
+    async fn the_docker_only_entry_dispatches_to_the_container_test() {
+        // Its first step is `engine` (the container test's), not the VM test's `vagrant`.
+        let fake = FakeProcesses::rules(&[(
+            "docker info",
+            Reply::fail(1, "Cannot connect to the Docker daemon"),
+        )]);
+        let (send, seen) = events();
+        assert!(
+            machine_selftest_docker(&fake, &work_dirs(), send)
+                .await
+                .is_err()
+        );
+        assert_eq!(seen.lock().unwrap().first().map(|e| e.step), Some("engine"));
+    }
+
+    #[tokio::test]
+    async fn the_vm_only_entry_dispatches_to_the_vm_test() {
+        let fake = vm_fake();
+        let (send, seen) = events();
+        machine_selftest_vm(&fake, &work_dirs(), None, None, send)
+            .await
+            .unwrap();
+        assert_eq!(seen.lock().unwrap().first().map(|e| e.step), Some("vagrant"));
+    }
+
+    /// An elevation hook that runs nothing itself: it records the call and hands back a canned
+    /// boot-and-probe, standing in for the launcher's elevated Vagrant batch.
+    #[derive(Default)]
+    struct FakeElevated {
+        called: std::sync::atomic::AtomicBool,
+    }
+
+    impl ElevatedBoot for FakeElevated {
+        fn boot_and_probe<'a>(
+            &'a self,
+            _dir: &'a std::path::Path,
+            _up: &'a [&'a str],
+            _ssh: &'a [&'a str],
+            on_line: &'a mut (dyn FnMut(&str) + Send),
+        ) -> isothrum_runner::BoxFuture<'a, Result<BootProbe>> {
+            self.called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            on_line("Bringing machine 'default' up with 'hyperv' provider...");
+            Box::pin(async {
+                Ok(BootProbe::new(
+                    Ok(()),
+                    Some(Ok("cyberctf-uname:Linux 6.6 aarch64\n".to_owned())),
+                ))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_vm_boot_runs_through_the_elevation_hook_when_one_is_given() {
+        // With a hook, boot and probe go through it, not the runner (one prompt on Hyper-V). The
+        // host has no Hyper-V, so the test proves the wiring on whatever provider is ready.
+        let fake = vm_fake();
+        let hook = FakeElevated::default();
+        let (send, seen) = events();
+        let vm = Vm {
+            provider: None,
+            elevate: Some(&hook),
+        };
+        machine_selftest(&fake, &work_dirs(), Kind::Vm, vm, send)
+            .await
+            .unwrap();
+        assert!(
+            hook.called.load(std::sync::atomic::Ordering::SeqCst),
+            "the boot went through the hook"
+        );
+        let lines = fake.lines();
+        assert!(
+            !lines.iter().any(|l| l.contains("up --provider"))
+                && !lines.iter().any(|l| l.contains("ssh -c")),
+            "boot and probe never touched the runner: {lines:?}"
+        );
+        let done: Vec<String> = states(&seen)
+            .into_iter()
+            .filter(|s| !s.ends_with(":running"))
+            .collect();
+        assert!(
+            done.contains(&"boot:ok".to_owned()) && done.contains(&"exec:ok".to_owned()),
+            "{done:?}"
+        );
+        assert!(
+            details(&seen)
+                .iter()
+                .flatten()
+                .any(|d| d.contains("Linux 6.6 aarch64")),
+            "the probe's uname came back through the hook"
+        );
     }
 }

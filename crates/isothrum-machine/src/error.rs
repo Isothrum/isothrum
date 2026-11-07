@@ -33,6 +33,10 @@ pub enum Error {
     /// The request or the environment was wrong, with a plain-language reason.
     #[error("{0}")]
     Invalid(String),
+    /// A running Docker daemon refused this account (not in its group): a coded reason the UI can
+    /// render in the player's language. Its `Display` is the plain-English fallback.
+    #[error("{0}")]
+    DockerDenied(crate::system::docker::DockerDenied),
 }
 
 /// The result of a machine-setup operation.

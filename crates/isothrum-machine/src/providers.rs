@@ -1,8 +1,12 @@
 //! The Vagrant providers (hypervisors) this computer can drive, and detecting which are usable.
 //! Vagrant abstracts the hypervisor; we detect what is installed here and let `vagrant up
-//! --provider` do the rest. Ported from the launcher's `runtime/providers`; the Windows
-//! "may this account manage Hyper-V" refinement and the VirtualBox-wedged check are left for a
-//! later version, so detection here is the hypervisor and its plugin, not the account's rights.
+//! --provider` do the rest. Ported from the launcher's `runtime/providers`.
+//!
+//! The Windows "may this account manage Hyper-V" refinement needs `unsafe` Win32 (a token and SID
+//! check) that this crate forbids, so [`detect`] never computes it: a caller supplies the answer
+//! as `may_manage_hyperv: Option<bool>`. The desktop app (and any default) passes `None`, which
+//! adds no admin reason; the launcher passes `Some(its own unsafe check)`, and a `Some(false)`
+//! folds the "needs administrator" reason into Hyper-V's status, exactly as the launcher did.
 
 use std::path::Path;
 use std::time::Duration;
@@ -263,9 +267,22 @@ async fn installed_plugins(runner: &dyn ProcessRunner) -> Vec<String> {
 /// How long the VirtualBox liveness probe may take before VirtualBox counts as wedged.
 const VBOX_PROBE: Duration = Duration::from_secs(8);
 
+/// Why Hyper-V can't be used by this account yet, and the two ways out. Folded into Hyper-V's
+/// status when the caller's `may_manage_hyperv` is `Some(false)`.
+pub const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
+add this account to that group and sign out of Windows and back in, or run the app as administrator";
+
 /// The readiness of every provider usable on this machine: its hypervisor, its plugin, and why it
 /// is not available. `vagrant_installed` is global, so it is a plain argument.
-pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
+///
+/// `may_manage_hyperv` is the one fact this crate cannot work out without `unsafe` (see the module
+/// docs): `Some(false)` folds the "needs administrator" reason into Hyper-V, `Some(true)` and
+/// `None` add nothing. The desktop app passes `None`; the launcher passes its own token/SID check.
+pub async fn detect(
+    runner: &dyn ProcessRunner,
+    vagrant_installed: bool,
+    may_manage_hyperv: Option<bool>,
+) -> Vec<ProviderStatus> {
     let plugins = if vagrant_installed {
         installed_plugins(runner).await
     } else {
@@ -285,11 +302,17 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let unresponsive = provider == Provider::Virtualbox
             && hypervisor == Some(true)
             && vbox_wedged(runner).await;
+        // Vagrant's Hyper-V provider refuses every command (status reads included) from an account
+        // that may not manage Hyper-V: said here with the way out, not as a raw error mid-boot.
+        let needs_admin = provider == Provider::Hyperv
+            && hypervisor == Some(true)
+            && may_manage_hyperv == Some(false);
         let detection = Detection {
             hypervisor,
             unresponsive,
             plugin: plugin.as_deref(),
             plugin_installed,
+            needs_admin,
         };
         let reason = unavailable_reason(provider, vagrant_installed, detection);
         statuses.push(ProviderStatus {
@@ -327,6 +350,8 @@ struct Detection<'a> {
     plugin: Option<&'a str>,
     /// Whether that plugin is installed.
     plugin_installed: bool,
+    /// Whether this account may not manage Hyper-V (Hyper-V only; the caller's injected answer).
+    needs_admin: bool,
 }
 
 /// Why a provider can't be used here, `None` when it can: the first layer that is missing.
@@ -340,6 +365,7 @@ fn unavailable_reason(
         unresponsive,
         plugin,
         plugin_installed,
+        needs_admin,
     } = detection;
     if !vagrant_installed {
         Some("Vagrant is not installed".to_owned())
@@ -347,6 +373,8 @@ fn unavailable_reason(
         Some("VirtualBox isn't responding (its background service is stuck). Quit VirtualBox and any VM windows, or restart the computer, then re-check.".to_owned())
     } else if hypervisor == Some(false) && provider == Provider::Hyperv {
         Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it".to_owned())
+    } else if needs_admin {
+        Some(HYPERV_NEEDS_ADMIN.to_owned())
     } else if hypervisor == Some(false) {
         Some(provider.probe().map_or_else(
             || "not installed".to_owned(),
@@ -390,7 +418,7 @@ mod tests {
                 Reply::ok("vagrant-qemu (0.6.3, global)"),
             ),
         ]);
-        let qemu = detect(&with, true)
+        let qemu = detect(&with, true, None)
             .await
             .into_iter()
             .find(|s| s.provider == Provider::Qemu)
@@ -404,7 +432,7 @@ mod tests {
             ("qemu-system", Reply::ok("QEMU 10.0")),
             ("vagrant plugin list", Reply::ok("")),
         ]);
-        let no_plugin = detect(&without, true)
+        let no_plugin = detect(&without, true, None)
             .await
             .into_iter()
             .find(|s| s.provider == Provider::Qemu)
@@ -413,5 +441,26 @@ mod tests {
             !no_plugin.available && no_plugin.reason.is_some(),
             "{no_plugin:?}"
         );
+    }
+
+    #[test]
+    fn hyperv_needs_admin_only_when_the_caller_says_the_account_cannot_manage_it() {
+        // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so the injected
+        // `needs_admin` is tested through `unavailable_reason` directly, as the launcher did.
+        let hyperv = |needs_admin| Detection {
+            hypervisor: Some(true),
+            unresponsive: false,
+            plugin: None,
+            plugin_installed: true,
+            needs_admin,
+        };
+        assert_eq!(
+            unavailable_reason(Provider::Hyperv, true, hyperv(true)).as_deref(),
+            Some(HYPERV_NEEDS_ADMIN)
+        );
+        assert_eq!(unavailable_reason(Provider::Hyperv, true, hyperv(false)), None);
+        // `Some(false)` is the only value that raises the reason; `None`/`Some(true)` leave it off.
+        let needs = |mmh: Option<bool>| mmh == Some(false);
+        assert!(needs(Some(false)) && !needs(None) && !needs(Some(true)));
     }
 }

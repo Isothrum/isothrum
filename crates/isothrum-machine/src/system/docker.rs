@@ -1,17 +1,54 @@
-//! Which Docker-compatible engine this machine's CLI talks to, and the others that also answer.
-//! Detection only — naming the running engine for the system report, and telling a stopped daemon
-//! apart from one that refuses this account. Starting or switching an engine is the app shell's job
-//! and is a follow-up port.
+//! Which Docker-compatible engine this machine's CLI talks to, the others that also answer, and
+//! switching or starting one the way the player would. Also tells a stopped daemon apart from one
+//! that refuses this account, as a [`DockerDenied`] code the UI renders in the player's language.
+//!
+//! Everything runs through the no-unsafe [`ProcessRunner`]: starting an engine opens its app
+//! (`open -a`, `cmd /C start`) or runs its CLI (`colima start`, `pkexec systemctl start docker`),
+//! all ordinary process spawns, so no elevation injection point is needed here (unlike the VM
+//! self-test's Hyper-V boot).
 
 use std::time::Duration;
 
 use isothrum_runner::ProcessRunner;
+use isothrum_runner::process::ProcessError;
+use serde::Serialize;
 
-use crate::Result;
 use crate::exec;
+use crate::{Error, Result};
 
 /// How long each engine's context may take to answer before it counts as stopped.
 const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+/// How long a started engine is waited for: 90 tries, 2 s apart (Docker Desktop and OrbStack take
+/// a while on first start).
+const START_TRIES: u32 = 90;
+const START_POLL: Duration = Duration::from_secs(2);
+
+/// Without pkexec there is no graphical password prompt (Debian ships it apart from polkit).
+const NO_PKEXEC: &str =
+    "pkexec isn't installed, so your password can't be asked for. Install it once in a terminal (sudo apt install pkexec), then try again.";
+
+/// Why a running Docker daemon refused this account, as a code the UI renders in the player's
+/// language. Its [`Display`](std::fmt::Display) is the plain-English fallback.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum DockerDenied {
+    /// Unix: the daemon's socket refused this account (not in the `docker` group, or not since its
+    /// last login).
+    SocketRefused,
+    /// Windows: the engine's named pipe refused this account (not in the `docker-users` group).
+    PipeAccessDenied,
+}
+
+impl std::fmt::Display for DockerDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            DockerDenied::SocketRefused => "Docker is running but your account can't use it yet. Add your user to the \"docker\" group (`sudo usermod -aG docker $USER`), then log out and back in.",
+            DockerDenied::PipeAccessDenied => "Docker is running but your account can't use it yet. Add your user to the \"docker-users\" group, then sign out and back in.",
+        };
+        f.write_str(msg)
+    }
+}
 
 /// `docker info`'s operating-system line: the daemon answers (for this account).
 ///
@@ -123,28 +160,108 @@ pub(super) async fn running_engines(runner: &dyn ProcessRunner) -> Vec<&'static 
     running
 }
 
-/// Whether `err` is Docker running but refusing this account (not the daemon being down): the
-/// socket's `permission denied` on unix, or the named pipe's `access is denied` on Windows.
-pub(super) fn access_denied(err: &crate::Error) -> bool {
-    matches!(err, crate::Error::Exit { reason, .. } if denied_text(reason))
+/// Which refusal a failed `docker` call carries, `None` when it is not a refusal (the daemon is
+/// simply down). Derived from the error's stderr, so the daemon's own words decide the code; both
+/// the system report's hint and [`docker_start_engine`] read it.
+pub(super) fn denied_reason_of(err: &Error) -> Option<DockerDenied> {
+    match err {
+        Error::Exit { reason, .. } => denied_reason(reason),
+        _ => None,
+    }
 }
 
-/// The socket refusal on unix (`permission denied … docker.sock`), or the named pipe's on Windows
-/// (`open //./pipe/dockerDesktopLinuxEngine: Access is denied.`).
-fn denied_text(stderr: &str) -> bool {
+/// The specific refusal `stderr` is: the socket's `permission denied` on unix, or the named pipe's
+/// `access is denied` on Windows (`open //./pipe/dockerDesktopLinuxEngine: Access is denied.`).
+fn denied_reason(stderr: &str) -> Option<DockerDenied> {
     let s = stderr.to_lowercase();
-    let socket = s.contains("permission denied")
-        && (s.contains("docker.sock") || s.contains("docker api") || s.contains("docker daemon"));
-    let pipe = s.contains("access is denied") && s.contains("pipe");
-    socket || pipe
+    if s.contains("permission denied")
+        && (s.contains("docker.sock") || s.contains("docker api") || s.contains("docker daemon"))
+    {
+        Some(DockerDenied::SocketRefused)
+    } else if s.contains("access is denied") && s.contains("pipe") {
+        Some(DockerDenied::PipeAccessDenied)
+    } else {
+        None
+    }
 }
 
-/// What the player can do about a daemon that is up but refusing their account.
-pub(super) fn denied_hint() -> String {
-    if cfg!(windows) {
-        "Docker is running but your account can't use it yet. Add your user to the \"docker-users\" group, then sign out and back in.".to_owned()
-    } else {
-        "Docker is running but your account can't use it yet. Add your user to the \"docker\" group (`sudo usermod -aG docker $USER`), then log out and back in.".to_owned()
+/// Points the Docker CLI at another running engine (`docker context use`), as the player would in a
+/// terminal. Labs then run on it.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] when no context maps to `engine`, or the switch command's own failure.
+pub async fn docker_use_engine(runner: &dyn ProcessRunner, engine: &str) -> Result<()> {
+    let name = engine_contexts(runner)
+        .await
+        .into_iter()
+        .find(|(_, e)| *e == engine)
+        .map(|(name, _)| name)
+        .ok_or_else(|| Error::Invalid(format!("no Docker context for {engine}")))?;
+    exec::run(runner, "docker", &["context", "use", &name], None).await?;
+    Ok(())
+}
+
+/// Starts an installed engine that isn't running, the way the player would (opens its app or runs
+/// its CLI), points Docker at it and waits until it answers.
+///
+/// # Errors
+///
+/// [`Error::DockerDenied`] when the daemon is up but refuses this account (starting it again can't
+/// help), [`Error::Invalid`] when this machine can't start that engine or it never answered, or
+/// the launch command's own failure.
+pub async fn docker_start_engine(runner: &dyn ProcessRunner, engine: &str) -> Result<()> {
+    // Running already, but not for this account: starting it again can't help.
+    if let Err(e) = daemon_os(runner).await
+        && let Some(denied) = denied_reason_of(&e)
+    {
+        return Err(Error::DockerDenied(denied));
+    }
+    launch(runner, engine).await?;
+    for _ in 0..START_TRIES {
+        // The engine's context appears once it is up; point Docker at it, then ask the daemon.
+        let _discard = docker_use_engine(runner, engine).await;
+        match daemon_os(runner).await {
+            Ok(_) => return Ok(()),
+            // Up now, but not for this account: say so instead of waiting out the 3 minutes.
+            Err(e) => {
+                if let Some(denied) = denied_reason_of(&e) {
+                    return Err(Error::DockerDenied(denied));
+                }
+            }
+        }
+        tokio::time::sleep(START_POLL).await;
+    }
+    Err(Error::Invalid(format!(
+        "{engine} didn't answer within 3 minutes. Check its window, then re-check."
+    )))
+}
+
+/// Opens the engine's app, or runs its CLI, on this OS.
+async fn launch(runner: &dyn ProcessRunner, engine: &str) -> Result<String> {
+    match (std::env::consts::OS, engine) {
+        ("macos", "docker-desktop") => exec::run(runner, "open", &["-a", "Docker"], None).await,
+        ("macos", "orbstack") => exec::run(runner, "open", &["-a", "OrbStack"], None).await,
+        ("windows", "docker-desktop") => {
+            let exe = r"C:\Program Files\Docker\Docker\Docker Desktop.exe";
+            exec::run(runner, "cmd", &["/C", "start", "", exe], None).await
+        }
+        ("linux", "docker-engine") => exec::run(runner, "pkexec", &["systemctl", "start", "docker"], None)
+            .await
+            .map_err(no_pkexec),
+        (_, "colima") => exec::run(runner, "colima", &["start"], None).await,
+        _ => Err(Error::Invalid(format!(
+            "can't start {engine} here automatically; start it yourself, then re-check."
+        ))),
+    }
+}
+
+/// Maps a missing pkexec to the plain-language hint (no graphical password prompt without it);
+/// every other error passes through.
+fn no_pkexec(e: Error) -> Error {
+    match e {
+        Error::Process(ProcessError::Missing { .. }) => Error::Invalid(NO_PKEXEC.to_owned()),
+        other => other,
     }
 }
 
@@ -220,7 +337,7 @@ mod tests {
                 "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
             ),
         )]);
-        assert!(!access_denied(&daemon_os(&down).await.unwrap_err()));
+        assert!(denied_reason_of(&daemon_os(&down).await.unwrap_err()).is_none());
 
         let denied = FakeProcesses::rules(&[(
             "docker info",
@@ -229,20 +346,105 @@ mod tests {
                 "permission denied while trying to connect to the Docker daemon socket",
             ),
         )]);
-        assert!(access_denied(&daemon_os(&denied).await.unwrap_err()));
+        assert_eq!(
+            denied_reason_of(&daemon_os(&denied).await.unwrap_err()),
+            Some(DockerDenied::SocketRefused)
+        );
     }
 
     #[test]
-    fn the_denial_text_matches_the_socket_and_the_pipe_refusals() {
-        assert!(denied_text(
-            "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"
-        ));
-        assert!(denied_text(
-            "open //./pipe/dockerDesktopLinuxEngine: Access is denied."
-        ));
-        assert!(!denied_text(
-            "Cannot connect to the Docker daemon. Is the docker daemon running?"
-        ));
-        assert_ne!(denied_hint(), "");
+    fn the_denial_code_is_derived_from_the_socket_and_the_pipe_refusals() {
+        assert_eq!(
+            denied_reason(
+                "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"
+            ),
+            Some(DockerDenied::SocketRefused)
+        );
+        assert_eq!(
+            denied_reason("open //./pipe/dockerDesktopLinuxEngine: Access is denied."),
+            Some(DockerDenied::PipeAccessDenied)
+        );
+        assert_eq!(
+            denied_reason("Cannot connect to the Docker daemon. Is the docker daemon running?"),
+            None
+        );
+        // Each code renders a plain-text hint and a short serde code for the UI to localise.
+        assert_ne!(DockerDenied::SocketRefused.to_string(), "");
+        assert_eq!(
+            serde_json::to_value(DockerDenied::PipeAccessDenied).unwrap(),
+            "pipe-access-denied"
+        );
+    }
+
+    #[tokio::test]
+    async fn docker_use_switches_the_cli_to_the_engines_context() {
+        let fake = FakeProcesses::rules(&[("context ls", Reply::ok("default *\norbstack\ncolima-dev\n"))]);
+        docker_use_engine(&fake, "colima").await.unwrap();
+        assert!(
+            fake.lines().iter().any(|l| l.contains("context use colima-dev")),
+            "{:?}",
+            fake.lines()
+        );
+        let err = docker_use_engine(&fake, "podman").await.unwrap_err();
+        assert_eq!(err.to_string(), "no Docker context for podman");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn docker_start_launches_the_engine_points_at_it_and_waits_for_its_daemon() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let started = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&started);
+        let fake = FakeProcesses::new(move |call| {
+            let line = call.line();
+            if line.contains("colima start") {
+                flag.store(true, Ordering::SeqCst);
+                Reply::ok("")
+            } else if line.contains("docker info") {
+                if flag.load(Ordering::SeqCst) {
+                    Reply::ok("Ubuntu 24.04 LTS")
+                } else {
+                    Reply::fail(1, "Cannot connect to the Docker daemon. Is the docker daemon running?")
+                }
+            } else if line.contains("context ls") {
+                Reply::ok(if flag.load(Ordering::SeqCst) {
+                    "default *\ncolima\n"
+                } else {
+                    "default *\n"
+                })
+            } else {
+                Reply::ok("")
+            }
+        });
+        docker_start_engine(&fake, "colima").await.unwrap();
+        assert!(started.load(Ordering::SeqCst), "colima was started");
+        assert!(fake.lines().iter().any(|l| l.contains("context use colima")));
+    }
+
+    #[tokio::test]
+    async fn docker_start_reports_a_denied_daemon_without_starting_anything() {
+        let fake = FakeProcesses::rules(&[(
+            "docker info",
+            Reply::fail(
+                1,
+                "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock",
+            ),
+        )]);
+        let err = docker_start_engine(&fake, "colima").await.unwrap_err();
+        assert!(
+            matches!(err, Error::DockerDenied(DockerDenied::SocketRefused)),
+            "{err:?}"
+        );
+        assert!(!fake.lines().iter().any(|l| l.contains("colima start")));
+    }
+
+    #[tokio::test]
+    async fn an_engine_this_machine_cannot_start_is_refused() {
+        let fake = FakeProcesses::rules(&[(
+            "docker info",
+            Reply::fail(1, "Cannot connect to the Docker daemon. Is the docker daemon running?"),
+        )]);
+        let err = docker_start_engine(&fake, "some-engine").await.unwrap_err();
+        assert!(err.to_string().contains("can't start some-engine"), "{err}");
     }
 }

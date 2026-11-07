@@ -18,4 +18,6 @@ pub mod system;
 pub use dirs::Dirs;
 pub use error::{Error, Result};
 pub use providers::{Provider, ProviderStatus};
+pub use selftest::{BootProbe, ElevatedBoot, Vm};
 pub use system::SystemReport;
+pub use system::docker::DockerDenied;

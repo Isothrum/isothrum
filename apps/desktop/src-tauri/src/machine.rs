@@ -40,7 +40,9 @@ fn dirs(app: &AppHandle) -> Dirs {
 /// provider's readiness in `vm_providers`.
 #[tauri::command]
 pub(crate) async fn system_check(app: AppHandle) -> SystemReport {
-    system::system_check(&runner(&app), &dirs(&app)).await
+    // The desktop app is the unelevated variant: it leaves the Windows "may this account manage
+    // Hyper-V" check to the caller (`None`), so no admin reason is folded into Hyper-V's status.
+    system::system_check(&runner(&app), &dirs(&app), None).await
 }
 
 /// Every Vagrant provider (hypervisor) this computer can drive, and why each is or isn't usable.
@@ -53,7 +55,9 @@ pub(crate) async fn machine_providers(app: AppHandle) -> Vec<ProviderStatus> {
     let vagrant = exec::run_read(&runner, "vagrant", &["--version"], None)
         .await
         .is_ok();
-    providers::detect(&runner, vagrant).await
+    // `None`: the unelevated variant leaves the Hyper-V admin check to the caller (see
+    // [`system_check`]).
+    providers::detect(&runner, vagrant, None).await
 }
 
 /// Runs the setup self-test of `kind` (on `provider`, for a VM), each step's event sent on
@@ -66,7 +70,13 @@ pub(crate) async fn machine_selftest(
     provider: Option<Provider>,
     events: Channel<Event>,
 ) -> Result<(), String> {
-    selftest::machine_selftest(&runner(&app), &dirs(&app), kind, provider, move |event| {
+    // The desktop app never elevates (`elevate: None`): its VM self-test uses the plain two-call
+    // boot path. The launcher supplies a hook; the crate defines the injection point.
+    let vm = selftest::Vm {
+        provider,
+        elevate: None,
+    };
+    selftest::machine_selftest(&runner(&app), &dirs(&app), kind, vm, move |event| {
         drop(events.send(event));
     })
     .await

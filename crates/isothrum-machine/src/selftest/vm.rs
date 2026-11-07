@@ -1,8 +1,9 @@
 //! The VM self-test: a real throwaway VM on a local hypervisor.
 //!
-//! `vagrant up` and `vagrant ssh` run as two separate runner calls (the launcher batched them
-//! behind a single Hyper-V elevation prompt; that elevation is the `unsafe` bit this crate drops,
-//! so the batch goes with it — on Hyper-V each call may prompt on its own).
+//! Without an elevation hook, `vagrant up` and `vagrant ssh` run as two separate runner calls (on
+//! Hyper-V each may prompt on its own). With one — an [`ElevatedBoot`] a caller supplies — both run
+//! as one elevated batch (one prompt), matching the launcher. The elevation itself is the `unsafe`
+//! bit this crate drops: it is the caller's to implement, never computed here.
 
 use std::path::Path;
 use std::time::Duration;
@@ -10,6 +11,7 @@ use std::time::Duration;
 use isothrum_runner::ProcessRunner;
 
 use super::downloads::ensure_box;
+use super::elevate::ElevatedBoot;
 use super::{Reporter, arm};
 use crate::error::{Error, Result};
 use crate::exec;
@@ -68,7 +70,7 @@ pub(super) async fn test_provider(
     runner: &dyn ProcessRunner,
     preferred: Option<Provider>,
 ) -> Option<Provider> {
-    let ready: Vec<Provider> = providers::detect(runner, true)
+    let ready: Vec<Provider> = providers::detect(runner, true, None)
         .await
         .iter()
         .filter(|s| !s.remote && s.available && s.hypervisor != Some(false))
@@ -269,13 +271,14 @@ pub(super) async fn run_test(
     runner: &dyn ProcessRunner,
     dir: &Path,
     preferred: Option<Provider>,
+    elevate: Option<&dyn ElevatedBoot>,
     r: &Reporter,
 ) -> Result<()> {
     // A test interrupted last time (window closed) may have left its VM behind.
     if dir.join(".vagrant").exists() {
         let _discard = destroy(runner, dir).await;
     }
-    let res = steps(runner, dir, preferred, r).await;
+    let res = steps(runner, dir, preferred, elevate, r).await;
     // Destroy the VM whatever happened; the box stays cached for the next test.
     if dir.join("Vagrantfile").exists() {
         let down = destroy(runner, dir).await;
@@ -293,6 +296,7 @@ async fn steps(
     runner: &dyn ProcessRunner,
     dir: &Path,
     preferred: Option<Provider>,
+    elevate: Option<&dyn ElevatedBoot>,
     r: &Reporter,
 ) -> Result<()> {
     let provider = host_provider(runner, preferred, r).await?;
@@ -325,7 +329,7 @@ async fn steps(
     } else {
         None
     };
-    boot_and_exec(runner, dir, &Boot { provider, bx, ip }, r).await?;
+    boot_and_exec(runner, dir, &Boot { provider, bx, ip }, elevate, r).await?;
     network(runner, provider, ip, r).await
 }
 
@@ -366,41 +370,84 @@ async fn host_provider(
     Ok(provider)
 }
 
-/// Boots the test VM, then runs a command inside it.
+/// Boots the test VM, then runs a command inside it. With `elevate`, both run as one elevated
+/// batch (one Hyper-V prompt) and the probe's output is stashed for the exec step; without it, as
+/// two plain runner calls (today's path, one prompt each on Hyper-V).
 async fn boot_and_exec(
     runner: &dyn ProcessRunner,
     dir: &Path,
     boot: &Boot,
+    elevate: Option<&dyn ElevatedBoot>,
     r: &Reporter,
 ) -> Result<()> {
+    let command = uname_command();
+    // The probe's outcome from the elevated batch, read by the exec step; `None` is the plain path.
+    let mut probe: Option<Result<String>> = None;
     r.step("boot", "Boot the test VM", async {
         let no_kvm = cfg!(target_os = "linux") && providers::kvm_problem().is_some();
         std::fs::write(
             dir.join("Vagrantfile"),
             vagrantfile(boot.provider, boot.bx, no_kvm, boot.ip),
         )?;
-        let args = ["up", "--provider", boot.provider.id()];
-        let up = exec::stream(runner, "vagrant", &args, Some(dir), |l| {
-            r.progress("boot", "Boot the test VM", l);
-        });
-        exec::within("vagrant up", BOOT_LIMIT, up).await?;
+        match elevate {
+            Some(e) => probe = Some(elevated_boot(e, dir, boot.provider, &command, r).await?),
+            None => plain_boot(runner, dir, boot.provider, r).await?,
+        }
         Ok(((), Some(format!("{} on {}", boot.bx, boot.provider.id()))))
     })
     .await?;
 
     r.step("exec", "Run a command inside the VM", async {
-        let command = uname_command();
-        let out = exec::within(
-            "vagrant ssh",
-            BOOT_LIMIT,
-            exec::run(runner, "vagrant", &["ssh", "-c", &command], Some(dir)),
-        )
-        .await?;
+        let out = match probe.take() {
+            Some(result) => result?,
+            None => {
+                exec::within(
+                    "vagrant ssh",
+                    BOOT_LIMIT,
+                    exec::run(runner, "vagrant", &["ssh", "-c", &command], Some(dir)),
+                )
+                .await?
+            }
+        };
         Ok(((), Some(uname_line(&out))))
     })
     .await?;
 
     Ok(())
+}
+
+/// Boots the test VM with a plain `vagrant up`, streaming its progress (the unelevated path).
+async fn plain_boot(
+    runner: &dyn ProcessRunner,
+    dir: &Path,
+    provider: Provider,
+    r: &Reporter,
+) -> Result<()> {
+    let args = ["up", "--provider", provider.id()];
+    let up = exec::stream(runner, "vagrant", &args, Some(dir), |l| {
+        r.progress("boot", "Boot the test VM", l);
+    });
+    exec::within("vagrant up", BOOT_LIMIT, up).await
+}
+
+/// Boots and probes through the caller's elevation hook as one batch. Returns the probe's outcome
+/// (for the exec step); the outer `Result` carries a boot failure or an elevation that couldn't run.
+async fn elevated_boot(
+    e: &dyn ElevatedBoot,
+    dir: &Path,
+    provider: Provider,
+    command: &str,
+    r: &Reporter,
+) -> Result<Result<String>> {
+    let up = ["up", "--provider", provider.id()];
+    let ssh = ["ssh", "-c", command];
+    let mut on_line = |l: &str| r.progress("boot", "Boot the test VM", l);
+    let batch = e.boot_and_probe(dir, &up, &ssh, &mut on_line);
+    let bp = exec::within("vagrant up / vagrant ssh", BOOT_LIMIT, batch).await?;
+    bp.boot?;
+    Ok(bp
+        .probe
+        .unwrap_or_else(|| Err(Error::Invalid("the command did not run".to_owned()))))
 }
 
 /// The VM answers ping on its private lab network (skipped without one, or a free address).
@@ -410,38 +457,27 @@ async fn network(
     ip: Option<&'static str>,
     r: &Reporter,
 ) -> Result<()> {
-    match ip {
-        Some(ip) => {
-            r.step("network", "VM reachable on a lab network", async {
-                let mut last = String::new();
-                for _ in 0..PING_TRIES {
-                    match exec::run(runner, "ping", &ping_args(ip), None).await {
-                        Ok(_) => return Ok(((), Some(format!("this machine → {ip}")))),
-                        Err(e) => last = e.to_string(),
-                    }
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+    if let Some(ip) = ip {
+        r.step("network", "VM reachable on a lab network", async {
+            let mut last = String::new();
+            for _ in 0..PING_TRIES {
+                match exec::run(runner, "ping", &ping_args(ip), None).await {
+                    Ok(_) => return Ok(((), Some(format!("this machine → {ip}")))),
+                    Err(e) => last = e.to_string(),
                 }
-                Err(Error::Invalid(format!("{ip} did not answer ping: {last}")))
-            })
-            .await?;
-        }
-        None if has_private_network(provider) => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(Error::Invalid(format!("{ip} did not answer ping: {last}")))
+        })
+        .await?;
+    } else {
+        let detail = if has_private_network(provider) {
             let first = VM_IPS.first().copied().unwrap_or_default();
-            r.send(
-                "network",
-                "VM reachable on a lab network",
-                "skip",
-                Some(format!(
-                    "every test address ({first}…) is taken on this machine"
-                )),
-            );
-        }
-        None => r.send(
-            "network",
-            "VM reachable on a lab network",
-            "skip",
-            Some(format!("{} has no private networks", provider.id())),
-        ),
+            format!("every test address ({first}…) is taken on this machine")
+        } else {
+            format!("{} has no private networks", provider.id())
+        };
+        r.send("network", "VM reachable on a lab network", "skip", Some(detail));
     }
     Ok(())
 }
