@@ -45,6 +45,9 @@ const PLUGINS: &str = "plugins";
 /// own address.
 const ESXI: &str = "vmware_esxi";
 
+/// The QEMU provider (vagrant-qemu), whose VMs need a chosen host port for their SSH forward.
+const QEMU: &str = "qemu";
+
 /// Where ports forwarded to this computer answer.
 const LOOPBACK: &str = "127.0.0.1";
 

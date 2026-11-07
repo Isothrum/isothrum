@@ -54,6 +54,7 @@ fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
     match (call.program.as_str(), args.as_slice()) {
         ("vagrant", ["--version"]) => Reply::ok("Vagrant 2.4.9"),
+        ("vagrant", ["plugin", "list", "--machine-readable"]) => Reply::ok("1,,plugin-name,vagrant-qemu\n"),
         ("VBoxManage", ["--version"]) => Reply::ok("7.2.20r175154"),
         ("vagrant", ["status", ..]) => Reply::ok(&format!("1,default,state,{}", e.vm.as_deref().unwrap_or("not_created"))),
         ("vagrant", ["up", ..]) => {
@@ -126,6 +127,25 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
         (state("docker"), state("web"), state("web-init-1")),
         (MachineState::Running, MachineState::Running, MachineState::Exited(0))
     );
+}
+
+/// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with
+/// weak auto-correct, so two local docker-vm labs — or a half-created VM left behind — collide on
+/// it. The runner gives the helper VM's SSH forward a free host port of its own, carried to the
+/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `docker/ssh` (the guest machine's name); the lab's own
+/// `web/portal` is fixed, so that is the only entry.
+#[tokio::test(start_paused = true)]
+async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
+    let folder = LabFolder::new("docker-vm", DOCKER_VM);
+    let (_engine, fake) = modelled(vagrant);
+    let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([50123]));
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Macos)).unwrap();
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let mut secrets = Secrets::new();
+    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    run.up(&RunOptions::new().with_provider("qemu").with_secrets(secrets), &Recorder::new()).await.unwrap();
+    let up = fake.last("vagrant up").unwrap();
+    assert_eq!(up.env("ISOLOOM_HOSTPORTS"), Some(r#"{"docker/ssh":50123}"#), "the chosen SSH port reaches the Vagrantfile");
 }
 
 #[tokio::test(start_paused = true)]
