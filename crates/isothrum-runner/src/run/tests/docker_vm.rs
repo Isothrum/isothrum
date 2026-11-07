@@ -1,11 +1,12 @@
 //! Scripted runs of Isoloom's `docker-vm` fixtures (flag-portal): the VM made by a fake Vagrant
 //! (VirtualBox) or a fake Terraform (Proxmox), the containers by a fake Compose inside it,
-//! reached through `vagrant ssh` or `ssh`. No real tool ever runs.
+//! reached through `vagrant ssh` or `ssh`, and the ad-hoc attacker box by a fake Docker in the
+//! VM. No real tool ever runs.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use isoloom_manifest::{HostOs, Protocol};
+use isoloom_manifest::{HostOs, Protocol, Role};
 
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
@@ -26,7 +27,14 @@ struct Engine {
     up: bool,
     /// The flag the start's session carried, as the VM got it.
     flag: Option<String>,
+    /// The ad-hoc attacker box in the VM: its image, and the Docker networks it is on.
+    attacker: Option<(String, Vec<String>)>,
+    /// How many reads of the containers still miss (the way into the VM refused).
+    ps_misses: u32,
 }
+
+/// The address the fake Docker gives the attacker box on every network.
+const BOX_IP: &str = "10.30.0.77";
 
 /// `docker compose ps --all --format json` of the started run, one object a line.
 const PS: &str = r#"{"Service":"web","State":"running","Health":"healthy","Publishers":[{"PublishedPort":8080,"TargetPort":80,"Protocol":"tcp"}],"Labels":""}
@@ -44,9 +52,63 @@ fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
         return Reply::ok("Container flag-portal-web-1  Healthy");
     }
     if command.contains("ps --all --format json") {
+        if e.ps_misses > 0 {
+            e.ps_misses -= 1;
+            return Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2222: Connection refused");
+        }
         return Reply::ok(if e.up { PS } else { "" });
     }
+    if let Some(rest) = command.strip_prefix("sudo docker ") {
+        return docker(e, rest);
+    }
     Reply::ok("")
+}
+
+/// The single-quoted words of a `docker` command the runner wrote (`sh_quote`d names).
+fn quoted(command: &str) -> Vec<&str> {
+    command.split('\'').skip(1).step_by(2).collect()
+}
+
+/// What root's Docker in the VM answers to `docker <rest>`: the attacker box's run, removal,
+/// network joins and inspects (no other container is ever addressed by name).
+fn docker(e: &mut Engine, rest: &str) -> Reply {
+    let words = quoted(rest);
+    let networks_json = |nets: &[String]| {
+        let each: Vec<String> = nets.iter().map(|n| format!(r#""{n}":{{"IPAddress":"{BOX_IP}"}}"#)).collect();
+        format!("{{{}}}", each.join(","))
+    };
+    if rest.starts_with("run -d --name ") {
+        // `run -d --name '<name>' --label isoloom.access=true --network '<net>' '<image>' sleep infinity`
+        assert!(rest.ends_with(" sleep infinity") && rest.contains("--label isoloom.access=true"), "{rest}");
+        let [_, net, image] = words[..] else { panic!("{rest}") };
+        e.attacker = Some((image.to_owned(), vec![net.to_owned()]));
+        return Reply::ok("0123456789ab");
+    }
+    if rest.starts_with("rm -f ") {
+        return match e.attacker.take() {
+            Some(_) => Reply::ok(&words.join("")),
+            None => Reply::fail(1, "Error response from daemon: No such container"),
+        };
+    }
+    if rest.starts_with("network connect ") {
+        let [net, _] = words[..] else { panic!("{rest}") };
+        if let Some((_, nets)) = &mut e.attacker {
+            nets.push(net.to_owned());
+        }
+        return Reply::ok("");
+    }
+    if rest.starts_with("inspect -f ") {
+        let [format, _] = words[..] else { panic!("{rest}") };
+        let Some((_, nets)) = &e.attacker else {
+            return Reply::fail(1, "Error: No such object");
+        };
+        return Reply::ok(&match format {
+            "{{json .NetworkSettings.Networks}}" => networks_json(nets),
+            "{{.State.Running}}|{{json .NetworkSettings.Networks}}" => format!("true|{}", networks_json(nets)),
+            other => panic!("an inspect format the fake doesn't model: {other}"),
+        });
+    }
+    panic!("a docker command the fake doesn't model: {rest}")
 }
 
 fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
@@ -164,12 +226,18 @@ async fn a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_mad
     assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
-    let l = local();
+/// The lab up in its VM, then paused.
+async fn up_then_paused(l: &Running) -> crate::Running<'_> {
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run.park(Park::Pause, &Recorder::new()).await.unwrap();
+    run
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
+    let l = local();
+    let run = up_then_paused(&l).await;
     let status = run.status().await.unwrap();
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.state, MachineState::Stopped);
@@ -178,6 +246,92 @@ async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     assert!(l.engine.lock().unwrap().vm.is_none());
+}
+
+/// The ad-hoc attacker box of a container lab in a VM is a container inside that VM, on the lab's
+/// Docker network there, through the run's own Vagrant (`vagrant ssh … docker …`, with the run's
+/// state folder); status finds it, the shell goes through the VM into it, a detach removes it.
+#[tokio::test(start_paused = true)]
+async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    let not_up = run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(not_up.code(), ErrorCode::NotRunning);
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "no box yet");
+    let report = run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap();
+    let name = format!("{}-isoloom-access", run.name());
+    assert_eq!((report.machine.as_str(), report.native.as_str()), (name.as_str(), name.as_str()));
+    assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some(BOX_IP)));
+    let started = l.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
+    assert_eq!(started.program, "vagrant");
+    assert_eq!(started.args[..3], ["ssh", "--no-tty", "--command"]);
+    assert_eq!(
+        started.args[3],
+        format!("sudo docker run -d --name '{name}' --label isoloom.access=true --network 'flag-portal_lab' 'kalilinux/kali-rolling' sleep infinity")
+    );
+    assert_eq!(started.args[4], "default", "into the lab's VM");
+    assert!(started.env("VAGRANT_DOTFILE_PATH").is_some(), "with the run's state folder");
+    assert_eq!(
+        l.engine.lock().unwrap().attacker,
+        Some(("kalilinux/kali-rolling".into(), vec!["flag-portal_lab".into()]))
+    );
+
+    let status = run.status().await.unwrap();
+    let access = status.machines.iter().find(|m| m.role == Role::Access).unwrap();
+    assert_eq!((access.name.as_str(), &access.state), ("isoloom-access", &MachineState::Running));
+    assert_eq!(access.addresses.get("lab").map(String::as_str), Some(BOX_IP));
+    assert_eq!(access.published, [], "nothing of it is forwarded to this computer");
+
+    let shell = run.shell_command(None).unwrap();
+    assert_eq!(shell.program, "vagrant");
+    assert_eq!(shell.args[..3], ["ssh", "default", "-c"]);
+    assert!(
+        shell.args[3].starts_with(&format!("sudo docker exec -it '{name}' sh -c '")),
+        "{}",
+        shell.args[3]
+    );
+    assert_eq!(shell.cwd.as_deref(), l.manifest.parent());
+    let dotfile = l.runner.store.run_dir(run.name()).unwrap().join("vagrant");
+    assert!(
+        shell.env.contains(&("VAGRANT_DOTFILE_PATH".to_owned(), dotfile.display().to_string())),
+        "{:?}",
+        shell.env
+    );
+
+    run.detach(None, &Recorder::new()).await.unwrap();
+    assert_eq!(l.fake.last("docker rm -f").unwrap().args[3], format!("sudo docker rm -f '{name}'"));
+    assert!(l.engine.lock().unwrap().attacker.is_none());
+    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "the box is gone");
+    run.detach(None, &Recorder::new()).await.expect("a box already gone is no error");
+}
+
+/// A VM that is paused holds its containers as it does: no box goes into it.
+#[tokio::test(start_paused = true)]
+async fn no_attack_box_goes_into_a_parked_vm() {
+    let l = local();
+    let run = up_then_paused(&l).await;
+    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NotRunning);
+    assert!(l.fake.last("docker run").is_none(), "nothing went into the VM");
+}
+
+/// The way into the VM can miss once (an SSH port read from the hypervisor that answers late): a
+/// running lab still reads as running, and only a read that misses again counts as unreadable.
+#[tokio::test(start_paused = true)]
+async fn a_container_read_that_misses_once_is_read_again() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let reads = || l.fake.calls().iter().filter(|c| c.line().contains("ps --all --format json")).count();
+    let before = reads();
+    l.engine.lock().unwrap().ps_misses = 1;
+    let status = run.status().await.unwrap();
+    assert_eq!(status.machines.iter().find(|m| m.name == "web").unwrap().state, MachineState::Running);
+    assert_eq!(reads() - before, 2, "read again after the miss");
+    l.engine.lock().unwrap().ps_misses = 2;
+    let web = run.status().await.unwrap().machines.iter().find(|m| m.name == "web").unwrap().state.clone();
+    assert!(matches!(&web, MachineState::Unknown(why) if why.starts_with("unreadable: ")), "{web:?}");
 }
 
 /// The fake tools of a Proxmox run: Terraform writing the state, `ssh` to the Docker host.

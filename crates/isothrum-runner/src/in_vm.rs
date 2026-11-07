@@ -3,13 +3,24 @@
 //! manifest's `guest.status` (`docker compose ps --all --format json`, through `vagrant ssh` or
 //! `ssh.run`). Their published ports answer where the VM does: this computer's loopback where the
 //! VM forwards them, the VM's own address elsewhere (`guest.host`, else the driver's host for the
-//! VM). While the VM isn't running, its containers stand as it does.
+//! VM). While the VM isn't running, its containers stand as it does. A read that fails while the
+//! VM runs is tried once more after a moment: the way in can miss once (an SSH port read from the
+//! hypervisor that answers late, a session refused while the VM settles), and one miss must not
+//! make a running lab read as not running, or refuse an operation on it.
+
+use std::time::Duration;
 
 use isoloom_manifest::{Guest, Native};
 
 use crate::driver::Observed;
 use crate::executor::{Cx, capture_step};
 use crate::status::{MachineState, MachineStatus};
+
+/// How many times the containers are read while the VM runs, before the read counts as failed.
+const READS: u32 = 2;
+
+/// How long between two reads.
+const RETRY: Duration = Duration::from_secs(1);
 
 /// `observed` (the VM's driver's) with the containers as `guest` reads them in the VM. The
 /// outputs the driver read are bound first: the VM's address may be one (`${outputs.ip}`).
@@ -27,7 +38,7 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
         None => observed.hosts.get(guest.machine.as_str()).cloned(),
     };
     let read = if vm == MachineState::Running {
-        capture_step(cx, "guest.status", &guest.status).await.map_err(|e| e.to_string())
+        read_containers(cx, guest).await
     } else {
         Err(String::new())
     };
@@ -51,6 +62,22 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
         }
         observed.published.insert((machine, port), host_port);
     }
+}
+
+/// The containers as `guest.status` lists them in the running VM, read up to [`READS`] times,
+/// [`RETRY`] apart; the last failure's words otherwise.
+async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Result<String, String> {
+    let mut failed = String::new();
+    for attempt in 0..READS {
+        if attempt > 0 {
+            tokio::time::sleep(RETRY).await;
+        }
+        match capture_step(cx, "guest.status", &guest.status).await {
+            Ok(out) => return Ok(out),
+            Err(e) => failed = e.to_string(),
+        }
+    }
+    Err(failed)
 }
 
 /// Whether the machine `name` is one of the containers Compose runs in the VM.

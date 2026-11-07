@@ -301,6 +301,30 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
+/// A VM lab with no on-demand access machine has nowhere to put an ad-hoc attacker box: no Docker
+/// to run a container in (that is a container lab in a VM, `run/tests/docker_vm.rs`), and no VM
+/// to boot. It is refused, before anything is asked of the VMs.
+#[tokio::test]
+async fn a_vm_lab_with_no_access_machine_refuses_an_ad_hoc_box() {
+    let f = fixture(crate::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let calls = f.fake.calls().len();
+    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported);
+    assert_eq!(
+        err.to_string(),
+        "hot-adding an ad-hoc access VM (this lab has no on-demand access machine) isn't supported by this runner yet"
+    );
+    assert_eq!(run.detach(None, &Recorder::new()).await.unwrap_err().code(), ErrorCode::Unsupported);
+    assert_eq!(run.shell_command(None).unwrap_err().code(), ErrorCode::Unsupported);
+    let later: Vec<String> = f.fake.calls()[calls..].iter().map(Call::line).collect();
+    assert!(
+        later.iter().all(|l| l.starts_with("vagrant status")),
+        "only the status reads of the attach: {later:?}"
+    );
+}
+
 #[tokio::test]
 async fn vagrants_record_lives_in_the_runs_state_folder() {
     let f = fixture(crate::this_host());

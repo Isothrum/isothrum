@@ -10,8 +10,32 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ## [Unreleased]
 
+### Added
+
+- **A container lab in a VM gets an ad-hoc attacker box inside the VM.** On a `docker-vm` run
+  (the manifest's `guest`), the Vagrant driver's `attach` now stands the attacker box up as a
+  container inside the helper VM, on the lab's Docker network there (an idle container from the
+  learner's image, Kali by default, named `<run>-isoloom-access`, plugged into the lab's other
+  networks best effort), through `vagrant ssh <vm> -c "docker …"` with the run's state folder;
+  `detach` removes it, status reports it as the run's access machine with its address on each
+  lab network, and `shell` is `vagrant ssh <vm> -c "docker exec -it …"`. Before, the driver
+  refused every ad-hoc box ("hot-adding an ad-hoc access VM … isn't supported"). A VM lab with no
+  on-demand access machine still refuses one: it has no Docker to put a container in.
+
+### Changed
+
+- **A `ShellCommand` carries the variables it needs (`env`).** A shell into a Vagrant run's box
+  (`vagrant ssh …`) only finds the VM with the run's state folder (`VAGRANT_DOTFILE_PATH`) and
+  its forwarded ports (`ISOLOOM_HOSTPORTS`), which the embedder's terminal never had: the command
+  now names them, the CLI prints them before the argv, and a Compose run's command has none.
+
 ### Fixed
 
+- **A container read in a VM that misses once is read again.** The way into a `docker-vm` run's
+  VM (`vagrant ssh`, which on some providers reads the VM's SSH port from the hypervisor first)
+  can miss once while the VM runs; that one miss made the lab read as not running, and refused an
+  attach on it. The read is tried once more after a second before the containers count as
+  unreadable.
 - **A lab on UTM reads as running once it is up.** UTM's Vagrant plugin reports a running VM as
   `started` (UTM has no running state of its own), which the runner left as an unknown state, so
   a lab that had come up on UTM still read as not running. `started` now reads as running.

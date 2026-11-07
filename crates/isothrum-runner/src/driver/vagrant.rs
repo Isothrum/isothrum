@@ -5,8 +5,13 @@
 //! commands run-manifest-v0.md §6 fixes; its status is `lifecycle.status` (`vagrant status
 //! --machine-readable`) matched to the manifest's machines by their define names. Ported from the
 //! launcher's `runtime/vm.rs`, `runtime/vm/{status,recover}.rs` and `platform/exec/vagrant.rs`.
+//!
+//! A container lab in a VM (`docker-vm`, the manifest's `guest`) gets its ad-hoc attacker box as
+//! a container inside that VM, on the lab's Docker network there (`adhoc`); a VM lab with no
+//! on-demand access machine has nowhere to put one, and refuses it.
 
 mod actions;
+mod adhoc;
 mod forwarded;
 mod orphans;
 mod status;
@@ -15,7 +20,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Native, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
+use isoloom_manifest::{Action, Native, Role, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
 
 use super::{Attached, Attacker, Driver, Observed};
 use crate::Result;
@@ -210,7 +215,19 @@ impl Driver for Vagrant {
         } else {
             None
         };
-        Ok(machines(cx.run.manifest(), &read, guests.as_ref(), cx.vars.forwards()))
+        let mut observed = machines(cx.run.manifest(), &read, guests.as_ref(), cx.vars.forwards());
+        // A container lab in a VM: its ad-hoc attacker box is a container in there with no
+        // Compose service, so the guest's `ps` never lists it. When the lab declares no access
+        // machine of its own and the VM runs, probe for the box the runner hot-added, so a run
+        // that has one shows it like any other machine (its state, its address, the shell into it).
+        if let Some(vm) = adhoc::guest_vm(cx)
+            && !cx.run.manifest().machines.iter().any(|m| m.role == Role::Access)
+            && read.states.get(&vm).map(|s| status::machine_state(s)) == Some(crate::status::MachineState::Running)
+            && let Some(access) = adhoc::status(self, cx, &vm).await
+        {
+            observed.machines.push(access);
+        }
+        Ok(observed)
     }
 
     fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {
@@ -218,18 +235,22 @@ impl Driver for Vagrant {
         Ok(())
     }
 
-    /// Boots the access VM the initial `up` left defined but `autostart: false`: `vagrant up
-    /// <name>`, with the picked box in [`access::BOX_ENV`] (its `ENV.fetch` default otherwise).
-    /// The network is the VM's, fixed by the manifest, so it is not chosen here.
-    ///
-    /// Refuses an [`Attacker::AdHoc`] box for now.
-    // TODO: ad-hoc VM attacker (no manifest machine) is a follow-up — boot a throwaway box on the
-    // lab's provider network and plug it in, as the Compose driver does ad hoc for containers.
-    async fn attach(&self, cx: &Cx<'_>, attacker: Attacker<'_>, image: Option<&str>, _network: Option<&str>) -> Result<Attached> {
-        let native = adhoc_unsupported(attacker, "hot-adding an ad-hoc access VM (this lab has no on-demand access machine)")?;
+    /// Hot-adds the attacker box. A manifest access VM, which the initial `up` left defined but
+    /// `autostart: false`, boots: `vagrant up <name>`, with the picked box in [`access::BOX_ENV`]
+    /// (its `ENV.fetch` default otherwise); its network is the VM's, fixed by the manifest, so it
+    /// is not chosen here. An ad-hoc box with no machine goes inside the VM of a container lab
+    /// in a VM, as a container on the lab's Docker network there ([`adhoc::attach`]); a VM lab
+    /// has nowhere to put one and refuses it.
+    // TODO: an ad-hoc VM attacker for a VM lab (no manifest machine) is a follow-up — boot a
+    // throwaway box on the lab's provider network and plug it in.
+    async fn attach(&self, cx: &Cx<'_>, attacker: Attacker<'_>, image: Option<&str>, network: Option<&str>) -> Result<Attached> {
+        let native = match target(cx, attacker, "hot-adding an ad-hoc access VM")? {
+            Target::AdHocIn(vm) => return adhoc::attach(self, cx, &vm, image, network).await,
+            Target::Machine(native) => native,
+        };
         // The box joins on the run's own provider, the one its other VMs came up on.
         let provider = cx.scope.provider.as_ref().map(|p| format!("--provider={p}"));
-        let mut args = vec!["up", native];
+        let mut args = vec!["up", native.as_str()];
         if let Some(flag) = &provider {
             args.push(flag);
         }
@@ -241,33 +262,52 @@ impl Driver for Vagrant {
         Ok(Attached::default())
     }
 
-    /// Destroys the access VM, leaving the rest of the run up: `vagrant destroy -f <name>`.
-    /// Refuses an [`Attacker::AdHoc`] box for now.
+    /// Hot-removes the attacker box, leaving the rest of the run up: a manifest access VM is
+    /// destroyed (`vagrant destroy -f <name>`), an ad-hoc container removed from the VM it is in
+    /// (best effort, idempotent: a box already gone is no error).
     async fn detach(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<()> {
-        let native = adhoc_unsupported(attacker, "hot-removing an ad-hoc access VM (this lab has no on-demand access machine)")?;
-        let spec = self.vagrant(cx, Op::Detach.as_str(), &["destroy", "-f", native])?;
+        let native = match target(cx, attacker, "hot-removing an ad-hoc access VM")? {
+            Target::AdHocIn(vm) => return adhoc::detach(self, cx, &vm).await,
+            Target::Machine(native) => native,
+        };
+        let spec = self.vagrant(cx, Op::Detach.as_str(), &["destroy", "-f", &native])?;
         call_ok(cx, Op::Detach.as_str(), &spec, DETACH_TIMEOUT, Echo::Shown).await?;
         Ok(())
     }
 
-    /// `vagrant ssh <define>`: an interactive SSH session into the access VM. Refuses an
-    /// [`Attacker::AdHoc`] box for now.
+    /// The command that opens an interactive shell into the attacker box: `vagrant ssh <define>`
+    /// into a manifest access VM, `vagrant ssh <vm> -c "docker exec …"` into an ad-hoc container
+    /// in the VM of a container lab. Either runs in the run's folder with the run's Vagrant
+    /// environment (its state folder, its forwarded ports), which Vagrant needs to find the VM.
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
-        let native = adhoc_unsupported(attacker, "a shell into an ad-hoc access VM (this lab has no on-demand access machine)")?;
+        let native = match target(cx, attacker, "a shell into an ad-hoc access VM")? {
+            Target::AdHocIn(vm) => return adhoc::shell_command(self, cx, &vm),
+            Target::Machine(native) => native,
+        };
         Ok(ShellCommand {
             program: "vagrant".into(),
-            args: vec!["ssh".into(), native.into()],
+            args: vec!["ssh".into(), native],
             cwd: Some(cx.run.dir().to_path_buf()),
+            env: self.env(cx)?,
         })
     }
 }
 
-/// The native name of a manifest `attacker`, or `unsupported` with `what` for an ad-hoc box (the
-/// VM driver makes no ad-hoc attacker yet).
-fn adhoc_unsupported<'a>(attacker: Attacker<'a>, what: &str) -> Result<&'a str> {
+/// What a hot-add acts on in a Vagrant run: a manifest access VM by its define name, or, for a
+/// container lab in a VM, the define name of the VM an ad-hoc container goes in.
+enum Target {
+    Machine(String),
+    AdHocIn(String),
+}
+
+/// `attacker`'s target on this run, or `unsupported` (`what`, with why) for an ad-hoc box on a
+/// VM lab: it has no Docker to put a container in, and no on-demand access VM to boot.
+fn target(cx: &Cx<'_>, attacker: Attacker<'_>, what: &str) -> Result<Target> {
     match attacker {
-        Attacker::Machine(native) => Ok(native),
-        Attacker::AdHoc => Err(Error::Unsupported { what: what.to_owned() }),
+        Attacker::Machine(native) => Ok(Target::Machine(native.to_owned())),
+        Attacker::AdHoc => adhoc::guest_vm(cx).map(Target::AdHocIn).ok_or_else(|| Error::Unsupported {
+            what: format!("{what} (this lab has no on-demand access machine)"),
+        }),
     }
 }
 

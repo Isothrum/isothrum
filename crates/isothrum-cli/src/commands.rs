@@ -98,13 +98,15 @@ async fn attach(json: bool, run: &Running<'_>, picks: (Option<&str>, Option<&str
     Ok(Verdict::Pass)
 }
 
-/// The command that opens a shell into the access box: its argv, or the `ShellCommand` JSON.
+/// The command that opens a shell into the access box: its argv, led by the variables it needs
+/// (`VAR=value`, as a shell takes them), or the `ShellCommand` JSON.
 fn shell(json: bool, run: &Running<'_>, machine: Option<&str>, term: &Term) -> Result<Verdict> {
     let cmd = run.shell_command(machine)?;
     if json {
         term.out(&serde_json::to_string(&cmd)?);
     } else {
-        term.out(&std::iter::once(cmd.program).chain(cmd.args).collect::<Vec<_>>().join(" "));
+        let env = cmd.env.iter().map(|(k, v)| format!("{k}={v}"));
+        term.out(&env.chain(std::iter::once(cmd.program)).chain(cmd.args).collect::<Vec<_>>().join(" "));
     }
     Ok(Verdict::Pass)
 }

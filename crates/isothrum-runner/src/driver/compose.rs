@@ -192,6 +192,7 @@ impl Driver for Compose {
             program: "docker".into(),
             args,
             cwd: Some(cx.run.dir().to_path_buf()),
+            env: Vec::new(),
         })
     }
 }

@@ -48,8 +48,9 @@ pub(crate) enum Attacker<'a> {
     /// The manifest's on-demand access machine, by the native name its engine addresses it by
     /// (the Compose service, the Vagrant define). The initial `up` left it down.
     Machine(&'a str),
-    /// No machine: the driver makes an attacker box ad hoc on the lab's network. Docker only; the
-    /// VM and cloud drivers refuse it (`unsupported`) for now.
+    /// No machine: the driver makes an attacker box ad hoc on the lab's network. Docker only: a
+    /// container on this computer's Docker (Compose), or inside the VM of a container lab in a VM
+    /// (`docker-vm`); a VM lab and the cloud drivers refuse it (`unsupported`) for now.
     AdHoc,
 }
 
@@ -238,14 +239,43 @@ impl AnyDriver {
     /// Removes, best effort, any ad-hoc attacker box this run left running, on teardown. The box is
     /// a bare container with no Compose project, so a lab's `down` (which removes the project's own
     /// containers) leaves it running; a workload scan then still groups it under the lab and reports
-    /// the lab as running when nothing of it is. Only Compose stands an ad-hoc box up; the other
-    /// drivers have none, and a run that never attached one has nothing to remove.
+    /// the lab as running when nothing of it is. Only Compose stands an ad-hoc box up on this
+    /// computer; a container lab in a VM keeps its box inside the VM, which `down` destroys with
+    /// everything in it, and a run that never attached one has nothing to remove.
     pub(crate) async fn reap_attacker(&self, cx: &Cx<'_>) {
         if let AnyDriver::Compose(d) = self {
             let span = tracing::debug_span!("driver", driver = self.name(), op = "reap-attacker");
             drop(d.detach(cx, Attacker::AdHoc).instrument(span).await);
         }
     }
+}
+
+/// The name an ad-hoc attacker box reports under in status: Isoloom's reserved namespace, so it is
+/// never a lab machine. Its container is `{project}-isoloom-access` on this computer's Docker
+/// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant).
+pub(crate) const ADHOC_NAME: &str = "isoloom-access";
+
+/// The `docker inspect` template that reads an ad-hoc box's running flag and its networks, a `|`
+/// apart: what [`adhoc_status`] reads.
+pub(crate) const ADHOC_STATUS_FORMAT: &str = "{{.State.Running}}|{{json .NetworkSettings.Networks}}";
+
+/// The ad-hoc attacker box as a status machine, from `out`, what `docker inspect` printed for
+/// [`ADHOC_STATUS_FORMAT`]: running or stopped, its addresses by lab network as `addresses` reads
+/// them from the networks JSON. `None` when the output isn't that (best effort: an inspect that
+/// can't be read is simply no access machine).
+pub(crate) fn adhoc_status(out: &str, addresses: impl FnOnce(&str) -> BTreeMap<String, String>) -> Option<MachineStatus> {
+    let (running, networks) = out.trim().split_once('|')?;
+    Some(MachineStatus {
+        name: ADHOC_NAME.to_owned(),
+        role: isoloom_manifest::Role::Access,
+        state: if running.trim() == "true" {
+            crate::status::MachineState::Running
+        } else {
+            crate::status::MachineState::Stopped
+        },
+        addresses: addresses(networks),
+        published: Vec::new(),
+    })
 }
 
 /// Refuses an action of another driver's (the manifest's actions are each one driver's): step

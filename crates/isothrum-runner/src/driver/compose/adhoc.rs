@@ -6,25 +6,18 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Role, access};
+use isoloom_manifest::access;
 use serde_json::Value;
 
 use super::{ATTACH_TIMEOUT, CALL_TIMEOUT, Compose, docker_spec};
 use crate::Result;
-use crate::driver::Attached;
+use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, Attached, adhoc_status};
 use crate::executor::{Cx, Echo, call_ok};
 use crate::state::Op;
-use crate::status::{MachineState, MachineStatus};
+use crate::status::MachineStatus;
 
 /// The label the ad-hoc box carries, so it is recognisable as one Isothrum stood up.
 const LABEL: &str = "isoloom.access";
-
-/// The name the ad-hoc box reports under in status: Isoloom's reserved namespace, so it is never a
-/// lab machine. Its container is `{project}-isoloom-access` ([`container_name`]).
-const STATUS_NAME: &str = "isoloom-access";
-
-/// The `docker inspect` template reading the box's running flag and its networks, a `|` apart.
-const STATUS_FORMAT: &str = "{{.State.Running}}|{{json .NetworkSettings.Networks}}";
 
 /// What the box runs: idle forever, so it stays up for the learner to `exec` into.
 const IDLE: [&str; 2] = ["sleep", "infinity"];
@@ -37,7 +30,7 @@ const SHELL: &str = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
 
 /// The deterministic name of a project's ad-hoc access box.
 pub(super) fn container_name(project: &str) -> String {
-    format!("{project}-isoloom-access")
+    format!("{project}-{ADHOC_NAME}")
 }
 
 /// The argv `docker exec`'s into the ad-hoc box with a TTY: a login shell, `bash` or `sh`.
@@ -158,22 +151,11 @@ impl Compose {
     pub(super) async fn adhoc_status(&self, cx: &Cx<'_>) -> Option<MachineStatus> {
         let project = self.project(cx).ok()?;
         let name = container_name(&project);
-        let args = vec!["inspect".to_owned(), "-f".into(), STATUS_FORMAT.into(), name];
+        let args = vec!["inspect".to_owned(), "-f".into(), ADHOC_STATUS_FORMAT.into(), name];
         let out = call_ok(cx, Op::Check.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Quiet)
             .await
             .ok()?;
-        let (running, networks) = out.trim().split_once('|')?;
-        Some(MachineStatus {
-            name: STATUS_NAME.to_owned(),
-            role: Role::Access,
-            state: if running.trim() == "true" {
-                MachineState::Running
-            } else {
-                MachineState::Stopped
-            },
-            addresses: addresses_by_spec(networks, &project),
-            published: Vec::new(),
-        })
+        adhoc_status(&out, |networks| addresses_by_spec(networks, &project))
     }
 
     /// Removes the box by name: `docker rm -f <name>`. The caller ignores its result where it
