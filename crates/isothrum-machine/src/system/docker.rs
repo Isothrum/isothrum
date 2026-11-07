@@ -24,8 +24,7 @@ const START_TRIES: u32 = 90;
 const START_POLL: Duration = Duration::from_secs(2);
 
 /// Without pkexec there is no graphical password prompt (Debian ships it apart from polkit).
-const NO_PKEXEC: &str =
-    "pkexec isn't installed, so your password can't be asked for. Install it once in a terminal (sudo apt install pkexec), then try again.";
+const NO_PKEXEC: &str = "pkexec isn't installed, so your password can't be asked for. Install it once in a terminal (sudo apt install pkexec), then try again.";
 
 /// Why a running Docker daemon refused this account, as a code the UI renders in the player's
 /// language. Its [`Display`](std::fmt::Display) is the plain-English fallback.
@@ -43,8 +42,12 @@ pub enum DockerDenied {
 impl std::fmt::Display for DockerDenied {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
-            DockerDenied::SocketRefused => "Docker is running but your account can't use it yet. Add your user to the \"docker\" group (`sudo usermod -aG docker $USER`), then log out and back in.",
-            DockerDenied::PipeAccessDenied => "Docker is running but your account can't use it yet. Add your user to the \"docker-users\" group, then sign out and back in.",
+            DockerDenied::SocketRefused => {
+                "Docker is running but your account can't use it yet. Add your user to the \"docker\" group (`sudo usermod -aG docker $USER`), then log out and back in."
+            }
+            DockerDenied::PipeAccessDenied => {
+                "Docker is running but your account can't use it yet. Add your user to the \"docker-users\" group, then sign out and back in."
+            }
         };
         f.write_str(msg)
     }
@@ -246,9 +249,11 @@ async fn launch(runner: &dyn ProcessRunner, engine: &str) -> Result<String> {
             let exe = r"C:\Program Files\Docker\Docker\Docker Desktop.exe";
             exec::run(runner, "cmd", &["/C", "start", "", exe], None).await
         }
-        ("linux", "docker-engine") => exec::run(runner, "pkexec", &["systemctl", "start", "docker"], None)
-            .await
-            .map_err(no_pkexec),
+        ("linux", "docker-engine") => {
+            exec::run(runner, "pkexec", &["systemctl", "start", "docker"], None)
+                .await
+                .map_err(no_pkexec)
+        }
         (_, "colima") => exec::run(runner, "colima", &["start"], None).await,
         _ => Err(Error::Invalid(format!(
             "can't start {engine} here automatically; start it yourself, then re-check."
@@ -378,10 +383,13 @@ mod tests {
 
     #[tokio::test]
     async fn docker_use_switches_the_cli_to_the_engines_context() {
-        let fake = FakeProcesses::rules(&[("context ls", Reply::ok("default *\norbstack\ncolima-dev\n"))]);
+        let fake =
+            FakeProcesses::rules(&[("context ls", Reply::ok("default *\norbstack\ncolima-dev\n"))]);
         docker_use_engine(&fake, "colima").await.unwrap();
         assert!(
-            fake.lines().iter().any(|l| l.contains("context use colima-dev")),
+            fake.lines()
+                .iter()
+                .any(|l| l.contains("context use colima-dev")),
             "{:?}",
             fake.lines()
         );
@@ -404,7 +412,10 @@ mod tests {
                 if flag.load(Ordering::SeqCst) {
                     Reply::ok("Ubuntu 24.04 LTS")
                 } else {
-                    Reply::fail(1, "Cannot connect to the Docker daemon. Is the docker daemon running?")
+                    Reply::fail(
+                        1,
+                        "Cannot connect to the Docker daemon. Is the docker daemon running?",
+                    )
                 }
             } else if line.contains("context ls") {
                 Reply::ok(if flag.load(Ordering::SeqCst) {
@@ -418,7 +429,11 @@ mod tests {
         });
         docker_start_engine(&fake, "colima").await.unwrap();
         assert!(started.load(Ordering::SeqCst), "colima was started");
-        assert!(fake.lines().iter().any(|l| l.contains("context use colima")));
+        assert!(
+            fake.lines()
+                .iter()
+                .any(|l| l.contains("context use colima"))
+        );
     }
 
     #[tokio::test]
@@ -442,7 +457,10 @@ mod tests {
     async fn an_engine_this_machine_cannot_start_is_refused() {
         let fake = FakeProcesses::rules(&[(
             "docker info",
-            Reply::fail(1, "Cannot connect to the Docker daemon. Is the docker daemon running?"),
+            Reply::fail(
+                1,
+                "Cannot connect to the Docker daemon. Is the docker daemon running?",
+            ),
         )]);
         let err = docker_start_engine(&fake, "some-engine").await.unwrap_err();
         assert!(err.to_string().contains("can't start some-engine"), "{err}");

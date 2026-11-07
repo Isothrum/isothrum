@@ -3,8 +3,9 @@
 //!
 //! - **one-way dependencies** (PLAN 3b): the libraries (the compiler and the runner) depend on no
 //!   other crate of the repository and on no UI; the WASM build depends on the compiler alone
-//!   (never the runner: Tokio's processes aren't WASM); the apps (the command line and the
-//!   desktop app) depend on libraries, never the reverse; nothing depends on the xtask;
+//!   (never the runner: Tokio's processes aren't WASM); the machine-setup domain builds on the
+//!   runner, and the apps (the command line and the desktop app) depend on the libraries and the
+//!   domain, never the reverse; nothing depends on the xtask;
 //! - **workspace hygiene** (PLAN 3d): every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -17,6 +18,8 @@ use crate::repo;
 enum Role {
     /// A library every app builds on: the compiler, the runner.
     Library,
+    /// A library built on the base libraries that the apps build on: the machine-setup domain.
+    Domain,
     /// The compiler's WebAssembly build.
     Binding,
     /// A program a person runs: the command line, the desktop app.
@@ -27,9 +30,12 @@ enum Role {
 
 /// The repository's crates and their roles. The desktop app is its own workspace, read from its
 /// manifest.
-const ROLES: [(&str, Role); 6] = [
+const ROLES: [(&str, Role); 7] = [
     ("isothrum-compiler", Role::Library),
     ("isothrum-runner", Role::Library),
+    // Builds on the runner and the desktop app builds on it: a tier of its own between the base
+    // libraries and the apps (the launcher, out of this workspace, consumes it too).
+    ("isothrum-machine", Role::Domain),
     ("isothrum-wasm", Role::Binding),
     ("isothrum-cli", Role::App),
     ("isothrum-desktop", Role::App),
@@ -50,7 +56,7 @@ fn role(name: &str) -> Option<Role> {
 fn allowed(from: &str, to: &str) -> bool {
     match (role(from), role(to)) {
         (Some(Role::Binding), _) => to == "isothrum-compiler",
-        (Some(Role::App | Role::Xtask), Some(Role::Library)) => true,
+        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain)) | (Some(Role::Domain), Some(Role::Library)) => true,
         _ => false,
     }
 }
@@ -60,7 +66,7 @@ fn allowed(from: &str, to: &str) -> bool {
 fn problem(from: &str, to: &str, kind: Option<&str>) -> Option<String> {
     let normal = kind.is_none();
     let why = if role(to).is_some() && !allowed(from, to) {
-        "dependencies go one way: apps and the WASM build on the libraries, never the reverse"
+        "dependencies go one way: the libraries, then the domain built on them, then the apps, never the reverse"
     } else if normal && role(from) == Some(Role::Library) && UI.contains(&to) {
         "a library never depends on a UI"
     } else if normal && matches!(from, "isothrum-compiler" | "isothrum-wasm") && NOT_WASM.contains(&to) {

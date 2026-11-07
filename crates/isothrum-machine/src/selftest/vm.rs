@@ -477,7 +477,12 @@ async fn network(
         } else {
             format!("{} has no private networks", provider.id())
         };
-        r.send("network", "VM reachable on a lab network", "skip", Some(detail));
+        r.send(
+            "network",
+            "VM reachable on a lab network",
+            "skip",
+            Some(detail),
+        );
     }
     Ok(())
 }

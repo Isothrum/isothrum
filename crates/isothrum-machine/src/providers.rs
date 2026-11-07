@@ -458,7 +458,10 @@ mod tests {
             unavailable_reason(Provider::Hyperv, true, hyperv(true)).as_deref(),
             Some(HYPERV_NEEDS_ADMIN)
         );
-        assert_eq!(unavailable_reason(Provider::Hyperv, true, hyperv(false)), None);
+        assert_eq!(
+            unavailable_reason(Provider::Hyperv, true, hyperv(false)),
+            None
+        );
         // `Some(false)` is the only value that raises the reason; `None`/`Some(true)` leave it off.
         let needs = |mmh: Option<bool>| mmh == Some(false);
         assert!(needs(Some(false)) && !needs(None) && !needs(Some(true)));

@@ -262,7 +262,9 @@ pub async fn machine_selftest(
     Box::pin(tracked(runner, dirs, kind, async {
         match kind {
             Kind::Docker => docker::run_test(runner, &work_dir(dirs, "docker")?, &r).await,
-            Kind::Vm => vm::run_test(runner, &work_dir(dirs, "vm")?, vm.provider, vm.elevate, &r).await,
+            Kind::Vm => {
+                vm::run_test(runner, &work_dir(dirs, "vm")?, vm.provider, vm.elevate, &r).await
+            }
         }
     }))
     .await
@@ -600,7 +602,10 @@ mod tests {
         machine_selftest_vm(&fake, &work_dirs(), None, None, send)
             .await
             .unwrap();
-        assert_eq!(seen.lock().unwrap().first().map(|e| e.step), Some("vagrant"));
+        assert_eq!(
+            seen.lock().unwrap().first().map(|e| e.step),
+            Some("vagrant")
+        );
     }
 
     /// An elevation hook that runs nothing itself: it records the call and hands back a canned
@@ -618,8 +623,7 @@ mod tests {
             _ssh: &'a [&'a str],
             on_line: &'a mut (dyn FnMut(&str) + Send),
         ) -> isothrum_runner::BoxFuture<'a, Result<BootProbe>> {
-            self.called
-                .store(true, std::sync::atomic::Ordering::SeqCst);
+            self.called.store(true, std::sync::atomic::Ordering::SeqCst);
             on_line("Bringing machine 'default' up with 'hyperv' provider...");
             Box::pin(async {
                 Ok(BootProbe::new(
