@@ -8,6 +8,14 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
+## [Unreleased]
+
+### Fixed
+
+- **A lab on UTM reads as running once it is up.** UTM's Vagrant plugin reports a running VM as
+  `started` (UTM has no running state of its own), which the runner left as an unknown state, so
+  a lab that had come up on UTM still read as not running. `started` now reads as running.
+
 ## [1.0.4] — 2026-11-07
 
 `isothrum-machine`, the shared machine/setup layer, was first published to crates.io

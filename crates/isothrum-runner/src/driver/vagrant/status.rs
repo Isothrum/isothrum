@@ -59,10 +59,12 @@ pub(crate) fn host_name(out: &str) -> Option<String> {
 
 /// A Vagrant state label as a machine state, every provider's labels included: a VM that is
 /// there but doesn't run is stopped (powered off, suspended, saved, paused), one never created
-/// or destroyed is absent; any other label is kept as it is.
+/// or destroyed is absent; any other label is kept as it is. UTM (`vagrant_utm`) calls a running
+/// VM `started`: it has no running state of its own, so `started` is what it reports once the
+/// VM answers.
 pub(crate) fn machine_state(label: &str) -> MachineState {
     match label {
-        "running" => MachineState::Running,
+        "running" | "started" => MachineState::Running,
         "not_created" => MachineState::Absent,
         "poweroff" | "powered_off" | "off" | "shutoff" | "stopped" | "not_running" | "saved" | "suspended" | "paused" | "pmsuspended" | "aborted"
         | "aborted-saved" => MachineState::Stopped,
@@ -131,6 +133,7 @@ mod tests {
     #[test]
     fn every_providers_labels_map_to_a_state() {
         assert_eq!(machine_state("running"), MachineState::Running);
+        assert_eq!(machine_state("started"), MachineState::Running, "UTM's running VM");
         assert_eq!(machine_state("not_created"), MachineState::Absent);
         for stopped in [
             "poweroff",
