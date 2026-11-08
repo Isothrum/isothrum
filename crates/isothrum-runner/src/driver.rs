@@ -254,12 +254,6 @@ impl AnyDriver {
     }
 }
 
-/// The param that names a run's attack box image when its module makes the box an instance of its
-/// own (Isoloom's cloud-vm): empty for no box.
-pub(crate) fn attack_vm_param() -> &'static str {
-    terraform::attack_vm::PARAM
-}
-
 /// Whether an attach of `manifest`'s run adds an ad-hoc box: the lab declares no on-demand access
 /// machine of its own. Attach and every driver's status decide it here, so a box an attach added
 /// is always the one status shows (an always-up access machine doesn't stand in for it).

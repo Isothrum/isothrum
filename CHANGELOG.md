@@ -12,11 +12,9 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Added
 
-- The attack box on a lab run as one VM per machine in a cloud account: when the module offers it
-  (an `attack_box` param), attach applies it with the box's image and waits for the box over SSH,
-  detach applies it with none, status lists it and the shell goes `ssh -t` then `docker exec`.
-  `Running::attach_with` and `detach_with` take the operation's options (the account's
-  credentials), with the box choice as a `BoxPick`.
+- `Running::attach_with` and `detach_with` take the operation's options (secrets and params an
+  attach or detach that changes the run needs), with the box choice as a `BoxPick`; the CLI's
+  `attach` and `detach` take `--param` and `--secret-from-env`.
 - **The attack box on a container lab in a VM Terraform made** (`cloud-docker` on every cloud,
   a container lab on a Proxmox server). `attach` with no access machine stands the ad-hoc box up
   as a container inside the run's guest VM, as the Vagrant driver does for `docker-vm`: `docker

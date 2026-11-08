@@ -138,9 +138,6 @@ impl Running<'_> {
             if !any_target_running(&self.observe(&mut cx).await?.machines) {
                 return Err(Error::NotRunning { run: self.name().to_string() });
             }
-            if matches!(target, Target::AdHoc) {
-                box_image(&mut cx, Some(image.unwrap_or(isoloom_manifest::access::DEFAULT_IMAGE)));
-            }
             let attached = self.driver.attach(&cx, target.as_attacker(), image, network).await?;
             let report = target.report(network, image, attached);
             let data = json!({ "machine": report.machine, "native": report.native, "network": report.network, "address": report.address });
@@ -174,10 +171,7 @@ impl Running<'_> {
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
             let target = self.attacker(machine)?;
-            let (_, mut cx) = self.existing(&opts, e).await?;
-            if matches!(target, Target::AdHoc) {
-                box_image(&mut cx, None);
-            }
+            let (_, cx) = self.existing(&opts, e).await?;
             self.driver.detach(&cx, target.as_attacker()).await?;
             Ok(Done {
                 value: (),
@@ -270,17 +264,4 @@ fn address_on(m: &Machine, network: Option<&str>) -> (Option<String>, Option<Str
             .next()
             .map_or((None, None), |(k, a)| (Some(k.as_str().to_owned()), Some(a.to_string()))),
     }
-}
-
-/// Sets the box's image in `cx`'s params (`None`: clears it), for a run whose module makes the box
-/// an instance of its own ([`crate::driver::attack_vm_param`]): the recorded value, given at `up`,
-/// would otherwise stand.
-fn box_image(cx: &mut crate::executor::Cx<'_>, image: Option<&str>) {
-    let param = crate::driver::attack_vm_param();
-    if !cx.run.manifest().params.iter().any(|p| p.name.as_str() == param) {
-        return;
-    }
-    let mut params = cx.vars.params().clone();
-    params.insert(param.to_owned(), image.unwrap_or_default().to_owned());
-    cx.vars.set_params(params);
 }

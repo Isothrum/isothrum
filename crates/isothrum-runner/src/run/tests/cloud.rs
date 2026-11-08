@@ -16,9 +16,6 @@ use crate::{EventKind, Recorder, RunOptions, RunState, Runner, WarningCode};
 /// The machine's public address the fake apply reports.
 const PUBLIC: &str = "198.51.100.10";
 
-/// The attack box instance's public address, while there is one.
-const ATTACK_PUBLIC: &str = "198.51.100.77";
-
 /// A test's runner on the cloud fixture and its fake tools.
 struct Account {
     folder: LabFolder,
@@ -45,10 +42,6 @@ struct FakeCloud {
     delivered: Mutex<Vec<String>>,
     /// The state file `inputs.tfvars.json` as the destroy found it.
     destroyed_with: Mutex<Option<String>>,
-    /// The attack box image the last apply that made one was given.
-    attack_image: Mutex<Option<String>>,
-    /// The attack box's cloud-init couldn't start it.
-    attack_fails: AtomicBool,
 }
 
 fn account(failing_applies: u32) -> Account {
@@ -97,18 +90,8 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
                 "Error: creating EC2 Instance: InvalidParameterValue: Value (isoloom-web) for parameter iamInstanceProfile.name is invalid",
             );
         }
-        // The attack box's instance, while `attack_box` names its image (attack_box.rs).
-        let attack = match call.env("TF_VAR_attack_box") {
-            Some(image) if !image.is_empty() => {
-                *cloud.attack_image.lock().unwrap_or_else(PoisonError::into_inner) = Some(image.to_owned());
-                format!(
-                    r#""address_isoloom_access":{{"value":"{ATTACK_PUBLIC}"}},"ssh_user_isoloom_access":{{"value":"admin"}},"lab_address_isoloom_access":{{"value":"10.80.0.77"}},"#
-                )
-            }
-            _ => String::new(),
-        };
         let state = format!(
-            r#"{{"outputs":{{{attack}"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"instances":[{{}}]}}]}}"#
+            r#"{{"outputs":{{"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"instances":[{{}}]}}]}}"#
         );
         std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
         return Reply::ok("Apply complete! Resources: 9 added, 0 changed, 0 destroyed.");
@@ -132,13 +115,6 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
 fn guest(cloud: &FakeCloud, call: &Call, line: &str) -> Reply {
     if call.args == ["-V"] {
         return Reply::ok("OpenSSH_9.9p2");
-    }
-    if line.contains("attack-box-ready") {
-        return if cloud.attack_fails.load(Ordering::SeqCst) {
-            Reply::fail(3, "docker: Error response from daemon: manifest unknown")
-        } else {
-            Reply::ok("ready")
-        };
     }
     if line.contains("/var/lib/isoloom/secrets") {
         if cloud.unreachable.load(Ordering::SeqCst) > 0 {
@@ -266,7 +242,6 @@ async fn an_apply_that_keeps_failing_fails_the_start_after_its_retries() {
     );
 }
 
-mod attack_box;
 mod module;
 mod reach;
 mod seal;
