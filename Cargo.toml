@@ -6,7 +6,7 @@ members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-
 exclude = ["apps/desktop/src-tauri", "fuzz"]
 
 [workspace.package]
-version = "1.0.4"
+version = "1.0.5"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -17,13 +17,13 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-# Isoloom's published crates (crates.io), paired with this release: Isoloom 1.0.0 is live, so the
+# Isoloom's published crates (crates.io), paired with this release: Isoloom 1.0.9 is live, so the
 # lockfile resolves these from the registry.
-isoloom-spec = "1.0.0"
-isoloom-targets = "1.0.0"
-isoloom-manifest = "1.0.0"
-isothrum-compiler = { path = "crates/isothrum-compiler", version = "1.0.4" }
-isothrum-runner = { path = "crates/isothrum-runner", version = "1.0.4" }
+isoloom-spec = "1.0.9"
+isoloom-targets = "1.0.9"
+isoloom-manifest = "1.0.9"
+isothrum-compiler = { path = "crates/isothrum-compiler", version = "1.0.5" }
+isothrum-runner = { path = "crates/isothrum-runner", version = "1.0.5" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"

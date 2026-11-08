@@ -1702,23 +1702,24 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "isoloom-ansible"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
+ "isoloom-catalogue",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "isoloom-catalogue"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "regex",
  "schemars 1.2.3",
  "serde",
@@ -1729,14 +1730,14 @@ dependencies = [
 
 [[package]]
 name = "isoloom-compose"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
- "isoloom-manifest 0.10.1",
+ "isoloom-manifest 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde",
  "serde_yaml_ng",
  "thiserror 2.0.21",
@@ -1744,13 +1745,13 @@ dependencies = [
 
 [[package]]
 name = "isoloom-kubernetes"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -1759,8 +1760,9 @@ dependencies = [
 
 [[package]]
 name = "isoloom-manifest"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab4c522cafb18fa5fd3ea96f39ff0da35a2ad35b3eb8fb242732e04843080418"
 dependencies = [
  "schemars 1.2.3",
  "serde",
@@ -1771,9 +1773,8 @@ dependencies = [
 
 [[package]]
 name = "isoloom-manifest"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "685ba8b740c97febc22b851e01eae7a2159a1248d72cf87fc5408d1b4fc132ef"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "schemars 1.2.3",
  "serde",
@@ -1784,27 +1785,27 @@ dependencies = [
 
 [[package]]
 name = "isoloom-plan"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
  "isoloom-catalogue",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "isoloom-render"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "flate2",
  "hcl-rs",
  "indexmap 2.14.2",
- "isoloom-manifest 0.10.1",
+ "isoloom-manifest 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-plan",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde_json",
  "sha2 0.11.1",
  "thiserror 2.0.21",
@@ -1812,8 +1813,9 @@ dependencies = [
 
 [[package]]
 name = "isoloom-spec"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c6c8d56398c94c76bc497b4eb4644348667ab92565ea8370aaf971efb65ffb8"
 dependencies = [
  "indexmap 2.14.2",
  "saphyr-parser",
@@ -1827,9 +1829,8 @@ dependencies = [
 
 [[package]]
 name = "isoloom-spec"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc9b7a7707e104c55e3ba19364452f6b6ac1bb67754691074677122248c7c5b8"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
  "saphyr-parser",
@@ -1843,16 +1844,16 @@ dependencies = [
 
 [[package]]
 name = "isoloom-targets"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "isoloom-ansible",
  "isoloom-compose",
  "isoloom-kubernetes",
- "isoloom-manifest 0.10.1",
+ "isoloom-manifest 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-terraform",
  "isoloom-vagrant",
  "serde",
@@ -1863,37 +1864,37 @@ dependencies = [
 
 [[package]]
 name = "isoloom-terraform"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
- "isoloom-manifest 0.10.1",
+ "isoloom-manifest 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "isoloom-vagrant"
-version = "0.10.1"
-source = "git+https://github.com/isoloom/isoloom?rev=690d585efdff4f5b9c78f2af65383b807d0a654a#690d585efdff4f5b9c78f2af65383b807d0a654a"
+version = "1.0.9"
+source = "git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5#586f9cef9ab6b46b46848837c5bc272c458be8d5"
 dependencies = [
  "indexmap 2.14.2",
- "isoloom-manifest 0.10.1",
+ "isoloom-manifest 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-plan",
  "isoloom-render",
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "isothrum-compiler"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "indexmap 2.14.2",
- "isoloom-spec 1.0.7",
+ "isoloom-spec 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_yaml_ng",
  "thiserror 2.0.21",
@@ -1903,7 +1904,7 @@ dependencies = [
 name = "isothrum-desktop"
 version = "0.1.0"
 dependencies = [
- "isoloom-spec 0.10.1",
+ "isoloom-spec 1.0.9 (git+https://github.com/isoloom/isoloom?rev=586f9cef9ab6b46b46848837c5bc272c458be8d5)",
  "isoloom-targets",
  "isothrum-compiler",
  "isothrum-machine",
@@ -1917,7 +1918,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-machine"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "isothrum-runner",
  "serde",
@@ -1929,10 +1930,10 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "flate2",
- "isoloom-manifest 1.0.7",
+ "isoloom-manifest 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "process-wrap",
  "regex",
  "schemars 1.2.3",

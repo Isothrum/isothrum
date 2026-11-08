@@ -8,7 +8,7 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
-## [Unreleased]
+## [1.0.5] — 2026-11-08
 
 ### Added
 
