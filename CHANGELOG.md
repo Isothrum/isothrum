@@ -12,6 +12,21 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Added
 
+- **A VM lab gets its attacker box as a VM added to the running environment.** On a Vagrant run
+  with no `guest` and no access machine of its own (a plain VM lab, one VM per machine), `attach`
+  now adds a node to the live lab as GNS3 adds one to a topology: it writes a one-line definition
+  under the run's state folder (`<VAGRANT_DOTFILE_PATH>/adhoc/isoloom-access.rb`, which every
+  Vagrantfile Isoloom 1.0.9 writes loads at the end of `Vagrant.configure` through its
+  `IsoloomAdHoc` hook), naming the chosen lab network (the first otherwise), a free address among
+  the manifest's machines (`.252` in a /24 with no tools) and the learner's box (none: the
+  Vagrantfile's default for this host's CPU, Kali on x86, the Debian cloud image on Arm), then
+  boots it alone with `vagrant up isoloom-access --provider=<p>`. Status reports it as the run's
+  access machine at that address, `shell` is `vagrant ssh isoloom-access`, `detach` destroys it
+  alone and removes the definition with the lab left up, and `down` takes it with the lab. On
+  VirtualBox, VMware, Parallels, libvirt and QEMU; Hyper-V, ESXi and UTM refuse it (declare an
+  `access: true` machine there), as a Vagrantfile written before the hook does. Before, a VM lab
+  refused every ad-hoc box ("hot-adding an ad-hoc access VM … isn't supported").
+
 - **A container lab in a VM gets an ad-hoc attacker box inside the VM.** On a `docker-vm` run
   (the manifest's `guest`), the Vagrant driver's `attach` now stands the attacker box up as a
   container inside the helper VM, on the lab's Docker network there (an idle container from the

@@ -48,9 +48,10 @@ pub(crate) enum Attacker<'a> {
     /// The manifest's on-demand access machine, by the native name its engine addresses it by
     /// (the Compose service, the Vagrant define). The initial `up` left it down.
     Machine(&'a str),
-    /// No machine: the driver makes an attacker box ad hoc on the lab's network. Docker only: a
-    /// container on this computer's Docker (Compose), or inside the VM of a container lab in a VM
-    /// (`docker-vm`); a VM lab and the cloud drivers refuse it (`unsupported`) for now.
+    /// No machine: the driver makes an attacker box ad hoc on the lab's network. A container on
+    /// this computer's Docker (Compose), or inside the VM of a container lab in a VM (`docker-vm`);
+    /// a VM the runner adds to a VM lab's running environment (Vagrant); the cloud drivers refuse
+    /// it (`unsupported`) for now.
     AdHoc,
 }
 
@@ -252,7 +253,9 @@ impl AnyDriver {
 
 /// The name an ad-hoc attacker box reports under in status: Isoloom's reserved namespace, so it is
 /// never a lab machine. Its container is `{project}-isoloom-access` on this computer's Docker
-/// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant).
+/// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant); the VM the runner adds
+/// to a VM lab is the Vagrant define `isoloom-access`, the name every Isoloom Vagrantfile's QEMU
+/// hubs keep a port for.
 pub(crate) const ADHOC_NAME: &str = "isoloom-access";
 
 /// The `docker inspect` template that reads an ad-hoc box's running flag and its networks, a `|`
