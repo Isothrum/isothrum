@@ -8,6 +8,18 @@ Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → s
 plus its WASM build. It executes what Isoloom generates; it is shared by the Isothrum
 desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
+## [Unreleased]
+
+### Added
+
+- **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
+  provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
+  (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out
+  when either is too old: `vagrant_utm` before 0.2.0 (it reads a VM's forwarded ports through a
+  script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
+  `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`). What the Cyber
+  CTF launcher checks on its own, now shared.
+
 ## [1.0.5] — 2026-11-08
 
 ### Added
