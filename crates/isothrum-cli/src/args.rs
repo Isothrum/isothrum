@@ -61,8 +61,10 @@ pub(crate) enum Command {
     },
     /// Hot-add the on-demand access machine (the attacker box) into the running run.
     Attach {
+        /// The run, and what changing it needs (a cloud account's credentials, when the box is
+        /// an instance the module adds).
         #[command(flatten)]
-        run: TargetArgs,
+        op: OpArgs,
         /// Which on-demand machine, when the lab has more than one (default: its only one).
         #[arg(long)]
         machine: Option<String>,
@@ -77,8 +79,9 @@ pub(crate) enum Command {
     },
     /// Hot-remove the on-demand access machine from the running run.
     Detach {
+        /// The run, and what changing it needs, as for `attach`.
         #[command(flatten)]
-        run: TargetArgs,
+        op: OpArgs,
         /// Which on-demand machine, when the lab has more than one (default: its only one).
         #[arg(long)]
         machine: Option<String>,

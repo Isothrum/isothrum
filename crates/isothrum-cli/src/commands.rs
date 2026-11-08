@@ -1,6 +1,6 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{Events, Occupied, Park, RunName, RunOptions, Runner, Running};
+use isothrum_runner::{BoxPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running};
 
 use crate::args::{Cli, Command, Mode, OpArgs, TargetArgs};
 use crate::error::Result;
@@ -49,17 +49,18 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        Command::Attach { run, machine, network, image } => {
-            attach(
-                cli.json,
-                &open(runner, run)?,
-                (machine.as_deref(), network.as_deref(), image.as_deref()),
-                events,
-                term,
-            )
-            .await
+        Command::Attach { op, machine, network, image } => {
+            let pick = BoxPick {
+                machine: machine.as_deref(),
+                network: network.as_deref(),
+                image: image.as_deref(),
+            };
+            attach(cli.json, &open(runner, &op.run)?, (&options(op, var)?, pick), events, term).await
         }
-        Command::Detach { run, machine } => Ok(Verdict::of(open(runner, run)?.detach(machine.as_deref(), events).await.is_ok())),
+        Command::Detach { op, machine } => {
+            let run = open(runner, &op.run)?;
+            Ok(Verdict::of(run.detach_with(&options(op, var)?, machine.as_deref(), events).await.is_ok()))
+        }
         Command::Shell { run, machine } => shell(cli.json, &open(runner, run)?, machine.as_deref(), term),
         Command::Events(run) => print_events(cli.json, runner, &open(runner, run)?, term),
         Command::Reap(args) => reap::run(args, runner, cli.json, term, var).await,
@@ -84,9 +85,8 @@ async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
 }
 
 /// Hot-adds the on-demand access box, then says where to reach it (JSON, or a line).
-async fn attach(json: bool, run: &Running<'_>, picks: (Option<&str>, Option<&str>, Option<&str>), events: &dyn Events, term: &Term) -> Result<Verdict> {
-    let (machine, network, image) = picks;
-    let Ok(report) = run.attach(machine, network, image, events).await else {
+async fn attach(json: bool, run: &Running<'_>, (opts, pick): (&RunOptions, BoxPick<'_>), events: &dyn Events, term: &Term) -> Result<Verdict> {
+    let Ok(report) = run.attach_with(opts, pick, events).await else {
         return Ok(Verdict::Fail);
     };
     if json {
