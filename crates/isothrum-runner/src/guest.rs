@@ -45,7 +45,10 @@ const SSH_UNREACHABLE: i32 = 255;
 /// Delivers to each machine the slots whose guest delivery waits for step `after` (`None`: for the
 /// end of `up`'s steps).
 pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> {
-    let by_machine = due(cx, after)?;
+    let mut by_machine = due(cx, after)?;
+    // A machine set up before this operation keeps what it was given (an update carries no
+    // launch's values: delivering again would overwrite them).
+    by_machine.retain(|machine, _| !cx.set_up.contains(machine));
     if by_machine.is_empty() {
         return Ok(());
     }

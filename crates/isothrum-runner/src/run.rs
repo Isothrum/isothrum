@@ -220,6 +220,7 @@ impl<'r> Running<'r> {
             ssh_jump: None,
             expires_at: None,
             relayed: None,
+            set_up: std::collections::BTreeSet::new(),
         })
     }
 

@@ -5,6 +5,9 @@
 //! removes the ones gone (`--remove-orphans`), Vagrant brings up new VMs. Then, as at `up`, the
 //! guests' secrets, the ready conditions, the outputs and the message.
 //!
+//! A machine that was running keeps what it was given: the guests' secrets go to new machines
+//! only (an update carries no launch's values, which a run never keeps).
+//!
 //! A sealed run stays sealed: its recorded seal is replayed, so a machine added to an
 //! `internet: false` network sets itself up without the internet.
 
@@ -18,7 +21,7 @@ use crate::hooks::Edge;
 use crate::options::RunOptions;
 use crate::secrets::{check_secrets, sensitive_values};
 use crate::state::{Op, RunState};
-use crate::status::{Started, any_target_running};
+use crate::status::{MachineState, Started, any_target_running};
 use crate::{ready, tools};
 
 impl Running<'_> {
@@ -40,9 +43,17 @@ impl Running<'_> {
         check_secrets(self.manifest(), &opts.secrets, &self.scope(opts.provider.clone()))?;
         let (mut record, mut cx) = self.existing(opts, events).await?;
         tools::probe(&cx).await?;
-        if !any_target_running(&self.observe(&mut cx).await?.machines) {
+        let observed = self.observe(&mut cx).await?;
+        if !any_target_running(&observed.machines) {
             return Err(Error::NotRunning { run: self.name().to_string() });
         }
+        // What runs now keeps what it was given: only a machine new to the run gets its secrets.
+        cx.set_up = observed
+            .machines
+            .iter()
+            .filter(|m| m.state == MachineState::Running)
+            .map(|m| m.name.clone())
+            .collect();
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write(&cx, true)?;

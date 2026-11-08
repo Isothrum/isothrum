@@ -73,3 +73,17 @@ async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
     let unknown = run.console_command("nope").unwrap_err();
     assert_eq!(unknown.code(), crate::ErrorCode::MachineUnknown, "{unknown}");
 }
+
+/// A machine that was running keeps what it was given: an update (which carries no launch's
+/// values) delivers nothing to it again.
+#[tokio::test(start_paused = true)]
+async fn an_update_never_delivers_again_to_a_machine_already_set_up() {
+    let a = account_of(SOLO_WEB_AWS, 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let mut secrets = crate::Secrets::new();
+    secrets.insert("FLAG", crate::SecretValue::new("CTF{real}"));
+    run.up(&opts("eu-west-3", "labs").with_secrets(secrets), &Recorder::new()).await.unwrap();
+    assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "delivered at up");
+    run.update(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "web keeps its flag: nothing delivered again");
+}

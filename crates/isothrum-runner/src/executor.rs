@@ -51,6 +51,9 @@ pub(crate) struct Cx<'a> {
     pub(crate) expires_at: Option<u64>,
     /// The macOS relays this operation's tools go through, when its run needs them.
     pub(crate) relayed: Option<crate::relay::Relayed>,
+    /// The machines that were set up before this operation (an update's running machines): they
+    /// keep what they were given, so no guest delivery goes to them again.
+    pub(crate) set_up: std::collections::BTreeSet<String>,
 }
 
 /// The manifest's `recovery.stale_markers`, watched over every line the steps print, whatever its
