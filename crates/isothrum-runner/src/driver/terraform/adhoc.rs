@@ -41,11 +41,14 @@ fn unsupported(what: &str) -> Error {
 }
 
 /// The way into the run's guest VM, `outputs` its Terraform outputs: the login of the guest's
-/// `ssh.run` status step, filled. `None` when the run has no guest reached over SSH.
+/// `ssh.run` status step, filled. `None` when the run has no guest VM; refused when its guest is
+/// reached some other way, and not running while its outputs give no address.
 pub(super) fn guest(cx: &Cx<'_>, outputs: &BTreeMap<String, String>) -> Result<Option<Guest>> {
     let Some(g) = &cx.run.manifest().guest else { return Ok(None) };
     let Run::Action { action: Action::SshRun, with } = &g.status.run else {
-        return Ok(None);
+        return Err(Error::Unsupported {
+            what: "the attack box in a guest VM whose status isn't an `ssh.run` step: the runner has no way into it".to_owned(),
+        });
     };
     let mut vars = cx.vars.clone();
     for (name, value) in outputs {
