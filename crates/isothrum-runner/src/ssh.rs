@@ -214,8 +214,12 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
 /// The login of an `ssh.run` at `host`, its other `with` arguments read by `arg`: its `user`
 /// (root otherwise), through the run's jump then its `via`.
 pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<String>) -> Result<Login> {
-    let user = Some(arg("user")?).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into());
-    Login::new(&user, host, cx.ssh_jump.as_deref(), &arg("via")?)
+    Login::new(&user_or_root(arg("user")?), host, cx.ssh_jump.as_deref(), &arg("via")?)
+}
+
+/// The user an SSH login takes: `user`, else `root` (every login the runner makes falls back so).
+pub(crate) fn user_or_root(user: String) -> String {
+    Some(user).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into())
 }
 
 /// The most an `ssh.run`'s `wait_s` may give: half an hour.
@@ -254,8 +258,7 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
             what: format!("{at}.with.wait_s {secs}: at most {WAIT_MAX} seconds"),
         });
     }
-    let user = Some(arg("user")?).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into());
-    let login = format!("{user}@{}", arg("host")?);
+    let login = format!("{}@{}", user_or_root(arg("user")?), arg("host")?);
     Ok((secs > 0).then(|| Wait {
         limit: std::time::Duration::from_secs(secs),
         login,

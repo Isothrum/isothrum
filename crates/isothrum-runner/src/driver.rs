@@ -50,9 +50,10 @@ pub(crate) enum Attacker<'a> {
     /// (the Compose service, the Vagrant define). The initial `up` left it down.
     Machine(&'a str),
     /// No machine: the driver makes an attacker box ad hoc on the lab's network. A container on
-    /// this computer's Docker (Compose), or inside the VM of a container lab in a VM (`docker-vm`);
-    /// a VM the runner adds to a VM lab's running environment (Vagrant); the cloud drivers refuse
-    /// it (`unsupported`) for now.
+    /// this computer's Docker (Compose), or inside the VM a container lab runs in (`docker-vm`,
+    /// and Terraform's container host on a server or a cloud); a VM the runner adds to a VM lab's
+    /// running environment (Vagrant). Terraform refuses it for a VM lab (`unsupported`): no VM
+    /// to put it in.
     AdHoc,
 }
 
@@ -61,7 +62,8 @@ pub(crate) enum Attacker<'a> {
 /// address the caller already reads from the manifest.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Attached {
-    /// The engine name the box came up under (an ad-hoc container's name).
+    /// The engine name the box came up under: an ad-hoc container's name, or the Vagrant define
+    /// of the attack VM the runner adds.
     pub(crate) name: Option<String>,
     /// The lab network it landed on (the spec name).
     pub(crate) network: Option<String>,
@@ -261,7 +263,8 @@ pub(crate) fn takes_adhoc_box(manifest: &isoloom_manifest::Manifest) -> bool {
 
 /// The name an ad-hoc attacker box reports under in status: Isoloom's reserved namespace, so it is
 /// never a lab machine. Its container is `{project}-isoloom-access` on this computer's Docker
-/// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant); the VM the runner adds
+/// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant, and Terraform on a
+/// server or a cloud); the VM the runner adds
 /// to a VM lab is the Vagrant define `isoloom-access`, the name every Isoloom Vagrantfile's QEMU
 /// hubs keep a port for.
 pub(crate) const ADHOC_NAME: &str = "isoloom-access";

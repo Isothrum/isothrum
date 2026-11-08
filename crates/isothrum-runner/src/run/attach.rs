@@ -1,6 +1,7 @@
 //! Hot-adding the learner's attacker box into a running run, and hot-removing it. A lab no longer
 //! declares an access machine, so the box is stood up ad hoc on the running lab's network with no
-//! manifest or Compose machine behind it ([`crate::driver::Attacker::AdHoc`], Docker only).
+//! manifest or Compose machine behind it ([`crate::driver::Attacker::AdHoc`]: a container, or a VM
+//! the runner adds to a VM lab).
 //!
 //! For backward compatibility, a lab that still carries an on-demand access machine (a manifest
 //! machine marked `on_demand`, which the initial `up` left down — a Compose `access` profile, a
@@ -104,7 +105,7 @@ impl Running<'_> {
     ///
     /// Fails with `machine_unknown` for a named machine the lab doesn't have, `unsupported` when
     /// the lab has several on-demand machines and none is named (or the target can't make an
-    /// ad-hoc box: a VM or cloud lab with no access machine), `not_running` when the run isn't up,
+    /// ad-hoc box: a VM lab on a server or a cloud), `not_running` when the run isn't up,
     /// and as the other operations do for a step or the state.
     pub async fn attach(&self, machine: Option<&str>, network: Option<&str>, image: Option<&str>, events: &dyn Events) -> Result<AttachReport> {
         let opts = self.connected(&RunOptions::default());
@@ -160,7 +161,7 @@ impl Running<'_> {
     /// # Errors
     ///
     /// Fails as [`Running::attach`] does for the box choice, and `unsupported` on a target that
-    /// makes no ad-hoc box (a VM or cloud lab with no access machine).
+    /// makes no ad-hoc box (a VM lab on a server or a cloud).
     pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
         let target = self.attacker(machine)?;
         let (record, provider, params) = self.query_prelude()?;

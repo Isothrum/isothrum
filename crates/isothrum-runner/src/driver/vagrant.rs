@@ -148,14 +148,14 @@ impl Vagrant {
     /// Boots the define `native` alone (`vagrant up <define> --provider=<p>`), on the run's own
     /// provider, the one its other VMs came up on, with the picked box in [`access::BOX_ENV`] (its
     /// `ENV.fetch` default otherwise): an access VM the lab declares, or the runner's ad-hoc VM.
-    async fn boot(&self, cx: &Cx<'_>, native: &str, image: Option<&str>) -> Result<()> {
+    async fn boot(&self, cx: &Cx<'_>, native: &str, box_name: Option<&str>) -> Result<()> {
         let provider = cx.scope.provider.as_ref().map(|p| format!("--provider={p}"));
         let mut args = vec!["up", native];
         if let Some(flag) = &provider {
             args.push(flag);
         }
         let mut spec = self.vagrant(cx, Op::Attach.as_str(), &args)?;
-        if let Some(box_name) = image {
+        if let Some(box_name) = box_name {
             spec.env.push((access::BOX_ENV.to_owned(), box_name.to_owned()));
         }
         call_ok(cx, Op::Attach.as_str(), &spec, ATTACH_TIMEOUT, Echo::Shown).await.map(drop)
@@ -274,6 +274,7 @@ impl Driver for Vagrant {
             Target::AdHocVm => return adhoc_vm::attach(self, cx, image, network).await,
             Target::Machine(native) => native,
         };
+        // A lab's own access VM: the attach's image is the Vagrant box it boots from.
         self.boot(cx, &native, image).await?;
         Ok(Attached::default())
     }
