@@ -9,6 +9,7 @@ mod seal;
 #[cfg(test)]
 mod tests;
 mod up;
+mod update;
 
 pub use attach::{AttachReport, BoxPick};
 

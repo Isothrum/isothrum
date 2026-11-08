@@ -47,6 +47,9 @@ pub(crate) enum Command {
     },
     /// Start a parked run again.
     Resume(OpArgs),
+    /// Bring a running run up to date with its manifest, regenerated since it started (a
+    /// machine added or taken out): its start steps again, with the params it was started with.
+    Update(OpArgs),
     /// Show the run: its state, machines, outputs and message.
     Status(TargetArgs),
     /// Run the run's checks (exit 1 when one fails).

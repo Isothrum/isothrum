@@ -159,7 +159,7 @@ impl Running<'_> {
     /// The start steps; a failure whose message holds one of `recovery.stale_markers` runs the
     /// recovery steps and starts again, up to `recovery.retries` times. A genuine failure never
     /// retries.
-    async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
+    pub(super) async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
         let up = self.manifest().lifecycle.up.as_slice();
         let none = Recovery {
             stale_markers: Vec::new(),

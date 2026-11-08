@@ -338,6 +338,11 @@
           "description": "Hot-remove the on-demand access machine from the running run.",
           "type": "string",
           "const": "detach"
+        },
+        {
+          "description": "Bring the running run up to date with its manifest.",
+          "type": "string",
+          "const": "update"
         }
       ]
     },

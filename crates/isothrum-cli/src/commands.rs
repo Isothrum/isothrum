@@ -16,33 +16,6 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
     let (json, human) = (Json(term), Human(term));
     let events: &dyn Events = if cli.json { &json } else { &human };
     match &cli.command {
-        Command::Up { op, replace, lifetime } => {
-            let run = open(runner, &op.run)?;
-            let Ok(run) = run.up(&start_opts(op, *replace, *lifetime, var)?, events).await else {
-                return Ok(Verdict::Fail);
-            };
-            if !cli.json {
-                term.out(run.message.as_deref().unwrap_or("The run is up.").trim_end());
-            }
-            Ok(Verdict::Pass)
-        }
-        Command::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
-        Command::Park { run, mode } => {
-            let mode = match mode {
-                Mode::Pause => Park::Pause,
-                Mode::Shutdown => Park::Shutdown,
-            };
-            Ok(Verdict::of(open(runner, run)?.park(mode, events).await.is_ok()))
-        }
-        Command::Resume(op) => {
-            let Ok(run) = open(runner, &op.run)?.resume(&options(op, var)?, events).await else {
-                return Ok(Verdict::Fail);
-            };
-            if !cli.json {
-                term.out(run.message.as_deref().unwrap_or("The run is up again.").trim_end());
-            }
-            Ok(Verdict::Pass)
-        }
         Command::Status(run) => status(cli.json, &open(runner, run)?, term).await,
         Command::Check(op) => check(cli.json, &open(runner, &op.run)?, &options(op, var)?, events, term).await,
         Command::Provision { op, machine } => {
@@ -68,7 +41,48 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
+        Command::Up { .. } | Command::Down(_) | Command::Park { .. } | Command::Resume(_) | Command::Update(_) => {
+            lifecycle(cli, runner, term, var, events).await
+        }
     }
+}
+
+/// The commands that start, stop, park, resume or update the run (any other command is no
+/// lifecycle change: it fails here, as it never comes here).
+async fn lifecycle(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>, events: &dyn Events) -> Result<Verdict> {
+    match &cli.command {
+        Command::Up { op, replace, lifetime } => {
+            let started = open(runner, &op.run)?.up(&start_opts(op, *replace, *lifetime, var)?, events).await;
+            Ok(said(cli.json, started.ok(), "The run is up.", term))
+        }
+        Command::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
+        Command::Park { run, mode } => {
+            let mode = match mode {
+                Mode::Pause => Park::Pause,
+                Mode::Shutdown => Park::Shutdown,
+            };
+            Ok(Verdict::of(open(runner, run)?.park(mode, events).await.is_ok()))
+        }
+        Command::Resume(op) => {
+            let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
+            Ok(said(cli.json, resumed.ok(), "The run is up again.", term))
+        }
+        Command::Update(op) => {
+            let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
+            Ok(said(cli.json, updated.ok(), "The run is up to date.", term))
+        }
+        _ => Ok(Verdict::Fail),
+    }
+}
+
+/// A run that came up (a start, a resume, an update): its message, or `done`, unless the output is JSON
+/// (its events said it); failed when it didn't come up.
+fn said(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
+    let Some(run) = run else { return Verdict::Fail };
+    if !json {
+        term.out(run.message.as_deref().unwrap_or(done).trim_end());
+    }
+    Verdict::Pass
 }
 
 /// The run's status: JSON, or a short table.

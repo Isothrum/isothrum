@@ -26,6 +26,8 @@ pub enum Op {
     Attach,
     /// Hot-remove the on-demand access machine from the running run.
     Detach,
+    /// Bring the running run up to date with its manifest.
+    Update,
 }
 
 impl Op {
@@ -41,6 +43,7 @@ impl Op {
             Op::Provision => "provision",
             Op::Attach => "attach",
             Op::Detach => "detach",
+            Op::Update => "update",
         }
     }
 
@@ -51,7 +54,8 @@ impl Op {
             Op::Down => Some(RunState::Stopping),
             Op::Park => Some(RunState::Parking),
             Op::Resume => Some(RunState::Resuming),
-            Op::Check | Op::Provision | Op::Attach | Op::Detach => None,
+            // An update changes a run that keeps running: it stays ready meanwhile.
+            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update => None,
         }
     }
 }

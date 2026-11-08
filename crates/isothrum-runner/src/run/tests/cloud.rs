@@ -246,3 +246,4 @@ mod module;
 mod reach;
 mod seal;
 mod secrets;
+mod update;

@@ -12,6 +12,11 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Added
 
+- `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
+  regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
+  with the params the run was started with, so each engine converges, then the guests' secrets,
+  the ready conditions and the outputs, as at `up`. The run stays ready meanwhile; a sealed run
+  stays sealed. New operation in events: `update`.
 - `Running::attach_with` and `detach_with` take the operation's options (secrets and params an
   attach or detach that changes the run needs), with the box choice as a `BoxPick`; the CLI's
   `attach` and `detach` take `--param` and `--secret-from-env`.
