@@ -365,3 +365,18 @@ async fn running_box(run: &crate::Running<'_>) -> crate::MachineStatus {
 }
 
 mod proxmox;
+
+/// A console into a service of the lab in the VM: `vagrant ssh` into the VM, then into the
+/// service's container, found by its Compose label.
+#[tokio::test(start_paused = true)]
+async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let console = run.console_command("web").unwrap();
+    assert_eq!(console.program, "vagrant");
+    assert_eq!(console.args[..3], ["ssh", "default", "-c"]);
+    assert!(console.args[3].contains("label=com.docker.compose.service=web"), "{}", console.args[3]);
+    let vm = run.console_command("docker").unwrap();
+    assert_eq!(vm.args, ["ssh", "default"], "the VM itself: its define");
+}

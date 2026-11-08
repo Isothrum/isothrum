@@ -183,6 +183,21 @@ impl Driver for Compose {
     /// The command that opens an interactive shell into the attacker box. A manifest machine is
     /// addressed by its Compose service (`docker compose … exec <service> bash`); an ad-hoc box by
     /// its container (`docker exec -it <name> …`, falling back from `bash` to `sh`).
+    /// `docker compose exec` into the machine's service, a shell there.
+    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+        let Some(isoloom_manifest::Native::Compose { service }) = &machine.native else {
+            return Err(Error::Unsupported {
+                what: format!("a console into `{}`, which isn't a Compose service", machine.name),
+            });
+        };
+        Ok(ShellCommand {
+            program: "docker".into(),
+            args: self.compose_args(cx, &["exec", service.as_str(), "sh", "-c", super::console::CONTAINER_SHELL])?,
+            cwd: Some(cx.run.dir().to_path_buf()),
+            env: Vec::new(),
+        })
+    }
+
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
         let args = match attacker {
             Attacker::Machine(native) => self.compose_args(cx, &["exec", native, "bash"])?,

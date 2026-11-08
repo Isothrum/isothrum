@@ -300,6 +300,43 @@ impl Driver for Vagrant {
     /// container in the VM of a container lab. Either runs in the run's
     /// folder with the run's Vagrant environment (its state folder, its forwarded ports), which
     /// Vagrant needs to find the VM.
+    /// A VM of the run destroyed alone (`vagrant destroy -f <define>`) before its define leaves
+    /// the Vagrantfile: once it has, Vagrant no longer knows the VM. A Compose service in the
+    /// run's VM is left to the update, whose start removes it.
+    async fn retire(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<()> {
+        let Some(isoloom_manifest::Native::Vagrant { vagrant, .. }) = &machine.native else {
+            return Ok(());
+        };
+        let spec = self.vagrant(cx, Op::Retire.as_str(), &["destroy", "-f", vagrant.as_str()])?;
+        call_ok(cx, Op::Retire.as_str(), &spec, ATTACH_TIMEOUT, Echo::Shown).await.map(drop)
+    }
+
+    /// `vagrant ssh` into the machine's VM; for a Compose service in the run's VM, `vagrant ssh`
+    /// into that VM, then into the service's container.
+    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+        let mut args = vec!["ssh".to_owned()];
+        match &machine.native {
+            Some(isoloom_manifest::Native::Vagrant { vagrant, .. }) => args.push(vagrant.to_string()),
+            Some(isoloom_manifest::Native::Compose { service }) => {
+                let vm = guest_define(cx).ok_or_else(|| Error::Unsupported {
+                    what: format!("a console into `{}`: a Compose service with no VM to run in", machine.name),
+                })?;
+                args.extend([vm, "-c".to_owned(), super::console::into_service(service.as_str())]);
+            }
+            None => {
+                return Err(Error::Unsupported {
+                    what: format!("a console into `{}`: the run doesn't say how it runs", machine.name),
+                });
+            }
+        }
+        Ok(ShellCommand {
+            program: "vagrant".into(),
+            args,
+            cwd: Some(cx.run.dir().to_path_buf()),
+            env: self.env(cx)?,
+        })
+    }
+
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
         let native = match target(cx, attacker) {
             Target::AdHocIn(vm) => return adhoc::shell_command(self, cx, &vm),
@@ -417,3 +454,14 @@ fn machines(
 
 #[cfg(test)]
 mod tests;
+
+/// The define of the VM a container lab's containers run in, when the run is one (its manifest's
+/// `guest` names one of its Vagrant machines).
+fn guest_define(cx: &Cx<'_>) -> Option<String> {
+    let manifest = cx.run.manifest();
+    let guest = manifest.guest.as_ref()?;
+    manifest.machines.iter().find(|m| m.name == guest.machine).and_then(|m| match &m.native {
+        Some(isoloom_manifest::Native::Vagrant { vagrant, .. }) => Some(vagrant.to_string()),
+        _ => None,
+    })
+}

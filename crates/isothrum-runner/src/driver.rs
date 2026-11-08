@@ -3,6 +3,7 @@
 //! documented actions (run-manifest-v0.md §6), how it reads status, and its run-state upkeep.
 
 mod compose;
+pub(crate) mod console;
 mod terraform;
 mod vagrant;
 mod vm_box;
@@ -97,6 +98,14 @@ pub(crate) trait Driver {
     /// The argv that opens an interactive shell into the attacker box. A pure query: no process
     /// runs here, the embedder runs what it returns in its own terminal.
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand>;
+    /// Takes `machine` out of the running run, ahead of its removal from the manifest, where the
+    /// next update of the run wouldn't remove it itself. Nothing to do by default: Compose's
+    /// start removes the services the lab no longer has, and Terraform's apply what it no
+    /// longer makes.
+    async fn retire(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<()> {
+        let _ = (cx, machine);
+        Ok(())
+    }
     /// The argv that opens an interactive console into `machine`, any machine of the run. A pure
     /// query, as [`Driver::shell_command`]. Refused where the driver has no way in yet.
     fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
@@ -245,6 +254,14 @@ impl AnyDriver {
             AnyDriver::Compose(d) => d.shell_command(cx, attacker),
             AnyDriver::Vagrant(d) => d.shell_command(cx, attacker),
             AnyDriver::Terraform(d) => d.shell_command(cx, attacker),
+        }
+    }
+
+    pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<()> {
+        match self {
+            AnyDriver::Compose(d) => d.retire(cx, machine).await,
+            AnyDriver::Vagrant(d) => d.retire(cx, machine).await,
+            AnyDriver::Terraform(d) => d.retire(cx, machine).await,
         }
     }
 

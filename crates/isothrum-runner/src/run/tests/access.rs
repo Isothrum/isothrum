@@ -290,3 +290,63 @@ async fn shell_command_refuses_an_unknown_named_machine() {
     let bare = bare.runner.open(&bare.manifest, None).unwrap();
     assert_eq!(bare.shell_command(Some("nope")).unwrap_err().code(), ErrorCode::MachineUnknown);
 }
+
+/// A console into any machine of a Compose run: `docker compose exec` of its service, bash where
+/// the image has it, else sh.
+#[tokio::test]
+async fn a_console_opens_any_compose_service_by_name() {
+    let f = fixture_with(FLAG_PORTAL_ACCESS);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let cmd = run.console_command("web").unwrap();
+    assert_eq!(cmd.program, "docker");
+    let line = cmd.args.join(" ");
+    assert!(line.starts_with("compose --project-name"), "{line}");
+    assert!(line.contains(" exec web sh -c "), "{line}");
+    assert!(line.ends_with(crate::driver::console::CONTAINER_SHELL), "{line}");
+    assert_eq!(run.console_command("nope").unwrap_err().code(), ErrorCode::MachineUnknown);
+}
+
+/// A console into a Vagrant machine is `vagrant ssh` of its define.
+#[tokio::test]
+async fn a_console_opens_any_vagrant_define_by_name() {
+    let (folder, _fake, runner) = vagrant_access(|_| Reply::ok(""));
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let cmd = run.console_command("web").unwrap();
+    assert_eq!(cmd.program, "vagrant");
+    assert_eq!(cmd.args, vec!["ssh".to_owned(), "web".to_owned()]);
+}
+
+/// Retiring a Vagrant machine destroys its define, and only it, ahead of its removal from the
+/// manifest (an update leaves a define the Vagrantfile no longer has).
+#[tokio::test]
+async fn retiring_a_vagrant_machine_destroys_only_its_define() {
+    let (folder, fake, runner) = vagrant_access(|call| {
+        if call.line().contains("status") {
+            return Reply::ok("1,web,state,running\n1,isoloom-controller,state,running\n1,attacker,state,running");
+        }
+        Reply::ok("")
+    });
+    let run = runner.open(&folder.manifest, None).unwrap();
+    run.retire("attacker", &RunOptions::new(), &Recorder::new()).await.unwrap();
+    let destroys: Vec<String> = fake.calls().iter().map(Call::line).filter(|l| l.contains("destroy")).collect();
+    assert_eq!(destroys.len(), 1, "{destroys:?}");
+    assert!(destroys[0].ends_with("destroy -f attacker"), "{destroys:?}");
+    let err = run.retire("nope", &RunOptions::new(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::MachineUnknown);
+}
+
+/// Retiring a Compose service does nothing to the run: the update after its removal from the
+/// manifest takes its container away (`--remove-orphans`).
+#[tokio::test]
+async fn retiring_a_compose_service_leaves_it_to_the_update() {
+    let f = fixture_with(FLAG_PORTAL_ACCESS);
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let before = f.fake.calls().len();
+    run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();
+    let after: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
+    assert!(
+        after.iter().all(|l| !l.contains(" rm ") && !l.contains(" down") && !l.contains(" stop")),
+        "{after:?}"
+    );
+}

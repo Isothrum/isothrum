@@ -343,6 +343,11 @@
           "description": "Bring the running run up to date with its manifest.",
           "type": "string",
           "const": "update"
+        },
+        {
+          "description": "Take a machine out of the running run, ahead of its removal from the manifest.",
+          "type": "string",
+          "const": "retire"
         }
       ]
     },

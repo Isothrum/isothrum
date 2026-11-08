@@ -22,6 +22,7 @@
 mod adhoc;
 mod console;
 mod copy_module;
+mod guest;
 mod state;
 
 use std::collections::BTreeMap;

@@ -11,8 +11,6 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Action, Run};
-
 use super::state;
 use crate::Result;
 use crate::driver::vm_box::{self, WayIn};
@@ -40,30 +38,9 @@ fn unsupported(what: &str) -> Error {
     }
 }
 
-/// The way into the run's guest VM, `outputs` its Terraform outputs: the login of the guest's
-/// `ssh.run` status step, filled. `None` when the run has no guest VM; refused when its guest is
-/// reached some other way, and not running while its outputs give no address.
+/// The way into the run's guest VM ([`super::guest::login`]).
 pub(super) fn guest(cx: &Cx<'_>, outputs: &BTreeMap<String, String>) -> Result<Option<Guest>> {
-    let Some(g) = &cx.run.manifest().guest else { return Ok(None) };
-    let Run::Action { action: Action::SshRun, with } = &g.status.run else {
-        return Err(Error::Unsupported {
-            what: "the attack box in a guest VM whose status isn't an `ssh.run` step: the runner has no way into it".to_owned(),
-        });
-    };
-    let mut vars = cx.vars.clone();
-    for (name, value) in outputs {
-        vars.set_output(name, value.clone());
-    }
-    let arg = |name: &str| -> Result<String> { Ok(vars.with_arg(with, "guest.status", name)?.unwrap_or_default()) };
-    let host = arg("host")?;
-    if host.is_empty() {
-        return Err(Error::NotRunning {
-            run: cx.run.name().to_string(),
-        });
-    }
-    Ok(Some(Guest {
-        login: ssh::with_login(cx, &host, arg)?,
-    }))
+    Ok(super::guest::login(cx, outputs)?.map(|login| Guest { login }))
 }
 
 /// The way into the run's guest VM, its outputs read from the run's state; refused, naming

@@ -15,7 +15,13 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
   run, a pure query like `shell_command`. On a Terraform run: `ssh -t` to the machine's address as
   its user (`ssh_user_<machine>`, else `ssh_user`, else root), through the run's SSH settings.
-  Other targets refuse it for now (`unsupported`).
+  On Compose: `docker compose exec` of the service. On Vagrant: `vagrant ssh` of the define. A
+  Compose service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) goes into that VM,
+  then into the service's container. Each starts bash where the machine has it, else sh.
+- `Running::retire(machine)`: takes a machine out of the running run ahead of its removal from
+  the manifest and the update after: a Vagrant VM is destroyed (Vagrant forgets a define the
+  Vagrantfile no longer has); the other targets' update removes it itself. New operation in
+  events: `retire`.
 - `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
   regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
   with the params the run was started with, so each engine converges, then the guests' secrets,

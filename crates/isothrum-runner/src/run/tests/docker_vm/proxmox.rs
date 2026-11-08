@@ -172,3 +172,21 @@ async fn the_attack_box_goes_through_the_runs_ssh_jump() {
     let shell = run.shell_command(None).unwrap();
     assert!(shell.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", shell.args);
 }
+
+/// A console into a service of the lab in the server's VM: `ssh -t` to the VM as the guest's
+/// user, then into the service's container.
+#[tokio::test(start_paused = true)]
+async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() {
+    let s = proxmox();
+    let run = s.runner.open(&s.folder.manifest, None).unwrap();
+    run.up(&s.options, &Recorder::new()).await.unwrap();
+    let console = run.console_command("web").unwrap();
+    assert_eq!(console.program, "ssh");
+    assert_eq!(console.args[0], "-t");
+    assert!(console.args.contains(&format!("isoloom@{VM_IP}")), "{:?}", console.args);
+    assert!(
+        console.args.last().unwrap().contains("label=com.docker.compose.service=web"),
+        "{:?}",
+        console.args
+    );
+}

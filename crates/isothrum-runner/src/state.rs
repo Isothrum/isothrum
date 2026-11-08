@@ -28,6 +28,8 @@ pub enum Op {
     Detach,
     /// Bring the running run up to date with its manifest.
     Update,
+    /// Take a machine out of the running run, ahead of its removal from the manifest.
+    Retire,
 }
 
 impl Op {
@@ -44,6 +46,7 @@ impl Op {
             Op::Attach => "attach",
             Op::Detach => "detach",
             Op::Update => "update",
+            Op::Retire => "retire",
         }
     }
 
@@ -55,7 +58,7 @@ impl Op {
             Op::Park => Some(RunState::Parking),
             Op::Resume => Some(RunState::Resuming),
             // An update changes a run that keeps running: it stays ready meanwhile.
-            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update => None,
+            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update | Op::Retire => None,
         }
     }
 }
