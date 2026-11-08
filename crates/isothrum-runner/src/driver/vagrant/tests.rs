@@ -33,6 +33,8 @@ struct Engine {
     vbox: BTreeMap<String, String>,
     /// How many times the controller still says it halts.
     halting: u32,
+    /// The one-VM boot fails half-way (the VM made, its provisioning broken).
+    one_vm_fails: bool,
     /// What `vagrant --version` says (default: 2.4.9).
     version: Option<String>,
     /// What `vagrant halt <controller>` does: `None` halts it; `Some(state)` fails as libvirt's
@@ -192,6 +194,10 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 fn one_vm(e: &mut Engine, dotfile: &Path, args: &[&str]) -> Option<Reply> {
     match args {
         ["up", vm, provider] if provider.starts_with("--provider=") => {
+            if e.one_vm_fails {
+                e.states.insert((*vm).to_owned(), "poweroff".into());
+                return Some(Reply::fail(1, "The SSH command responded with a non-zero exit status."));
+            }
             e.states.insert((*vm).to_owned(), "running".into());
             record(dotfile, vm, provider.trim_start_matches("--provider="));
             Some(Reply::ok(&format!("==> {vm}: Machine booted and ready!")))
@@ -400,6 +406,26 @@ async fn a_vm_lab_gets_an_ad_hoc_vm_added_to_the_running_environment() {
         f.fake.calls()[calls..].iter().all(|c| c.line().starts_with("vagrant status")),
         "a second detach destroys nothing"
     );
+}
+
+/// An attack VM whose boot fails is undone: the half-made VM destroyed and its definition removed,
+/// so the run doesn't list an attack VM that never came up and later commands don't load it.
+#[tokio::test]
+async fn a_failed_ad_hoc_vm_boot_leaves_nothing_behind() {
+    let f = fixture(crate::this_host());
+    with_hook(&f);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine.lock().unwrap().one_vm_fails = true;
+    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    assert!(err.to_string().contains("non-zero exit status"), "{err}");
+    assert!(f.fake.last(&format!("destroy -f {ADHOC}")).is_some(), "the half-made VM is destroyed");
+    let adhoc = f.runner.store.run_dir(run.name()).unwrap().join("vagrant").join("adhoc");
+    assert!(
+        !adhoc.join("isoloom-access.rb").exists() && !adhoc.join("isoloom-access.json").exists(),
+        "no definition left"
+    );
+    assert!(!run.status().await.unwrap().machines.iter().any(|m| m.name == ADHOC), "no attack VM listed");
 }
 
 /// A Vagrantfile written before the hook can't load the runner's definition: refused before any

@@ -218,7 +218,14 @@ pub(super) async fn attach(v: &Vagrant, cx: &Cx<'_>, image: Option<&str>, networ
     let record = serde_json::to_string(&node).unwrap_or_default();
     std::fs::write(&json, record).map_err(Error::io(&json, "written"))?;
     // The image goes to the hook through the definition, never as the VM's box.
-    v.boot(cx, ADHOC_NAME, None).await?;
+    if let Err(failed) = v.boot(cx, ADHOC_NAME, None).await {
+        // Undone, so the run lists no attack VM that never came up. A VM that can't be destroyed
+        // keeps its definition: a later detach can still reach it.
+        if let Err(e) = remove(v, cx).await {
+            tracing::warn!(%e, "a failed attack VM could not be destroyed");
+        }
+        return Err(failed);
+    }
     Ok(Attached {
         name: Some(ADHOC_NAME.to_owned()),
         network: Some(node.network),
@@ -232,6 +239,11 @@ pub(super) async fn detach(v: &Vagrant, cx: &Cx<'_>) -> Result<()> {
     if !present(v, cx) {
         return Ok(());
     }
+    remove(v, cx).await
+}
+
+/// The attack VM destroyed alone, then its definition removed (kept when the destroy fails).
+async fn remove(v: &Vagrant, cx: &Cx<'_>) -> Result<()> {
     let spec = v.vagrant(cx, Op::Detach.as_str(), &["destroy", "-f", ADHOC_NAME])?;
     call_ok(cx, Op::Detach.as_str(), &spec, DETACH_TIMEOUT, Echo::Shown).await?;
     let (rb, json) = files(v, cx)?;
