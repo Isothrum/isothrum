@@ -2,7 +2,7 @@ name: Publish crates
 
 # Publishes the Isothrum library crates to crates.io with crates.io Trusted Publishing: the job
 # mints a short-lived token over OIDC at run time (no long-lived secret is stored). Triggered by a
-# release tag `vX.Y.Z` (the same tag the desktop installer build uses) or run by hand from the
+# release tag `vX.Y.Z` or run by hand from the
 # Actions tab. It publishes in dependency order and skips any crate whose version is already on
 # crates.io, so re-running after a partial failure is safe.
 #

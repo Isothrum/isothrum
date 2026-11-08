@@ -10,6 +10,15 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ## [Unreleased]
 
+### Removed
+
+- **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own
+  repository, `isoloom/isothrum-desktop`, which ships it (installers, the Microsoft Store) on the
+  crates published from here; the copy kept here "while that move completes" had drifted from it
+  and had no release path. Its CI jobs, the installer workflow and its place in the xtask
+  dependency rule go with it. The 2026-11-08 fixes made on that copy (the editor's command names,
+  the hypervisor choice, UTM's state) are in the desktop repository.
+
 ### Changed
 
 - **A VM lab's ad-hoc attack VM runs the learner's container image.** `attach`'s `image` on a plain

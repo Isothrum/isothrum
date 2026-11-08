@@ -8,8 +8,7 @@ compiler that turns a drawn lab into an Isoloom spec.
 
 This repository is **libraries and a CLI only**. The Isothrum desktop app (the Tauri UI) and the
 shared editor components live in their own repositories (`isoloom/isothrum-desktop`,
-`isoloom/isothrum-ui`); the desktop app's crate still lives here under `apps/desktop/` as its own
-workspace while that move completes. Everything here is Apache-2.0.
+`isoloom/isothrum-ui`), on the crates published from here. Everything here is Apache-2.0.
 
 Reference version: **0.11.1** (the current workspace version). 1.0.0 is the target; see
 ["Status"](#status) for what is proven versus owed.
@@ -23,7 +22,7 @@ Reference version: **0.11.1** (the current workspace version). 1.0.0 is the targ
 | [`isothrum-wasm`](https://crates.io/crates/isothrum-wasm) | `isothrum-wasm` | The compiler plus Isoloom's targets, compiled to WebAssembly for the in-browser editor. The same build runs on isothrum.com's server for its MCP tools. |
 | [`isothrum-cli`](https://crates.io/crates/isothrum-cli) | `isothrum-cli` | The `isothrum` command-line runner. |
 
-`xtask`, the `fuzz/` targets and `apps/desktop/` are not published.
+`xtask` and the `fuzz/` targets are not published.
 
 ## The runner
 

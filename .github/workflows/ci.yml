@@ -30,67 +30,13 @@ jobs:
       # The exports as JavaScript calls them (wasm-bindgen-test, on Node).
       - run: wasm-pack test --node crates/isothrum-wasm
 
-  desktop:
-    name: Desktop app
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: apps/desktop/src-tauri
-    steps:
-      - uses: actions/checkout@v4
-      - name: System libraries (WebKitGTK)
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: Rust toolchain
-        run: rustup toolchain install --profile minimal
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-      # The bundled editor comes from the website at release; a placeholder page builds here.
-      - run: mkdir -p ../editor && echo '<!doctype html><title>Isothrum</title>' > ../editor/index.html
-      - run: cargo fmt --check
-      # The desktop crate is its own workspace with no [lints] table, so -D warnings is its gate.
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-      # The tests that run real labs (Docker is on the runner).
-      - run: cargo test -- --ignored one_machine_stops_starts_and_has_a_console a_snapshot_brings_a_machine_back_as_it_was a_suspended_link_carries_nothing_until_resumed the_probe_sees_a_suspended_link a_machines_vnc_port_is_reachable_from_this_computer a_capture_on_a_vlan_records_its_traffic
-
-  desktop-platforms:
-    name: Desktop app (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: apps/desktop/src-tauri
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - name: Rust toolchain
-        run: rustup toolchain install --profile minimal
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-      - run: mkdir -p ../editor && echo '<!doctype html><title>Isothrum</title>' > ../editor/index.html
-      - run: cargo test
-
   msrv:
     name: MSRV (Rust 1.90)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: System libraries (WebKitGTK)
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # The engine declares rust-version 1.90, the desktop app 1.88; 1.90 is the binding floor.
-      # +1.90 overrides the rust-toolchain.toml pin for this check only.
+      # The engine declares rust-version 1.90. +1.90 overrides the rust-toolchain.toml pin for this
+      # check only.
       - uses: dtolnay/rust-toolchain@1.90
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            apps/desktop/src-tauri
       - run: cargo +1.90 check --all-targets
-      - run: mkdir -p apps/desktop/editor && echo '<!doctype html><title>Isothrum</title>' > apps/desktop/editor/index.html
-      - run: cargo +1.90 check --all-targets
-        working-directory: apps/desktop/src-tauri

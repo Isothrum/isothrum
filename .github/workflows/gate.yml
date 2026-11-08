@@ -1,7 +1,7 @@
 name: Gate
 
 # The test + quality-ratchet gate a release tag must pass before anything is published. Called by
-# publish-crates.yml (crates.io) and release.yml (the desktop installers) through `needs`, so a tag
+# publish-crates.yml (crates.io) through `needs`, so a tag
 # that fails rustfmt, clippy, the workspace tests or the ratchet publishes nothing. Reusable
 # (workflow_call) so the two release workflows share one definition. Push/pull-request CI lives in
 # ci.yml and stays off until the maintainer turns it on; this runs only on the release path.

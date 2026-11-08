@@ -21,8 +21,6 @@ Not published (`publish = false`, inherited from `[workspace.package]`):
 
 - `xtask` — the repo's development tasks; of no use to consumers.
 - `fuzz` — the fuzz targets; a nightly/libFuzzer workspace, excluded from the main workspace.
-- `apps/desktop/src-tauri` — the desktop application; it ships as a signed installer from
-  `release.yml`, not as a library.
 
 ## Cross-repo dependency on Isoloom
 

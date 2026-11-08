@@ -4,8 +4,8 @@
 //! - **one-way dependencies** (PLAN 3b): the libraries (the compiler and the runner) depend on no
 //!   other crate of the repository and on no UI; the WASM build depends on the compiler alone
 //!   (never the runner: Tokio's processes aren't WASM); the machine-setup domain builds on the
-//!   runner, and the apps (the command line and the desktop app) depend on the libraries and the
-//!   domain, never the reverse; nothing depends on the xtask;
+//!   runner, and the app (the command line) depends on the libraries and the domain, never the
+//!   reverse; nothing depends on the xtask;
 //! - **workspace hygiene** (PLAN 3d): every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -22,23 +22,21 @@ enum Role {
     Domain,
     /// The compiler's WebAssembly build.
     Binding,
-    /// A program a person runs: the command line, the desktop app.
+    /// A program a person runs: the command line.
     App,
     /// The development tasks.
     Xtask,
 }
 
-/// The repository's crates and their roles. The desktop app is its own workspace, read from its
-/// manifest.
-const ROLES: [(&str, Role); 7] = [
+/// The repository's crates and their roles.
+const ROLES: [(&str, Role); 6] = [
     ("isothrum-compiler", Role::Library),
     ("isothrum-runner", Role::Library),
-    // Builds on the runner and the desktop app builds on it: a tier of its own between the base
-    // libraries and the apps (the launcher, out of this workspace, consumes it too).
+    // Builds on the runner and the apps build on it: a tier of its own between the base libraries
+    // and the apps (the launcher and the desktop app, out of this workspace, consume it too).
     ("isothrum-machine", Role::Domain),
     ("isothrum-wasm", Role::Binding),
     ("isothrum-cli", Role::App),
-    ("isothrum-desktop", Role::App),
     ("xtask", Role::Xtask),
 ];
 
@@ -78,19 +76,13 @@ fn problem(from: &str, to: &str, kind: Option<&str>) -> Option<String> {
     Some(format!("{from} depends on {to}{kind}: {why}"))
 }
 
-/// Every edge that breaks the rule, from `cargo metadata --no-deps` output plus the desktop app's
-/// manifest.
-fn violations(metadata: &Value, desktop: &toml::Table) -> Vec<String> {
+/// Every edge that breaks the rule, from `cargo metadata --no-deps` output.
+fn violations(metadata: &Value) -> Vec<String> {
     let mut edges: Vec<(String, String, Option<String>)> = Vec::new();
     for p in metadata["packages"].as_array().into_iter().flatten() {
         let from = p["name"].as_str().unwrap_or("").to_owned();
         for d in p["dependencies"].as_array().into_iter().flatten() {
             edges.push((from.clone(), d["name"].as_str().unwrap_or("").to_owned(), d["kind"].as_str().map(str::to_owned)));
-        }
-    }
-    for (table, kind) in [("dependencies", None), ("dev-dependencies", Some("dev")), ("build-dependencies", Some("build"))] {
-        for dep in desktop.get(table).and_then(toml::Value::as_table).into_iter().flat_map(toml::Table::keys) {
-            edges.push(("isothrum-desktop".into(), dep.clone(), kind.map(str::to_owned)));
         }
     }
     let mut found: Vec<String> = edges.iter().filter_map(|(from, to, kind)| problem(from, to, kind.as_deref())).collect();
@@ -168,38 +160,32 @@ mod tests {
         serde_json::json!({ "name": name, "dependencies": deps })
     }
 
-    fn check(packages: &[Value], desktop: &str) -> Vec<String> {
-        violations(&serde_json::json!({ "packages": packages }), &desktop.parse().unwrap())
+    fn check(packages: &[Value]) -> Vec<String> {
+        violations(&serde_json::json!({ "packages": packages }))
     }
 
     #[test]
     fn the_apps_depend_on_the_libraries_and_never_the_reverse() {
-        let ok = check(
-            &[
-                package("isothrum-compiler", &[("serde", None)]),
-                package("isothrum-runner", &[("tokio", None), ("tempfile", Some("dev"))]),
-                package("isothrum-wasm", &[("isothrum-compiler", None), ("wasm-bindgen", None)]),
-                package("isothrum-cli", &[("isothrum-runner", None), ("clap", None)]),
-                package("xtask", &[("isothrum-runner", None)]),
-            ],
-            "[dependencies]\nisothrum-compiler = { path = \"x\" }\ntauri = \"2\"\n",
-        );
+        let ok = check(&[
+            package("isothrum-compiler", &[("serde", None)]),
+            package("isothrum-runner", &[("tokio", None), ("tempfile", Some("dev"))]),
+            package("isothrum-wasm", &[("isothrum-compiler", None), ("wasm-bindgen", None)]),
+            package("isothrum-cli", &[("isothrum-runner", None), ("clap", None)]),
+            package("xtask", &[("isothrum-runner", None)]),
+        ]);
         assert!(ok.is_empty(), "{ok:?}");
-        let wrong = check(
-            &[
-                package("isothrum-runner", &[("isothrum-cli", Some("dev")), ("tauri", None)]),
-                package("isothrum-compiler", &[("isothrum-runner", None), ("tokio", None)]),
-                package("isothrum-wasm", &[("isothrum-runner", None)]),
-                package("isothrum-cli", &[("xtask", None)]),
-            ],
-            "[dependencies]\nisothrum-cli = { path = \"x\" }\n",
-        );
-        assert_eq!(wrong.len(), 7, "{wrong:#?}");
+        let wrong = check(&[
+            package("isothrum-runner", &[("isothrum-cli", Some("dev")), ("tauri", None)]),
+            package("isothrum-compiler", &[("isothrum-runner", None), ("tokio", None)]),
+            package("isothrum-wasm", &[("isothrum-runner", None)]),
+            package("isothrum-cli", &[("xtask", None)]),
+        ]);
+        assert_eq!(wrong.len(), 6, "{wrong:#?}");
     }
 
     #[test]
     fn a_crate_the_rule_does_not_place_is_named() {
-        let found = check(&[package("isothrum-new", &[])], "");
+        let found = check(&[package("isothrum-new", &[])]);
         assert_eq!(found, ["isothrum-new: a crate the dependency rule doesn't place yet (xtask/src/workspace.rs)"]);
     }
 
@@ -221,8 +207,7 @@ mod tests {
 
     #[test]
     fn the_repository_keeps_its_dependencies_one_way() {
-        let desktop = read_toml(&repo::root().join("apps/desktop/src-tauri/Cargo.toml"));
-        let found = violations(&metadata(), &desktop);
+        let found = violations(&metadata());
         assert!(found.is_empty(), "{}", found.join("\n"));
     }
 
