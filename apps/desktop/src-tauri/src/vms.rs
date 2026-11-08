@@ -406,6 +406,53 @@ mod tests {
 mod vagrant_tests {
     use crate::runner::{Runtime, prepare, runtime};
 
+    /// A lab with VMs comes up on the hypervisor the app chooses here, as the Run button does:
+    /// the detection, the choice, `vagrant up --provider=<p>`, a status read of every VM running,
+    /// then down (needs Vagrant and a hypervisor; `ISOTHRUM_VM_LAB` keeps the folder,
+    /// `ISOTHRUM_VM_PROVIDER` names the hypervisor).
+    #[test]
+    #[ignore = "boots VMs; run with --ignored"]
+    fn a_vm_lab_comes_up_on_the_chosen_hypervisor() {
+        use crate::hypervisor::{Candidate, OVERRIDE_ENV, choose};
+        use isothrum_machine::providers::detect;
+        use isothrum_runner::SystemProcesses;
+
+        let base = std::env::var("ISOTHRUM_VM_LAB")
+            .map_or_else(|_| std::env::temp_dir(), std::path::PathBuf::from);
+        let dir = base.join("chosen");
+        // One Debian VM with a playbook step: VMs only, so Isoloom adds its controller VM.
+        let yaml = "version: 1\nname: chosen\nnetworks:\n  office: {cidr: 10.10.7.0/24}\nmachines:\n  a:\n    networks: {office: 10}\n    os: debian@12\n    resources: {cpus: 1, memory_mb: 1024}\n    app: {steps: [{playbook: provision/a.yml}]}\n";
+        let own = vec![(
+            "provision/a.yml".to_owned(),
+            "- hosts: all\n  tasks: []\n".to_owned(),
+        )];
+        let spec = prepare(&dir, yaml, &own).unwrap();
+        assert_eq!(runtime(&dir), Runtime::Vagrant);
+        let lab = crate::runner::lab_of(yaml).unwrap();
+        let processes = SystemProcesses::for_host(|k| std::env::var(k).ok(), None);
+        let statuses = tauri::async_runtime::block_on(detect(&processes, true, None));
+        let wanted = std::env::var(OVERRIDE_ENV).ok();
+        let provider = choose(&Candidate::of(&statuses), wanted.as_deref(), |p| {
+            isoloom_targets::refusal_on(&lab, Runtime::Vagrant.target(), Some(p))
+        })
+        .unwrap();
+        eprintln!("hypervisor: {}", provider.id());
+        let out = super::up(&dir, Runtime::Vagrant, provider.id()).unwrap();
+        eprintln!("{out}");
+        assert_eq!(super::provider(&dir).as_deref(), Some(provider.id()));
+        let st = super::status(&dir, Runtime::Vagrant).unwrap();
+        eprintln!("{st}");
+        for m in spec.machines.keys() {
+            assert!(
+                st.contains(&format!("\"Service\":\"{m}\",\"State\":\"running\"")),
+                "{m}: {st}"
+            );
+        }
+        super::down(&dir, Runtime::Vagrant).unwrap();
+        let st = super::status(&dir, Runtime::Vagrant).unwrap();
+        assert!(!st.contains("\"State\":\"running\""), "{st}");
+    }
+
     /// Vagrant accepts the Vagrantfiles the app prepares (needs `vagrant`; `ISOTHRUM_VM_LAB`
     /// keeps the folder).
     #[test]
