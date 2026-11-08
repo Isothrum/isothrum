@@ -6,7 +6,8 @@
 //! - **When:** once the step named by the delivery's `during_step` succeeded, else once `up`'s
 //!   steps all did (before the ready conditions, which wait for the set-up that waits for this).
 //! - **Where:** the machine's address is the output `address_<machine>` (its `-` written `_`),
-//!   its login the output `ssh_user_<machine>`, else `ssh_user`; through the run's SSH jump.
+//!   its login the output `ssh_user_<machine>`, else `ssh_user`, else `root`; through the run's SSH
+//!   jump.
 //! - **How:** one SSH session per machine runs [`RECEIVE`] as root; its standard input holds one
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
 //!   folder removed right after. A value is never on a command line nor in an event.
@@ -16,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use isoloom_manifest::{Delivery, Transport};
+use isoloom_manifest::{Delivery, SecretSlot, Transport};
 
 use crate::Result;
 use crate::error::Error;
@@ -66,9 +67,17 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
 /// Each machine's input lines (`<slot> <base64>`) due after `after`; refused for a transport the
 /// runner doesn't deliver over.
 fn due(cx: &Cx<'_>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
+    let given = |name: &str| cx.secrets.get(name).map(SecretValue::expose);
+    due_lines(&cx.run.manifest().secrets, given, after)
+}
+
+/// [`due`] over `slots`, each slot's value from `given` else its default. A machine with a
+/// delivery due gets its entry even when every value is unset (no lines): its set-up waits for
+/// `.delivered`, which only a delivery writes.
+fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
-    for slot in &cx.run.manifest().secrets {
-        let value = cx.secrets.get(slot.name.as_str()).map(SecretValue::expose).or(slot.default.as_deref());
+    for slot in slots {
+        let value = given(slot.name.as_str()).or(slot.default.as_deref());
         for d in &slot.deliver {
             let Delivery::Guest {
                 machine,
@@ -86,9 +95,9 @@ fn due(cx: &Cx<'_>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
                     what: format!("a guest delivery to `{machine}` over {transport:?}"),
                 });
             }
+            let lines = out.entry(machine.to_string()).or_default();
             let Some(v) = value else { continue };
             let encoded = crate::encoding::base64(v.as_bytes());
-            let lines = out.entry(machine.to_string()).or_default();
             lines.push_str(slot.name.as_str());
             lines.push(' ');
             lines.push_str(&encoded);
@@ -130,5 +139,38 @@ async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) ->
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::due_lines;
+
+    /// The solo-web cloud-vm manifest delivers `FLAG` to `web`, over SSH, at the end of `up`.
+    fn slots(default: Option<&str>) -> Vec<isoloom_manifest::SecretSlot> {
+        let mut m = crate::testing::solo_web_aws_manifest();
+        m.secrets
+            .iter_mut()
+            .filter(|s| s.name.as_str() == "FLAG")
+            .for_each(|s| s.default = default.map(str::to_owned));
+        m.secrets
+    }
+
+    #[test]
+    fn a_given_value_goes_to_its_machine_in_base64() {
+        let due = due_lines(&slots(None), |n| (n == "FLAG").then_some("CTF{x}"), None).unwrap();
+        assert_eq!(due["web"], format!("FLAG {}\n", crate::encoding::base64(b"CTF{x}")));
+    }
+
+    #[test]
+    fn a_machine_whose_values_are_all_unset_still_gets_its_delivery() {
+        // No value and no default: no line, but the delivery still runs and writes `.delivered`.
+        let due = due_lines(&slots(None), |_| None, None).unwrap();
+        assert_eq!(due.get("web").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn a_delivery_waits_for_its_step() {
+        assert!(due_lines(&slots(Some("x")), |_| None, Some("some-step")).unwrap().is_empty());
     }
 }

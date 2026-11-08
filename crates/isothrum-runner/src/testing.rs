@@ -48,6 +48,11 @@ pub(crate) fn proxmox_manifest() -> Manifest {
     isoloom_manifest::parse(SOLO_WEB_PROXMOX).unwrap()
 }
 
+/// The solo-web `cloud-vm` manifest on AWS.
+pub(crate) fn solo_web_aws_manifest() -> Manifest {
+    isoloom_manifest::parse(SOLO_WEB_AWS).unwrap()
+}
+
 /// The `flag-portal` docker manifest.
 pub(crate) fn docker_manifest() -> Manifest {
     isoloom_manifest::parse(FLAG_PORTAL).unwrap()
