@@ -126,7 +126,9 @@ async fn on_proxmox_the_attack_box_is_a_container_in_the_vm_reached_over_ssh() {
             "-F".to_owned(),
             config.display().to_string(),
             format!("isoloom@{VM_IP}"),
-            format!("sudo docker run -d --name '{name}' --label isoloom.access=true --network 'flag-portal_lab' 'cyberctf/attack-box' sleep infinity"),
+            format!(
+                "sudo docker run -d --name '{name}' --hostname attackbox --label isoloom.access=true --network 'flag-portal_lab' 'cyberctf/attack-box' sleep infinity"
+            ),
         ]
     );
     assert_eq!(

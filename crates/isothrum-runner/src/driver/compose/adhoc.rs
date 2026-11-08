@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::{ATTACH_TIMEOUT, CALL_TIMEOUT, Compose, docker_spec};
 use crate::Result;
-use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, Attached, adhoc_status};
+use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, ATTACK_HOSTNAME, Attached, adhoc_status};
 use crate::executor::{Cx, Echo, call_ok};
 use crate::state::Op;
 use crate::status::MachineStatus;
@@ -110,6 +110,8 @@ impl Compose {
             "-d".into(),
             "--name".into(),
             name.to_owned(),
+            "--hostname".into(),
+            ATTACK_HOSTNAME.to_owned(),
             "--label".into(),
             format!("{LABEL}=true"),
         ];

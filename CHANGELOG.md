@@ -10,6 +10,15 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ## [Unreleased]
 
+### Changed
+
+- **The attack box answers to `attackbox`.** Every ad-hoc attack box the runner starts gets that
+  hostname: the container beside a container lab here, the container inside a lab's VM (here, on
+  a cloud account, on Proxmox), and the VM added to a VM lab (through Isoloom's hook `hostname:`,
+  Isoloom 1.0.10; an older Vagrantfile keeps its define name). A learner's prompt reads
+  `root@attackbox` instead of a Docker container ID or Isoloom's internal `isoloom-access`, which
+  stays the name status reports.
+
 ### Removed
 
 - **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own

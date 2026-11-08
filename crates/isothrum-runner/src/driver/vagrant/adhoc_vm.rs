@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{DETACH_TIMEOUT, Vagrant, status};
 use crate::Result;
-use crate::driver::{ADHOC_NAME, Attached, Driver};
+use crate::driver::{ADHOC_NAME, ATTACK_HOSTNAME, Attached, Driver};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::ssh::sh_quote;
@@ -95,11 +95,17 @@ fn ruby_str(s: &str) -> String {
 }
 
 /// The one-line definition the Vagrantfile's hook reads: the VM's image when it runs one (its
-/// box is then the hook's Debian 12 for the provider, or `ISOLOOM_ACCESS_BOX`).
-fn definition(node: &Node) -> String {
+/// box is then the hook's Debian 12 for the provider, or `ISOLOOM_ACCESS_BOX`), and its hostname
+/// (`attackbox`) when the hook takes one (`named`: Isoloom 1.0.10 and later).
+fn definition(node: &Node, named: bool) -> String {
     let image = node.image.as_deref().map(|i| format!(", image: {}", ruby_str(i))).unwrap_or_default();
+    let hostname = if named {
+        format!(", hostname: {}", ruby_str(ATTACK_HOSTNAME))
+    } else {
+        String::new()
+    };
     format!(
-        "# The attack VM the runner added to this running lab (`isothrum attach`); `isothrum detach` removes it.\n{HOOK}.define(config, {}, network: {}, ip: {}{image})\n",
+        "# The attack VM the runner added to this running lab (`isothrum attach`); `isothrum detach` removes it.\n{HOOK}.define(config, {}, network: {}, ip: {}{image}{hostname})\n",
         ruby_str(ADHOC_NAME),
         ruby_str(&node.network),
         ruby_str(&node.address.to_string())
@@ -181,13 +187,14 @@ fn refusal(provider: &str, vagrantfile: &str) -> Option<String> {
         .then(|| "an ad-hoc attack VM (this lab's Vagrantfile predates the hook: generate it again with Isoloom 1.0.9 or later)".to_owned())
 }
 
-/// Refuses what the hook can't serve ([`refusal`]), before anything is written or booted.
-fn check(cx: &Cx<'_>, image: Option<&str>) -> Result<()> {
+/// Refuses what the hook can't serve ([`refusal`]), before anything is written or booted; else
+/// says whether the hook takes a hostname (a Vagrantfile from before Isoloom 1.0.10 doesn't).
+fn check(cx: &Cx<'_>, image: Option<&str>) -> Result<bool> {
     let vagrantfile = cx.run.dir().join("Vagrantfile");
     let text = std::fs::read_to_string(&vagrantfile).map_err(Error::io(&vagrantfile, "read"))?;
     match refusal(cx.scope.provider.as_deref().unwrap_or_default(), &text).or_else(|| image.and_then(|_| image_refusal(&text))) {
         Some(what) => Err(Error::Unsupported { what }),
-        None => Ok(()),
+        None => Ok(text.contains("hostname: nil")),
     }
 }
 
@@ -196,7 +203,7 @@ fn check(cx: &Cx<'_>, image: Option<&str>) -> Result<()> {
 /// box otherwise), then booted alone on the run's provider. A definition a previous attach left
 /// is replaced.
 pub(super) async fn attach(v: &Vagrant, cx: &Cx<'_>, image: Option<&str>, network: Option<&str>) -> Result<Attached> {
-    check(cx, image)?;
+    let named = check(cx, image)?;
     let manifest = cx.run.manifest();
     let network = self::network(manifest, network)?;
     let node = Node {
@@ -207,7 +214,7 @@ pub(super) async fn attach(v: &Vagrant, cx: &Cx<'_>, image: Option<&str>, networ
     let (rb, json) = files(v, cx)?;
     let dir = dir(v, cx)?;
     std::fs::create_dir_all(&dir).map_err(Error::io(&dir, "created"))?;
-    std::fs::write(&rb, definition(&node)).map_err(Error::io(&rb, "written"))?;
+    std::fs::write(&rb, definition(&node, named)).map_err(Error::io(&rb, "written"))?;
     let record = serde_json::to_string(&node).unwrap_or_default();
     std::fs::write(&json, record).map_err(Error::io(&json, "written"))?;
     // The image goes to the hook through the definition, never as the VM's box.
@@ -285,14 +292,17 @@ mod tests {
             address: "10.61.0.252".parse().unwrap(),
             image: Some("me/kali:\"2026\" #1".into()),
         };
-        let text = definition(&node);
+        let text = definition(&node, false);
         assert!(text.starts_with("# The attack VM the runner added"), "{text}");
         assert!(
             text.ends_with("IsoloomAdHoc.define(config, \"isoloom-access\", network: \"lab\", ip: \"10.61.0.252\", image: \"me/kali:\\\"2026\\\" \\#1\")\n"),
             "{text}"
         );
-        let plain = definition(&Node { image: None, ..node });
+        let plain = definition(&Node { image: None, ..node.clone() }, false);
         assert!(plain.ends_with("ip: \"10.61.0.252\")\n"), "a plain VM of the host's default box: {plain}");
+        // A hook that takes a hostname: the attack box answers to `attackbox` inside.
+        let named = definition(&node, true);
+        assert!(named.ends_with(", hostname: \"attackbox\")\n"), "{named}");
     }
 
     #[test]

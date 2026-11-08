@@ -268,7 +268,9 @@ async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
     assert_eq!(started.args[..3], ["ssh", "--no-tty", "--command"]);
     assert_eq!(
         started.args[3],
-        format!("sudo docker run -d --name '{name}' --label isoloom.access=true --network 'flag-portal_lab' 'kalilinux/kali-rolling' sleep infinity")
+        format!(
+            "sudo docker run -d --name '{name}' --hostname attackbox --label isoloom.access=true --network 'flag-portal_lab' 'kalilinux/kali-rolling' sleep infinity"
+        )
     );
     assert_eq!(started.args[4], "default", "into the lab's VM");
     assert!(started.env("VAGRANT_DOTFILE_PATH").is_some(), "with the run's state folder");

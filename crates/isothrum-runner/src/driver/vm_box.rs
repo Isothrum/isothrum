@@ -18,7 +18,7 @@ use isoloom_manifest::access;
 use serde_json::Value;
 
 use crate::Result;
-use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, Attached, adhoc_status};
+use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, ATTACK_HOSTNAME, Attached, adhoc_status};
 use crate::executor::{Cx, Echo, call_ok};
 use crate::process::ProcessSpec;
 use crate::ssh::sh_quote;
@@ -128,7 +128,7 @@ pub(crate) async fn attach(way: &dyn WayIn, cx: &Cx<'_>, image: Option<&str>, ne
         .map(|net| format!(" --network {}", sh_quote(net)))
         .unwrap_or_default();
     let run = format!(
-        "sudo docker run -d --name {} --label {LABEL}=true{on} {} {IDLE}",
+        "sudo docker run -d --name {} --hostname {ATTACK_HOSTNAME} --label {LABEL}=true{on} {} {IDLE}",
         sh_quote(&name),
         sh_quote(image.unwrap_or(access::DEFAULT_IMAGE))
     );

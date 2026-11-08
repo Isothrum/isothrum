@@ -259,6 +259,10 @@ impl AnyDriver {
 /// hubs keep a port for.
 pub(crate) const ADHOC_NAME: &str = "isoloom-access";
 
+/// The hostname an attack box answers to inside (its shell prompt reads `root@attackbox`): the
+/// learner's name for it, where [`ADHOC_NAME`] is Isoloom's internal one.
+pub(crate) const ATTACK_HOSTNAME: &str = "attackbox";
+
 /// The `docker inspect` template that reads an ad-hoc box's running flag and its networks, a `|`
 /// apart: what [`adhoc_status`] reads.
 pub(crate) const ADHOC_STATUS_FORMAT: &str = "{{.State.Running}}|{{json .NetworkSettings.Networks}}";
