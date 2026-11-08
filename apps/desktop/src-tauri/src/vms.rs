@@ -16,6 +16,16 @@ use crate::runner::{RunError, Runtime, SHELL, run};
 pub(crate) const DOCKER_HOST: &str = "isoloom-docker";
 const HOST_COMPOSE: &str = "/opt/isoloom/.isoloom/hybrid/compose.yml";
 
+/// Where the lab's folder records the hypervisor its VMs were made on (a Vagrant provider id).
+pub(crate) const PROVIDER: &str = "provider";
+
+/// The hypervisor the lab's VMs run on, once chosen at `up`.
+pub(crate) fn provider(lab: &Path) -> Option<String> {
+    let p = std::fs::read_to_string(lab.join(PROVIDER)).ok()?;
+    let p = p.trim();
+    (!p.is_empty()).then(|| p.to_owned())
+}
+
 /// The folder Isoloom wrote the Vagrantfile into.
 pub(crate) fn dir(lab: &Path, runtime: Runtime) -> PathBuf {
     lab.join(".isoloom").join(match runtime {
@@ -24,10 +34,14 @@ pub(crate) fn dir(lab: &Path, runtime: Runtime) -> PathBuf {
     })
 }
 
-/// `vagrant` in the lab's Vagrant folder.
+/// `vagrant` in the lab's Vagrant folder, on the hypervisor the lab was made on (so a machine
+/// started, or made, later goes to the same one, not to Vagrant's own default).
 pub(crate) fn vagrant(lab: &Path, runtime: Runtime, args: &[&str]) -> Command {
     let mut c = Command::new("vagrant");
     c.current_dir(dir(lab, runtime)).args(args);
+    if let Some(p) = provider(lab) {
+        c.env("VAGRANT_DEFAULT_PROVIDER", p);
+    }
     c
 }
 
@@ -54,8 +68,15 @@ pub(crate) fn ssh_root(lab: &Path, runtime: Runtime, vm: &str, script: &str) -> 
     )
 }
 
-pub(crate) fn up(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
-    run(vagrant(lab, runtime, &["up"]), "Starting the lab's VMs")
+/// Makes and starts the lab's VMs on `provider` (a Vagrant provider id, chosen by
+/// `hypervisor::choose`), recording it for every later command.
+pub(crate) fn up(lab: &Path, runtime: Runtime, provider: &str) -> Result<String, RunError> {
+    crate::lab_files::write(lab, PROVIDER, provider)?;
+    let flag = format!("--provider={provider}");
+    run(
+        vagrant(lab, runtime, &["up", &flag]),
+        "Starting the lab's VMs",
+    )
 }
 
 pub(crate) fn down(lab: &Path, runtime: Runtime) -> Result<String, RunError> {
@@ -294,6 +315,27 @@ fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_recorded_hypervisor_reaches_every_vagrant_command() {
+        let lab =
+            std::env::temp_dir().join(format!("isothrum-desktop-provider-{}", std::process::id()));
+        std::fs::create_dir_all(&lab).unwrap();
+        let env_of = |c: &Command| {
+            c.get_envs()
+                .find(|(k, _)| *k == "VAGRANT_DEFAULT_PROVIDER")
+                .and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+        };
+        assert_eq!(provider(&lab), None);
+        assert_eq!(env_of(&vagrant(&lab, Runtime::Vagrant, &["status"])), None);
+        crate::lab_files::write(&lab, PROVIDER, "qemu").unwrap();
+        assert_eq!(provider(&lab).as_deref(), Some("qemu"));
+        assert_eq!(
+            env_of(&vagrant(&lab, Runtime::Vagrant, &["status"])).as_deref(),
+            Some("qemu")
+        );
+        std::fs::remove_dir_all(&lab).unwrap();
+    }
 
     #[test]
     fn vagrant_states_become_the_editors_json_lines() {

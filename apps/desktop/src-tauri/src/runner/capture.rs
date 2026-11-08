@@ -302,7 +302,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("isothrum-vcap-{}", std::process::id()));
         let yaml = "version: 1\nname: vcap\nnetworks:\n  sw1:\n    cidr: 10.65.0.0/19\n    vlans:\n      10: { cidr: 10.65.10.0/24 }\nmachines:\n  pc: { networks: { sw1.vlan10: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n  srv: { networks: { sw1.vlan10: 11 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
         let spec = prepare(&dir, yaml, &[]).unwrap();
-        up(&dir).unwrap();
+        up(&dir, None).unwrap();
         let plan = plan_capture(&dir, &spec, "vlan10").unwrap();
         let file = dir.join("vlan10.pcap");
         let name = capture_name();

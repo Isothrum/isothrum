@@ -54,7 +54,11 @@ debug builds also allow `http://localhost` for a local build of the site (`src-t
 ## Needs
 
 Docker, usable by your account (Linux: `sudo usermod -aG docker $USER`, then log in again).
-For labs with VMs, Vagrant with VirtualBox or libvirt (`vagrant-libvirt`).
+For labs with VMs, Vagrant with a hypervisor and its plugin: VirtualBox, Parallels, VMware,
+libvirt (`vagrant-libvirt`), Hyper-V or QEMU (`vagrant-qemu`). The app picks the first of those
+installed here that Isoloom accepts for the lab (set `ISOTHRUM_VM_PROVIDER=<id>` to choose), and
+keeps every later Vagrant command on it. UTM's plugin gives a VM no private network, so no lab
+with a network runs on it.
 Wireshark, to watch captures live.
 The app finds them on the PATH, and also in their usual folders when the PATH doesn't say: on
 macOS `/usr/local/bin`, `/opt/homebrew/bin` and Docker's and Wireshark's app bundles (an app

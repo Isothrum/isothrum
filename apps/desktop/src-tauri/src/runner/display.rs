@@ -238,7 +238,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("isothrum-vnc-{}", std::process::id()));
         let yaml = "version: 1\nname: vnc\nnetworks:\n  a: { cidr: 10.66.1.0/24 }\nmachines:\n  desk: { networks: { a: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
         prepare(&dir, yaml, &[]).unwrap();
-        up(&dir).unwrap();
+        up(&dir, None).unwrap();
         // A stand-in VNC server: it greets with the RFB banner, as one does.
         run(
             compose(

@@ -335,7 +335,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("isothrum-link-{}", std::process::id()));
         let yaml = "version: 1\nname: link\nnetworks:\n  a: { cidr: 10.63.1.0/24 }\n  b: { cidr: 10.63.2.0/24 }\nreach: [{ from: a, to: b }]\nmachines:\n  pc: { networks: { a: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n  srv: { networks: { b: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
         let spec = prepare(&dir, yaml, &[]).unwrap();
-        up(&dir).unwrap();
+        up(&dir, None).unwrap();
         let pc = |cmd: &str| {
             run(
                 compose(&dir, &["exec", "-T", "pc", "sh", "-c", cmd]),

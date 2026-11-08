@@ -5,6 +5,7 @@
 mod capabilities;
 mod captures;
 mod console;
+mod hypervisor;
 mod lab_files;
 mod lab_name;
 mod machine;
@@ -76,7 +77,7 @@ struct LabFile {
 
 /// Writes the lab (its isoloom.yml, its own files and the generated ones) and starts it.
 #[tauri::command]
-async fn lab_up(
+async fn environment_up(
     app: AppHandle,
     name: String,
     yaml: String,
@@ -88,17 +89,48 @@ async fn lab_up(
         .into_iter()
         .map(|f| (f.path, f.contents))
         .collect();
-    tauri::async_runtime::spawn_blocking(move || {
-        runner::prepare(&dir, &yaml, &own)?;
-        runner::up(&dir)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())
+    let prepared = dir.clone();
+    let spec = yaml.clone();
+    tauri::async_runtime::spawn_blocking(move || runner::prepare(&prepared, &spec, &own))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    // A lab with VMs runs on the hypervisor chosen for it here, never on Vagrant's own default.
+    let provider = match runner::runtime(&dir) {
+        runner::Runtime::Docker => None,
+        // Boxed: the detection's future is large, and this command's would be too.
+        rt => Some(
+            Box::pin(chosen_hypervisor(&app, &yaml, rt))
+                .await?
+                .id()
+                .to_owned(),
+        ),
+    };
+    tauri::async_runtime::spawn_blocking(move || runner::up(&dir, provider.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The hypervisor a lab with VMs runs on here (`hypervisor::choose`): among the ones this
+/// computer has, the first Isoloom accepts for the lab on its runtime's target.
+async fn chosen_hypervisor(
+    app: &AppHandle,
+    yaml: &str,
+    runtime: runner::Runtime,
+) -> Result<machine::Provider, String> {
+    let lab = runner::lab_of(yaml).map_err(|e| e.to_string())?;
+    let statuses = machine::machine_providers(app.clone()).await;
+    let wanted = std::env::var(hypervisor::OVERRIDE_ENV).ok();
+    hypervisor::choose(
+        &hypervisor::Candidate::of(&statuses),
+        wanted.as_deref(),
+        |p| isoloom_targets::refusal_on(&lab, runtime.target(), Some(p)),
+    )
 }
 
 #[tauri::command]
-async fn lab_down(
+async fn environment_down(
     app: AppHandle,
     captures: State<'_, Captures>,
     name: String,
@@ -114,7 +146,7 @@ async fn lab_down(
 }
 
 #[tauri::command]
-async fn lab_status(app: AppHandle, name: String) -> Result<String, String> {
+async fn environment_status(app: AppHandle, name: String) -> Result<String, String> {
     let dir = runner::lab_dir(&data_dir(&app)?, checked(&name)?);
     if !runner::prepared(&dir) {
         return Ok(String::new());
@@ -229,7 +261,7 @@ async fn machine_action(
 /// The lab now: each machine's state, and each machine's port on each network, up or down (read
 /// from the machines). Empty when the lab hasn't been started.
 #[tauri::command]
-async fn lab_live(app: AppHandle, name: String) -> Result<Option<runner::LabLive>, String> {
+async fn environment_live(app: AppHandle, name: String) -> Result<Option<runner::LabLive>, String> {
     let dir = runner::lab_dir(&data_dir(&app)?, checked(&name)?);
     if !runner::prepared(&dir) {
         return Ok(None);
@@ -392,10 +424,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(Captures::<runner::Capture>::default())
         .invoke_handler(tauri::generate_handler![
             desktop_info,
-            lab_up,
-            lab_down,
-            lab_status,
-            lab_live,
+            environment_up,
+            environment_down,
+            environment_status,
+            environment_live,
             capture_start,
             capture_stop,
             machine_console,

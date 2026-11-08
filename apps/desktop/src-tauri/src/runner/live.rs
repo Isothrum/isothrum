@@ -350,7 +350,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("isothrum-live-{}", std::process::id()));
         let yaml = "version: 1\nname: live\nnetworks:\n  a: { cidr: 10.64.1.0/24 }\nmachines:\n  pc: { networks: { a: 10 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n  srv: { networks: { a: 11 }, app: { image: \"alpine:3.20\" }, command: [sleep, infinity] }\n";
         let spec = prepare(&dir, yaml, &[]).unwrap();
-        up(&dir).unwrap();
+        up(&dir, None).unwrap();
         let port = |l: &LabLive, m: &str| l.ports.iter().find(|p| p.machine == m).unwrap().clone();
         let live = lab_live(&dir, &spec).unwrap();
         assert!(live.probed);

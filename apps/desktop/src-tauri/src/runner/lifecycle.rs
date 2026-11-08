@@ -42,8 +42,9 @@ pub(crate) fn prepare(dir: &Path, yaml: &str, own: &[(String, String)]) -> Resul
     let (runtime, generated) = generated(&lab)?;
     if runtime != Runtime::Docker && !has("vagrant") {
         return Err(RunError::NotDocker(
-            "This lab has VMs: they run with Vagrant (and VirtualBox or libvirt), which isn't \
-             installed. Install it from vagrantup.com, or export the lab."
+            "This lab has VMs: they run with Vagrant (and a hypervisor: VirtualBox, libvirt, \
+             Parallels, VMware, Hyper-V or QEMU), which isn't installed. Install it from \
+             vagrantup.com, or export the lab."
                 .into(),
         ));
     }
@@ -69,9 +70,12 @@ fn valid_lab(yaml: &str) -> Result<Lab, RunError> {
 }
 
 /// Starts the lab; the links suspended before it was started again stay cut.
-pub(crate) fn up(dir: &Path) -> Result<String, RunError> {
+pub(crate) fn up(dir: &Path, provider: Option<&str>) -> Result<String, RunError> {
     let mut out = if let rt @ (Runtime::Vagrant | Runtime::Hybrid) = runtime(dir) {
-        crate::vms::up(dir, rt)?
+        let provider = provider.ok_or_else(|| {
+            RunError::NotDocker("This lab has VMs: a hypervisor must be chosen to start it".into())
+        })?;
+        crate::vms::up(dir, rt, provider)?
     } else {
         run(
             compose(dir, &["up", "-d", "--wait", "--remove-orphans"]),
