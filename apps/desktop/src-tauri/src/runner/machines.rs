@@ -11,7 +11,8 @@ use crate::console::Console;
 /// The machine's container, when it runs.
 pub(super) fn running_container(dir: &Path, machine: &str) -> Result<Option<String>, RunError> {
     let id = run(compose(dir, &["ps", "-q", machine]), "Finding the machine")?
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     Ok((!id.is_empty()).then_some(id))
 }
 

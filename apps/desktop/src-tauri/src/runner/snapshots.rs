@@ -135,7 +135,11 @@ fn save_vm(dir: &Path, rt: Runtime, machine: &str, stamp: &str) -> Result<String
 
 /// Runs the machine from a snapshot (or, with `None`, from its own image again), recreating it
 /// with its sidecar.
-pub(crate) fn use_snapshot(dir: &Path, machine: &str, id: Option<&str>) -> Result<String, RunError> {
+pub(crate) fn use_snapshot(
+    dir: &Path,
+    machine: &str,
+    id: Option<&str>,
+) -> Result<String, RunError> {
     let mut list = snapshots(dir);
     if let Some(id) = id
         && !list.iter().any(|s| s.id == id && s.machine == machine)

@@ -31,7 +31,9 @@ fn key(lab: &str, network: &str) -> String {
 impl<C: Stop> Captures<C> {
     fn all(&self) -> std::sync::MutexGuard<'_, HashMap<String, C>> {
         // A panic while holding the lock leaves the map itself usable.
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Records a capture of `network`, stopping the one it replaces.

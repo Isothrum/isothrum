@@ -51,7 +51,11 @@ pub(crate) struct CapturePlan {
 
 /// Picks the machine to capture from: on `network`, the first one Isoloom attached to it.
 /// Every machine on a LAN or cable sees its traffic on that segment, so any member works.
-pub(crate) fn plan_capture(dir: &Path, spec: &Spec, network: &str) -> Result<CapturePlan, RunError> {
+pub(crate) fn plan_capture(
+    dir: &Path,
+    spec: &Spec,
+    network: &str,
+) -> Result<CapturePlan, RunError> {
     let network = &super::spec_network(spec, network)?;
     let net = spec
         .networks

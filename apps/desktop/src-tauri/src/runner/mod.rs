@@ -23,7 +23,9 @@ use std::process::Command;
 use isoloom_spec::model::{Spec, Target};
 use isoloom_targets::Lab;
 
-pub(crate) use capture::{CAPTURE_IMAGE, Capture, live_capture_possible, plan_capture, start_capture};
+pub(crate) use capture::{
+    CAPTURE_IMAGE, Capture, live_capture_possible, plan_capture, start_capture,
+};
 pub(crate) use display::open_display;
 pub(crate) use lifecycle::{down, prepare, status, up};
 pub(crate) use links::{Link, editor_links, link_action, suspended_links};
