@@ -11,8 +11,9 @@ use crate::executor::Cx;
 use crate::ssh::{self, Login};
 use crate::status::ShellCommand;
 
-/// What runs on the machine: a login shell, bash where it has one.
-const LOGIN_SHELL: &str = "exec bash -l 2>/dev/null || exec sh -l";
+/// What runs on the machine: a login shell, bash where it has one. Nothing of the shell is
+/// redirected: an interactive shell writes its prompt and what is typed to its error output.
+const LOGIN_SHELL: &str = "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi";
 
 /// The command that opens a console into `machine`; not running while the state gives it no
 /// address.

@@ -69,7 +69,12 @@ async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
     assert_eq!(console.program, "ssh");
     assert_eq!(console.args.first().map(String::as_str), Some("-t"));
     assert!(console.args.iter().any(|x| x == "admin@198.51.100.10"), "{:?}", console.args);
-    assert_eq!(console.args.last().map(String::as_str), Some("exec bash -l 2>/dev/null || exec sh -l"));
+    // Bash where the machine has it, with nothing of the shell redirected (its prompt is on its
+    // error output).
+    assert_eq!(
+        console.args.last().map(String::as_str),
+        Some("if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi")
+    );
     let unknown = run.console_command("nope").unwrap_err();
     assert_eq!(unknown.code(), crate::ErrorCode::MachineUnknown, "{unknown}");
 }
