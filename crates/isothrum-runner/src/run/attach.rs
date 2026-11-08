@@ -25,7 +25,8 @@ use crate::status::{ShellCommand, any_target_running};
 /// What a hot-add produced: the attacker box brought up, and where to reach it.
 #[derive(Debug, Clone, Serialize)]
 pub struct AttachReport {
-    /// The box's name: the access machine's manifest name, or an ad-hoc box's container name.
+    /// The box's name, as status reports it: the access machine's manifest name, or
+    /// `isoloom-access` for an ad-hoc box.
     pub machine: String,
     /// Its native name (the Compose service / Vagrant define, or the ad-hoc container name).
     pub native: String,
@@ -69,10 +70,10 @@ impl Target<'_> {
                 }
             }
             Target::AdHoc => {
-                let name = attached.name.unwrap_or_default();
                 AttachReport {
-                    machine: name.clone(),
-                    native: name,
+                    // The name status reports the box under, so the two can be matched.
+                    machine: crate::driver::ADHOC_NAME.to_owned(),
+                    native: attached.name.unwrap_or_default(),
                     network: attached.network,
                     address: attached.address,
                     image,

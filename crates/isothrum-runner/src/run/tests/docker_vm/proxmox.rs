@@ -115,7 +115,7 @@ async fn on_proxmox_the_attack_box_is_a_container_in_the_vm_reached_over_ssh() {
     assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "no box yet");
     let report = run.attach(None, None, Some("cyberctf/attack-box"), &Recorder::new()).await.unwrap();
     let name = format!("{}-isoloom-access", run.name());
-    assert_eq!(report.machine, name);
+    assert_eq!((report.machine.as_str(), report.native.as_str()), ("isoloom-access", name.as_str()));
     assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some(BOX_IP)));
     let started = s.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
     assert_eq!(started.program, "ssh");

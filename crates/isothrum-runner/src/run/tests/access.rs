@@ -111,7 +111,10 @@ async fn attach_stands_up_an_ad_hoc_box_when_the_lab_has_no_access_machine() {
     let events = Recorder::new();
     let report = run.attach(None, None, Some("myimage"), &events).await.unwrap();
 
-    assert_eq!(report.machine, "flag-portal-isoloom-access");
+    assert_eq!(
+        (report.machine.as_str(), report.native.as_str()),
+        ("isoloom-access", "flag-portal-isoloom-access")
+    );
     assert_eq!(report.native, "flag-portal-isoloom-access");
     assert_eq!(report.network.as_deref(), Some("lab"), "the lab's first network");
     assert_eq!(report.address.as_deref(), Some("10.30.0.123"), "its address, read with docker inspect");

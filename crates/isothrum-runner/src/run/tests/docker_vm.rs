@@ -266,7 +266,11 @@ async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
     assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "no box yet");
     let report = run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap();
     let name = format!("{}-isoloom-access", run.name());
-    assert_eq!((report.machine.as_str(), report.native.as_str()), (name.as_str(), name.as_str()));
+    assert_eq!(
+        (report.machine.as_str(), report.native.as_str()),
+        ("isoloom-access", name.as_str()),
+        "named as status names it"
+    );
     assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some(BOX_IP)));
     let started = l.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
     assert_eq!(started.program, "vagrant");

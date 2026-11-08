@@ -10,36 +10,6 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ## [Unreleased]
 
-### Changed
-
-- **The attack box answers to `attackbox`.** Every ad-hoc attack box the runner starts gets that
-  hostname: the container beside a container lab here, the container inside a lab's VM (here, on
-  a cloud account, on Proxmox), and the VM added to a VM lab (through Isoloom's hook `hostname:`,
-  Isoloom 1.0.10; an older Vagrantfile keeps its define name). A learner's prompt reads
-  `root@attackbox` instead of a Docker container ID or Isoloom's internal `isoloom-access`, which
-  stays the name status reports.
-
-### Removed
-
-- **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own
-  repository, `isoloom/isothrum-desktop`, which ships it (installers, the Microsoft Store) on the
-  crates published from here; the copy kept here "while that move completes" had drifted from it
-  and had no release path. Its CI jobs, the installer workflow and its place in the xtask
-  dependency rule go with it. The 2026-11-08 fixes made on that copy (the editor's command names,
-  the hypervisor choice, UTM's state) are in the desktop repository.
-
-### Changed
-
-- **A VM lab's ad-hoc attack VM runs the learner's container image.** `attach`'s `image` on a plain
-  VM lab (no `guest`, no access machine of its own) no longer becomes the attack VM's Vagrant box:
-  the Cyber CTF launcher's `cyberctf/attack-box@sha256:…` was asked of Vagrant Cloud and answered
-  404. The definition now passes it to Isoloom's hook as `image:` (Isoloom 1.0.10), which makes
-  the VM a container run as a VM: Debian 12 with Docker, the image idle on the VM's network, so
-  the VM's lab address is the attacker's; the shell into it is `vagrant ssh isoloom-access` then
-  `docker exec`. No image gives a plain VM of the host's default box, as before; a Vagrantfile
-  from before the hook's `image:` is refused with the way out (regenerate the lab). The VM's box
-  is still `ISOLOOM_ACCESS_BOX` when set.
-
 ### Added
 
 - **The attack box on a container lab in a VM Terraform made** (`cloud-docker` on every cloud,
@@ -56,14 +26,6 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   **Still unsupported:** a VM lab on a cloud or a server (`cloud-vm`, Proxmox VM labs) has no VM
   to put the box in and is refused (`unsupported`, "…on a run with no container host VM"), as is
   a manifest's on-demand access machine on a Terraform run.
-
-### Fixed
-
-- **`shell_command` reads the run's record**, as status does: the shell into an attack box goes
-  through the run's SSH jump, and a Vagrant run's shell gets the host ports its start pinned.
-
-### Added
-
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
   (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out
@@ -71,6 +33,40 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
   `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`). What the Cyber
   CTF launcher checks on its own, now shared.
+
+### Changed
+
+- **The attack box answers to `attackbox`.** Every ad-hoc attack box the runner starts gets that
+  hostname: the container beside a container lab here, the container inside a lab's VM (here, on
+  a cloud account, on Proxmox), and the VM added to a VM lab (through Isoloom's hook `hostname:`,
+  Isoloom 1.0.10; an older Vagrantfile keeps its define name). A learner's prompt reads
+  `root@attackbox` instead of a Docker container ID or Isoloom's internal `isoloom-access`, which
+  stays the name status reports.
+- **A VM lab's ad-hoc attack VM runs the learner's container image.** `attach`'s `image` on a plain
+  VM lab (no `guest`, no access machine of its own) no longer becomes the attack VM's Vagrant box:
+  the Cyber CTF launcher's `cyberctf/attack-box@sha256:…` was asked of Vagrant Cloud and answered
+  404. The definition now passes it to Isoloom's hook as `image:` (Isoloom 1.0.10), which makes
+  the VM a container run as a VM: Debian 12 with Docker, the image idle on the VM's network, so
+  the VM's lab address is the attacker's; the shell into it is `vagrant ssh isoloom-access` then
+  `docker exec`. No image gives a plain VM of the host's default box, as before; a Vagrantfile
+  from before the hook's `image:` is refused with the way out (regenerate the lab). The VM's box
+  is still `ISOLOOM_ACCESS_BOX` when set.
+- An attach report names an ad-hoc box `isoloom-access`, as status does; its container name is
+  in `native`.
+
+### Fixed
+
+- **`shell_command` reads the run's record**, as status does: the shell into an attack box goes
+  through the run's SSH jump, and a Vagrant run's shell gets the host ports its start pinned.
+
+### Removed
+
+- **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own
+  repository, `isoloom/isothrum-desktop`, which ships it (installers, the Microsoft Store) on the
+  crates published from here; the copy kept here "while that move completes" had drifted from it
+  and had no release path. Its CI jobs, the installer workflow and its place in the xtask
+  dependency rule go with it. The 2026-11-08 fixes made on that copy (the editor's command names,
+  the hypervisor choice, UTM's state) are in the desktop repository.
 
 ## [1.0.5] — 2026-11-08
 
