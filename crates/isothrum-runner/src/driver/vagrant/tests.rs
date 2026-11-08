@@ -330,17 +330,19 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
 const ADHOC: &str = "isoloom-access";
 
 /// The fixture's Vagrantfile, as Isoloom writes it with the hook that loads the runner's
-/// machines (only the hook's name matters to the runner).
+/// machines (only the hook's name and its `image:` keyword matter to the runner).
 fn with_hook(f: &Fixture) {
-    std::fs::write(f.manifest.parent().unwrap().join("Vagrantfile"), "# generated\nmodule IsoloomAdHoc\nend\n").unwrap();
+    let hook = "# generated\nmodule IsoloomAdHoc\n  def self.define(vagrant, name, network:, ip:, box: nil, image: nil, cpus: 2, memory: 2048)\n  end\nend\n";
+    std::fs::write(f.manifest.parent().unwrap().join("Vagrantfile"), hook).unwrap();
 }
 
 /// A VM lab with no access machine of its own gets its attacker box as a VM the runner adds to
 /// the running environment, as GNS3 adds a node to a live topology: a one-line definition written
 /// under the run's state folder (where the Vagrantfile's hook loads it), at a free address on the
-/// chosen network, booted alone on the run's provider with the learner's box; status reads it
-/// from `vagrant status` with the address kept beside the definition; the shell is `vagrant ssh`
-/// into it; detach destroys it alone and removes the definition, the lab left up.
+/// chosen network, running the learner's container image (the hook makes the VM a container run
+/// as a VM), booted alone on the run's provider; status reads it from `vagrant status` with the
+/// address kept beside the definition; the shell is `vagrant ssh` into it, then `docker exec`
+/// into the container; detach destroys it alone and removes the definition, the lab left up.
 #[tokio::test]
 async fn a_vm_lab_gets_an_ad_hoc_vm_added_to_the_running_environment() {
     let f = fixture(crate::this_host());
@@ -354,18 +356,18 @@ async fn a_vm_lab_gets_an_ad_hoc_vm_added_to_the_running_environment() {
     );
     assert!(!run.status().await.unwrap().machines.iter().any(|m| m.name == ADHOC), "none before an attach");
 
-    let report = run.attach(None, None, Some("me/kali"), &Recorder::new()).await.unwrap();
+    let report = run.attach(None, None, Some("me/kali:2026"), &Recorder::new()).await.unwrap();
     assert_eq!((report.machine.as_str(), report.native.as_str()), (ADHOC, ADHOC));
     assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some("10.61.0.252")));
     let definition = std::fs::read_to_string(&rb).expect("the definition is written where the hook loads it");
     assert!(
-        definition.ends_with("IsoloomAdHoc.define(config, \"isoloom-access\", network: \"lab\", ip: \"10.61.0.252\", box: \"me/kali\")\n"),
+        definition.ends_with("IsoloomAdHoc.define(config, \"isoloom-access\", network: \"lab\", ip: \"10.61.0.252\", image: \"me/kali:2026\")\n"),
         "{definition}"
     );
     assert!(json.is_file(), "its record beside it");
     let up = f.fake.last(&format!("up {ADHOC}")).expect("the VM is booted");
     assert_eq!(up.line(), format!("vagrant up {ADHOC} --provider=virtualbox"), "alone, on the run's provider");
-    assert_eq!(up.env(isoloom_manifest::access::BOX_ENV), Some("me/kali"), "the picked box is delivered");
+    assert_eq!(up.env(isoloom_manifest::access::BOX_ENV), None, "the image is the hook's, never the VM's box");
     assert_eq!((f.state(ADHOC).as_str(), f.state("web").as_str()), ("running", "running"));
 
     let status = run.status().await.unwrap();
@@ -375,9 +377,12 @@ async fn a_vm_lab_gets_an_ad_hoc_vm_added_to_the_running_environment() {
     assert_eq!(access.addresses.get("lab").map(String::as_str), Some("10.61.0.252"));
 
     let shell = run.shell_command(None).unwrap();
-    assert_eq!(
-        (shell.program.as_str(), shell.args.clone()),
-        ("vagrant", vec!["ssh".to_owned(), ADHOC.to_owned()])
+    assert_eq!(shell.program, "vagrant");
+    assert_eq!(&shell.args[..3], ["ssh", ADHOC, "-c"]);
+    assert!(
+        shell.args[3].starts_with("sudo docker exec -it 'isoloom-access' sh -c "),
+        "into the container: {:?}",
+        shell.args
     );
     assert!(shell.env.iter().any(|(k, _)| k == "VAGRANT_DOTFILE_PATH"), "{:?}", shell.env);
 

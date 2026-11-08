@@ -32,7 +32,7 @@ const LABEL: &str = "isoloom.access";
 const IDLE: &str = "sleep infinity";
 
 /// The shell the box's `exec` opens: `bash` when the image has it (Kali does), else `sh`.
-const SHELL: &str = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
+pub(super) const SHELL: &str = "command -v bash >/dev/null 2>&1 && exec bash || exec sh";
 
 /// How long hot-adding the box may take: its image may still need pulling, inside the VM.
 const ATTACH_TIMEOUT: Duration = Duration::from_secs(900);

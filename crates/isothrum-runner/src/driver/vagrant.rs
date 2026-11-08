@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, Native, Role, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
 
-use super::{ADHOC_NAME, Attached, Attacker, Driver, Observed};
+use super::{Attached, Attacker, Driver, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, step_env};
@@ -294,15 +294,16 @@ impl Driver for Vagrant {
     }
 
     /// The command that opens an interactive shell into the attacker box: `vagrant ssh <define>`
-    /// into a manifest access VM or the ad-hoc VM the runner added, `vagrant ssh <vm> -c "docker
-    /// exec …"` into an ad-hoc container in the VM of a container lab. Either runs in the run's
+    /// into a manifest access VM or the ad-hoc VM the runner added (then `docker exec` into the
+    /// container that VM runs, if any), `vagrant ssh <vm> -c "docker exec …"` into an ad-hoc
+    /// container in the VM of a container lab. Either runs in the run's
     /// folder with the run's Vagrant environment (its state folder, its forwarded ports), which
     /// Vagrant needs to find the VM.
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
         let native = match target(cx, attacker) {
             Target::AdHocIn(vm) => return adhoc::shell_command(self, cx, &vm),
-            // The runner's own VM is a define like any other.
-            Target::AdHocVm => ADHOC_NAME.to_owned(),
+            // The runner's own VM: `vagrant ssh` into it, then into the container it runs, if any.
+            Target::AdHocVm => return adhoc_vm::shell_command(self, cx),
             Target::Machine(native) => native,
         };
         Ok(ShellCommand {

@@ -69,7 +69,8 @@ pub(crate) enum Command {
         /// The lab network to attach it to (default: its first).
         #[arg(long)]
         network: Option<String>,
-        /// The image (Docker) or box (Vagrant) to run it from (default: the lab's).
+        /// The container image to run it from (default: the lab's); inside the attack VM on a VM lab, or the
+        /// Vagrant box of a lab's own access VM.
         #[arg(long)]
         image: Option<String>,
     },

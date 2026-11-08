@@ -94,7 +94,9 @@ impl Running<'_> {
     /// Hot-adds the attacker box into the running run: an ad-hoc box on the lab's network (the
     /// default now that labs declare no access machine), or the manifest's on-demand access machine
     /// when the lab still has one. It is brought up with the learner-picked `image` (its baked or
-    /// Kali default otherwise), on `network` when given. `machine` names which on-demand machine,
+    /// Kali default otherwise), on `network` when given. `image` is a container image: an ad-hoc
+    /// box runs it, beside a container lab's containers or inside the attack VM the runner adds
+    /// to a VM lab; a manifest access VM alone takes it as its Vagrant box. `machine` names which on-demand machine,
     /// needed only when the lab has more than one.
     ///
     /// # Errors
