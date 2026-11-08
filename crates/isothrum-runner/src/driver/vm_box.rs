@@ -19,6 +19,7 @@ use serde_json::Value;
 
 use crate::Result;
 use crate::driver::{ADHOC_NAME, ADHOC_STATUS_FORMAT, ATTACK_HOSTNAME, Attached, adhoc_status};
+use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::process::ProcessSpec;
 use crate::ssh::sh_quote;
@@ -151,11 +152,17 @@ pub(crate) async fn attach(way: &dyn WayIn, cx: &Cx<'_>, image: Option<&str>, ne
     })
 }
 
-/// Removes the box from the VM by name, best effort: a box already gone is no failure to report.
+/// Removes the box from the VM by name. A box already gone is no failure; anything else (the VM
+/// not answering, Docker refusing) is, since the box may still be running there.
 pub(crate) async fn detach(way: &dyn WayIn, cx: &Cx<'_>) -> Result<()> {
-    drop(remove(way, cx, &container_name(cx), Echo::Shown).await);
-    Ok(())
+    match remove(way, cx, &container_name(cx), Echo::Shown).await {
+        Err(Error::ToolFailed { reason, .. }) if reason.contains(GONE) => Ok(()),
+        done => done,
+    }
 }
+
+/// What Docker says when the container to remove isn't there.
+const GONE: &str = "No such container";
 
 /// `docker rm -f <name>` in the VM.
 async fn remove(way: &dyn WayIn, cx: &Cx<'_>, name: &str, echo: Echo) -> Result<()> {

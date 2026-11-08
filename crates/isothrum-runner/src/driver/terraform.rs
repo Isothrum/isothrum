@@ -148,7 +148,8 @@ impl Driver for Terraform {
         }
     }
 
-    /// Hot-removes the ad-hoc attacker box from the VM it is in, best effort ([`adhoc::detach`]).
+    /// Hot-removes the ad-hoc attacker box from the VM it is in ([`adhoc::detach`]); a box already
+    /// gone is no failure.
     async fn detach(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<()> {
         match attacker {
             Attacker::AdHoc => adhoc::detach(cx).await,

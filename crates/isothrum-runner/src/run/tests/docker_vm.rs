@@ -31,6 +31,8 @@ struct Engine {
     attacker: Option<(String, Vec<String>)>,
     /// How many reads of the containers still miss (the way into the VM refused).
     ps_misses: u32,
+    /// The way into the VM refuses every `docker` command (the VM stopped answering).
+    unreachable: bool,
 }
 
 /// The address the fake Docker gives the attacker box on every network.
@@ -72,6 +74,9 @@ fn quoted(command: &str) -> Vec<&str> {
 /// What root's Docker in the VM answers to `docker <rest>`: the attacker box's run, removal,
 /// network joins and inspects (no other container is ever addressed by name).
 fn docker(e: &mut Engine, rest: &str) -> Reply {
+    if e.unreachable {
+        return Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2222: Connection refused");
+    }
     let words = quoted(rest);
     let networks_json = |nets: &[String]| {
         let each: Vec<String> = nets.iter().map(|n| format!(r#""{n}":{{"IPAddress":"{BOX_IP}"}}"#)).collect();
@@ -303,6 +308,19 @@ async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
     assert!(l.engine.lock().unwrap().attacker.is_none());
     assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "the box is gone");
     run.detach(None, &Recorder::new()).await.expect("a box already gone is no error");
+}
+
+/// A detach that can't reach the VM fails and says why: the box may still be running there.
+#[tokio::test(start_paused = true)]
+async fn a_detach_that_cannot_reach_the_vm_fails() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap();
+    l.engine.lock().unwrap().unreachable = true;
+    let err = run.detach(None, &Recorder::new()).await.unwrap_err();
+    assert!(err.to_string().contains("Connection refused"), "{err}");
+    assert!(l.engine.lock().unwrap().attacker.is_some(), "the box is still there");
 }
 
 /// A VM that is paused holds its containers as it does: no box goes into it.
