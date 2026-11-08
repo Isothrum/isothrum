@@ -122,10 +122,12 @@ pub(super) fn status(manifest: &isoloom_manifest::Manifest, outputs: &BTreeMap<S
 pub(super) fn shell_command(cx: &Cx<'_>) -> Result<ShellCommand> {
     let outputs = outputs(cx)?;
     let login = login(cx, &outputs)?;
-    let exec = if outputs.get(FORM_OUTPUT).map(String::as_str) == Some(CONTAINER_FORM) {
-        format!("sudo docker exec -it {CONTAINER} sh -c {}", ssh::sh_quote(vm_box::SHELL))
-    } else {
+    // A Kali box is the instance itself; any other (the container form, or a module from before
+    // the forms, which only had it) is a container in the instance.
+    let exec = if outputs.get(FORM_OUTPUT).map(String::as_str) == Some(KALI) {
         "exec bash -l".to_owned()
+    } else {
+        format!("sudo docker exec -it {CONTAINER} sh -c {}", ssh::sh_quote(vm_box::SHELL))
     };
     let spec = ssh::spec(cx, &login, &exec, Vec::new())?;
     let mut args = vec!["-t".to_owned()];
