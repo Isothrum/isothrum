@@ -3,7 +3,7 @@
 //! reached through `vagrant ssh` or `ssh`, and the ad-hoc attacker box by a fake Docker in the
 //! VM. No real tool ever runs.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use isoloom_manifest::{HostOs, Protocol, Role};
@@ -11,7 +11,7 @@ use isoloom_manifest::{HostOs, Protocol, Role};
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{DOCKER_VM, DOCKER_VM_PROXMOX, LabFolder, modelled, processes, runner_config, virtualbox_options};
+use crate::testing::{DOCKER_VM, LabFolder, modelled, processes, runner_config, virtualbox_options};
 use crate::{ErrorCode, MachineState, Park, Recorder, RunOptions, Runner};
 
 const FLAG: &str = "flag{vm-docker-0001}";
@@ -277,10 +277,7 @@ async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
         Some(("kalilinux/kali-rolling".into(), vec!["flag-portal_lab".into()]))
     );
 
-    let status = run.status().await.unwrap();
-    let access = status.machines.iter().find(|m| m.role == Role::Access).unwrap();
-    assert_eq!((access.name.as_str(), &access.state), ("isoloom-access", &MachineState::Running));
-    assert_eq!(access.addresses.get("lab").map(String::as_str), Some(BOX_IP));
+    let access = running_box(&run).await;
     assert_eq!(access.published, [], "nothing of it is forwarded to this computer");
 
     let shell = run.shell_command(None).unwrap();
@@ -334,67 +331,13 @@ async fn a_container_read_that_misses_once_is_read_again() {
     assert!(matches!(&web, MachineState::Unknown(why) if why.starts_with("unreadable: ")), "{web:?}");
 }
 
-/// The fake tools of a Proxmox run: Terraform writing the state, `ssh` to the Docker host.
-fn server_tools(home: &Path, engine: &Mutex<Engine>, call: &Call) -> Reply {
-    let line = call.line();
-    if call.program == "ssh-keygen" {
-        let key = crate::ssh::key_path(home);
-        std::fs::write(&key, "private").unwrap();
-        std::fs::write(key.with_extension("pub"), "ssh-ed25519 AAAAfake isothrum\n").unwrap();
-        return Reply::ok("");
-    }
-    let state_dir = || Path::new(call.env("TF_DATA_DIR").unwrap()).parent().unwrap().to_path_buf();
-    if line.contains("terraform apply") {
-        let state = format!(r#"{{"outputs":{{"ip":{{"value":"{VM_IP}"}},"ssh_user":{{"value":"isoloom"}}}},"resources":[{{"instances":[{{}}]}}]}}"#);
-        std::fs::write(state_dir().join("terraform.tfstate"), state).unwrap();
-        engine.lock().unwrap().vm = Some("running".into());
-        return Reply::ok("Apply complete!");
-    }
-    if line.contains("terraform destroy") {
-        std::fs::write(state_dir().join("terraform.tfstate"), r#"{"outputs":{},"resources":[]}"#).unwrap();
-        *engine.lock().unwrap() = Engine::default();
-        return Reply::ok("Destroy complete!");
-    }
-    if call.program == "ssh" && call.args != ["-V"] {
-        let command = call.args.last().cloned().unwrap_or_default();
-        let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
-        return compose(&mut e, &command, call);
-    }
-    Reply::ok("")
+/// The run's ad-hoc attacker box as status reports it: running, at [`BOX_IP`] on the lab network.
+async fn running_box(run: &crate::Running<'_>) -> crate::MachineStatus {
+    let status = run.status().await.unwrap();
+    let access = status.machines.into_iter().find(|m| m.role == Role::Access).unwrap();
+    assert_eq!((access.name.as_str(), &access.state), ("isoloom-access", &MachineState::Running));
+    assert_eq!(access.addresses.get("lab").map(String::as_str), Some(BOX_IP));
+    access
 }
 
-#[tokio::test(start_paused = true)]
-async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to_its_address() {
-    let folder = LabFolder::new("docker-vm/proxmox", DOCKER_VM_PROXMOX);
-    std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
-    std::fs::write(folder.target_dir().join("setup.sh"), "set -e\n").unwrap();
-    let engine = Arc::new(Mutex::new(Engine::default()));
-    let fake = Arc::new(FakeProcesses::new({
-        let (engine, home) = (Arc::clone(&engine), folder.home.path().to_path_buf());
-        move |call| server_tools(&home, &engine, call)
-    }));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), crate::testing::no_ports(), HostOs::Linux)).unwrap();
-    let run = runner.open(&folder.manifest, None).unwrap();
-    let mut secrets = Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
-    secrets.insert("proxmox_password", SecretValue::new("pw"));
-    let server = RunOptions::new()
-        .with_param("proxmox_endpoint", "https://172.16.1.10:8006/")
-        .with_param("node", "pve")
-        .with_secrets(secrets)
-        .with_host_label("pve-run");
-    let started = run.up(&server, &Recorder::new()).await.unwrap();
-    let ssh: Vec<Call> = fake.calls().into_iter().filter(|c| c.program == "ssh" && c.args != ["-V"]).collect();
-    assert!(ssh.iter().all(|c| c.args.contains(&format!("isoloom@{VM_IP}"))), "{ssh:?}");
-    let state = runner.store.run_dir(run.name()).unwrap();
-    let piped: Vec<Option<PathBuf>> = ssh.iter().map(|c| c.stdin.clone()).collect();
-    assert!(piped.contains(&Some(folder.target_dir().join("setup.sh"))), "{piped:?}");
-    assert!(piped.contains(&Some(state.join("project.tgz"))), "{piped:?}");
-    let start = ssh.iter().find(|c| c.line().contains(" up --detach ")).unwrap();
-    assert!(start.args.windows(2).any(|w| w == ["-o", "SendEnv=CTF_FLAG_MAIN"]));
-    assert_eq!(start.env("TF_VAR_proxmox_password"), None);
-    let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
-    assert_eq!(page.value.as_deref(), Some(format!("http://{VM_IP}:8080/").as_str()));
-    assert!(run.park(Park::Pause, &Recorder::new()).await.is_err(), "a server run isn't parked");
-    run.down(&server, &Recorder::new()).await.unwrap();
-}
+mod proxmox;

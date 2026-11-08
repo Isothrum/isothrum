@@ -33,6 +33,28 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Added
 
+- **The attack box on a container lab in a VM Terraform made** (`cloud-docker` on every cloud,
+  a container lab on a Proxmox server). `attach` with no access machine stands the ad-hoc box up
+  as a container inside the run's guest VM, as the Vagrant driver does for `docker-vm`: `docker
+  run -d --name <run>-isoloom-access --label isoloom.access=true --network <lab net> <image> sleep
+  infinity`, the lab's other networks joined best effort, its address read with `docker inspect`;
+  `detach` is `docker rm -f`; status reports it as the run's access machine (role access, its
+  address on the lab network) while the VM runs; `shell_command` is `ssh -t` to the VM then `sudo
+  docker exec -it`. The VM is reached as the guest's own `ssh.run` steps reach it (its
+  `${outputs.ip}` from the run's state, the guest's user, the runner's key and the run's SSH
+  configuration, through the run's jump and the step's `via`). The container logic is shared by
+  both drivers (`driver::vm_box`), only the way into the VM differs.
+  **Still unsupported:** a VM lab on a cloud or a server (`cloud-vm`, Proxmox VM labs) has no VM
+  to put the box in and is refused (`unsupported`, "…on a run with no container host VM"), as is
+  a manifest's on-demand access machine on a Terraform run.
+
+### Fixed
+
+- **`shell_command` reads the run's record**, as status does: the shell into an attack box goes
+  through the run's SSH jump, and a Vagrant run's shell gets the host ports its start pinned.
+
+### Added
+
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
   (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out

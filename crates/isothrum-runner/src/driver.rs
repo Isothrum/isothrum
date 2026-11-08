@@ -5,6 +5,7 @@
 mod compose;
 mod terraform;
 mod vagrant;
+mod vm_box;
 
 pub(crate) use compose::read_ps;
 pub(crate) use terraform::plugin_cache;

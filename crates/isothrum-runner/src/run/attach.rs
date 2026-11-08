@@ -162,10 +162,14 @@ impl Running<'_> {
     /// makes no ad-hoc box (a VM or cloud lab with no access machine).
     pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
         let target = self.attacker(machine)?;
-        let (_, provider, params) = self.query_prelude()?;
+        let (record, provider, params) = self.query_prelude()?;
         let silent = |_: &crate::events::Event| {};
         let emit = Emitter::new(self.name().as_str(), Op::Check, self.runner.config.clock.as_ref(), &silent);
-        let cx = self.cx(params, &self.connection, &emit, provider)?;
+        let mut cx = self.cx(params, &self.connection, &emit, provider)?;
+        // What the run's start kept (its SSH jump, its slot), so the way in is the run's.
+        if let Some(r) = &record {
+            Self::bind_record(&mut cx, r);
+        }
         self.driver.shell_command(&cx, target.as_attacker())
     }
 

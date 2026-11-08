@@ -204,12 +204,18 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
             what: format!("{at}: an `ssh.run` without its `host` and `command`"),
         });
     }
-    let user = Some(arg("user")?).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into());
-    let login = Login::new(&user, &host, cx.ssh_jump.as_deref(), &arg("via")?)?;
+    let login = with_login(cx, &host, arg)?;
     let mut spec = spec(cx, &login, &command, crate::executor::env_deliveries(cx, step.id.as_str()))?;
     spec.cwd = Some(cx.run.dir().to_path_buf());
     spec.stdin = crate::executor::stdin_of(cx, list, step)?;
     Ok(spec)
+}
+
+/// The login of an `ssh.run` at `host`, its other `with` arguments read by `arg`: its `user`
+/// (root otherwise), through the run's jump then its `via`.
+pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<String>) -> Result<Login> {
+    let user = Some(arg("user")?).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into());
+    Login::new(&user, host, cx.ssh_jump.as_deref(), &arg("via")?)
 }
 
 /// The most an `ssh.run`'s `wait_s` may give: half an hour.
