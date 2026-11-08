@@ -35,6 +35,9 @@ const ADDRESS: &str = "address_isoloom_access";
 const USER: &str = "ssh_user_isoloom_access";
 const LAB_ADDRESS: &str = "lab_address_isoloom_access";
 
+/// The name of the module's resources for the box (its instance, its security group).
+const RESOURCE: &str = "isoloom_access";
+
 /// The box's container in the instance, and the files cloud-init writes about it.
 const CONTAINER: &str = "isoloom-access";
 const READY: &str = "/var/lib/isoloom/attack-box-ready";
@@ -67,9 +70,11 @@ pub(super) async fn attach(cx: &Cx<'_>) -> Result<Attached> {
     })
 }
 
-/// Takes the box out: the module applied with the image cleared. A run with no box is left.
+/// Takes the box out: the module applied with the image cleared. A run with none of the box's
+/// resources is left as it is; one an attach left half made (its security group, after the
+/// instance was refused) is cleared too.
 pub(super) async fn detach(cx: &Cx<'_>) -> Result<()> {
-    if outputs(cx)?.get(ADDRESS).is_none_or(String::is_empty) {
+    if !state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.names.iter().any(|n| n == RESOURCE) {
         return Ok(());
     }
     apply(cx).await

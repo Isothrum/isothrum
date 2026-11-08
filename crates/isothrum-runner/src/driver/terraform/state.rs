@@ -27,6 +27,8 @@ pub(super) struct TfState {
     pub(super) resources: bool,
     /// A resource instance is tainted: a create or a provisioner failed.
     pub(super) tainted: bool,
+    /// Each resource's name (`aws_instance.web`'s is `web`), once per resource.
+    pub(super) names: Vec<String>,
 }
 
 /// Reads the state in `dir`; an empty one when there is none.
@@ -60,6 +62,10 @@ pub(super) fn parse(text: &str) -> std::result::Result<TfState, serde_json::Erro
     }
     let resources = v.get("resources").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
     state.resources = !resources.is_empty();
+    state.names = resources
+        .iter()
+        .filter_map(|r| r.get("name").and_then(Value::as_str).map(str::to_owned))
+        .collect();
     state.tainted = resources
         .iter()
         .flat_map(|r| r.get("instances").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default())
@@ -87,6 +93,12 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn each_resources_name_is_read() {
+        let s = parse(r#"{"outputs":{},"resources":[{"name":"web","instances":[{}]},{"name":"isoloom_access","instances":[]}]}"#).unwrap();
+        assert_eq!(s.names, ["web", "isoloom_access"]);
+    }
 
     #[test]
     fn outputs_resources_and_taint_are_read() {
