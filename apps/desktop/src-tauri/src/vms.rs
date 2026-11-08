@@ -98,7 +98,8 @@ pub(crate) fn states(machine_readable: &str) -> String {
             let f: Vec<&str> = l.split(',').collect();
             match f.as_slice() {
                 [_, name, "state", state, ..] if !name.is_empty() => {
-                    let state = if *state == "running" {
+                    // UTM's plugin reports a running VM as `started`.
+                    let state = if matches!(*state, "running" | "started") {
                         "running"
                     } else {
                         "exited"
@@ -301,6 +302,9 @@ mod tests {
             states(out),
             "{\"Service\":\"web\",\"State\":\"running\"}\n{\"Service\":\"db\",\"State\":\"exited\"}"
         );
+        // A VM up on UTM reads `started`, and is running.
+        let utm = "1700000000,,metadata,provider,utm\n1700000000,pc,state,started\n";
+        assert_eq!(states(utm), "{\"Service\":\"pc\",\"State\":\"running\"}");
     }
 
     /// GNU `base64` (`-w0`): Linux only.
