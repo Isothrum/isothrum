@@ -92,6 +92,17 @@ impl Target<'_> {
     }
 }
 
+/// Which box an attach adds, where, from what: as [`Running::attach`] takes them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BoxPick<'a> {
+    /// The on-demand machine, when the lab has more than one.
+    pub machine: Option<&'a str>,
+    /// The lab network it joins (default: its first).
+    pub network: Option<&'a str>,
+    /// What it runs from (default: the lab's).
+    pub image: Option<&'a str>,
+}
+
 impl Running<'_> {
     /// Hot-adds the attacker box into the running run: an ad-hoc box on the lab's network (the
     /// default now that labs declare no access machine), or the manifest's on-demand access machine
@@ -108,13 +119,27 @@ impl Running<'_> {
     /// ad-hoc box: a VM lab on a server or a cloud), `not_running` when the run isn't up,
     /// and as the other operations do for a step or the state.
     pub async fn attach(&self, machine: Option<&str>, network: Option<&str>, image: Option<&str>, events: &dyn Events) -> Result<AttachReport> {
-        let opts = self.connected(&RunOptions::default());
+        self.attach_with(&RunOptions::default(), BoxPick { machine, network, image }, events).await
+    }
+
+    /// [`Running::attach`] with `opts`: the secrets a target needs to change the run (a cloud
+    /// account's credentials, when the box is an instance of its own the module is applied for).
+    ///
+    /// # Errors
+    ///
+    /// As [`Running::attach`].
+    pub async fn attach_with(&self, opts: &RunOptions, pick: BoxPick<'_>, events: &dyn Events) -> Result<AttachReport> {
+        let BoxPick { machine, network, image } = pick;
+        let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
             let target = self.attacker(machine)?;
             let (_, mut cx) = self.existing(&opts, e).await?;
             if !any_target_running(&self.observe(&mut cx).await?.machines) {
                 return Err(Error::NotRunning { run: self.name().to_string() });
+            }
+            if matches!(target, Target::AdHoc) {
+                box_image(&mut cx, Some(image.unwrap_or(isoloom_manifest::access::DEFAULT_IMAGE)));
             }
             let attached = self.driver.attach(&cx, target.as_attacker(), image, network).await?;
             let report = target.report(network, image, attached);
@@ -136,11 +161,23 @@ impl Running<'_> {
     /// Fails as [`Running::attach`] does for the box choice and the target, and as the other
     /// operations do for a step or the state.
     pub async fn detach(&self, machine: Option<&str>, events: &dyn Events) -> Result<()> {
-        let opts = self.connected(&RunOptions::default());
+        self.detach_with(&RunOptions::default(), machine, events).await
+    }
+
+    /// [`Running::detach`] with `opts`, as [`Running::attach_with`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Running::detach`].
+    pub async fn detach_with(&self, opts: &RunOptions, machine: Option<&str>, events: &dyn Events) -> Result<()> {
+        let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
             let target = self.attacker(machine)?;
-            let (_, cx) = self.existing(&opts, e).await?;
+            let (_, mut cx) = self.existing(&opts, e).await?;
+            if matches!(target, Target::AdHoc) {
+                box_image(&mut cx, None);
+            }
             self.driver.detach(&cx, target.as_attacker()).await?;
             Ok(Done {
                 value: (),
@@ -233,4 +270,17 @@ fn address_on(m: &Machine, network: Option<&str>) -> (Option<String>, Option<Str
             .next()
             .map_or((None, None), |(k, a)| (Some(k.as_str().to_owned()), Some(a.to_string()))),
     }
+}
+
+/// Sets the box's image in `cx`'s params (`None`: clears it), for a run whose module makes the box
+/// an instance of its own ([`crate::driver::attack_vm_param`]): the recorded value, given at `up`,
+/// would otherwise stand.
+fn box_image(cx: &mut crate::executor::Cx<'_>, image: Option<&str>) {
+    let param = crate::driver::attack_vm_param();
+    if !cx.run.manifest().params.iter().any(|p| p.name.as_str() == param) {
+        return;
+    }
+    let mut params = cx.vars.params().clone();
+    params.insert(param.to_owned(), image.unwrap_or_default().to_owned());
+    cx.vars.set_params(params);
 }

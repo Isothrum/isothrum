@@ -20,6 +20,7 @@
 //!   lab on a cloud or a server has none.
 
 mod adhoc;
+pub(crate) mod attack_vm;
 mod copy_module;
 mod state;
 
@@ -131,6 +132,13 @@ impl Driver for Terraform {
         {
             observed.machines.push(access);
         }
+        // A lab run as one VM per machine: the box is an instance of its own, up while the state
+        // gives its address.
+        if attack_vm::offered(manifest)
+            && let Some(access) = attack_vm::status(manifest, &tf.outputs)
+        {
+            observed.machines.push(access);
+        }
         Ok(observed)
     }
 
@@ -140,9 +148,11 @@ impl Driver for Terraform {
     }
 
     /// Hot-adds the ad-hoc attacker box: a container in the VM the lab's containers run in
-    /// ([`adhoc::attach`]). A manifest access machine, or a run with no such VM, is refused.
+    /// ([`adhoc::attach`]), or, on a lab run as one VM per machine whose module offers one, an
+    /// instance of its own ([`attack_vm::attach`]). A manifest access machine is refused.
     async fn attach(&self, cx: &Cx<'_>, attacker: Attacker<'_>, image: Option<&str>, network: Option<&str>) -> Result<Attached> {
         match attacker {
+            Attacker::AdHoc if attack_vm::offered(cx.run.manifest()) => attack_vm::attach(cx).await,
             Attacker::AdHoc => adhoc::attach(cx, image, network).await,
             Attacker::Machine(_) => Err(on_demand("hot-adding")),
         }
@@ -152,6 +162,7 @@ impl Driver for Terraform {
     /// gone is no failure.
     async fn detach(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<()> {
         match attacker {
+            Attacker::AdHoc if attack_vm::offered(cx.run.manifest()) => attack_vm::detach(cx).await,
             Attacker::AdHoc => adhoc::detach(cx).await,
             Attacker::Machine(_) => Err(on_demand("hot-removing")),
         }
@@ -161,6 +172,7 @@ impl Driver for Terraform {
     /// `docker exec` ([`adhoc::shell_command`]).
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
         match attacker {
+            Attacker::AdHoc if attack_vm::offered(cx.run.manifest()) => attack_vm::shell_command(cx),
             Attacker::AdHoc => adhoc::shell_command(cx),
             Attacker::Machine(_) => Err(on_demand("a shell into")),
         }

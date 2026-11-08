@@ -10,7 +10,7 @@ mod seal;
 mod tests;
 mod up;
 
-pub use attach::AttachReport;
+pub use attach::{AttachReport, BoxPick};
 
 use std::collections::BTreeMap;
 use std::path::Path;
