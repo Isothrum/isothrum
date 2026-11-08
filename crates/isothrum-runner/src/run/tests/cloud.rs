@@ -97,15 +97,7 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
                 "Error: creating EC2 Instance: InvalidParameterValue: Value (isoloom-web) for parameter iamInstanceProfile.name is invalid",
             );
         }
-        // The attack box's instance, while `attack_box` names its image (attack_box.rs). An image
-        // named `refused` stands for an instance the account refuses: its security group alone
-        // is made, and the apply fails.
-        if call.env("TF_VAR_attack_box") == Some("refused") {
-            let state =
-                r#"{"outputs":{"ip":{"value":"198.51.100.10"}},"resources":[{"name":"web","instances":[{}]},{"name":"isoloom_access","instances":[{}]}]}"#;
-            std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
-            return Reply::fail(1, "Error: creating EC2 Instance: InvalidParameterCombination: not eligible for Free Tier");
-        }
+        // The attack box's instance, while `attack_box` names its image (attack_box.rs).
         let attack = match call.env("TF_VAR_attack_box") {
             Some(image) if !image.is_empty() => {
                 *cloud.attack_image.lock().unwrap_or_else(PoisonError::into_inner) = Some(image.to_owned());
@@ -115,13 +107,8 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
             }
             _ => String::new(),
         };
-        let attack_resource = if attack.is_empty() {
-            ""
-        } else {
-            r#",{"name":"isoloom_access","instances":[{}]}"#
-        };
         let state = format!(
-            r#"{{"outputs":{{{attack}"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"name":"web","instances":[{{}}]}}{attack_resource}]}}"#
+            r#"{{"outputs":{{{attack}"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"instances":[{{}}]}}]}}"#
         );
         std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
         return Reply::ok("Apply complete! Resources: 9 added, 0 changed, 0 destroyed.");

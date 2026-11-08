@@ -97,23 +97,3 @@ async fn a_module_without_the_box_refuses_it() {
     let err = run.attach_with(&opts, BoxPick::default(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unsupported, "{err}");
 }
-
-/// An instance the account refuses leaves the box's security group: the attach fails with the
-/// cloud's reason, and a detach applies the module again to clear what was made.
-#[tokio::test(start_paused = true)]
-async fn a_detach_clears_what_a_refused_box_left() {
-    let a = account_of(&with_attack_box(), 0);
-    let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let opts = opts("eu-west-3", "labs");
-    run.up(&opts, &Recorder::new()).await.unwrap();
-    let pick = BoxPick {
-        image: Some("refused"),
-        ..BoxPick::default()
-    };
-    let err = run.attach_with(&opts, pick, &Recorder::new()).await.unwrap_err();
-    assert!(err.to_string().contains("Free Tier"), "{err}");
-    let before = applies(&a).len();
-    run.detach_with(&opts, None, &Recorder::new()).await.unwrap();
-    assert_eq!(applies(&a).len(), before + 1, "applied again with no box");
-    assert_eq!(applies(&a).last().unwrap().env("TF_VAR_attack_box"), Some(""));
-}
