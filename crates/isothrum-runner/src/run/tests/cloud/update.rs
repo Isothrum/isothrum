@@ -58,3 +58,18 @@ async fn a_run_that_is_not_up_is_not_updated() {
     assert_eq!(err.code(), crate::ErrorCode::NotRunning, "{err}");
     assert!(applies(&a).is_empty(), "nothing applied");
 }
+
+/// A console into any machine of the run: `ssh -t` to its address as its user, a login shell.
+#[tokio::test(start_paused = true)]
+async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
+    let a = account(0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    let console = run.console_command("web").unwrap();
+    assert_eq!(console.program, "ssh");
+    assert_eq!(console.args.first().map(String::as_str), Some("-t"));
+    assert!(console.args.iter().any(|x| x == "admin@198.51.100.10"), "{:?}", console.args);
+    assert_eq!(console.args.last().map(String::as_str), Some("exec bash -l 2>/dev/null || exec sh -l"));
+    let unknown = run.console_command("nope").unwrap_err();
+    assert_eq!(unknown.code(), crate::ErrorCode::MachineUnknown, "{unknown}");
+}

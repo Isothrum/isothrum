@@ -20,6 +20,7 @@
 //!   lab on a cloud or a server has none.
 
 mod adhoc;
+mod console;
 mod copy_module;
 mod state;
 
@@ -155,6 +156,11 @@ impl Driver for Terraform {
             Attacker::AdHoc => adhoc::detach(cx).await,
             Attacker::Machine(_) => Err(on_demand("hot-removing")),
         }
+    }
+
+    /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
+    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+        console::command(cx, machine)
     }
 
     /// The command that opens an interactive shell into the ad-hoc box: `ssh -t` to its VM, then

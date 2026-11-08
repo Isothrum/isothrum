@@ -217,6 +217,12 @@ pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<S
     Login::new(&user_or_root(arg("user")?), host, cx.ssh_jump.as_deref(), &arg("via")?)
 }
 
+/// The user a run's module says to log in to machine `key` (its name, `-` written `_`) as:
+/// `ssh_user_<key>`, else the run's `ssh_user`, else `root`; `output` reads the run's outputs.
+pub(crate) fn machine_user(output: impl Fn(&str) -> Option<String>, key: &str) -> String {
+    user_or_root(output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default())
+}
+
 /// The user an SSH login takes: `user`, else `root` (every login the runner makes falls back so).
 pub(crate) fn user_or_root(user: String) -> String {
     Some(user).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into())

@@ -12,6 +12,10 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Added
 
+- `Running::console_command(machine)`: the command that opens a console into any machine of the
+  run, a pure query like `shell_command`. On a Terraform run: `ssh -t` to the machine's address as
+  its user (`ssh_user_<machine>`, else `ssh_user`, else root), through the run's SSH settings.
+  Other targets refuse it for now (`unsupported`).
 - `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
   regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
   with the params the run was started with, so each engine converges, then the guests' secrets,

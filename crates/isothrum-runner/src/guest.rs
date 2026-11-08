@@ -56,7 +56,7 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
         let host = output(&format!("address_{key}")).ok_or_else(|| Error::Unsupported {
             what: format!("a guest delivery to `{machine}` without its `address_{key}` output"),
         })?;
-        let user = ssh::user_or_root(output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default());
+        let user = ssh::machine_user(output, &key);
         to_machine(cx, &machine, &Login::new(&user, &host, cx.ssh_jump.as_deref(), "")?, &lines).await?;
     }
     Ok(())

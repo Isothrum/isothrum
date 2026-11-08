@@ -97,6 +97,14 @@ pub(crate) trait Driver {
     /// The argv that opens an interactive shell into the attacker box. A pure query: no process
     /// runs here, the embedder runs what it returns in its own terminal.
     fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand>;
+    /// The argv that opens an interactive console into `machine`, any machine of the run. A pure
+    /// query, as [`Driver::shell_command`]. Refused where the driver has no way in yet.
+    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+        let _ = cx;
+        Err(Error::Unsupported {
+            what: format!("a console into `{}` on this target", machine.name),
+        })
+    }
 }
 
 /// The driver a manifest names.
@@ -237,6 +245,14 @@ impl AnyDriver {
             AnyDriver::Compose(d) => d.shell_command(cx, attacker),
             AnyDriver::Vagrant(d) => d.shell_command(cx, attacker),
             AnyDriver::Terraform(d) => d.shell_command(cx, attacker),
+        }
+    }
+
+    pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+        match self {
+            AnyDriver::Compose(d) => d.console_command(cx, machine),
+            AnyDriver::Vagrant(d) => d.console_command(cx, machine),
+            AnyDriver::Terraform(d) => d.console_command(cx, machine),
         }
     }
 
