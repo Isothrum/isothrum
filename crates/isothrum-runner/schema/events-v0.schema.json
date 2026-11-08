@@ -528,11 +528,6 @@
           "description": "An apply failed and is tried again.",
           "type": "string",
           "const": "retrying"
-        },
-        {
-          "description": "What was asked for can't be had here: a stand-in is used (an attack box that runs as a\ncontainer because the account can't run Kali's own image).",
-          "type": "string",
-          "const": "fallback"
         }
       ]
     },
