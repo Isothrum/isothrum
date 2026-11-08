@@ -125,7 +125,7 @@ impl Driver for Terraform {
                 .any(|m| m.name == g.machine.as_str() && m.state == MachineState::Running)
         });
         if vm_runs
-            && !manifest.machines.iter().any(|m| m.role == isoloom_manifest::Role::Access)
+            && super::takes_adhoc_box(manifest)
             && let Ok(Some(way)) = adhoc::guest(cx, &tf.outputs)
             && let Some(access) = super::vm_box::status(&way, cx).await
         {

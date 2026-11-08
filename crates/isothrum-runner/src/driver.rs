@@ -252,6 +252,13 @@ impl AnyDriver {
     }
 }
 
+/// Whether an attach of `manifest`'s run adds an ad-hoc box: the lab declares no on-demand access
+/// machine of its own. Attach and every driver's status decide it here, so a box an attach added
+/// is always the one status shows (an always-up access machine doesn't stand in for it).
+pub(crate) fn takes_adhoc_box(manifest: &isoloom_manifest::Manifest) -> bool {
+    !manifest.machines.iter().any(|m| m.on_demand)
+}
+
 /// The name an ad-hoc attacker box reports under in status: Isoloom's reserved namespace, so it is
 /// never a lab machine. Its container is `{project}-isoloom-access` on this computer's Docker
 /// (Compose), `{run}-isoloom-access` inside a container lab's VM (Vagrant); the VM the runner adds
@@ -324,6 +331,18 @@ fn delivery_kind(d: &Delivery) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_ad_hoc_box_is_for_a_lab_with_no_on_demand_access_machine() {
+        let parse = |text: &str| isoloom_manifest::parse(text).unwrap();
+        assert!(super::takes_adhoc_box(&parse(crate::testing::FLAG_PORTAL)));
+        assert!(!super::takes_adhoc_box(&parse(crate::testing::FLAG_PORTAL_ACCESS)));
+        // An access machine that is always up doesn't stand in for the box: attach adds one, and
+        // status must show it.
+        let mut always_up = parse(crate::testing::FLAG_PORTAL_ACCESS);
+        always_up.machines.iter_mut().for_each(|m| m.on_demand = false);
+        assert!(super::takes_adhoc_box(&always_up));
+    }
+
     use super::*;
 
     #[test]

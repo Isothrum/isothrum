@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Native, Role, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
+use isoloom_manifest::{Action, Native, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
 
 use super::{Attached, Attacker, Driver, Observed};
 use crate::Result;
@@ -241,7 +241,7 @@ impl Driver for Vagrant {
         // its address, the shell into it). A container lab in a VM: a container in there with no
         // Compose service, which the guest's `ps` never lists, probed while the VM runs. A VM lab:
         // the VM the runner added, read from `vagrant status` with the definition it wrote.
-        if !cx.run.manifest().machines.iter().any(|m| m.role == Role::Access) {
+        if super::takes_adhoc_box(cx.run.manifest()) {
             match adhoc::guest_vm(cx) {
                 Some(vm) => {
                     if read.states.get(&vm).map(|s| status::machine_state(s)) == Some(crate::status::MachineState::Running)

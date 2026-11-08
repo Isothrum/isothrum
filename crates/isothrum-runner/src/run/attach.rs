@@ -186,10 +186,12 @@ impl Running<'_> {
                     machine: name.to_owned(),
                 });
         }
+        if crate::driver::takes_adhoc_box(self.manifest()) {
+            return Ok(Target::AdHoc);
+        }
         match (on_demand.next(), on_demand.next()) {
             (Some(one), None) => Ok(Target::Machine(one)),
-            (None, _) => Ok(Target::AdHoc),
-            (Some(_), Some(_)) => Err(Error::Unsupported {
+            _ => Err(Error::Unsupported {
                 what: format!("hot-adding an access machine: this lab has several ({}); name which", self.on_demand_names()),
             }),
         }
