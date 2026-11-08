@@ -126,35 +126,9 @@ async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) ->
             _ => {
                 return Err(Error::ToolFailed {
                     step: id.to_owned(),
-                    reason: cx.events.mask(&reason(&out.stderr, &out.stdout)),
+                    reason: cx.events.mask(&crate::executor::why_failed(&out)),
                 });
             }
         }
-    }
-}
-
-/// Why a try failed: its standard error, else its standard output (a cloud image refusing the
-/// login prints why there: "Please login as the user \"admin\""), else a plain note.
-fn reason(stderr: &[String], stdout: &[String]) -> String {
-    let text = |lines: &[String]| lines.join("\n").trim().to_owned();
-    [text(stderr), text(stdout)]
-        .into_iter()
-        .find(|t| !t.is_empty())
-        .unwrap_or_else(|| "the command failed with no output".to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::reason;
-
-    #[test]
-    fn a_failure_says_why_from_stderr_then_stdout() {
-        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(reason(&lines(&["denied"]), &lines(&["noise"])), "denied");
-        assert_eq!(
-            reason(&lines(&["", " "]), &lines(&["Please login as the user \"admin\""])),
-            "Please login as the user \"admin\""
-        );
-        assert_eq!(reason(&[], &[]), "the command failed with no output");
     }
 }

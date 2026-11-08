@@ -109,7 +109,7 @@ async fn query(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> std::result
     if out.exit.is_some_and(crate::process::Exit::success) {
         Ok(out.stdout.join("\n"))
     } else {
-        Err(format!("failed: {}", out.stderr.join(" ").trim()))
+        Err(format!("failed: {}", crate::executor::why_failed(&out)))
     }
 }
 

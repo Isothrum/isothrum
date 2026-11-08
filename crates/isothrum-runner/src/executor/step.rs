@@ -156,7 +156,7 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
     if out.exit.is_some_and(Exit::success) {
         return Ok(out.stdout.join("\n"));
     }
-    let reason = format!("`{}` failed: {}", spec.line(), out.stderr.join("\n").trim());
+    let reason = format!("`{}` failed: {}", spec.line(), why_failed(&out));
     Err(Error::ToolFailed {
         step: id.to_owned(),
         reason: cx.events.mask(&reason),
@@ -168,10 +168,8 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
     let spec = spec_for(cx, list, step)?;
     let out = timed(step, &cx.scope, capture(cx.processes.as_ref(), &spec)).await?;
-    // `capture` always says how the process ended.
-    let exit = out.exit.unwrap_or(Exit::new(None));
-    if !exit.success() {
-        let reason = failure_text(&out.stderr, exit);
+    if !out.exit.is_some_and(Exit::success) {
+        let reason = why_failed(&out);
         return Err(Error::ToolFailed {
             step: step.id.to_string(),
             reason: cx.events.mask(&reason),
@@ -268,6 +266,21 @@ fn verdict_of(verdict: &Regex, line: &str) -> Option<String> {
     Some(format!("{}...", rest.get(..cut).unwrap_or_default()))
 }
 
+/// How many of its last output lines stand in for a failed tool's silent standard error.
+const STDOUT_REASON_LINES: usize = 5;
+
+/// Why `out` failed: its last error lines, else its last output lines (a tool, or a cloud image
+/// refusing a login, may print its refusal there), with how it ended.
+pub(crate) fn why_failed(out: &Captured) -> String {
+    let quiet = out.stderr.iter().all(|l| l.trim().is_empty());
+    let said = if quiet {
+        out.stdout.get(out.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
+    } else {
+        &out.stderr[..]
+    };
+    failure_text(said, out.exit.unwrap_or(Exit::new(None)))
+}
+
 /// What a failed tool's error says: its last stderr lines, else its exit status.
 fn failure_text(tail: &[String], exit: Exit) -> String {
     let status = exit.code.map_or_else(|| "a signal".to_owned(), |c| format!("code {c}"));
@@ -282,6 +295,33 @@ fn failure_text(tail: &[String], exit: Exit) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
+        Captured {
+            exit: Some(Exit::new(code)),
+            stdout: lines(stdout),
+            stderr: lines(stderr),
+        }
+    }
+
+    #[test]
+    fn a_failure_says_why_from_stderr_else_the_end_of_stdout() {
+        assert_eq!(why_failed(&ended(Some(1), &["denied"], &["noise"])), "denied (exited with code 1)");
+        // Debian on AWS refuses root on stdout, with nothing on stderr.
+        let refused = ended(Some(1), &["", " "], &["Please login as the user \"admin\" rather than the user \"root\"."]);
+        assert_eq!(
+            why_failed(&refused),
+            "Please login as the user \"admin\" rather than the user \"root\". (exited with code 1)"
+        );
+        let long: Vec<String> = (1..=9).map(|n| format!("line {n}")).collect();
+        let long: Vec<&str> = long.iter().map(String::as_str).collect();
+        assert_eq!(
+            why_failed(&ended(Some(2), &[], &long)),
+            "line 5\nline 6\nline 7\nline 8\nline 9 (exited with code 2)"
+        );
+        assert_eq!(why_failed(&ended(None, &[], &[])), "exited with a signal");
+    }
 
     #[test]
     fn a_silent_failure_reports_its_exit_status() {
