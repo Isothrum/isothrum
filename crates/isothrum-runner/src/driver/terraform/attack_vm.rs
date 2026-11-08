@@ -4,11 +4,14 @@
 //! ([`PARAM`]); a run whose manifest has it takes its box this way.
 //!
 //! - **Attach:** the module applied again with [`PARAM`] set (the run's [`crate::Running::attach`]
-//!   sets it), then the box waited for over SSH: cloud-init writes [`READY`] once the container
-//!   runs, [`FAILED`] with why when it couldn't start it.
+//!   sets it), in the `kali` form first: the instance is Kali itself, nothing wrapped. Only when
+//!   the account can't run Kali's image (its Marketplace terms not accepted) is it applied in the
+//!   `container` form: a Debian instance running the box's image. Then the box is waited for over
+//!   SSH: cloud-init writes [`READY`] once it is set up, [`FAILED`] with why when it couldn't be.
 //! - **Detach:** applied again with [`PARAM`] cleared: the instance goes.
 //! - **Status:** the box is up while the state's outputs give its address.
-//! - **Shell:** `ssh -t` to the instance, then `docker exec` into the box.
+//! - **Shell:** `ssh -t` to the instance: a login shell on the Kali box, or `docker exec` into the
+//!   container of the `container` form.
 
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
@@ -18,7 +21,7 @@ use super::{LOCK_FILE, remove, state};
 use crate::Result;
 use crate::driver::{ADHOC_NAME, Attached, vm_box};
 use crate::error::Error;
-use crate::executor::{Cx, Echo, call, run_argv};
+use crate::executor::{Cx, Echo, call, call_ok, spec_for};
 
 use crate::ssh::{self, Login};
 use crate::status::{MachineState, MachineStatus, ShellCommand};
@@ -28,6 +31,16 @@ pub(crate) const PARAM: &str = "attack_box";
 
 /// The Terraform steps of `up` an attach or a detach runs again: the module applied.
 const APPLY_STEPS: [&str; 2] = ["init", "apply"];
+
+/// The module's variable choosing the box's form, its values, and the output saying which one
+/// the box has.
+const FORM_VAR: &str = "TF_VAR_attack_box_form";
+const KALI: &str = "kali";
+const CONTAINER_FORM: &str = "container";
+const FORM_OUTPUT: &str = "attack_box_form";
+
+/// What AWS says when the account hasn't accepted a Marketplace image's terms.
+const NOT_SUBSCRIBED: [&str; 2] = ["OptInRequired", "aws-marketplace"];
 
 /// The outputs the module gives while the box exists: its public address (where SSH reaches
 /// it), its user, and its address on the lab's network.
@@ -43,8 +56,11 @@ const CONTAINER: &str = "isoloom-access";
 const READY: &str = "/var/lib/isoloom/attack-box-ready";
 const FAILED: &str = "/var/lib/isoloom/attack-box-failed";
 
-/// How long the box may take to come up after the apply (Docker installed, the image pulled).
-const PATIENCE: Duration = Duration::from_secs(1200);
+/// How long the box may take to come up after the apply (Kali's toolset installed, or Docker and
+/// the image pulled).
+const PATIENCE: Duration = Duration::from_secs(1800);
+/// How long an apply step may take when the manifest doesn't say.
+const STEP_LIMIT: Duration = Duration::from_secs(3600);
 /// How long between two looks.
 const RETRY: Duration = Duration::from_secs(10);
 /// How long one look may take.
@@ -58,7 +74,16 @@ pub(crate) fn offered(manifest: &isoloom_manifest::Manifest) -> bool {
 
 /// Adds the box: the module applied with the image set, then the box waited for.
 pub(super) async fn attach(cx: &Cx<'_>) -> Result<Attached> {
-    apply(cx).await?;
+    match apply(cx, KALI).await {
+        Err(Error::ToolFailed { reason, .. }) if NOT_SUBSCRIBED.iter().any(|m| reason.contains(m)) => {
+            cx.events.warning(
+                crate::WarningCode::Fallback,
+                "This AWS account can't run Kali's own image (accept its terms on the AWS Marketplace to get it): the attack box runs as a container instead.",
+            );
+            apply(cx, CONTAINER_FORM).await?;
+        }
+        done => done?,
+    }
     let outputs = outputs(cx)?;
     let login = login(cx, &outputs)?;
     wait_ready(cx, &login).await?;
@@ -77,7 +102,7 @@ pub(super) async fn detach(cx: &Cx<'_>) -> Result<()> {
     if !state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.names.iter().any(|n| n == RESOURCE) {
         return Ok(());
     }
-    apply(cx).await
+    apply(cx, KALI).await
 }
 
 /// The box as status shows it, while the state gives its address.
@@ -97,7 +122,11 @@ pub(super) fn status(manifest: &isoloom_manifest::Manifest, outputs: &BTreeMap<S
 pub(super) fn shell_command(cx: &Cx<'_>) -> Result<ShellCommand> {
     let outputs = outputs(cx)?;
     let login = login(cx, &outputs)?;
-    let exec = format!("sudo docker exec -it {CONTAINER} sh -c {}", ssh::sh_quote(vm_box::SHELL));
+    let exec = if outputs.get(FORM_OUTPUT).map(String::as_str) == Some(CONTAINER_FORM) {
+        format!("sudo docker exec -it {CONTAINER} sh -c {}", ssh::sh_quote(vm_box::SHELL))
+    } else {
+        "exec bash -l".to_owned()
+    };
     let spec = ssh::spec(cx, &login, &exec, Vec::new())?;
     let mut args = vec!["-t".to_owned()];
     args.extend(spec.args);
@@ -109,9 +138,10 @@ pub(super) fn shell_command(cx: &Cx<'_>) -> Result<ShellCommand> {
     })
 }
 
-/// `up`'s Terraform steps again ([`APPLY_STEPS`]), with this operation's params: the module
-/// applied as the box's image says. A lock an interrupted apply left is cleared first.
-async fn apply(cx: &Cx<'_>) -> Result<()> {
+/// `up`'s Terraform steps again ([`APPLY_STEPS`]), with this operation's params and the box in
+/// `form`: the module applied as the box's image says. A lock an interrupted apply left is
+/// cleared first.
+async fn apply(cx: &Cx<'_>, form: &str) -> Result<()> {
     remove(&cx.run.runner.store.run_dir(cx.run.name())?.join(LOCK_FILE))?;
     for id in APPLY_STEPS {
         let step = cx
@@ -124,7 +154,10 @@ async fn apply(cx: &Cx<'_>) -> Result<()> {
             .ok_or_else(|| Error::Unsupported {
                 what: format!("the attack box on a run whose `up` has no `{id}` step"),
             })?;
-        run_argv(cx, "lifecycle.up", step, &mut |_| {}).await?;
+        let mut spec = spec_for(cx, "lifecycle.up", step)?;
+        spec.env.push((FORM_VAR.to_owned(), form.to_owned()));
+        let limit = step.timeout_s.map_or(STEP_LIMIT, |s| Duration::from_secs(u64::from(s.get())));
+        call_ok(cx, id, &spec, limit, Echo::Shown).await?;
     }
     Ok(())
 }

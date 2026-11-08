@@ -14,9 +14,11 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 - The attack box on a lab run as one VM per machine in a cloud account: when the module offers it
   (an `attack_box` param), attach applies it with the box's image and waits for the box over SSH,
-  detach applies it with none, status lists it and the shell goes `ssh -t` then `docker exec`.
+  detach applies it with none, status lists it. The box is Kali itself (`attack_box_form` =
+  `kali`, the shell a login shell on it); only an account that can't run Kali's image gets it as a
+  container on a Debian instance (`container`, with a `fallback` warning).
   `Running::attach_with` and `detach_with` take the operation's options (the account's
-  credentials), with the box choice as a `BoxPick`.
+  credentials), with the box choice as a `BoxPick`. New warning code: `fallback`.
 - **The attack box on a container lab in a VM Terraform made** (`cloud-docker` on every cloud,
   a container lab on a Proxmox server). `attach` with no access machine stands the ad-hoc box up
   as a container inside the run's guest VM, as the Vagrant driver does for `docker-vm`: `docker

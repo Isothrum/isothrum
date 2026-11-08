@@ -49,6 +49,10 @@ struct FakeCloud {
     attack_image: Mutex<Option<String>>,
     /// The attack box's cloud-init couldn't start it.
     attack_fails: AtomicBool,
+    /// The account can't run Kali's own image (its Marketplace terms not accepted).
+    kali_refused: AtomicBool,
+    /// The attack box's form the last apply that made one was given.
+    attack_form: Mutex<Option<String>>,
 }
 
 fn account(failing_applies: u32) -> Account {
@@ -90,41 +94,7 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
         return Reply::fail(1, "Error: updating Security Group (sg-web): UnauthorizedOperation");
     }
     if line.starts_with("terraform apply") {
-        if cloud.failing_applies.load(Ordering::SeqCst) > 0 {
-            cloud.failing_applies.fetch_sub(1, Ordering::SeqCst);
-            return Reply::fail(
-                1,
-                "Error: creating EC2 Instance: InvalidParameterValue: Value (isoloom-web) for parameter iamInstanceProfile.name is invalid",
-            );
-        }
-        // The attack box's instance, while `attack_box` names its image (attack_box.rs). An image
-        // named `refused` stands for an instance the account refuses: its security group alone
-        // is made, and the apply fails.
-        if call.env("TF_VAR_attack_box") == Some("refused") {
-            let state =
-                r#"{"outputs":{"ip":{"value":"198.51.100.10"}},"resources":[{"name":"web","instances":[{}]},{"name":"isoloom_access","instances":[{}]}]}"#;
-            std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
-            return Reply::fail(1, "Error: creating EC2 Instance: InvalidParameterCombination: not eligible for Free Tier");
-        }
-        let attack = match call.env("TF_VAR_attack_box") {
-            Some(image) if !image.is_empty() => {
-                *cloud.attack_image.lock().unwrap_or_else(PoisonError::into_inner) = Some(image.to_owned());
-                format!(
-                    r#""address_isoloom_access":{{"value":"{ATTACK_PUBLIC}"}},"ssh_user_isoloom_access":{{"value":"admin"}},"lab_address_isoloom_access":{{"value":"10.80.0.77"}},"#
-                )
-            }
-            _ => String::new(),
-        };
-        let attack_resource = if attack.is_empty() {
-            ""
-        } else {
-            r#",{"name":"isoloom_access","instances":[{}]}"#
-        };
-        let state = format!(
-            r#"{{"outputs":{{{attack}"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"name":"web","instances":[{{}}]}}{attack_resource}]}}"#
-        );
-        std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
-        return Reply::ok("Apply complete! Resources: 9 added, 0 changed, 0 destroyed.");
+        return apply(cloud, call);
     }
     if line.starts_with("terraform destroy") {
         let inputs = std::fs::read_to_string(state_dir(call).join("inputs.tfvars.json")).ok();
@@ -138,6 +108,55 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
         return guest(cloud, call, &line);
     }
     Reply::ok("")
+}
+
+/// What the fake `terraform apply` does: fails while asked to, refuses Kali's image when the
+/// account can't run it, then writes the state (the attack box's outputs while it is asked for).
+fn apply(cloud: &FakeCloud, call: &Call) -> Reply {
+    if cloud.failing_applies.load(Ordering::SeqCst) > 0 {
+        cloud.failing_applies.fetch_sub(1, Ordering::SeqCst);
+        return Reply::fail(
+            1,
+            "Error: creating EC2 Instance: InvalidParameterValue: Value (isoloom-web) for parameter iamInstanceProfile.name is invalid",
+        );
+    }
+    // The attack box's instance, while `attack_box` names its image (attack_box.rs). An image
+    // named `refused` stands for an instance the account refuses: its security group alone
+    // is made, and the apply fails.
+    if call.env("TF_VAR_attack_box") == Some("refused") {
+        let state = r#"{"outputs":{"ip":{"value":"198.51.100.10"}},"resources":[{"name":"web","instances":[{}]},{"name":"isoloom_access","instances":[{}]}]}"#;
+        std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
+        return Reply::fail(1, "Error: creating EC2 Instance: InvalidParameterCombination: not eligible for Free Tier");
+    }
+    let form = call.env("TF_VAR_attack_box_form").unwrap_or("kali");
+    let wants_box = call.env("TF_VAR_attack_box").is_some_and(|i| !i.is_empty());
+    if wants_box && form == "kali" && cloud.kali_refused.load(Ordering::SeqCst) {
+        return Reply::fail(
+            1,
+            "Error: creating EC2 Instance: OptInRequired: In order to use this AWS Marketplace product you need to accept terms and subscribe.",
+        );
+    }
+    let attack = match call.env("TF_VAR_attack_box") {
+        Some(image) if !image.is_empty() => {
+            *cloud.attack_image.lock().unwrap_or_else(PoisonError::into_inner) = Some(image.to_owned());
+            *cloud.attack_form.lock().unwrap_or_else(PoisonError::into_inner) = Some(form.to_owned());
+            let user = if form == "kali" { "kali" } else { "admin" };
+            format!(
+                r#""address_isoloom_access":{{"value":"{ATTACK_PUBLIC}"}},"ssh_user_isoloom_access":{{"value":"{user}"}},"lab_address_isoloom_access":{{"value":"10.80.0.77"}},"attack_box_form":{{"value":"{form}"}},"#
+            )
+        }
+        _ => String::new(),
+    };
+    let attack_resource = if attack.is_empty() {
+        ""
+    } else {
+        r#",{"name":"isoloom_access","instances":[{}]}"#
+    };
+    let state = format!(
+        r#"{{"outputs":{{{attack}"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"name":"web","instances":[{{}}]}}{attack_resource}]}}"#
+    );
+    std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
+    Reply::ok("Apply complete! Resources: 9 added, 0 changed, 0 destroyed.")
 }
 
 /// What the fake `ssh` answers: its version, a delivery, the project's copy, Compose's start, a

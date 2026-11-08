@@ -233,6 +233,9 @@ pub enum WarningCode {
     Recovering,
     /// An apply failed and is tried again.
     Retrying,
+    /// What was asked for can't be had here: a stand-in is used (an attack box that runs as a
+    /// container because the account can't run Kali's own image).
+    Fallback,
 }
 
 /// Events kept in memory, for an embedder that reads them later (and for tests).

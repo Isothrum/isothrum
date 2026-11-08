@@ -53,13 +53,12 @@ async fn the_box_is_an_instance_the_module_adds_and_removes() {
     let access = status.machines.iter().find(|m| m.role == Role::Access).expect("the box in status");
     assert_eq!(access.name, "isoloom-access");
 
+    // Kali itself, nothing wrapped: a login shell on the instance, as Kali's user.
+    assert_eq!(a.cloud.attack_form.lock().unwrap().as_deref(), Some("kali"));
     let shell = run.shell_command(None).unwrap();
     assert_eq!(shell.args.first().map(String::as_str), Some("-t"));
-    assert!(
-        shell.args.last().unwrap().starts_with("sudo docker exec -it isoloom-access "),
-        "{:?}",
-        shell.args
-    );
+    assert_eq!(shell.args.last().map(String::as_str), Some("exec bash -l"), "{:?}", shell.args);
+    assert!(shell.args.iter().any(|x| x == "kali@198.51.100.77"), "{:?}", shell.args);
 
     run.detach_with(&opts, None, &Recorder::new()).await.unwrap();
     assert_eq!(applies(&a).last().unwrap().env("TF_VAR_attack_box"), Some(""), "applied with no box");
@@ -116,4 +115,34 @@ async fn a_detach_clears_what_a_refused_box_left() {
     run.detach_with(&opts, None, &Recorder::new()).await.unwrap();
     assert_eq!(applies(&a).len(), before + 1, "applied again with no box");
     assert_eq!(applies(&a).last().unwrap().env("TF_VAR_attack_box"), Some(""));
+}
+
+/// An account that can't run Kali's own image gets the box as a container on a Debian instance,
+/// with a warning saying so; the shell then goes into the container.
+#[tokio::test(start_paused = true)]
+async fn without_kalis_image_the_box_falls_back_to_a_container() {
+    let a = account_of(&with_attack_box(), 0);
+    a.cloud.kali_refused.store(true, Ordering::SeqCst);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let opts = opts("eu-west-3", "labs");
+    run.up(&opts, &Recorder::new()).await.unwrap();
+    let events = Recorder::new();
+    let pick = BoxPick {
+        image: Some("cyberctf/attack-box"),
+        ..BoxPick::default()
+    };
+    run.attach_with(&opts, pick, &events).await.unwrap();
+    assert_eq!(a.cloud.attack_form.lock().unwrap().as_deref(), Some("container"));
+    assert_eq!(a.cloud.attack_image.lock().unwrap().as_deref(), Some("cyberctf/attack-box"));
+    let warned = events
+        .events()
+        .into_iter()
+        .any(|e| matches!(e.kind, EventKind::Warning { code, .. } if code == WarningCode::Fallback));
+    assert!(warned, "{:?}", events.events());
+    let shell = run.shell_command(None).unwrap();
+    assert!(
+        shell.args.last().unwrap().starts_with("sudo docker exec -it isoloom-access "),
+        "{:?}",
+        shell.args
+    );
 }
