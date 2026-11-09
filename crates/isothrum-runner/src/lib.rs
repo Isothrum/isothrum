@@ -90,6 +90,8 @@
 //! operation also reports its failure as its last event. The runner logs through `tracing` (spans
 //! `run`, `step` and `driver`, events for each process), never by printing.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod adopt;
 mod archive;
 mod checks;
@@ -145,10 +147,12 @@ pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, load_manifest};
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use net::FakePorts;
 pub use net::{HeldPort, HostPorts};
 pub use options::{Occupied, RunOptions};
 #[cfg(any(test, feature = "fake"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
 pub use process::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses};
 pub use reap::{Orphans, Place, Tagged};

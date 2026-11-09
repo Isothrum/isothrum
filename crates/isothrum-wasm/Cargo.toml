@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/isothrum-wasm"
+readme = "README.md"
 keywords = ["isothrum", "isoloom", "wasm", "network", "lab"]
 categories = ["wasm", "network-programming"]
 exclude = ["tests/", "rustfmt.toml"]
@@ -33,3 +34,6 @@ wasm-bindgen-test.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

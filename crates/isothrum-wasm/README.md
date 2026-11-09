@@ -1,0 +1,54 @@
+# isothrum-wasm
+
+[`isothrum-compiler`](https://crates.io/crates/isothrum-compiler) and Isoloom's targets compiled
+to WebAssembly: a topology (JSON) becomes an `isoloom.yml`, the files every Isoloom target
+generates from it (Compose, Vagrant, Terraform and the rest), and a zip to download. Everything
+runs where the WebAssembly runs: in a browser, or in a server's JavaScript runtime.
+
+## Install
+
+Build the JavaScript package with [wasm-pack](https://github.com/wasm-bindgen/wasm-pack) from a
+checkout of the repository:
+
+```sh
+wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --release
+```
+
+`cargo run -p xtask -- wasm --copy-to <dir>` builds it for size and copies the two files a page
+serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into `<dir>`. As a Rust dependency:
+`cargo add isothrum-wasm`.
+
+## Example
+
+The exports JavaScript calls are `plan_json`, `bundle`, `bundle_target`, `own_files_json` and
+`choices_json`:
+
+```js
+import init, { plan_json, bundle } from "./isothrum_wasm.js";
+
+await init();
+const topology = JSON.stringify({
+  name: "pair",
+  networks: { office: { cidr: "10.10.1.0/24" } },
+  nodes: {
+    web: { kind: { container: { image: "nginx:1.27-alpine" } }, networks: { office: null } },
+    user: { kind: { vm: { os: "debian@12" } }, access: true, networks: { office: null } },
+  },
+});
+const plan = JSON.parse(plan_json(topology)); // { ok, problems, files, addresses, ... }
+const zip = bundle(topology);                  // Uint8Array: the project as a zip
+```
+
+`plan_json` reports a topology's problems in its plan (`ok`, `error`, `problems`); the other exports throw
+a JavaScript `Error` saying why when they can't do their work.
+
+## Feature flags
+
+None.
+
+## Documentation
+
+- API: <https://docs.rs/isothrum-wasm>
+- Guides and reference: <https://github.com/Isothrum/isothrum/blob/main/docs/README.md>
+
+Minimum Rust: 1.90. Licence: Apache-2.0.

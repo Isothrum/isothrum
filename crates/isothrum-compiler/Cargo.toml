@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/isothrum-compiler"
+readme = "README.md"
 keywords = ["isothrum", "isoloom", "network", "lab", "compiler"]
 categories = ["compilers", "network-programming"]
 exclude = ["tests/", "rustfmt.toml"]
@@ -28,3 +29,6 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

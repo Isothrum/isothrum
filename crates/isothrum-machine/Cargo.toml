@@ -10,6 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 description = "Machine-setup domain for Isothrum: detect the Vagrant providers (hypervisors) this computer can drive."
 documentation = "https://docs.rs/isothrum-machine"
+readme = "README.md"
 keywords = ["isothrum", "vagrant", "hypervisor", "virtualization"]
 categories = ["virtualization", "development-tools"]
 exclude = ["rustfmt.toml"]
@@ -27,3 +28,6 @@ tokio.workspace = true
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[package.metadata.docs.rs]
+all-features = true

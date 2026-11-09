@@ -7,7 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/isothrum-cli"
+documentation = "https://github.com/Isothrum/isothrum/blob/main/docs/README.md"
+readme = "README.md"
 keywords = ["isothrum", "cli", "runner", "lab", "infrastructure"]
 categories = ["command-line-utilities", "virtualization"]
 exclude = ["tests/", "rustfmt.toml"]
@@ -37,3 +38,14 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+
+# `cargo binstall isothrum-cli` downloads the release archive for this host from the GitHub
+# release (release.yml builds them) instead of building from source.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/isothrum-{ version }-{ target }.tar.gz"
+bin-dir = "isothrum-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/isothrum-{ version }-{ target }.zip"
+pkg-fmt = "zip"
