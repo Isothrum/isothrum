@@ -5,7 +5,10 @@
 //! Any local process can reach a loopback port, and through it the LAN that macOS keeps third
 //! party tools off. So the proxy only forwards what it is for: WinRM's plain-HTTP port on the
 //! ESXi host or on an address of the local network, where the host's guests are (`Targets`).
-//! Anything else (the internet, this machine's own services, another port) gets a 502.
+//! Anything else (the internet, this machine's own services, another port), and a request it
+//! can't read, is refused and its connection closed: answered with a 502 when it is the
+//! connection's first request; a later one gets no answer of its own, since the connection's
+//! responses are already its origin's.
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
@@ -216,7 +219,8 @@ impl Peer {
         }
     }
 
-    /// Answers 502 and closes, while the client's write half is still ours.
+    /// Refuses the request and closes: a 502 while the client's write half is still ours (its
+    /// first request), nothing once it is the origin's responses'.
     async fn refuse(self) -> std::io::Result<()> {
         if let Peer::Waiting(mut client) = self {
             client.write_all(BAD_GATEWAY).await?;
