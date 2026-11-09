@@ -9,7 +9,7 @@
 #
 # The runner has no tier list of its own; tiers live in Isoloom. Each job uploads its evidence
 # (the up/check/down/reap records), which the maintainer records into Isoloom's tiers.json with
-# `cargo xtask tiers record`. See the Isoloom repository's docs/ci-real-hosts.md.
+# `cargo xtask tiers record`. See the Isoloom repository's docs/dev/ci-real-hosts.md.
 #
 # Every action is pinned to a commit. They stay on the majors that run on Node 20 here, since the
 # Proxmox job runs on a self-hosted runner whose version this file can't know (the Node 24 majors
@@ -64,13 +64,13 @@ jobs:
             echo "proxmox=true" >> "$GITHUB_OUTPUT"
           else
             echo "proxmox=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Proxmox skipped::need REAL_PROXMOX_RUNNER and the PROXMOX_* secrets (Isoloom docs/ci-real-hosts.md)"
+            echo "::notice title=Proxmox skipped::need REAL_PROXMOX_RUNNER and the PROXMOX_* secrets (Isoloom docs/dev/ci-real-hosts.md)"
           fi
           if [ "$AWS_KEYS" = true ] || [ -n "$AWS_ROLE" ]; then
             echo "aws=true" >> "$GITHUB_OUTPUT"
           else
             echo "aws=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=AWS skipped::need AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or REAL_AWS_ROLE_ARN (Isoloom docs/ci-real-hosts.md)"
+            echo "::notice title=AWS skipped::need AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or REAL_AWS_ROLE_ARN (Isoloom docs/dev/ci-real-hosts.md)"
           fi
 
   proxmox:
