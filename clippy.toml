@@ -1,4 +1,4 @@
-# Shape limits (PLAN 3b): functions at most 60 lines, at most 5 parameters, cognitive complexity 15.
+# Shape limits: functions at most 60 lines, at most 5 parameters, cognitive complexity 15.
 too-many-lines-threshold = 60
 cognitive-complexity-threshold = 15
 too-many-arguments-threshold = 5

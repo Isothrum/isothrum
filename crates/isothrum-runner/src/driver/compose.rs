@@ -1,5 +1,5 @@
 //! The `compose` driver: Docker Compose projects, named by the manifest's identity. Its five
-//! actions run the native commands run-manifest-v0.md §6 fixes; its status is the manifest's
+//! actions run the native commands each one names; its status is the manifest's
 //! `lifecycle.status` (`ps --all --format json`) matched to the manifest's machines.
 
 mod actions;

@@ -1,4 +1,4 @@
-//! `mutants [CRATE...]`: mutation testing (cargo-mutants, PLAN 3d) of the compiler, and of the
+//! `mutants [CRATE...]`: mutation testing (cargo-mutants) of the compiler, and of the
 //! runner's executor and the pure parts of its drivers (what reads Compose's, Vagrant's and
 //! Terraform's answers). Each mutant is a small change to the code (an operator swapped, a condition
 //! negated, a function returning a default) and must make a test of its crate fail. A mutant no

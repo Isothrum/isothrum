@@ -2,10 +2,12 @@
 //! (a machine added to the lab or taken out of it, a set-up changed) and opened the run on it;
 //! `up`'s steps run again against what is up, with the params the run was started with, so each
 //! engine converges: Terraform makes and removes what changed, Compose starts new services,
-//! Vagrant brings up new VMs. What an update doesn't remove itself is retired first
+//! Vagrant brings up new VMs. Then, as at `up`, the guests' secrets, the ready conditions, the
+//! outputs and the message.
+//!
+//! What an update won't remove itself the embedder retires before calling it
 //! ([`Running::retire`]): a VM taken out (Vagrant forgets a define the Vagrantfile no longer
 //! has), a Compose service taken out or moved out of the default start.
-//! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message.
 //!
 //! A machine that was running keeps what it was given: the guests' secrets go to new machines
 //! only (an update carries no launch's values, which a run never keeps).

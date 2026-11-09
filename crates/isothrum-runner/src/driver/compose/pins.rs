@@ -13,7 +13,7 @@ use super::config::{self, ConfigPort};
 use crate::executor::Cx;
 use crate::net::HeldPort;
 
-/// The param asking for each port's own `publish:` number (run-manifest-v0.md §6).
+/// The param asking for each port's own `publish:` number.
 const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
 
 /// The pinned-ports override for `config` (`docker compose config --format json`), or `None`

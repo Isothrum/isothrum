@@ -18,7 +18,7 @@
 //!
 //! Isoloom's `cargo xtask check-all --repos isothrum` runs them with the other gates. Each task is
 //! a module; `process` runs the tools they drive, `repo` finds the checkout. `workspace` holds the
-//! tests that keep the workspace's manifests and dependencies to the standard (PLAN 3b, 3d).
+//! tests that keep the workspace's dependencies one-way and its manifests inheriting the workspace's.
 
 #![expect(
     clippy::print_stdout,

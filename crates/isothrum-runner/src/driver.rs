@@ -1,6 +1,7 @@
 //! Drivers: the manifest's closed set (`compose`, `vagrant`, `terraform`), dispatched through
 //! [`AnyDriver`]. Steps are generic and run by the executor; a driver implements only its
-//! documented actions (run-manifest-v0.md §6), how it reads status, and its run-state upkeep.
+//! actions (the ones the run manifest names, as Isoloom's `docs/runner.md` describes the
+//! contract), how it reads status, and its run-state upkeep.
 
 mod compose;
 pub(crate) mod shells;

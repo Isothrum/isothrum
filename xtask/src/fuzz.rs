@@ -1,4 +1,4 @@
-//! `fuzz`: the fuzz targets of `fuzz/` (cargo-fuzz, PLAN 3d), each run for a while with nightly
+//! `fuzz`: the fuzz targets of `fuzz/` (cargo-fuzz), each run for a while with nightly
 //! and libFuzzer, from its own corpus (`fuzz/corpus/<target>`, which grows) and the seeds
 //! `fuzz/Cargo.toml` names (`[package.metadata.seeds]`: the fixtures).
 //!

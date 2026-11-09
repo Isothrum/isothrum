@@ -1,5 +1,5 @@
 # cargo-deny (`cargo deny check`, a gate of Isoloom's `cargo xtask check-all --repos isothrum`): the
-# supply chain of PLAN 3d. Advisories, licences, bans (duplicate versions, wildcard requirements)
+# supply chain kept to known, licensed, single-version crates. Advisories, licences, bans (duplicate versions, wildcard requirements)
 # and sources (crates.io, and Isoloom's own repository).
 
 [graph]
@@ -58,7 +58,7 @@ skip = [
 
 [sources]
 # crates.io, and Isoloom's crates from Isoloom's own repository (pinned by commit until they are
-# published to crates.io, PLAN 0): no other registry, no other git dependency.
+# published to crates.io): no other registry, no other git dependency.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

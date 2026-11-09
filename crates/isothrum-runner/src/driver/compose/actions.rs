@@ -1,5 +1,4 @@
-//! The `compose` actions (run-manifest-v0.md §6), each a read-then-act sequence one argv can't
-//! express.
+//! The `compose` actions, each a read-then-act sequence one argv can't express.
 
 use std::collections::BTreeMap;
 

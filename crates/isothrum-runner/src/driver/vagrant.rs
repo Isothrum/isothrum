@@ -2,8 +2,8 @@
 //! manifest's (`${run.provider}`). Every Vagrant command of the run, its actions' included, runs
 //! with `VAGRANT_DOTFILE_PATH` at the manifest's `identity.vagrant.dotfile` (the run's state
 //! folder), so a replaced run folder never loses track of its VMs. Its actions run the native
-//! commands run-manifest-v0.md §6 fixes; its status is `lifecycle.status` (`vagrant status
-//! --machine-readable`) matched to the manifest's machines by their define names.
+//! commands each one names; its status is `lifecycle.status` (`vagrant status --machine-readable`)
+//! matched to the manifest's machines by their define names.
 
 mod actions;
 mod forwarded;

@@ -1,4 +1,4 @@
-//! `vagrant.check_forwarded_ports` (run-manifest-v0.md §11): a VM forwards each published port
+//! `vagrant.check_forwarded_ports`: a VM forwards each published port
 //! from this computer, at its own `publish` number when it is `fixed`, or at a free one the runner
 //! picks (and pins for the VM's life) when it is `ephemeral`. Two labs forwarding one fixed number
 //! collide, and Vagrant says so only once the VM was imported, so unless the run's VMs exist

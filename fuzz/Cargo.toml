@@ -1,4 +1,4 @@
-# The fuzz targets (cargo-fuzz, PLAN 3d), run by `cargo run -p xtask -- fuzz`. A workspace of its
+# The fuzz targets (cargo-fuzz), run by `cargo run -p xtask -- fuzz`. A workspace of its
 # own: they build with nightly and libFuzzer, which the main workspace's gates (stable, three
 # platforms) don't. Each crash a run finds becomes a regression test in the crate it belongs to.
 [package]

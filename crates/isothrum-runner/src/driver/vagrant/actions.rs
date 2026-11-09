@@ -1,4 +1,4 @@
-//! The `vagrant` actions about Vagrant's own record of the run (run-manifest-v0.md §6): clearing
+//! The `vagrant` actions about Vagrant's own record of the run: clearing
 //! a record of another provider, a VirtualBox VM's cut-off saved state, the state folder, booting
 //! the controller (waiting for one still halting) and halting it (waiting for one that powers
 //! itself off).

@@ -1,6 +1,7 @@
-//! `quality`: the ratchet of the engineering standard (PLAN 3b, 1c). Every count of a clean-code
-//! rule, per crate, against `quality-baseline.json`: a count that goes up fails; one that goes
-//! down is written down with `--update`, which never raises one.
+//! `quality`: the ratchet of the clean-code rules (lints, file size, duplication, unused
+//! dependencies, exceptions). Every count of a rule, per crate, against `quality-baseline.json`: a
+//! count that goes up fails; one that goes down is written down with `--update`, which never
+//! raises one.
 //!
 //! What is counted, per crate:
 //! - every warning `cargo clippy --workspace --all-targets` gives (`clippy/<lint>`,

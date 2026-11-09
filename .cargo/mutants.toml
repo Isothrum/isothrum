@@ -1,4 +1,4 @@
-# cargo-mutants (`cargo run -p xtask -- mutants`, PLAN 3d): mutation testing of the compiler and the
+# cargo-mutants (`cargo run -p xtask -- mutants`): mutation testing of the compiler and the
 # runner's executor.
 #
 # Every mutant that survives is killed by a new test, unless no test can tell it apart from the

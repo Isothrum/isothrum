@@ -46,11 +46,11 @@ toml = "1"
 tar = "0.4"
 flate2 = "1"
 
-# Every crate inherits these (`[lints] workspace = true`): Isoloom's 1c set (PLAN 3b, 1c) and the
-# Rust practices of PLAN 3d, every one at "deny" now that each crate is at zero. A lint ever back at
-# "warn" is counted by `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`),
-# which fails when a count goes up. An exception is a local `#[expect(lint, reason = "…")]`, never
-# an `#[allow]`.
+# Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
+# practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now
+# that each crate is at zero. A lint ever back at "warn" is counted by
+# `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`), which fails when a count
+# goes up. An exception is a local `#[expect(lint, reason = "…")]`, never an `#[allow]`.
 [workspace.lints.rust]
 # No exception: processes are grouped and killed through `process-wrap`, never raw FFI.
 unsafe_code = "forbid"
