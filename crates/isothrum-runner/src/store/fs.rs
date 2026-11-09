@@ -1,7 +1,7 @@
 //! Owner-only files and folders, written whole. A run's state holds the pinned ports, its record and, on other
 //! targets, a Terraform state with sensitive outputs: on Unix files are 0600 and folders 0700
-//! (the usual umask would leave them readable by every local account). Windows' per-user profile
-//! already keeps other accounts out.
+//! (the usual umask would leave them readable by every local account). On Windows the home's
+//! DACL keeps other accounts out of all of it ([`private_home`]).
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -12,6 +12,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const FILE_MODE: u32 = 0o600;
 #[cfg(unix)]
 const DIR_MODE: u32 = 0o700;
+
+/// Creates the runner's home (with its missing parents) and, on Windows, makes it owner-only
+/// with a DACL everything under it inherits (`acl`). On Unix each folder under it is made 0700
+/// as it is created ([`private_dir`]), so the home itself, which may be a folder the user picked,
+/// keeps its mode.
+pub(crate) fn private_home(home: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(home)?;
+    #[cfg(windows)]
+    super::acl::owner_only(home)?;
+    Ok(())
+}
 
 /// Creates `dir` (with its missing parents) and makes it owner-only.
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {

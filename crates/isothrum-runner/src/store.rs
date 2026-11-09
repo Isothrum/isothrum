@@ -12,6 +12,8 @@
 //! The run's folder holds only the run and its generated files, so replacing it never strands a
 //! run. `Store` is a struct over the file system, not a trait: tests use a temporary home.
 
+#[cfg(any(windows, test))]
+mod acl;
 mod fs;
 mod lock;
 
@@ -142,8 +144,10 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    /// The store under `home`, its `runs/` folder created owner-only.
+    /// The store under `home` (owner-only on Windows, see [`fs::private_home`]), its `runs/`
+    /// folder created owner-only.
     pub(crate) fn open(home: &Path) -> Result<Store> {
+        fs::private_home(home).map_err(Error::io(home, "made owner-only"))?;
         let runs = home.join("runs");
         private_dir(&runs).map_err(Error::io(&runs, "created"))?;
         Ok(Store {
