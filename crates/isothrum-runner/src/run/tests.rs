@@ -43,6 +43,8 @@ struct Engine {
     networks: Vec<String>,
     /// Whether `docker compose config` prints something that isn't its JSON.
     unreadable_config: bool,
+    /// Whether `docker compose ps` prints something that isn't its JSON while containers exist.
+    unreadable_ps: bool,
 }
 
 /// A test's runner and its fakes.
@@ -129,6 +131,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
     let up = e.containers == Containers::Up;
     if line.contains(" ps --all ") || line.contains(" ps --format json") {
+        if e.unreadable_ps && e.containers != Containers::None {
+            return Reply::ok("not json");
+        }
         return Reply::ok(&ps(e.containers, line.contains("--all"), pinned(call)));
     }
     if line.contains(" config --format json") {

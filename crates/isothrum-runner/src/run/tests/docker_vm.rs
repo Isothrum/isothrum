@@ -28,6 +28,8 @@ struct Engine {
     flag: Option<String>,
     /// How many reads of the containers still miss (the way into the VM refused).
     ps_misses: u32,
+    /// Whether a read of the containers prints something that isn't Compose's JSON.
+    ps_garbled: bool,
     /// How many times the VM was restarted (`vagrant reload`).
     reloads: u32,
     /// Whether a restart fails (the VM left as it was).
@@ -53,6 +55,9 @@ fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
         if e.ps_misses > 0 {
             e.ps_misses -= 1;
             return Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2222: Connection refused");
+        }
+        if e.ps_garbled {
+            return Reply::ok("Error response from daemon: not json");
         }
         return Reply::ok(if e.up { PS } else { "" });
     }
@@ -231,6 +236,22 @@ async fn a_container_read_that_misses_once_is_read_again() {
     l.engine.lock().unwrap().ps_misses = 2;
     let web = run.status().await.unwrap().machines.iter().find(|m| m.name == "web").unwrap().state.clone();
     assert!(matches!(&web, MachineState::Unknown(why) if why.starts_with("unreadable: ")), "{web:?}");
+}
+
+/// A read that prints no container the runner can read is no read: the containers of a running
+/// VM read as unreadable, not absent.
+#[tokio::test(start_paused = true)]
+async fn container_output_that_cant_be_read_is_unreadable_not_absent() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    l.engine.lock().unwrap().ps_garbled = true;
+    let status = run.status().await.unwrap();
+    let web = &status.machines.iter().find(|m| m.name == "web").unwrap().state;
+    assert!(
+        matches!(web, MachineState::Unknown(why) if why.starts_with("unreadable: ") && why.contains("printed no container")),
+        "{web:?}"
+    );
 }
 
 mod proxmox;

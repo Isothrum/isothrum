@@ -23,7 +23,8 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<(
     };
     let env = env_of(cx, "lifecycle.up", step)?;
     let listed = c.compose(cx, step, &["ps", "--all", "--format", "json"], &env).await?;
-    if ps::parse_ps(&listed).iter().any(|e| !e.one_off()) {
+    let listed = ps::parse_ps(&listed).ok_or_else(|| ps::unreadable(step.id.as_str()))?;
+    if listed.iter().any(|e| !e.one_off()) {
         return Ok(());
     }
     write_private(&file, NO_PINS.as_bytes()).map_err(Error::io(&file, "written"))?;
@@ -42,7 +43,8 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<(
 pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let env = env_of(cx, "lifecycle.up", step)?;
     let listed = c.compose(cx, step, &["ps", "--format", "json"], &env).await?;
-    if ps::parse_ps(&listed).iter().any(|e| !e.one_off() && e.state == "running") {
+    let listed = ps::parse_ps(&listed).ok_or_else(|| ps::unreadable(step.id.as_str()))?;
+    if listed.iter().any(|e| !e.one_off() && e.state == "running") {
         return Ok(());
     }
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;

@@ -47,6 +47,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   live ones included, during an update. Both steps now fail (`tool_failed`) and act on nothing,
   as attach and detach already did.
 
+- **`docker compose ps` output the runner can't read no longer passes for no container.** When
+  `ps --format json` printed something that isn't its JSON, every machine read absent: a resume
+  of a parked run whose containers were there dropped its parked mark and failed with
+  `nothing_to_resume`, `compose.pin_ports` re-picked the pins of existing containers, and the
+  containers of a running `docker-vm` VM read absent. The run's status, park, resume and those
+  steps now fail (`tool_failed`); in a VM, the read counts as a missed one (tried again, then the
+  containers read `unknown`, "unreadable: …").
+
 - **A recorded run's Terraform state that doesn't parse fails the orphan sweep.**
   `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
   listed as orphans; it now fails with `io`, as it does for a state it can't read.

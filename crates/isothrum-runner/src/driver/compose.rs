@@ -22,11 +22,13 @@ use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::store::write_private;
 
+pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
+
 /// Every machine of `manifest` as `ps --all --format json`'s output `out` shows it, and the host
 /// port each published machine port got: a project on this computer's Docker, or one Compose runs
-/// inside a VM (`docker-vm`'s guest).
-pub(crate) fn read_ps(manifest: &isoloom_manifest::Manifest, out: &str) -> (Vec<crate::status::MachineStatus>, BTreeMap<crate::vars::PortKey, u16>) {
-    ps::machines(manifest, &ps::parse_ps(out))
+/// inside a VM (`docker-vm`'s guest). `None` when `out` lists no container this runner can read.
+pub(crate) fn read_ps(manifest: &isoloom_manifest::Manifest, out: &str) -> Option<(Vec<crate::status::MachineStatus>, BTreeMap<crate::vars::PortKey, u16>)> {
+    Some(ps::machines(manifest, &ps::parse_ps(out)?))
 }
 
 /// What an empty pinned-ports file holds: Compose reads it as no override.
@@ -120,7 +122,7 @@ impl Driver for Compose {
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
-        let (machines, published) = ps::machines(cx.run.manifest(), &ps::parse_ps(&out));
+        let (machines, published) = read_ps(cx.run.manifest(), &out).ok_or_else(|| ps::unreadable("lifecycle.status"))?;
         // Compose publishes on this computer.
         let hosts = published.keys().map(|(machine, _)| (machine.clone(), "127.0.0.1".to_owned())).collect();
         Ok(Observed {

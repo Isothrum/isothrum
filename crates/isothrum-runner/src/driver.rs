@@ -7,7 +7,7 @@ pub(crate) mod shells;
 mod terraform;
 mod vagrant;
 
-pub(crate) use compose::read_ps;
+pub(crate) use compose::{UNREADABLE_PS, read_ps};
 pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;

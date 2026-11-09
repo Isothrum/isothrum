@@ -168,6 +168,22 @@ async fn nothing_left_to_resume_drops_the_parked_mark() {
     assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().state, RunState::Absent);
 }
 
+/// `ps` output listing no container the runner can read fails the resume: read as no container,
+/// it would drop the parked mark of a run whose containers are there.
+#[tokio::test]
+async fn unreadable_ps_output_fails_a_resume_and_keeps_the_run_parked() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    f.engine.lock().unwrap().unreadable_ps = true;
+    let err = run.resume(&RunOptions::default(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ToolFailed, "{err}");
+    assert!(err.to_string().contains("printed no container this runner can read"), "{err}");
+    assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().state, RunState::Parked);
+    assert_eq!(f.containers(), Containers::Stopped, "nothing started");
+}
+
 #[tokio::test]
 async fn leftovers_are_removed_before_a_start() {
     let f = fixture();

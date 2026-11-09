@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use isoloom_manifest::{Manifest, Native, Protocol};
 use serde::Deserialize;
 
+use crate::error::Error;
 use crate::status::{MachineState, MachineStatus, PublishedPort};
 use crate::vars::PortKey;
 
@@ -78,13 +79,29 @@ impl PsEntry {
 }
 
 /// `ps --format json`'s containers: a JSON array (older Compose) or one object per line (2.21 on).
-/// Lines that don't parse are skipped.
-pub(super) fn parse_ps(out: &str) -> Vec<PsEntry> {
+/// A line that doesn't parse is skipped; `None` when there is output but no container in it can be
+/// read: taken as no container, it would make every machine of a run that is there read absent.
+pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
     let trimmed = out.trim();
-    if trimmed.starts_with('[') {
-        return serde_json::from_str(trimmed).unwrap_or_default();
+    if trimmed.is_empty() {
+        return Some(Vec::new());
     }
-    trimmed.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+    if trimmed.starts_with('[') {
+        return serde_json::from_str(trimmed).ok();
+    }
+    let entries: Vec<PsEntry> = trimmed.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    (!entries.is_empty()).then_some(entries)
+}
+
+/// The words for `ps` output [`parse_ps`] can't read.
+pub(crate) const UNREADABLE: &str = "`docker compose ps --format json` printed no container this runner can read";
+
+/// The failure of step `step`, whose `ps` output [`parse_ps`] can't read.
+pub(super) fn unreadable(step: &str) -> Error {
+    Error::ToolFailed {
+        step: step.to_owned(),
+        reason: UNREADABLE.to_owned(),
+    }
 }
 
 /// Every machine of `manifest`, as `entries` show it (absent when none matches its service), and
@@ -124,16 +141,28 @@ mod tests {
     #[test]
     fn parses_both_compose_output_formats() {
         let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{bogus}\n{\"Service\":\"db\",\"State\":\"exited\",\"ExitCode\":3}\n";
-        assert_eq!(parse_ps(lines).len(), 2);
-        assert_eq!(parse_ps("[{\"Service\":\"web\",\"State\":\"running\"}]")[0].service, "web");
-        assert!(parse_ps("").is_empty() && parse_ps("[not valid").is_empty());
-        assert_eq!(parse_ps(lines)[1].machine_state(), MachineState::Exited(3));
+        assert_eq!(read(lines).len(), 2);
+        assert_eq!(read("[{\"Service\":\"web\",\"State\":\"running\"}]")[0].service, "web");
+        assert_eq!(read(lines)[1].machine_state(), MachineState::Exited(3));
+    }
+
+    #[test]
+    fn no_output_is_no_container_but_output_with_none_readable_is_unreadable() {
+        assert!(read("").is_empty() && read(" \n").is_empty() && read("[]").is_empty());
+        for out in ["[not valid", "not json", "{bogus}\n{\"State\":\"running\"}", "[{\"State\":\"running\"}]"] {
+            assert!(parse_ps(out).is_none(), "{out}");
+        }
+    }
+
+    /// The containers `out` lists, which must be readable.
+    fn read(out: &str) -> Vec<PsEntry> {
+        parse_ps(out).unwrap()
     }
 
     #[test]
     fn compose_run_containers_are_one_off() {
         let out = "{\"Service\":\"isoloom-check\",\"State\":\"running\",\"Labels\":\"com.docker.compose.project=p,com.docker.compose.oneoff=True\"}\n{\"Service\":\"web\",\"State\":\"running\",\"Labels\":\"com.docker.compose.oneoff=False\"}\n";
-        let flags: Vec<bool> = parse_ps(out).iter().map(PsEntry::one_off).collect();
+        let flags: Vec<bool> = read(out).iter().map(PsEntry::one_off).collect();
         assert_eq!(flags, [true, false]);
     }
 
@@ -144,7 +173,7 @@ mod tests {
             {"Service":"web-init-1","State":"exited","ExitCode":0},
             {"Service":"isoloom-check","State":"running","Labels":"com.docker.compose.oneoff=True"},
             {"Service":"stranger","State":"running"}]"#;
-        let (machines, published) = machines(&docker_manifest(), &parse_ps(ps));
+        let (machines, published) = machines(&docker_manifest(), &read(ps));
         let state = |n: &str| machines.iter().find(|m| m.name == n).unwrap().state.clone();
         assert_eq!(state("web"), MachineState::Running);
         assert_eq!(state("db"), MachineState::Unhealthy);
@@ -168,7 +197,7 @@ mod tests {
             protocol: Protocol::Udp,
             host_port: 41874,
         };
-        assert_eq!(parse_ps(ps)[0].published(), [udp]);
+        assert_eq!(read(ps)[0].published(), [udp]);
     }
 
     #[test]
@@ -177,7 +206,7 @@ mod tests {
             {"PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"},
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"},
             {"PublishedPort":41875,"TargetPort":8443,"Protocol":"tcp"}]}]"#;
-        let (machines, published) = machines(&docker_manifest(), &parse_ps(ps));
+        let (machines, published) = machines(&docker_manifest(), &read(ps));
         assert_eq!(published, BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!(web.published.len(), 3, "every published port is shown, named or not");
@@ -187,7 +216,7 @@ mod tests {
     fn a_machine_is_found_by_its_compose_service_not_its_name() {
         let manifest = isoloom_manifest::parse(&crate::testing::FLAG_PORTAL.replace(r#""service": "web""#, r#""service": "portal""#)).unwrap();
         let ps = r#"[{"Service":"portal","State":"running"},{"Service":"web","State":"exited","ExitCode":1}]"#;
-        let (machines, _) = machines(&manifest, &parse_ps(ps));
+        let (machines, _) = machines(&manifest, &read(ps));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!(web.state, MachineState::Running);
     }
@@ -202,15 +231,16 @@ mod proptests {
     proptest! {
         #[test]
         fn any_ps_output_is_read_without_panicking(text in "\\PC{0,300}") {
-            let entries = parse_ps(&text);
-            let _ = machines(&crate::testing::docker_manifest(), &entries);
+            if let Some(entries) = parse_ps(&text) {
+                let _ = machines(&crate::testing::docker_manifest(), &entries);
+            }
         }
 
         #[test]
         fn both_formats_read_the_same_entries(services in proptest::collection::vec("[a-z][a-z0-9-]{0,12}", 0..6)) {
             let objects: Vec<String> = services.iter().map(|s| format!(r#"{{"Service":"{s}","State":"running"}}"#)).collect();
-            let lines = parse_ps(&objects.join("\n"));
-            let array = parse_ps(&format!("[{}]", objects.join(",")));
+            let lines = parse_ps(&objects.join("\n")).unwrap();
+            let array = parse_ps(&format!("[{}]", objects.join(","))).unwrap();
             let names = |e: &[PsEntry]| e.iter().map(|p| p.service.clone()).collect::<Vec<_>>();
             prop_assert_eq!(names(&lines), services.clone());
             prop_assert_eq!(names(&array), services);

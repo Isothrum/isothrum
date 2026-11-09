@@ -11,6 +11,7 @@
 //! A console into one of those containers, and its removal at a retire, run a script inside the
 //! VM: the VM's driver says only how a script runs there ([`AnyDriver::in_guest`]).
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use isoloom_manifest::{Guest, Machine, Native};
@@ -22,6 +23,7 @@ use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
 use crate::ssh::sh_quote;
 use crate::status::{MachineState, MachineStatus};
+use crate::vars::PortKey;
 
 /// How many times the containers are read while the VM runs, before the read counts as failed.
 const READS: u32 = 2;
@@ -51,14 +53,15 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
     };
     let manifest = cx.run.manifest();
     let (inside, published) = match &read {
-        Inside::Read(out) => crate::driver::read_ps(manifest, out),
-        Inside::Unreadable(_) | Inside::VmDown => (Vec::new(), std::collections::BTreeMap::new()),
+        Inside::Read(inside, published) => (inside.as_slice(), published.clone()),
+        Inside::Unreadable(_) | Inside::VmDown => (&[][..], BTreeMap::new()),
     };
     for m in observed.machines.iter_mut().filter(|m| in_guest(manifest, &m.name)) {
         *m = match (&read, inside.iter().find(|x| x.name == m.name)) {
-            (Inside::Read(_), Some(x)) => x.clone(),
-            (Inside::Read(_), None) => standing(m, MachineState::Absent),
-            // The VM runs but its containers can't be read yet (SSH not answering).
+            (Inside::Read(..), Some(x)) => x.clone(),
+            (Inside::Read(..), None) => standing(m, MachineState::Absent),
+            // The VM runs but its containers can't be read yet (SSH not answering), or what was
+            // read lists none this runner can read.
             (Inside::Unreadable(why), _) => standing(m, MachineState::Unknown(format!("unreadable: {why}"))),
             // Nothing runs in a VM that doesn't: each container stands as the VM does.
             (Inside::VmDown, _) => standing(m, vm.clone()),
@@ -74,8 +77,9 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
 
 /// What was read of the containers in the run's VM.
 enum Inside {
-    /// What `guest.status` printed there.
-    Read(String),
+    /// The containers `guest.status` listed there, and the host port each published machine port
+    /// got.
+    Read(Vec<MachineStatus>, BTreeMap<PortKey, u16>),
     /// The VM runs but its containers couldn't be read: the last failure's words.
     Unreadable(String),
     /// The VM doesn't run, so nothing was read.
@@ -83,7 +87,8 @@ enum Inside {
 }
 
 /// The containers as `guest.status` lists them in the running VM, read up to [`READS`] times,
-/// [`RETRY`] apart; unreadable, with the last failure's words, otherwise.
+/// [`RETRY`] apart (a read whose output lists no container this runner can read counts as
+/// failed); unreadable, with the last failure's words, otherwise.
 async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
     let mut failed = String::new();
     for attempt in 0..READS {
@@ -91,7 +96,10 @@ async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
             tokio::time::sleep(RETRY).await;
         }
         match capture_step(cx, "guest.status", &guest.status).await {
-            Ok(out) => return Inside::Read(out),
+            Ok(out) => match crate::driver::read_ps(cx.run.manifest(), &out) {
+                Some((inside, published)) => return Inside::Read(inside, published),
+                None => crate::driver::UNREADABLE_PS.clone_into(&mut failed),
+            },
             Err(e) => failed = e.to_string(),
         }
     }
