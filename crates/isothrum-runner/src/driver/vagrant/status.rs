@@ -6,13 +6,11 @@ use std::collections::BTreeMap;
 
 use crate::status::MachineState;
 
-/// A status read: each machine's state by its define name, and the provider Vagrant names.
+/// A status read: each machine's state by its define name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Reading {
     /// Each machine's state label, as printed.
     pub(crate) states: BTreeMap<String, String>,
-    /// The first non-empty `provider-name`.
-    pub(crate) provider: Option<String>,
 }
 
 /// One machine-readable line: its target, type and data (the rest of the line).
@@ -26,12 +24,8 @@ fn fields(line: &str) -> Option<(&str, &str, &str)> {
 pub(crate) fn parse(out: &str) -> Reading {
     let mut read = Reading::default();
     for (target, kind, data) in out.lines().filter_map(fields) {
-        match kind {
-            "state" if !target.is_empty() => {
-                read.states.insert(target.to_owned(), data.to_owned());
-            }
-            "provider-name" if !data.is_empty() && read.provider.is_none() => read.provider = Some(data.to_owned()),
-            _ => {}
+        if kind == "state" && !target.is_empty() {
+            read.states.insert(target.to_owned(), data.to_owned());
         }
     }
     read
@@ -94,15 +88,13 @@ mod tests {
         assert_eq!(r.states.len(), 2);
         assert_eq!(r.states["pfsense-1"], "running");
         assert_eq!(r.states["debian-1"], "poweroff");
-        assert_eq!(r.provider.as_deref(), Some("virtualbox"));
     }
 
     #[test]
     fn windows_line_endings_and_blank_lines_are_read_the_same() {
         let out = "1,dc01,provider-name,hyperv\r\n\r\n1,dc01,state,running\r\n1,isoloom-controller,state,off\r\n";
         let r = parse(out);
-        assert_eq!(r.provider.as_deref(), Some("hyperv"), "no carriage return in the provider");
-        assert_eq!(r.states["dc01"], "running");
+        assert_eq!(r.states["dc01"], "running", "no carriage return in the state");
         assert_eq!(machine_state(&r.states["isoloom-controller"]), MachineState::Stopped);
     }
 
@@ -111,15 +103,6 @@ mod tests {
         let r = parse("1,a,state,running%!(VAGRANT_COMMA) with a note\n");
         assert_eq!(r.states["a"], "running%!(VAGRANT_COMMA) with a note");
         assert!(matches!(machine_state(&r.states["a"]), MachineState::Unknown(_)));
-    }
-
-    #[test]
-    fn the_provider_is_the_first_named_one_and_a_blank_one_is_skipped() {
-        let r = parse("1,dc01,provider-name,\n1,ws01,provider-name,parallels\n1,dc01,state,running\n");
-        assert_eq!(r.provider.as_deref(), Some("parallels"));
-        assert_eq!(parse("1,dc01,provider-name\n1,dc01,state,running\n").provider, None);
-        let two = parse("1,dc01,provider-name,\n1,dc01,provider-name,virtualbox\n1,ws01,provider-name,libvirt\n");
-        assert_eq!(two.provider.as_deref(), Some("virtualbox"), "the first named provider stays");
     }
 
     #[test]
