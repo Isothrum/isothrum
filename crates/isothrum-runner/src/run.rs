@@ -252,7 +252,8 @@ impl<'r> Running<'r> {
         let Some((host, port)) = crate::relay::esxi_host(config.host == isoloom_manifest::HostOs::Macos, vagrant, cx.scope.provider.as_deref(), params) else {
             return Ok(());
         };
-        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref()).await;
+        let no_proxy = std::env::var("no_proxy").or_else(|_| std::env::var("NO_PROXY")).ok();
+        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy.as_deref()).await;
         cx.relayed = Some(relayed.map_err(Error::io(config.home.join("relay"), "set up"))?);
         Ok(())
     }

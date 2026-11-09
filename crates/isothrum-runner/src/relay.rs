@@ -168,9 +168,10 @@ pub(crate) fn esxi_host<'a>(
 }
 
 /// The relays to ESXi host `host` (its SSH on `ssh_port`, its HTTPS, WinRM to its guests), and
-/// the environment pointing Vagrant, its plugin and ovftool at them. `path` is the run's `PATH`;
-/// the ovftool wrapper goes in a folder under `home`.
-pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&str>) -> std::io::Result<Relayed> {
+/// the environment pointing Vagrant, its plugin and ovftool at them. `path` is the run's `PATH`
+/// and `no_proxy` the hosts it already sends around its proxy; the ovftool wrapper goes in a
+/// folder under `home`.
+pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&str>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
     let ssh = start(host.to_owned(), ssh_port).await?;
     let https = start(host.to_owned(), 443).await?;
     let mut env = vec![
@@ -178,11 +179,15 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
         (HOSTPORT.to_owned(), ssh.port.to_string()),
         (PROXY_COMMAND.to_owned(), "/usr/bin/nc %h %p".to_owned()),
     ];
-    // Windows guests: Vagrant's WinRM (plain HTTP to the guest) through the proxy. Only the
-    // lowercase http_proxy: HTTPS (box downloads) doesn't read it.
+    // Windows guests: Vagrant's WinRM (plain HTTP to the guest) through the proxy. The one
+    // override that is required: WinRM reaches a guest only through `http_proxy`, and only this
+    // process may reach the LAN, so a proxy of the user's own (which can't reach a lab's guests
+    // either) is replaced for plain HTTP. The run's other traffic is HTTPS (box downloads, the
+    // ESXi API): it reads `https_proxy`, left as it is. Only the lowercase name, which Ruby reads
+    // before the uppercase one.
     let winrm = start_http_proxy(Targets::new(host)).await?;
     env.push(("http_proxy".into(), format!("http://127.0.0.1:{}", winrm.port)));
-    env.push(("no_proxy".into(), "localhost,127.0.0.1".into()));
+    env.push(("no_proxy".into(), around_proxy(no_proxy)));
     if let Some(real) = ovftool::real(path) {
         let dir = ovftool::wrapper_dir(home)?;
         env.push(("ISOTHRUM_REAL_OVFTOOL".into(), real));
@@ -193,6 +198,17 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
         env,
         _relays: vec![ssh, https, winrm],
     })
+}
+
+/// `no_proxy` for a relayed run: the hosts the user already sends around a proxy, kept (an
+/// internal mirror over HTTPS still goes direct), and the loopback, where the relays listen.
+/// A guest network listed there sends WinRM around the relay: macOS then keeps Vagrant off it.
+fn around_proxy(existing: Option<&str>) -> String {
+    let kept = existing.map(|v| v.trim().trim_end_matches(',')).filter(|v| !v.is_empty());
+    match kept {
+        Some(hosts) => format!("{hosts},localhost,127.0.0.1"),
+        None => "localhost,127.0.0.1".to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -277,11 +293,26 @@ mod tests {
     #[tokio::test]
     async fn a_relayed_run_points_vagrant_at_its_relays() {
         let home = tempfile::tempdir().unwrap();
-        let r = prepare("10.0.0.5", 22, home.path(), Some("/usr/bin:/bin")).await.unwrap();
+        let r = prepare("10.0.0.5", 22, home.path(), Some("/usr/bin:/bin"), Some(".corp.example,mirror.lan"))
+            .await
+            .unwrap();
         let get = |k: &str| r.env.iter().rev().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         assert_eq!(get(HOSTNAME).as_deref(), Some("127.0.0.1"));
         assert_ne!(get(HOSTPORT).as_deref(), Some("22"));
         assert_eq!(get(PROXY_COMMAND).as_deref(), Some("/usr/bin/nc %h %p"));
         assert!(get("http_proxy").is_some_and(|p| p.starts_with("http://127.0.0.1:")));
+        assert_eq!(
+            get("no_proxy").as_deref(),
+            Some(".corp.example,mirror.lan,localhost,127.0.0.1"),
+            "the user's kept"
+        );
+        assert_eq!(get("https_proxy"), None, "HTTPS keeps the user's proxy");
+    }
+
+    #[test]
+    fn no_proxy_keeps_the_users_hosts_and_adds_the_loopback() {
+        assert_eq!(around_proxy(None), "localhost,127.0.0.1");
+        assert_eq!(around_proxy(Some(" ")), "localhost,127.0.0.1");
+        assert_eq!(around_proxy(Some("10.0.0.0/8,.corp,")), "10.0.0.0/8,.corp,localhost,127.0.0.1");
     }
 }
