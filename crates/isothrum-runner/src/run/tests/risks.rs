@@ -1,5 +1,5 @@
-//! The runtime risks (runner-extraction.md §6), each pinned by a test that fails on the risky
-//! behaviour.
+//! The runtime risks (numbered R1, R2… in comments), each pinned by a test that fails on the
+//! risky behaviour.
 
 use super::*;
 use crate::ErrorCode;
