@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Isothrum/isothrum/security/advisories/new
+    about: Privately, never in a public issue. See SECURITY.md.
+  - name: Documentation
+    url: https://github.com/Isothrum/isothrum/blob/main/docs/README.md
+    about: The tutorial, how-to guides and reference.
+  - name: A problem in the generated files (Isoloom)
+    url: https://github.com/isoloom/isoloom/issues
+    about: The Compose file, Vagrantfile, Terraform module or run manifest Isoloom writes.
