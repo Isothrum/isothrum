@@ -157,7 +157,7 @@ pub(crate) fn virtualbox_options(flag: &str) -> crate::RunOptions {
     crate::RunOptions::new().with_provider("virtualbox").with_secrets(secrets)
 }
 
-/// `run`'s access machine attached, as [`crate::Running::attach_with`] picks it, with no options.
+/// `run`'s access machine attached, as [`crate::Running::attach`] picks it, with no options.
 pub(crate) async fn attach(
     run: &crate::Running<'_>,
     machine: Option<&str>,
@@ -166,12 +166,12 @@ pub(crate) async fn attach(
     events: &dyn crate::Events,
 ) -> crate::Result<crate::AttachReport> {
     let pick = crate::AccessPick { machine, network, image };
-    run.attach_with(pick, &crate::RunOptions::new(), events).await
+    run.attach(pick, &crate::RunOptions::new(), events).await
 }
 
 /// `run`'s access machine `machine` detached, with no options.
 pub(crate) async fn detach(run: &crate::Running<'_>, machine: Option<&str>, events: &dyn crate::Events) -> crate::Result<()> {
-    run.detach_with(machine, &crate::RunOptions::new(), events).await
+    run.detach(machine, &crate::RunOptions::new(), events).await
 }
 
 /// A running `run` whose lab declares no access machine has none to attach: an attach and a

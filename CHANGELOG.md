@@ -100,10 +100,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   (a `sh -c` script with `;` or `>`, a JSON value), so the shell splits it back into the argv.
   `isothrum console` prints it; before, the CLI joined the words unquoted and left the folder
   out, so a pasted console broke.
-- `Running::attach_with(pick, opts, events)` and `detach_with(machine, opts, events)` take the
-  operation's options (secrets and params an attach or detach that changes the run needs), with
-  the access machine's choice as an `AccessPick`, in the order `retire` and `provision` take
-  theirs; the CLI's `attach` and `detach` take `--param` and `--secret-from-env`.
+- The CLI's `attach` and `detach` take `--param` and `--secret-from-env`.
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version and UTM's own (its app bundle's
   `CFBundleShortVersionString`), and reports UTM unavailable with the way out
@@ -115,17 +112,19 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 - **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
   run's folder.
+- **`Running::attach(pick, opts, events)` and `Running::detach(machine, opts, events)` take the
+  operation's options** (secrets and params an attach or detach that changes the run needs; pass
+  `RunOptions::new()` for none), with the access machine's choice as an `AccessPick`, in the
+  order `retire` and `provision` take theirs.
 
 ### Removed
 
 - The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
   minutes from now, a dotenv state file and a WinRM guest delivery (Isoloom 1.0.10 removed them from
   the manifest).
-- **`Running::attach`, `Running::detach` and `Running::shell_command`.** `attach_with` and
-  `detach_with` take the options the two took none of (pass `RunOptions::new()`); the access
-  machine's shell is `Running::console_command` of its name (the `AttachReport`'s `machine`),
-  which starts bash where the machine has it, else sh. `isothrum shell` goes with it: use
-  `isothrum console <machine>`.
+- **`Running::shell_command`.** The access machine's shell is `Running::console_command` of its
+  name (the `AttachReport`'s `machine`), which starts bash where the machine has it, else sh.
+  `isothrum shell` goes with it: use `isothrum console <machine>`.
 
 - **`isothrum-machine` keeps only provider detection and the download record's format.** Its
   public API is now `providers::{detect, Provider, ProviderStatus}` and `storage::{Owned,

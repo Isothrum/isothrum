@@ -32,7 +32,7 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
         }
         Command::Detach { op, machine } => {
             let run = open(runner, &op.run)?;
-            Ok(Verdict::of(run.detach_with(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
+            Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
         Command::Console { run, machine } => print_command(cli.json, &open(runner, run)?.console_command(machine)?, term),
         Command::Events(run) => print_events(cli.json, runner, &open(runner, run)?, term),
@@ -113,7 +113,7 @@ async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
 
 /// Hot-adds the on-demand access machine, then says where to reach it (JSON, or a line).
 async fn attach(json: bool, run: &Running<'_>, (pick, opts): (AccessPick<'_>, &RunOptions), events: &dyn Events, term: &Term) -> Result<Verdict> {
-    let Ok(report) = run.attach_with(pick, opts, events).await else {
+    let Ok(report) = run.attach(pick, opts, events).await else {
         return Ok(Verdict::Fail);
     };
     if json {

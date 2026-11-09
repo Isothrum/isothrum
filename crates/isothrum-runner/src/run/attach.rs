@@ -34,8 +34,7 @@ pub struct AttachReport {
     pub image: Option<String>,
 }
 
-/// Which access machine an attach adds, where, from what: as [`Running::attach_with`] takes
-/// them.
+/// Which access machine an attach adds, where, from what: as [`Running::attach`] takes them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AccessPick<'a> {
     /// The on-demand machine, when the lab has more than one.
@@ -64,7 +63,7 @@ impl Running<'_> {
     /// join (a Vagrant run's), `not_running` when the run isn't up, `tool_failed` when the
     /// container can't join the network (one already on it has), and as the other operations do
     /// for a step or the state.
-    pub async fn attach_with(&self, pick: AccessPick<'_>, opts: &RunOptions, events: &dyn Events) -> Result<AttachReport> {
+    pub async fn attach(&self, pick: AccessPick<'_>, opts: &RunOptions, events: &dyn Events) -> Result<AttachReport> {
         let AccessPick { machine, network, image } = pick;
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
@@ -90,15 +89,15 @@ impl Running<'_> {
     }
 
     /// Hot-removes the lab's access machine from the running run, with `opts`, leaving the rest
-    /// up: the on-demand machine chosen as [`Running::attach_with`] chooses it, taken out as
+    /// up: the on-demand machine chosen as [`Running::attach`] chooses it, taken out as
     /// [`Running::retire`] takes a machine out (its Compose service removed through the `access`
     /// profile, its VM destroyed).
     ///
     /// # Errors
     ///
-    /// Fails as [`Running::attach_with`] does for the machine choice and the target, and as the other
+    /// Fails as [`Running::attach`] does for the machine choice and the target, and as the other
     /// operations do for a step or the state.
-    pub async fn detach_with(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+    pub async fn detach(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
