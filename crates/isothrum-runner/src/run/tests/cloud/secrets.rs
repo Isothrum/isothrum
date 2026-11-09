@@ -41,6 +41,21 @@ async fn a_flag_with_no_store_to_read_it_from_is_delivered_into_its_machine_over
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_delivery_reaches_its_machine_at_a_sensitive_address_output() {
+    let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
+    for o in m["outputs"].as_array_mut().unwrap() {
+        o["sensitive"] = serde_json::json!(o["name"] == "address_web");
+    }
+    // A sensitive output is never bound for a template: the ready file is read at the `ip`.
+    m["ready"][1]["host"] = serde_json::json!("${outputs.ip}");
+    let a = account_of(&m.to_string(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap();
+    let call = a.fake.last("/var/lib/isoloom/secrets").unwrap();
+    assert!(call.args.contains(&format!("admin@{PUBLIC}")), "the address itself, not its mask: {call:?}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_machine_still_booting_gets_its_secrets_once_ssh_answers() {
     let a = account_of(SOLO_WEB_AWS, 0);
     a.cloud.unreachable.store(3, Ordering::SeqCst);
