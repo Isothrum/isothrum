@@ -107,8 +107,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **A sensitive output is masked in a run's status.** Events and results showed it as `***`,
   but `Status` and `Started` held the value itself in `OutputValue::value`, and `isothrum status
   --json` printed it. `OutputValue::value` is now `***` for a sensitive output (in its JSON and its
-  `Debug` too); the new `OutputValue::revealed()` gives the value itself, for an embedder that
-  hands it to its user on request.
+  `Debug` too).
 - **An output whose `format` can't be filled is said.** It quietly became an output with no
   value; `up`, `resume` and `update` now emit an `output_unformatted` warning (new in the event
   schema) saying which format named what the run doesn't have, before the outputs.
@@ -120,6 +119,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 ### Added
 
 - `ProcessSpec::env(name)`: the value a process is given for a variable.
+- `AccessPick::{with_machine, with_network, with_image}`: an `AccessPick` is built from
+  `AccessPick::default()` with them.
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
   run, a pure query that reads the run's record as status does (a Vagrant run's console gets the
   host ports its start pinned). On a Terraform run: `ssh -t` to the machine's address as
@@ -189,8 +190,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
   provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
 
-- **The `fake` feature's `process::fake::Call` is `ProcessSpec`** (a type alias): a call is
+- **The process port has one path, the crate root**: `Exit`, `ProcessError` and `OnLine` join
+  `ProcessRunner`, `ProcessSpec` and `SystemProcesses` there, and the `process` module is
+  internal. The `fake` feature's test doubles are `isothrum_runner::fake::{FakeProcesses, Reply,
+  Call}` (were `process::fake::…`), and `Call` is `ProcessSpec` (a type alias): a call is
   recorded as the spec it ran, its fields and `line()` and `env(name)` as before.
+- **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
+  `AccessPick::default()` with its `with_*` methods.
 - **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
   would mangle, it now refuses an elevated call's standard input.
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
@@ -237,6 +243,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's).
+- **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
 - **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no

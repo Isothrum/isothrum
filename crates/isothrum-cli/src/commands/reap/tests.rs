@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
-use isothrum_runner::process::fake::{Call, FakeProcesses, Reply};
+use isothrum_runner::fake::{Call, FakeProcesses, Reply};
 use isothrum_runner::{FakePorts, Runner, RunnerConfig};
 
 use crate::args::Cli;

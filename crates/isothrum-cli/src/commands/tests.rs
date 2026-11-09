@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::Parser;
-use isothrum_runner::process::fake::{FakeProcesses, Reply};
+use isothrum_runner::fake::{FakeProcesses, Reply};
 use isothrum_runner::{FakePorts, Runner, RunnerConfig};
 
 use crate::args::Cli;

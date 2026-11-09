@@ -89,10 +89,9 @@ destroy, removed by a successful `down`) and `guest` (over SSH into a machine, f
 no secret store; the values pass through an owner-only `guest-<machine>.in` in the run's state
 folder while they are delivered, and a file that can't be removed then fails the delivery).
 Every sensitive value is replaced by `***` in events, logs, error messages and results; a
-sensitive output shows as `***` (in `status` and its JSON too: an embedder that hands the value
-to its user reads `OutputValue::revealed`) and the lab's message never substitutes it. **No value
-is stored**, but for those two owner-only files under `runs/<run>/`: a `state_file` until the
-run's successful `down`, a `guest` input while it is delivered. A slot may carry a `default` the
+sensitive output shows as `***` (in `status` and its JSON too) and the lab's message never
+substitutes it. **No value is stored**, but for those two owner-only files under `runs/<run>/`:
+a `state_file` until the run's successful `down`, a `guest` input while it is delivered. A slot may carry a `default` the
 runner delivers when it has no value (so a lab started without an input, and every resume, still
 comes up). Leak tests assert a value delivered through `env` appears in no file under the home
 and in no event through a whole run, not even in a failed step's error that printed it.

@@ -20,6 +20,7 @@ use crate::state::Op;
 
 /// What a hot-add produced: the access machine brought up, and where to reach it.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct AttachReport {
     /// Its name, as status reports it: the access machine's manifest name.
     pub machine: String,
@@ -35,6 +36,7 @@ pub struct AttachReport {
 
 /// Which access machine an attach adds, where, from what: as [`Running::attach`] takes them.
 #[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
 pub struct AccessPick<'a> {
     /// The on-demand machine, when the lab has more than one.
     pub machine: Option<&'a str>,
@@ -42,6 +44,29 @@ pub struct AccessPick<'a> {
     pub network: Option<&'a str>,
     /// What it runs from (default: the lab's).
     pub image: Option<&'a str>,
+}
+
+impl<'a> AccessPick<'a> {
+    /// The on-demand machine `name`.
+    #[must_use]
+    pub fn with_machine(mut self, name: &'a str) -> AccessPick<'a> {
+        self.machine = Some(name);
+        self
+    }
+
+    /// Joins lab network `name`.
+    #[must_use]
+    pub fn with_network(mut self, name: &'a str) -> AccessPick<'a> {
+        self.network = Some(name);
+        self
+    }
+
+    /// Runs from `image` (a container image, or a Vagrant box).
+    #[must_use]
+    pub fn with_image(mut self, image: &'a str) -> AccessPick<'a> {
+        self.image = Some(image);
+        self
+    }
 }
 
 impl Running<'_> {

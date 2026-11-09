@@ -87,7 +87,8 @@ pub struct NetworkView {
 }
 
 /// An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its
-/// `Debug`, an event); [`OutputValue::revealed`] gives the value itself.
+/// `Debug`, an event); the runner keeps the value itself for its own use (a guest delivery's
+/// address, masking it in what tools print).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct OutputValue {
@@ -120,11 +121,10 @@ impl OutputValue {
         }
     }
 
-    /// The value itself, a sensitive one unmasked: for an embedder that hands it to its user on
-    /// request (a password to copy). Never print or log it. `None` when it can't be read, and for
-    /// a sensitive output read back from JSON (which holds only the mask).
+    /// The value itself, a sensitive one unmasked. Never print or log it. `None` when it can't be
+    /// read, and for a sensitive output read back from JSON (which holds only the mask).
     #[must_use]
-    pub fn revealed(&self) -> Option<&str> {
+    pub(crate) fn revealed(&self) -> Option<&str> {
         if self.sensitive {
             self.secret.as_ref().map(SecretValue::expose)
         } else {

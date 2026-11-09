@@ -24,11 +24,16 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
         Command::Attach { op, machine, network, image } => {
-            let pick = AccessPick {
-                machine: machine.as_deref(),
-                network: network.as_deref(),
-                image: image.as_deref(),
-            };
+            let mut pick = AccessPick::default();
+            if let Some(m) = machine {
+                pick = pick.with_machine(m);
+            }
+            if let Some(n) = network {
+                pick = pick.with_network(n);
+            }
+            if let Some(i) = image {
+                pick = pick.with_image(i);
+            }
             attach(&out, &open(runner, &op.run)?, pick, &options(op, var)?).await
         }
         Command::Detach { op, machine } => {

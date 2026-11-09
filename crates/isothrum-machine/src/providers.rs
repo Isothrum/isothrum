@@ -363,7 +363,7 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
 
 #[cfg(test)]
 mod tests {
-    use isothrum_runner::process::fake::{FakeProcesses, Reply};
+    use isothrum_runner::fake::{FakeProcesses, Reply};
 
     use super::*;
 

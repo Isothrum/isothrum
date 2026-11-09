@@ -2,7 +2,7 @@
 //! [`ProcessRunner`], which puts each tool in its own process group (or Windows job object) so a
 //! dropped future ends the whole tree it started.
 
-use isothrum_runner::process::{Exit, ProcessError};
+use isothrum_runner::{Exit, ProcessError};
 use isothrum_runner::{ProcessRunner, ProcessSpec, Stream};
 
 /// Runs `program args` and returns everything it printed to standard output, whatever its exit
@@ -52,7 +52,7 @@ async fn read_with_exit(runner: &dyn ProcessRunner, program: &str, args: &[&str]
 
 #[cfg(test)]
 mod tests {
-    use isothrum_runner::process::fake::{FakeProcesses, Reply};
+    use isothrum_runner::fake::{FakeProcesses, Reply};
 
     use super::*;
 
