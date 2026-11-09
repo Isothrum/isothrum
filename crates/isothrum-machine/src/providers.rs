@@ -159,9 +159,7 @@ fn qemu_binary() -> &'static str {
 pub struct ProviderStatus {
     /// The provider.
     pub provider: Provider,
-    /// Whether it is ready to use here.
-    pub available: bool,
-    /// Why it is not available, `None` when it is.
+    /// Why it is not ready to use here, `None` when it is.
     pub reason: Option<String>,
 }
 
@@ -235,7 +233,7 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 /// Why Hyper-V can't be used by this account yet, and the two ways out. Folded into Hyper-V's
 /// status when the caller's `may_manage_hyperv` is `Some(false)`.
 const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
-add this account to that group and sign out of Windows and back in, or run this program as administrator";
+add this account to that group and sign out of Windows and back in, or run elevated";
 
 /// The readiness of every provider usable on this machine: its hypervisor, its plugin, and why it
 /// is not available. `vagrant_installed` is global, so it is a plain argument.
@@ -281,11 +279,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
             needs_admin,
         };
         let reason = unavailable_reason(provider, vagrant_installed, detection);
-        statuses.push(ProviderStatus {
-            provider,
-            available: reason.is_none(),
-            reason,
-        });
+        statuses.push(ProviderStatus { provider, reason });
     }
     statuses
 }
@@ -334,10 +328,7 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
     if !vagrant_installed {
         Some("Vagrant is not installed".to_owned())
     } else if unresponsive {
-        Some(
-            "VirtualBox isn't responding (its background service is stuck). Quit VirtualBox and any VM windows, or restart the computer, then re-check."
-                .to_owned(),
-        )
+        Some("VirtualBox isn't responding (its background service is stuck): quit VirtualBox and any VM windows, or restart the computer".to_owned())
     } else if hypervisor == Some(false) && provider == Provider::Hyperv {
         Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it".to_owned())
     } else if needs_admin {
@@ -348,7 +339,7 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
         Some(why)
     } else if let Some((name, version, min)) = hypervisor_too_old(provider, hypervisor_version) {
         // Said before the plugin: updating the plugin wouldn't help.
-        Some(format!("{name} {version} is too old: {min} or later is needed. Update {name}, then re-check"))
+        Some(format!("{name} {version} is too old: {min} or later is needed. Update {name}"))
     } else if let Some(why) = plugins_unknown.filter(|_| plugin.is_some()) {
         Some(format!("Vagrant couldn't say which plugins it has (`vagrant plugin list`: {why})"))
     } else if !plugin_installed {
@@ -420,7 +411,7 @@ mod tests {
         // A UTM the plugin refuses, said before the plugin (updating the plugin wouldn't help).
         assert_eq!(
             unavailable_reason(Provider::Utm, true, detection(Some("4.5.1"), Some("0.1.6"), true)).as_deref(),
-            Some("UTM 4.5.1 is too old: 4.6.5 or later is needed. Update UTM, then re-check")
+            Some("UTM 4.5.1 is too old: 4.6.5 or later is needed. Update UTM")
         );
         // Recent enough, or no version to judge: nothing stands in the way.
         assert_eq!(unavailable_reason(Provider::Utm, true, detection(Some("4.7.5"), Some("0.2.0"), true)), None);
@@ -439,14 +430,11 @@ mod tests {
             ("vagrant plugin list", Reply::ok("vagrant-qemu (0.6.3, global)")),
         ]);
         let qemu = detect(&with, true, None).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-        assert!(qemu.available && qemu.reason.is_none(), "{qemu:?}");
+        assert!(qemu.reason.is_none(), "{qemu:?}");
 
         let without = FakeProcesses::rules(&[("qemu-system", Reply::ok("QEMU 10.0")), ("vagrant plugin list", Reply::ok(""))]);
         let no_plugin = detect(&without, true, None).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-        assert_eq!(
-            (no_plugin.available, no_plugin.reason.as_deref()),
-            (false, Some("Vagrant plugin `vagrant-qemu` is not installed")),
-        );
+        assert_eq!(no_plugin.reason.as_deref(), Some("Vagrant plugin `vagrant-qemu` is not installed"),);
     }
 
     #[tokio::test]
@@ -464,7 +452,7 @@ mod tests {
         );
         // A provider built into Vagrant needs no plugin: what Vagrant lists doesn't matter to it.
         let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);
-        assert!(virtualbox.is_none_or(|s| s.available), "{virtualbox:?}");
+        assert!(virtualbox.is_none_or(|s| s.reason.is_none()), "{virtualbox:?}");
     }
 
     #[test]

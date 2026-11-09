@@ -197,6 +197,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   recorded as the spec it ran, its fields and `line()` and `env(name)` as before.
 - **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
   `AccessPick::default()` with its `with_*` methods.
+- **`isothrum-machine`'s reasons speak to no particular program**: no "then re-check" or "run
+  this program as administrator" ("run elevated").
 - **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
   would mangle, it now refuses an elevated call's standard input.
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
@@ -244,6 +246,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's).
 - **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
+- **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
 - **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
