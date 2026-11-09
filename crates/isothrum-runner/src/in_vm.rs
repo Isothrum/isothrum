@@ -56,7 +56,7 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
         Inside::Read(inside, published) => (inside.as_slice(), published.clone()),
         Inside::Unreadable(_) | Inside::VmDown => (&[][..], BTreeMap::new()),
     };
-    for m in observed.machines.iter_mut().filter(|m| in_guest(manifest, &m.name)) {
+    for m in observed.machines.iter_mut().filter(|m| is_container_in_vm(manifest, &m.name)) {
         *m = match (&read, inside.iter().find(|x| x.name == m.name)) {
             (Inside::Read(..), Some(x)) => x.clone(),
             (Inside::Read(..), None) => standing(m, MachineState::Absent),
@@ -107,7 +107,7 @@ async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
 }
 
 /// Whether the machine `name` is one of the containers Compose runs in the VM.
-fn in_guest(manifest: &isoloom_manifest::Manifest, name: &str) -> bool {
+fn is_container_in_vm(manifest: &isoloom_manifest::Manifest, name: &str) -> bool {
     manifest
         .machines
         .iter()
