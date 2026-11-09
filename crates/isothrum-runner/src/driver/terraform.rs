@@ -32,7 +32,7 @@ use crate::console::ShellCommand;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
 use crate::status::{MachineState, MachineStatus};
-use crate::{Error, Result};
+use crate::{Error, Result, RunnerConfig};
 
 /// The local backend's lock file, left behind by a crashed or killed run.
 const LOCK_FILE: &str = ".terraform.tfstate.lock.info";
@@ -67,9 +67,10 @@ impl Terraform {
     }
 }
 
-/// The plugin cache every run of a runner shares, under its home.
-pub(crate) fn plugin_cache(home: &Path) -> PathBuf {
-    home.join("terraform-plugins")
+/// The plugin cache the runs use: the user's own (`TF_PLUGIN_CACHE_DIR`), else the one every run
+/// of the runner shares, under its home.
+pub(crate) fn plugin_cache(config: &RunnerConfig) -> PathBuf {
+    config.tf_plugin_cache.clone().unwrap_or_else(|| config.home.join("terraform-plugins"))
 }
 
 impl Driver for Terraform {
@@ -85,13 +86,18 @@ impl Driver for Terraform {
         std::future::ready(if has_tf { Ok(()) } else { Err(Error::io(&module, "read")(missing)) })
     }
 
+    /// Creates the runner's own plugin cache; the user's is theirs, used as it is.
     fn prepare(&self, cx: &Cx<'_>) -> Result<()> {
-        let cache = plugin_cache(&cx.run.runner.config.home);
+        let config = &cx.run.runner.config;
+        if config.tf_plugin_cache.is_some() {
+            return Ok(());
+        }
+        let cache = plugin_cache(config);
         crate::store::private_dir(&cache).map_err(Error::io(&cache, "created"))
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
-        let cache = plugin_cache(&cx.run.runner.config.home);
+        let cache = plugin_cache(&cx.run.runner.config);
         let mut env = vec![("TF_PLUGIN_CACHE_DIR".to_owned(), cache.display().to_string())];
         env.extend(expiry_var(cx));
         Ok(env)

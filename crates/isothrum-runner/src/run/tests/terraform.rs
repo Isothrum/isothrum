@@ -171,6 +171,26 @@ async fn a_start_picks_its_slot_only_while_no_other_process_picks_one() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn terraform_uses_the_users_plugin_cache_else_the_runners() {
+    let s = server(HostOs::Linux);
+    let run = s.runner.open(&s.manifest, None).unwrap();
+    run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    let ours = s.folder.home.path().join("terraform-plugins");
+    assert_eq!(s.fake.last("terraform").unwrap().env("TF_PLUGIN_CACHE_DIR"), Some(ours.to_str().unwrap()));
+    assert!(ours.is_dir());
+
+    // Regression: a `TF_PLUGIN_CACHE_DIR` of the user's own was replaced by the runner's.
+    let theirs = s.folder.home.path().join("their-cache");
+    let mut config = runner_config(s.folder.home.path(), processes(&s.fake), no_ports(), HostOs::Linux);
+    config.tf_plugin_cache = Some(theirs.clone());
+    std::fs::remove_dir(&ours).unwrap();
+    let runner = Runner::new(config).unwrap();
+    runner.open(&s.manifest, None).unwrap().down(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    assert_eq!(s.fake.last("terraform").unwrap().env("TF_PLUGIN_CACHE_DIR"), Some(theirs.to_str().unwrap()));
+    assert!(!ours.exists() && !theirs.exists(), "the user's cache is theirs: used as it is");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_machine_that_never_answers_over_ssh_fails_the_start() {
     // A wait that returned OK when SSH never answered within 10 minutes.
     let s = server(HostOs::Linux);

@@ -147,6 +147,7 @@ pub(crate) fn runner_config(home: &Path, processes: Arc<dyn ProcessRunner>, port
         clock: Arc::new(FixedClock(UNIX_EPOCH + Duration::from_secs(TEST_TIME))),
         host,
         path: None,
+        tf_plugin_cache: None,
     }
 }
 

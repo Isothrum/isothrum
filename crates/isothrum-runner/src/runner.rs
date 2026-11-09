@@ -40,6 +40,9 @@ pub struct RunnerConfig {
     /// The tools' `PATH`, where the macOS relays look for the real `ovftool` and put their
     /// wrapper first (default: the runner's own).
     pub path: Option<String>,
+    /// The user's own Terraform plugin cache (`TF_PLUGIN_CACHE_DIR`), which the runs use as it
+    /// is; without one, they share one under the home.
+    pub(crate) tf_plugin_cache: Option<PathBuf>,
 }
 
 impl RunnerConfig {
@@ -53,6 +56,7 @@ impl RunnerConfig {
             clock: Arc::new(SystemClock),
             host: this_host(),
             path: std::env::var("PATH").ok(),
+            tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
         }
     }
 }

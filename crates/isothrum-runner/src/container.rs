@@ -48,7 +48,7 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
         lab_root(cx.run.dir()),
         &state,
         &home.join("ssh"),
-        &crate::driver::plugin_cache(home),
+        &crate::driver::plugin_cache(&cx.run.runner.config),
     ]);
     let network = HostNetwork::read(|name| std::env::var(name).ok());
     Ok(docker_run(image.as_str(), &mounts, &network, spec))
