@@ -6,8 +6,11 @@ use std::path::{Path, PathBuf};
 
 use crate::{Res, repo};
 
+/// What writes a schema.
+type Schema = fn() -> serde_json::Value;
+
 /// Each schema file, relative to the repository, with the schema it holds.
-const SCHEMAS: [(&str, fn() -> serde_json::Value); 2] = [
+const SCHEMAS: [(&str, Schema); 2] = [
     ("crates/isothrum-runner/schema/events-v0.schema.json", isothrum_runner::events_schema),
     ("crates/isothrum-runner/schema/status.schema.json", isothrum_runner::status_schema),
 ];
@@ -18,7 +21,7 @@ fn path(root: &Path, file: &str) -> PathBuf {
 }
 
 /// A schema, as committed.
-fn text(schema: fn() -> serde_json::Value) -> Res<String> {
+fn text(schema: Schema) -> Res<String> {
     Ok(serde_json::to_string_pretty(&schema())? + "\n")
 }
 
