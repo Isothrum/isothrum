@@ -15,14 +15,13 @@ public API:
 |---|---|
 | `Lab<'r>` (from `Runner::open`) | `Running<'r>` |
 | `status::Run` (the up/resume result) | `Started` |
-| `LabView` (the hook view) | `RunView` |
 | compiler `LabFile` | `ProjectFile` |
 | CLI `LabArgs` | `TargetArgs` |
 | `LabArgs.lab` (its path field) | `TargetArgs.path` |
 | the `lab` module | `run` |
 
-The public runner types are now `Runner` (`open` returns `Running<'r>`), `Running<'r>`,
-`Started` and `RunView<'a>`.
+The public runner types are now `Runner` (`open` returns `Running<'r>`), `Running<'r>` and
+`Started`.
 
 ## The manifest key `lab:` is now `environment:`
 

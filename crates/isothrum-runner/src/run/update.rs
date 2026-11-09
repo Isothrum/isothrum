@@ -5,8 +5,7 @@
 //! Vagrant brings up new VMs. What an update doesn't remove itself is retired first
 //! ([`Running::retire`]): a VM taken out (Vagrant forgets a define the Vagrantfile no longer
 //! has), a Compose service taken out or moved out of the default start.
-//! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message, and
-//! the embedder's `after_up` hooks ([`crate::Hooks::after_up`]): an update brings the run up.
+//! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message.
 //!
 //! A machine that was running keeps what it was given: the guests' secrets go to new machines
 //! only (an update carries no launch's values, which a run never keeps).
@@ -37,7 +36,6 @@ use crate::driver::Observed;
 use crate::error::Error;
 use crate::events::{Emitter, Events, StepState};
 use crate::executor::Cx;
-use crate::hooks::Edge;
 use crate::options::RunOptions;
 use crate::secrets::{check_secrets, sensitive_values};
 use crate::state::{Op, RunState};
@@ -93,8 +91,7 @@ impl Running<'_> {
     }
 
     /// Brings the running run up to date with its manifest (see the module doc): `up`'s steps
-    /// again, with the run's recorded params and `opts`' secrets, then the `after_up` hooks, as
-    /// after `up`.
+    /// again, with the run's recorded params and `opts`' secrets, then what follows `up`.
     ///
     /// # Errors
     ///
@@ -130,7 +127,7 @@ impl Running<'_> {
         crate::guest::deliver(&mut cx, None).await?;
         self.read_outputs(&mut cx).await?;
         ready::check(&mut cx, Some(&ran)).await?;
-        let (outputs, message) = self.finish(&mut cx, Edge::AfterUp).await?;
+        let (outputs, message) = self.finish(&mut cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }

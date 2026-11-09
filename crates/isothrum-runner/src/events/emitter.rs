@@ -234,7 +234,7 @@ mod tests {
         let sink = Recorder::new();
         let e = Emitter::new("r", Op::Down, &clock, &sink).with_log(File::create(&path).unwrap());
         e.step("down", StepState::Done, None);
-        e.warning(WarningCode::HookFailed, "the attack box didn't stop");
+        e.warning(WarningCode::StepTolerated, "a tolerated step failed");
         drop(e);
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<Event> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();

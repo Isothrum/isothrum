@@ -11,7 +11,6 @@ use crate::checks::{self, CheckReport};
 use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::executor::{Cx, run_steps};
-use crate::hooks::Edge;
 use crate::options::RunOptions;
 use crate::params::params_for_existing;
 use crate::secrets::sensitive_values;
@@ -32,7 +31,6 @@ impl Running<'_> {
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Down, events, mask, async |e: &Emitter<'_>| {
             let (mut record, mut cx) = self.existing(opts, e).await?;
-            self.hooks(&cx, Edge::BeforeDown, &[]).await;
             self.begin(&mut record, Op::Down)?;
             run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
             self.driver.after_down(&cx)?;
@@ -69,7 +67,6 @@ impl Running<'_> {
             if !self.exists(&mut cx).await? {
                 return Err(Error::NotRunning { run: self.name().to_string() });
             }
-            self.hooks(&cx, Edge::BeforePark, &[]).await;
             self.begin(&mut record, Op::Park)?;
             run_steps(&mut cx, "lifecycle.park", steps).await?;
             Ok(Done {
@@ -110,7 +107,7 @@ impl Running<'_> {
         self.begin(&mut record, Op::Resume)?;
         run_steps(&mut cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
         ready::check(&mut cx, None).await?;
-        let (outputs, message) = self.finish(&mut cx, Edge::AfterResume).await?;
+        let (outputs, message) = self.finish(&mut cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }

@@ -12,7 +12,6 @@ use crate::Result;
 use crate::clock::{Clock, SystemClock};
 use crate::error::Error;
 use crate::events::Event;
-use crate::hooks::Hooks;
 use crate::manifest::load_manifest;
 use crate::name::RunName;
 use crate::net::{HostPorts, LoopbackPorts};
@@ -103,7 +102,6 @@ pub fn this_host() -> HostOs {
 pub struct Runner {
     pub(crate) config: RunnerConfig,
     pub(crate) store: Store,
-    pub(crate) hooks: Vec<Arc<dyn Hooks>>,
     pub(crate) locks: RunLocks,
     flight: Mutex<BTreeMap<RunName, Op>>,
     reserved: Mutex<BTreeMap<(u16, Protocol), RunName>>,
@@ -120,16 +118,10 @@ impl Runner {
         Ok(Runner {
             config,
             store,
-            hooks: Vec::new(),
             locks: RunLocks::default(),
             flight: Mutex::default(),
             reserved: Mutex::default(),
         })
-    }
-
-    /// Adds the embedder's hooks around lifecycle edges.
-    pub fn add_hooks(&mut self, hooks: Arc<dyn Hooks>) {
-        self.hooks.push(hooks);
     }
 
     /// Reads and checks the manifest at `manifest`, as run `name` (default: the run's name).
@@ -260,7 +252,6 @@ impl std::fmt::Debug for Runner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Runner")
             .field("config", &self.config)
-            .field("hooks", &self.hooks.len())
             .field("in_flight", &self.in_flight())
             .finish_non_exhaustive()
     }

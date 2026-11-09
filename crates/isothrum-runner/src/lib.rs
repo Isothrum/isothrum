@@ -49,9 +49,9 @@
 //! # Ports
 //!
 //! Every outside effect goes through a port the embedder can replace: [`ProcessRunner`] (the
-//! tools), [`HostPorts`] (the host's ports), [`Clock`] (the time), [`Events`] (where events go)
-//! and [`Hooks`] (the embedder's sidecars). They are open traits on purpose, since embedders
-//! implement them; the `fake` feature has test doubles for the first three.
+//! tools), [`HostPorts`] (the host's ports), [`Clock`] (the time) and [`Events`] (where events
+//! go). They are open traits on purpose, since embedders implement them; the `fake` feature has
+//! test doubles for the first three.
 //!
 //! # Deliveries
 //!
@@ -71,7 +71,7 @@
 //!
 //! The runner is **async**, on Tokio, chosen once for the whole crate: every tool runs as an async
 //! process with a time limit (a step's `timeout_s`, else an hour; 25 s for a probe; two minutes
-//! for an action's own Docker calls; ten for a hook), and dropping an operation's future ends the
+//! for an action's own Docker calls), and dropping an operation's future ends the
 //! process tree it started. Operations on one run are serialized; operations on different runs
 //! run side by side. One exception to "no blocking call in async code": the run's state files (a
 //! record, a lock, the pinned ports, the event log) are a few KB on the local disk, so they are
@@ -98,7 +98,6 @@ mod future;
 #[doc(hidden)]
 pub mod fuzzing;
 mod guest;
-mod hooks;
 mod in_vm;
 mod manifest;
 mod name;
@@ -132,7 +131,6 @@ pub use clock::{Clock, SystemClock, rfc3339};
 pub use error::{Error, ErrorCode, Result};
 pub use events::{EVENTS_VERSION, Event, EventKind, Events, JsonLines, ReadyState, Recorder, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
-pub use hooks::{HookError, Hooks, RunView};
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, load_manifest};
 pub use name::RunName;

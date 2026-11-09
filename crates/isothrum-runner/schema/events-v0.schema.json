@@ -485,11 +485,6 @@
           "const": "step_tolerated"
         },
         {
-          "description": "An embedder's hook failed.",
-          "type": "string",
-          "const": "hook_failed"
-        },
-        {
           "description": "A check runner failed or ran out of time: its checks that didn't report fail.",
           "type": "string",
           "const": "check_runner_failed"

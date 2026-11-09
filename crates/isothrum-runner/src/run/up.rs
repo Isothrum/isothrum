@@ -1,5 +1,5 @@
 //! Starting a run: the occupied-slot rules, the start steps with their recovery retry, the ready
-//! conditions, then outputs, the message and the embedder's hooks.
+//! conditions, then outputs and the message.
 
 use isoloom_manifest::Recovery;
 use serde_json::json;
@@ -12,7 +12,6 @@ use crate::error::Error;
 use crate::events::WarningCode;
 use crate::events::{Emitter, Events};
 use crate::executor::{Cx, Ran, run_steps};
-use crate::hooks::Edge;
 use crate::options::{Occupied, RunOptions};
 use crate::params::{params_for_existing, params_for_start};
 use crate::secrets::{check_secrets, sensitive_values};
@@ -92,7 +91,7 @@ impl Running<'_> {
         self.read_outputs(&mut cx).await?;
         ready::check(&mut cx, Some(&ran)).await?;
         self.seal(&mut cx, &mut record).await?;
-        let (outputs, message) = self.finish(&mut cx, Edge::AfterUp).await?;
+        let (outputs, message) = self.finish(&mut cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }
@@ -192,13 +191,11 @@ impl Running<'_> {
         }
     }
 
-    /// Reads the run's published ports and outputs, fills its message, and runs the hooks at
-    /// `edge`.
-    pub(crate) async fn finish(&self, cx: &mut Cx<'_>, edge: Edge) -> Result<(Vec<OutputValue>, Option<String>)> {
+    /// Reads the run's published ports and outputs, and fills its message.
+    pub(crate) async fn finish(&self, cx: &mut Cx<'_>) -> Result<(Vec<OutputValue>, Option<String>)> {
         let outputs = self.read_outputs(cx).await?;
         outputs::emit(cx.events, &outputs);
         let message = outputs::message(self.manifest(), &cx.vars, &outputs);
-        self.hooks(cx, edge, &outputs).await;
         Ok((outputs, message))
     }
 }

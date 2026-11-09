@@ -67,8 +67,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   with the params the run was started with, so each engine converges, then the guests' secrets,
   the ready conditions and the outputs, as at `up`. A machine that was running keeps what it was
   given: guest secrets go to new machines only. The run stays ready meanwhile; a sealed run stays
-  sealed. An update brings the run up, so the embedder's `Hooks::after_up` runs after it too. New
-  operation in events: `update`.
+  sealed. New operation in events: `update`.
 - **`isothrum console <machine>` and `isothrum retire <machine>`**: the CLI's way to
   `Running::console_command` (printed as one line to paste in a POSIX shell, or its JSON) and
   `Running::retire` (with `--param` and `--secret-from-env`, as `update`).
@@ -112,6 +111,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   (`storage::{path, update, Before, image_ids, box_list, claim, tracked}`), and the provider
   helpers `parse_plugins`, `parse_plugin_versions`, `version_at_least`, `kvm_problem` and
   `HYPERV_NEEDS_ADMIN` (still used inside `detect`).
+- **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
+  `hook_failed` warning code (gone from the event schema): nothing implemented it. An embedder
+  that keeps something beside a run does it around the operation's call.
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),

@@ -215,8 +215,6 @@ impl<W: Write + Send> Events for JsonLines<W> {
 pub enum WarningCode {
     /// A step whose failure the manifest tolerates failed.
     StepTolerated,
-    /// An embedder's hook failed.
-    HookFailed,
     /// A check runner failed or ran out of time: its checks that didn't report fail.
     CheckRunnerFailed,
     /// The clean-up of a check runner that ran out of time failed.

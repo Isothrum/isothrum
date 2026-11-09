@@ -27,9 +27,7 @@ use crate::Result;
 use crate::driver::AnyDriver;
 use crate::error::Error;
 use crate::events::Emitter;
-use crate::events::WarningCode;
 use crate::executor::{Cx, Stale};
-use crate::hooks::{Edge, RunView};
 use crate::manifest::LoadedManifest;
 use crate::name::RunName;
 use crate::options::RunOptions;
@@ -337,22 +335,5 @@ impl<'r> Running<'r> {
     /// The run's networks, their native names filled.
     fn networks(&self, cx: &Cx<'_>) -> Vec<status::NetworkView> {
         status::networks(self.manifest(), |t| cx.vars.render(t, "networks.native").ok())
-    }
-
-    /// Runs the embedder's hooks at `edge`; each failure is a warning.
-    pub(crate) async fn hooks(&self, cx: &Cx<'_>, edge: Edge, outputs: &[OutputValue]) {
-        if self.runner.hooks.is_empty() {
-            return;
-        }
-        let networks = self.networks(cx);
-        let view = RunView {
-            name: &self.name,
-            manifest: self.manifest(),
-            networks: &networks,
-            outputs,
-        };
-        for failure in edge.run(&self.runner.hooks, &view).await {
-            cx.events.warning(WarningCode::HookFailed, &failure);
-        }
     }
 }
