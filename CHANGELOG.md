@@ -150,6 +150,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
+- **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
+  and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
 - **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),
   `RunnerConfig::with_clock` (set `RunnerConfig::clock`), `JsonLines` (an `Events` sink is a
   closure), `FixedClock` (now the crate's own test double), and `this_host` (now internal).

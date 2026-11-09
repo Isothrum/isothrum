@@ -20,7 +20,8 @@ use crate::run::Running;
 use crate::state::Op;
 use crate::store::{RunLocks, RunRecord, Store};
 
-/// How a runner is built: its home, and the ports it reaches the world through.
+/// How a runner is built: its home, and the ports it reaches the world through. Start from
+/// [`RunnerConfig::new`] and set a field to change it (`config.processes = Arc::new(fake)`).
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct RunnerConfig {
@@ -51,22 +52,6 @@ impl RunnerConfig {
             host: this_host(),
             path: std::env::var("PATH").ok(),
         }
-    }
-}
-
-impl RunnerConfig {
-    /// Starts the tools through `processes` (a fake in tests).
-    #[must_use]
-    pub fn with_processes(mut self, processes: Arc<dyn ProcessRunner>) -> RunnerConfig {
-        self.processes = processes;
-        self
-    }
-
-    /// Reads the host's ports through `ports`.
-    #[must_use]
-    pub fn with_ports(mut self, ports: Arc<dyn HostPorts>) -> RunnerConfig {
-        self.ports = ports;
-        self
     }
 }
 
