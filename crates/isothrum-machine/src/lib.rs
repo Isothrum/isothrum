@@ -10,5 +10,3 @@
 mod exec;
 pub mod providers;
 pub mod storage;
-
-pub use providers::{Provider, ProviderStatus};

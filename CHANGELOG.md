@@ -150,7 +150,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 - **`isothrum-machine` keeps only provider detection and the download record's format.** Its
   public API is now `providers::{detect, Provider, ProviderStatus}` and `storage::{Owned,
-  OwnedBox, OwnedImage, load, parse_box_list}`. Gone, with no user left: the self-tests
+  OwnedBox, OwnedImage, load, parse_box_list}` (the crate root no longer re-exports `Provider`
+  and `ProviderStatus`: import them from `providers`). Gone, with no user left: the self-tests
   (`selftest`, `BootProbe`, `ElevatedBoot`, `Vm`), the system report (`system`, `SystemReport`,
   `DockerDenied`), `Dirs`, `Error` and `Result`, the `exec` module, the record's writing half
   (`storage::{path, update, Before, image_ids, box_list, claim, tracked}`), and the provider
