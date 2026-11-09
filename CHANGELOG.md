@@ -56,6 +56,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   that isn't its JSON, or when no free host port was left for an ephemeral publish: the run
   started on ports Docker picked, and a resume got new addresses. The step now fails
   (`tool_failed`), naming the port that has no free host port left.
+- **`isothrum reap` no longer passes when it couldn't query the cloud.** A query of what the
+  cloud holds that couldn't run or be read was listed (`not checked: …`) but the command passed,
+  as for a clean sweep; it now fails.
 
 - **`docker compose ps` output the runner can't read no longer passes for no container.** When
   `ps --format json` printed something that isn't its JSON, every machine read absent: a resume

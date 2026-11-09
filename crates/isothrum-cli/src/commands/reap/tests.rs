@@ -131,7 +131,8 @@ async fn reap_destroys_a_clouds_expired_runs_and_lists_what_no_run_records() {
 async fn a_dry_run_destroys_nothing() {
     let s = setup();
     s.expired_run().await;
-    s.run(&["reap", "aws", "--dry-run"]).await;
+    let verdict = s.run(&["reap", "aws", "--dry-run"]).await;
+    assert_eq!(verdict, Verdict::Fail, "something is left");
     let said = s.out.take();
     assert!(said.contains("would destroy solo-web (--dry-run)"), "{said}");
     assert!(said.contains("left ec2 instance arn:aws:ec2:eu-west-3:1:instance/i-0lost"), "{said}");
@@ -142,7 +143,8 @@ async fn a_dry_run_destroys_nothing() {
 async fn another_clouds_runs_are_left_alone() {
     let s = setup();
     s.expired_run().await;
-    s.run(&["reap", "linode"]).await;
+    let verdict = s.run(&["reap", "linode"]).await;
+    assert_eq!(verdict, Verdict::Fail, "a query that couldn't run is no clean sweep");
     assert!(s.fake.last("terraform destroy").is_none());
     let said = s.out.take();
     assert!(
