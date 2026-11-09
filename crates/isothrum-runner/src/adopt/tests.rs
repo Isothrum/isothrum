@@ -130,7 +130,6 @@ fn earlier(runner: &Runner, name: &str, state: RunState) -> RunRecord {
     let mut record = RunRecord::fresh(
         RunName::new(name).unwrap(),
         "/old/run/.isoloom/proxmox/run.json".into(),
-        "ab".repeat(32),
         isoloom_manifest::Target::Proxmox,
         Driver::Terraform,
     );

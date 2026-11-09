@@ -68,7 +68,6 @@ fn every_valid_fixture_loads() -> Outcome {
     assert!(valid.len() >= 3, "{valid:?}");
     for path in valid {
         let loaded = load_manifest(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        assert_eq!(loaded.sha256.len(), 64);
         assert_eq!(loaded.dir, path.parent().unwrap());
     }
     Ok(())

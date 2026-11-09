@@ -302,7 +302,6 @@ mod tests {
         let mut record = crate::store::RunRecord::fresh(
             crate::name::RunName::new("r").unwrap(),
             "/x".into(),
-            String::new(),
             isoloom_manifest::Target::Docker,
             isoloom_manifest::Driver::Compose,
         );

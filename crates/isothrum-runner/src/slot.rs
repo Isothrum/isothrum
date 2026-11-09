@@ -57,7 +57,6 @@ mod tests {
         let mut r = RunRecord::fresh(
             RunName::new(name).unwrap(),
             "/l/run.json".into(),
-            String::new(),
             isoloom_manifest::Target::Proxmox,
             isoloom_manifest::Driver::Terraform,
         );

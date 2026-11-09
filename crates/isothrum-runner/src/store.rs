@@ -59,10 +59,9 @@ pub struct RunRecord {
     pub version: u32,
     /// The run's name.
     pub name: RunName,
-    /// The manifest the run was started from, absolute.
+    /// The manifest the run was last brought up or updated from, absolute: what a later
+    /// operation that has only the record (a sweep's `down`) reopens.
     pub manifest: PathBuf,
-    /// Its SHA-256.
-    pub manifest_sha256: String,
     /// Its target.
     pub target: Target,
     /// Its driver.
@@ -110,12 +109,11 @@ pub struct RunRecord {
 
 impl RunRecord {
     /// A record of a run never started yet.
-    pub(crate) fn fresh(name: RunName, manifest: PathBuf, sha256: String, target: Target, driver: Driver) -> RunRecord {
+    pub(crate) fn fresh(name: RunName, manifest: PathBuf, target: Target, driver: Driver) -> RunRecord {
         RunRecord {
             version: RECORD_VERSION,
             name,
             manifest,
-            manifest_sha256: sha256,
             target,
             driver,
             cloud: None,
@@ -227,7 +225,6 @@ mod tests {
         RunRecord::fresh(
             RunName::new(name).unwrap(),
             "/labs/x/.isoloom/docker/run.json".into(),
-            "ab".repeat(32),
             Target::Docker,
             Driver::Compose,
         )

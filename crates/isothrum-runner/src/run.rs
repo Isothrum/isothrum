@@ -119,11 +119,6 @@ impl<'r> Running<'r> {
         &self.loaded.dir
     }
 
-    /// The manifest's SHA-256.
-    pub(crate) fn loaded_sha256(&self) -> &str {
-        &self.loaded.sha256
-    }
-
     /// A quiet context of the run, with `events` and what its start kept (its record bound: its
     /// SSH jump, its slot, its forwards; its provider; its params replayed, a fresh run's
     /// defaults otherwise), so a way in is the run's: for the read-only queries. No lock.

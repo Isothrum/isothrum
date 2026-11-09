@@ -119,7 +119,7 @@ impl Running<'_> {
         for vm in changed_at_boot(self.manifest(), &record.vm_boot_digests, &observed) {
             self.reload(&cx, vm).await?;
         }
-        record.vm_boot_digests = boot_digests(self.manifest());
+        self.runs_from_this(&mut record);
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write(&cx, true)?;

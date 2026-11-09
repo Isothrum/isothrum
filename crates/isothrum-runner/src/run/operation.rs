@@ -114,17 +114,17 @@ impl Running<'_> {
         self.runner.store.save(record)
     }
 
+    /// Records in `record` that the run now runs from this manifest: its file, which a later
+    /// operation that has only the record (a sweep's `down`) reopens, and the boot digest of each
+    /// VM, which the next update compares.
+    pub(crate) fn runs_from_this(&self, record: &mut RunRecord) {
+        record.manifest = self.path().to_path_buf();
+        record.vm_boot_digests = super::update::boot_digests(self.manifest());
+    }
+
     /// The run's record, or a fresh one for this manifest.
     pub(crate) fn record_or_fresh(&self) -> Result<RunRecord> {
-        let fresh = || {
-            RunRecord::fresh(
-                self.name().clone(),
-                self.path().to_path_buf(),
-                self.loaded_sha256().to_owned(),
-                self.manifest().target,
-                self.manifest().driver,
-            )
-        };
+        let fresh = || RunRecord::fresh(self.name().clone(), self.path().to_path_buf(), self.manifest().target, self.manifest().driver);
         Ok(self.runner.store.record(self.name())?.unwrap_or_else(fresh))
     }
 }

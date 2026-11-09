@@ -286,6 +286,23 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     assert!(during.iter().all(|l| !l.contains(" rm ")), "{during:?}");
 }
 
+/// An update records the manifest it ran: the file a later operation that has only the record
+/// (a sweep's `down`) reopens is the regenerated one, not the one the run started from.
+#[tokio::test]
+async fn an_update_records_the_manifest_it_ran() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().manifest, f.manifest);
+
+    let regenerated_at = f.manifest.with_file_name("run-regenerated.json");
+    std::fs::write(&regenerated_at, regenerated()).unwrap();
+    let again = f.runner.open(&regenerated_at, Some(run.name().clone())).unwrap();
+    let updated = again.update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(updated.record.manifest, regenerated_at);
+    assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().manifest, regenerated_at);
+}
+
 /// Sets the fake engine's project networks and whether its config can be read.
 fn engine_with(f: &Fixture, networks: &[&str], unreadable_config: bool) {
     let mut e = f.engine.lock().unwrap_or_else(PoisonError::into_inner);

@@ -19,13 +19,7 @@ fn runner(answer: impl Fn(&crate::process::fake::Call) -> Reply + Send + Sync + 
 
 /// A recorded run of `cloud` in `state`, expiring at `expires_at`, its Terraform state `tfstate`.
 fn record(r: &Runner, name: &str, state: RunState, expires_at: Option<u64>, tfstate: Option<&str>) {
-    let mut rec = RunRecord::fresh(
-        RunName::new(name).unwrap(),
-        "/l/run.json".into(),
-        String::new(),
-        Target::CloudVm,
-        Driver::Terraform,
-    );
+    let mut rec = RunRecord::fresh(RunName::new(name).unwrap(), "/l/run.json".into(), Target::CloudVm, Driver::Terraform);
     rec.cloud = Some(Cloud::Aws);
     rec.state = state;
     rec.expires_at = expires_at;

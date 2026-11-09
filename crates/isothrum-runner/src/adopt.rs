@@ -153,7 +153,7 @@ impl Runner {
     /// and its slot when the manifest names one.
     fn adopted(&self, loaded: LoadedManifest, adoption: Adoption) -> Result<RunRecord> {
         let manifest = &loaded.manifest;
-        let mut record = RunRecord::fresh(adoption.name, loaded.path, loaded.sha256, manifest.target, manifest.driver);
+        let mut record = RunRecord::fresh(adoption.name, loaded.path, manifest.target, manifest.driver);
         record.params = adoption
             .params
             .into_iter()

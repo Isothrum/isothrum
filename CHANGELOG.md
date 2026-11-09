@@ -51,6 +51,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
   listed as orphans; it now fails with `io`, as it does for a state it can't read.
 
+- **A run's record names the manifest it was last brought up or updated from.** An update runs
+  a regenerated manifest, but the record kept the one the run started from, which is what
+  `isothrum reap` (and any operation that has only the record) reopens. `RunRecord::manifest` is
+  now set at every `up` and update, with the VMs' boot digests.
+
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
@@ -125,6 +130,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
   `hook_failed` warning code (gone from the event schema): nothing implemented it. An embedder
   that keeps something beside a run does it around the operation's call.
+- **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
+  written with it still loads.
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),
