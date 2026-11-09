@@ -1,8 +1,8 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{BoxPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running};
+use isothrum_runner::{BoxPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
-use crate::args::{Cli, Command, Mode, OpArgs, TargetArgs};
+use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, TargetArgs};
 use crate::error::Result;
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term};
@@ -34,44 +34,49 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.detach_with(&options(op, var)?, machine.as_deref(), events).await.is_ok()))
         }
-        Command::Shell { run, machine } => shell(cli.json, &open(runner, run)?, machine.as_deref(), term),
+        Command::Shell { run, machine } => print_command(cli.json, &open(runner, run)?.shell_command(machine.as_deref())?, term),
+        Command::Console { run, machine } => print_command(cli.json, &open(runner, run)?.console_command(machine)?, term),
         Command::Events(run) => print_events(cli.json, runner, &open(runner, run)?, term),
         Command::Reap(args) => reap::run(args, runner, cli.json, term, var).await,
         Command::Key => {
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
-        Command::Up { .. } | Command::Down(_) | Command::Park { .. } | Command::Resume(_) | Command::Update(_) => {
-            lifecycle(cli, runner, term, var, events).await
+        Command::Lifecycle(command) => lifecycle(command, cli.json, runner, term, var).await,
+    }
+}
+
+/// A command that changes the run's life, its events written to `term` (JSON lines with `json`).
+async fn lifecycle(command: &Lifecycle, json: bool, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+    let (as_json, human) = (Json(term), Human(term));
+    let events: &dyn Events = if json { &as_json } else { &human };
+    match command {
+        Lifecycle::Up { op, replace, lifetime } => {
+            let started = open(runner, &op.run)?.up(&start_opts(op, *replace, *lifetime, var)?, events).await;
+            Ok(said(json, started.ok(), "The run is up.", term))
+        }
+        Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
+        Lifecycle::Park { run, mode } => Ok(Verdict::of(open(runner, run)?.park(park_mode(*mode), events).await.is_ok())),
+        Lifecycle::Resume(op) => {
+            let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
+            Ok(said(json, resumed.ok(), "The run is up again.", term))
+        }
+        Lifecycle::Update(op) => {
+            let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
+            Ok(said(json, updated.ok(), "The run is up to date.", term))
+        }
+        Lifecycle::Retire { op, machine } => {
+            let retired = open(runner, &op.run)?.retire(machine, &options(op, var)?, events).await;
+            Ok(Verdict::of(retired.is_ok()))
         }
     }
 }
 
-/// The commands that start, stop, park, resume or update the run (any other command is no
-/// lifecycle change: it fails here, as it never comes here).
-async fn lifecycle(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>, events: &dyn Events) -> Result<Verdict> {
-    match &cli.command {
-        Command::Up { op, replace, lifetime } => {
-            let started = open(runner, &op.run)?.up(&start_opts(op, *replace, *lifetime, var)?, events).await;
-            Ok(said(cli.json, started.ok(), "The run is up.", term))
-        }
-        Command::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
-        Command::Park { run, mode } => {
-            let mode = match mode {
-                Mode::Pause => Park::Pause,
-                Mode::Shutdown => Park::Shutdown,
-            };
-            Ok(Verdict::of(open(runner, run)?.park(mode, events).await.is_ok()))
-        }
-        Command::Resume(op) => {
-            let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
-            Ok(said(cli.json, resumed.ok(), "The run is up again.", term))
-        }
-        Command::Update(op) => {
-            let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
-            Ok(said(cli.json, updated.ok(), "The run is up to date.", term))
-        }
-        _ => Ok(Verdict::Fail),
+/// How `mode` parks a run.
+fn park_mode(mode: Mode) -> Park {
+    match mode {
+        Mode::Pause => Park::Pause,
+        Mode::Shutdown => Park::Shutdown,
     }
 }
 
@@ -98,7 +103,7 @@ async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
     Ok(Verdict::Pass)
 }
 
-/// Hot-adds the on-demand access box, then says where to reach it (JSON, or a line).
+/// Hot-adds the on-demand access machine, then says where to reach it (JSON, or a line).
 async fn attach(json: bool, run: &Running<'_>, (opts, pick): (&RunOptions, BoxPick<'_>), events: &dyn Events, term: &Term) -> Result<Verdict> {
     let Ok(report) = run.attach_with(opts, pick, events).await else {
         return Ok(Verdict::Fail);
@@ -112,15 +117,15 @@ async fn attach(json: bool, run: &Running<'_>, (opts, pick): (&RunOptions, BoxPi
     Ok(Verdict::Pass)
 }
 
-/// The command that opens a shell into the access box: its argv, led by the variables it needs
-/// (`VAR=value`, as a shell takes them), or the `ShellCommand` JSON.
-fn shell(json: bool, run: &Running<'_>, machine: Option<&str>, term: &Term) -> Result<Verdict> {
-    let cmd = run.shell_command(machine)?;
+/// A command that opens a shell into a machine (`shell`, `console`): its argv, led by the
+/// variables it needs (`VAR=value`, as a shell takes them), or the `ShellCommand` JSON.
+fn print_command(json: bool, cmd: &ShellCommand, term: &Term) -> Result<Verdict> {
     if json {
-        term.out(&serde_json::to_string(&cmd)?);
+        term.out(&serde_json::to_string(cmd)?);
     } else {
         let env = cmd.env.iter().map(|(k, v)| format!("{k}={v}"));
-        term.out(&env.chain(std::iter::once(cmd.program)).chain(cmd.args).collect::<Vec<_>>().join(" "));
+        let argv = std::iter::once(&cmd.program).chain(&cmd.args).cloned();
+        term.out(&env.chain(argv).collect::<Vec<_>>().join(" "));
     }
     Ok(Verdict::Pass)
 }

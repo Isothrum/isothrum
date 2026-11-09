@@ -40,6 +40,7 @@ fn setup() -> Setup {
             () if line.contains(" ps ") => Reply::ok(if up.load(Ordering::SeqCst) { web } else { "" }),
             () if line.contains(" up --detach ") => Reply::ok(&format!("{}", up.swap(true, Ordering::SeqCst))),
             () if line.contains(" down --volumes") => Reply::ok(&format!("{}", up.swap(false, Ordering::SeqCst))),
+            () if line.contains(" config --format json") => Reply::ok(r#"{"services":{"web":{},"db":{}}}"#),
             () if line.contains("--profile check run") => Reply::ok("isoloom-check: PASS http://web/\nisoloom-check: END 1 passed, 0 failed"),
             () => Reply::ok(""),
         }
@@ -114,4 +115,21 @@ async fn a_lab_without_a_manifest_is_a_usage_error() {
     std::fs::remove_dir_all(s.run.path().join(".isoloom")).unwrap();
     let err = s.run(&["status"]).await.unwrap_err();
     assert!(matches!(err, Error::Usage(_)), "{err}");
+}
+
+#[tokio::test]
+async fn a_console_into_a_machine_is_printed_and_a_machine_is_retired() {
+    let s = setup();
+    assert_eq!(s.run(&["console", "web"]).await.unwrap(), Verdict::Pass);
+    let console = s.out.take();
+    assert!(console.starts_with("docker compose --project-name flag-portal "), "{console}");
+    assert!(console.contains(" exec web sh -c "), "{console}");
+    assert!(s.run(&["console", "nope"]).await.is_err(), "a machine the run doesn't have");
+
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.out.take();
+    assert_eq!(s.run(&["retire", "web", "--json"]).await.unwrap(), Verdict::Pass);
+    let last: serde_json::Value = serde_json::from_str(s.out.take().lines().last().unwrap()).unwrap();
+    assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("retire")));
+    assert_eq!(last["data"]["machine"], "web");
 }

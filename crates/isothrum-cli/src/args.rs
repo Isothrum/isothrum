@@ -23,33 +23,9 @@ pub(crate) struct Cli {
 /// The operations.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Start the run (a parked run is resumed; leftovers are removed first).
-    Up {
-        #[command(flatten)]
-        op: OpArgs,
-        /// Remove whatever of the run exists, then start afresh.
-        #[arg(long)]
-        replace: bool,
-        /// How long a run that stops itself (a cloud run) may live, in minutes (default: its
-        /// manifest's).
-        #[arg(long, value_name = "MINUTES")]
-        lifetime: Option<u64>,
-    },
-    /// Remove everything the run created.
-    Down(OpArgs),
-    /// Stop the run, keeping what it created.
-    Park {
-        #[command(flatten)]
-        run: TargetArgs,
-        /// `pause` or `shutdown`.
-        #[arg(long, value_enum, default_value_t = Mode::Shutdown)]
-        mode: Mode,
-    },
-    /// Start a parked run again.
-    Resume(OpArgs),
-    /// Bring a running run up to date with its manifest, regenerated since it started (a
-    /// machine added or taken out): its start steps again, with the params it was started with.
-    Update(OpArgs),
+    /// The commands that change the run's life: start, stop, park, resume, update, retire.
+    #[command(flatten)]
+    Lifecycle(Lifecycle),
     /// Show the run: its state, machines, outputs and message.
     Status(TargetArgs),
     /// Run the run's checks (exit 1 when one fails).
@@ -62,7 +38,7 @@ pub(crate) enum Command {
         #[arg(long)]
         machine: Option<String>,
     },
-    /// Hot-add the on-demand access machine (the attacker box) into the running run.
+    /// Hot-add the lab's on-demand access machine into the running run.
     Attach {
         /// The run, and the params and secrets its operations take.
         #[command(flatten)]
@@ -95,6 +71,13 @@ pub(crate) enum Command {
         #[arg(long)]
         machine: Option<String>,
     },
+    /// Print the command that opens an interactive console into any machine of the run.
+    Console {
+        /// The machine, by its manifest name.
+        machine: String,
+        #[command(flatten)]
+        run: TargetArgs,
+    },
     /// Print the run's recorded events, oldest first.
     Events(TargetArgs),
     /// Destroy a cloud's runs past their expiry (each with the params it was applied with), then
@@ -104,6 +87,50 @@ pub(crate) enum Command {
     /// Print the runner's SSH public key (made when it has none): authorize it where a run's SSH
     /// goes through (a Proxmox node, with `--ssh-jump`).
     Key,
+}
+
+/// The commands that change the run's life (flattened into [`Command`]: the same grammar).
+#[derive(Debug, Subcommand)]
+pub(crate) enum Lifecycle {
+    /// Start the run (a parked run is resumed; leftovers are removed first).
+    Up {
+        #[command(flatten)]
+        op: OpArgs,
+        /// Remove whatever of the run exists, then start afresh.
+        #[arg(long)]
+        replace: bool,
+        /// How long a run that stops itself (a cloud run) may live, in minutes (default: its
+        /// manifest's).
+        #[arg(long, value_name = "MINUTES")]
+        lifetime: Option<u64>,
+    },
+    /// Remove everything the run created.
+    Down(OpArgs),
+    /// Stop the run, keeping what it created.
+    Park {
+        #[command(flatten)]
+        run: TargetArgs,
+        /// `pause` or `shutdown`.
+        #[arg(long, value_enum, default_value_t = Mode::Shutdown)]
+        mode: Mode,
+    },
+    /// Start a parked run again.
+    Resume(OpArgs),
+    /// Bring a running run up to date with its manifest, regenerated since it started (a
+    /// machine added or taken out): its start steps again, with the params it was started with.
+    Update(OpArgs),
+    /// Take a machine out of the running run, ahead of its removal from the manifest and the
+    /// `update` after.
+    ///
+    /// What the update wouldn't remove itself: a Vagrant VM is destroyed, a Compose service
+    /// stopped and removed (also one only moved out of the lab's start).
+    Retire {
+        /// The machine, by its manifest name.
+        machine: String,
+        /// The run, and the params and secrets its operations take.
+        #[command(flatten)]
+        op: OpArgs,
+    },
 }
 
 /// A cloud.
@@ -238,7 +265,9 @@ mod tests {
             "virtualbox",
             "--json",
         ]);
-        let Command::Up { op, replace, .. } = cli.command else { panic!("{cli:?}") };
+        let Command::Lifecycle(Lifecycle::Up { op, replace, .. }) = cli.command else {
+            panic!("{cli:?}")
+        };
         assert_eq!(op.provider.as_deref(), Some("virtualbox"));
         assert_eq!(
             (op.run.path, op.params, op.secrets, replace, cli.json),
@@ -250,7 +279,19 @@ mod tests {
                 true
             )
         );
+        let retire = Cli::parse_from(["isothrum", "retire", "web", "labs/flag", "--secret-from-env", "CTF_FLAG_MAIN"]);
+        let Command::Lifecycle(Lifecycle::Retire {
+            machine: retired,
+            op: retiring,
+        }) = retire.command
+        else {
+            panic!("{retire:?}")
+        };
+        assert_eq!((retired.as_str(), retiring.run.path), ("web", "labs/flag".into()));
+        assert_eq!(retiring.secrets, ["CTF_FLAG_MAIN"]);
+        let console = Cli::parse_from(["isothrum", "console", "web"]);
+        assert!(matches!(console.command, Command::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
         let park = Cli::parse_from(["isothrum", "park", "--mode", "pause", "--home", "/tmp/h"]);
-        assert!(matches!(park.command, Command::Park { mode: Mode::Pause, .. }) && park.home == Some("/tmp/h".into()));
+        assert!(matches!(park.command, Command::Lifecycle(Lifecycle::Park { mode: Mode::Pause, .. })) && park.home == Some("/tmp/h".into()));
     }
 }
