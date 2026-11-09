@@ -68,13 +68,6 @@ impl RunnerConfig {
         self.ports = ports;
         self
     }
-
-    /// Reads the time from `clock`.
-    #[must_use]
-    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> RunnerConfig {
-        self.clock = clock;
-        self
-    }
 }
 
 impl std::fmt::Debug for RunnerConfig {
@@ -88,7 +81,7 @@ impl std::fmt::Debug for RunnerConfig {
 
 /// This build's host operating system.
 #[must_use]
-pub fn this_host() -> HostOs {
+pub(crate) fn this_host() -> HostOs {
     if cfg!(windows) {
         HostOs::Windows
     } else if cfg!(target_os = "macos") {

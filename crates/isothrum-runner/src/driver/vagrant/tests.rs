@@ -291,7 +291,7 @@ fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
 
 #[tokio::test]
 async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(started.record.state, RunState::Ready);
@@ -332,7 +332,7 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
 /// to the running environment, and nothing is booted.
 #[tokio::test]
 async fn a_vm_lab_that_declares_no_access_machine_has_none_to_attach() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     crate::testing::refuses_a_box_it_has_none_of(&run, &f.fake).await;
@@ -340,7 +340,7 @@ async fn a_vm_lab_that_declares_no_access_machine_has_none_to_attach() {
 
 #[tokio::test]
 async fn vagrants_record_lives_in_the_runs_state_folder() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
@@ -355,7 +355,7 @@ async fn vagrants_record_lives_in_the_runs_state_folder() {
 
 #[tokio::test]
 async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
@@ -399,7 +399,7 @@ async fn a_provider_that_cant_run_the_lab_is_refused_before_anything_runs() {
 #[tokio::test]
 async fn a_vagrant_older_than_2_4_is_refused_before_anything_runs() {
     // Debian's packaged 2.3.8 ignores a box's architecture: it booted a ppc64le Debian on amd64.
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     f.engine().version = Some("2.3.8.dev".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
@@ -425,7 +425,7 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
 #[tokio::test]
 async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     // R8: VirtualBox prints VERR_ALREADY_EXISTS in capitals; the manifest's markers are lower case.
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
@@ -442,7 +442,7 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
 
 #[tokio::test]
 async fn a_genuine_failure_is_never_retried_and_leads_with_ansibles_verdict() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let play = "    isoloom-controller: fatal: [web]: UNREACHABLE! => {\"msg\": \"timed out\"}\nThe SSH command responded with a non-zero exit status.";
     f.engine().ups.push((play.into(), true));
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -454,7 +454,7 @@ async fn a_genuine_failure_is_never_retried_and_leads_with_ansibles_verdict() {
 #[tokio::test]
 async fn a_vagrant_crash_leads_with_its_error_not_its_backtrace() {
     // Seen on libvirt: Vagrant prints the error, then dozens of Ruby frames.
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let error = "/gems/fog-core/wait_for.rb:9:in `block in wait_for': The specified wait_for timeout (2 seconds) was exceeded (Fog::Errors::TimeoutError)";
     let frames = (0..30).map(|n| format!("\tfrom /gems/vagrant/action/builder.rb:{n}:in `call'"));
     let crash = std::iter::once(error.to_owned()).chain(frames).collect::<Vec<_>>().join("\n");
@@ -469,7 +469,7 @@ async fn a_vagrant_crash_leads_with_its_error_not_its_backtrace() {
 
 #[tokio::test]
 async fn a_record_on_another_provider_is_cleared_before_the_start() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
     record(&dotfile, "web", "vmware_desktop");
@@ -490,7 +490,7 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
     assert!(logged.iter().any(|l| l.contains("Destroying VM")), "{logged:?}");
     assert!(!logged.iter().any(|l| l.contains("plugin-name")), "{logged:?}");
     // On its own provider, nothing is cleared.
-    let again = fixture(crate::this_host());
+    let again = fixture(crate::runner::this_host());
     let same = again.runner.open(&again.manifest, None).unwrap();
     record(&again.runner.store.run_dir(same.name()).unwrap().join("vagrant"), "web", "virtualbox");
     same.up(&opts().with_occupied(crate::Occupied::Replace), &Recorder::new()).await.unwrap();
@@ -499,7 +499,7 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
 
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     f.engine().vbox.insert("flag-vm · web".into(), "aborted-saved".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -511,7 +511,7 @@ async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
 #[tokio::test]
 async fn a_controller_powering_itself_off_after_up_is_waited_for_not_warned_about() {
     // Seen on libvirt: the halt after `up` races the controller's own poweroff and fails over SSH.
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     f.engine().halt_fails = Some("shutoff");
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
@@ -562,7 +562,7 @@ async fn on_esxi_a_controller_already_off_is_halted_without_an_error_in_the_log(
 
 #[tokio::test]
 async fn a_controller_halts_with_its_lines_in_the_log() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
@@ -576,7 +576,7 @@ async fn a_controller_halts_with_its_lines_in_the_log() {
 
 #[tokio::test(start_paused = true)]
 async fn a_controller_no_halt_stops_is_a_warning_after_up() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     f.engine().halt_fails = Some("running");
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
@@ -590,7 +590,7 @@ async fn a_controller_no_halt_stops_is_a_warning_after_up() {
 
 #[tokio::test(start_paused = true)]
 async fn a_controller_still_halting_is_waited_for_before_it_boots() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     {
@@ -610,7 +610,7 @@ async fn a_controller_still_halting_is_waited_for_before_it_boots() {
 
 #[tokio::test]
 async fn provisioning_again_runs_on_the_running_machines_with_the_values_given_again() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let not_up = run.provision(None, &opts(), &Recorder::new()).await.unwrap_err();
     assert_eq!(not_up.code(), ErrorCode::NotRunning);
@@ -780,7 +780,7 @@ fn with_vm_added(define: &str) -> String {
 /// brings the new VM up beside the running ones; the run stays ready.
 #[tokio::test]
 async fn an_update_brings_a_vm_added_to_the_lab_up() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     std::fs::write(&f.manifest, with_vm_added("extra")).unwrap();
@@ -802,7 +802,7 @@ async fn an_update_brings_a_vm_added_to_the_lab_up() {
 async fn a_machine_with_no_native_name_has_no_console() {
     let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
     m["machines"][0].as_object_mut().unwrap().remove("native");
-    let f = fixture_from(crate::this_host(), &m.to_string());
+    let f = fixture_from(crate::runner::this_host(), &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.console_command("web").unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
@@ -818,7 +818,7 @@ async fn a_machine_with_no_native_name_has_no_console() {
 /// when it next boots.
 #[tokio::test]
 async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {
-    let f = fixture(crate::this_host());
+    let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!((f.state("web").as_str(), f.state(CONTROLLER).as_str()), ("running", "poweroff"));

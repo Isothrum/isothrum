@@ -16,7 +16,8 @@ exclude = ["rustfmt.toml"]
 publish = true
 
 [features]
-# The test doubles (scripted processes, a fixed clock, scripted host ports), for embedders' tests.
+# The test doubles (scripted processes, scripted host ports, an event recorder), for embedders'
+# tests.
 fake = []
 # The pure cores the fuzz targets drive (placeholder filling, step planning): `fuzz/` only.
 fuzzing = []

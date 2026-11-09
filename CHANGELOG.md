@@ -132,6 +132,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   that keeps something beside a run does it around the operation's call.
 - **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
+- **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),
+  `RunnerConfig::with_clock` (set `RunnerConfig::clock`), `JsonLines` (an `Events` sink is a
+  closure), `FixedClock` (now the crate's own test double), and `this_host` (now internal).
+  `Recorder` is behind the `fake` feature, with the other test doubles.
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),

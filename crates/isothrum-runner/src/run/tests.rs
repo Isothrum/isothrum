@@ -69,7 +69,7 @@ fn fixture_answering(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply)
     let (engine, fake) = modelled(answer);
     let ports = Arc::new(FakePorts::new([41873, 41874, 41875]));
     let host_ports: Arc<dyn crate::HostPorts> = Arc::<FakePorts>::clone(&ports);
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::runner::this_host())).unwrap();
     Fixture {
         manifest: folder.manifest.clone(),
         folder,

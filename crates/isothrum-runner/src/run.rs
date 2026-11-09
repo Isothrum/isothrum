@@ -37,7 +37,7 @@ use crate::runner::Runner;
 use crate::scope::Scope;
 use crate::secrets::Secrets;
 use crate::state::Op;
-use crate::status::{self, OutputValue, Status};
+use crate::status::{self, Status};
 
 /// A run: a manifest under a name, on a runner.
 pub struct Running<'r> {
@@ -181,15 +181,6 @@ impl<'r> Running<'r> {
             outputs,
             message,
         })
-    }
-
-    /// The run's outputs, read live.
-    ///
-    /// # Errors
-    ///
-    /// Fails as [`Running::status`] does.
-    pub async fn outputs(&self) -> Result<Vec<OutputValue>> {
-        Ok(self.status().await?.outputs)
     }
 
     /// What `params`, `secrets` and `events` give this run's steps.

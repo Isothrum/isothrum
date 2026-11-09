@@ -175,7 +175,7 @@ fn vagrant_access(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (L
     let folder = LabFolder::new("vagrant", FLAG_VM_ACCESS);
     let fake = Arc::new(FakeProcesses::new(answer));
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(std::iter::empty::<u16>()));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap();
     (folder, fake, runner)
 }
 

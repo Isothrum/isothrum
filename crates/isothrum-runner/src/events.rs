@@ -8,7 +8,7 @@
 
 mod emitter;
 
-use std::io::Write;
+#[cfg(any(test, feature = "fake"))]
 use std::sync::{Mutex, PoisonError};
 
 use isoloom_manifest::OutputRole;
@@ -182,32 +182,6 @@ impl<F: Fn(&Event) + Send + Sync> Events for F {
     }
 }
 
-/// Events written as JSON, one per line, flushed each time.
-#[derive(Debug)]
-pub struct JsonLines<W>(Mutex<W>);
-
-impl<W: Write + Send> JsonLines<W> {
-    /// Writes to `w`.
-    pub fn new(w: W) -> JsonLines<W> {
-        JsonLines(Mutex::new(w))
-    }
-}
-
-impl<W: Write + Send> Events for JsonLines<W> {
-    fn emit(&self, event: &Event) {
-        let mut w = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let written = serde_json::to_string(event)
-            .map_err(std::io::Error::from)
-            .and_then(|text| writeln!(w, "{text}"))
-            .and_then(|()| w.flush());
-        // A closed output (a pipe whose reader left) mustn't stop the operation: the run's own log
-        // keeps every event.
-        if let Err(e) = written {
-            tracing::debug!(error = %e, "an event wasn't written");
-        }
-    }
-}
-
 /// What kind of warning a `warning` event is, the same in the Rust API and the event stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -233,10 +207,12 @@ pub enum WarningCode {
     Retrying,
 }
 
-/// Events kept in memory, for an embedder that reads them later (and for tests).
+/// Events kept in memory, for tests (feature `fake`).
+#[cfg(any(test, feature = "fake"))]
 #[derive(Debug, Default)]
 pub struct Recorder(Mutex<Vec<Event>>);
 
+#[cfg(any(test, feature = "fake"))]
 impl Recorder {
     /// An empty recorder.
     #[must_use]
@@ -250,6 +226,7 @@ impl Recorder {
     }
 }
 
+#[cfg(any(test, feature = "fake"))]
 impl Events for Recorder {
     fn emit(&self, event: &Event) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).push(event.clone());
@@ -299,22 +276,6 @@ mod tests {
         });
         let back: Event = serde_json::from_value(serde_json::to_value(&error).unwrap()).unwrap();
         assert_eq!(back, error);
-    }
-
-    #[test]
-    fn json_lines_are_one_event_per_line() {
-        let sink = JsonLines::new(Vec::new());
-        sink.emit(&event(EventKind::State {
-            from: RunState::Absent,
-            to: RunState::Starting,
-        }));
-        sink.emit(&event(EventKind::Result {
-            ok: true,
-            data: serde_json::json!({}),
-        }));
-        let text = String::from_utf8(sink.0.into_inner().unwrap()).unwrap();
-        let lines: Vec<Event> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        assert_eq!(lines.len(), 2);
     }
 
     #[test]

@@ -18,12 +18,12 @@ impl Clock for SystemClock {
     }
 }
 
-/// A clock that always reads the same instant (feature `fake`).
-#[cfg(any(test, feature = "fake"))]
+/// A clock that always reads the same instant, for tests.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-pub struct FixedClock(pub SystemTime);
+pub(crate) struct FixedClock(pub(crate) SystemTime);
 
-#[cfg(any(test, feature = "fake"))]
+#[cfg(test)]
 impl Clock for FixedClock {
     fn now(&self) -> SystemTime {
         self.0

@@ -28,13 +28,14 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! Running it takes the tools it names (here Docker), and an event sink:
+//! Running it takes the tools it names (here Docker), and an event sink ([`Events`], implemented
+//! for closures):
 //!
 //! ```no_run
 //! # async fn demo(run: &isothrum_runner::Running<'_>) -> isothrum_runner::Result<()> {
-//! use isothrum_runner::{JsonLines, Park, RunOptions};
+//! use isothrum_runner::{Event, Park, RunOptions};
 //!
-//! let events = JsonLines::new(std::io::stderr());
+//! let events = |event: &Event| println!("{}", serde_json::to_string(event).unwrap_or_default());
 //! let opts = RunOptions::new().with_param("ISOLOOM_PUBLISH_FIXED", "1");
 //! let started = run.up(&opts, &events).await?;
 //! let report = run.check(&opts, &events).await?;
@@ -51,7 +52,7 @@
 //! Every outside effect goes through a port the embedder can replace: [`ProcessRunner`] (the
 //! tools), [`HostPorts`] (the host's ports), [`Clock`] (the time) and [`Events`] (where events
 //! go). They are open traits on purpose, since embedders implement them; the `fake` feature has
-//! test doubles for the first three.
+//! test doubles for the tools and the ports, and an [`Events`] sink that keeps what it gets.
 //!
 //! # Deliveries
 //!
@@ -125,11 +126,11 @@ mod vars;
 
 pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
-#[cfg(any(test, feature = "fake"))]
-pub use clock::FixedClock;
 pub use clock::{Clock, SystemClock, rfc3339};
 pub use error::{Error, ErrorCode, Result};
-pub use events::{EVENTS_VERSION, Event, EventKind, Events, JsonLines, ReadyState, Recorder, StepState, Stream, WarningCode, events_schema};
+#[cfg(any(test, feature = "fake"))]
+pub use events::Recorder;
+pub use events::{EVENTS_VERSION, Event, EventKind, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, load_manifest};
@@ -141,7 +142,7 @@ pub use options::{Occupied, RunOptions};
 pub use process::{ProcessRunner, ProcessSpec, SystemProcesses};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
-pub use runner::{Runner, RunnerConfig, this_host};
+pub use runner::{Runner, RunnerConfig};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Op, Park, RunState};
 pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, ShellCommand, Started, Status};
