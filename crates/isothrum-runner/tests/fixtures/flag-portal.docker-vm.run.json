@@ -364,6 +364,10 @@
       "name": "db",
       "role": "target",
       "arch": "amd64",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 512
+      },
       "addresses": {
         "lab": "10.30.0.20"
       },
@@ -512,7 +516,7 @@
           "--provider",
           "${run.provider}",
           "--provision-with",
-          "docker,accept-env,project"
+          "nat-route,docker,accept-env,project"
         ],
         "timeout_s": 3600
       },

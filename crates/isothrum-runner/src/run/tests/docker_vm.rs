@@ -143,7 +143,7 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
     let run = l.runner.open(&l.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     let up = l.fake.last("vagrant up").unwrap();
-    assert!(up.line().ends_with("--provision-with docker,accept-env,project"), "{}", up.line());
+    assert!(up.line().ends_with("--provision-with nat-route,docker,accept-env,project"), "{}", up.line());
     // The flag reached Compose in the VM through the session, named by Vagrant's forward_env.
     let start = l.fake.calls().into_iter().find(|c| c.line().contains(" up --detach ")).unwrap();
     assert_eq!(start.env("CTF_FLAG_MAIN"), Some(FLAG));
