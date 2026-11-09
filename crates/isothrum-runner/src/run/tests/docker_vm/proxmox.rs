@@ -149,7 +149,7 @@ async fn on_proxmox_the_vm_the_containers_run_in_is_not_retired() {
     let run = s.runner.open(&s.folder.manifest, None).unwrap();
     run.up(&s.options, &Recorder::new()).await.unwrap();
     let calls = s.fake.calls().len();
-    let err = run.retire("docker", &s.options, &Recorder::new()).await.unwrap_err();
+    let err = run.retire(super::HOST, &s.options, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("the VM the run's containers run in"), "{err}");
     assert_eq!(s.fake.calls().len(), calls, "nothing ran: {:?}", &s.fake.lines()[calls..]);

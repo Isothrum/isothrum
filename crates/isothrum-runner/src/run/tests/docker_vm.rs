@@ -13,6 +13,8 @@ use crate::secrets::{SecretValue, Secrets};
 use crate::testing::{DOCKER_VM, LabFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, EventKind, MachineState, Park, Recorder, RunOptions, Runner, StepState};
 
+/// The VM the containers run in, as the run manifest names it.
+const HOST: &str = "isoloom-docker-host";
 const FLAG: &str = "flag{vm-docker-0001}";
 /// The Docker host's address the fake apply reports.
 const VM_IP: &str = "10.10.10.9";
@@ -152,7 +154,7 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
     let status = run.status().await.unwrap();
     let state = |name: &str| status.machines.iter().find(|m| m.name == name).unwrap().state.clone();
     assert_eq!(
-        (state("docker"), state("web"), state("web-init-1")),
+        (state(HOST), state("web"), state("web-init-1")),
         (MachineState::Running, MachineState::Running, MachineState::Exited(0))
     );
 }
@@ -160,7 +162,7 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
 /// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with
 /// weak auto-correct, so two local docker-vm labs — or a half-created VM left behind — collide on
 /// it. The runner gives the helper VM's SSH forward a free host port of its own, carried to the
-/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `docker/ssh` (the guest machine's name); the lab's own
+/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `<host>/ssh` ([`HOST`], the guest machine's name); the lab's own
 /// `web/portal` is fixed, so that is the only entry.
 #[tokio::test(start_paused = true)]
 async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
@@ -177,7 +179,7 @@ async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
     let up = fake.last("vagrant up").unwrap();
     assert_eq!(
         up.env("ISOLOOM_HOSTPORTS"),
-        Some(r#"{"docker/ssh":50123}"#),
+        Some(format!(r#"{{"{HOST}/ssh":50123}}"#).as_str()),
         "the chosen SSH port reaches the Vagrantfile"
     );
 }
@@ -272,7 +274,7 @@ async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
     assert_eq!(console.program, "vagrant");
     assert_eq!(console.args[..3], ["ssh", "default", "-c"]);
     assert!(console.args[3].contains("label=com.docker.compose.service=web"), "{}", console.args[3]);
-    let vm = run.console_command("docker").unwrap();
+    let vm = run.console_command(HOST).unwrap();
     assert_eq!(vm.args, ["ssh", "default"], "the VM itself: its define");
 }
 
@@ -312,7 +314,7 @@ async fn the_vm_the_containers_run_in_is_not_retired() {
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let err = run.retire("docker", &RunOptions::new(), &Recorder::new()).await.unwrap_err();
+    let err = run.retire(HOST, &RunOptions::new(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert!(l.fake.last("destroy").is_none(), "nothing destroyed");
     assert_eq!(l.engine.lock().unwrap().vm.as_deref(), Some("running"));
@@ -336,7 +338,7 @@ async fn retiring_a_service_in_the_vm_removes_it_there() {
 }
 
 /// The VM's boot digest in the fixture.
-const BOOTED: &str = "sha256:6dfb163c92b092ca85f70f4083a99f0a7cd6748c17c3d2cfb05a3eb9100ad9ad";
+const BOOTED: &str = "sha256:9c8be5edc003c6ba11b928ad0a1c451bedf24001425ebf23f6e6fb28730c768a";
 
 /// The steps `events` show, with their states.
 fn steps(events: &Recorder) -> Vec<(String, StepState)> {
@@ -358,8 +360,8 @@ async fn an_update_restarts_the_vm_whose_boot_settings_changed_then_starts_its_c
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
-    assert_eq!(started.record.vm_boot_digests.get("docker").map(String::as_str), Some(BOOTED));
-    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:shared-folder"))).unwrap();
+    assert_eq!(started.record.vm_boot_digests.get(HOST).map(String::as_str), Some(BOOTED));
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, HOST, Some("sha256:shared-folder"))).unwrap();
     let before = l.fake.calls().len();
     let events = Recorder::new();
     let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &events).await.unwrap();
@@ -372,10 +374,10 @@ async fn an_update_restarts_the_vm_whose_boot_settings_changed_then_starts_its_c
     assert!(reloads[0] < up && up < start, "restarted, then provisioned, then the containers: {during:?}");
     assert!(l.engine.lock().unwrap().up, "the containers run again");
     let shown = steps(&events);
-    let reload = |state| shown.contains(&("reload-docker".to_owned(), state));
+    let reload = |state| shown.contains(&(format!("reload-{HOST}"), state));
     assert!(reload(StepState::Running) && reload(StepState::Done), "{shown:?}");
     assert_eq!(
-        updated.record.vm_boot_digests.get("docker").map(String::as_str),
+        updated.record.vm_boot_digests.get(HOST).map(String::as_str),
         Some("sha256:shared-folder"),
         "the new digest is recorded"
     );
@@ -391,28 +393,24 @@ async fn a_failed_restart_fails_the_update_and_the_next_update_restarts_again() 
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:shared-folder"))).unwrap();
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, HOST, Some("sha256:shared-folder"))).unwrap();
     l.engine.lock().unwrap().reload_fails = true;
     let before = l.fake.calls().len();
     let events = Recorder::new();
     let err = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &events).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::ToolFailed, "{err}");
     let shown = steps(&events);
-    let reload = |state| shown.contains(&("reload-docker".to_owned(), state));
+    let reload = |state| shown.contains(&(format!("reload-{HOST}"), state));
     assert!(reload(StepState::Running) && reload(StepState::Failed), "{shown:?}");
     let during: Vec<String> = l.fake.calls()[before..].iter().map(Call::line).collect();
     assert!(during.iter().all(|c| !c.starts_with("vagrant up")), "no start step ran: {during:?}");
     let record = l.runner.store.record(run.name()).unwrap().unwrap();
-    assert_eq!(
-        record.vm_boot_digests.get("docker").map(String::as_str),
-        Some(BOOTED),
-        "what the VM booted with"
-    );
+    assert_eq!(record.vm_boot_digests.get(HOST).map(String::as_str), Some(BOOTED), "what the VM booted with");
 
     l.engine.lock().unwrap().reload_fails = false;
     let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(l.engine.lock().unwrap().reloads, 1, "restarted at the next update");
-    assert_eq!(updated.record.vm_boot_digests.get("docker").map(String::as_str), Some("sha256:shared-folder"));
+    assert_eq!(updated.record.vm_boot_digests.get(HOST).map(String::as_str), Some("sha256:shared-folder"));
 }
 
 #[tokio::test(start_paused = true)]
@@ -432,14 +430,14 @@ async fn an_update_with_the_same_boot_settings_restarts_nothing() {
 #[tokio::test(start_paused = true)]
 async fn an_unknown_boot_digest_restarts_nothing_and_is_recorded_for_the_next_update() {
     let l = local();
-    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", None)).unwrap();
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, HOST, None)).unwrap();
     let started = l.runner.open(&l.manifest, None).unwrap().up(&opts(), &Recorder::new()).await.unwrap();
     assert!(started.record.vm_boot_digests.is_empty());
     std::fs::write(&l.manifest, DOCKER_VM).unwrap();
     let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(l.engine.lock().unwrap().reloads, 0, "an unknown digest never restarts");
-    assert_eq!(updated.record.vm_boot_digests.get("docker").map(String::as_str), Some(BOOTED));
-    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:other"))).unwrap();
+    assert_eq!(updated.record.vm_boot_digests.get(HOST).map(String::as_str), Some(BOOTED));
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, HOST, Some("sha256:other"))).unwrap();
     l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(l.engine.lock().unwrap().reloads, 1);
 }
