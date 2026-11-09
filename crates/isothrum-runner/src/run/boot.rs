@@ -3,7 +3,7 @@
 //! `up`'s steps on a running VM would leave them as they were (a host folder added: the VM never
 //! mounts it). The manifest's `native.boot_digest` of each VM is compared with the one the run
 //! recorded at its last `up` or update: a running VM whose two digests are both known and differ
-//! is reloaded ([`AnyDriver::reload`](crate::driver::AnyDriver::reload)) before `up`'s steps run
+//! is restarted (`vagrant reload`, the only engine whose VMs carry a boot digest) before `up`'s steps run
 //! again, which then provision it and start what runs in it (a `docker-vm`'s containers). A VM
 //! with no recorded digest (a run recorded before the runner kept them) or none in the manifest
 //! is left running: an unknown digest never reloads. Either way the update records the
@@ -12,28 +12,30 @@
 use std::collections::BTreeMap;
 
 use isoloom_manifest::{Machine, Manifest, Native};
+use tracing::Instrument;
 
 use super::Running;
 use crate::Result;
-use crate::driver::Observed;
+use crate::driver::{AnyDriver, Observed};
 use crate::executor::Cx;
 use crate::status::MachineState;
 
 impl Running<'_> {
     /// Restarts each VM that runs (as `observed`) and whose boot digest in the manifest differs
-    /// from the one `recorded`, both known; the first failure stops the rest.
+    /// from the one `recorded`, both known, each as its own step (`reload-<machine>`); the first
+    /// failure stops the rest. Only a Vagrant run's VMs carry a boot digest: another driver's run
+    /// has nothing to restart.
     pub(super) async fn reload_changed(&self, cx: &Cx<'_>, recorded: &BTreeMap<String, String>, observed: &Observed) -> Result<()> {
+        let AnyDriver::Vagrant(vagrant) = &self.driver else {
+            return Ok(());
+        };
         for vm in changed_at_boot(self.manifest(), recorded, observed) {
-            self.reload(cx, vm).await?;
+            let id = format!("reload-{}", vm.name);
+            let note = format!("Restarting {} to apply its new settings…", vm.name);
+            let span = tracing::debug_span!("driver", driver = "vagrant", op = %cx.events.op(), machine = %vm.name);
+            cx.events.stepped(&id, Some(&note), vagrant.reload(cx, vm, &id).instrument(span)).await?;
         }
         Ok(())
-    }
-
-    /// Restarts `vm` so it boots with its new settings, as its own step (`reload-<machine>`).
-    async fn reload(&self, cx: &Cx<'_>, vm: &Machine) -> Result<()> {
-        let id = format!("reload-{}", vm.name);
-        let note = format!("Restarting {} to apply its new settings…", vm.name);
-        cx.events.stepped(&id, Some(&note), self.driver.reload(cx, vm, &id)).await
     }
 }
 
