@@ -17,6 +17,9 @@ pub(crate) const NETWORK_VARS: [&str; 9] = [
     "CURL_CA_BUNDLE",
 ];
 
+/// The variables naming a CA bundle file, which a container needs mounted to read.
+pub(crate) const CA_BUNDLE_VARS: [&str; 3] = ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"];
+
 /// Whether `name` is one of [`NETWORK_VARS`], whatever its case (as Windows reads names).
 pub(crate) fn is_network_var(name: &str) -> bool {
     NETWORK_VARS.iter().any(|v| v.eq_ignore_ascii_case(name))
@@ -30,5 +33,6 @@ mod tests {
     fn a_network_variable_is_known_in_either_case() {
         assert!(is_network_var("HTTPS_PROXY") && is_network_var("https_proxy") && is_network_var("Https_Proxy"));
         assert!(is_network_var("SSL_CERT_FILE") && !is_network_var("PATH") && !is_network_var("AWS_SECRET_ACCESS_KEY"));
+        assert!(CA_BUNDLE_VARS.iter().all(|v| is_network_var(v)));
     }
 }
