@@ -154,12 +154,9 @@ impl Running<'_> {
             })?;
             let (_, mut cx) = self.existing(opts, e).await?;
             if let Some(m) = machine {
-                if !self
-                    .manifest()
-                    .machines
-                    .iter()
-                    .any(|x| x.name.as_str() == m && x.role == isoloom_manifest::Role::Target)
-                {
+                // Only a target machine is provisioned: another (the run's router, its checks)
+                // is as unknown here as a name the run doesn't have.
+                if self.machine_named(m)?.role != isoloom_manifest::Role::Target {
                     return Err(Error::MachineUnknown {
                         run: self.name().to_string(),
                         machine: m.to_owned(),

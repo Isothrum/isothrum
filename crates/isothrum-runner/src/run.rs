@@ -168,22 +168,20 @@ impl<'r> Running<'r> {
         let provider = cx.scope.provider.clone();
         self.driver.prepare(&cx)?;
         self.relay(&mut cx).await?;
-        let observed = self.observe(&mut cx).await?;
-        cx.vars.set_published(observed.published.clone());
-        cx.vars.set_hosts(observed.hosts.clone());
+        let mut observed = self.observe(&mut cx).await?;
         let state = match self.runner.op_of(&self.name).and_then(Op::during) {
             Some(during) => during,
             None => status::derive_state(&observed.machines, record.as_ref()),
         };
-        let outputs = outputs::read(self.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
-        outputs::bind(&mut cx.vars, &outputs);
+        let machines = std::mem::take(&mut observed.machines);
+        let outputs = self.bind_observed(&mut cx, observed);
         let message = (state == crate::RunState::Ready)
             .then(|| outputs::message(self.manifest(), &cx.vars, &outputs))
             .flatten();
         Ok(Status {
             state,
             provider,
-            machines: observed.machines,
+            machines,
             networks: self.networks(&cx),
             outputs,
             message,
