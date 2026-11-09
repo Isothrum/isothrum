@@ -119,11 +119,18 @@ impl Elevated {
     /// One request through the broker: its lines as they come, then its exit code. Dropped before
     /// it ends (a timeout), the broker's tree is ended and the session with it.
     async fn request(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
-        if let Some(arg) = spec.args.iter().find(|a| !script::passes_intact(a)) {
-            return Err(ProcessError::Refused {
+        let refused = |why: String| {
+            Err(ProcessError::Refused {
                 program: spec.program.clone(),
-                arg: arg.escape_debug().to_string(),
-            });
+                why,
+            })
+        };
+        if let Some(arg) = spec.args.iter().find(|a| !script::passes_intact(a)) {
+            return refused(format!("its argument `{}` wouldn't reach it intact through PowerShell", arg.escape_debug()));
+        }
+        // The broker starts the program with no input: one asked for would be dropped.
+        if let Some(stdin) = &spec.stdin {
+            return refused(format!("an elevated call can't be given a standard input ({})", stdin.display()));
         }
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let io = |source| ProcessError::Io {

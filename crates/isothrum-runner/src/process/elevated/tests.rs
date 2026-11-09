@@ -114,7 +114,7 @@ async fn a_declined_prompt_fails_every_call_plainly() {
 }
 
 #[tokio::test]
-async fn a_failed_command_keeps_its_exit_code_and_an_argument_powershell_would_mangle_is_refused() {
+async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_refused() {
     let (_home, _fake, e) = session("", Reply::ok(""));
     let broker = tokio::spawn(broker(e.dir.clone(), "boom", 3));
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["destroy", "--force"])).await;
@@ -122,6 +122,15 @@ async fn a_failed_command_keeps_its_exit_code_and_an_argument_powershell_would_m
     assert_eq!(lines[1], "boom");
     let (refused, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["ssh", "-c", "echo \"hi\""])).await;
     assert!(matches!(refused, Err(ProcessError::Refused { .. })));
+    // A standard input the broker wouldn't pass on is refused, not dropped.
+    let mut piped = ProcessSpec::new("vagrant", ["ssh", "web", "-c", "sh"]);
+    piped.stdin = Some(e.dir.join("script.sh"));
+    let (no_input, _) = lines_of(&e, &piped).await;
+    assert!(
+        matches!(&no_input, Err(ProcessError::Refused { why, .. }) if why.contains("standard input")),
+        "{no_input:?}"
+    );
+    assert!(!e.dir.join("req-3.json").exists() && !e.dir.join("req-2.json").exists(), "no request made");
     drop(e);
     broker.await.unwrap();
 }

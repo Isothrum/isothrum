@@ -42,7 +42,7 @@ impl SystemProcesses {
         if let Some(arg) = shim::refused_arg(&spec.program, &spec.args) {
             return Err(ProcessError::Refused {
                 program: spec.program.clone(),
-                arg: arg.escape_debug().to_string(),
+                why: format!("its argument `{}` holds a character cmd.exe would interpret", arg.escape_debug()),
             });
         }
         let io = |source| ProcessError::Io {

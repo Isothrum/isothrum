@@ -85,13 +85,14 @@ pub enum ProcessError {
         /// The program.
         program: String,
     },
-    /// An argument a Windows `cmd /C` wrapper would read as an operator.
-    #[error("refusing to pass `{arg}` to {program}: it holds a character cmd.exe would interpret")]
+    /// A call the way it would run can't carry as asked (an elevated call: an argument
+    /// PowerShell would mangle, a standard input it can't be given).
+    #[error("refusing to run {program}: {why}")]
     Refused {
         /// The program.
         program: String,
-        /// The argument, escaped.
-        arg: String,
+        /// Why.
+        why: String,
     },
     /// It needed elevation (Hyper-V's), which couldn't be had: the prompt declined, the
     /// elevated session ended.

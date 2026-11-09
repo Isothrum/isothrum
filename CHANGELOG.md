@@ -68,6 +68,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`isothrum` says why a run folder's `.isoloom` can't be read.** Any failure to list it (a
   permission refused, a file in its place) read as "no run manifest: run `isoloom generate`";
   only a missing folder does now, and any other failure is reported as it is.
+- **An elevated Hyper-V call with a standard input is refused, not run without it.** The
+  elevated broker starts each program with no input, so a call that pipes a file in ran with
+  none; it now fails with `ProcessError::Refused` before anything runs.
 
 - **`docker compose ps` output the runner can't read no longer passes for no container.** When
   `ps --format json` printed something that isn't its JSON, every machine read absent: a resume
@@ -183,6 +186,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
   provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
 
+- **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
+  would mangle, it now refuses an elevated call's standard input.
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
   manifest writes it (`tcp`, `udp`).
 
