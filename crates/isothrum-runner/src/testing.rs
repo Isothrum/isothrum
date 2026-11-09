@@ -202,6 +202,33 @@ pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake:
     assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
 }
 
+/// What `f` traces while it runs (every level, as text), with what it gives.
+pub(crate) async fn traced<T>(f: impl Future<Output = T>) -> (T, String) {
+    #[derive(Clone, Default)]
+    struct Lines(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Lines {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let lines = Lines::default();
+    let writer = lines.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(move || writer.clone())
+        .finish();
+    let given = {
+        let _traced = tracing::subscriber::set_default(subscriber);
+        f.await
+    };
+    let text = String::from_utf8_lossy(&lines.0.lock().unwrap()).into_owned();
+    (given, text)
+}
+
 /// Every variant of the unit enum `T`, read back from the names its JSON schema lists (serde's
 /// own): a list nobody keeps, so a variant added is in it.
 fn every_variant<T: schemars::JsonSchema + serde::de::DeserializeOwned>() -> Vec<T> {

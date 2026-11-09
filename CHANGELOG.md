@@ -54,6 +54,14 @@ change.
   clears `elevated/` and works in its own `elevated/<token>/`; the runner deletes `out-<n>.log`
   and `exit-<n>` once read, and the session's folder when it ends; `exit-<n>` appears whole
   (renamed into place).
+- **An elevated Hyper-V session no longer ends six hours in, and a broker that stops fails its
+  request at once.** The broker ended itself six hours after its prompt, whatever the operation
+  still had to run, and a request whose broker had stopped waited for its answer until its step's
+  limit, then read as a `timeout`. A session now lasts as long as its operation; a broker that
+  stops other than at the session's end writes why in `ended`, and the request in flight fails
+  with `elevation_declined` saying so, as does every later call of the operation. A request whose
+  file couldn't be written, or whose answer couldn't be read, now fails the session too (the
+  broker waited for it and took no later request), and a failed `whoami /groups` is traced.
 - **Two starts in one home no longer take the same slot.** Two `up`s at once (two processes)
   both read the records before either recorded its slot. A start now picks its slot and records it
   under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick.

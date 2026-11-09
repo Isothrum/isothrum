@@ -13,7 +13,11 @@
 //! the session's token and `n`; no value of any variable). The broker runs only the request it
 //! expects next, with this session's token (it deletes any other unrun), reads and deletes both
 //! files before it starts the program, and answers in `out-<n>.log` and `exit-<n>`, which the
-//! runner deletes once read. When the session ends, its folder goes.
+//! runner deletes once read. When the session ends, its folder goes. A broker that stops other
+//! than at the session's end (its watcher ending it, its loop broken) says why in `ended`: the
+//! request in flight fails with that reason at once, and so does every later call. So does a
+//! request that fails before its answer is read (its file not written, its answer unreadable),
+//! since the broker would wait for it and take no later one.
 //!
 //! Why a file for the values, and not a pipe: the elevated broker is started by the shell (the
 //! UAC prompt), which hands it no handle of its parent, so no inherited pipe; and a named pipe
@@ -113,12 +117,17 @@ impl Elevated {
     }
 
     /// Decides the session: direct when the account may manage Hyper-V, else the broker started.
+    /// A `whoami` that can't say is traced, and the broker started.
     async fn open(&self) -> Session {
         let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
-        if let Ok(out) = capture(self.inner.as_ref(), &whoami).await
-            && may_manage(&out.stdout.join("\n"))
-        {
-            return Session::Direct;
+        match capture(self.inner.as_ref(), &whoami).await {
+            Ok(out) if out.succeeded() && may_manage(&out.stdout.join("\n")) => return Session::Direct,
+            Ok(out) if out.succeeded() => {}
+            Ok(out) => tracing::warn!(
+                stderr = %out.stderr.join("\n"),
+                "`whoami /groups` failed: whether this account may manage Hyper-V is unknown, so it elevates"
+            ),
+            Err(e) => tracing::warn!(error = %e, "`whoami /groups` didn't run: whether this account may manage Hyper-V is unknown, so it elevates"),
         }
         self.start_broker().await.unwrap_or_else(Session::Failed)
     }
@@ -143,8 +152,10 @@ impl Elevated {
     }
 
     /// One request through the broker in `dir`: its lines as they come, then its exit code, its
-    /// answer's files deleted once read. Dropped before it ends (a timeout), the broker's tree is
-    /// ended and the session with it.
+    /// answer's files deleted once read. Dropped before it ends (a timeout), or failed before its
+    /// answer (a request file that couldn't be written, the broker ended), it ends the broker's
+    /// tree and the session with it: the broker waits for this request's turn, and would take no
+    /// later one.
     async fn request(&self, dir: &Path, token: &str, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
         if let Some(why) = refusal(spec) {
             return Err(ProcessError::Refused {
@@ -152,6 +163,11 @@ impl Elevated {
                 why,
             });
         }
+        let mut guard = Cancel {
+            dir,
+            armed: true,
+            session: &self.session,
+        };
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let io = |source| ProcessError::Io {
             program: spec.program.clone(),
@@ -160,21 +176,22 @@ impl Elevated {
         // The values first: the broker takes a request only once its `req` file is there.
         crate::store::write_private(&dir.join(format!("env-{n}.json")), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
         crate::store::write_private(&dir.join(format!("req-{n}.json")), request(token, n, spec).as_bytes()).map_err(io)?;
-        let mut guard = Cancel {
-            dir,
-            armed: true,
-            session: &self.session,
-        };
         let mut log_reader = LogReader::default();
         let (log, exit) = (dir.join(format!("out-{n}.log")), dir.join(format!("exit-{n}")));
         loop {
-            let done = std::fs::read_to_string(&exit).ok();
+            let done = read_if_there(&exit).map_err(io)?;
             log_reader.read(&log, on_line).map_err(io)?;
             if let Some(code) = done {
                 log_reader.finish(on_line);
                 guard.armed = false;
                 answered(dir, n).map_err(io)?;
                 return Ok(Exit::new(code.trim().parse().ok()));
+            }
+            if let Some(reason) = ended(dir).map_err(io)? {
+                // Nothing is left to cancel: the later calls fail with why.
+                guard.armed = false;
+                self.set(Session::Failed(reason.clone()));
+                return Err(ProcessError::Elevation { reason });
             }
             tokio::time::sleep(POLL).await;
         }
@@ -216,6 +233,24 @@ impl Drop for Cancel<'_> {
             *self.session.lock().unwrap_or_else(PoisonError::into_inner) = Session::Failed("the elevated session was ended".into());
         }
     }
+}
+
+/// `file`'s text, `None` while it isn't there.
+fn read_if_there(file: &Path) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(file) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Why the session in `dir` ended, once it has: the reason its broker gave (in `ended`, written
+/// when it stops other than at `done`), or its folder gone.
+fn ended(dir: &Path) -> std::io::Result<Option<String>> {
+    if let Some(reason) = read_if_there(&dir.join("ended"))? {
+        return Ok(Some(format!("the elevated session ended: {}", reason.trim())));
+    }
+    Ok((!dir.try_exists()?).then(|| "the elevated session ended: its folder is gone".to_owned()))
 }
 
 /// Tells the broker `what` (`done`, `cancel`) through its file in the session's folder. A broker

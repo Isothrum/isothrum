@@ -248,6 +248,87 @@ async fn a_request_cut_short_ends_the_broker() {
     assert!(!folder.exists(), "the cut session's files (its values) are gone");
 }
 
+/// A broker that starts, then sets `obstacle` (given the session's folder) instead of answering.
+async fn started_then(root: PathBuf, obstacle: fn(&Path)) {
+    let dir = session_dir(&root).await;
+    obstacle(&dir);
+    std::fs::write(dir.join("ready"), "").unwrap();
+}
+
+/// What a call through `e` gives within 5 s (a call that waits longer fails the test).
+async fn within_5s(e: &Elevated, spec: &ProcessSpec) -> Result<Exit, ProcessError> {
+    let call = tokio::time::timeout(Duration::from_secs(5), lines_of(e, spec)).await;
+    call.expect("the call waited for an answer that won't come").0
+}
+
+#[tokio::test]
+async fn a_broker_that_ends_mid_request_fails_it_at_once_and_the_session_with_it() {
+    // Regression: a request waited for its `exit-<n>` with no sign of a broker gone, until its
+    // step's limit (a `timeout`, after up to hours).
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let root = e.root.clone();
+    let broker = tokio::spawn(async move {
+        let dir = session_dir(&root).await;
+        std::fs::write(dir.join("ready"), "").unwrap();
+        while !dir.join("req-1.json").exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        std::fs::write(dir.join("ended"), "the elevated broker stopped\r\n").unwrap();
+    });
+    let spec = ProcessSpec::new("vagrant", ["up"]);
+    let err = within_5s(&e, &spec).await.unwrap_err();
+    assert_eq!(err.to_string(), "elevation: the elevated session ended: the elevated broker stopped");
+    broker.await.unwrap();
+    let later = within_5s(&e, &spec).await.unwrap_err();
+    assert!(
+        matches!(&later, ProcessError::Elevation { reason } if reason.contains("broker stopped")),
+        "{later}"
+    );
+}
+
+#[tokio::test]
+async fn a_request_that_cant_be_written_ends_the_session() {
+    // Regression: request 1 failed to be written, and the broker went on waiting for it: every
+    // later request (2, 3, …) waited for an answer that never came.
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
+        std::fs::create_dir_all(dir.join("req-1.json").join("in-the-way")).unwrap();
+    }));
+    let spec = ProcessSpec::new("vagrant", ["up"]);
+    let first = within_5s(&e, &spec).await.unwrap_err();
+    assert!(matches!(first, ProcessError::Io { .. }), "{first}");
+    broker.await.unwrap();
+    let second = within_5s(&e, &spec).await.unwrap_err();
+    assert!(matches!(second, ProcessError::Elevation { .. }), "{second}");
+    assert!(session_dir(&e.root).await.join("cancel").exists(), "the broker is told");
+}
+
+#[tokio::test]
+async fn an_answer_that_cant_be_read_fails_the_request() {
+    // Regression: any error reading `exit-<n>` read as "not there yet", so a request whose
+    // answer can't be read waited on.
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
+        std::fs::create_dir_all(dir.join("exit-1").join("in-the-way")).unwrap();
+    }));
+    let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
+    assert!(matches!(err, ProcessError::Io { .. }), "{err}");
+    broker.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
+    let home = tempfile::tempdir().unwrap();
+    let fake = Arc::new(FakeProcesses::rules(&[("whoami", Reply::missing()), ("powershell", Reply::ok(""))]));
+    let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), []);
+    let broker = tokio::spawn(broker(e.root.clone(), "ran", 0));
+    let ((exit, _), traced) = crate::testing::traced(lines_of(&e, &ProcessSpec::new("vagrant", ["status"]))).await;
+    assert!(exit.unwrap().success());
+    assert!(traced.contains("WARN") && traced.contains("`whoami /groups` didn't run"), "{traced}");
+    drop(e);
+    broker.await.unwrap();
+}
+
 #[test]
 fn a_session_token_is_random_hex() {
     let (a, b) = (token().unwrap(), token().unwrap());

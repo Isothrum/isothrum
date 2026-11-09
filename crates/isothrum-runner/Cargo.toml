@@ -44,6 +44,8 @@ windows.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+# What a test reads of the runner's traces (`testing::traced`).
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

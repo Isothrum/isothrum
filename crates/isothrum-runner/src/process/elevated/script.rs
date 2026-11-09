@@ -4,14 +4,13 @@
 //! program starts; one that doesn't carry the session's token and `n` is deleted unrun. Its
 //! output lines are appended to `out-<n>.log` (UTF-8) and its exit code is written to `exit-<n>`
 //! whole (renamed into place). A watcher job ends the broker's whole tree when the session folder
-//! gets a `cancel` file or is gone, when the runner's process is gone, or at the deadline; a
-//! `done` file (or the folder gone) ends it between two requests.
+//! gets a `cancel` file or is gone, or when the runner's process is gone; a `done` file (or the
+//! folder gone) ends it between two requests. A session lasts as long as the operation that
+//! opened it: no deadline of its own cuts a long one short (each request is held to its step's
+//! limit by the runner). A broker that stops other than at `done` says why in an `ended` file,
+//! so the request waiting on it fails at once instead of waiting for an answer that won't come.
 
 use std::path::Path;
-use std::time::Duration;
-
-/// The longest a session may last: a big run's first boot takes a couple of hours at most.
-pub(super) const DEADLINE: Duration = Duration::from_secs(6 * 3600);
 
 /// `s` as a PowerShell single-quoted string; the typographic single quotes PowerShell also takes
 /// as quotes are doubled too.
@@ -39,20 +38,23 @@ pub(super) fn passes_intact(arg: &str) -> bool {
 pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
     let dir = ps_quote(&dir.display().to_string());
     let token = ps_quote(token);
-    let secs = DEADLINE.as_secs();
     format!(
         "$ErrorActionPreference = 'Continue'\n\
          $ProgressPreference = 'SilentlyContinue'\n\
          try {{ [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false }} catch {{}}\n\
          $d = {dir}\n\
          $token = {token}\n\
-         $null = Start-Job -ArgumentList $PID, {runner}, $d, {secs} -ScriptBlock {{\n\
-         \x20 param($main, $runnerId, $d, $secs)\n\
+         function Write-Ended($why) {{ if (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{ try {{ [System.IO.File]::WriteAllText((Join-Path $d 'ended'), $why) }} catch {{}} }} }}\n\
+         $null = Start-Job -ArgumentList $PID, {runner}, $d -ScriptBlock {{\n\
+         \x20 param($main, $runnerId, $d)\n\
          \x20 $runner = Get-Process -Id $runnerId -ErrorAction SilentlyContinue\n\
-         \x20 $end = (Get-Date).AddSeconds($secs)\n\
          \x20 while (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
-         \x20   $gone = -not (Test-Path -LiteralPath $d)\n\
-         \x20   if ($gone -or (Test-Path -LiteralPath (Join-Path $d 'cancel')) -or $null -eq $runner -or $runner.HasExited -or (Get-Date) -gt $end) {{\n\
+         \x20   $why = $null\n\
+         \x20   if (-not (Test-Path -LiteralPath $d)) {{ $why = 'its folder is gone' }}\n\
+         \x20   elseif (Test-Path -LiteralPath (Join-Path $d 'cancel')) {{ $why = 'the runner cancelled it' }}\n\
+         \x20   elseif ($null -eq $runner -or $runner.HasExited) {{ $why = 'the runner is gone' }}\n\
+         \x20   if ($null -ne $why) {{\n\
+         \x20     try {{ [System.IO.File]::WriteAllText((Join-Path $d 'ended'), $why) }} catch {{}}\n\
          \x20     & taskkill.exe /T /F /PID $main | Out-Null; return\n\
          \x20   }}\n\
          \x20   Start-Sleep -Milliseconds 500\n\
@@ -61,6 +63,7 @@ pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
          function Read-Once($path) {{ $text = [System.IO.File]::ReadAllText($path); Remove-Item -LiteralPath $path -Force; $text | ConvertFrom-Json }}\n\
          [System.IO.File]::WriteAllText((Join-Path $d 'ready'), '')\n\
          $n = 1\n\
+         try {{\n\
          while ((Test-Path -LiteralPath $d) -and -not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
          \x20 $req = Join-Path $d \"req-$n.json\"\n\
          \x20 if (-not (Test-Path -LiteralPath $req)) {{ Start-Sleep -Milliseconds 200; continue }}\n\
@@ -90,7 +93,8 @@ pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
          \x20 [System.IO.File]::WriteAllText(\"$exit.tmp\", [string]$rc)\n\
          \x20 Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force\n\
          \x20 $n++\n\
-         }}\n"
+         }}\n\
+         }} finally {{ Write-Ended 'the elevated broker stopped' }}\n"
     )
 }
 
@@ -148,6 +152,22 @@ mod tests {
         ] {
             assert!(s.contains(part), "{part}: {s}");
         }
+    }
+
+    #[test]
+    fn a_broker_that_stops_other_than_at_done_says_why_and_has_no_deadline() {
+        let s = broker(Path::new("C:\\e\\t"), "t", 1);
+        // The watcher writes why before it ends the tree; the broker's own loop, ended any other
+        // way than `done`, says so too (`Write-Ended` writes nothing once `done` is there).
+        let why = s.find("WriteAllText((Join-Path $d 'ended'), $why)").unwrap();
+        assert!(why < s.find("taskkill.exe").unwrap(), "{s}");
+        assert!(s.contains("} finally { Write-Ended 'the elevated broker stopped' }"), "{s}");
+        assert!(
+            s.contains("function Write-Ended($why) { if (-not (Test-Path -LiteralPath (Join-Path $d 'done')))"),
+            "{s}"
+        );
+        // A session lasts as long as its operation: no clock of its own ends it.
+        assert!(!s.contains("AddSeconds") && !s.contains("Get-Date"), "{s}");
     }
 
     #[test]
