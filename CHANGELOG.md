@@ -10,6 +10,15 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A lab's own access machine reaches the lab through its router.** On Compose, `attach` started
+  the access service alone (`--no-deps`), without the service that sets its routes (Isoloom's
+  `<machine>-routes`, in its network namespace): an access machine on its own network reached
+  nothing behind the router. Attach and detach now take the services in the machine's namespace
+  (`network_mode: service:<machine>`, read from `docker compose config`) with it, and attach waits
+  for them (`--wait`).
+
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the

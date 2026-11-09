@@ -53,6 +53,24 @@ pub(super) fn host_ports(config: &str) -> Vec<(u16, Protocol)> {
         .collect()
 }
 
+/// The services that live in `service`'s network namespace (`network_mode: service:<service>`):
+/// part of that machine (its routes, a sidecar), started and removed with it. In name order; none
+/// when the config isn't the JSON Compose prints.
+pub(super) fn sharing_namespace(config: &str, service: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<Value>(config) else { return Vec::new() };
+    let mode = format!("service:{service}");
+    let mut names: Vec<String> = v
+        .get("services")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(_, s)| s.get("network_mode").and_then(Value::as_str) == Some(mode.as_str()))
+        .map(|(name, _)| name.clone())
+        .collect();
+    names.sort();
+    names
+}
+
 /// The networks the config defines, by their Docker names (`name:`, else `<project>_<key>`).
 pub(super) fn networks(config: &str, project: &str) -> Vec<String> {
     let v: Value = serde_json::from_str(config).unwrap_or_default();
@@ -258,5 +276,19 @@ mod proptests {
             let _ = host_ports(&text);
             let _ = networks(&text, "p");
         }
+    }
+}
+
+#[cfg(test)]
+mod namespace_tests {
+    use super::sharing_namespace;
+
+    #[test]
+    fn a_service_in_another_ones_namespace_is_part_of_it() {
+        let config =
+            r#"{"services":{"user":{"image":"debian"},"user-routes":{"network_mode":"service:user"},"web":{},"web-routes":{"network_mode":"service:web"}}}"#;
+        assert_eq!(sharing_namespace(config, "user"), ["user-routes"]);
+        assert_eq!(sharing_namespace(config, "nobody"), Vec::<String>::new());
+        assert_eq!(sharing_namespace("not json", "user"), Vec::<String>::new());
     }
 }

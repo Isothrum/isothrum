@@ -26,13 +26,39 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
+/// The lab's Docker, its config putting a routes service in the access service's namespace.
+fn routed_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
+    if call.line().contains("--profile access config --format json") {
+        return Reply::ok(r#"{"services":{"attacker":{},"attacker-routes":{"network_mode":"service:attacker"},"web":{}}}"#);
+    }
+    answer(engine, call)
+}
+
+/// A service in the access machine's namespace (its routes through the lab's router) is part of
+/// it: up with it, waited for, and removed with it.
 #[tokio::test]
-async fn attach_without_an_image_lets_the_services_default_stand() {
-    let f = fixture_with(FLAG_PORTAL_ACCESS);
+async fn the_access_machines_routes_come_and_go_with_it() {
+    let f = fixture_answering(FLAG_PORTAL_ACCESS, routed_answer);
+    let up = attach_plain(&f).await;
+    assert!(up.line().ends_with("up -d --wait --no-deps attacker attacker-routes"), "{}", up.line());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.detach(None, &Recorder::new()).await.unwrap();
+    let rm = f.fake.last("--profile access rm").unwrap();
+    assert!(rm.line().ends_with("rm -sf attacker attacker-routes"), "{}", rm.line());
+}
+
+/// The lab up without its access box, then the box attached with no image: its `up` call.
+async fn attach_plain(f: &Fixture) -> Call {
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.attach(None, None, None, &Recorder::new()).await.unwrap();
-    let up = f.fake.last("--profile access up").unwrap();
+    f.fake.last("--profile access up").unwrap()
+}
+
+#[tokio::test]
+async fn attach_without_an_image_lets_the_services_default_stand() {
+    let f = fixture_with(FLAG_PORTAL_ACCESS);
+    let up = attach_plain(&f).await;
     assert_eq!(
         up.env(isoloom_manifest::access::IMAGE_ENV),
         None,

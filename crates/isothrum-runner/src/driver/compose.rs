@@ -145,10 +145,13 @@ impl Driver for Compose {
         self.attach_profile(cx, native, image, network).await
     }
 
-    /// Hot-removes the lab's access service through its profile
-    /// (`docker compose --profile access rm -sf <service>`).
+    /// Hot-removes the lab's access service through its profile, with the services in its
+    /// namespace (`docker compose --profile access rm -sf <service> <its sidecars>`).
     async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()> {
-        let args = self.compose_args(cx, &["--profile", access::PROFILE, "rm", "-sf", native])?;
+        let services = self.with_namespace(cx, Op::Detach, native).await?;
+        let mut rest = vec!["--profile", access::PROFILE, "rm", "-sf"];
+        rest.extend(services.iter().map(String::as_str));
+        let args = self.compose_args(cx, &rest)?;
         call_ok(cx, Op::Detach.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Shown).await?;
         Ok(())
     }
@@ -181,22 +184,37 @@ impl Driver for Compose {
 }
 
 impl Compose {
-    /// Brings the manifest's access service up in its profile, so the initial `up` left it down:
-    /// `docker compose --profile access up -d --no-deps <service>`, with the picked image in
-    /// [`access::IMAGE_ENV`] (the service's `${VAR:-default}` keeps its default otherwise). When a
-    /// network is named, the started container is also plugged into it, best effort.
+    /// Brings the manifest's access service up in its profile, so the initial `up` left it down,
+    /// with the services in its namespace (its routes through the lab's router):
+    /// `docker compose --profile access up -d --wait --no-deps <service> <its sidecars>`, with the
+    /// picked image in [`access::IMAGE_ENV`] (the service's `${VAR:-default}` keeps its default
+    /// otherwise). When a network is named, the started container is also plugged into it, best
+    /// effort.
     async fn attach_profile(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
         let mut env = Vec::new();
         if let Some(image) = image {
             env.push((access::IMAGE_ENV.to_owned(), image.to_owned()));
         }
-        let args = self.compose_args(cx, &["--profile", access::PROFILE, "up", "-d", "--no-deps", native])?;
+        let services = self.with_namespace(cx, Op::Attach, native).await?;
+        let mut rest = vec!["--profile", access::PROFILE, "up", "-d", "--wait", "--no-deps"];
+        rest.extend(services.iter().map(String::as_str));
+        let args = self.compose_args(cx, &rest)?;
         // The box's image may still need pulling, so this gets the long boot budget, not a call's.
         call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, args, env), ATTACH_TIMEOUT, Echo::Shown).await?;
         if let Some(network) = network {
             self.connect_network(cx, native, network).await;
         }
         Ok(())
+    }
+
+    /// `native` and the services of the access profile in its network namespace
+    /// ([`config::sharing_namespace`]): one machine, started and removed together.
+    async fn with_namespace(&self, cx: &Cx<'_>, op: Op, native: &str) -> Result<Vec<String>> {
+        let args = self.compose_args(cx, &["--profile", access::PROFILE, "config", "--format", "json"])?;
+        let config = call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await?;
+        let mut services = vec![native.to_owned()];
+        services.extend(config::sharing_namespace(&config, native));
+        Ok(services)
     }
 
     /// Plugs the just-started access container into the lab network `network` (its project
