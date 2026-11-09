@@ -58,39 +58,25 @@ fn parse_format(format: Option<&str>) -> Result<Format, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
     use super::*;
+    use crate::testing::Buf;
 
-    /// A writer whose lines a test reads back.
-    #[derive(Clone, Default)]
-    struct Lines(Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for Lines {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().write(b)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'w> MakeWriter<'w> for Lines {
-        type Writer = Lines;
-        fn make_writer(&'w self) -> Lines {
+    impl<'w> MakeWriter<'w> for Buf {
+        type Writer = Buf;
+        fn make_writer(&'w self) -> Buf {
             self.clone()
         }
     }
 
     /// What `filter` and `format` write of a debug event of `isothrum_runner` and of `other`.
     fn traced(filter: &str, format: Option<&str>) -> String {
-        let lines = Lines::default();
+        let lines = Buf::default();
         let subscriber = subscriber(filter, format, lines.clone()).unwrap();
         tracing::subscriber::with_default(subscriber, || {
             tracing::debug!(target: "isothrum_runner::process", program = "docker", "starting a process");
             tracing::debug!(target: "other", "noise");
         });
-        String::from_utf8(lines.0.lock().unwrap().clone()).unwrap()
+        lines.take()
     }
 
     #[test]
@@ -113,6 +99,6 @@ mod tests {
     #[test]
     fn an_unknown_format_or_filter_is_refused() {
         assert!(parse_format(Some("yaml")).is_err());
-        assert!(subscriber("isothrum_runner=loud", None, Lines::default()).is_err());
+        assert!(subscriber("isothrum_runner=loud", None, Buf::default()).is_err());
     }
 }

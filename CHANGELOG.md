@@ -225,7 +225,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `Event::op` an `Option<Op>`, absent from the JSON only on an `error` written outside an
   operation (a command line's usage error, a `status` that failed); the event schema no longer
   requires them. Every event an operation emits has both.
-- **Breaking: the exit codes 130 and 143.** A command cancelled by SIGINT exits 130, by SIGTERM
+- **The exit codes 130 and 143.** A command cancelled by SIGINT exits 130, by SIGTERM
   143 (it was killed by the signal before). 0, 1 and 2 are unchanged.
 - **Breaking: an elevated session's files.** A request's variables are no longer in its
   `req-<n>.json`: they are in `env-<n>.json`, which the broker reads and deletes before it starts
