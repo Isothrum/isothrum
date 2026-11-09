@@ -1,6 +1,7 @@
 //! The runner's state, one folder per run under the embedder's home:
 //!
 //! ```text
+//! <home>/slots.lock    the OS lock a start holds while it picks its slot (`${run.slot}`)
 //! <home>/runs/<run name>/
 //!   record.json     the run's record (atomic, owner-only)
 //!   lock            the OS lock: one operation per run across processes
@@ -22,7 +23,7 @@ use isoloom_manifest::{Cloud, Driver, Target};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use fs::{create_private, private_dir, remove_path, write_private};
-pub(crate) use lock::RunLocks;
+pub(crate) use lock::{RunLocks, SlotsLock};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};
@@ -136,6 +137,8 @@ impl RunRecord {
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
     runs: PathBuf,
+    /// The home's `slots.lock`: one slot pick at a time.
+    slots_lock: PathBuf,
 }
 
 impl Store {
@@ -143,7 +146,15 @@ impl Store {
     pub(crate) fn open(home: &Path) -> Result<Store> {
         let runs = home.join("runs");
         private_dir(&runs).map_err(Error::io(&runs, "created"))?;
-        Ok(Store { runs })
+        Ok(Store {
+            runs,
+            slots_lock: home.join("slots.lock"),
+        })
+    }
+
+    /// Holds the home's slots while a start picks its slot and records it.
+    pub(crate) async fn hold_slots(&self) -> Result<SlotsLock> {
+        lock::hold_slots(&self.slots_lock).await
     }
 
     /// Run `name`'s folder, created owner-only.

@@ -156,6 +156,21 @@ async fn a_second_run_on_the_same_server_takes_the_next_slot() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_start_picks_its_slot_only_while_no_other_process_picks_one() {
+    // Regression: two starts in one home (two processes) both read the records before either
+    // recorded its slot, and took the same one.
+    let s = server(HostOs::Linux);
+    let other = std::fs::File::create(s.folder.home.path().join("slots.lock")).unwrap();
+    other.lock().unwrap();
+    let run = s.runner.open(&s.manifest, Some(crate::RunName::new("first").unwrap())).unwrap();
+    let err = run.up(&opts("pve-run"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(s.fake.last("terraform apply").is_none(), "nothing was created");
+    drop(other);
+    assert_eq!(run.up(&opts("pve-run"), &Recorder::new()).await.unwrap().record.slot, Some(1));
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_machine_that_never_answers_over_ssh_fails_the_start() {
     // A wait that returned OK when SSH never answered within 10 minutes.
     let s = server(HostOs::Linux);

@@ -1,6 +1,8 @@
 //! One operation per run: this runner's own lock on it (an async mutex per run, held by the
 //! [`crate::Runner`], never a process-wide static), then an OS lock on the run's `lock` file across
-//! processes, which the OS releases when its holder dies.
+//! processes, which the OS releases when its holder dies. And one slot pick per home at a time:
+//! an OS lock on the home's `slots.lock`, held while a start picks its slot and records it, so
+//! two starts in one home (two processes, two runners) never take the same slot.
 //!
 //! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
 //! that carries on without it would allow what the lock is there to prevent (Terraform's own state lock is cleared on the assumption that this one is held).
@@ -26,6 +28,10 @@ const GRACE: Duration = Duration::from_secs(1);
 /// How often a held lock is tried again within [`GRACE`].
 const RETRY: Duration = Duration::from_millis(50);
 
+/// How long a start waits for another one's slot pick: a pick takes a few file reads and one
+/// write, so a lock held this long is held by a process that hangs.
+const SLOTS_WAIT: Duration = Duration::from_secs(30);
+
 /// The per-run locks of one runner.
 #[derive(Debug, Default)]
 pub(crate) struct RunLocks(Mutex<BTreeMap<RunName, Arc<tokio::sync::Mutex<()>>>>);
@@ -44,26 +50,48 @@ impl RunLocks {
         let mutex = Arc::clone(self.0.lock().unwrap_or_else(PoisonError::into_inner).entry(run.clone()).or_default());
         let here = mutex.lock_owned().await;
         let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
-        let deadline = tokio::time::Instant::now() + GRACE;
-        loop {
-            match file.try_lock() {
-                Ok(()) => {
-                    return Ok(RunLock { _file: file, _here: here });
-                }
-                Err(TryLockError::WouldBlock) if tokio::time::Instant::now() < deadline => {
-                    tokio::time::sleep(RETRY).await;
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(Error::Locked { run: run.to_string() });
-                }
-                Err(TryLockError::Error(source)) => {
-                    return Err(Error::Io {
-                        path: path.to_path_buf(),
-                        action: "locked",
-                        source,
-                    });
-                }
-            }
+        match locked_within(&file, GRACE).await {
+            Ok(true) => Ok(RunLock { _file: file, _here: here }),
+            Ok(false) => Err(Error::Locked { run: run.to_string() }),
+            Err(e) => Err(Error::io(path, "locked")(e)),
+        }
+    }
+}
+
+/// The home's slots, held for one start's pick; released when dropped.
+#[derive(Debug)]
+pub(crate) struct SlotsLock {
+    _file: File,
+}
+
+/// Holds the home's slots (the OS lock on `path`), waiting for another start's pick.
+///
+/// # Errors
+///
+/// `io`, when the lock file can't be opened or locked, or another start held it for
+/// [`SLOTS_WAIT`].
+pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
+    let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
+    match locked_within(&file, SLOTS_WAIT).await {
+        Ok(true) => Ok(SlotsLock { _file: file }),
+        Ok(false) => {
+            let held = std::io::Error::new(std::io::ErrorKind::TimedOut, "another start held the slots for 30 s");
+            Err(Error::io(path, "locked")(held))
+        }
+        Err(e) => Err(Error::io(path, "locked")(e)),
+    }
+}
+
+/// Locks `file`, trying again until `wait` has passed while another handle holds it: whether it
+/// was locked.
+async fn locked_within(file: &File, wait: Duration) -> std::io::Result<bool> {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(true),
+            Err(TryLockError::WouldBlock) if tokio::time::Instant::now() < deadline => tokio::time::sleep(RETRY).await,
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(e)) => return Err(e),
         }
     }
 }
@@ -118,5 +146,25 @@ mod tests {
         assert!(!waiting.is_finished(), "waits while the first holds the run");
         drop(first);
         waiting.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slot_pick_waits_for_another_processes_then_takes_the_slots() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("slots.lock");
+        let other = File::create(&path).unwrap();
+        other.lock().unwrap();
+        let waiting = tokio::spawn({
+            let path = path.clone();
+            async move { hold_slots(&path).await.map(drop) }
+        });
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(!waiting.is_finished(), "waits while another process picks");
+        drop(other);
+        waiting.await.unwrap().unwrap();
+        let held = hold_slots(&path).await.unwrap();
+        let stuck = hold_slots(&path).await.unwrap_err();
+        assert_eq!(stuck.code(), crate::ErrorCode::Io, "{stuck}");
+        drop(held);
     }
 }

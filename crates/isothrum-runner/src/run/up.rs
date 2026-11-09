@@ -79,9 +79,13 @@ impl Running<'_> {
         record.host_label.clone_from(&opts.host_label);
         record.provider.clone_from(&opts.provider);
         record.started_at = Some(clock::rfc3339(self.runner.config.clock.now()));
+        // The slot is picked and recorded (the run `starting`) under the home's lock: a start
+        // in another process waits, then sees it taken.
+        let slots = self.hold_slots().await?;
         self.place(&mut record, opts)?;
         Self::bind_record(&mut cx, &record);
         self.begin(&mut record, Op::Up)?;
+        drop(slots);
         crate::executor::state_files::write(&cx, true)?;
         let ran = self.start(&mut cx).await?;
         // What the guests wait for once they exist: their secrets, where no store holds them.
@@ -144,6 +148,14 @@ impl Running<'_> {
         let cleared = run_steps(cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await.map(drop);
         cx.vars.set_params(fresh);
         cleared
+    }
+
+    /// The home's slots, held while this start picks its own, when the run needs one.
+    async fn hold_slots(&self) -> Result<Option<crate::store::SlotsLock>> {
+        if crate::slot::needed(self.manifest()) {
+            return self.runner.store.hold_slots().await.map(Some);
+        }
+        Ok(None)
     }
 
     /// Where the run goes on its place, kept in `record`: its slot (when the manifest names
