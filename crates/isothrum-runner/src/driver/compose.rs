@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, SnakeName, Step, Template, access};
 
-use super::{Driver, Observed, native_name};
+use super::{Driver, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
@@ -139,42 +139,45 @@ impl Driver for Compose {
         Ok(())
     }
 
-    /// Hot-adds the lab's access service through its Compose `access` profile
+    /// Hot-adds the access service through its Compose `access` profile
     /// ([`Compose::attach_profile`]).
-    async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
-        self.attach_profile(cx, native, image, network).await
-    }
-
-    /// Hot-removes the lab's access service through its profile, with the services in its
-    /// namespace ([`Compose::remove`]).
-    async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()> {
-        self.remove(cx, Op::Detach, Some(access::PROFILE), native).await
+    async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
+        self.attach_profile(cx, service_of(machine, "hot-adding")?, image, network).await
     }
 
     /// Stops and removes the machine's service with the services in its namespace
     /// ([`Compose::remove`]), through its profile (the `access` one for an on-demand machine, the
-    /// default one otherwise). The update after it can't be relied on for it: whether its start
-    /// removes a service gone from the Compose files is the manifest's (`--remove-orphans`), and
-    /// it touches no service outside the default start, so one that only leaves the default
+    /// default one otherwise). The update after a retire can't be relied on for it: whether its
+    /// start removes a service gone from the Compose files is the manifest's (`--remove-orphans`),
+    /// and it touches no service outside the default start, so one that only leaves the default
     /// start (back to an on-demand machine in the `access` profile) would keep running.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let profile = machine.on_demand.then_some(access::PROFILE);
-        self.remove(cx, Op::Retire, profile, native_name(machine)).await
+        self.remove(cx, cx.events.op(), profile, service_of(machine, "taking out")?).await
     }
 
     /// `docker compose exec` into the machine's service, a shell there.
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
-        let Some(Native::Compose { service }) = &machine.native else {
-            return Err(Error::Unsupported {
-                what: format!("a console into `{}`, which isn't a Compose service", machine.name),
-            });
-        };
-        Ok(ShellCommand {
-            program: "docker".into(),
-            args: self.compose_args(cx, &["exec", service.as_str(), "sh", "-c", super::console::CONTAINER_SHELL])?,
-            cwd: Some(cx.run.dir().to_path_buf()),
-            env: Vec::new(),
+        let service = service_of(machine, "a console into")?;
+        let args = self.compose_args(cx, &["exec", service, "sh", "-c", super::shells::CONTAINER_SHELL])?;
+        Ok(super::console_in_run(cx, ProcessSpec::new("docker", args)))
+    }
+
+    /// Refused: a Compose run's containers run on this computer, in no VM.
+    fn in_guest(&self, _cx: &Cx<'_>, vm: &Machine, _script: &str, _tty: bool) -> Result<ProcessSpec> {
+        Err(Error::Unsupported {
+            what: format!("running a script in `{}`: a Compose run has no VM its containers run in", vm.name),
         })
+    }
+}
+
+/// The Compose service `machine` is, for `what` (refused when it isn't one).
+fn service_of<'m>(machine: &'m Machine, what: &str) -> Result<&'m str> {
+    match &machine.native {
+        Some(Native::Compose { service }) => Ok(service.as_str()),
+        _ => Err(Error::Unsupported {
+            what: format!("{what} `{}`, which isn't a Compose service", machine.name),
+        }),
     }
 }
 
@@ -183,8 +186,8 @@ impl Compose {
     /// with the services in its namespace (its routes through the lab's router):
     /// `docker compose --profile access up -d --wait --no-deps <service> <its sidecars>`, with the
     /// picked image in [`access::IMAGE_ENV`] (the service's `${VAR:-default}` keeps its default
-    /// otherwise). When a network is named, the started container is also plugged into it, best
-    /// effort.
+    /// otherwise). When a network is named (its native name), the started container is also
+    /// plugged into it.
     async fn attach_profile(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
         let mut env = Vec::new();
         if let Some(image) = image {
@@ -197,7 +200,7 @@ impl Compose {
         // Its image may still need pulling, so this gets the long boot budget, not a call's.
         call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, args, env), ATTACH_TIMEOUT, Echo::Shown).await?;
         if let Some(network) = network {
-            self.connect_network(cx, native, network).await;
+            self.connect_network(cx, native, network).await?;
         }
         Ok(())
     }
@@ -233,26 +236,27 @@ impl Compose {
         Ok(services)
     }
 
-    /// Plugs the just-started access machine's container into the lab network `network` (its
-    /// project network), best effort: a container already on it, or a network it can't name, is
-    /// left as it is.
-    async fn connect_network(&self, cx: &Cx<'_>, native: &str, network: &str) {
-        let Ok(project) = self.project(cx) else { return };
-        let Ok(id_args) = self.compose_args(cx, &["ps", "-q", native]) else { return };
-        let Ok(out) = call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, id_args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await else {
-            return;
-        };
-        let Some(container) = out.lines().map(str::trim).find(|s| !s.is_empty()) else {
-            return;
-        };
-        let net = format!("{project}_{network}");
-        let connect = vec!["network".into(), "connect".into(), net, container.to_owned()];
-        // Already-connected is a non-zero exit we deliberately ignore: it is where we want it.
-        if let Err(e) = call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, connect, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await {
-            tracing::debug!(%e, "access machine already on the network, or it can't be joined");
+    /// Plugs the just-started access machine's container into the network natively named
+    /// `network`. A container already on it is where it should be; any other failure fails the
+    /// attach.
+    async fn connect_network(&self, cx: &Cx<'_>, native: &str, network: &str) -> Result<()> {
+        let step = Op::Attach.as_str();
+        let id_args = self.compose_args(cx, &["ps", "-q", native])?;
+        let out = call_ok(cx, step, &docker_spec(cx, id_args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await?;
+        let container = out.lines().map(str::trim).find(|s| !s.is_empty()).ok_or_else(|| Error::ToolFailed {
+            step: step.to_owned(),
+            reason: format!("`{native}` has no container to join to network `{network}`"),
+        })?;
+        let connect = ["network", "connect", network, container].map(String::from).to_vec();
+        match call_ok(cx, step, &docker_spec(cx, connect, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await {
+            Err(Error::ToolFailed { reason, .. }) if reason.contains(ALREADY_CONNECTED) => Ok(()),
+            done => done.map(drop),
         }
     }
 }
+
+/// What Docker says when a container is already on the network it is connected to.
+const ALREADY_CONNECTED: &str = "already exists in network";
 
 /// `--profile <profile>`, when one is named.
 fn profiled(profile: Option<&str>) -> Vec<&str> {

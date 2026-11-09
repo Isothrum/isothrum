@@ -5,7 +5,7 @@
 //! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
-use isoloom_manifest::Machine;
+use isoloom_manifest::{Machine, Native};
 use serde::Serialize;
 use serde_json::json;
 
@@ -50,14 +50,19 @@ impl Running<'_> {
     /// Hot-adds the lab's on-demand access machine into the running run, brought up with the
     /// learner-picked `image` (its baked default otherwise), on `network` when given. `image` is a
     /// container image for a Compose access service, the Vagrant box for an access VM. `machine`
-    /// names which on-demand machine, needed only when the lab has more than one.
+    /// names which on-demand machine, needed only when the lab has more than one. `network` is one
+    /// of the manifest's networks: a Compose access service's container also joins it, by the
+    /// native name the run gives it (as status shows it); a VM's networks are its Vagrantfile's,
+    /// so a Vagrant run refuses one.
     ///
     /// # Errors
     ///
     /// Fails with `machine_unknown` for a named machine the lab doesn't have, `unsupported` when
     /// the lab declares no access machine, or several and none is named (or the target brings
-    /// none up later: a server or a cloud), `not_running` when the run isn't up, and as the other
-    /// operations do for a step or the state.
+    /// none up later: a server or a cloud), and for a `network` the run doesn't have or can't
+    /// join (a Vagrant run's), `not_running` when the run isn't up, `tool_failed` when the
+    /// container can't join the network (one already on it has), and as the other operations do
+    /// for a step or the state.
     pub async fn attach(&self, machine: Option<&str>, network: Option<&str>, image: Option<&str>, events: &dyn Events) -> Result<AttachReport> {
         self.attach_with(&RunOptions::default(), BoxPick { machine, network, image }, events).await
     }
@@ -73,9 +78,13 @@ impl Running<'_> {
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
             let target = self.access_machine(machine)?;
+            if let Some(n) = network {
+                self.network_named(n)?;
+            }
             let (_, mut cx) = self.existing(&opts, e).await?;
+            let native = network.map(|n| self.native_network(&cx, n)).transpose()?;
             self.observe_running(&mut cx).await?;
-            self.driver.attach(&cx, driver::native_name(target), image, network).await?;
+            self.driver.attach(&cx, target, image, native.as_deref()).await?;
             let report = report(target, network, image);
             let data = json!({ "machine": report.machine, "native": report.native, "network": report.network, "address": report.address });
             Ok(Done {
@@ -88,7 +97,10 @@ impl Running<'_> {
         .await
     }
 
-    /// Hot-removes the lab's access machine from the running run, leaving the rest up.
+    /// Hot-removes the lab's access machine from the running run, leaving the rest up: the
+    /// on-demand machine chosen as [`Running::attach`] chooses it, taken out as
+    /// [`Running::retire`] takes a machine out (its Compose service removed through the `access`
+    /// profile, its VM destroyed).
     ///
     /// # Errors
     ///
@@ -109,7 +121,7 @@ impl Running<'_> {
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
             let target = self.access_machine(machine)?;
             let (_, cx) = self.existing(&opts, e).await?;
-            self.driver.detach(&cx, driver::native_name(target)).await?;
+            self.take_out(&cx, target).await?;
             Ok(Done {
                 value: (),
                 ok: true,
@@ -131,7 +143,7 @@ impl Running<'_> {
     /// [`Running::console_command`] does.
     pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
         let target = self.access_machine(machine)?;
-        self.query(|cx| self.driver.console_command(cx, target))
+        self.query(|cx| self.console_of(cx, target))
     }
 
     /// The command that opens an interactive console into `machine`, any machine of the run (an
@@ -145,7 +157,38 @@ impl Running<'_> {
     /// run gives it no address yet, and `unsupported` where the target has no way in yet.
     pub fn console_command(&self, machine: &str) -> Result<ShellCommand> {
         let target = self.machine_named(machine)?;
-        self.query(|cx| self.driver.console_command(cx, target))
+        self.query(|cx| self.console_of(cx, target))
+    }
+
+    /// The console into `target`: into the run's VM, then into its container, for a Compose
+    /// service in that VM ([`crate::in_vm::console`]); the driver's otherwise.
+    fn console_of(&self, cx: &crate::executor::Cx<'_>, target: &Machine) -> Result<ShellCommand> {
+        match (&self.manifest().guest, &target.native) {
+            (Some(guest), Some(Native::Compose { service })) => crate::in_vm::console(cx, &self.driver, guest, service.as_str()),
+            _ => self.driver.console_command(cx, target),
+        }
+    }
+
+    /// The manifest's network `name`, refused with `unsupported` when the run has none so named.
+    fn network_named(&self, name: &str) -> Result<&isoloom_manifest::Network> {
+        self.manifest()
+            .networks
+            .iter()
+            .find(|n| n.name.as_str() == name)
+            .ok_or_else(|| Error::Unsupported {
+                what: format!("joining network `{name}`, which this run doesn't have"),
+            })
+    }
+
+    /// The native name of the run's network `name` (`flag-portal_lab`), as status renders it.
+    fn native_network(&self, cx: &crate::executor::Cx<'_>, name: &str) -> Result<String> {
+        self.networks(cx)
+            .into_iter()
+            .find(|n| n.name == name)
+            .and_then(|n| n.native)
+            .ok_or_else(|| Error::Unsupported {
+                what: format!("joining network `{name}`: the run doesn't say its native name"),
+            })
     }
 
     /// Which access machine an attach targets: the on-demand machine `machine` names, or the

@@ -30,6 +30,14 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 - **`retire` refuses the VM a lab's containers run in** (`docker-vm`'s guest, `unsupported`):
   destroying it took every container with it. A retired Vagrant VM's destroy gets the detach's
   5 minutes, not an attach's 30.
+- **`attach` joins the chosen network by the name the run gave it, and says when it can't.** On
+  Compose it guessed the network as `<project>_<network>` and swallowed every failure to join
+  it, so an attach reported (and its event claimed) a network its machine wasn't on. The network
+  must now be one of the manifest's (`unsupported` otherwise, before anything starts), is joined
+  by its rendered native name (as status shows it), and a failure to join fails the attach
+  (`tool_failed`); only a container already on it is left as it is. A Vagrant run refuses a
+  chosen network (`unsupported`): a VM's networks are its Vagrantfile's, and the network was
+  ignored.
 - **An access machine whose namespace can't be read isn't started without its routes.** When
   `docker compose config` printed nothing the runner could read, attach and detach took the
   machine alone (no routes, or routes left running); they now fail (`tool_failed`).

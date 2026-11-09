@@ -31,6 +31,7 @@ use super::{Driver, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
+use crate::process::ProcessSpec;
 use crate::status::{MachineState, MachineStatus, ShellCommand};
 
 /// The local backend's lock file, left behind by a crashed or killed run.
@@ -121,24 +122,33 @@ impl Driver for Terraform {
     }
 
     /// Refused: the module makes every machine it has at `up`, none is brought up later.
-    fn attach(&self, _cx: &Cx<'_>, _native: &str, _image: Option<&str>, _network: Option<&str>) -> impl Future<Output = Result<()>> {
+    fn attach(&self, _cx: &Cx<'_>, _machine: &Machine, _image: Option<&str>, _network: Option<&str>) -> impl Future<Output = Result<()>> {
         std::future::ready(Err(on_demand("hot-adding")))
     }
 
-    /// Refused, as [`Terraform::attach`].
-    fn detach(&self, _cx: &Cx<'_>, _native: &str) -> impl Future<Output = Result<()>> {
-        std::future::ready(Err(on_demand("hot-removing")))
-    }
-
-    /// A machine the module makes is left to the update's apply; a Compose service in the run's
-    /// VM is removed there, with its namespace ([`console::retire`]).
-    async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
-        console::retire(cx, machine).await
+    /// Nothing to do for a machine the module makes: the update's apply removes what the module
+    /// no longer makes. Refused for an on-demand access machine (as [`Terraform::attach`]) and
+    /// for a Compose service with no VM to run in.
+    fn retire(&self, _cx: &Cx<'_>, machine: &Machine) -> impl Future<Output = Result<()>> {
+        std::future::ready(if machine.on_demand {
+            Err(on_demand("taking out"))
+        } else if machine.native.is_some() {
+            Err(Error::Unsupported {
+                what: format!("taking out `{}`: a Compose service with no VM to run in", machine.name),
+            })
+        } else {
+            Ok(())
+        })
     }
 
     /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
         console::command(cx, machine)
+    }
+
+    /// `ssh` to the run's VM, as the guest's steps reach it ([`console::in_guest`]).
+    fn in_guest(&self, cx: &Cx<'_>, _vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec> {
+        console::in_guest(cx, script, tty)
     }
 }
 

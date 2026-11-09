@@ -3,7 +3,7 @@
 //! documented actions (run-manifest-v0.md §6), how it reads status, and its run-state upkeep.
 
 mod compose;
-pub(crate) mod console;
+pub(crate) mod shells;
 mod terraform;
 mod vagrant;
 
@@ -18,6 +18,7 @@ use tracing::Instrument;
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
+use crate::process::ProcessSpec;
 use crate::status::{MachineStatus, ShellCommand};
 use crate::vars::PortKey;
 
@@ -26,6 +27,14 @@ use crate::vars::PortKey;
 /// locally) sets it on a fresh start; the Vagrantfile reads it, defaulting each to the port's
 /// `publish` number.
 pub(crate) const HOSTPORTS: &str = "ISOLOOM_HOSTPORTS";
+
+/// The label Compose puts on each container naming its service, which finds a service's
+/// container whatever project and file started it.
+pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+
+/// How long taking one machine out of a running run may take: a VM destroyed, a service in the
+/// run's VM removed with its namespace.
+pub(crate) const REMOVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// What the engine says about a run.
 #[derive(Debug, Clone, Default)]
@@ -58,21 +67,26 @@ pub(crate) trait Driver {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
     /// Clears the run's state after a successful `down` (Compose: no pins left).
     fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
-    /// Hot-adds the lab's on-demand access machine into the running run, by the native name its
-    /// engine addresses it by (the Compose service, the Vagrant define), which the initial `up`
-    /// left down: brought up with the learner-picked `image`, else its baked default, on
-    /// `network` when given.
-    async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()>;
-    /// Hot-removes the lab's on-demand access machine `native` from the running run.
-    async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()>;
-    /// Takes `machine` out of the running run, ahead of its removal from the manifest (or its
-    /// move out of the lab's default start), where the next update of the run wouldn't remove it
-    /// itself (Terraform's apply removes what its module no longer makes: nothing to do).
+    /// Hot-adds `machine`, an on-demand access machine the initial `up` left down, into the
+    /// running run: brought up with the picked `image`, else its baked default, and joined to the
+    /// network whose native name is `network` when one is given. Refused where the driver can't.
+    async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()>;
+    /// Takes `machine` out of the running run (a retire ahead of its removal from the manifest,
+    /// or its move out of the default start; a detach of an on-demand access machine), where the
+    /// next update wouldn't remove it itself. The operation's step is named after the emitter's
+    /// op. Refused where the driver does nothing for it, except for a machine a Terraform module
+    /// makes, which the update's apply removes. A Compose service in the run's VM never reaches
+    /// here: [`crate::in_vm::retire`] takes it.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()>;
     /// The argv that opens an interactive console into `machine`, any machine of the run. A pure
     /// query: no process runs here, the embedder runs what it returns in its own terminal.
-    /// Refused where the driver has no way in.
+    /// Refused where the driver has no way in. A Compose service in the run's VM never reaches
+    /// here: [`crate::in_vm::console`] opens it.
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand>;
+    /// The process that runs `script` inside `vm`, the VM the run's containers run in
+    /// (`docker-vm`'s guest), through the VM's way in, with a terminal when `tty`. Refused by a
+    /// driver whose runs have no such VM.
+    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec>;
 }
 
 /// The driver a manifest names.
@@ -190,38 +204,49 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = "attach");
+    pub(crate) async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = "attach", machine = %machine.name);
         match self {
-            AnyDriver::Compose(d) => d.attach(cx, native, image, network).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.attach(cx, native, image, network).instrument(span).await,
-            AnyDriver::Terraform(d) => d.attach(cx, native, image, network).instrument(span).await,
-        }
-    }
-
-    pub(crate) async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = "detach");
-        match self {
-            AnyDriver::Compose(d) => d.detach(cx, native).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.detach(cx, native).instrument(span).await,
-            AnyDriver::Terraform(d) => d.detach(cx, native).instrument(span).await,
+            AnyDriver::Compose(d) => d.attach(cx, machine, image, network).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.attach(cx, machine, image, network).instrument(span).await,
+            AnyDriver::Terraform(d) => d.attach(cx, machine, image, network).instrument(span).await,
         }
     }
 
     pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = %cx.events.op(), machine = %machine.name);
         match self {
-            AnyDriver::Compose(d) => d.retire(cx, machine).await,
-            AnyDriver::Vagrant(d) => d.retire(cx, machine).await,
-            AnyDriver::Terraform(d) => d.retire(cx, machine).await,
+            AnyDriver::Compose(d) => d.retire(cx, machine).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.retire(cx, machine).instrument(span).await,
+            AnyDriver::Terraform(d) => d.retire(cx, machine).instrument(span).await,
         }
     }
 
     pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
+        let _span = tracing::debug_span!("driver", driver = self.name(), query = "console", machine = %machine.name).entered();
         match self {
             AnyDriver::Compose(d) => d.console_command(cx, machine),
             AnyDriver::Vagrant(d) => d.console_command(cx, machine),
             AnyDriver::Terraform(d) => d.console_command(cx, machine),
         }
+    }
+
+    pub(crate) fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec> {
+        match self {
+            AnyDriver::Compose(d) => d.in_guest(cx, vm, script, tty),
+            AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, tty),
+            AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, tty),
+        }
+    }
+}
+
+/// The console `spec` builds, run in the run's folder.
+pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
+    ShellCommand {
+        program: spec.program,
+        args: spec.args,
+        cwd: Some(cx.run.dir().to_path_buf()),
+        env: spec.env,
     }
 }
 

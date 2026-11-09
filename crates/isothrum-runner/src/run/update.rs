@@ -13,11 +13,15 @@
 //! A sealed run stays sealed: its recorded seal is replayed, so a machine added to an
 //! `internet: false` network sets itself up without the internet.
 
+use isoloom_manifest::{Machine, Native};
+
 use super::Running;
 use super::operation::Done;
 use super::up::ready_run;
 use crate::Result;
+use crate::error::Error;
 use crate::events::{Emitter, Events};
+use crate::executor::Cx;
 use crate::hooks::Edge;
 use crate::options::RunOptions;
 use crate::secrets::{check_secrets, sensitive_values};
@@ -32,20 +36,28 @@ impl Running<'_> {
     /// define the Vagrantfile no longer has); a Compose service is stopped and removed with the
     /// services in its namespace, on this computer or inside the run's VM (an update leaves a
     /// service outside the default start running). A machine a Terraform module makes is left to
-    /// the update's apply.
+    /// the update's apply, which removes what the module no longer makes: the retire runs nothing
+    /// and succeeds.
     ///
     /// # Errors
     ///
-    /// Fails with `machine_unknown` for a machine the run doesn't have, `unsupported` for the VM
-    /// the lab's containers run in (`docker-vm`'s guest: every container would go with it), and
-    /// as the other operations do for a step or the run's state.
+    /// Fails with `machine_unknown` for a machine the run doesn't have; `unsupported` for the VM
+    /// the run's containers run in (`docker-vm`'s guest: every container would go with it), and
+    /// for a machine the run has nothing to take out of (one whose manifest doesn't say how it
+    /// runs, a Compose service with no VM to run in, an on-demand machine on a server or cloud);
+    /// and as the other operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = &self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Retire, events, mask, async |e: &Emitter<'_>| {
             let target = self.machine_named(machine)?;
+            if self.manifest().guest.as_ref().is_some_and(|g| g.machine == target.name) {
+                return Err(Error::Unsupported {
+                    what: format!("retiring `{machine}`, the VM the run's containers run in"),
+                });
+            }
             let (_, cx) = self.existing(opts, e).await?;
-            self.driver.retire(&cx, target).await?;
+            self.take_out(&cx, target).await?;
             Ok(Done {
                 value: (),
                 ok: true,
@@ -54,6 +66,15 @@ impl Running<'_> {
             })
         })
         .await
+    }
+
+    /// Takes `target` out of the running run: a Compose service in the run's VM there
+    /// ([`crate::in_vm::retire`]), anything else through its driver.
+    pub(crate) async fn take_out(&self, cx: &Cx<'_>, target: &Machine) -> Result<()> {
+        match (&self.manifest().guest, &target.native) {
+            (Some(guest), Some(Native::Compose { service })) => crate::in_vm::retire(cx, &self.driver, guest, service.as_str()).await,
+            _ => self.driver.retire(cx, target).await,
+        }
     }
 
     /// Brings the running run up to date with its manifest (see the module doc): `up`'s steps

@@ -35,10 +35,6 @@ const READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long hot-adding the access machine may take: booting its VM, and maybe fetching its box.
 const ATTACH_TIMEOUT: Duration = Duration::from_secs(1800);
 
-/// How long destroying one VM of the run may take: the access machine's at a detach, a
-/// machine's at its retire.
-const DESTROY_TIMEOUT: Duration = Duration::from_secs(300);
-
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
 
@@ -112,6 +108,15 @@ impl Vagrant {
             env,
             stdin: None,
         })
+    }
+
+    /// `vagrant <args>` for a console in the embedder's terminal: with the run's own variables
+    /// ([`Driver::env`]) and nothing the manifest delivers to a step, whose values would show in
+    /// the printed command.
+    fn console(&self, cx: &Cx<'_>, args: &[&str]) -> Result<ProcessSpec> {
+        let mut spec = ProcessSpec::new("vagrant", args.iter().copied());
+        spec.env = self.env(cx)?;
+        Ok(spec)
     }
 
     /// The address of each running VM that publishes a port, or that Compose runs in, by define
@@ -219,14 +224,23 @@ impl Driver for Vagrant {
         Ok(())
     }
 
-    /// Hot-adds the lab's access machine, a VM the initial `up` left defined but `autostart:
-    /// false`: its define booted alone (`vagrant up <define> --provider=<p>`) on the run's own
-    /// provider, the one its other VMs came up on, with the picked box (the attach's image) in
-    /// [`access::BOX_ENV`] (its `ENV.fetch` default otherwise). Its network is the VM's, fixed by
-    /// the manifest, so it is not chosen here.
-    async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, _network: Option<&str>) -> Result<()> {
+    /// Hot-adds the access machine, a VM the initial `up` left defined but `autostart: false`:
+    /// its define booted alone (`vagrant up <define> --provider=<p>`) on the run's own provider,
+    /// the one its other VMs came up on, with the picked box (the attach's image) in
+    /// [`access::BOX_ENV`] (its `ENV.fetch` default otherwise). A VM's networks are the
+    /// manifest's, fixed in the Vagrantfile: a chosen one is refused.
+    async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
+        let define = define_of(machine, "hot-adding")?;
+        if let Some(network) = network {
+            return Err(Error::Unsupported {
+                what: format!(
+                    "joining `{}` to network `{network}` on a Vagrant run (a VM's networks are the Vagrantfile's)",
+                    machine.name
+                ),
+            });
+        }
         let provider = cx.scope.provider.as_ref().map(|p| format!("--provider={p}"));
-        let mut args = vec!["up", native];
+        let mut args = vec!["up", define];
         if let Some(flag) = &provider {
             args.push(flag);
         }
@@ -237,62 +251,43 @@ impl Driver for Vagrant {
         call_ok(cx, Op::Attach.as_str(), &spec, ATTACH_TIMEOUT, Echo::Shown).await.map(drop)
     }
 
-    /// Hot-removes the lab's access machine's VM, leaving the rest of the run up: `vagrant
-    /// destroy -f <define>`.
-    async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()> {
-        let spec = self.vagrant(cx, Op::Detach.as_str(), &["destroy", "-f", native])?;
-        call_ok(cx, Op::Detach.as_str(), &spec, DESTROY_TIMEOUT, Echo::Shown).await?;
-        Ok(())
-    }
-
-    /// A VM of the run destroyed alone (`vagrant destroy -f <define>`) before its define leaves
-    /// the Vagrantfile: once it has, Vagrant no longer knows the VM. Refused for the VM the lab's
-    /// containers run in (`docker-vm`'s guest): destroying it would take every container with
-    /// it. A Compose service in that VM is removed there, with its namespace, through
-    /// `vagrant ssh` ([`super::console::remove_service`]).
+    /// A VM of the run destroyed alone (`vagrant destroy -f <define>`): the access machine's at a
+    /// detach, a machine's at its retire, before its define leaves the Vagrantfile (once it has,
+    /// Vagrant no longer knows the VM).
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
-        if cx.run.manifest().guest.as_ref().is_some_and(|g| g.machine == machine.name) {
-            return Err(Error::Unsupported {
-                what: format!("retiring `{}`, the VM the lab's containers run in", machine.name),
-            });
-        }
-        let spec = match &machine.native {
-            Some(Native::Vagrant { vagrant, .. }) => self.vagrant(cx, Op::Retire.as_str(), &["destroy", "-f", vagrant.as_str()])?,
-            // A Compose service in the run's VM: removed there, with its namespace.
-            Some(Native::Compose { service }) => {
-                let Some(vm) = guest_define(cx) else { return Ok(()) };
-                let script = super::console::remove_service(service.as_str());
-                self.vagrant(cx, Op::Retire.as_str(), &["ssh", vm.as_str(), "-c", script.as_str()])?
-            }
-            None => return Ok(()),
-        };
-        call_ok(cx, Op::Retire.as_str(), &spec, DESTROY_TIMEOUT, Echo::Shown).await.map(drop)
+        let op = cx.events.op().as_str();
+        let spec = self.vagrant(cx, op, &["destroy", "-f", define_of(machine, "taking out")?])?;
+        call_ok(cx, op, &spec, super::REMOVE_TIMEOUT, Echo::Shown).await.map(drop)
     }
 
-    /// `vagrant ssh` into the machine's VM; for a Compose service in the run's VM, `vagrant ssh`
-    /// into that VM, then into the service's container.
+    /// `vagrant ssh` into the machine's VM.
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
-        let mut args = vec!["ssh".to_owned()];
-        match &machine.native {
-            Some(Native::Vagrant { vagrant, .. }) => args.push(vagrant.to_string()),
-            Some(Native::Compose { service }) => {
-                let vm = guest_define(cx).ok_or_else(|| Error::Unsupported {
-                    what: format!("a console into `{}`: a Compose service with no VM to run in", machine.name),
-                })?;
-                args.extend([vm, "-c".to_owned(), super::console::into_service(service.as_str())]);
-            }
-            None => {
-                return Err(Error::Unsupported {
-                    what: format!("a console into `{}`: the run doesn't say how it runs", machine.name),
-                });
-            }
+        Ok(super::console_in_run(cx, self.console(cx, &["ssh", define_of(machine, "a console into")?])?))
+    }
+
+    /// `vagrant ssh <define> -c <script>` (Vagrant gives `-c` a terminal by default): for a
+    /// console, with the run's own variables only ([`Driver::env`]); otherwise as the operation's
+    /// step, with what the manifest delivers to it.
+    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, console: bool) -> Result<ProcessSpec> {
+        let args = ["ssh", define_of(vm, "running a script in")?, "-c", script];
+        if console {
+            return self.console(cx, &args);
         }
-        Ok(ShellCommand {
-            program: "vagrant".into(),
-            args,
-            cwd: Some(cx.run.dir().to_path_buf()),
-            env: self.env(cx)?,
-        })
+        self.vagrant(cx, cx.events.op().as_str(), &args)
+    }
+}
+
+/// The Vagrant define `machine` is, for `what`: refused for a Compose service with no VM to run
+/// in, and for a machine whose manifest doesn't say how it runs.
+fn define_of<'m>(machine: &'m Machine, what: &str) -> Result<&'m str> {
+    match &machine.native {
+        Some(Native::Vagrant { vagrant, .. }) => Ok(vagrant.as_str()),
+        Some(Native::Compose { .. }) => Err(Error::Unsupported {
+            what: format!("{what} `{}`: a Compose service with no VM to run in", machine.name),
+        }),
+        None => Err(Error::Unsupported {
+            what: format!("{what} `{}`: the run doesn't say how it runs", machine.name),
+        }),
     }
 }
 
@@ -368,15 +363,6 @@ fn machines(
         });
     }
     out
-}
-
-/// The define of the VM a container lab's containers run in, when the run is one (its manifest's
-/// `guest` names one of its Vagrant machines).
-fn guest_define(cx: &Cx<'_>) -> Option<String> {
-    let manifest = cx.run.manifest();
-    let guest = manifest.guest.as_ref()?;
-    let vm = manifest.machines.iter().find(|m| m.name == guest.machine)?;
-    matches!(vm.native, Some(Native::Vagrant { .. })).then(|| native_name(vm).to_owned())
 }
 
 #[cfg(test)]

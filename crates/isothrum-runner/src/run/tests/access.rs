@@ -6,9 +6,22 @@ use super::*;
 use crate::ErrorCode;
 use crate::testing::{FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS};
 
+/// The lab's Docker, the access service's container `c0ffee` once it is up; `connect` answers
+/// its join to a network.
+fn joining(engine: &Mutex<Engine>, call: &Call, connect: Reply) -> Reply {
+    let line = call.line();
+    if line.ends_with(" ps -q attacker") {
+        return Reply::ok("c0ffee\n");
+    }
+    if line.starts_with("docker network connect") {
+        return connect;
+    }
+    answer(engine, call)
+}
+
 #[tokio::test]
 async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_image() {
-    let f = fixture_with(FLAG_PORTAL_ACCESS);
+    let f = fixture_answering(FLAG_PORTAL_ACCESS, |e, c| joining(e, c, Reply::ok("")));
     f.set(Containers::Up); // the lab is already up; the access machine was left out of it
     let run = f.runner.open(&f.manifest, None).unwrap();
 
@@ -23,7 +36,43 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     let up = f.fake.last("--profile access up").expect("the access profile is brought up");
     assert!(up.line().contains("--no-deps attacker"), "{}", up.line());
     assert_eq!(up.env(isoloom_manifest::access::IMAGE_ENV), Some("myimage"), "the picked image is delivered");
+    let joined = f.fake.last("network connect").expect("joined to the chosen network");
+    assert_eq!(joined.line(), "docker network connect flag-portal_lab c0ffee", "its rendered native name");
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
+}
+
+/// A container already on the chosen network is where it should be; any other failure to join
+/// it fails the attach, and a network the run doesn't have is refused before anything starts.
+#[tokio::test]
+async fn attach_to_a_network_tolerates_only_already_being_on_it() {
+    let already = fixture_answering(FLAG_PORTAL_ACCESS, |e, c| {
+        joining(
+            e,
+            c,
+            Reply::fail(
+                1,
+                "Error response from daemon: endpoint with name attacker already exists in network flag-portal_lab",
+            ),
+        )
+    });
+    already.set(Containers::Up);
+    let on_it = already.runner.open(&already.manifest, None).unwrap();
+    on_it.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap();
+
+    let refused = fixture_answering(FLAG_PORTAL_ACCESS, |e, c| {
+        joining(e, c, Reply::fail(1, "Error response from daemon: network flag-portal_lab not found"))
+    });
+    refused.set(Containers::Up);
+    let run = refused.runner.open(&refused.manifest, None).unwrap();
+    let failed = run.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(failed.code(), ErrorCode::ToolFailed, "{failed}");
+    assert!(failed.to_string().contains("not found"), "{failed}");
+
+    let calls = refused.fake.calls().len();
+    let unknown = run.attach(None, Some("nope"), None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(unknown.code(), ErrorCode::Unsupported, "{unknown}");
+    assert!(unknown.to_string().contains("network `nope`"), "{unknown}");
+    assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
 }
 
 /// The lab's Docker, its config putting a routes service in the access service's namespace.
@@ -76,6 +125,10 @@ async fn detach_removes_just_the_access_service() {
     run.detach(None, &events).await.unwrap();
     let rm = f.fake.last("--profile access rm").expect("the access service is removed");
     assert!(rm.line().contains("rm -sf attacker"), "{}", rm.line());
+    assert!(
+        events.events().iter().all(|e| e.op == crate::state::Op::Detach),
+        "a detach's events, though a retire's work"
+    );
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
@@ -149,6 +202,12 @@ async fn vagrant_attach_boots_the_access_vm_with_the_picked_box() {
 
     run.detach(None, &Recorder::new()).await.unwrap();
     assert!(fake.last("destroy -f attacker").is_some(), "the access VM is destroyed");
+
+    // A VM's networks are the Vagrantfile's: a chosen one is refused, and no VM is booted.
+    let ups = fake.calls().iter().filter(|c| c.line().contains("up attacker")).count();
+    let err = run.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
+    assert_eq!(fake.calls().iter().filter(|c| c.line().contains("up attacker")).count(), ups);
 }
 
 /// The shell is the access machine's console: its service by name, bash where its image has it,
@@ -162,7 +221,7 @@ async fn shell_command_opens_the_compose_service_by_name() {
     let line = cmd.args.join(" ");
     assert!(line.starts_with("compose --project-name"), "{line}");
     assert!(line.contains(" exec attacker sh -c "), "addresses the service, no container guessing: {line}");
-    assert!(line.ends_with(crate::driver::console::CONTAINER_SHELL), "{line}");
+    assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
     assert_eq!(cmd.args, run.console_command("attacker").unwrap().args, "the access machine's console");
     assert!(cmd.cwd.is_some(), "runs in the run's folder");
 }
@@ -199,7 +258,7 @@ async fn a_console_opens_any_compose_service_by_name() {
     let line = cmd.args.join(" ");
     assert!(line.starts_with("compose --project-name"), "{line}");
     assert!(line.contains(" exec web sh -c "), "{line}");
-    assert!(line.ends_with(crate::driver::console::CONTAINER_SHELL), "{line}");
+    assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
     assert_eq!(run.console_command("nope").unwrap_err().code(), ErrorCode::MachineUnknown);
 }
 

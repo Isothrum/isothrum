@@ -41,6 +41,11 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// The operation the events are of.
+    pub(crate) fn op(&self) -> Op {
+        self.op
+    }
+
     /// Also appends each event to `log` (the run's `events.jsonl`).
     pub(crate) fn with_log(mut self, log: File) -> Emitter<'a> {
         self.log = Some(Mutex::new(log));

@@ -322,3 +322,42 @@ async fn a_vm_lab_on_a_server_gets_no_attack_box() {
     run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
     crate::testing::refuses_a_box_it_has_none_of(&run, &s.fake).await;
 }
+
+/// Retiring a VM the module makes runs nothing: the update's apply removes what the module no
+/// longer makes. Its result still names the machine.
+#[tokio::test(start_paused = true)]
+async fn retiring_a_machine_the_module_makes_is_left_to_the_apply() {
+    let s = server(HostOs::Linux);
+    let run = s.runner.open(&s.manifest, None).unwrap();
+    run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    let calls = s.fake.calls().len();
+    let events = Recorder::new();
+    run.retire("web", &opts("pve-run"), &events).await.unwrap();
+    let ran: Vec<String> = s.fake.lines()[calls..]
+        .iter()
+        .filter(|l| l.contains("apply") || l.contains("destroy"))
+        .cloned()
+        .collect();
+    assert!(ran.is_empty(), "{ran:?}");
+    let last = events.events().last().cloned().unwrap();
+    assert!(
+        matches!(&last.kind, crate::EventKind::Result { ok: true, data } if data["machine"] == "web"),
+        "{last:?}"
+    );
+}
+
+/// A Compose service on a Terraform run with no VM for it to run in has nothing to take out and
+/// no way in: refused, rather than reported done.
+#[tokio::test(start_paused = true)]
+async fn a_compose_service_with_no_vm_is_neither_retired_nor_entered() {
+    let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_PROXMOX).unwrap();
+    m["machines"][0]["native"] = serde_json::json!({ "service": "web" });
+    let s = server_of(HostOs::Linux, &m.to_string());
+    let run = s.runner.open(&s.manifest, None).unwrap();
+    run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    let err = run.retire("web", &opts("pve-run"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
+    assert!(err.to_string().contains("no VM to run in"), "{err}");
+    let console = run.console_command("web").unwrap_err();
+    assert_eq!(console.code(), ErrorCode::Unsupported, "{console}");
+}

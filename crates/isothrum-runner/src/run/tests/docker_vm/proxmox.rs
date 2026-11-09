@@ -140,3 +140,17 @@ async fn on_proxmox_retiring_a_service_removes_it_in_the_vm_over_ssh() {
     assert!(rm.args.last().unwrap().contains("sudo docker rm -f"), "{:?}", rm.args);
     assert_eq!(s.fake.calls().iter().filter(|c| c.line().contains("apply")).count(), applies, "no apply");
 }
+
+/// On a server too, the VM the lab's containers run in is never retired: refused from the
+/// manifest's `guest`, before anything runs.
+#[tokio::test(start_paused = true)]
+async fn on_proxmox_the_vm_the_containers_run_in_is_not_retired() {
+    let s = proxmox();
+    let run = s.runner.open(&s.folder.manifest, None).unwrap();
+    run.up(&s.options, &Recorder::new()).await.unwrap();
+    let calls = s.fake.calls().len();
+    let err = run.retire("docker", &s.options, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Unsupported, "{err}");
+    assert!(err.to_string().contains("the VM the run's containers run in"), "{err}");
+    assert_eq!(s.fake.calls().len(), calls, "nothing ran: {:?}", &s.fake.lines()[calls..]);
+}

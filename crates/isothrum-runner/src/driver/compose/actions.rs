@@ -78,7 +78,7 @@ pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, step: &Step, wit
     let mut args: Vec<String> = ["ps", "-aq", "--filter"].map(String::from).to_vec();
     args.push(format!("label={PROJECT_LABEL}={}", c.project(cx)?));
     if let Some(service) = arg("service")? {
-        args.extend(["--filter".into(), format!("label=com.docker.compose.service={service}")]);
+        args.extend(["--filter".into(), format!("label={}={service}", crate::driver::COMPOSE_SERVICE_LABEL)]);
     }
     if arg("one_off")?.as_deref() == Some("true") {
         args.extend(["--filter".into(), "label=com.docker.compose.oneoff=True".into()]);

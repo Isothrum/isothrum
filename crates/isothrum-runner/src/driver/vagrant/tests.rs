@@ -797,8 +797,8 @@ async fn an_update_brings_a_vm_added_to_the_lab_up() {
     assert_eq!(extra.state, crate::MachineState::Running);
 }
 
-/// A machine whose manifest doesn't say how it runs (no native name) has no console: refused,
-/// rather than a guess at its define.
+/// A machine whose manifest doesn't say how it runs (no native name) has no console and isn't
+/// retired: refused, rather than a guess at its define.
 #[tokio::test]
 async fn a_machine_with_no_native_name_has_no_console() {
     let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
@@ -808,4 +808,8 @@ async fn a_machine_with_no_native_name_has_no_console() {
     let err = run.console_command("web").unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("doesn't say how it runs"), "{err}");
+    // Nor a retire: nothing would be destroyed, so it isn't reported done.
+    let retired = run.retire("web", &opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(retired.code(), ErrorCode::Unsupported, "{retired}");
+    assert!(f.vagrant().iter().all(|l| !l.contains("destroy")), "{:?}", f.vagrant());
 }
