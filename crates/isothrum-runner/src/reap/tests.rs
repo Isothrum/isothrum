@@ -66,6 +66,18 @@ const AWS: &str = r#"{"ResourceTagMappingList": [
   {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:subnet/subnet-0none", "Tags": [{"Key": "isoloom-expires-at", "Value": ""}]}
 ]}"#;
 
+/// A recorded run's state that exists but doesn't parse fails the sweep: what it holds is unknown,
+/// and skipping it would list its live resources as orphans.
+#[tokio::test]
+async fn a_recorded_state_that_doesnt_parse_fails_the_sweep() {
+    let (_home, r) = runner(|call| if call.program == "aws" { Reply::ok(AWS) } else { Reply::missing() });
+    record(&r, "live", RunState::Ready, Some(TEST_TIME + 60), Some("{ cut short"));
+    let place = Place::new(vec!["eu-west-3".into()], None);
+    let err = r.orphans(Cloud::Aws, &place, now()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(err.to_string().contains("terraform.tfstate"), "{err}");
+}
+
 #[tokio::test]
 async fn an_orphan_is_tagged_past_its_expiry_with_no_recorded_run_holding_it() {
     let (_home, r) = runner(|call| if call.program == "aws" { Reply::ok(AWS) } else { Reply::missing() });

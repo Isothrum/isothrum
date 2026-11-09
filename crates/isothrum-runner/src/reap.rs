@@ -20,6 +20,7 @@ pub use tags::{Place, Tagged};
 
 use crate::Result;
 use crate::clock::unix_seconds;
+use crate::error::Error;
 use crate::process::{ProcessRunner, ProcessSpec, capture};
 use crate::runner::Runner;
 use crate::state::RunState;
@@ -61,7 +62,8 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// Fails with `io` when a record or a run's state can't be read.
+    /// Fails with `io` when a record or a recorded run's Terraform state can't be read or parsed:
+    /// what that state holds is unknown, so nothing could be told an orphan.
     pub async fn orphans(&self, cloud: Cloud, place: &Place, now: SystemTime) -> Result<Orphans> {
         let covered = self.covered(cloud)?;
         let now = unix_seconds(now);
@@ -76,20 +78,20 @@ impl Runner {
         Ok(out)
     }
 
-    /// The environments the states of `cloud`'s recorded runs hold.
+    /// The environments the states of `cloud`'s recorded runs hold. A run with no state holds
+    /// none; a state that exists but can't be read or parsed fails the sweep, since what it holds
+    /// would otherwise read as orphans.
     fn covered(&self, cloud: Cloud) -> Result<BTreeSet<String>> {
         let mut out = BTreeSet::new();
         for record in self.store.records()?.into_iter().filter(|r| r.cloud == Some(cloud)) {
             let path = self.store.run_dir(&record.name)?.join("terraform.tfstate");
-            match std::fs::read_to_string(&path) {
-                Ok(text) => {
-                    if let Ok(state) = serde_json::from_str(&text) {
-                        tags::instances_in_state(&state, &mut out);
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
-            }
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(Error::io(&path, "read")(e)),
+            };
+            let state = serde_json::from_str(&text).map_err(|e| Error::io(&path, "read")(e.into()))?;
+            tags::instances_in_state(&state, &mut out);
         }
         Ok(out)
     }

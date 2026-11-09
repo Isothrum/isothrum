@@ -47,6 +47,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   live ones included, during an update. Both steps now fail (`tool_failed`) and act on nothing,
   as attach and detach already did.
 
+- **A recorded run's Terraform state that doesn't parse fails the orphan sweep.**
+  `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
+  listed as orphans; it now fails with `io`, as it does for a state it can't read.
+
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
