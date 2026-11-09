@@ -9,6 +9,30 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Highlights
+
+The next release is a **major** one: it removes and changes public API (every such entry below
+starts with **Breaking:**). [docs/migrating-to-2.0.md](docs/migrating-to-2.0.md) says what to
+change.
+
+- **Breaking, for embedders:** public API nothing used is gone (the `Hooks` port, most of
+  `isothrum-machine`, test-double and builder leftovers), the process port lives at the crate root,
+  and `park`, `attach` and `detach` take the operation's options.
+- **Breaking, for the command line:** `isothrum shell` becomes `isothrum console <machine>`,
+  `--ssh-jump` is taken by `up` only, and `attach` no longer stands up an ad-hoc box.
+- **Breaking, for event readers:** an event's `run` and `op` can be absent (an `error` outside an
+  operation), and the `hook_failed` warning is gone.
+- **New operations:** `update` (bring a running run up to date with its regenerated manifest),
+  `retire` and `console`; `isothrum completions`.
+- **CI-ready command line:** Ctrl-C and SIGTERM stop the tools and exit 130/143 with a `cancelled`
+  error; with `--json` every failure is an event; a step's timeout counts time without progress.
+- **Corporate environments:** proxy and CA settings reach an elevated Hyper-V session and a
+  containerised Terraform; an owner-only home on Windows; the user's `TF_PLUGIN_CACHE_DIR` is kept.
+- **Releases you can verify:** signed binaries with SBOM and provenance, `cargo binstall`, CI on
+  every pull request, and documentation organised as tutorial, how-tos, reference and explanation.
+- **Many fixes** where unreadable tool output passed for success (Compose `config` and `ps`,
+  `reap`), and a sensitive output masked in `status`.
+
 ### Fixed
 
 - **Ctrl-C or a cancelled CI job no longer leaves the tools running.** Each tool runs in its own
@@ -148,6 +172,21 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
+  macOS (arm64, x86_64) and Windows (x86_64) on GitHub releases, each archive with the licences of
+  every crate it is built from, plus a CycloneDX SBOM, `SHA256SUMS`, a keyless cosign signature of
+  it and build provenance attestations (`docs/how-to/verify-a-release.md`).
+  `cargo binstall isothrum-cli` installs them.
+- **CI on every push and pull request**: clippy and the tests on Linux, macOS and Windows, the
+  docs, the quality ratchet, `cargo deny`, `cargo machete`, typos, `cargo semver-checks`, the
+  MSRV and the WebAssembly build. Every workflow's actions are pinned to commits; Dependabot
+  proposes updates.
+- **Documentation** organised by purpose (`docs/README.md`): a tutorial, how-tos (CI, proxies and
+  CAs, Hyper-V without admin rights, moving the home, offline use, cost controls, SSH keys), the
+  state layout, the event stream, the supported tool versions, the architecture and the security
+  model; the policies (what is stable, run manifest versions, MSRV, supported releases); a README
+  per crate; SECURITY.md, CONTRIBUTING.md, SUPPORT.md and the Code of Conduct.
+
 - **With `--json`, every failure is an `error` event.** A failure before any operation began (a
   folder with no manifest, a value missing, an option clap refuses) was printed as text on
   standard error; it is now an `error` event on standard output (code `usage` for a command line
@@ -232,7 +271,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   the program, and each request carries the session's random token and its number, without which
   the broker deletes it unrun. Only a broker of this release reads them.
 
-- **A step's timeout counts time without progress, not its total time.** A docker-vm lab's
+- **Breaking:** **A step's timeout counts time without progress, not its total time.** A docker-vm lab's
   `docker compose up --pull missing` pulling a 1.1 GB image through a slow VM network was still
   downloading when its 30-minute step was stopped. A step's `timeout_s` (and every limit the
   runner gives its own tool calls) is now the time it may go without progress: a new output line,
@@ -247,47 +286,47 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `timeout` (`{"kind": "no_progress", "after_s": 1800, "last_line": "…"}`, or
   `{"kind": "ceiling", "after_s": 21600}`), secrets masked.
 
-- **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
+- **Breaking:** **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
   run's folder.
-- **`Running::attach(pick, opts, events)` and `Running::detach(machine, opts, events)` take the
+- **Breaking:** **`Running::attach(pick, opts, events)` and `Running::detach(machine, opts, events)` take the
   operation's options** (secrets and params an attach or detach that changes the run needs; pass
   `RunOptions::new()` for none), with the access machine's choice as an `AccessPick`, in the
   order `retire` and `provision` take theirs.
-- **`Running::park(mode, opts, events)` takes the operation's options**, as `down` and `retire`
+- **Breaking:** **`Running::park(mode, opts, events)` takes the operation's options**, as `down` and `retire`
   do (pass `RunOptions::new()` for none). It ran on empty options: a run recorded under another
   host label was parked anyway (now `running_elsewhere`), and its steps had no params given.
   `isothrum park` takes `--param`, `--secret-from-env`, `--host-label` and `--provider`, as
   `down` does. Its SSH goes through the jump the run recorded at `up`, as every later
   operation's does.
-- **`isothrum` takes `--ssh-jump` on `up` only.** Every command that runs an operation accepted
+- **Breaking:** **`isothrum` takes `--ssh-jump` on `up` only.** Every command that runs an operation accepted
   it, but only an `up` that starts the run reads it (it is recorded; later operations go the
   same way): given anywhere else it did nothing. `RunOptions::ssh_jump` says so.
-- **`RunnerConfig::new` honours the user's Docker context.** It started processes with
+- **Breaking:** **`RunnerConfig::new` honours the user's Docker context.** It started processes with
   `SystemProcesses::default()`, which never read the Docker CLI's config, so a runner built with
   it didn't drop `DOCKER_HOST` and `DOCKER_CONTEXT` for a context the user picked.
   `SystemProcesses::default()` now reads `$DOCKER_CONFIG/config.json`, else
   `~/.docker/config.json`; `SystemProcesses::new` and `SystemProcesses::for_host` are gone (use
   `SystemProcesses::default()`).
 
-- **`isothrum-machine`'s `providers::Provider` is Isoloom's `isoloom_manifest::Provider`**,
+- **Breaking:** **`isothrum-machine`'s `providers::Provider` is Isoloom's `isoloom_manifest::Provider`**,
   re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
   provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
 
-- **The process port has one path, the crate root**: `Exit`, `ProcessError` and `OnLine` join
+- **Breaking:** **The process port has one path, the crate root**: `Exit`, `ProcessError` and `OnLine` join
   `ProcessRunner`, `ProcessSpec` and `SystemProcesses` there, and the `process` module is
   internal. The `fake` feature's test doubles are `isothrum_runner::fake::{FakeProcesses, Reply,
   Call}` (were `process::fake::…`), and `Call` is `ProcessSpec` (a type alias): a call is
   recorded as the spec it ran, its fields and `line()` and `env(name)` as before.
-- **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
+- **Breaking:** **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
   `AccessPick::default()` with its `with_*` methods.
 - **`isothrum-machine`'s reasons speak to no particular program**: no "then re-check" or "run
   this program as administrator" ("run elevated").
-- **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
+- **Breaking:** **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
   would mangle, it now refuses an elevated call's standard input.
-- **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
+- **Breaking:** **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
   manifest writes it (`tcp`, `udp`).
 
-- **`plan_json`, `own_files_json` and `choices_json` throw if their JSON can't be written.** Each
+- **Breaking:** **`plan_json`, `own_files_json` and `choices_json` throw if their JSON can't be written.** Each
   had its own stand-in (`[]`, `{}`, a failed plan, else an empty string); they now return
   `Result<String, JsError>`. JavaScript gets the same string as before, and in the case that can't
   happen, an `Error` saying why.
@@ -297,14 +336,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Removed
 
-- The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
+- **Breaking:** The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
   minutes from now, a dotenv state file and a WinRM guest delivery (the next Isoloom release
   removes them from the manifest).
-- **`Running::shell_command`.** The access machine's shell is `Running::console_command` of its
+- **Breaking:** **`Running::shell_command`.** The access machine's shell is `Running::console_command` of its
   name (the `AttachReport`'s `machine`), which starts bash where the machine has it, else sh.
   `isothrum shell` goes with it: use `isothrum console <machine>`.
 
-- **`isothrum-machine` keeps only provider detection.** Its public API is now
+- **Breaking:** **`isothrum-machine` keeps only provider detection.** Its public API is now
   `providers::{detect, id, Provider, ProviderStatus}` (the crate root no longer re-exports
   `Provider` and `ProviderStatus`: import them from `providers`). The download record's format
   goes too (`storage::{Owned, OwnedBox, OwnedImage, load, parse_box_list}`): half a format, its
@@ -314,39 +353,39 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   the record's writing half (`storage::{path, update, Before, image_ids, box_list, claim,
   tracked}`), and the provider helpers `parse_plugins`, `parse_plugin_versions`,
   `version_at_least`, `kvm_problem` and `HYPERV_NEEDS_ADMIN` (still used inside `detect`).
-- **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
+- **Breaking:** **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
   `hook_failed` warning code (gone from the event schema): nothing implemented it. An embedder
   that keeps something beside a run does it around the operation's call.
-- **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
+- **Breaking:** **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
-- **`Serialize` and `Deserialize` on `isothrum-machine`'s `Provider` and `ProviderStatus`**:
+- **Breaking:** **`Serialize` and `Deserialize` on `isothrum-machine`'s `Provider` and `ProviderStatus`**:
   nothing wrote or read either as JSON (an embedder reads the fields, and a provider's wire name
   is `providers::id`).
-- **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
+- **Breaking:** **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
   detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox lab is
   Terraform's.
-- **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
+- **Breaking:** **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's).
-- **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
-- **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
-- **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
+- **Breaking:** **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
+- **Breaking:** **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
+- **Breaking:** **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
-- **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
+- **Breaking:** **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
-- **`isothrum-wasm`'s Rust functions are internal**: `plan`, `bundle_bytes`,
+- **Breaking:** **`isothrum-wasm`'s Rust functions are internal**: `plan`, `bundle_bytes`,
   `bundle_target_bytes`, `own_files` and `choices`, with `Error` and `Result`. Only the
   `#[wasm_bindgen]` exports called them; those stay, as do `Plan`, `File` and `Choices`, the
   shape of the JSON the exports hand out.
-- **`LoopbackPorts` and `HeldPort::new` are internal, and `HostPorts` is sealed.** No embedder
+- **Breaking:** **`LoopbackPorts` and `HeldPort::new` are internal, and `HostPorts` is sealed.** No embedder
   implemented `HostPorts` or named the loopback's: `RunnerConfig::new` installs it, and a test sets
   `RunnerConfig::ports` to the `fake` feature's `FakePorts`.
-- **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
+- **Breaking:** **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
   and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
-- **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),
+- **Breaking:** **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),
   `RunnerConfig::with_clock`, `JsonLines` (an `Events` sink is a closure), `FixedClock` (now the
   crate's own test double), and `this_host` (now internal).
-- **More API nothing used.** In `isothrum-runner`: the `Clock` port (`Clock`, `SystemClock`,
+- **Breaking:** **More API nothing used.** In `isothrum-runner`: the `Clock` port (`Clock`, `SystemClock`,
   `RunnerConfig::clock`: the runner reads the system's clock), `Recorder`, `EVENTS_VERSION` (an
   event's `v`), `Running::path`, and the test doubles' `FakePorts::take`, `FakePorts::answer`,
   `Reply::after` and `FakeProcesses::lines` (read `FakeProcesses::calls`), and `From<Option<i32>>`
@@ -355,7 +394,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `isothrum-machine`: `Provider::ALL`, `Provider::is_remote`, and `ProviderStatus`'s `remote`,
   `hypervisor`, `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` (its
   `reason` says what is missing or too old).
-- **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
+- **Breaking:** **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),
   no `isoloom-access` VM added to a VM lab through Isoloom's Vagrantfile hook (gone from Isoloom's
@@ -371,6 +410,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   and had no release path. Its CI jobs, the installer workflow and its place in the xtask
   dependency rule go with it. The 2026-11-08 fixes made on that copy (the editor's command names,
   the hypervisor choice, UTM's state) are in the desktop repository.
+
+### Security
+
+- **tokio 1.54.1** in `Cargo.lock`, past RUSTSEC-2026-0386 (`AsyncFd`'s constructors; Isothrum
+  doesn't call them). `cargo deny` allows crates.io only, Isoloom's git repository no longer.
 
 ## [1.0.5] — 2026-11-08
 
