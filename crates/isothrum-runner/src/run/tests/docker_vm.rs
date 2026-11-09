@@ -110,7 +110,12 @@ struct Running {
 }
 
 fn local() -> Running {
-    let folder = LabFolder::new("docker-vm", DOCKER_VM);
+    local_with(DOCKER_VM)
+}
+
+/// [`local`] of `manifest`.
+fn local_with(manifest: &str) -> Running {
+    let folder = LabFolder::new("docker-vm", manifest);
     let (engine, fake) = modelled(vagrant);
     let ports = Arc::new(FakePorts::new([]));
     let held: Arc<FakePorts> = Arc::clone(&ports);
@@ -269,6 +274,35 @@ async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
     assert!(console.args[3].contains("label=com.docker.compose.service=web"), "{}", console.args[3]);
     let vm = run.console_command("docker").unwrap();
     assert_eq!(vm.args, ["ssh", "default"], "the VM itself: its define");
+}
+
+/// A console is handed to the embedder, which prints and runs it: it carries nothing the manifest
+/// delivers to a step, while a step into the VM (a retire's) gets every delivery naming it.
+#[tokio::test(start_paused = true)]
+async fn a_console_into_the_vm_carries_no_step_delivery_and_a_retire_does() {
+    const TOKEN: &str = "token-0001-secret";
+    const REGION: &str = "region-0001";
+    let mut m: serde_json::Value = serde_json::from_str(DOCKER_VM).unwrap();
+    let every_step = |var: &str| serde_json::json!([{ "via": "env", "var": var, "steps": ["*"] }]);
+    m["secrets"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "LAB_TOKEN", "kind": "input", "required": false, "sensitive": true, "deliver": every_step("LAB_TOKEN"),
+    }));
+    m["params"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "LAB_REGION", "description": "Where the lab runs.", "set_by": "embedder", "deliver": every_step("LAB_REGION"),
+    }));
+    let l = local_with(&m.to_string());
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    let mut opts = opts();
+    opts.secrets.insert("LAB_TOKEN", SecretValue::new(TOKEN));
+    opts.params.insert("LAB_REGION".into(), REGION.into());
+    run.up(&opts, &Recorder::new()).await.unwrap();
+    let console = run.console_command("web").unwrap();
+    let words = format!("{:?} {:?}", console.args, console.env);
+    assert!(!words.contains(TOKEN) && !words.contains(REGION), "{words}");
+    run.retire("web", &opts, &Recorder::new()).await.unwrap();
+    let rm = l.fake.last("label=com.docker.compose.service=web").unwrap();
+    assert_eq!(rm.args[..3], ["ssh", "default", "-c"]);
+    assert_eq!((rm.env("LAB_TOKEN"), rm.env("LAB_REGION")), (Some(TOKEN), Some(REGION)));
 }
 
 /// Retiring the VM the lab's containers run in is refused: destroying it would take every
