@@ -100,5 +100,6 @@ cargo publish --dry-run -p isothrum-cli
 wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --release
 ```
 
-Today isothrum.com vendors that bundle under `public/wasm/`; the crates.io release above covers
-the Rust crate only. If the bundle is later published to npm it is built from this same crate.
+A site vendors that bundle's JavaScript glue and WebAssembly (`cargo run -p xtask -- wasm
+--copy-to <dir>` copies them into its folder); the crates.io release above covers the Rust crate
+only. If the bundle is later published to npm it is built from this same crate.

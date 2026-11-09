@@ -229,9 +229,9 @@ clippy on three targets (every workspace lint is at deny, so any finding fails i
 `-Dwarnings`, `quality`, msrv, features, fuzz-check and the tests; `--deep` adds fuzz and mutants.
 The release gate (`.github/workflows/gate.yml`) runs clippy with `-D warnings` too.
 
-The WebAssembly engine keeps its npm name; a site serves `web/pkg/isothrum_wasm.js` and
-`isothrum_wasm_bg.wasm` from its `public/wasm/` (`cargo run -p xtask -- wasm --website <dir>`
-copies them there).
+The WebAssembly engine keeps its npm name; a page serves `web/pkg/isothrum_wasm.js` and
+`isothrum_wasm_bg.wasm` (`cargo run -p xtask -- wasm --copy-to <dir>` copies them into a folder
+of yours).
 
 ## Licence
 

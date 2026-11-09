@@ -1,4 +1,4 @@
 target/
-# wasm-pack output, built and copied into the website
+# wasm-pack output (`cargo run -p xtask -- wasm`)
 web/
 node_modules/

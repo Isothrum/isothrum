@@ -7,8 +7,8 @@
 //!   under `target/real-run/`; `real-run cloud <cloud>` runs solo-web on a cloud account whose
 //!   credentials are in the environment (up, status, check, then down and reap whatever
 //!   happened);
-//! - `wasm`: the editor's engine built for the browser (`web/pkg/`), and with `--website <dir>`
-//!   copied into the site's `public/wasm/`;
+//! - `wasm`: the editor's engine built for the browser (`web/pkg/`), and with `--copy-to <dir>`
+//!   the files a page serves copied into that folder;
 //! - `quality`: the ratchet, the clean-code counts per crate against `quality-baseline.json`;
 //! - `test`: the tests under cargo-nextest, then the doctests;
 //! - `msrv` and `features`: every crate checked with its declared minimum Rust, and with every

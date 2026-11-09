@@ -160,6 +160,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
   manifest writes it (`tcp`, `udp`).
 
+- **`cargo run -p xtask -- wasm --copy-to <dir>`** replaces `--website <dir>`: it copies the
+  files a page serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into the folder given, not
+  into a site's `public/wasm/`.
+
 ### Removed
 
 - The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
