@@ -2,6 +2,11 @@
 //! folder that every folder and file under it inherits (its runs, its SSH key, the plugin cache).
 //! Set with `icacls` (in every Windows), since this crate makes no FFI call.
 //!
+//! `whoami` and `icacls` run here directly, not through the [`crate::ProcessRunner`] port: they
+//! make the home safe when the runner is built ([`crate::Runner::new`], synchronous, before any
+//! operation and its port), they are part of every Windows, and a stand-in for them would let a
+//! runner start in a home nobody made owner-only.
+//!
 //! A home inside the user's profile (`~/.isothrum`, the default) needs none: the profile's own
 //! ACL (the account, SYSTEM, Administrators) is what its new folders inherit. Elsewhere (a
 //! `D:\isothrum`, whose ACL lets every local account read) the home gets that same ACL, protected

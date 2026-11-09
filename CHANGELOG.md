@@ -203,7 +203,7 @@ change.
   every crate it is built from, plus a CycloneDX SBOM, `SHA256SUMS`, a keyless cosign signature of
   it and build provenance attestations (`docs/how-to/verify-a-release.md`).
   `cargo binstall isothrum-cli` installs them.
-- **CI on every push and pull request**: clippy and the tests on Linux, macOS and Windows, the
+- **CI on every push to `main` and every pull request**: clippy and the tests on Linux, macOS and Windows, the
   docs, the quality ratchet, `cargo deny`, `cargo machete`, typos, `cargo semver-checks`, the
   MSRV and the WebAssembly build. Every workflow's actions are pinned to commits; Dependabot
   proposes updates.
@@ -249,7 +249,9 @@ change.
   its user (`ssh_user_<machine>`, else `ssh_user`, else root), through the run's SSH settings.
   On Compose: `docker compose exec` of the service. On Vagrant: `vagrant ssh` of the define. A
   Compose service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) goes into that VM,
-  then into the service's container. Each starts bash where the machine has it, else sh.
+  then into the service's container. A Terraform machine's console and a Compose service's
+  start bash where the machine has it, else sh; a Vagrant VM's is `vagrant ssh`'s, the VM's
+  login shell.
 - `Running::retire(machine, opts, events)` (and `isothrum retire`): takes a machine out of the
   running run ahead of its removal from the manifest, or its move out of the default start, and
   the update after: what that update wouldn't remove itself. A Vagrant VM is destroyed alone

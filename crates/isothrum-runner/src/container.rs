@@ -121,8 +121,10 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
     }
     // `-e NAME` passes each variable by name only, never its value on the command line. The value
     // still rides the container's environment, so while this ephemeral `--rm` container runs its
-    // value is visible via `docker inspect` / `/proc/1/environ` to anyone with Docker-daemon access
-    // (already a host compromise). A `-var-file` mount would avoid even that (reviewed, finding S5).
+    // value is visible via `docker inspect` / `/proc/1/environ` to anyone with Docker-daemon access.
+    // That is accepted: access to the daemon is root on this host already, which reads the
+    // runner's own environment and state files as well. A `-var-file` mount would hide it from
+    // `docker inspect` only.
     for (name, _) in &spec.env {
         args.extend(["-e".into(), name.clone()]);
     }

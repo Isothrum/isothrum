@@ -117,7 +117,8 @@ impl Runner {
         })
     }
 
-    /// Reads and checks the manifest at `manifest`, as run `name` (default: the run's name).
+    /// Reads and checks the manifest at `manifest`, as run `name` (default: the manifest's
+    /// `environment.name`).
     ///
     /// # Errors
     ///

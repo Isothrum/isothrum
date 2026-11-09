@@ -53,7 +53,10 @@
 //! host's ports) and [`Events`] (where events go). [`ProcessRunner`] and [`Events`] are open traits,
 //! since embedders implement them. [`HostPorts`] is sealed: [`RunnerConfig::new`] binds the
 //! loopback itself, and the `fake` feature's `FakePorts` stands in for it in tests, as its
-//! `FakeProcesses` does for the tools.
+//! `FakeProcesses` does for the tools. Two programs run outside [`ProcessRunner`], each for a
+//! reason of its own: Apple's `nc`, the macOS relays' byte pipe for as long as a connection lasts
+//! (not a tool run to its end), and on Windows `whoami` and `icacls`, which make the home
+//! owner-only when the runner is built ([`Runner::new`]), before any operation.
 //!
 //! # Deliveries
 //!

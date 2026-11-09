@@ -20,11 +20,11 @@ The authoritative definition is the JSON Schema committed at
 | `time` | When, in UTC (`YYYY-MM-DDTHH:MM:SSZ`). |
 | `run` | The run's name. |
 | `op` | The operation: `up`, `down`, `park`, `resume`, `check`, `provision`, `attach`, `detach`, `update`, `retire`. |
+| `event` | The kind, below. |
 
 Every event an operation emits has `run` and `op`. They are absent only from an `error` written
 outside an operation: with `--json`, a failure before any operation began (code `usage`, for
 instance) is an `error` event too, so one stream carries every outcome.
-| `event` | The kind, below. |
 
 ## Kinds
 
