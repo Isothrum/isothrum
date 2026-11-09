@@ -15,9 +15,10 @@ use crate::{locate, values};
 pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let (json, human) = (Json(term), Human(term));
     let events: &dyn Events = if cli.json { &json } else { &human };
+    let out = Out { json: cli.json, term, events };
     match &cli.command {
-        Command::Status(run) => status(cli.json, &open(runner, run)?, term).await,
-        Command::Check(op) => check(cli.json, &open(runner, &op.run)?, &options(op, var)?, events, term).await,
+        Command::Status(run) => status(&out, &open(runner, run)?).await,
+        Command::Check(op) => check(&out, &open(runner, &op.run)?, &options(op, var)?).await,
         Command::Provision { op, machine } => {
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
@@ -28,23 +29,20 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
                 network: network.as_deref(),
                 image: image.as_deref(),
             };
-            attach(cli.json, &open(runner, &op.run)?, (pick, &options(op, var)?), events, term).await
+            attach(&out, &open(runner, &op.run)?, pick, &options(op, var)?).await
         }
         Command::Detach { op, machine } => {
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        Command::Console { run, machine } => print_command(cli.json, &open(runner, run)?.console_command(machine)?, term),
-        Command::Events(run) => print_events(cli.json, runner, &open(runner, run)?, term),
+        Command::Console { run, machine } => print_command(&out, &open(runner, run)?.console_command(machine)?),
+        Command::Events(run) => print_events(&out, runner, &open(runner, run)?),
         Command::Reap(args) => reap::run(args, runner, cli.json, term, var).await,
         Command::Key => {
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
-        Command::Lifecycle(command) => {
-            let out = Out { json: cli.json, term, events };
-            lifecycle(command, runner, &out, var).await
-        }
+        Command::Lifecycle(command) => lifecycle(command, runner, &out, var).await,
     }
 }
 
@@ -99,7 +97,8 @@ fn said(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Te
 }
 
 /// The run's status: JSON, or a short table.
-async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
+async fn status(out: &Out<'_>, run: &Running<'_>) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
     let status = run.status().await?;
     if json {
         term.out(&serde_json::to_string(&status)?);
@@ -112,7 +111,8 @@ async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
 }
 
 /// Hot-adds the on-demand access machine, then says where to reach it (JSON, or a line).
-async fn attach(json: bool, run: &Running<'_>, (pick, opts): (AccessPick<'_>, &RunOptions), events: &dyn Events, term: &Term) -> Result<Verdict> {
+async fn attach(out: &Out<'_>, run: &Running<'_>, pick: AccessPick<'_>, opts: &RunOptions) -> Result<Verdict> {
+    let Out { json, term, events } = *out;
     let Ok(report) = run.attach(pick, opts, events).await else {
         return Ok(Verdict::Fail);
     };
@@ -128,7 +128,8 @@ async fn attach(json: bool, run: &Running<'_>, (pick, opts): (AccessPick<'_>, &R
 /// The command that opens a console into a machine (`console`): one line to paste in a POSIX
 /// shell ([`ShellCommand::sh_line`]: its folder, its variables, each word quoted as it needs), or
 /// the `ShellCommand` JSON.
-fn print_command(json: bool, cmd: &ShellCommand, term: &Term) -> Result<Verdict> {
+fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
     if json {
         term.out(&serde_json::to_string(cmd)?);
     } else {
@@ -138,7 +139,8 @@ fn print_command(json: bool, cmd: &ShellCommand, term: &Term) -> Result<Verdict>
 }
 
 /// The run's checks: a pass only when every one passed.
-async fn check(json: bool, run: &Running<'_>, opts: &RunOptions, events: &dyn Events, term: &Term) -> Result<Verdict> {
+async fn check(out: &Out<'_>, run: &Running<'_>, opts: &RunOptions) -> Result<Verdict> {
+    let Out { json, term, events } = *out;
     let Ok(report) = run.check(opts, events).await else {
         return Ok(Verdict::Fail);
     };
@@ -150,7 +152,8 @@ async fn check(json: bool, run: &Running<'_>, opts: &RunOptions, events: &dyn Ev
 }
 
 /// The run's recorded events, oldest first: JSON lines, or a line each for a person.
-fn print_events(json: bool, runner: &Runner, run: &Running<'_>, term: &Term) -> Result<Verdict> {
+fn print_events(out: &Out<'_>, runner: &Runner, run: &Running<'_>) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
     for event in runner.events(run.name())? {
         if json {
             term.out(&serde_json::to_string(&event)?);

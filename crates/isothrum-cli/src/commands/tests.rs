@@ -2,7 +2,7 @@
 //! fake Compose engine).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::Parser;
 use isothrum_runner::process::fake::{FakeProcesses, Reply};
@@ -16,37 +16,69 @@ use crate::term::Term;
 use crate::testing::Buf;
 
 const FLAG_PORTAL: &str = include_str!("../../../isothrum-runner/tests/fixtures/flag-portal.run.json");
+const FLAG_PORTAL_ACCESS: &str = include_str!("../../../isothrum-runner/tests/fixtures/flag-portal-access.run.json");
+
+/// Where the fake project's containers are.
+const NONE: u8 = 0;
+const UP: u8 = 1;
+const STOPPED: u8 = 2;
 
 struct Setup {
     _home: tempfile::TempDir,
     run: tempfile::TempDir,
     runner: Runner,
+    fake: Arc<FakeProcesses>,
     term: Term,
     out: Buf,
     err: Buf,
+    /// The environment the command reads (`--secret-from-env`).
+    env: Vec<(&'static str, &'static str)>,
 }
 
 /// A run generated for docker, and a runner whose `docker` is a tiny model of one project.
 fn setup() -> Setup {
+    setup_with(FLAG_PORTAL)
+}
+
+/// [`setup`] with `manifest` as the run's `run.json`.
+fn setup_with(manifest: &str) -> Setup {
     let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let dir = run.path().join(".isoloom/docker");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("run.json"), FLAG_PORTAL).unwrap();
-    let up = Arc::new(AtomicBool::new(false));
-    let fake = FakeProcesses::new(move |call| {
+    std::fs::write(dir.join("run.json"), manifest).unwrap();
+    let state = Arc::new(AtomicU8::new(NONE));
+    let fake = Arc::new(FakeProcesses::new(move |call| {
         let line = call.line();
-        let web = r#"{"Service":"web","State":"running","Publishers":[{"PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"}]}"#;
+        let now = state.load(Ordering::SeqCst);
+        let web = |s: &str| format!(r#"{{"Service":"web","State":"{s}","Publishers":[{{"PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"}}]}}"#);
         match () {
-            () if line.contains(" ps ") => Reply::ok(if up.load(Ordering::SeqCst) { web } else { "" }),
-            () if line.contains(" up --detach ") => Reply::ok(&format!("{}", up.swap(true, Ordering::SeqCst))),
-            () if line.contains(" down --volumes") => Reply::ok(&format!("{}", up.swap(false, Ordering::SeqCst))),
-            () if line.contains(" config --format json") => Reply::ok(r#"{"services":{"web":{},"db":{}}}"#),
+            () if line.contains(" ps --all ") && now == STOPPED => Reply::ok(&web("exited")),
+            () if line.contains(" ps ") && !line.contains(" ps -q ") => Reply::ok(if now == UP { web("running") } else { String::new() }.as_str()),
+            () if line.contains(" ps -q attacker") => Reply::ok("c0ffee"),
+            () if line.contains("--profile access up") => Reply::ok(&format!("attacker from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
+            () if line.contains(" up --detach ") => {
+                state.store(UP, Ordering::SeqCst);
+                Reply::ok(&format!("seeding {}", call.env("CTF_FLAG_MAIN").unwrap_or("no flag")))
+            }
+            () if line.ends_with(" stop") => {
+                state.store(STOPPED, Ordering::SeqCst);
+                Reply::ok("")
+            }
+            () if line.ends_with(" start") => {
+                state.store(UP, Ordering::SeqCst);
+                Reply::ok("")
+            }
+            () if line.contains(" down --volumes") => {
+                state.store(NONE, Ordering::SeqCst);
+                Reply::ok("")
+            }
+            () if line.contains(" config --format json") => Reply::ok(r#"{"services":{"web":{},"db":{},"attacker":{}}}"#),
             () if line.contains("--profile check run") => Reply::ok("isoloom-check: PASS http://web/\nisoloom-check: END 1 passed, 0 failed"),
             () => Reply::ok(""),
         }
-    });
+    }));
     let mut config = RunnerConfig::new(home.path());
-    config.processes = Arc::new(fake);
+    config.processes = Arc::<FakeProcesses>::clone(&fake);
     config.ports = Arc::new(FakePorts::new([41873]));
     let (out, err) = (Buf::default(), Buf::default());
     let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
@@ -54,9 +86,11 @@ fn setup() -> Setup {
         _home: home,
         runner: Runner::new(config).unwrap(),
         run,
+        fake,
         term,
         out,
         err,
+        env: Vec::new(),
     }
 }
 
@@ -68,7 +102,13 @@ impl Setup {
         command_line.extend_from_slice(args);
         command_line.push(&run);
         let cli = Cli::parse_from(command_line);
-        commands::run(&cli, &self.runner, &self.term, &|_| None).await
+        let var = |name: &str| self.env.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
+        commands::run(&cli, &self.runner, &self.term, &var).await
+    }
+
+    /// The last event the command printed (with `--json`).
+    fn last_event(&self) -> serde_json::Value {
+        serde_json::from_str(self.out.take().lines().last().unwrap()).unwrap()
     }
 }
 
@@ -94,7 +134,7 @@ async fn a_lab_goes_up_reports_checks_and_goes_down() {
     assert_eq!(events.iter().filter(|e| e["event"] == "result").count(), 2, "up and check");
 
     assert_eq!(s.run(&["down", "--json"]).await.unwrap(), Verdict::Pass);
-    let last: serde_json::Value = serde_json::from_str(s.out.take().lines().last().unwrap()).unwrap();
+    let last = s.last_event();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("down")));
     assert_eq!(s.run(&["status"]).await.unwrap(), Verdict::Pass);
     assert!(s.out.take().starts_with("flag-portal: absent\n"));
@@ -151,4 +191,88 @@ async fn retiring_an_unknown_machine_says_why() {
     let last: serde_json::Value = serde_json::from_str(s.out.take().lines().last().unwrap()).unwrap();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("error"), Some("retire")));
     assert_eq!(last["code"], "machine_unknown", "{last}");
+}
+
+#[tokio::test]
+async fn a_run_parks_resumes_and_updates() {
+    let s = setup();
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.out.take();
+
+    assert_eq!(s.run(&["park", "--json"]).await.unwrap(), Verdict::Pass);
+    let last = s.last_event();
+    assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("park")));
+    assert_eq!(last["data"]["state"], "parked");
+
+    assert_eq!(s.run(&["resume"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(s.out.take(), "The portal answers at http://localhost:41873/.\n");
+
+    assert_eq!(s.run(&["update", "--json"]).await.unwrap(), Verdict::Pass);
+    let updated = s.last_event();
+    assert_eq!((updated["event"].as_str(), updated["op"].as_str()), (Some("result"), Some("update")));
+}
+
+#[tokio::test]
+async fn provision_runs_the_set_up_again_and_says_when_there_is_none() {
+    let s = setup();
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.err.take();
+    assert_eq!(s.run(&["provision"]).await.unwrap(), Verdict::Fail);
+    assert!(s.err.take().contains("no provision steps"));
+
+    let mut manifest: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let again = serde_json::json!({ "id": "again", "argv": ["docker", "compose", "-p", "${run.name}", "exec", "-T", "web", "true"], "timeout_s": 30 });
+    manifest["lifecycle"]["provision"] = serde_json::json!({ "all": [again], "machine": [] });
+    let with_steps = setup_with(&manifest.to_string());
+    assert_eq!(with_steps.run(&["up"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(with_steps.run(&["provision", "--json"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(with_steps.last_event()["op"], "provision");
+    assert!(
+        with_steps.fake.calls().iter().any(|c| c.line().ends_with(" exec -T web true")),
+        "the provision step ran"
+    );
+}
+
+#[tokio::test]
+async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
+    let mut s = setup_with(FLAG_PORTAL_ACCESS);
+    s.env.push(("MY_FLAG", "flag{from-env}"));
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.out.take();
+    s.err.take();
+
+    let attached = s
+        .run(&["attach", "--network", "lab", "--image", "me/kali", "--secret-from-env", "CTF_FLAG_MAIN=MY_FLAG"])
+        .await;
+    assert_eq!(attached.unwrap(), Verdict::Pass);
+    assert_eq!(s.out.take(), "Attached attacker at 10.30.0.99.\n");
+    let up = s.fake.calls().into_iter().rfind(|c| c.line().contains("--profile access up")).unwrap();
+    assert_eq!(up.env("ISOLOOM_ACCESS_IMAGE"), Some("me/kali"), "the picked image is delivered");
+    assert!(s.err.take().contains("attacker from me/kali"));
+
+    assert_eq!(s.run(&["detach", "--json"]).await.unwrap(), Verdict::Pass);
+    let last = s.last_event();
+    assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("detach")));
+    assert_eq!(last["data"]["machine"], "attacker");
+    assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sf attacker")));
+}
+
+/// `attach`'s `--param` and `--secret-from-env` reach the operation: a value it was given is
+/// masked in what it prints, and a param it refuses fails it.
+#[tokio::test]
+async fn attach_takes_the_params_and_secrets_it_is_given() {
+    let mut s = setup_with(FLAG_PORTAL_ACCESS);
+    s.env.push(("MY_FLAG", "me/kali"));
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.err.take();
+    // The image is the secret's value here: what the attach prints of it is masked.
+    let attached = s.run(&["attach", "--image", "me/kali", "--secret-from-env", "CTF_FLAG_MAIN=MY_FLAG"]).await;
+    assert_eq!(attached.unwrap(), Verdict::Pass);
+    let said = s.err.take();
+    assert!(said.contains("attacker from ***") && !said.contains("me/kali"), "{said}");
+
+    let fresh = setup_with(FLAG_PORTAL_ACCESS);
+    assert_eq!(fresh.run(&["attach", "--param", "ISOLOOM_DERIVED=7"]).await.unwrap(), Verdict::Fail);
+    let refused = fresh.err.take();
+    assert!(refused.contains("error: ") && refused.contains("ISOLOOM_DERIVED"), "{refused}");
 }
