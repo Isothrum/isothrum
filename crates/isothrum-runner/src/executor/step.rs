@@ -1,5 +1,6 @@
 //! One argv step: the command filled in for this host and run, its lines streamed as `log`
-//! events (masked), stopped with everything it started when its time is up.
+//! events (masked), stopped with everything it started once it shows no progress for its time
+//! limit ([`super::progress`]).
 
 use std::time::Duration;
 
@@ -7,11 +8,12 @@ use isoloom_manifest::{Action, Run, Step};
 use regex::Regex;
 
 use super::delivery::step_env;
+use super::progress::{Progress, within};
 use super::{Cx, plan};
 use crate::Result;
 use crate::error::Error;
 use crate::events::Stream;
-use crate::process::{Captured, Exit, ProcessError, ProcessSpec, Tail, capture, capture_echoing};
+use crate::process::{Captured, Exit, ProcessError, ProcessSpec, Tail, capture_echoing};
 use crate::scope::Scope;
 
 /// Runs argv step `step` of list `list`; `observe` sees each line too (a check runner's results).
@@ -82,7 +84,9 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
         None => None,
     };
     let (mut tail, mut lead, mut printed, mut kept_back) = (Tail::default(), None, false, Vec::new());
+    let progress = Progress::new();
     let mut on_line = |stream: Stream, line: &str| {
+        progress.saw(line);
         if stream == Stream::Stderr {
             tail.push(line);
         }
@@ -103,7 +107,9 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
             lead = Some(found);
         }
     };
-    let exit = timed(step, &cx.scope, cx.processes.run(&spec, &mut on_line)).await?;
+    let exit = timed(step, &cx.scope, &progress, cx.processes.run(&spec, &mut on_line))
+        .await
+        .map_err(|e| masked(cx, e))?;
     Ok(Ended {
         exit,
         printed,
@@ -122,16 +128,31 @@ pub(crate) enum Echo {
     Shown,
 }
 
-/// Runs `spec` for the step `id` within `limit`, as a driver's own call: its standard output and
-/// last error lines are kept, its exit status returned (a failure is the caller's to judge). A
-/// missing tool and a timeout are errors.
+/// Runs `spec` for the step `id`, as a driver's own call, until it shows no progress for `limit`
+/// ([`within`]): its standard output and last error lines are kept, its exit status returned (a
+/// failure is the caller's to judge). A missing tool and a timeout are errors.
 pub(crate) async fn call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<Captured> {
+    let progress = Progress::new();
     let mut shown = |stream: Stream, line: &str| {
+        progress.saw(line);
         if echo == Echo::Shown {
             cx.events.log(id, stream, line);
         }
     };
-    within(id, limit, capture_echoing(cx.processes.as_ref(), spec, &mut shown)).await
+    within(id, limit, &progress, capture_echoing(cx.processes.as_ref(), spec, &mut shown))
+        .await
+        .map_err(|e| masked(cx, e))
+}
+
+/// `e`, the last line a timeout quotes masked.
+fn masked(cx: &Cx<'_>, e: Error) -> Error {
+    match e {
+        Error::Timeout { step, timed_out } => Error::Timeout {
+            step,
+            timed_out: timed_out.masked(|l| cx.events.mask(l)),
+        },
+        other => other,
+    }
 }
 
 /// [`call`], failing unless it exits 0: its standard output.
@@ -151,7 +172,9 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
 /// (`lifecycle.status`).
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
     let spec = spec_for(cx, list, step)?;
-    let out = timed(step, &cx.scope, capture(cx.processes.as_ref(), &spec)).await?;
+    let progress = Progress::new();
+    let run = progress.capture(cx.processes.as_ref(), &spec);
+    let out = timed(step, &cx.scope, &progress, run).await.map_err(|e| masked(cx, e))?;
     if !out.succeeded() {
         let reason = why_failed(&out);
         return Err(Error::ToolFailed {
@@ -209,23 +232,14 @@ pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String
     Ok(env)
 }
 
-/// `run` given up after `step`'s time limit in `scope` (dropping it ends the process tree).
-async fn timed<T>(step: &Step, scope: &Scope, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
-    within(step.id.as_str(), Duration::from_secs(plan::limit_s(step, scope)), run).await
-}
-
-/// `run`, for step `id`, given up after `limit` (dropping it ends the process tree): a timeout
-/// and a tool that couldn't run to its end are the step's errors.
-pub(crate) async fn within<T>(id: &str, limit: Duration, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
-    let done = tokio::time::timeout(limit, run).await.map_err(|_| Error::Timeout {
-        step: id.to_owned(),
-        after_s: limit.as_secs(),
-    })?;
-    done.map_err(|e| process_error(id, e))
+/// `run` given up once it shows no progress for `step`'s time limit in `scope`, or at the
+/// ceiling ([`within`]); `progress` is fed by its line handler.
+async fn timed<T>(step: &Step, scope: &Scope, progress: &Progress, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
+    within(step.id.as_str(), Duration::from_secs(plan::limit_s(step, scope)), progress, run).await
 }
 
 /// A tool that couldn't run to its end, as step `step`'s failure.
-fn process_error(step: &str, e: ProcessError) -> Error {
+pub(super) fn process_error(step: &str, e: ProcessError) -> Error {
     match e {
         ProcessError::Missing { program } => Error::ToolMissing {
             step: step.to_owned(),
@@ -247,12 +261,16 @@ const VERDICT_MAX: usize = 300;
 /// boundary.
 fn verdict_of(verdict: &Regex, line: &str) -> Option<String> {
     let found = verdict.find(line)?;
-    let rest = line.get(found.start()..)?.trim_end();
-    if rest.len() <= VERDICT_MAX {
-        return Some(rest.to_owned());
+    Some(cut(line.get(found.start()..)?.trim_end(), VERDICT_MAX))
+}
+
+/// `text`, cut to `max` bytes (at least 3) on a character boundary, `...` included.
+pub(super) fn cut(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_owned();
     }
-    let cut = (0..=VERDICT_MAX - 3).rev().find(|&i| rest.is_char_boundary(i)).unwrap_or(0);
-    Some(format!("{}...", rest.get(..cut).unwrap_or_default()))
+    let end = (0..=max.saturating_sub(3)).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+    format!("{}...", text.get(..end).unwrap_or_default())
 }
 
 /// How many of its last output lines stand in for a failed tool's silent standard error.

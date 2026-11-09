@@ -5,6 +5,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use self::timed_out::TimedOut;
+
+mod timed_out;
+
 /// The stable code of a failure, the same in the Rust API and the event stream (`error.code`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -26,7 +30,8 @@ pub enum ErrorCode {
     ToolFailed,
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
-    /// A step ran out of time and was stopped, with what it started.
+    /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
+    /// and was stopped, with what it started (the `error` event's `timeout` says which).
     Timeout,
     /// The run is already up.
     AlreadyRunning,
@@ -163,13 +168,13 @@ pub enum Error {
         /// Its last error lines, or its exit status (secrets masked).
         reason: String,
     },
-    /// A step ran out of time.
-    #[error("step `{step}` timed out after {after_s}s and was stopped")]
+    /// A step ran out of time: it showed no progress for its limit, or it ran to the ceiling.
+    #[error("step `{step}` {timed_out}")]
     Timeout {
         /// The step.
         step: String,
-        /// Its limit, in seconds.
-        after_s: u64,
+        /// Which limit it ran into.
+        timed_out: TimedOut,
     },
     /// The run is already up.
     #[error("run `{run}` is already running")]

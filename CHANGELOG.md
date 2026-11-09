@@ -164,6 +164,21 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Changed
 
+- **A step's timeout counts time without progress, not its total time.** A docker-vm lab's
+  `docker compose up --pull missing` pulling a 1.1 GB image through a slow VM network was still
+  downloading when its 30-minute step was stopped. A step's `timeout_s` (and every limit the
+  runner gives its own tool calls) is now the time it may go without progress: a new output line,
+  on either stream, that isn't blank and isn't one of the last 64 distinct lines it printed. A
+  stuck pull repeating `36b0bafd7f97 Downloading 1.121GB` (or several layers taking turns) makes
+  none and is stopped at its limit; a step that prints nothing is stopped at its limit from its
+  start, as before. A step that keeps printing new lines stops at a ceiling, six hours after its
+  start (or its own limit, when that is longer): no step stops sooner than before.
+  `Error::Timeout` now holds a `TimedOut` (`NoProgress { after_s, last_line }` or
+  `Ceiling { after_s }`) in place of `after_s`, its message says which (``step `up` showed no
+  progress for 1800s and was stopped; its last line: `…` ``), and the `error` event carries it as
+  `timeout` (`{"kind": "no_progress", "after_s": 1800, "last_line": "…"}`, or
+  `{"kind": "ceiling", "after_s": 21600}`), secrets masked.
+
 - **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
   run's folder.
 - **`Running::attach(pick, opts, events)` and `Running::detach(machine, opts, events)` take the

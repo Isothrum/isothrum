@@ -60,6 +60,14 @@ public key.
 - Before `up` and `resume`, every tool the manifest uses on this host runs its version probe and
   must meet its `min_version` — a stopped Docker engine or an old Vagrant fails here, before
   anything is created (`tool_missing`, `tool_too_old`).
+- A step's `timeout_s` is the time it may go **without progress**: it is stopped (`timeout`) once
+  it printed no new line for that long, from its start or its last new line. A new line is one,
+  on either stream, that isn't blank and isn't one of the last 64 distinct lines it printed: a
+  slow download whose counter still moves runs on, a stuck one repeating `Downloading 1.121GB`
+  is stopped, and a step that prints nothing is stopped at its limit from its start. However
+  much progress it makes, a step stops six hours after its start (or at its own limit, when that
+  is longer). The `error` event's `timeout` says which (`no_progress`, with the last line it
+  printed, or `ceiling`).
 
 ### Drivers
 

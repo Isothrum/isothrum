@@ -105,10 +105,11 @@ impl<'a> Emitter<'a> {
                 code,
                 message: self.mask(&message),
             },
-            EventKind::Error { code, message, step } => EventKind::Error {
+            EventKind::Error { code, message, step, timeout } => EventKind::Error {
                 code,
                 message: self.mask(&message),
                 step,
+                timeout: timeout.map(|t| t.masked(|l| self.mask(l))),
             },
             EventKind::Ready { condition, state, detail } => EventKind::Ready {
                 condition,
@@ -195,10 +196,15 @@ impl<'a> Emitter<'a> {
             Error::ToolMissing { step, .. } | Error::ToolFailed { step, .. } | Error::Timeout { step, .. } => Some(step.clone()),
             _ => None,
         };
+        let timeout = match err {
+            Error::Timeout { timed_out, .. } => Some(timed_out.clone()),
+            _ => None,
+        };
         self.emit(EventKind::Error {
             code: err.code(),
             message: err.to_string(),
             step,
+            timeout,
         });
     }
 }

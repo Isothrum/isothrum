@@ -10,6 +10,7 @@ mod leaks;
 mod lifecycle;
 mod risks;
 mod terraform;
+mod timeouts;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};

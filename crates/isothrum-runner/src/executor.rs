@@ -6,6 +6,7 @@
 
 mod delivery;
 pub(crate) mod plan;
+mod progress;
 mod reconnect;
 pub(crate) mod state_files;
 mod step;
@@ -18,7 +19,8 @@ use std::sync::{Mutex, PoisonError};
 use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
-pub(crate) use step::{Echo, call, call_ok, capture_step, env_of, run_argv, stdin_of, why_failed, within};
+pub(crate) use progress::{Progress, within};
+pub(crate) use step::{Echo, call, call_ok, capture_step, env_of, run_argv, stdin_of, why_failed};
 
 use crate::Result;
 use crate::error::Error;

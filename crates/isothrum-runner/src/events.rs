@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) use emitter::{Emitter, MASK};
 
-use crate::error::ErrorCode;
+use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
 
 /// The event stream's version.
@@ -149,6 +149,9 @@ pub enum EventKind {
         /// The step that failed, when one did.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step: Option<String>,
+        /// Which limit the step ran into, when the code is `timeout`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout: Option<TimedOut>,
     },
 }
 
@@ -280,6 +283,7 @@ mod tests {
             code: ErrorCode::PortInUse,
             message: "m".into(),
             step: None,
+            timeout: None,
         });
         let back: Event = serde_json::from_value(serde_json::to_value(&error).unwrap()).unwrap();
         assert_eq!(back, error);

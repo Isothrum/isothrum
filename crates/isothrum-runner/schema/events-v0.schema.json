@@ -283,6 +283,17 @@
             "null"
           ]
         },
+        "timeout": {
+          "description": "Which limit the step ran into, when the code is `timeout`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimedOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "event": {
           "type": "string",
           "const": "error"
@@ -580,7 +591,7 @@
           "const": "tool_too_old"
         },
         {
-          "description": "A step ran out of time and was stopped, with what it started.",
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
           "type": "string",
           "const": "timeout"
         },
@@ -668,6 +679,58 @@
           "description": "The run's seal failed: it is up, but not sealed, so not ready.",
           "type": "string",
           "const": "not_sealed"
+        }
+      ]
+    },
+    "TimedOut": {
+      "description": "Which limit a step ran into: a timeout's, also the `error` event's `timeout`.\n\nA step's limit (its `timeout_s`) counts the time it shows no progress: progress is an output\nline, on either stream, that isn't blank and isn't one of the last distinct lines it printed\n(a stuck download repeating `Downloading 1.121GB` makes none). A step that prints nothing has\nits limit from its start. A step that keeps making progress still stops at a ceiling: six\nhours from its start, or its limit when that is longer.",
+      "oneOf": [
+        {
+          "description": "It showed no progress for its limit.",
+          "type": "object",
+          "properties": {
+            "after_s": {
+              "description": "The limit, in seconds.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "last_line": {
+              "description": "The last line it printed (secrets masked, cut to 300 bytes); none when it printed\nnothing.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "no_progress"
+            }
+          },
+          "required": [
+            "kind",
+            "after_s"
+          ]
+        },
+        {
+          "description": "It was still making progress at the ceiling.",
+          "type": "object",
+          "properties": {
+            "after_s": {
+              "description": "The ceiling, in seconds from the step's start.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "ceiling"
+            }
+          },
+          "required": [
+            "kind",
+            "after_s"
+          ]
         }
       ]
     }

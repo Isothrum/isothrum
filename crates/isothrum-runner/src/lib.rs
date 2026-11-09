@@ -75,7 +75,11 @@
 //! The runner is **async**, on Tokio, chosen once for the whole crate: every tool runs as an async
 //! process with a time limit (a step's `timeout_s`, else an hour; 25 s for a probe; two minutes
 //! for an action's own Docker calls), and dropping an operation's future ends the
-//! process tree it started. Operations on one run are serialized; operations on different runs
+//! process tree it started. The limit counts the time a tool shows no progress: it is stopped
+//! once it printed no new line for that long (a line, on either stream, that isn't blank and
+//! isn't one of its last distinct lines; from its start when it prints nothing), and at the
+//! latest six hours after its start, or at its limit when that is longer ([`TimedOut`] says
+//! which). Operations on one run are serialized; operations on different runs
 //! run side by side. One exception to "no blocking call in async code": the run's state files (a
 //! record, a lock, the pinned ports, the event log) are a few KB on the local disk, so they are
 //! read and written inline rather than through `spawn_blocking`.
@@ -131,7 +135,7 @@ pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
 pub use clock::rfc3339;
 pub use console::ShellCommand;
-pub use error::{Error, ErrorCode, Result};
+pub use error::{Error, ErrorCode, Result, TimedOut};
 #[cfg(test)]
 pub(crate) use events::Recorder;
 pub use events::{Event, EventKind, Events, ReadyState, StepState, Stream, WarningCode, events_schema};

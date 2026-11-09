@@ -129,12 +129,12 @@ mod tests {
         let other = named(
             Error::Timeout {
                 step: "tools".into(),
-                after_s: 25,
+                timed_out: crate::TimedOut::NoProgress { after_s: 25, last_line: None },
             },
             "x",
             |r| r,
         );
-        assert!(matches!(other, Error::Timeout { after_s: 25, .. }));
+        assert!(matches!(other, Error::Timeout { timed_out, .. } if timed_out.after_s() == 25));
     }
 
     #[test]

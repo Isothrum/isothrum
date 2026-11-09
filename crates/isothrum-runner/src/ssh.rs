@@ -58,7 +58,8 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
             .into_iter()
             .chain([path.display().to_string()]),
     );
-    let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, crate::process::capture(processes, &spec)).await?;
+    let progress = crate::executor::Progress::new();
+    let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, &progress, progress.capture(processes, &spec)).await?;
     let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
     if !out.succeeded() {
         return Err(failed(crate::executor::why_failed(&out)));
