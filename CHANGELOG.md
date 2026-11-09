@@ -11,6 +11,36 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **Ctrl-C or a cancelled CI job no longer leaves the tools running.** Each tool runs in its own
+  process group (a job object on Windows), so SIGINT and SIGTERM reached only `isothrum`, and
+  Terraform or Vagrant kept running. `isothrum` now races its command against SIGINT and SIGTERM
+  (Ctrl-C, Ctrl-Break, the console closed, a log-off or a shutdown on Windows): the operation is
+  dropped, which ends each tool's process tree, and the command exits 130 (SIGINT) or 143
+  (SIGTERM).
+- **An operation cut short says so.** Dropping an operation's future (an embedder's cancel, the
+  command line's Ctrl-C) ended its events mid-stream and left the run `starting` (or `stopping`,
+  …), so the next `up` said it was already running. Its events now end with an `error` whose code
+  is the new `cancelled`, after the `state` move to `failed`; the record says `failed`
+  (`last.code: cancelled`), so the next `up` clears what it left.
+- **The elevated Hyper-V session no longer reads an earlier session's files.** The run's
+  `elevated/` folder kept the `ready`, `exit-<n>` and `out-<n>.log` of the operation before, which
+  the next one read as its own (a broker taken for started, a command for done). A session now
+  clears `elevated/` and works in its own `elevated/<token>/`; the runner deletes `out-<n>.log`
+  and `exit-<n>` once read, and the session's folder when it ends; `exit-<n>` appears whole
+  (renamed into place).
+- **Two starts in one home no longer take the same slot.** Two `up`s at once (two processes)
+  both read the records before either recorded its slot. A start now picks its slot and records it
+  under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick.
+- **Terraform uses the user's `TF_PLUGIN_CACHE_DIR`.** The runner replaced it with its own cache
+  under the home. A cache the user set is now used as it is (neither created nor narrowed); without
+  one, the runs share `<home>/terraform-plugins` as before.
+- **The macOS ESXi relay keeps the user's `no_proxy`.** It replaced it with the loopback alone,
+  so an internal host the user reached directly went to their proxy; it is now the user's
+  `no_proxy` (else `NO_PROXY`) plus `localhost,127.0.0.1`. `http_proxy` is still the relay's (WinRM
+  reaches the guests only through it); `https_proxy` is left as it is.
+- **`--name`'s help no longer defines it by itself.** It now says the default is the environment's
+  name in the manifest.
+
 - **The checks no longer run on a setup machine that is still powering itself off.** Waking the
   controller for the checks asked it over SSH whether it was halting, and took a failed SSH (a
   controller already on its way down) for "not halting": it skipped the boot and the checks then
@@ -118,6 +148,33 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- **With `--json`, every failure is an `error` event.** A failure before any operation began (a
+  folder with no manifest, a value missing, an option clap refuses) was printed as text on
+  standard error; it is now an `error` event on standard output (code `usage` for a command line
+  that makes no sense), so a CI job reads every outcome from one stream.
+- **`docs/reference/`**: `cli.md` (every command and option, written from the clap grammar),
+  `exit-codes.md` (the exit codes, and every error code with its cause and remedy) and
+  `environment.md` (every variable isothrum reads or sets for its tools). Tests fail when the
+  first two drift from the code (`ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli
+  reference` writes them).
+- **`crates/isothrum-runner/schema/status.schema.json`**, the JSON Schema of `isothrum status
+  --json` (`isothrum_runner::status_schema()`), committed beside the event schema and checked for
+  drift the same way (`cargo run -p xtask -- schema` writes both).
+- **`isothrum completions <shell>`** prints a completion script (bash, zsh, fish, PowerShell,
+  elvish); it needs no home.
+- **`ISOTHRUM_LOG` takes filter directives** (`isothrum_runner=debug,warn`), not only a level, and
+  **`ISOTHRUM_LOG_FORMAT=json`** writes one JSON object per trace line.
+- **Error codes `cancelled` and `usage`** (`ErrorCode::Cancelled`, `ErrorCode::Usage`).
+- **`Event::new(seq, run, op, kind)`**: an event an embedder writes itself (a failure no operation
+  reports), timed now.
+- **Corporate networks.** The proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, either
+  case) and the CA bundles (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`) reach the tools
+  of an elevated Hyper-V session; a containerised Terraform (macOS, Proxmox) gets them and
+  `TF_CLI_CONFIG_FILE` by name, with the files they name mounted read-only.
+- **An owner-only home on Windows.** A home outside the user's profile gets a protected DACL (the
+  account, SYSTEM, Administrators) that everything under it inherits, set with `icacls`; a home in
+  the profile keeps the profile's.
+
 - `ProcessSpec::env(name)`: the value a process is given for a variable.
 - `AccessPick::{with_machine, with_network, with_image}`: an `AccessPick` is built from
   `AccessPick::default()` with them.
@@ -163,6 +220,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
 
 ### Changed
+
+- **Breaking: an event's `run` and `op` are optional.** `Event::run` is an `Option<String>` and
+  `Event::op` an `Option<Op>`, absent from the JSON only on an `error` written outside an
+  operation (a command line's usage error, a `status` that failed); the event schema no longer
+  requires them. Every event an operation emits has both.
+- **Breaking: the exit codes 130 and 143.** A command cancelled by SIGINT exits 130, by SIGTERM
+  143 (it was killed by the signal before). 0, 1 and 2 are unchanged.
+- **Breaking: an elevated session's files.** A request's variables are no longer in its
+  `req-<n>.json`: they are in `env-<n>.json`, which the broker reads and deletes before it starts
+  the program, and each request carries the session's random token and its number, without which
+  the broker deletes it unrun. Only a broker of this release reads them.
 
 - **A step's timeout counts time without progress, not its total time.** A docker-vm lab's
   `docker compose up --pull missing` pulling a 1.1 GB image through a slow VM network was still

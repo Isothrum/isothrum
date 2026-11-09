@@ -29,6 +29,12 @@ pub(super) fn owner_only(home: &Path) -> std::io::Result<()> {
     if profile.is_some_and(|p| inside(&home, &p)) {
         return Ok(());
     }
+    protect(&home)
+}
+
+/// Gives `folder` the owner-only DACL, protected from what its parent passes down.
+#[cfg(windows)]
+fn protect(folder: &Path) -> std::io::Result<()> {
     let whoami = std::process::Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output()?;
     let sid = account_sid(&String::from_utf8_lossy(&whoami.stdout)).ok_or_else(|| {
         std::io::Error::other(format!(
@@ -36,7 +42,7 @@ pub(super) fn owner_only(home: &Path) -> std::io::Result<()> {
             String::from_utf8_lossy(&whoami.stderr).trim()
         ))
     })?;
-    let icacls = std::process::Command::new("icacls").arg(&home).args(grants(&sid)).output()?;
+    let icacls = std::process::Command::new("icacls").arg(folder).args(grants(&sid)).output()?;
     if icacls.status.success() {
         Ok(())
     } else {
@@ -112,5 +118,18 @@ mod tests {
                 "/Q"
             ]
         );
+    }
+
+    /// On a real Windows (`cargo test -p isothrum-runner protected`): the folder's ACL lists the
+    /// three grants, none inherited from its parent.
+    #[cfg(windows)]
+    #[test]
+    fn a_protected_folder_keeps_only_its_own_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        protect(dir.path()).unwrap();
+        let out = std::process::Command::new("icacls").arg(dir.path()).output().unwrap();
+        let acl = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(acl.matches("(OI)(CI)(F)").count(), 3, "{acl}");
+        assert!(!acl.contains("(I)"), "nothing inherited: {acl}");
     }
 }
