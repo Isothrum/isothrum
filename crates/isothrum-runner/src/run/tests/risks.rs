@@ -1,7 +1,11 @@
 //! The runtime risks, each pinned by a test that fails on the risky behaviour.
 
 use super::*;
-use crate::{ErrorCode, Park};
+use crate::error::Error;
+use crate::events::Emitter;
+use crate::run::operation::Done;
+use crate::state::{Op, RunState};
+use crate::{ErrorCode, Park, WarningCode};
 
 #[tokio::test]
 async fn a_run_whose_lock_cant_be_taken_never_starts() {
@@ -99,4 +103,52 @@ async fn an_op_enters_the_flight_map_only_under_the_run_lock() {
     drop(held);
     up.await.unwrap();
     assert!(f.runner.in_flight().is_empty(), "the op cleared itself once it finished");
+}
+
+#[tokio::test]
+async fn a_failed_operation_whose_record_cant_be_updated_ends_with_its_own_error() {
+    // The record's I/O error replaced the work's, and the closing state move was never said.
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let events = Recorder::new();
+    let record = f.runner.store.run_dir(run.name()).unwrap().join("record.json");
+    let err = run
+        .operate(Op::Down, &opts(), &events, async |_: &RunOptions, _: &Emitter<'_>| -> crate::Result<Done<()>> {
+            // The record can't be read back, nor written: a folder where it was.
+            std::fs::remove_file(&record).unwrap();
+            std::fs::create_dir(&record).unwrap();
+            Err(Error::NotRunning { run: "flag-portal".into() })
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NotRunning);
+    let kinds = kinds(&events);
+    assert!(
+        kinds.iter().any(|k| matches!(
+            k,
+            EventKind::Warning {
+                code: WarningCode::RecordNotSaved,
+                ..
+            }
+        )),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&EventKind::State {
+            from: RunState::Stopping,
+            to: RunState::Ready
+        }),
+        "{kinds:?}"
+    );
+    assert!(
+        matches!(
+            kinds.last(),
+            Some(EventKind::Error {
+                code: ErrorCode::NotRunning,
+                ..
+            })
+        ),
+        "{kinds:?}"
+    );
 }

@@ -206,6 +206,9 @@ pub enum WarningCode {
     Recovering,
     /// An apply failed and is tried again.
     Retrying,
+    /// An operation that failed couldn't update the run's record either: the operation's own
+    /// error is the one it ends with.
+    RecordNotSaved,
 }
 
 /// Events kept in memory, for tests.

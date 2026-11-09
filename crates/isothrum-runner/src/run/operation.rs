@@ -7,7 +7,7 @@ use tracing::Instrument;
 
 use crate::clock::rfc3339;
 use crate::error::Error;
-use crate::events::{Emitter, EventKind, Events};
+use crate::events::{Emitter, EventKind, Events, WarningCode};
 use crate::options::RunOptions;
 use crate::run::Running;
 use crate::secrets::sensitive_values;
@@ -83,7 +83,16 @@ impl Running<'_> {
         }
         let done = work(opts, emitter).await;
         let code = done.as_ref().err().map(Error::code);
-        let after = self.close_record(op, code, done.as_ref().ok().and_then(|d| d.state))?;
+        let after = match self.close_record(op, code, done.as_ref().ok().and_then(|d| d.state)) {
+            Ok(after) => after,
+            // The work's own failure is the operation's: the record's is said beside it.
+            Err(e) if done.is_err() => {
+                tracing::warn!(error = %e, "the run's record wasn't updated");
+                emitter.warning(WarningCode::RecordNotSaved, &format!("the run's record wasn't updated: {e}"));
+                None
+            }
+            Err(e) => return Err(e),
+        };
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State {
                 from: during,

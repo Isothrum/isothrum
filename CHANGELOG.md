@@ -77,6 +77,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `isothrum reap` (and any operation that has only the record) reopens. `RunRecord::manifest` is
   now set at every `up` and update, with the VMs' boot digests.
 
+- **An operation that failed ends with its own error when the run's record can't be updated.**
+  The record's I/O error replaced the operation's, and the closing `state` event was never
+  emitted. The operation now ends with its own error, after a `record_not_saved` warning (new in
+  the event schema) and its closing `state` event.
+
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the

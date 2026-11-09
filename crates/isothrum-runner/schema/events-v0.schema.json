@@ -523,6 +523,11 @@
           "description": "An apply failed and is tried again.",
           "type": "string",
           "const": "retrying"
+        },
+        {
+          "description": "An operation that failed couldn't update the run's record either: the operation's own\nerror is the one it ends with.",
+          "type": "string",
+          "const": "record_not_saved"
         }
       ]
     },
