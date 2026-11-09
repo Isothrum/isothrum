@@ -199,7 +199,10 @@ async fn a_failed_start_leaves_the_run_failed_with_the_steps_error() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
-    let fail = Arc::new(FakeProcesses::rules(&[(" up --detach ", Reply::fail(1, "Error: pull access denied"))]));
+    let fail = Arc::new(FakeProcesses::rules(&[
+        (" config --format json", Reply::ok(r#"{"services":{}}"#)),
+        (" up --detach ", Reply::fail(1, "Error: pull access denied")),
+    ]));
     let mut config = f.runner.config.clone();
     config.processes = fail;
     let runner = Runner::new(config).unwrap();
@@ -281,4 +284,51 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     assert!(start.line().ends_with(" db web web-routes isoloom-probe-amd64 extra"), "{}", start.line());
     let during: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
     assert!(during.iter().all(|l| !l.contains(" rm ")), "{during:?}");
+}
+
+/// Sets the fake engine's project networks and whether its config can be read.
+fn engine_with(f: &Fixture, networks: &[&str], unreadable_config: bool) {
+    let mut e = f.engine.lock().unwrap_or_else(PoisonError::into_inner);
+    e.networks = networks.iter().map(|&n| n.to_owned()).collect();
+    e.unreadable_config = unreadable_config;
+}
+
+/// A config Compose prints that can't be read fails the free-ports check: its ports would
+/// otherwise pass unchecked. Nothing starts.
+#[tokio::test]
+async fn an_unreadable_config_fails_the_free_ports_check_before_anything_starts() {
+    let f = fixture();
+    engine_with(&f, &[], true);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert!(matches!(&err, crate::Error::ToolFailed { step, .. } if step == "ports-free"), "{err}");
+    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+}
+
+/// The networks the config no longer defines go; one it defines stays.
+#[tokio::test]
+async fn a_stale_network_goes_and_a_defined_one_stays() {
+    let f = fixture();
+    engine_with(&f, &["flag-portal_lab", "flag-portal_old"], false);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.called("docker network rm flag-portal_old"), 1);
+    assert_eq!(f.called("docker network rm flag-portal_lab"), 0);
+}
+
+/// An update whose config can't be read removes no network: read as empty, every live network of
+/// the project would be stale. The step fails (tolerated by the manifest, so a warning).
+#[tokio::test]
+async fn an_update_with_an_unreadable_config_removes_no_network() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    engine_with(&f, &["flag-portal_lab", "flag-portal_old"], true);
+    let events = Recorder::new();
+    run.update(&opts(), &events).await.unwrap();
+    assert_eq!(f.called("docker network rm"), 0, "no network removed");
+    assert!(kinds(&events).iter().any(|k| matches!(
+        k,
+        EventKind::Warning { code: crate::WarningCode::StepTolerated, message } if message.contains("networks it defines")
+    )));
 }

@@ -39,6 +39,10 @@ struct Engine {
     containers: Containers,
     /// How long each check runner takes, by service.
     check_time: Vec<(String, Duration)>,
+    /// The networks labelled as the project's (`docker network ls`).
+    networks: Vec<String>,
+    /// Whether `docker compose config` prints something that isn't its JSON.
+    unreadable_config: bool,
 }
 
 /// A test's runner and its fakes.
@@ -128,6 +132,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
         return Reply::ok(&ps(e.containers, line.contains("--all"), pinned(call)));
     }
     if line.contains(" config --format json") {
+        if e.unreadable_config {
+            return Reply::ok("not json");
+        }
         let published = if call.env("ISOLOOM_PUBLISH_FIXED").is_some() {
             Some(8080)
         } else {
@@ -138,6 +145,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if line.contains(" up --detach ") {
         e.containers = Containers::Up;
         return Reply::ok(&format!(" Container web  Started\nseeding {}", call.env("CTF_FLAG_MAIN").unwrap_or("no flag")));
+    }
+    if line.starts_with("docker network ls ") {
+        return Reply::ok(&e.networks.join("\n"));
     }
     if line.contains("--profile check run") {
         return check_runner(&e, &line);

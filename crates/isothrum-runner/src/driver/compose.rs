@@ -226,11 +226,8 @@ impl Compose {
         rest.extend(["config", "--format", "json"]);
         let args = self.compose_args(cx, &rest)?;
         let config = call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await?;
-        let sidecars = config::sharing_namespace(&config, native).ok_or_else(|| Error::ToolFailed {
-            step: op.as_str().to_owned(),
-            reason: "`docker compose config --format json` printed no config this runner can read, so the services in the machine's namespace are unknown"
-                .to_owned(),
-        })?;
+        let sidecars =
+            config::sharing_namespace(&config, native).ok_or_else(|| config::unreadable(op.as_str(), "the services in the machine's namespace are"))?;
         let mut services = vec![native.to_owned()];
         services.extend(sidecars);
         Ok(services)

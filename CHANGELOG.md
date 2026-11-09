@@ -40,6 +40,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `docker compose config` printed nothing the runner could read, attach and detach took the
   machine alone (no routes, or routes left running); they now fail (`tool_failed`).
 
+- **A Compose config the runner can't read no longer passes for an empty one.** When `docker
+  compose config --format json` printed something that isn't its JSON, `compose.check_ports_free`
+  checked no port (so a taken one surfaced later as Docker's bind error), and
+  `compose.remove_stale_networks` read every network of the project as stale and removed them,
+  live ones included, during an update. Both steps now fail (`tool_failed`) and act on nothing,
+  as attach and detach already did.
+
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the

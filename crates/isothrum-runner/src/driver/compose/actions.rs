@@ -35,7 +35,8 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<(
 }
 
 /// `compose.check_ports_free`: unless the run is up, every host port it publishes (the pins
-/// applied) must be free, and not reserved by another run of this runner starting meanwhile.
+/// applied) must be free, and not reserved by another run of this runner starting meanwhile; a
+/// config that can't be read fails the step rather than pass ports nobody checked.
 /// Run inside the run's lock, right before `up`, so a pinned port taken since it was picked is
 /// caught here rather than as Docker's bind error.
 pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
@@ -45,15 +46,17 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> R
         return Ok(());
     }
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    cx.run.runner.ensure_ports_free(cx.run.name(), config::host_ports(&config))
+    let ports = config::host_ports(&config).ok_or_else(|| config::unreadable(step.id.as_str(), "the host ports it publishes are"))?;
+    cx.run.runner.ensure_ports_free(cx.run.name(), ports)
 }
 
 /// `compose.remove_stale_networks`: the project's networks its Compose files no longer define
-/// (left by an older version of the run), unplugged and removed.
+/// (left by an older version of the run), unplugged and removed. A config that can't be read
+/// fails the step and removes nothing: every network would read as stale, live ones included.
 pub(super) async fn remove_stale_networks(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let env = env_of(cx, "lifecycle.up", step)?;
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    let wanted = config::networks(&config, &c.project(cx)?);
+    let wanted = config::networks(&config, &c.project(cx)?).ok_or_else(|| config::unreadable(step.id.as_str(), "the networks it defines are"))?;
     for net in project_networks(c, cx, step).await? {
         if !wanted.contains(&net) {
             remove_network(cx, step, &net).await?;
