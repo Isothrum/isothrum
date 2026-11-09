@@ -8,7 +8,7 @@ this note covers what changes for Isothrum's own consumers.
 
 ## The run API lost the "lab" vocabulary
 
-Isothrum is a general-purpose runner, so the CTF/courses word "lab" is gone from the
+Isothrum is a general-purpose runner, so the word "lab" is gone from the
 public API:
 
 | 0.x | 1.0 |

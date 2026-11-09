@@ -1,251 +1,108 @@
 # Isothrum
 
-Isothrum runs what [Isoloom](https://github.com/isoloom/isoloom) generates. Isoloom is the
-converter: it reads one spec and writes the native files of every tool (Compose, Vagrant,
-Terraform, cloud-init, Ansible) plus a versioned **run manifest**. Isothrum is the engine that
-executes that manifest — bring a lab up, check it, park and resume it, tear it down — and the
-compiler that turns a drawn lab into an Isoloom spec.
+[![CI](https://github.com/Isothrum/isothrum/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Isothrum/isothrum/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/isothrum-cli.svg)](https://crates.io/crates/isothrum-cli)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-This repository is **libraries and a CLI only**: the apps and UI components built on them live
-in their own repositories, on the crates published from here. Everything here is Apache-2.0.
+Isothrum brings environments up and down: containers with Docker Compose, virtual machines with
+Vagrant, servers and cloud resources with Terraform. It runs what
+[Isoloom](https://github.com/isoloom/isoloom) generates: Isoloom turns one spec into each tool's
+native files and a **run manifest**; Isothrum executes that manifest. `up`, `check`, `park`,
+`resume`, `update` and `down` work the same whatever the target, with one JSON event stream, stable
+error codes and secrets that never reach a command line.
 
-Current version: **1.0.5** (the workspace version, shared by every crate). See
-["Status"](#status) for what is proven by real runs and what is not yet.
-
-## Crates
-
-| Crate | crates.io | What it is |
-|---|---|---|
-| [`isothrum-runner`](https://crates.io/crates/isothrum-runner) | `isothrum-runner` | Executes the run manifest: lifecycle, state and locks, drivers, secrets, checks, the event stream. |
-| [`isothrum-compiler`](https://crates.io/crates/isothrum-compiler) | `isothrum-compiler` | A lab drawn in the editor (machines, the LANs around them, the cables between their ports) becomes an Isoloom spec. |
-| [`isothrum-wasm`](https://crates.io/crates/isothrum-wasm) | `isothrum-wasm` | The compiler plus Isoloom's targets, compiled to WebAssembly for the in-browser editor. The same build runs in a server's JavaScript runtime too. |
-| [`isothrum-machine`](https://crates.io/crates/isothrum-machine) | `isothrum-machine` | Which Vagrant providers (hypervisors) this computer can drive. |
-| [`isothrum-cli`](https://crates.io/crates/isothrum-cli) | `isothrum-cli` | The `isothrum` command-line runner. |
-
-`xtask` and the `fuzz/` targets are not published.
-
-## The runner
-
-The runner reads the run manifest Isoloom writes next to a target's generated files
-(`.isoloom/<target>/run.json`) and **reads nothing else of them**. The manifest carries the
-native commands in order, the documented driver actions, readiness criteria, outputs (addresses,
-host ports, URLs), the check runners, and the slots that inputs and secrets travel through — never
-their values. The runner adds what only it can know: the run's name and private state, one
-operation per run at a time, the values of params and secrets, and the JSON event stream an
-embedder (an app, the `isothrum` CLI) consumes.
-
-The manifest is the cross-repo contract; Isoloom's `isoloom-manifest` crate defines it.
-
-### Lifecycle
-
-`up`, `down`, `park` (`--mode pause|shutdown`, default `shutdown`), `resume`, `update`, `retire`,
-`status`, `check`, `provision`, `attach`, `detach`, `console` and `events`, each on a lab folder
-(its `.isoloom/<target>/run.json`, or `--target` when the lab was generated for several) or on a
-`run.json` given directly. `reap` destroys a cloud's expired runs; `key` prints the runner's SSH
-public key.
-
-- `up` on a running run fails `already_running`; on a parked run it resumes it. Leftovers of an
-  earlier run are removed first (a `leftovers_removed` warning). `--replace` removes whatever
-  exists and starts afresh.
-- A run recorded under another `--host-label` fails `running_elsewhere`.
-- `update` brings a running run up to date with its regenerated manifest: `up`'s steps run again
-  with the params it was started with (a running VM whose boot-time settings changed is restarted
-  first). `retire <machine>` takes a machine out of the running run ahead of its removal from the
-  manifest, for what the update after wouldn't remove itself.
-- `attach` and `detach` hot-add and hot-remove the lab's on-demand access machine; `console
-  <machine>` prints the command that opens a console into any machine of the run.
-- `down`, `park`, `resume`, `check` and `provision` replay the params the run was started with
-  (recorded ones win over any given again). Secret values are never recorded: an operation that
-  delivers them again (`provision`, an `update`) takes them again.
-- Before `up` and `resume`, every tool the manifest uses on this host runs its version probe and
-  must meet its `min_version` — a stopped Docker engine or an old Vagrant fails here, before
-  anything is created (`tool_missing`, `tool_too_old`).
-- A step's `timeout_s` is the time it may go **without progress**: it is stopped (`timeout`) once
-  it printed no new line for that long, from its start or its last new line. A new line is one,
-  on either stream, that isn't blank and isn't one of the last 64 distinct lines it printed: a
-  slow download whose counter still moves runs on, a stuck one repeating `Downloading 1.121GB`
-  is stopped, and a step that prints nothing is stopped at its limit from its start. However
-  much progress it makes, a step stops six hours after its start (or at its own limit, when that
-  is longer). The `error` event's `timeout` says which (`no_progress`, with the last line it
-  printed, or `ceiling`).
-
-### Drivers
-
-One `Driver` per manifest driver (`compose`, `vagrant`, `terraform`), behind a trait; the process
-runner and the host ports are traits too, so tests use fakes and never a real tool. The state
-store is a plain folder under the runner's home: tests give it a temporary one.
-
-- **`compose`** — container labs on the host's Docker (Compose ≥ 2.17.0). Ports are pinned to free
-  loopback ports, or fixed with `ISOLOOM_PUBLISH_FIXED`; every published port is checked free on
-  127.0.0.1 right before `up`, inside the run's lock.
-- **`vagrant`** — VM labs on a local hypervisor (VirtualBox, Hyper-V, VMware, Parallels, UTM,
-  QEMU/libvirt) and on servers (VMware ESXi). The provider is chosen per run (`--provider`) and
-  kept for the run's life; Vagrant ≥ 2.4.0. Vagrant's own state lives in the run's state folder
-  (`VAGRANT_DOTFILE_PATH`), not next to the Vagrantfile. Hyper-V operations elevate once per
-  operation (one UAC prompt) when the account isn't already elevated.
-- **`terraform`** — server and cloud labs (Proxmox, the six clouds, cloud-docker, cloud-services).
-  State is in the run's folder, providers in a shared plugin cache. On macOS, Terraform runs from
-  a digest-pinned `hashicorp/terraform` image; elsewhere the host binary (≥ 1.6).
-
-### Secrets and slots
-
-A slot's value reaches only what its delivery names, never a command line. There are four
-deliveries: `env` (a step's environment: Compose's variables, `ISOLOOM_SECRET_*` or the input's own
-variable for Vagrant), `tf_var` (`TF_VAR_*`, or an entry of one JSON map), `state_file` (an
-owner-only Terraform variable file in the run's state folder, written at `up`, kept for the
-destroy, removed by a successful `down`) and `guest` (over SSH into a machine, for a cloud with
-no secret store; the values pass through an owner-only `guest-<machine>.in` in the run's state
-folder while they are delivered, and a file that can't be removed then fails the delivery).
-Every sensitive value is replaced by `***` in events, logs, error messages and results; a
-sensitive output shows as `***` (in `status` and its JSON too) and the lab's message never
-substitutes it. **No value is stored**, but for those two owner-only files under `runs/<run>/`:
-a `state_file` until the run's successful `down`, a `guest` input while it is delivered. A slot may carry a `default` the
-runner delivers when it has no value (so a lab started without an input, and every resume, still
-comes up). Leak tests assert a value delivered through `env` appears in no file under the home
-and in no event through a whole run, not even in a failed step's error that printed it.
-
-### SSH relay and slots on servers
-
-The runner owns an SSH key (`<home>/ssh/id_ed25519`, made on first use; `isothrum key` prints its
-public half). A run's SSH uses a generated `ssh_config` (the key, the run's `known_hosts`,
-`accept-new`, batch mode); `--ssh-jump user@host` (and any manifest jump host) is handed to every
-connection with `ssh -J`. On macOS a Vagrant-on-ESXi run gets loopback relays to the ESXi host's
-SSH and HTTPS through Apple's `/usr/bin/nc` (macOS Local Network Privacy blocks third-party
-binaries), and an `ovftool` wrapper first on `PATH`. `${run.slot}` is the lowest of 1–99 no other
-live run on the same place (`--host-label`) holds, kept from the first `up` to `down`
-(`slots_full` when none is free).
-
-### The egress seal
-
-`lifecycle.seal` (`{ param, steps }`): once the machines are set up and the ready conditions hold,
-the runner sets the param true and runs the seal steps — a cloud's second Terraform apply that
-closes the internet to its `internet: false` networks at the network layer (AWS route tables,
-Azure NSGs, GCP egress rules, Linode/OCI/DigitalOcean firewalls). A failed seal fails `up`; a
-later operation replays the recorded value; a successful `down` forgets it. For `docker-vm` the
-seal is none — `internet: false` is sealed inside the VM by the containers' own route sidecars.
-
-### Event stream (version 0)
-
-One JSON object per event, with `v`, `seq` (from 1 per operation), `time` (UTC), `run`, `op` and
-`event`: `state`, `step`, `log`, `ready`, `output`, `check`, `warning`, `result`, `error`. Every
-operation ends with exactly one `result` or `error`. Warnings are typed (`leftovers_removed`,
-`recovering`, `retrying`, `saved_state_discarded`, `check_cleanup_failed`, …).
-
-The schema is committed at
-[`crates/isothrum-runner/schema/events-v0.schema.json`](crates/isothrum-runner/schema/events-v0.schema.json),
-so embedders in other languages read the events without the crate. `cargo run -p xtask -- schema`
-regenerates it; a test fails if it drifts.
-
-### Error codes
-
-`manifest_invalid`, `manifest_version`, `unsupported`, `io`, `locked`, `tool_missing`,
-`tool_failed`, `tool_too_old`, `timeout`, `already_running`, `running_elsewhere`, `port_in_use`,
-`not_parkable`, `nothing_to_resume`, `not_running`, `not_ready`, `not_sealed`, `unreachable`,
-`secret_missing`, `param_invalid`, `run_name`, `provider_refused`, `machine_unknown`,
-`slots_full`, `adopt_refused`, `elevation_declined`.
-
-### The runner's home
-
-`<home>` defaults to `$ISOTHRUM_HOME`, else `~/.isothrum`. Each run lives in `<home>/runs/<run>/`:
-`record.json` (the manifest it was last brought up or updated from, target, driver, state,
-non-secret params, start time, last operation), `lock`, `events.jsonl` (trimmed past 4000 lines), and the run's `${run.state_dir}`.
-Files are 0600 and folders 0700 on Unix. Nothing is written in the lab's folder.
-
-## How it depends on Isoloom
-
-`isothrum-runner`, `isothrum-compiler` and `isothrum-wasm` depend on the Isoloom crates
-`isoloom-spec`, `isoloom-targets` and `isoloom-manifest`, from crates.io, at the Isoloom release
-each Isothrum release pairs with (Isoloom keeps its own version numbers):
-
-```toml
-[workspace.dependencies]
-isoloom-manifest = "1.0.9"
-```
-
-The Isoloom crates for a release must therefore be on crates.io before Isothrum is published
-(release Isoloom first). To build against a local Isoloom checkout, patch them in a git-ignored
-`.cargo/config.toml` (`[patch.crates-io]`, each crate's `path`). See
-[PUBLISHING.md](PUBLISHING.md) for the full flow.
+It is for teams that want reproducible test, demo or training environments on a laptop, a server
+or a cloud account, and for CI pipelines that need one for the length of a job. It is a command
+line (`isothrum`) and Rust libraries to embed in your own program.
 
 ## Install
 
-The `isothrum` CLI:
+**Release binaries** for Linux (x86_64, aarch64; static), macOS (arm64, x86_64) and Windows
+(x86_64) are on the [releases page](https://github.com/Isothrum/isothrum/releases), with SHA-256
+checksums, a Sigstore signature and build provenance:
+[verify a download](docs/how-to/verify-a-release.md).
 
-```
-cargo install isothrum-cli
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), which fetches the release
+binary for your platform:
+
+```sh
+cargo binstall isothrum-cli
 ```
 
-Or build from this checkout:
+From source (Rust 1.90 or later):
 
-```
-cargo build --release -p isothrum-cli   # target/release/isothrum
+```sh
+cargo install isothrum-cli --locked
 ```
 
-Use the runner as a library:
+As a library: `cargo add isothrum-runner` ([crate README](crates/isothrum-runner/README.md)).
 
-```
-cargo add isothrum-runner
-```
+## Requirements
+
+The tools of the targets you run, at the versions the run manifest asks for
+([supported tool versions](docs/reference/tool-versions.md)):
+
+- Docker with Compose 2.17.0 or later, for container targets;
+- Vagrant 2.4.0 or later and a hypervisor (VirtualBox, VMware, Hyper-V, Parallels, libvirt, QEMU,
+  UTM), for VM targets;
+- Terraform 1.6.0 or later (1.11.0 for the cloud targets), for servers and clouds;
+- an OpenSSH client, for targets reached over SSH.
+
+Isothrum checks each one before it starts anything. Isoloom generates the files; Isothrum doesn't
+need it at run time.
+
+Proven by real runs: `docker` (macOS, Linux, Windows); `vagrant` on VirtualBox (macOS), libvirt
+(Linux) and Hyper-V (Windows); `docker-vm` on VirtualBox (macOS); `proxmox` and
+`vagrant/vmware_esxi` from macOS. The cloud targets are generated and validated, not yet run for
+real.
 
 ## Quickstart
 
-Point Isoloom at a lab folder and generate a target, then run it with `isothrum`:
-
-```
-# in the lab folder, with Isoloom installed
-isoloom generate --target docker
-
-# bring it up, check it, tear it down
-isothrum up
-isothrum check
-isothrum down
+```sh
+cd my-env                          # a folder with an isoloom.yml
+isoloom generate --target docker   # writes .isoloom/docker/run.json and the Compose files
+isothrum up                        # start, wait until ready, print the addresses
+isothrum check                     # run the checks: exit 0 when all pass
+isothrum down                      # remove everything the run created
 ```
 
-`isothrum up` reads `.isoloom/docker/run.json`, starts the lab, pins its published ports and
-prints the lab's message with the host ports filled in. `isothrum status` shows the run; `isothrum
-park` / `isothrum resume` stop and restart it keeping its state; `isothrum events` prints the
-recorded event stream. Add `--json` for the events as JSON lines on stdout. Secrets and inputs are
-delivered with `--secret-from-env NAME[=VAR]` (values come only from the environment, never the
-command line) and params with `--param NAME=VALUE`.
+Add `--json` for one JSON event per line. Secrets come from the environment only:
+`--secret-from-env NAME[=VAR]`. The [tutorial](docs/tutorials/first-run.md) walks through a
+first run.
 
-A VM lab adds `--provider`:
+## Documentation
 
-```
-isoloom generate --target vagrant
-isothrum up --provider virtualbox
-```
+[docs/README.md](docs/README.md) is the index: a tutorial, how-to guides (CI, proxies and CAs,
+Hyper-V without admin rights, offline use, cost controls, SSH keys), the reference (commands, exit
+codes, environment variables, events, state) and the architecture and security model.
 
-## Status
+## Crates
 
-- **Proven by real runs:** `docker` (macOS, Linux, Windows — Tier 1); `vagrant` on VirtualBox
-  (macOS), libvirt (Linux) and Hyper-V (Windows); `docker-vm` on VirtualBox (macOS); `proxmox` and
-  `vagrant/vmware_esxi` from macOS against the lab servers.
-- **Generated and validated, not yet run for real:** the six clouds (`cloud-vm`, `cloud-docker`,
-  `cloud-services`) — they need budget-capped accounts.
+| Crate | What it is |
+|---|---|
+| [`isothrum-cli`](crates/isothrum-cli) | The `isothrum` command line. |
+| [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, drivers, secrets, checks, events. |
+| [`isothrum-machine`](crates/isothrum-machine) | Which Vagrant providers (hypervisors) a computer can drive. |
+| [`isothrum-compiler`](crates/isothrum-compiler) | A drawn topology becomes an Isoloom spec. |
+| [`isothrum-wasm`](crates/isothrum-wasm) | The compiler and Isoloom's targets in WebAssembly. |
 
-## Development
+All crates share one version. `xtask` and `fuzz/` are not published.
 
-Rust is pinned by `rust-toolchain.toml` (MSRV 1.90). Development tasks are `cargo run -p xtask --`
-commands, so they run the same on macOS, Windows and Linux:
+## Stability
 
-```
-cargo run -p xtask -- test        # cargo-nextest, then the doctests
-cargo run -p xtask -- schema      # regenerate the event schema
-cargo run -p xtask -- quality     # the clean-code ratchet (quality-baseline.json)
-cargo run -p xtask -- wasm        # build the editor engine into web/pkg/
-cargo run -p xtask -- fuzz        # the cargo-fuzz targets
-cargo run -p xtask -- mutants     # mutation testing: the compiler, the executor, the engine readers
-```
+Isothrum follows Semantic Versioning. Within a major version, the Rust API of the published crates,
+the CLI's commands, flags and exit codes, the JSON event and status schemas, the error and warning
+codes and the `record.json` format don't break; CI checks the Rust API with `cargo semver-checks`.
+The details, the run manifest versions each release reads, the MSRV policy and the supported
+releases are in [Policies](docs/policies.md).
 
-The full gate is Isoloom's `cargo xtask check-all --repos isothrum`: fmt, typos, machete, deny,
-clippy on three targets (every workspace lint is at deny, so any finding fails it), `cargo doc` at
-`-Dwarnings`, `quality`, msrv, features, fuzz-check and the tests; `--deep` adds fuzz and mutants.
-The release gate (`.github/workflows/gate.yml`) runs clippy with `-D warnings` too.
+## Security, support and contributing
 
-The WebAssembly engine keeps its npm name; a page serves `web/pkg/isothrum_wasm.js` and
-`isothrum_wasm_bg.wasm` (`cargo run -p xtask -- wasm --copy-to <dir>` copies them into a folder
-of yours).
+- Report a vulnerability privately: [SECURITY.md](SECURITY.md). The security model:
+  [docs/explanation/security-model.md](docs/explanation/security-model.md).
+- Questions and bugs: [SUPPORT.md](SUPPORT.md).
+- Contributions: [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

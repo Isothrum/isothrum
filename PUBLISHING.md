@@ -1,9 +1,8 @@
 # Publishing Isothrum
 
-The Isothrum library crates are released to [crates.io](https://crates.io) so that consumers
-(the apps and sites built on them, and any external user) depend on published versions rather
-than git revisions. That way Isoloom's and Isothrum's history can be squashed at
-1.0 without breaking anyone, and each consumer upgrades on its own schedule.
+The Isothrum crates are released to [crates.io](https://crates.io), so that consumers depend on
+published versions rather than git revisions and upgrade on their own schedule, and the `isothrum`
+binaries to GitHub releases.
 
 Everything here is licensed Apache-2.0.
 
@@ -69,13 +68,23 @@ needs this manual first publish.
 ## Release flow
 
 1. Make sure the Isoloom crates for this release are already on crates.io (see above).
-2. Bump `[workspace.package].version` and, if Isoloom moved, the `isoloom-*` versions in
-   `[workspace.dependencies]`.
-3. Commit, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. The tag runs `.github/workflows/publish-crates.yml`, which passes the release gate
-   (`gate.yml`), then publishes the five crates in order and skips any version already on
-   crates.io (idempotent — safe to re-run).
-5. To publish without a tag, run the **Publish crates** workflow from the Actions tab
+2. Bump `[workspace.package].version` (and the path dependencies' `version` in
+   `[workspace.dependencies]`) and, if Isoloom moved, the `isoloom-*` versions. The version follows
+   [the policies](docs/policies.md): a change that breaks what they call stable is a major
+   (`cargo semver-checks` in CI says so for the Rust API).
+3. Regenerate `Cargo.lock` **without** the local `.cargo/config.toml` patch (move it aside), so it
+   resolves to crates.io, and check `cargo build --locked` passes.
+4. Rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] — <date>` and open a new, empty
+   `[Unreleased]` above it. The release notes are taken from that section.
+5. Commit, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+6. The tag runs two workflows, each behind the release gate (`gate.yml`):
+   - `publish-crates.yml` publishes the five crates in order and skips any version already on
+     crates.io (idempotent, safe to re-run);
+   - `release.yml` checks the tag is the workspace version, builds the `isothrum` binaries (Linux
+     x86_64/aarch64 musl, macOS arm64/x86_64, Windows x86_64), and publishes a GitHub release with
+     the archives, a CycloneDX SBOM, `SHA256SUMS`, its keyless cosign signature and build
+     provenance attestations. Its `release` job runs in the `release` environment.
+7. To publish the crates without a tag, run the **Publish crates** workflow from the Actions tab
    (`workflow_dispatch`).
 
 ### Dry run
