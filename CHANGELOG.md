@@ -139,6 +139,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   that keeps something beside a run does it around the operation's call.
 - **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
+- **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
+  Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
+  a Vagrant provider's). `Provider::is_remote` is ESXi and Proxmox; `Provider::ALL` is every
+  variant.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
 - **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),

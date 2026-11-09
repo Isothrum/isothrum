@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::exec;
 
-/// A Vagrant provider id (the value given to `vagrant up --provider`). The remote providers and
-/// the clouds share the enum but are never detected here.
+/// A Vagrant provider id (the value given to `vagrant up --provider`): a local hypervisor, or a
+/// remote host's (ESXi, Proxmox).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -40,24 +40,10 @@ pub enum Provider {
     VmwareEsxi,
     /// A remote Proxmox VE host.
     Proxmox,
-    /// An AWS account (Terraform, never a local Vagrant provider).
-    Aws,
-    /// An Azure subscription (Terraform).
-    Azure,
-    /// A Google Cloud project (Terraform).
-    Gcp,
-    /// A DigitalOcean account (Terraform).
-    #[serde(rename = "digitalocean")]
-    DigitalOcean,
-    /// A Linode account (Terraform).
-    Linode,
-    /// An Oracle Cloud tenancy (Terraform).
-    Oci,
 }
 
 impl Provider {
-    /// Every provider that is a local or remote Vagrant hypervisor (the clouds are left out: they
-    /// are never detected on this machine).
+    /// Every provider.
     pub const ALL: [Provider; 9] = [
         Provider::Virtualbox,
         Provider::VmwareDesktop,
@@ -83,12 +69,6 @@ impl Provider {
             Provider::Utm => "utm",
             Provider::VmwareEsxi => "vmware_esxi",
             Provider::Proxmox => "proxmox",
-            Provider::Aws => "aws",
-            Provider::Azure => "azure",
-            Provider::Gcp => "gcp",
-            Provider::DigitalOcean => "digitalocean",
-            Provider::Linode => "linode",
-            Provider::Oci => "oci",
         }
     }
 
@@ -96,23 +76,7 @@ impl Provider {
     /// hypervisor).
     #[must_use]
     pub fn is_remote(self) -> bool {
-        matches!(
-            self,
-            Provider::VmwareEsxi
-                | Provider::Proxmox
-                | Provider::Aws
-                | Provider::Azure
-                | Provider::Gcp
-                | Provider::DigitalOcean
-                | Provider::Linode
-                | Provider::Oci
-        )
-    }
-
-    /// Whether the provider is a billed cloud account, as opposed to the user's own server.
-    #[must_use]
-    pub fn is_cloud(self) -> bool {
-        self.is_remote() && !matches!(self, Provider::VmwareEsxi | Provider::Proxmox)
+        matches!(self, Provider::VmwareEsxi | Provider::Proxmox)
     }
 
     /// Whether this provider can run on the current OS at all: local hypervisors are
@@ -135,14 +99,7 @@ impl Provider {
     /// The Vagrant plugin the provider needs, if it is not built in.
     fn plugin(self) -> Option<&'static str> {
         match self {
-            Provider::Virtualbox
-            | Provider::Hyperv
-            | Provider::Aws
-            | Provider::Azure
-            | Provider::Gcp
-            | Provider::DigitalOcean
-            | Provider::Linode
-            | Provider::Oci => None,
+            Provider::Virtualbox | Provider::Hyperv => None,
             Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
             Provider::Parallels => Some("vagrant-parallels"),
             Provider::Libvirt => Some("vagrant-libvirt"),
@@ -602,9 +559,8 @@ mod tests {
     }
 
     #[test]
-    fn remote_and_cloud_are_classified() {
-        assert!(Provider::Proxmox.is_remote() && !Provider::Proxmox.is_cloud());
-        assert!(Provider::Aws.is_remote() && Provider::Aws.is_cloud());
+    fn remote_providers_are_classified() {
+        assert!(Provider::Proxmox.is_remote() && Provider::VmwareEsxi.is_remote());
         assert!(!Provider::Qemu.is_remote());
     }
 
