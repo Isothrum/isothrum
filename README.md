@@ -18,7 +18,7 @@ Current version: **1.0.5** (the workspace version, shared by every crate). See
 |---|---|---|
 | [`isothrum-runner`](https://crates.io/crates/isothrum-runner) | `isothrum-runner` | Executes the run manifest: lifecycle, state and locks, drivers, secrets, checks, the event stream. |
 | [`isothrum-compiler`](https://crates.io/crates/isothrum-compiler) | `isothrum-compiler` | A lab drawn in the editor (machines, the LANs around them, the cables between their ports) becomes an Isoloom spec. |
-| [`isothrum-wasm`](https://crates.io/crates/isothrum-wasm) | `isothrum-wasm` | The compiler plus Isoloom's targets, compiled to WebAssembly for the in-browser editor. The same build runs on isothrum.com's server for its MCP tools. |
+| [`isothrum-wasm`](https://crates.io/crates/isothrum-wasm) | `isothrum-wasm` | The compiler plus Isoloom's targets, compiled to WebAssembly for the in-browser editor. The same build runs in a server's JavaScript runtime too. |
 | [`isothrum-machine`](https://crates.io/crates/isothrum-machine) | `isothrum-machine` | Which Vagrant providers (hypervisors) this computer can drive, and the record format of what a program downloaded for its own operations. |
 | [`isothrum-cli`](https://crates.io/crates/isothrum-cli) | `isothrum-cli` | The `isothrum` command-line runner. |
 
@@ -214,8 +214,8 @@ isothrum up --provider virtualbox
 
 ## Development
 
-Rust is pinned by `rust-toolchain.toml` (MSRV 1.90). Development tasks are `cargo xtask` commands,
-so they run the same on macOS, Windows and Linux:
+Rust is pinned by `rust-toolchain.toml` (MSRV 1.90). Development tasks are `cargo run -p xtask --`
+commands, so they run the same on macOS, Windows and Linux:
 
 ```
 cargo run -p xtask -- test        # cargo-nextest, then the doctests
@@ -223,7 +223,7 @@ cargo run -p xtask -- schema      # regenerate the event schema
 cargo run -p xtask -- quality     # the clean-code ratchet (quality-baseline.json)
 cargo run -p xtask -- wasm        # build the editor engine into web/pkg/
 cargo run -p xtask -- fuzz        # the cargo-fuzz targets
-cargo run -p xtask -- mutants     # mutation testing of the compiler and the runner's executor
+cargo run -p xtask -- mutants     # mutation testing: the compiler, the executor, the engine readers
 ```
 
 The full gate is Isoloom's `cargo xtask check-all --repos isothrum`: fmt, typos, machete, deny,
@@ -231,8 +231,9 @@ clippy on three targets (every workspace lint is at deny, so any finding fails i
 `-Dwarnings`, `quality`, msrv, features, fuzz-check and the tests; `--deep` adds fuzz and mutants.
 The release gate (`.github/workflows/gate.yml`) runs clippy with `-D warnings` too.
 
-The WebAssembly engine keeps its npm name; isothrum.com serves `web/pkg/isothrum_wasm.js` and
-`isothrum_wasm_bg.wasm` from `public/wasm/`.
+The WebAssembly engine keeps its npm name; a site serves `web/pkg/isothrum_wasm.js` and
+`isothrum_wasm_bg.wasm` from its `public/wasm/` (`cargo run -p xtask -- wasm --website <dir>`
+copies them there).
 
 ## Licence
 

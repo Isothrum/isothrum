@@ -14,7 +14,8 @@
 //! - `msrv` and `features`: every crate checked with its declared minimum Rust, and with every
 //!   combination of its features (cargo-hack);
 //! - `fuzz`: the fuzz targets of `fuzz/` (cargo-fuzz), each for a while;
-//! - `mutants`: mutation testing of the compiler and the runner's executor (cargo-mutants).
+//! - `mutants`: mutation testing of the compiler, the runner's executor and its readers of what
+//!   Compose, Vagrant and Terraform answer (cargo-mutants).
 //!
 //! Isoloom's `cargo xtask check-all --repos isothrum` runs them with the other gates. Each task is
 //! a module; `process` runs the tools they drive, `repo` finds the checkout. `workspace` holds the

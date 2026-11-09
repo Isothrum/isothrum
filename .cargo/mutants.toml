@@ -1,5 +1,5 @@
-# cargo-mutants (`cargo run -p xtask -- mutants`): mutation testing of the compiler and the
-# runner's executor.
+# cargo-mutants (`cargo run -p xtask -- mutants`): mutation testing of the compiler, the runner's
+# executor and its readers of what Compose, Vagrant and Terraform answer (xtask/src/mutants.rs).
 #
 # Every mutant that survives is killed by a new test, unless no test can tell it apart from the
 # original (an equivalent mutant): then it is listed here, matched by the name `cargo mutants

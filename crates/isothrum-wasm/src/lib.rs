@@ -1,7 +1,7 @@
 //! The editor's engine, compiled to WebAssembly: a topology (the editor's JSON) becomes an
 //! `isoloom.yml` in Isoloom's format, the files every Isoloom target generates from it, and one
 //! zip to download. Nothing leaves the browser: Isoloom itself produces the Docker, Vagrant and
-//! Terraform files. The same build runs on the website's server for its MCP tools.
+//! Terraform files. The same build runs in a server's JavaScript runtime too.
 //!
 //! The functions JavaScript calls are the `#[wasm_bindgen]` ones ([`plan_json`], [`bundle`],
 //! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists for the

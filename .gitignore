@@ -2,7 +2,3 @@ target/
 # wasm-pack output, built and copied into the website
 web/
 node_modules/
-apps/desktop/src-tauri/target/
-apps/desktop/src-tauri/gen/
-# The editor bundled with the desktop app (npm run editor, from @isothrum/editor)
-apps/desktop/editor/

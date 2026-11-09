@@ -90,7 +90,7 @@ pub struct NetworkView {
 pub struct OutputValue {
     /// Its name.
     pub name: String,
-    /// What it is for (`entry` is the Open button).
+    /// What it is for (`entry`: where a user starts, the address to open).
     pub role: OutputRole,
     /// Whether the value is sensitive.
     pub sensitive: bool,

@@ -35,8 +35,8 @@ impl From<ProjectFile> for File {
 }
 
 /// The project's own files, next to isoloom.yml where its paths point: the appliances'
-/// configurations and the starter scripts of the machines' provisioning steps. What the desktop
-/// app writes with the spec to run it; none for a topology that doesn't compile.
+/// configurations and the starter scripts of the machines' provisioning steps. What a program
+/// writes with the spec to run it; none for a topology that doesn't compile.
 #[must_use]
 pub fn own_files(topology_json: &str) -> Vec<File> {
     compiled(topology_json)
