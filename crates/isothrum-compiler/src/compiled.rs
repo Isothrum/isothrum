@@ -16,12 +16,6 @@ pub struct Compiled {
 }
 
 impl Compiled {
-    /// The spec's text, ready to write to `isoloom.yml`.
-    #[must_use]
-    pub fn yaml(&self) -> &str {
-        &self.yaml
-    }
-
     /// The spec as Isoloom reads it (with where each field is written, for its problems).
     #[must_use]
     pub fn spec(&self) -> &Spec {
@@ -36,7 +30,7 @@ impl Compiled {
         &self.files
     }
 
-    /// The text, the spec and the project's own files.
+    /// The spec's text (ready to write to `isoloom.yml`), the spec and the project's own files.
     #[must_use]
     pub fn into_parts(self) -> (String, Spec, Vec<ProjectFile>) {
         (self.yaml, self.spec, self.files)

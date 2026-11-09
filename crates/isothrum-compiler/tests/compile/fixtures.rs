@@ -5,7 +5,7 @@ use std::path::Path;
 
 use isothrum_compiler::{Topology, compile};
 
-use crate::testing::{Outcome, accepted};
+use crate::testing::{Outcome, accepted, yaml};
 
 /// The drawing in `tests/fixtures/<name>.json`.
 fn fixture(name: &str) -> Outcome<Topology> {
@@ -17,7 +17,7 @@ fn fixture(name: &str) -> Outcome<Topology> {
 /// of `targets` (`docker`, `vagrant`...).
 fn compiled(name: &str, targets: &[&str]) -> Outcome<String> {
     let compiled = accepted(&fixture(name)?)?;
-    let project = isoloom_targets::Lab::parse(compiled.yaml()).map_err(|p| format!("{name}: {p:?}"))?;
+    let project = isoloom_targets::Lab::parse(&yaml(&compiled)).map_err(|p| format!("{name}: {p:?}"))?;
     let (files, skipped) = isoloom_targets::generate_all(&project);
     for target in targets {
         let dir = format!(".isoloom/{target}/");
@@ -26,7 +26,7 @@ fn compiled(name: &str, targets: &[&str]) -> Outcome<String> {
             return Err(format!("{name}: nothing for {target}: {skipped:?}").into());
         }
     }
-    Ok(compiled.yaml().to_owned())
+    Ok(yaml(&compiled))
 }
 
 #[test]

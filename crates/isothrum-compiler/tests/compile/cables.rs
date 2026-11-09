@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Error, compile};
 
-use crate::testing::{Outcome, accepted, cable, ep, octet, three_node};
+use crate::testing::{Outcome, accepted, cable, ep, octet, three_node, yaml};
 
 #[test]
 fn each_cable_is_a_point_to_point_network() -> Outcome {
@@ -87,7 +87,7 @@ fn a_cable_between_two_automatic_routers_carries_nothing() -> Outcome {
     topo.nodes["client"].kind = isothrum_compiler::Kind::Router {};
     topo.nodes["router"].kind = isothrum_compiler::Kind::Router {};
     let c = compile(&topo)?;
-    assert!(!c.spec().networks.contains_key("link-0"), "{}", c.yaml());
+    assert!(!c.spec().networks.contains_key("link-0"), "{}", yaml(&c));
     assert_eq!(c.spec().networks["link-1"].cidr, "10.200.0.8/29");
     Ok(())
 }
@@ -97,6 +97,6 @@ fn a_cable_keeps_its_conditions() -> Outcome {
     let mut topo = three_node()?;
     topo.links[0].tc = serde_json::from_str(r#"{ "delay": "40ms", "loss": 0.5 }"#)?;
     let c = accepted(&topo)?;
-    assert!(c.yaml().contains("tc:\n      delay: 40ms\n      loss: 0.5"), "{}", c.yaml());
+    assert!(yaml(&c).contains("tc:\n      delay: 40ms\n      loss: 0.5"), "{}", yaml(&c));
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Compiled, Error, Lan, ProjectFile, Result, Topology, compile};
 
-use crate::testing::{Outcome, accepted, join, lan, octet, two_lans};
+use crate::testing::{Outcome, accepted, join, lan, octet, two_lans, yaml};
 
 /// A switch running a Cisco OS, as the editor sends it: a node of its own with no networks,
 /// named as the `device` of its VLANs; machines on its ports join the VLANs.
@@ -26,7 +26,7 @@ fn a_cisco_switch_switches_its_vlans() -> Outcome {
     assert_eq!(c.spec().networks["sw1"].switch.as_deref(), Some("sw1"));
     assert!(c.spec().machines["sw1"].networks.is_empty());
     assert_eq!(c.spec().machines["pc1"].networks.keys().collect::<Vec<_>>(), ["sw1.vlan10"]);
-    assert!(c.yaml().contains("appliance: cisco-iol-l2\n      config: configs/sw1.cfg"), "{}", c.yaml());
+    assert!(yaml(&c).contains("appliance: cisco-iol-l2\n      config: configs/sw1.cfg"), "{}", yaml(&c));
     assert_eq!(
         c.files(),
         [ProjectFile {
@@ -77,9 +77,9 @@ fn a_dynamips_router_boots_its_firmware() -> Outcome {
     )?;
     let c = accepted(&topo)?;
     assert!(
-        c.yaml().contains("app:\n      appliance: cisco-dynamips\n      firmware: images/r1.bin"),
+        yaml(&c).contains("app:\n      appliance: cisco-dynamips\n      firmware: images/r1.bin"),
         "{}",
-        c.yaml()
+        yaml(&c)
     );
     Ok(())
 }

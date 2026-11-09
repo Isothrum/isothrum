@@ -143,6 +143,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's). `Provider::is_remote` is ESXi and Proxmox; `Provider::ALL` is every
   variant.
+- **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
+  project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
 - **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),

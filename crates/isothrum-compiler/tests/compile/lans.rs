@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Error, Kind, compile};
 
-use crate::testing::{Outcome, accepted, cable, container, ep, join, lan, node, octet, two_lans};
+use crate::testing::{Outcome, accepted, cable, container, ep, join, lan, node, octet, two_lans, yaml};
 
 #[test]
 fn machines_on_a_lan_take_its_free_addresses() -> Outcome {
@@ -131,15 +131,14 @@ fn a_lan_keeps_its_conditions_and_its_internet() -> Outcome {
     topo.networks["servers"].tc = serde_json::from_str(r#"{ "delay": "20ms", "rate": "10mbit" }"#)?;
     let c = accepted(&topo)?;
     assert!(
-        c.yaml()
-            .contains("servers:\n    cidr: 10.10.2.0/24\n    internet: false\n    tc:\n      delay: 20ms\n      rate: 10mbit\n"),
+        yaml(&c).contains("servers:\n    cidr: 10.10.2.0/24\n    internet: false\n    tc:\n      delay: 20ms\n      rate: 10mbit\n"),
         "{}",
-        c.yaml()
+        yaml(&c)
     );
     assert!(
-        c.yaml().contains("office:\n    cidr: 10.10.1.0/24\n  servers"),
+        yaml(&c).contains("office:\n    cidr: 10.10.1.0/24\n  servers"),
         "internet: true is the default: {}",
-        c.yaml()
+        yaml(&c)
     );
     Ok(())
 }

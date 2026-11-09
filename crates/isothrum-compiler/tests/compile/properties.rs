@@ -11,6 +11,8 @@ use isothrum_compiler::{Endpoint, Error, Kind, Lan, Link, Node, Service, Topolog
 use proptest::prelude::*;
 use proptest::sample::{Index, select};
 
+use crate::testing::yaml;
+
 const IMAGES: &[&str] = &[
     "alpine:3.20",
     "nginx:1.27-alpine",
@@ -232,15 +234,15 @@ proptest! {
     #[test]
     fn a_well_formed_drawing_compiles_to_a_spec_isoloom_accepts(topo in drawing()) {
         let compiled = compile(&topo).map_err(|e| TestCaseError::fail(format!("{e}")))?;
-        let project = isoloom_targets::Lab::parse(compiled.yaml()).map_err(|p| TestCaseError::fail(format!("{p:?}")))?;
+        let project = isoloom_targets::Lab::parse(&yaml(&compiled)).map_err(|p| TestCaseError::fail(format!("{p:?}")))?;
         let problems: Vec<String> = project.problems().iter().map(ToString::to_string).collect();
-        prop_assert!(problems.is_empty(), "{}\n{}", problems.join("\n"), compiled.yaml());
+        prop_assert!(problems.is_empty(), "{}\n{}", problems.join("\n"), yaml(&compiled));
     }
 
     #[test]
     fn any_drawing_compiles_or_says_what_is_wrong_with_the_drawing(topo in any_drawing()) {
         match compile(&topo) {
-            Ok(compiled) => prop_assert!(isoloom_spec::parse(compiled.yaml()).is_ok()),
+            Ok(compiled) => prop_assert!(isoloom_spec::parse(&yaml(&compiled)).is_ok()),
             Err(e @ (Error::Unreadable(_) | Error::PortName { .. } | Error::Yaml(_))) => {
                 prop_assert!(false, "the compiler wrote what Isoloom doesn't read: {e}");
             }

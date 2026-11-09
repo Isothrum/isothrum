@@ -45,9 +45,10 @@
 //!     }"#,
 //! )?;
 //! let compiled = isothrum_compiler::compile(&topology)?;
-//! assert!(compiled.yaml().contains("app:\n      image: nginx:1.27-alpine"));
-//! assert!(compiled.yaml().contains("ports:\n      http:\n        port: 80\n        protocol: http"));
-//! assert_eq!(compiled.spec().machines["user"].os.map(|os| os.to_string()).as_deref(), Some("debian@12"));
+//! let (yaml, spec, _files) = compiled.into_parts();
+//! assert!(yaml.contains("app:\n      image: nginx:1.27-alpine"));
+//! assert!(yaml.contains("ports:\n      http:\n        port: 80\n        protocol: http"));
+//! assert_eq!(spec.machines["user"].os.map(|os| os.to_string()).as_deref(), Some("debian@12"));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 

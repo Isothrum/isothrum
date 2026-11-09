@@ -106,13 +106,18 @@ pub(crate) fn join(topo: &mut Topology, node: &str, lan: &str, octet: Option<u8>
     Ok(())
 }
 
+/// The spec's text, as `isoloom.yml` gets it.
+pub(crate) fn yaml(c: &Compiled) -> String {
+    c.clone().into_parts().0
+}
+
 /// The compiled spec, which Isoloom reads and finds nothing wrong with (`isoloom validate`).
 pub(crate) fn accepted(topo: &Topology) -> Outcome<Compiled> {
     let compiled = compile(topo)?;
-    let project = isoloom_targets::Lab::parse(compiled.yaml()).map_err(|p| format!("Isoloom doesn't read it: {p:?}"))?;
+    let project = isoloom_targets::Lab::parse(&yaml(&compiled)).map_err(|p| format!("Isoloom doesn't read it: {p:?}"))?;
     let problems: Vec<String> = project.problems().iter().map(ToString::to_string).collect();
     if !problems.is_empty() {
-        return Err(format!("{}\n{}", problems.join("\n"), compiled.yaml()).into());
+        return Err(format!("{}\n{}", problems.join("\n"), yaml(&compiled)).into());
     }
     Ok(compiled)
 }
