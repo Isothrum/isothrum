@@ -52,8 +52,7 @@ pub struct Owned {
 /// read would forget everything the program downloaded.
 pub fn load(store: &Path) -> std::io::Result<Owned> {
     match std::fs::read(store) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Owned::default()),
         Err(e) => Err(e),
     }
@@ -85,23 +84,12 @@ mod tests {
     #[test]
     fn box_listings_read_as_name_provider_and_version() {
         let out = "generic/debian12   (virtualbox, 202510.26.0, (amd64))\ngeneric/alpine319 (libvirt, 4.3.12)\nThere are no installed boxes!\nodd (\n";
-        let boxes: Vec<(String, String, String)> = parse_box_list(out)
-            .into_iter()
-            .map(|b| (b.name, b.provider, b.version))
-            .collect();
+        let boxes: Vec<(String, String, String)> = parse_box_list(out).into_iter().map(|b| (b.name, b.provider, b.version)).collect();
         assert_eq!(
             boxes,
             [
-                (
-                    "generic/alpine319".to_owned(),
-                    "libvirt".to_owned(),
-                    "4.3.12".to_owned()
-                ),
-                (
-                    "generic/debian12".to_owned(),
-                    "virtualbox".to_owned(),
-                    "202510.26.0".to_owned()
-                ),
+                ("generic/alpine319".to_owned(), "libvirt".to_owned(), "4.3.12".to_owned()),
+                ("generic/debian12".to_owned(), "virtualbox".to_owned(), "202510.26.0".to_owned()),
             ]
         );
     }
@@ -112,23 +100,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = dir.join("storage.json");
         assert_eq!(load(&store).unwrap(), Owned::default());
-        std::fs::write(
-            &store,
-            r#"{"images":[{"reference":"nginx:1.27","id":"sha256:nginx"}]}"#,
-        )
-        .unwrap();
+        std::fs::write(&store, r#"{"images":[{"reference":"nginx:1.27","id":"sha256:nginx"}]}"#).unwrap();
         let owned = load(&store).unwrap();
         assert_eq!(owned.images.len(), 1);
         assert!(owned.boxes.is_empty());
         std::fs::write(&store, "{not json").unwrap();
-        assert_eq!(
-            load(&store).unwrap_err().kind(),
-            std::io::ErrorKind::InvalidData
-        );
-        assert!(
-            load(&dir).is_err(),
-            "a folder where the file should be is an error, not an empty record"
-        );
+        assert_eq!(load(&store).unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        assert!(load(&dir).is_err(), "a folder where the file should be is an error, not an empty record");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -10,6 +10,10 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Machine-setup domain for Isothrum: detect the Vagrant providers (hypervisors) this computer can drive, and read the record of the images and boxes a program downloaded."
+documentation = "https://docs.rs/isothrum-machine"
+keywords = ["isothrum", "vagrant", "hypervisor", "virtualization"]
+categories = ["virtualization", "development-tools"]
+exclude = ["rustfmt.toml"]
 publish = true
 
 [lints]
