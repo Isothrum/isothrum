@@ -2,7 +2,7 @@
 //! [`ProcessRunner`], which puts each tool in its own process group (or Windows job object) so a
 //! dropped future ends the whole tree it started.
 
-use isothrum_runner::process::ProcessError;
+use isothrum_runner::process::{Exit, ProcessError};
 use isothrum_runner::{ProcessRunner, ProcessSpec, Stream};
 
 /// Runs `program args` and returns everything it printed to standard output, whatever its exit
@@ -16,17 +16,54 @@ pub(crate) async fn read(
     program: &str,
     args: &[&str],
 ) -> Result<String, ProcessError> {
+    read_with_exit(runner, program, args)
+        .await
+        .map(|(out, _, _)| out)
+}
+
+/// Runs `program args` and returns its standard output when it exits 0.
+///
+/// # Errors
+///
+/// Why it didn't answer, in a few words: it couldn't be started, or it failed (its last error
+/// line, else its exit code).
+pub(crate) async fn read_ok(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+) -> Result<String, String> {
+    let (out, last_error, exit) = read_with_exit(runner, program, args)
+        .await
+        .map_err(|e| e.to_string())?;
+    match exit.code {
+        Some(0) => Ok(out),
+        code => Err(last_error.unwrap_or_else(|| match code {
+            Some(code) => format!("it exited with {code}"),
+            None => "it was killed".to_owned(),
+        })),
+    }
+}
+
+/// What `program args` printed to standard output, its last non-empty error line, and its exit.
+async fn read_with_exit(
+    runner: &dyn ProcessRunner,
+    program: &str,
+    args: &[&str],
+) -> Result<(String, Option<String>, Exit), ProcessError> {
     let spec = ProcessSpec::new(program, args.iter().copied());
     let mut out = String::new();
-    runner
+    let mut last_error = None;
+    let exit = runner
         .run(&spec, &mut |stream, line| {
             if stream == Stream::Stdout {
                 out.push_str(line);
                 out.push('\n');
+            } else if !line.trim().is_empty() {
+                last_error = Some(line.trim().to_owned());
             }
         })
         .await?;
-    Ok(out)
+    Ok((out, last_error, exit))
 }
 
 #[cfg(test)]

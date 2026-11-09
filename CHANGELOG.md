@@ -63,6 +63,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
   listed as orphans; it now fails with `io`, as it does for a state it can't read.
 
+- **A Vagrant that can't list its plugins is said once.** When `vagrant plugin list` couldn't
+  run or failed, `isothrum-machine`'s detection read no plugin as installed, so every provider
+  that needs one said its plugin wasn't installed. Each now says that Vagrant couldn't say which
+  plugins it has, with why.
+
 - **The editor's errors say their cause.** A zip that couldn't be written said only "writing the
   zip", and the compiler's `PortName` and `Yaml` errors only what they were doing; their message
   (a `JsError`'s, for the editor) now ends with the cause.

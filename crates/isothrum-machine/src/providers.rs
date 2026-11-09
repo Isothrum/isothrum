@@ -288,13 +288,14 @@ async fn tool_present(runner: &dyn ProcessRunner, program: &str, args: &[&str]) 
     exec::read(runner, program, args).await.is_ok()
 }
 
-/// The Vagrant plugins installed, each with its version when it says one; empty when `vagrant
-/// plugin list` can't run.
-async fn installed_plugins(runner: &dyn ProcessRunner) -> Vec<(String, Option<String>)> {
-    match exec::read(runner, "vagrant", &["plugin", "list"]).await {
-        Ok(out) => parse_plugin_versions(&out),
-        Err(_) => Vec::new(),
-    }
+/// The Vagrant plugins installed, each with its version when it says one; why not when `vagrant
+/// plugin list` doesn't answer.
+async fn installed_plugins(
+    runner: &dyn ProcessRunner,
+) -> Result<Vec<(String, Option<String>)>, String> {
+    exec::read_ok(runner, "vagrant", &["plugin", "list"])
+        .await
+        .map(|out| parse_plugin_versions(&out))
 }
 
 /// How long the VirtualBox liveness probe may take before VirtualBox counts as wedged.
@@ -319,7 +320,13 @@ pub async fn detect(
     let plugins = if vagrant_installed {
         installed_plugins(runner).await
     } else {
-        Vec::new()
+        Ok(Vec::new())
+    };
+    // Vagrant that can't list its plugins says nothing of them: one reason for every provider
+    // that needs one, rather than each plugin "not installed".
+    let (plugins, plugins_unknown) = match plugins {
+        Ok(plugins) => (plugins, None),
+        Err(why) => (Vec::new(), Some(why)),
     };
     let mut statuses = Vec::new();
     for provider in Provider::ALL {
@@ -351,6 +358,7 @@ pub async fn detect(
             plugin,
             plugin_installed,
             plugin_version,
+            plugins_unknown: plugins_unknown.as_deref(),
             needs_admin,
         };
         let reason = unavailable_reason(provider, vagrant_installed, detection);
@@ -386,6 +394,8 @@ struct Detection<'a> {
     plugin_installed: bool,
     /// That plugin's version, when `vagrant plugin list` says one.
     plugin_version: Option<&'a str>,
+    /// Why `vagrant plugin list` didn't answer, when it didn't.
+    plugins_unknown: Option<&'a str>,
     /// Whether this account may not manage Hyper-V (Hyper-V only; the caller's injected answer).
     needs_admin: bool,
 }
@@ -403,6 +413,7 @@ fn unavailable_reason(
         plugin,
         plugin_installed,
         plugin_version,
+        plugins_unknown,
         needs_admin,
     } = detection;
     if !vagrant_installed {
@@ -424,6 +435,10 @@ fn unavailable_reason(
         // Said before the plugin: updating the plugin wouldn't help.
         Some(format!(
             "{name} {version} is too old: {min} or later is needed. Update {name}, then re-check"
+        ))
+    } else if let Some(why) = plugins_unknown.filter(|_| plugin.is_some()) {
+        Some(format!(
+            "Vagrant couldn't say which plugins it has (`vagrant plugin list`: {why})"
         ))
     } else if !plugin_installed {
         plugin.map(|p| format!("Vagrant plugin `{p}` is not installed"))
@@ -482,6 +497,7 @@ mod tests {
                 plugin: Some("vagrant_utm"),
                 plugin_installed: installed,
                 plugin_version: pl,
+                plugins_unknown: None,
                 needs_admin: false,
             };
         assert_eq!(
@@ -563,6 +579,32 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_vagrant_that_cant_list_its_plugins_is_one_reason_not_each_plugin_missing() {
+        let broken = FakeProcesses::rules(&[
+            ("qemu-system", Reply::ok("QEMU 10.0")),
+            ("VBoxManage", Reply::ok("7.1.4")),
+            (
+                "vagrant plugin list",
+                Reply::fail(1, "Vagrant failed to initialize at a very early stage"),
+            ),
+        ]);
+        let statuses = detect(&broken, true, None).await;
+        let qemu = statuses
+            .iter()
+            .find(|s| s.provider == Provider::Qemu)
+            .unwrap();
+        assert_eq!(
+            qemu.reason.as_deref(),
+            Some(
+                "Vagrant couldn't say which plugins it has (`vagrant plugin list`: Vagrant failed to initialize at a very early stage)"
+            )
+        );
+        // A provider built into Vagrant needs no plugin: what Vagrant lists doesn't matter to it.
+        let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);
+        assert!(virtualbox.is_none_or(|s| s.available), "{virtualbox:?}");
+    }
+
     #[test]
     fn hyperv_needs_admin_only_when_the_caller_says_the_account_cannot_manage_it() {
         // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so the injected
@@ -574,6 +616,7 @@ mod tests {
             plugin: None,
             plugin_installed: true,
             plugin_version: None,
+            plugins_unknown: None,
             needs_admin,
         };
         assert_eq!(
