@@ -13,6 +13,15 @@ pub(crate) enum Error {
     /// The runner refused or failed.
     #[error(transparent)]
     Runner(#[from] isothrum_runner::Error),
+    /// A folder the command reads couldn't be read.
+    #[error("{} couldn't be read: {source}", path.display())]
+    Read {
+        /// The folder.
+        path: std::path::PathBuf,
+        /// The OS's reason.
+        #[source]
+        source: std::io::Error,
+    },
     /// Writing the output failed (not because its reader left: that ends nothing).
     #[error("writing the output failed: {0}")]
     Output(#[source] std::io::Error),

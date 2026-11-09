@@ -65,6 +65,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   fails the step (`io`). The README and the crate docs list the four deliveries (`env`, `tf_var`,
   `state_file`, `guest`) and no longer say no value is ever stored: they name the two owner-only
   files, and no longer describe a `dotenv` state file.
+- **`isothrum` says why a run folder's `.isoloom` can't be read.** Any failure to list it (a
+  permission refused, a file in its place) read as "no run manifest: run `isoloom generate`";
+  only a missing folder does now, and any other failure is reported as it is.
 
 - **`docker compose ps` output the runner can't read no longer passes for no container.** When
   `ps --format json` printed something that isn't its JSON, every machine read absent: a resume

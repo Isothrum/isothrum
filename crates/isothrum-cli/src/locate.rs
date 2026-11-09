@@ -22,9 +22,12 @@ pub(crate) fn manifest(run: &Path, target: Option<&str>) -> Result<PathBuf> {
             )))
         };
     }
-    let mut found: Vec<PathBuf> = std::fs::read_dir(&outputs)
-        .map(|entries| entries.flatten().map(|e| e.path().join("run.json")).filter(|p| p.is_file()).collect())
-        .unwrap_or_default();
+    // Only a missing folder means nothing was generated; any other failure is said as it is.
+    let mut found: Vec<PathBuf> = match std::fs::read_dir(&outputs) {
+        Ok(entries) => entries.flatten().map(|e| e.path().join("run.json")).filter(|p| p.is_file()).collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(source) => return Err(Error::Read { path: outputs, source }),
+    };
     found.sort();
     match found.as_slice() {
         [one] => Ok(one.clone()),
@@ -76,6 +79,17 @@ mod tests {
         );
         assert_eq!(manifest(run.path(), Some("docker")).unwrap(), docker);
         assert!(manifest(run.path(), Some("proxmox")).is_err());
+    }
+
+    /// A `.isoloom` that exists but can't be listed (here a file in its place) is said as it is,
+    /// not as nothing generated.
+    #[test]
+    fn an_unreadable_outputs_folder_is_no_missing_manifest() {
+        let run = tempfile::tempdir().unwrap();
+        std::fs::write(run.path().join(".isoloom"), "not a folder").unwrap();
+        let err = manifest(run.path(), None).unwrap_err();
+        assert!(matches!(err, Error::Read { .. }), "{err}");
+        assert!(!err.to_string().contains("isoloom generate"), "{err}");
     }
 
     #[test]

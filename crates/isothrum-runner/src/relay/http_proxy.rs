@@ -243,7 +243,10 @@ impl Peer {
             Peer::Connected(upstream) => Ok(upstream),
             Peer::Waiting(client) => match origin(&target) {
                 Ok(origin) => Ok(Upstream::start(target, origin, client)),
-                Err(_) => Err(Peer::Waiting(client).refuse().await),
+                Err(e) => {
+                    tracing::warn!(error = %e, target = %target, "the proxy couldn't reach the origin; the client is refused");
+                    Err(Peer::Waiting(client).refuse().await)
+                }
             },
         }
     }

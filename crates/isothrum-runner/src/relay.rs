@@ -93,9 +93,13 @@ pub(crate) async fn start(host: String, port: u16) -> std::io::Result<Relay> {
     let task = serve(listener, move |inbound| {
         let host = host.clone();
         async move {
-            if let Ok((mut from, to, _nc)) = connect(&host, port) {
-                let (mut read, mut write) = inbound.into_split();
-                tokio::join!(pump_and_close(&mut read, to), pump(&mut from, &mut write));
+            match connect(&host, port) {
+                Ok((mut from, to, _nc)) => {
+                    let (mut read, mut write) = inbound.into_split();
+                    tokio::join!(pump_and_close(&mut read, to), pump(&mut from, &mut write));
+                }
+                // The client's connection closes unanswered.
+                Err(e) => tracing::warn!(error = %e, host = %host, port, "the relay couldn't start nc to its host"),
             }
         }
     });
@@ -138,11 +142,13 @@ where
 {
     tokio::spawn(async move {
         loop {
-            let Ok((inbound, _)) = listener.accept().await else {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                continue;
-            };
-            tokio::spawn(serve(inbound));
+            match listener.accept().await {
+                Ok((inbound, _)) => drop(tokio::spawn(serve(inbound))),
+                Err(e) => {
+                    tracing::warn!(error = %e, "a relay couldn't accept a connection; it keeps listening");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
         }
     })
 }
