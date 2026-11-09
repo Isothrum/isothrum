@@ -126,7 +126,7 @@ async fn detach_removes_just_the_access_service() {
     let rm = f.fake.last("--profile access rm").expect("the access service is removed");
     assert!(rm.line().contains("rm -sf attacker"), "{}", rm.line());
     assert!(
-        events.events().iter().all(|e| e.op == crate::state::Op::Detach),
+        events.events().iter().all(|e| e.op == Some(crate::state::Op::Detach)),
         "a detach's events, though a retire's work"
     );
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
@@ -267,7 +267,7 @@ async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     run.retire("attacker", &RunOptions::new(), &events).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service is removed");
     assert!(rm.line().contains(" --profile access rm -sf attacker attacker-routes"), "{}", rm.line());
-    assert!(events.events().iter().all(|e| e.op == crate::state::Op::Retire));
+    assert!(events.events().iter().all(|e| e.op == Some(crate::state::Op::Retire)));
     let Some(EventKind::Result { ok: true, data }) = kinds(&events).pop() else {
         panic!("{:?}", kinds(&events))
     };

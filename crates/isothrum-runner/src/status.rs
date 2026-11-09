@@ -13,7 +13,7 @@ use crate::state::RunState;
 use crate::store::RunRecord;
 
 /// A machine's state, as its engine reports it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MachineState {
@@ -45,7 +45,7 @@ impl std::fmt::Display for MachineState {
 }
 
 /// A published port: where a machine's port answers on the host.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct PublishedPort {
     /// The machine's port.
@@ -57,7 +57,7 @@ pub struct PublishedPort {
 }
 
 /// One machine of the manifest, as it stands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct MachineStatus {
     /// Its name.
@@ -73,7 +73,7 @@ pub struct MachineStatus {
 }
 
 /// A network of the run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct NetworkView {
     /// Its name in the spec.
@@ -89,7 +89,7 @@ pub struct NetworkView {
 /// An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its
 /// `Debug`, an event); the runner keeps the value itself for its own use (a guest delivery's
 /// address, masking it in what tools print).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct OutputValue {
     /// Its name.
@@ -134,7 +134,7 @@ impl OutputValue {
 }
 
 /// A run as it stands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Status {
     /// Where it stands.
@@ -149,6 +149,12 @@ pub struct Status {
     pub outputs: Vec<OutputValue>,
     /// The run's message, filled, once the run is ready.
     pub message: Option<String>,
+}
+
+/// The JSON Schema of a run's status (`isothrum status --json`).
+#[must_use]
+pub fn status_schema() -> serde_json::Value {
+    crate::events::titled_schema::<Status>("Isothrum run status")
 }
 
 /// A run that came up (or resumed).

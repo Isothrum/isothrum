@@ -165,13 +165,34 @@ pub struct Event {
     pub seq: u64,
     /// When (`YYYY-MM-DDTHH:MM:SSZ`, UTC).
     pub time: String,
-    /// The run's name.
-    pub run: String,
-    /// The operation.
-    pub op: Op,
+    /// The run's name; absent only on an `error` an embedder wrote before it knew the run (the
+    /// command line given a folder with no manifest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    /// The operation; absent only on an `error` of a command that isn't one (`status`), or that
+    /// failed before it started one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<Op>,
     /// What happened.
     #[serde(flatten)]
     pub kind: EventKind,
+}
+
+impl Event {
+    /// An event an embedder writes itself, timed now: the runner numbers and writes its own. For
+    /// a failure no operation reports, such as a command that couldn't start one (an `error` with
+    /// code `usage`).
+    #[must_use]
+    pub fn new(seq: u64, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+        Event {
+            v: EVENTS_VERSION,
+            seq,
+            time: crate::clock::rfc3339(std::time::SystemTime::now()),
+            run,
+            op,
+            kind,
+        }
+    }
 }
 
 /// Where an operation's events go. Implemented for closures (`|e: &Event| …`).
@@ -246,9 +267,14 @@ impl Events for Recorder {
 /// The JSON Schema of one event.
 #[must_use]
 pub fn events_schema() -> serde_json::Value {
-    let mut schema = serde_json::to_value(schemars::schema_for!(Event)).unwrap_or_default();
+    titled_schema::<Event>("Isothrum runner event, version 0")
+}
+
+/// `T`'s JSON Schema, titled `title`.
+pub(crate) fn titled_schema<T: schemars::JsonSchema>(title: &str) -> serde_json::Value {
+    let mut schema = serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default();
     if let Some(fields) = schema.as_object_mut() {
-        fields.insert("title".to_owned(), serde_json::json!("Isothrum runner event, version 0"));
+        fields.insert("title".to_owned(), serde_json::json!(title));
     }
     schema
 }
@@ -262,8 +288,8 @@ mod tests {
             v: 0,
             seq: 1,
             time: "2026-10-15T12:00:00Z".into(),
-            run: "flag-portal".into(),
-            op: Op::Up,
+            run: Some("flag-portal".into()),
+            op: Some(Op::Up),
             kind,
         }
     }

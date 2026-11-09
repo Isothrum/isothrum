@@ -1,20 +1,22 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{AccessPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+use isothrum_runner::{AccessPick, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, TargetArgs};
 use crate::error::Result;
 use crate::exit::Verdict;
-use crate::term::{Human, Json, Term};
+use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
 use crate::{locate, values};
 
-/// Runs `cli` on `runner`, writing to `term`; `var` reads the environment (for secrets). An
-/// operation's failure has been reported by its own `error` event, so it reads as
-/// [`Verdict::Fail`]; what failed before any event is an error.
-pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+/// Runs `cli` on `runner`, writing to `term` (each event kept in `trail` too); `var` reads the
+/// environment (for secrets). An operation's failure has been reported by its own `error` event,
+/// so it reads as [`Verdict::Fail`]; what failed before any event is an error.
+pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let (json, human) = (Json(term), Human(term));
-    let events: &dyn Events = if cli.json { &json } else { &human };
+    let sink: &dyn Events = if cli.json { &json } else { &human };
+    let traced = Traced { sink, trail };
+    let events: &dyn Events = &traced;
     let out = Out { json: cli.json, term, events };
     match &cli.command {
         Command::Status(run) => status(&out, &open(runner, run)?).await,
@@ -47,8 +49,52 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
+        Command::Completions { shell } => {
+            term.out(&crate::args::completions(*shell));
+            Ok(Verdict::Pass)
+        }
         Command::Lifecycle(command) => lifecycle(command, runner, &out, var).await,
     }
+}
+
+/// The operation `command` runs, when it runs one.
+pub(crate) fn op_of(command: &Command) -> Option<Op> {
+    Some(match command {
+        Command::Lifecycle(Lifecycle::Up { .. }) => Op::Up,
+        Command::Lifecycle(Lifecycle::Down(_)) => Op::Down,
+        Command::Lifecycle(Lifecycle::Park { .. }) => Op::Park,
+        Command::Lifecycle(Lifecycle::Resume(_)) => Op::Resume,
+        Command::Lifecycle(Lifecycle::Update(_)) => Op::Update,
+        Command::Lifecycle(Lifecycle::Retire { .. }) => Op::Retire,
+        Command::Check(_) => Op::Check,
+        Command::Provision { .. } => Op::Provision,
+        Command::Attach { .. } => Op::Attach,
+        Command::Detach { .. } => Op::Detach,
+        Command::Status(_) | Command::Console { .. } | Command::Events(_) | Command::Reap(_) | Command::Key | Command::Completions { .. } => {
+            return None;
+        }
+    })
+}
+
+/// The run `command` names with `--name`, when it does.
+pub(crate) fn run_named(command: &Command) -> Option<&str> {
+    let target = match command {
+        Command::Lifecycle(
+            Lifecycle::Up { op, .. }
+            | Lifecycle::Down(op)
+            | Lifecycle::Park { op, .. }
+            | Lifecycle::Resume(op)
+            | Lifecycle::Update(op)
+            | Lifecycle::Retire { op, .. },
+        )
+        | Command::Check(op)
+        | Command::Provision { op, .. }
+        | Command::Attach { op, .. }
+        | Command::Detach { op, .. } => &op.run,
+        Command::Status(run) | Command::Console { run, .. } | Command::Events(run) => run,
+        Command::Reap(_) | Command::Key | Command::Completions { .. } => return None,
+    };
+    target.name.as_deref()
 }
 
 /// Where a command writes: the terminal (JSON lines with `json`), and its operation's events.
@@ -173,7 +219,8 @@ fn print_events(out: &Out<'_>, runner: &Runner, run: &Running<'_>) -> Result<Ver
         if json {
             term.out(&serde_json::to_string(&event)?);
         } else if let Some(line) = human(&event.kind) {
-            term.out(&format!("{} {:<6} {line}", event.time, event.op.as_str()));
+            let op = event.op.map_or("", Op::as_str);
+            term.out(&format!("{} {op:<6} {line}", event.time));
         }
     }
     Ok(Verdict::Pass)

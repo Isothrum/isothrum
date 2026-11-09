@@ -6,7 +6,7 @@
 use std::io::{ErrorKind, Write};
 use std::sync::{Mutex, PoisonError};
 
-use isothrum_runner::{Event, Events};
+use isothrum_runner::{Event, EventKind, Events, Op};
 
 use crate::error::{Error, Result};
 use crate::text::human;
@@ -53,6 +53,14 @@ impl Term {
         }
     }
 
+    /// `event` as a JSON line on standard output.
+    pub(crate) fn json(&self, event: &Event) {
+        match serde_json::to_string(event) {
+            Ok(text) => self.out(&text),
+            Err(e) => self.err(&format!("warning: an event couldn't be written as JSON: {e}")),
+        }
+    }
+
     /// The first write that failed, once the command is done.
     ///
     /// # Errors
@@ -71,10 +79,66 @@ pub(crate) struct Json<'a>(pub(crate) &'a Term);
 
 impl Events for Json<'_> {
     fn emit(&self, event: &Event) {
-        match serde_json::to_string(event) {
-            Ok(text) => self.0.out(&text),
-            Err(e) => self.0.err(&format!("warning: an event couldn't be written as JSON: {e}")),
+        self.0.json(event);
+    }
+}
+
+/// The last event a command wrote: a failure it reports itself (a cancelled command, one that
+/// failed before its operation began) continues the stream, unless the operation already ended
+/// it with its own `error`.
+#[derive(Debug, Default)]
+pub(crate) struct Trail(Mutex<Option<Last>>);
+
+/// What the trail keeps of the last event.
+#[derive(Debug, Clone)]
+struct Last {
+    seq: u64,
+    run: Option<String>,
+    op: Option<Op>,
+    error: bool,
+}
+
+impl Trail {
+    fn keep(&self, event: &Event) {
+        let last = Last {
+            seq: event.seq,
+            run: event.run.clone(),
+            op: event.op,
+            error: matches!(event.kind, EventKind::Error { .. }),
+        };
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(last);
+    }
+
+    fn last(&self) -> Option<Last> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Whether the last event was an `error`: the failure was said.
+    pub(crate) fn ended_in_error(&self) -> bool {
+        self.last().is_some_and(|l| l.error)
+    }
+
+    /// The event of `kind` that follows the last one: its run and operation, else `run` and `op`.
+    pub(crate) fn next(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+        match self.last() {
+            Some(last) => Event::new(last.seq + 1, last.run, last.op, kind),
+            None => Event::new(1, run, op, kind),
         }
+    }
+}
+
+/// An event sink that keeps the last event in a [`Trail`] before handing it on.
+pub(crate) struct Traced<'a> {
+    /// Where the events go.
+    pub(crate) sink: &'a dyn Events,
+    /// Where the last one is kept.
+    pub(crate) trail: &'a Trail,
+}
+
+impl Events for Traced<'_> {
+    fn emit(&self, event: &Event) {
+        self.trail.keep(event);
+        self.sink.emit(event);
     }
 }
 

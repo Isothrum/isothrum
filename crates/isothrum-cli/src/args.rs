@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 /// Runs what Isoloom generates: the run manifest next to a target's files
 /// (`<run>/.isoloom/<target>/run.json`).
@@ -79,6 +79,13 @@ pub(crate) enum Command {
     /// Print the runner's SSH public key (made when it has none): authorize it where a run's SSH
     /// goes through (a Proxmox node, with `--ssh-jump`).
     Key,
+    /// Print the shell completion script for `shell` (e.g. `isothrum completions bash >
+    /// /etc/bash_completion.d/isothrum`).
+    Completions {
+        /// The shell.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 /// The commands that change the run's life (flattened into [`Command`]: the same grammar).
@@ -207,7 +214,8 @@ pub(crate) struct TargetArgs {
     /// The target whose manifest to run, when the run was generated for several.
     #[arg(long)]
     pub(crate) target: Option<String>,
-    /// The run's name (default: the run's name).
+    /// The name to run it under, so one manifest can run several times side by side (default:
+    /// the environment's name in the manifest).
     #[arg(long)]
     pub(crate) name: Option<String>,
 }
@@ -233,15 +241,42 @@ pub(crate) struct OpArgs {
     pub(crate) provider: Option<String>,
 }
 
+/// The completion script of `shell` for the whole grammar.
+pub(crate) fn completions(shell: clap_complete::Shell) -> String {
+    let mut script = Vec::new();
+    clap_complete::generate(shell, &mut Cli::command(), "isothrum", &mut script);
+    String::from_utf8_lossy(&script).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
-
     use super::*;
 
     #[test]
     fn the_grammar_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn every_shell_completes_every_command() {
+        let asked = Cli::parse_from(["isothrum", "completions", "zsh"]);
+        assert!(matches!(
+            asked.command,
+            Command::Completions {
+                shell: clap_complete::Shell::Zsh
+            }
+        ));
+        for shell in [
+            clap_complete::Shell::Bash,
+            clap_complete::Shell::Zsh,
+            clap_complete::Shell::Fish,
+            clap_complete::Shell::PowerShell,
+        ] {
+            let script = completions(shell);
+            for command in ["up", "down", "status", "reap", "completions"] {
+                assert!(script.contains(command), "{shell}: {command}");
+            }
+        }
     }
 
     #[test]

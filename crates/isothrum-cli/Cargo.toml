@@ -19,16 +19,20 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+clap_complete.workspace = true
 isothrum-runner.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+# `signal`: Ctrl-C and SIGTERM (the console's close events on Windows) cancel the operation.
+tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
+# `env-filter`: `ISOTHRUM_LOG` takes a filter directive; `json`: `ISOTHRUM_LOG_FORMAT=json`.
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
 proptest.workspace = true
+schemars.workspace = true
 tempfile.workspace = true
 
 [lints]

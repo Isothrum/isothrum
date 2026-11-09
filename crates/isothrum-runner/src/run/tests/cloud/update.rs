@@ -44,7 +44,7 @@ async fn an_update_applies_the_regenerated_manifest_with_the_runs_params_and_sta
         "the added machine's step ran"
     );
     assert!(
-        events.events().iter().all(|e| e.op == crate::state::Op::Update),
+        events.events().iter().all(|e| e.op == Some(crate::state::Op::Update)),
         "{:?}",
         events.events().first()
     );

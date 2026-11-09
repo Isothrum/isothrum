@@ -6,7 +6,7 @@ use crate::Result;
 use tracing::Instrument;
 
 use crate::clock::rfc3339;
-use crate::error::Error;
+use crate::error::{Error, ErrorCode};
 use crate::events::{Emitter, EventKind, Events, WarningCode};
 use crate::options::RunOptions;
 use crate::run::Running;
@@ -49,7 +49,9 @@ impl Running<'_> {
             }
         };
         let span = tracing::info_span!("run", run = %self.name(), op = %op);
+        let cut_short = CutShort::new(&emitter);
         let done = self.locked(op, &opts, &emitter, work).instrument(span.clone()).await;
+        cut_short.disarm();
         span.in_scope(|| match &done {
             Ok(d) => tracing::info!(ok = d.ok, "operation done"),
             Err(e) => tracing::warn!(code = %e.code(), error = %e, "operation failed"),
@@ -81,7 +83,15 @@ impl Running<'_> {
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State { from: before, to: during });
         }
+        let unfinished = Unfinished {
+            running: self,
+            op,
+            before,
+            emitter,
+            armed: true,
+        };
         let done = work(opts, emitter).await;
+        unfinished.disarm();
         let code = done.as_ref().err().map(Error::code);
         let after = match self.close_record(op, code, done.as_ref().ok().and_then(|d| d.state)) {
             Ok(after) => after,
@@ -102,10 +112,26 @@ impl Running<'_> {
         done
     }
 
+    /// Records that `op` was cut short (`cancelled`), as [`Running::close_record`] does for a
+    /// failure, and emits the state it left the run in. Nobody is left to report to: a record that
+    /// can't be written is traced.
+    fn close_cut_short(&self, op: Op, before: RunState, emitter: &Emitter<'_>) {
+        let after = match self.close_record(op, Some(ErrorCode::Cancelled), None) {
+            Ok(after) => after.unwrap_or(before),
+            Err(e) => {
+                tracing::warn!(error = %e, "the record of a cancelled operation wasn't updated");
+                before
+            }
+        };
+        if let Some(during) = op.during() {
+            emitter.emit(EventKind::State { from: during, to: after });
+        }
+    }
+
     /// Records how `op` ended and the state it left the run in: `state` when it succeeded; when
     /// it failed after it began acting (the record shows a moving state), `failed`. Returns the
     /// recorded state.
-    fn close_record(&self, op: Op, code: Option<crate::ErrorCode>, state: Option<RunState>) -> Result<Option<RunState>> {
+    fn close_record(&self, op: Op, code: Option<ErrorCode>, state: Option<RunState>) -> Result<Option<RunState>> {
         let store = &self.runner.store;
         let Some(mut record) = store.record(self.name())? else {
             return Ok(state);
@@ -146,5 +172,63 @@ impl Running<'_> {
     pub(crate) fn record_or_fresh(&self) -> Result<RunRecord> {
         let fresh = || RunRecord::fresh(self.name().clone(), self.path().to_path_buf(), self.manifest().target, self.manifest().driver);
         Ok(self.runner.store.record(self.name())?.unwrap_or_else(fresh))
+    }
+}
+
+/// An operation in flight: dropped before it ended (its future cut short: an embedder's cancel,
+/// the command line's Ctrl-C), it ends the event stream with an `error` (`cancelled`), so an
+/// operation still ends with exactly one `result` or `error`.
+struct CutShort<'e> {
+    emitter: &'e Emitter<'e>,
+    armed: bool,
+}
+
+impl<'e> CutShort<'e> {
+    fn new(emitter: &'e Emitter<'e>) -> CutShort<'e> {
+        CutShort { emitter, armed: true }
+    }
+
+    /// The operation ended: its own `result` or `error` follows.
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CutShort<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.emitter.emit(EventKind::Error {
+                code: ErrorCode::Cancelled,
+                message: "the operation was cancelled; the tools it started were stopped".to_owned(),
+                step: None,
+                timeout: None,
+            });
+        }
+    }
+}
+
+/// An operation's work on a locked run: dropped before it ended, the run's record says so (a
+/// run caught moving is `failed`, so the next `up` clears what it left), while the run is still
+/// locked.
+struct Unfinished<'r, 'e> {
+    running: &'r Running<'r>,
+    op: Op,
+    before: RunState,
+    emitter: &'e Emitter<'e>,
+    armed: bool,
+}
+
+impl Unfinished<'_, '_> {
+    /// The work ended: the operation records how.
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for Unfinished<'_, '_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.running.close_cut_short(self.op, self.before, self.emitter);
+        }
     }
 }

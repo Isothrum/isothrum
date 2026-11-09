@@ -1,0 +1,48 @@
+<!-- Generated from the code: don't edit. `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` writes it. -->
+
+# Exit codes and error codes
+
+## Exit codes
+
+| Code | When |
+| ---- | ---- |
+| 0 | The command reached its goal: the run is up (or parked, down, …), every check passed. |
+| 1 | It didn't: an operation failed (its `error` event says why, with its code), a check failed, or the runner refused (a run that is busy, a manifest it can't read). |
+| 2 | A usage error: an unknown option, a value missing or malformed, a run folder with no manifest (the `error` event's code is `usage`). |
+| 130 | SIGINT (Ctrl-C) cancelled it: the tools it started were stopped, and the operation ended with an `error` event, code `cancelled` (on Windows: Ctrl-C). |
+| 143 | SIGTERM cancelled it (a CI runner cancelling its job), as for 130 (on Windows: Ctrl-Break, the console closed, a log-off or a shutdown). |
+
+## Error codes
+
+An operation that fails ends its event stream with an `error` event whose `code` is one of these (with `--json`, also a failure before any operation began). The code is stable; the message is for a person.
+
+| Code | Cause | Remedy |
+| ---- | ----- | ------ |
+| `manifest_invalid` | The manifest isn't valid JSON or breaks the contract. | Generate the run's files again with the Isoloom this runner was built for. |
+| `manifest_version` | The manifest is another version of the contract. | Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom. |
+| `unsupported` | The manifest needs something this runner doesn't do yet (a driver, a delivery, a condition). | Upgrade Isothrum, or generate the run for another target. |
+| `io` | A file or folder couldn't be read or written. | Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`). |
+| `locked` | Another process runs an operation on this run. | Wait for the other operation on the run to end, or stop the process running it. |
+| `tool_missing` | A tool a step runs isn't installed. | Install the tool, or put it on `PATH`. |
+| `tool_failed` | A step's tool ran and failed. | Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again. |
+| `tool_too_old` | A tool answers at a version older than the run needs. | Upgrade the tool to the version the message names. |
+| `timeout` | A step showed no progress for its time limit, or ran to the ceiling every step stops at, and was stopped, with what it started (the `error` event's `timeout` says which). | See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry. |
+| `already_running` | The run is already up. | Use it as it is, `down` it first, or `up --replace`. |
+| `running_elsewhere` | The run is recorded on another place (server or account) than the one asked for. | Act on the run with the `--host-label` it was started with. |
+| `port_in_use` | A host port the run publishes is taken. | Stop what holds the port, or start the run with other published ports. |
+| `not_parkable` | The manifest has no park steps for that mode. | Park it in the other mode (`--mode`), or `down` it. |
+| `nothing_to_resume` | Nothing of the run is left to resume. | Start it again with `up`. |
+| `not_running` | The run isn't up. | Start it with `up` (or `resume` a parked run) first. |
+| `not_ready` | A ready condition didn't hold. | Read the `ready` events: the service the condition waits for didn't come up. `status`, then `down` and `up` again. |
+| `secret_missing` | A required secret or input has no value. | Give the value: `--secret-from-env NAME[=VAR]`, with the variable set. |
+| `param_invalid` | A param is unknown, missing or holds a value it doesn't allow. | Fix the `--param NAME=VALUE` the message names (a value the manifest allows). |
+| `run_name` | A run name that can't name a run. | Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit. |
+| `provider_refused` | The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or lacks its plugin. | Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed. |
+| `elevation_declined` | The elevation Hyper-V's commands need couldn't be had (the permission prompt declined). | Approve the Windows permission prompt, or run as a member of Hyper-V Administrators. |
+| `machine_unknown` | A machine the run doesn't have. | Name a machine of the manifest. |
+| `slots_full` | Every slot of the place is held by another run. | `down` a run on the same place first. |
+| `adopt_refused` | A deployment can't be taken over as a run. | The message says why the deployment can't be taken over; start the run with `up` instead. |
+| `unreachable` | A machine a step goes to over SSH never answered. | Check the machine booted and its network (SSH, `--ssh-jump`), then retry. |
+| `not_sealed` | The run's seal failed: it is up, but not sealed, so not ready. | `down` the run, which isn't ready, then `up` again. |
+| `cancelled` | The operation was cut short before it ended (its future dropped: an embedder's cancel, the command line's Ctrl-C or SIGTERM); the tools it started were stopped with it. | Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left. |
+| `usage` | The embedder was asked for something that makes no sense (the command line: a run folder with no manifest, a value missing or malformed), so no operation started. | Fix the command line: `isothrum <command> --help`. |

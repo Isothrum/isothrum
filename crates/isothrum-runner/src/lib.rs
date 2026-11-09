@@ -155,5 +155,5 @@ pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{Runner, RunnerConfig};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Op, Park, RunState};
-pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status};
+pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};

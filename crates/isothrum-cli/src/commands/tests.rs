@@ -103,7 +103,7 @@ impl Setup {
         command_line.push(&run);
         let cli = Cli::parse_from(command_line);
         let var = |name: &str| self.env.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
-        commands::run(&cli, &self.runner, &self.term, &var).await
+        commands::run(&cli, &self.runner, &self.term, &crate::term::Trail::default(), &var).await
     }
 
     /// The last event the command printed (with `--json`).

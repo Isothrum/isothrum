@@ -21,20 +21,28 @@
       "type": "string"
     },
     "run": {
-      "description": "The run's name.",
-      "type": "string"
+      "description": "The run's name; absent only on an `error` an embedder wrote before it knew the run (the\ncommand line given a folder with no manifest).",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "op": {
-      "description": "The operation.",
-      "$ref": "#/$defs/Op"
+      "description": "The operation; absent only on an `error` of a command that isn't one (`status`), or that\nfailed before it started one.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Op"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
     "v",
     "seq",
-    "time",
-    "run",
-    "op"
+    "time"
   ],
   "oneOf": [
     {
@@ -679,6 +687,16 @@
           "description": "The run's seal failed: it is up, but not sealed, so not ready.",
           "type": "string",
           "const": "not_sealed"
+        },
+        {
+          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were stopped with it.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "The embedder was asked for something that makes no sense (the command line: a run folder\nwith no manifest, a value missing or malformed), so no operation started.",
+          "type": "string",
+          "const": "usage"
         }
       ]
     },

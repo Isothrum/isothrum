@@ -78,8 +78,8 @@ impl<'a> Emitter<'a> {
             v: EVENTS_VERSION,
             seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
             time: rfc3339(self.clock.now()),
-            run: self.run.clone(),
-            op: self.op,
+            run: Some(self.run.clone()),
+            op: Some(self.op),
             kind: self.masked(kind),
         };
         if let Some(log) = &self.log {
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(got.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2]);
         assert!(
             got.iter()
-                .all(|event| event.time == "2026-10-15T12:00:00Z" && event.run == "flag-portal" && event.op == Op::Up)
+                .all(|event| event.time == "2026-10-15T12:00:00Z" && event.run.as_deref() == Some("flag-portal") && event.op == Some(Op::Up))
         );
         assert!(
             matches!(&got[0].kind, EventKind::Log { line, .. } if line == "seeding *** and ***"),

@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Isothrum run status",
+  "description": "A run as it stands.",
+  "type": "object",
+  "properties": {
+    "state": {
+      "description": "Where it stands.",
+      "$ref": "#/$defs/RunState"
+    },
+    "provider": {
+      "description": "The Vagrant provider it uses, when it has one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "machines": {
+      "description": "Every machine of the manifest.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MachineStatus"
+      }
+    },
+    "networks": {
+      "description": "The run's networks.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NetworkView"
+      }
+    },
+    "outputs": {
+      "description": "Its outputs, read live.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OutputValue"
+      }
+    },
+    "message": {
+      "description": "The run's message, filled, once the run is ready.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "state",
+    "machines",
+    "networks",
+    "outputs"
+  ],
+  "$defs": {
+    "RunState": {
+      "description": "Where a run stands.",
+      "oneOf": [
+        {
+          "description": "Being started.",
+          "type": "string",
+          "const": "starting"
+        },
+        {
+          "description": "Up, every target machine running.",
+          "type": "string",
+          "const": "ready"
+        },
+        {
+          "description": "Something of it exists, but not every target machine runs (a failed start, a machine down).",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Being parked.",
+          "type": "string",
+          "const": "parking"
+        },
+        {
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string",
+          "const": "parked"
+        },
+        {
+          "description": "Being resumed.",
+          "type": "string",
+          "const": "resuming"
+        },
+        {
+          "description": "Being removed.",
+          "type": "string",
+          "const": "stopping"
+        },
+        {
+          "description": "Nothing of it exists.",
+          "type": "string",
+          "const": "absent"
+        }
+      ]
+    },
+    "MachineStatus": {
+      "description": "One machine of the manifest, as it stands.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Its name.",
+          "type": "string"
+        },
+        "role": {
+          "description": "What it is for.",
+          "$ref": "#/$defs/Role"
+        },
+        "state": {
+          "description": "Its state.",
+          "$ref": "#/$defs/MachineState"
+        },
+        "addresses": {
+          "description": "Its static addresses, by network.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "published": {
+          "description": "Its published ports.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublishedPort"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "state",
+        "addresses",
+        "published"
+      ]
+    },
+    "Role": {
+      "description": "What a machine is to the run.",
+      "oneOf": [
+        {
+          "description": "Part of the lab.",
+          "type": "string",
+          "const": "target"
+        },
+        {
+          "description": "A one-shot that must exit 0 (an `init:` script).",
+          "type": "string",
+          "const": "job"
+        },
+        {
+          "description": "Isoloom's plumbing (the controller, probes, route keepers): never shown, never counted as down.",
+          "type": "string",
+          "const": "infra"
+        },
+        {
+          "description": "The user's seat, or its stand-in.",
+          "type": "string",
+          "const": "access"
+        },
+        {
+          "description": "An observer (`tools:`).",
+          "type": "string",
+          "const": "tool"
+        },
+        {
+          "description": "A check runner (Compose profile `check`).",
+          "type": "string",
+          "const": "check"
+        }
+      ]
+    },
+    "MachineState": {
+      "description": "A machine's state, as its engine reports it.",
+      "oneOf": [
+        {
+          "description": "Running.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Running, but failing its health check.",
+          "type": "string",
+          "const": "unhealthy"
+        },
+        {
+          "description": "Exited with this code (a job that finished, or a machine that died).",
+          "type": "object",
+          "properties": {
+            "exited": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "exited"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Created or stopped, not running.",
+          "type": "string",
+          "const": "stopped"
+        },
+        {
+          "description": "Not there.",
+          "type": "string",
+          "const": "absent"
+        },
+        {
+          "description": "Something else, as the engine says it.",
+          "type": "object",
+          "properties": {
+            "unknown": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PublishedPort": {
+      "description": "A published port: where a machine's port answers on the host.",
+      "type": "object",
+      "properties": {
+        "port": {
+          "description": "The machine's port.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "protocol": {
+          "description": "`tcp` or `udp`.",
+          "$ref": "#/$defs/Protocol"
+        },
+        "host_port": {
+          "description": "The host port.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "port",
+        "protocol",
+        "host_port"
+      ]
+    },
+    "Protocol": {
+      "description": "A port's transport protocol.",
+      "oneOf": [
+        {
+          "description": "TCP.",
+          "type": "string",
+          "const": "tcp"
+        },
+        {
+          "description": "UDP.",
+          "type": "string",
+          "const": "udp"
+        }
+      ]
+    },
+    "NetworkView": {
+      "description": "A network of the run.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Its name in the spec.",
+          "type": "string"
+        },
+        "cidr": {
+          "description": "Its block.",
+          "type": "string"
+        },
+        "internet": {
+          "description": "Whether it reaches the internet.",
+          "type": "boolean"
+        },
+        "native": {
+          "description": "Its name where the target created it (`flag-portal_lab`), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "cidr",
+        "internet"
+      ]
+    },
+    "OutputValue": {
+      "description": "An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its\n`Debug`, an event); the runner keeps the value itself for its own use (a guest delivery's\naddress, masking it in what tools print).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Its name.",
+          "type": "string"
+        },
+        "role": {
+          "description": "What it is for (`entry`: where a user starts, the address to open).",
+          "$ref": "#/$defs/OutputRole"
+        },
+        "sensitive": {
+          "description": "Whether the value is sensitive.",
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Its value, when it can be read; `***` when it is sensitive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "sensitive"
+      ]
+    },
+    "OutputRole": {
+      "description": "What the embedder does with an output.",
+      "oneOf": [
+        {
+          "description": "Where to start: the Open button.",
+          "type": "string",
+          "const": "entry"
+        },
+        {
+          "description": "An address.",
+          "type": "string",
+          "const": "address"
+        },
+        {
+          "description": "Anything else worth showing.",
+          "type": "string",
+          "const": "info"
+        }
+      ]
+    }
+  }
+}

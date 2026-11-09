@@ -321,7 +321,7 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     let events = Recorder::new();
     let updated = f.runner.open(&f.manifest, None).unwrap().update(&opts(), &events).await.unwrap();
     assert_eq!(updated.record.state, RunState::Ready);
-    assert!(events.events().iter().all(|e| e.op == Op::Update));
+    assert!(events.events().iter().all(|e| e.op == Some(Op::Update)));
     let start = f.fake.last(" up --detach ").unwrap();
     assert!(start.line().ends_with(" db web web-routes isoloom-probe-amd64 extra"), "{}", start.line());
     let during: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();

@@ -68,6 +68,12 @@ pub enum ErrorCode {
     Unreachable,
     /// The run's seal failed: it is up, but not sealed, so not ready.
     NotSealed,
+    /// The operation was cut short before it ended (its future dropped: an embedder's cancel, the
+    /// command line's Ctrl-C or SIGTERM); the tools it started were stopped with it.
+    Cancelled,
+    /// The embedder was asked for something that makes no sense (the command line: a run folder
+    /// with no manifest, a value missing or malformed), so no operation started.
+    Usage,
 }
 
 impl ErrorCode {
@@ -101,6 +107,8 @@ impl ErrorCode {
             ErrorCode::AdoptRefused => "adopt_refused",
             ErrorCode::Unreachable => "unreachable",
             ErrorCode::NotSealed => "not_sealed",
+            ErrorCode::Cancelled => "cancelled",
+            ErrorCode::Usage => "usage",
         }
     }
 }

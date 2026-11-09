@@ -3,6 +3,7 @@
 //! fixed clock. No real tool ever runs.
 
 mod access;
+mod cancel;
 mod checks;
 mod cloud;
 mod docker_vm;
