@@ -201,6 +201,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
+- **`isothrum-wasm`'s Rust functions are internal**: `plan`, `bundle_bytes`,
+  `bundle_target_bytes`, `own_files` and `choices`, with `Error` and `Result`. Only the
+  `#[wasm_bindgen]` exports called them; those stay, as do `Plan`, `File` and `Choices`, the
+  shape of the JSON the exports hand out.
 - **`LoopbackPorts` and `HeldPort::new` are internal, and `HostPorts` is sealed.** No embedder
   implemented `HostPorts` or named the loopback's: `RunnerConfig::new` installs it, and a test sets
   `RunnerConfig::ports` to the `fake` feature's `FakePorts`.

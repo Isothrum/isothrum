@@ -5,7 +5,7 @@
 //!
 //! The functions JavaScript calls are the `#[wasm_bindgen]` ones ([`plan_json`], [`bundle`],
 //! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists for the
-//! editor's tests); the Rust functions under them are the same API for Rust callers and tests.
+//! editor's tests). The JSON they hand out is a [`Plan`], [`File`]s and [`Choices`].
 //!
 //! ```
 //! let topology = r#"{
@@ -16,10 +16,11 @@
 //!     "user": { "kind": { "vm": { "os": "debian@12" } }, "access": true, "networks": { "office": null } }
 //!   }
 //! }"#;
-//! let plan = isothrum_wasm::plan(topology);
-//! assert!(plan.ok && plan.problems.is_empty(), "{:?}", plan.problems);
-//! assert!(plan.files.iter().any(|f| f.path == ".isoloom/docker/compose.yml"));
-//! assert_eq!(plan.addresses["web"], [("office".to_owned(), "10.10.1.10".to_owned())]);
+//! let plan: serde_json::Value = serde_json::from_str(&isothrum_wasm::plan_json(topology).unwrap())?;
+//! assert!(plan["ok"] == true && plan["problems"] == serde_json::json!([]), "{}", plan["problems"]);
+//! assert!(plan["files"].as_array().unwrap().iter().any(|f| f["path"] == ".isoloom/docker/compose.yml"));
+//! assert_eq!(plan["addresses"]["web"], serde_json::json!([["office", "10.10.1.10"]]));
+//! # Ok::<(), serde_json::Error>(())
 //! ```
 //!
 //! The modules: `plan` (what the editor shows), `bundle` (the zips to download), `files` (the
@@ -33,9 +34,15 @@ mod files;
 mod js;
 mod plan;
 
-pub use bundle::{bundle_bytes, bundle_target_bytes};
-pub use choices::{Choices, choices};
-pub use error::{Error, Result};
-pub use files::{File, own_files};
+#[cfg(test)]
+mod tests;
+
+pub(crate) use bundle::{bundle_bytes, bundle_target_bytes};
+pub use choices::Choices;
+pub(crate) use choices::choices;
+pub(crate) use error::{Error, Result};
+pub use files::File;
+pub(crate) use files::own_files;
 pub use js::{bundle, bundle_target, choices_json, own_files_json, plan_json};
-pub use plan::{Plan, plan};
+pub use plan::Plan;
+pub(crate) use plan::plan;

@@ -46,7 +46,7 @@ impl Plan {
 
 /// Turns a topology (the JSON the editor produces) into the spec and everything generated from it.
 #[must_use]
-pub fn plan(topology_json: &str) -> Plan {
+pub(crate) fn plan(topology_json: &str) -> Plan {
     match compiled(topology_json) {
         Ok((topo, compiled)) => planned(&topo, compiled),
         Err(e) => Plan::failed(&e),

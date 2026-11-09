@@ -1,31 +1,37 @@
-//! The functions JavaScript calls (`#[wasm_bindgen]`): the Rust API, with its values as JSON and
-//! its errors as JavaScript `Error`s whose `message` is the error's.
+//! The functions JavaScript calls (`#[wasm_bindgen]`): the engine's values as JSON, and its errors
+//! as JavaScript `Error`s whose `message` is the error's.
 
 use wasm_bindgen::prelude::*;
 
 use crate::{bundle_bytes, bundle_target_bytes, choices, own_files, plan};
 
-/// The download for one target (see [`bundle_target_bytes`]).
+/// One target's zip: `isoloom.yml` and only that target's folder (`docker`, `hybrid`,
+/// `cloud-docker/aws`...), with the project's own files that target's files use.
 ///
 /// # Errors
 ///
-/// The [`Error`](crate::Error)'s message, as a JavaScript `Error`.
+/// A JavaScript `Error` saying why: as [`bundle`], or the project generates nothing for
+/// `target_dir`.
 #[wasm_bindgen]
 pub fn bundle_target(topology_json: &str, target_dir: &str) -> Result<Vec<u8>, JsError> {
     bundle_target_bytes(topology_json, target_dir).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// The download: a zip with `isoloom.yml` and every generated file (see [`bundle_bytes`]).
+/// The download: a zip with `isoloom.yml` at the root, the project's own files where it points,
+/// and each generated file at its path.
 ///
 /// # Errors
 ///
-/// The [`Error`](crate::Error)'s message, as a JavaScript `Error`.
+/// A JavaScript `Error` saying why: the topology is malformed or doesn't compile, Isoloom finds
+/// problems in the spec, or the zip can't be written.
 #[wasm_bindgen]
 pub fn bundle(topology_json: &str) -> Result<Vec<u8>, JsError> {
     bundle_bytes(topology_json).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// JSON for a JavaScript caller: [`own_files`].
+/// JSON for a JavaScript caller: the project's own [`File`](crate::File)s, next to `isoloom.yml`
+/// where its paths point (the appliances' configurations, the provisioning steps' starters); none
+/// for a topology that doesn't compile.
 ///
 /// # Errors
 ///

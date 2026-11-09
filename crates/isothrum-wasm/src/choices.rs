@@ -18,7 +18,7 @@ pub struct Choices {
 
 /// Isoloom's lists.
 #[must_use]
-pub fn choices() -> Choices {
+pub(crate) fn choices() -> Choices {
     Choices {
         os: isoloom_spec::os::FAMILIES
             .iter()

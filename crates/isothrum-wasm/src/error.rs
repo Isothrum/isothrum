@@ -3,12 +3,12 @@
 //! too.
 
 /// The crate's result.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Why a topology gives no plan or no download.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum Error {
+pub(crate) enum Error {
     /// The topology isn't the editor's JSON.
     #[error("the topology is malformed: {0}")]
     Malformed(#[source] serde_json::Error),

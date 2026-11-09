@@ -38,7 +38,7 @@ impl From<ProjectFile> for File {
 /// configurations and the starter scripts of the machines' provisioning steps. What a program
 /// writes with the spec to run it; none for a topology that doesn't compile.
 #[must_use]
-pub fn own_files(topology_json: &str) -> Vec<File> {
+pub(crate) fn own_files(topology_json: &str) -> Vec<File> {
     compiled(topology_json)
         .map(|(_, c)| c.into_parts().2.into_iter().map(File::from).collect())
         .unwrap_or_default()

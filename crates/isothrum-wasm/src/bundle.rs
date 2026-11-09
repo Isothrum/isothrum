@@ -17,7 +17,7 @@ const SPEC_PATH: &str = "isoloom.yml";
 ///
 /// [`Error`]: the topology is malformed or doesn't compile, Isoloom finds problems in the
 /// spec, or the zip can't be written.
-pub fn bundle_bytes(topology_json: &str) -> Result<Vec<u8>> {
+pub(crate) fn bundle_bytes(topology_json: &str) -> Result<Vec<u8>> {
     bundle_filtered(topology_json, None)
 }
 
@@ -28,7 +28,7 @@ pub fn bundle_bytes(topology_json: &str) -> Result<Vec<u8>> {
 ///
 /// [`Error`], as [`bundle_bytes`], or [`Error::NoFiles`] when the project generates
 /// nothing for `target_dir`.
-pub fn bundle_target_bytes(topology_json: &str, target_dir: &str) -> Result<Vec<u8>> {
+pub(crate) fn bundle_target_bytes(topology_json: &str, target_dir: &str) -> Result<Vec<u8>> {
     bundle_filtered(topology_json, Some(target_dir))
 }
 

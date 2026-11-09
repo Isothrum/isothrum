@@ -1,16 +1,16 @@
-//! The engine through its Rust API, natively: a topology's plan (its spec, Isoloom's problems,
+//! The engine under its exports, natively: a topology's plan (its spec, Isoloom's problems,
 //! every target's files, the machines' addresses), the project's own files, and the downloads.
 
 use std::error::Error;
 use std::io::{Cursor, Read};
 
-use isothrum_wasm::{Plan, bundle_bytes, bundle_target_bytes, own_files, plan};
+use crate::{Plan, bundle_bytes, bundle_target_bytes, own_files, plan};
 
 /// A test's outcome: a failed step is its report.
 type Outcome<T = ()> = Result<T, Box<dyn Error>>;
 
 /// Two machines on a cable: a VM with a step, and a web server.
-const PAIR: &str = include_str!("fixtures/pair.json");
+const PAIR: &str = include_str!("../tests/fixtures/pair.json");
 
 /// Where a download puts the spec.
 const SPEC_PATH: &str = "isoloom.yml";
