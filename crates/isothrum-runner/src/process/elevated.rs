@@ -143,13 +143,13 @@ impl Elevated {
             armed: true,
             session: &self.session,
         };
-        let mut tail = Tail::default();
+        let mut log_reader = LogReader::default();
         let (log, exit) = (self.dir.join(format!("out-{n}.log")), self.dir.join(format!("exit-{n}")));
         loop {
             let done = std::fs::read_to_string(&exit).ok();
-            tail.read(&log, on_line).map_err(io)?;
+            log_reader.read(&log, on_line).map_err(io)?;
             if let Some(code) = done {
-                tail.finish(on_line);
+                log_reader.finish(on_line);
                 guard.armed = false;
                 return Ok(Exit::new(code.trim().parse().ok()));
             }
@@ -199,12 +199,12 @@ fn signal(dir: &Path, what: &str) {
 
 /// A growing log, read a line at a time from where the last read stopped.
 #[derive(Debug, Default)]
-struct Tail {
+struct LogReader {
     offset: u64,
     partial: Vec<u8>,
 }
 
-impl Tail {
+impl LogReader {
     /// Hands `on_line` every whole line `log` gained since the last read.
     fn read(&mut self, log: &Path, on_line: OnLine<'_>) -> std::io::Result<()> {
         let mut f = match std::fs::File::open(log) {

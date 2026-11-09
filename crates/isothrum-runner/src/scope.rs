@@ -24,6 +24,11 @@ impl Scope {
         let provider = providers.is_empty() || self.provider.as_deref().is_some_and(|p| providers.iter().any(|q| wire_name(q) == p));
         host && provider
     }
+
+    /// Whether the run's provider is `provider`.
+    pub(crate) fn runs_on(&self, provider: Provider) -> bool {
+        self.provider.as_deref() == Some(wire_name(&provider).as_str())
+    }
 }
 
 #[cfg(test)]

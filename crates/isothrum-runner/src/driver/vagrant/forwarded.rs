@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use isoloom_manifest::{Machine, Manifest, Port, Protocol, PublishMode, Step};
+use isoloom_manifest::{Machine, Manifest, Port, Protocol, Provider, PublishMode, Step};
 
 use super::status;
 use crate::Result;
@@ -40,7 +40,7 @@ fn ephemeral(p: &Port) -> bool {
 /// address) or when no published port is ephemeral.
 pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     let mut chosen = BTreeMap::new();
-    if cx.scope.provider.as_deref() == Some(crate::driver::ESXI) {
+    if cx.scope.runs_on(Provider::VmwareEsxi) {
         return chosen;
     }
     let fixed = cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED);
@@ -62,7 +62,7 @@ pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     // port (50022) with weak auto-correct, so two local VMs — or a half-created one left by a
     // failed start — collide on it. Give it a free host port of its own, the same way a published
     // port gets one; only QEMU needs it (every other provider manages its own SSH access).
-    if cx.scope.provider.as_deref() == Some(super::QEMU)
+    if cx.scope.runs_on(Provider::Qemu)
         && let Some(ssh) = ssh_key(cx.run.manifest())
         && let Some(port) = free_pick(cx, Protocol::Tcp, &mut taken, &mut held)
     {

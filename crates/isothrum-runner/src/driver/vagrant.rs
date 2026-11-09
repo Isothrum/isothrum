@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Machine, Native, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
+use isoloom_manifest::{Action, Machine, Native, Provider, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
 
 use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
@@ -40,9 +40,6 @@ const RELOAD_TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
-
-/// The QEMU provider (vagrant-qemu), whose VMs need a chosen host port for their SSH forward.
-const QEMU: &str = "qemu";
 
 /// Where ports forwarded to this computer answer.
 const LOOPBACK: &str = "127.0.0.1";
@@ -219,7 +216,7 @@ impl Driver for Vagrant {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
         let read = status::parse(&out);
-        let guests = if cx.scope.provider.as_deref() == Some(super::ESXI) {
+        let guests = if cx.scope.runs_on(Provider::VmwareEsxi) {
             Some(self.guest_addresses(cx, &read).await)
         } else {
             None

@@ -18,10 +18,12 @@ use crate::process::ProcessSpec;
 
 /// Removes the run's orphaned VMs on its provider.
 pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
-    match cx.scope.provider.as_deref() {
-        Some("virtualbox") => virtualbox(cx, step).await,
-        Some("parallels") => parallels(cx, step).await,
-        _ => Ok(()),
+    if cx.scope.runs_on(Provider::Virtualbox) {
+        virtualbox(cx, step).await
+    } else if cx.scope.runs_on(Provider::Parallels) {
+        parallels(cx, step).await
+    } else {
+        Ok(())
     }
 }
 

@@ -164,7 +164,7 @@ pub(crate) fn esxi_host<'a>(
 ) -> Option<(&'a str, u16)> {
     let host = params.get(HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h))?;
     let port = params.get(HOSTPORT).and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_SSH_PORT);
-    (macos && vagrant && provider == Some(crate::driver::ESXI)).then_some((host, port))
+    (macos && vagrant && provider == Some(crate::encoding::wire_name(&isoloom_manifest::Provider::VmwareEsxi).as_str())).then_some((host, port))
 }
 
 /// The relays to ESXi host `host` (its SSH on `ssh_port`, its HTTPS, WinRM to its guests), and

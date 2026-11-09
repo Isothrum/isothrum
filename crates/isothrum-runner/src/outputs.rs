@@ -67,17 +67,10 @@ pub(crate) fn bind(vars: &mut Vars, outputs: &[OutputValue]) {
     }
 }
 
-/// The run's message, filled; a sensitive output (as the manifest or the engine says, in
-/// `outputs`), or a value not known, stays as written.
+/// The run's message, filled; a sensitive output (as [`read`] marks it in `outputs`: the
+/// manifest or the engine says so), or a value not known, stays as written.
 pub(crate) fn message(manifest: &Manifest, vars: &Vars, outputs: &[OutputValue]) -> Option<String> {
-    let marked = outputs.iter().filter(|o| o.sensitive).map(|o| o.name.clone());
-    let hidden: BTreeSet<String> = manifest
-        .outputs
-        .iter()
-        .filter(|o| o.sensitive)
-        .map(|o| o.name.to_string())
-        .chain(marked)
-        .collect();
+    let hidden: BTreeSet<String> = outputs.iter().filter(|o| o.sensitive).map(|o| o.name.clone()).collect();
     manifest.environment.message.as_ref().map(|m| vars.render_lenient(m, &hidden))
 }
 
