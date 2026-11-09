@@ -180,6 +180,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `~/.docker/config.json`; `SystemProcesses::new` and `SystemProcesses::for_host` are gone (use
   `SystemProcesses::default()`).
 
+- **`isothrum-machine`'s `providers::Provider` is Isoloom's `isoloom_manifest::Provider`**,
+  re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
+  provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
+
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
   manifest writes it (`tcp`, `udp`).
 
@@ -216,7 +220,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   written with it still loads.
 - **`Serialize` and `Deserialize` on `isothrum-machine`'s `Provider` and `ProviderStatus`**:
   nothing wrote or read either as JSON (an embedder reads the fields, and a provider's wire name
-  is `Provider::id`).
+  is `providers::id`).
+- **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
+  detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox lab is
+  Terraform's.
 - **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's).

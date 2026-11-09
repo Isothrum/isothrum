@@ -15,141 +15,109 @@ use isothrum_runner::ProcessRunner;
 
 use crate::exec;
 
-/// A Vagrant provider id (the value given to `vagrant up --provider`): a local hypervisor, or a
-/// remote host's (ESXi, Proxmox).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Provider {
-    /// Oracle VirtualBox (built into Vagrant).
-    Virtualbox,
-    /// VMware Workstation or Fusion (plugin `vagrant-vmware-desktop`).
-    VmwareDesktop,
-    /// Microsoft Hyper-V (built into Vagrant, Windows only).
-    Hyperv,
-    /// Parallels Desktop (plugin `vagrant-parallels`, macOS only).
-    Parallels,
-    /// libvirt / KVM (plugin `vagrant-libvirt`, Linux only).
-    Libvirt,
-    /// QEMU (plugin `vagrant-qemu`).
-    Qemu,
-    /// UTM, a QEMU front end for macOS (plugin `vagrant_utm`).
-    Utm,
-    /// A remote VMware ESXi host (plugin `vagrant-vmware-esxi`).
-    VmwareEsxi,
-    /// A remote Proxmox VE host.
-    Proxmox,
+/// A Vagrant provider (the value given to `vagrant up --provider`): Isoloom's, the one its run
+/// manifests name.
+pub use isoloom_manifest::Provider;
+
+/// The id Vagrant knows `provider` by (`vmware_desktop`), as the manifest writes it.
+#[must_use]
+pub fn id(provider: Provider) -> String {
+    match serde_json::to_value(provider) {
+        Ok(serde_json::Value::String(id)) => id,
+        _ => String::new(),
+    }
 }
 
-impl Provider {
-    /// Every provider.
-    const ALL: [Provider; 9] = [
-        Provider::Virtualbox,
-        Provider::VmwareDesktop,
-        Provider::Hyperv,
-        Provider::Parallels,
-        Provider::Libvirt,
-        Provider::Qemu,
-        Provider::Utm,
-        Provider::VmwareEsxi,
-        Provider::Proxmox,
-    ];
+/// Every provider.
+const ALL: [Provider; 8] = [
+    Provider::Virtualbox,
+    Provider::VmwareDesktop,
+    Provider::Hyperv,
+    Provider::Parallels,
+    Provider::Libvirt,
+    Provider::Qemu,
+    Provider::Utm,
+    Provider::VmwareEsxi,
+];
 
-    /// The id Vagrant knows the provider by.
-    #[must_use]
-    pub fn id(self) -> &'static str {
-        match self {
-            Provider::Virtualbox => "virtualbox",
-            Provider::VmwareDesktop => "vmware_desktop",
-            Provider::Hyperv => "hyperv",
-            Provider::Parallels => "parallels",
-            Provider::Libvirt => "libvirt",
-            Provider::Qemu => "qemu",
-            Provider::Utm => "utm",
-            Provider::VmwareEsxi => "vmware_esxi",
-            Provider::Proxmox => "proxmox",
-        }
+/// Whether this provider can run on the current OS at all: local hypervisors are
+/// platform-specific, remote ones apply anywhere.
+fn applicable(provider: Provider) -> bool {
+    use std::env::consts::{ARCH, OS};
+    match provider {
+        Provider::Virtualbox | Provider::VmwareDesktop if OS == "windows" && ARCH == "aarch64" => false,
+        Provider::Hyperv => OS == "windows",
+        Provider::Parallels | Provider::Utm => OS == "macos",
+        Provider::Libvirt => OS == "linux",
+        _ => true,
     }
+}
 
-    /// Whether this provider can run on the current OS at all: local hypervisors are
-    /// platform-specific, remote ones apply anywhere.
-    fn applicable(self) -> bool {
-        use std::env::consts::{ARCH, OS};
-        match self {
-            Provider::Virtualbox | Provider::VmwareDesktop if OS == "windows" && ARCH == "aarch64" => false,
-            Provider::Hyperv => OS == "windows",
-            Provider::Parallels | Provider::Utm => OS == "macos",
-            Provider::Libvirt => OS == "linux",
-            _ => true,
-        }
+/// The Vagrant plugin the provider needs, if it is not built in.
+fn plugin(provider: Provider) -> Option<&'static str> {
+    match provider {
+        Provider::Virtualbox | Provider::Hyperv => None,
+        Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
+        Provider::Parallels => Some("vagrant-parallels"),
+        Provider::Libvirt => Some("vagrant-libvirt"),
+        Provider::Qemu => Some("vagrant-qemu"),
+        Provider::Utm => Some("vagrant_utm"),
+        Provider::VmwareEsxi => Some("vagrant-vmware-esxi"),
     }
+}
 
-    /// The Vagrant plugin the provider needs, if it is not built in.
-    fn plugin(self) -> Option<&'static str> {
-        match self {
-            Provider::Virtualbox | Provider::Hyperv => None,
-            Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
-            Provider::Parallels => Some("vagrant-parallels"),
-            Provider::Libvirt => Some("vagrant-libvirt"),
-            Provider::Qemu => Some("vagrant-qemu"),
-            Provider::Utm => Some("vagrant_utm"),
-            Provider::VmwareEsxi => Some("vagrant-vmware-esxi"),
-            Provider::Proxmox => Some("vagrant-proxmox"),
-        }
+/// The oldest version of the provider's plugin that works: `vagrant_utm` before 0.2.0 reads
+/// a VM's forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started`
+/// state.
+fn plugin_minimum(provider: Provider) -> Option<&'static str> {
+    match provider {
+        Provider::Utm => Some("0.2.0"),
+        _ => None,
     }
+}
 
-    /// The oldest version of the provider's plugin that works: `vagrant_utm` before 0.2.0 reads
-    /// a VM's forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started`
-    /// state.
-    fn plugin_minimum(self) -> Option<&'static str> {
-        match self {
-            Provider::Utm => Some("0.2.0"),
-            _ => None,
-        }
+/// The hypervisor's name and the oldest version its plugin drives: `vagrant_utm` refuses a
+/// UTM before 4.6.5 (no import of a box, no registry for its shared folders).
+fn hypervisor_minimum(provider: Provider) -> Option<(&'static str, &'static str)> {
+    match provider {
+        Provider::Utm => Some(("UTM", "4.6.5")),
+        _ => None,
     }
+}
 
-    /// The hypervisor's name and the oldest version its plugin drives: `vagrant_utm` refuses a
-    /// UTM before 4.6.5 (no import of a box, no registry for its shared folders).
-    fn hypervisor_minimum(self) -> Option<(&'static str, &'static str)> {
-        match self {
-            Provider::Utm => Some(("UTM", "4.6.5")),
-            _ => None,
-        }
+/// The hypervisor's own version, when it is installed and says it: UTM's app bundle
+/// (`CFBundleShortVersionString`); the others aren't held to a version yet.
+async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> Option<String> {
+    if provider != Provider::Utm {
+        return None;
     }
+    let plist = format!("{UTM_APP}/Contents/Info.plist");
+    let out = exec::read(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"]).await.ok()?;
+    let version = out.trim().to_owned();
+    (!version.is_empty()).then_some(version)
+}
 
-    /// The hypervisor's own version, when it is installed and says it: UTM's app bundle
-    /// (`CFBundleShortVersionString`); the others aren't held to a version yet.
-    async fn hypervisor_version(self, runner: &dyn ProcessRunner) -> Option<String> {
-        if self != Provider::Utm {
-            return None;
-        }
-        let plist = format!("{UTM_APP}/Contents/Info.plist");
-        let out = exec::read(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"]).await.ok()?;
-        let version = out.trim().to_owned();
-        (!version.is_empty()).then_some(version)
+/// The local tool that proves the hypervisor itself is installed, if there is one.
+fn probe(provider: Provider) -> Option<(&'static str, &'static [&'static str])> {
+    match provider {
+        Provider::Virtualbox => Some(("VBoxManage", &["--version"])),
+        Provider::VmwareDesktop => Some(("vmrun", &[])),
+        Provider::Parallels => Some(("prlctl", &["--version"])),
+        Provider::Libvirt => Some(("virsh", &["--version"])),
+        Provider::Qemu => Some((qemu_binary(), &["--version"])),
+        _ => None,
     }
+}
 
-    /// The local tool that proves the hypervisor itself is installed, if there is one.
-    fn probe(self) -> Option<(&'static str, &'static [&'static str])> {
-        match self {
-            Provider::Virtualbox => Some(("VBoxManage", &["--version"])),
-            Provider::VmwareDesktop => Some(("vmrun", &[])),
-            Provider::Parallels => Some(("prlctl", &["--version"])),
-            Provider::Libvirt => Some(("virsh", &["--version"])),
-            Provider::Qemu => Some((qemu_binary(), &["--version"])),
-            _ => None,
-        }
-    }
-
-    /// Whether the hypervisor itself is installed here, `None` when there is nothing local to
-    /// check (remote providers). UTM is an app bundle; Hyper-V is a Windows feature.
-    async fn hypervisor_installed(self, runner: &dyn ProcessRunner) -> Option<bool> {
-        match self {
-            Provider::Utm => Some(Path::new(UTM_APP).exists()),
-            Provider::Hyperv => Some(hyperv_enabled()),
-            _ => {
-                let (program, args) = self.probe()?;
-                Some(tool_present(runner, program, args).await)
-            }
+/// Whether the hypervisor itself is installed here, `None` when there is nothing local to
+/// check (remote providers). UTM is an app bundle; Hyper-V is a Windows feature.
+async fn hypervisor_installed(provider: Provider, runner: &dyn ProcessRunner) -> Option<bool> {
+    match provider {
+        Provider::Utm => Some(Path::new(UTM_APP).exists()),
+        Provider::Hyperv => Some(hyperv_enabled()),
+        _ => {
+            let (program, args) = probe(provider)?;
+            Some(tool_present(runner, program, args).await)
         }
     }
 }
@@ -236,14 +204,14 @@ fn version_at_least(found: &str, min: &str) -> bool {
 /// (`plugin_minimum`), with that minimum; `None` when it is recent enough, unknown, or the
 /// plugin has no minimum.
 fn plugin_too_old(provider: Provider, installed: Option<&str>) -> Option<(&str, &'static str)> {
-    let (version, min) = installed.zip(provider.plugin_minimum())?;
+    let (version, min) = installed.zip(plugin_minimum(provider))?;
     (!version_at_least(version, min)).then_some((version, min))
 }
 
 /// The version `installed` of `provider`'s hypervisor when it is older than the one its plugin
 /// drives (`hypervisor_minimum`), with the hypervisor's name and that minimum.
 fn hypervisor_too_old(provider: Provider, installed: Option<&str>) -> Option<(&'static str, &str, &'static str)> {
-    let (version, (name, min)) = installed.zip(provider.hypervisor_minimum())?;
+    let (version, (name, min)) = installed.zip(hypervisor_minimum(provider))?;
     (!version_at_least(version, min)).then_some((name, version, min))
 }
 
@@ -284,17 +252,17 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
         Err(why) => (Vec::new(), Some(why)),
     };
     let mut statuses = Vec::new();
-    for provider in Provider::ALL {
-        if !provider.applicable() {
+    for provider in ALL {
+        if !applicable(provider) {
             continue;
         }
-        let hypervisor = provider.hypervisor_installed(runner).await;
+        let hypervisor = hypervisor_installed(provider, runner).await;
         let hypervisor_version = if hypervisor == Some(true) {
-            provider.hypervisor_version(runner).await
+            hypervisor_version(provider, runner).await
         } else {
             None
         };
-        let plugin = provider.plugin();
+        let plugin = plugin(provider);
         let installed = plugin.and_then(|needed| plugins.iter().find(|(i, _)| i == needed));
         let plugin_installed = plugin.is_none() || (vagrant_installed && installed.is_some());
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
@@ -375,11 +343,7 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
     } else if needs_admin {
         Some(HYPERV_NEEDS_ADMIN.to_owned())
     } else if hypervisor == Some(false) {
-        Some(
-            provider
-                .probe()
-                .map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")),
-        )
+        Some(probe(provider).map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")))
     } else if let Some(why) = (provider == Provider::Libvirt).then(kvm_problem).flatten() {
         Some(why)
     } else if let Some((name, version, min)) = hypervisor_too_old(provider, hypervisor_version) {
@@ -402,6 +366,15 @@ mod tests {
     use isothrum_runner::process::fake::{FakeProcesses, Reply};
 
     use super::*;
+
+    #[test]
+    fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
+        let ids: Vec<String> = ALL.into_iter().map(id).collect();
+        assert_eq!(
+            ids,
+            ["virtualbox", "vmware_desktop", "hyperv", "parallels", "libvirt", "qemu", "utm", "vmware_esxi"]
+        );
+    }
 
     #[test]
     fn plugin_lines_carry_their_versions() {
