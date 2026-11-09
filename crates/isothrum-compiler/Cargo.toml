@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-compiler"
-description = "Isothrum's compiler: a lab drawn in the editor becomes an Isoloom spec."
+description = "Isothrum's compiler: a network drawn in the editor becomes an Isoloom spec."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/isothrum-compiler"
 readme = "README.md"
-keywords = ["isothrum", "isoloom", "network", "lab", "compiler"]
+keywords = ["isothrum", "isoloom", "network", "topology", "compiler"]
 categories = ["compilers", "network-programming"]
 exclude = ["tests/", "rustfmt.toml"]
 publish = true

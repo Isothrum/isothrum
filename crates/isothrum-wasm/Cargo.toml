@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-wasm"
-description = "The editor's engine in WebAssembly: a drawn lab becomes an Isoloom spec, every target's files and the downloads."
+description = "The editor's engine in WebAssembly: a drawn network becomes an Isoloom spec, every target's files and the downloads."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/isothrum-wasm"
 readme = "README.md"
-keywords = ["isothrum", "isoloom", "wasm", "network", "lab"]
+keywords = ["isothrum", "isoloom", "wasm", "network", "topology"]
 categories = ["wasm", "network-programming"]
 exclude = ["tests/", "rustfmt.toml"]
 publish = true
