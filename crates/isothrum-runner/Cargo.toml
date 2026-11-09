@@ -10,8 +10,8 @@ homepage.workspace = true
 documentation = "https://docs.rs/isothrum-runner"
 keywords = ["isothrum", "runner", "infrastructure", "lab"]
 categories = ["virtualization", "development-tools"]
-# The `fake` feature embeds the run-manifest fixtures (src/testing.rs), so tests/ stays in the
-# package; only the local formatter config is dropped.
+# The crate's own tests embed the run-manifest fixtures from tests/ (src/testing.rs), so tests/
+# stays in the package and they run from it; only the local formatter config is dropped.
 exclude = ["rustfmt.toml"]
 publish = true
 
