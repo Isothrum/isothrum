@@ -57,8 +57,15 @@ struct Out<'a> {
 async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     match command {
-        Lifecycle::Up { op, replace, lifetime } => {
-            let started = open(runner, &op.run)?.up(&start_opts(op, *replace, *lifetime, var)?, events).await;
+        Lifecycle::Up {
+            op,
+            replace,
+            lifetime,
+            ssh_jump,
+        } => {
+            let started = open(runner, &op.run)?
+                .up(&start_opts(op, *replace, *lifetime, ssh_jump.as_deref(), var)?, events)
+                .await;
             Ok(said(json, started.ok(), "The run is up.", term))
         }
         Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
@@ -174,9 +181,13 @@ fn open<'r>(runner: &'r Runner, args: &TargetArgs) -> Result<Running<'r>> {
     Ok(runner.open(&manifest, name)?)
 }
 
-/// The start options: `args`, plus `replace` (remove leftovers first) and a `lifetime` in minutes.
-fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, var: &dyn Fn(&str) -> Option<String>) -> Result<RunOptions> {
+/// The start options: `args`, plus `replace` (remove leftovers first), a `lifetime` in minutes
+/// and the SSH jump the run records.
+fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, ssh_jump: Option<&str>, var: &dyn Fn(&str) -> Option<String>) -> Result<RunOptions> {
     let mut opts = options(args, var)?;
+    if let Some(jump) = ssh_jump {
+        opts = opts.with_ssh_jump(jump);
+    }
     if replace {
         opts = opts.with_occupied(Occupied::Replace);
     }
@@ -196,9 +207,6 @@ fn options(args: &OpArgs, var: &dyn Fn(&str) -> Option<String>) -> Result<RunOpt
     }
     if let Some(provider) = &args.provider {
         opts = opts.with_provider(provider);
-    }
-    if let Some(jump) = &args.ssh_jump {
-        opts = opts.with_ssh_jump(jump);
     }
     Ok(opts)
 }

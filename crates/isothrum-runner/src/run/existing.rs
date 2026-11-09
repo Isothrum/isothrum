@@ -45,8 +45,8 @@ impl Running<'_> {
     }
 
     /// Stops the run, keeping what it created, with the manifest's `park` steps for `mode`; `opts`
-    /// as the other operations take them (the place the run is on, the params its steps read, the
-    /// SSH jump host).
+    /// as the other operations take them (the place the run is on, the params and secrets its steps
+    /// read). Its SSH goes through the jump the run recorded at `up`.
     ///
     /// # Errors
     ///

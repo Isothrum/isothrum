@@ -95,6 +95,11 @@ pub(crate) enum Lifecycle {
         /// manifest's).
         #[arg(long, value_name = "MINUTES")]
         lifetime: Option<u64>,
+        /// A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge
+        /// this machine can't route to. Recorded when the run starts: every later operation (a
+        /// resume through `up` too) goes the same way.
+        #[arg(long, value_name = "USER@HOST")]
+        ssh_jump: Option<String>,
     },
     /// Remove everything the run created.
     Down(OpArgs),
@@ -226,10 +231,6 @@ pub(crate) struct OpArgs {
     /// the one it was started with.
     #[arg(long, value_name = "PROVIDER")]
     pub(crate) provider: Option<String>,
-    /// A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge
-    /// this machine can't route to. Recorded at `up`.
-    #[arg(long, value_name = "USER@HOST")]
-    pub(crate) ssh_jump: Option<String>,
 }
 
 #[cfg(test)]
@@ -283,6 +284,12 @@ mod tests {
         assert_eq!(retiring.secrets, ["CTF_FLAG_MAIN"]);
         let console = Cli::parse_from(["isothrum", "console", "web"]);
         assert!(matches!(console.command, Command::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
+        let up = Cli::parse_from(["isothrum", "up", "--ssh-jump", "root@pve.lan"]);
+        assert!(matches!(up.command, Command::Lifecycle(Lifecycle::Up { ssh_jump: Some(j), .. }) if j == "root@pve.lan"));
+        for later in ["down", "park", "resume", "update", "provision", "attach", "detach"] {
+            let given = Cli::try_parse_from(["isothrum", later, "--ssh-jump", "root@pve.lan"]);
+            assert!(given.is_err(), "only `up` takes the jump the run records: {later}");
+        }
         let park = Cli::parse_from(["isothrum", "park", "--mode", "pause", "--home", "/tmp/h"]);
         assert!(matches!(park.command, Command::Lifecycle(Lifecycle::Park { mode: Mode::Pause, .. })) && park.home == Some("/tmp/h".into()));
     }

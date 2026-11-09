@@ -760,8 +760,8 @@ async fn a_vm_with_only_fixed_ports_sets_no_host_ports_env() {
 }
 
 /// An ESXi host's password is a connection slot every Vagrant command needs, reads included: a
-/// run given it once ([`crate::Running::with_connection`]) delivers it to every operation, status and
-/// park too, which take no options; a value given to an operation wins.
+/// run given it once ([`crate::Running::with_connection`]) delivers it to every operation, status
+/// (which takes no options) and an operation given none too; a value given to an operation wins.
 #[tokio::test]
 async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
     let f = fixture(HostOs::Linux);

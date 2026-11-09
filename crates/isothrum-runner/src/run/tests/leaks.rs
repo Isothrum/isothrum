@@ -98,7 +98,7 @@ async fn every_operation_masks_the_values_in_its_events() {
         }),
         ("detach", |r, e| Box::pin(async move { drop(r.detach(None, &opts(), e).await) })),
         ("retire", |r, e| Box::pin(async move { drop(r.retire("db", &opts(), e).await) })),
-        // Park takes no options: the value comes with the run's connection.
+        // Park given no options: the value comes with the run's connection.
         ("park", |r, e| {
             Box::pin(async move { drop(r.park(Park::Shutdown, &RunOptions::new(), e).await) })
         }),

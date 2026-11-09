@@ -162,9 +162,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   order `retire` and `provision` take theirs.
 - **`Running::park(mode, opts, events)` takes the operation's options**, as `down` and `retire`
   do (pass `RunOptions::new()` for none). It ran on empty options: a run recorded under another
-  host label was parked anyway (now `running_elsewhere`), and its steps had no params or SSH jump
-  host given. `isothrum park` takes `--param`, `--secret-from-env`, `--host-label`, `--provider`
-  and `--ssh-jump`, as `down` does.
+  host label was parked anyway (now `running_elsewhere`), and its steps had no params given.
+  `isothrum park` takes `--param`, `--secret-from-env`, `--host-label` and `--provider`, as
+  `down` does. Its SSH goes through the jump the run recorded at `up`, as every later
+  operation's does.
+- **`isothrum` takes `--ssh-jump` on `up` only.** Every command that runs an operation accepted
+  it, but only an `up` that starts the run reads it (it is recorded; later operations go the
+  same way): given anywhere else it did nothing. `RunOptions::ssh_jump` says so.
 - **`isothrum-machine`'s `storage::load` returns `io::Result<Owned>`.** It read a record it
   couldn't read or parse as an empty one, so a caller that loads, changes and writes the record
   back forgot everything it held after one failed read. Only a missing file is an empty record

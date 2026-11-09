@@ -79,8 +79,8 @@ impl<'r> Running<'r> {
     }
 
     /// The run with `secrets`, the values of its connection slots (an ESXi host's password),
-    /// delivered to every operation: status and park, which take no options, too. Kept in memory
-    /// only, never stored; a value an operation's options give wins.
+    /// delivered to every operation, status (which takes no options) too. Kept in memory only,
+    /// never stored; a value an operation's options give wins.
     #[must_use]
     pub fn with_connection(mut self, secrets: Secrets) -> Running<'r> {
         self.connection = secrets;

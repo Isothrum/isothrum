@@ -34,7 +34,9 @@ pub struct RunOptions {
     /// What `up` does when the run exists.
     pub occupied: Occupied,
     /// A login (`user@host`) every SSH of the run goes through first: a Proxmox node whose run
-    /// bridge this host can't route to. Recorded at `up`, so later operations go the same way.
+    /// bridge this host can't route to. Read by an `up` that starts the run, and recorded: every
+    /// later operation (a resume through `up` too) goes the way the run started, whatever its
+    /// options say.
     pub ssh_jump: Option<String>,
     /// How long the run may live, for a manifest with an `expiry` (its default otherwise).
     pub lifetime: Option<std::time::Duration>,
@@ -82,7 +84,8 @@ impl RunOptions {
         self
     }
 
-    /// Goes through `login` (`user@host`) for every SSH of the run.
+    /// Goes through `login` (`user@host`) for every SSH of the run, once an `up` starting it
+    /// records it ([`RunOptions::ssh_jump`]).
     #[must_use]
     pub fn with_ssh_jump(mut self, login: impl Into<String>) -> RunOptions {
         self.ssh_jump = Some(login.into());

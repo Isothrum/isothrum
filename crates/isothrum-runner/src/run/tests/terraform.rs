@@ -217,7 +217,8 @@ async fn the_runs_jump_goes_before_the_router() {
         read.args.windows(2).any(|w| w == ["-J", &format!("root@172.16.1.10,isoloom@{ROUTER}")]),
         "{read:?}"
     );
-    let report = run.check(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    // A later operation goes the way the run started, whatever jump its options give.
+    let report = run.check(&RunOptions::new().with_ssh_jump("root@elsewhere"), &Recorder::new()).await.unwrap();
     assert!(report.ok, "{report:?}");
     let check = s.fake.last("sh -s").unwrap();
     assert!(check.stdin.as_ref().is_some_and(|p| p.ends_with("checks/networks.sh")), "{check:?}");
