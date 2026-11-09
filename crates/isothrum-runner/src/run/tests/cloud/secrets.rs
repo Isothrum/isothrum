@@ -125,6 +125,7 @@ async fn an_output_the_state_marks_sensitive_is_masked_and_never_in_the_message(
     let started = run.up(&opts("eu-west-3", "labs"), &events).await.unwrap();
     let secret = started.outputs.iter().find(|o| o.name == "db_password").unwrap();
     assert!(secret.sensitive, "the state's word wins over the manifest's");
+    assert_eq!((secret.value.as_deref(), secret.revealed()), (Some("***"), Some("hunter2-db")));
     assert_eq!(
         started.message.as_deref(),
         Some("The database takes ${outputs.db_password}; the site is at 198.51.100.10.")
@@ -134,7 +135,11 @@ async fn an_output_the_state_marks_sensitive_is_masked_and_never_in_the_message(
     assert!(!shown.contains("hunter2-db"), "never in an event: {shown}");
     assert!(shown.contains("admin/***"), "a log line holding it is masked");
     let status = run.status().await.unwrap();
-    assert!(status.outputs.iter().any(|o| o.name == "db_password" && o.sensitive));
+    let written = format!("{} {status:?}", serde_json::to_string(&status).unwrap());
+    assert!(!written.contains("hunter2-db"), "never in the status's JSON or Debug: {written}");
+    let read = status.outputs.iter().find(|o| o.name == "db_password").unwrap();
+    assert!(read.sensitive);
+    assert_eq!((read.value.as_deref(), read.revealed()), (Some("***"), Some("hunter2-db")));
     assert!(!status.message.unwrap_or_default().contains("hunter2-db"));
 }
 

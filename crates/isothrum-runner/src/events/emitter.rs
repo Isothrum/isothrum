@@ -13,7 +13,7 @@ use crate::error::Error;
 use crate::state::Op;
 
 /// What a masked value reads as.
-const MASK: &str = "***";
+pub(crate) const MASK: &str = "***";
 
 /// The events of one operation on one run.
 pub(crate) struct Emitter<'a> {

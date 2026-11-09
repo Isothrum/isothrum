@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use isoloom_manifest::{Manifest, OutputRole, Protocol, Role};
 use serde::{Deserialize, Serialize};
 
+use crate::events::MASK;
+use crate::secrets::SecretValue;
 use crate::state::RunState;
 use crate::store::RunRecord;
 
@@ -84,7 +86,8 @@ pub struct NetworkView {
     pub native: Option<String>,
 }
 
-/// An output's value.
+/// An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its
+/// `Debug`, an event); [`OutputValue::revealed`] gives the value itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct OutputValue {
@@ -94,8 +97,40 @@ pub struct OutputValue {
     pub role: OutputRole,
     /// Whether the value is sensitive.
     pub sensitive: bool,
-    /// Its value, when it can be read.
+    /// Its value, when it can be read; `***` when it is sensitive.
     pub value: Option<String>,
+    /// A sensitive output's value itself: never written out.
+    #[serde(skip)]
+    secret: Option<SecretValue>,
+}
+
+impl OutputValue {
+    /// Output `name`'s `value`, masked when it is `sensitive`.
+    pub(crate) fn new(name: String, role: OutputRole, sensitive: bool, value: Option<String>) -> OutputValue {
+        let (value, secret) = match value {
+            Some(v) if sensitive => (Some(MASK.to_owned()), Some(SecretValue::new(v))),
+            value => (value, None),
+        };
+        OutputValue {
+            name,
+            role,
+            sensitive,
+            value,
+            secret,
+        }
+    }
+
+    /// The value itself, a sensitive one unmasked: for an embedder that hands it to its user on
+    /// request (a password to copy). Never print or log it. `None` when it can't be read, and for
+    /// a sensitive output read back from JSON (which holds only the mask).
+    #[must_use]
+    pub fn revealed(&self) -> Option<&str> {
+        if self.sensitive {
+            self.secret.as_ref().map(SecretValue::expose)
+        } else {
+            self.value.as_deref()
+        }
+    }
 }
 
 /// A run as it stands.

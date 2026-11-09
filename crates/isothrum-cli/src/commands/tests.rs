@@ -141,6 +141,24 @@ async fn a_lab_goes_up_reports_checks_and_goes_down() {
 }
 
 #[tokio::test]
+async fn a_sensitive_output_shows_as_masked_in_the_status_json_and_text() {
+    let s = setup_with(&FLAG_PORTAL.replace(r#""sensitive": false"#, r#""sensitive": true"#));
+    assert_eq!(s.run(&["up", "--json"]).await.unwrap(), Verdict::Pass);
+    assert!(!s.out.take().contains("127.0.0.1:41873"), "no event says it");
+
+    assert_eq!(s.run(&["status", "--json"]).await.unwrap(), Verdict::Pass);
+    let status: serde_json::Value = serde_json::from_str(&s.out.take()).unwrap();
+    assert_eq!(
+        (&status["outputs"][0]["value"], &status["outputs"][0]["sensitive"]),
+        (&"***".into(), &true.into())
+    );
+
+    assert_eq!(s.run(&["status"]).await.unwrap(), Verdict::Pass);
+    let said = s.out.take();
+    assert!(said.contains("\nweb_portal: ***\n") && !said.contains("127.0.0.1:41873"), "{said}");
+}
+
+#[tokio::test]
 async fn a_refused_operation_is_reported_by_its_error_event() {
     let s = setup();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);

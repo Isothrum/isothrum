@@ -62,7 +62,7 @@ pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
     }
     for o in &status.outputs {
         if let Some(value) = &o.value {
-            lines.push(format!("{}: {}", o.name, if o.sensitive { "***" } else { value }));
+            lines.push(format!("{}: {value}", o.name));
         }
     }
     if let Some(message) = &status.message {

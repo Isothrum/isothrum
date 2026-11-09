@@ -15,7 +15,7 @@ use std::sync::{Mutex, PoisonError};
 use isoloom_manifest::OutputRole;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use emitter::Emitter;
+pub(crate) use emitter::{Emitter, MASK};
 
 use crate::error::ErrorCode;
 use crate::state::{Op, RunState};

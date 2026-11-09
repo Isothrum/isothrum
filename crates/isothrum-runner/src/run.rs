@@ -322,7 +322,8 @@ impl<'r> Running<'r> {
         cx.vars.set_hosts(observed.hosts);
         let outputs = outputs::read(self.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
         // A value the engine or the manifest keeps secret is masked in every later event.
-        cx.events.hide(outputs.iter().filter(|o| o.sensitive).filter_map(|o| o.value.clone()));
+        cx.events
+            .hide(outputs.iter().filter(|o| o.sensitive).filter_map(|o| o.revealed().map(str::to_owned)));
         outputs::bind(&mut cx.vars, &outputs);
         outputs
     }

@@ -41,12 +41,7 @@ pub(crate) fn read(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, S
                 Some(format) => known.render_value(format, &v, &at).ok(),
                 None => Some(v),
             });
-            OutputValue {
-                name: o.name.to_string(),
-                role: o.role,
-                sensitive: sensitive(o),
-                value,
-            }
+            OutputValue::new(o.name.to_string(), o.role, sensitive(o), value)
         })
         .collect()
 }
@@ -74,18 +69,13 @@ pub(crate) fn message(manifest: &Manifest, vars: &Vars, outputs: &[OutputValue])
     manifest.environment.message.as_ref().map(|m| vars.render_lenient(m, &hidden))
 }
 
-/// Emits each output (a sensitive value as `***`).
+/// Emits each output (a sensitive value as `***`, as [`OutputValue`] holds it).
 pub(crate) fn emit(events: &Emitter<'_>, outputs: &[OutputValue]) {
     for o in outputs {
-        let value = if o.sensitive {
-            o.value.as_ref().map(|_| "***".to_owned())
-        } else {
-            o.value.clone()
-        };
         events.emit(EventKind::Output {
             name: o.name.clone(),
             role: o.role,
-            value,
+            value: o.value.clone(),
             sensitive: o.sensitive,
         });
     }

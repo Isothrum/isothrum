@@ -84,8 +84,9 @@ store is a plain folder under the runner's home: tests give it a temporary one.
 A slot's value reaches only the steps its delivery names (`env` for Compose, `ISOLOOM_SECRET_*`
 or the input's own variable for Vagrant, `TF_VAR_*` / a JSON map entry for Terraform, or over
 `ssh.run` for the self-setup cloud path). Every sensitive value is replaced by `***` in events,
-logs, error messages and results; a sensitive output shows as `***` and the lab's message never
-substitutes it. **No value is ever stored.** A slot may carry a `default` the runner delivers when
+logs, error messages and results; a sensitive output shows as `***` (in `status` and its JSON
+too: an embedder that hands the value to its user reads `OutputValue::revealed`) and the lab's
+message never substitutes it. **No value is ever stored.** A slot may carry a `default` the runner delivers when
 it has no value (so a lab started without an input, and every resume, still comes up). Leak tests
 assert a delivered value appears in no file under the home and in no event through a whole run,
 not even in a failed step's error that printed it.

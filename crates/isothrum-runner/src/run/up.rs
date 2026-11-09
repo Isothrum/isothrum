@@ -230,10 +230,7 @@ const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 
 /// A run that came up, as the operation returns it and its `result` event says.
 pub(crate) fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
-    let shown: Vec<serde_json::Value> = outputs
-        .iter()
-        .map(|o| json!({ "name": o.name, "role": o.role, "value": if o.sensitive { o.value.as_ref().map(|_| "***".to_owned()) } else { o.value.clone() } }))
-        .collect();
+    let shown: Vec<serde_json::Value> = outputs.iter().map(|o| json!({ "name": o.name, "role": o.role, "value": o.value })).collect();
     let data = json!({ "state": RunState::Ready, "outputs": shown, "message": message });
     Done {
         value: Started { record, outputs, message },
