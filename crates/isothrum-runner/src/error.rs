@@ -14,11 +14,14 @@ mod timed_out;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorCode {
-    /// The manifest isn't valid JSON or breaks the contract.
+    /// The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used
+    /// as written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`).
     ManifestInvalid,
     /// The manifest is another version of the contract.
     ManifestVersion,
-    /// The manifest needs something this runner doesn't do yet (a driver, a delivery, a condition).
+    /// The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or
+    /// the call asks the run for something its target can't do (a console into a Compose service
+    /// with no VM, a Vagrant VM joined to another network).
     Unsupported,
     /// A file or folder couldn't be read or written.
     Io,
@@ -60,6 +63,10 @@ pub enum ErrorCode {
     ElevationDeclined,
     /// A machine the run doesn't have.
     MachineUnknown,
+    /// The run has several machines the call could mean, and it named none.
+    MachineAmbiguous,
+    /// A network the run doesn't have.
+    NetworkUnknown,
     /// Every slot of the place is held by another run.
     SlotsFull,
     /// A deployment can't be taken over as a run.
@@ -103,6 +110,8 @@ impl ErrorCode {
             ErrorCode::ProviderRefused => "provider_refused",
             ErrorCode::ElevationDeclined => "elevation_declined",
             ErrorCode::MachineUnknown => "machine_unknown",
+            ErrorCode::MachineAmbiguous => "machine_ambiguous",
+            ErrorCode::NetworkUnknown => "network_unknown",
             ErrorCode::SlotsFull => "slots_full",
             ErrorCode::AdoptRefused => "adopt_refused",
             ErrorCode::Unreachable => "unreachable",
@@ -128,11 +137,20 @@ pub enum Error {
         /// Why, with Isoloom's stable code (`source.code()`).
         source: isoloom_manifest::Error,
     },
-    /// The manifest needs something this runner doesn't do yet.
-    #[error("{what} isn't supported by this runner yet")]
+    /// The manifest needs something this runner doesn't do, or the call asks the run for
+    /// something its target can't do.
+    #[error("{what} isn't supported")]
     Unsupported {
         /// What, as the manifest names it (`driver vagrant`, `delivery tf_var`).
         what: String,
+    },
+    /// A value the manifest gives that can't be used as written.
+    #[error("{at}: {reason}")]
+    Malformed {
+        /// Where (`lifecycle.up.copy.with.wait_s`).
+        at: String,
+        /// What is wrong with it.
+        reason: String,
     },
     /// A file or folder couldn't be read or written.
     #[error("{} couldn't be {action}: {source}", path.display())]
@@ -266,6 +284,24 @@ pub enum Error {
         /// The machine asked for.
         machine: String,
     },
+    /// The run has several machines the call could mean, and it named none.
+    #[error("run `{run}` has several {which} ({machines}): name one")]
+    MachineAmbiguous {
+        /// The run.
+        run: String,
+        /// Which machines the call could mean (`on-demand machines`).
+        which: &'static str,
+        /// Their names, comma-separated.
+        machines: String,
+    },
+    /// A network the run doesn't have.
+    #[error("run `{run}` has no network `{network}`")]
+    NetworkUnknown {
+        /// The run.
+        run: String,
+        /// The network asked for.
+        network: String,
+    },
     /// The elevation the run's commands need couldn't be had.
     #[error("elevation: {reason}")]
     Elevation {
@@ -330,7 +366,7 @@ impl Error {
     pub fn code(&self) -> ErrorCode {
         match self {
             Error::Manifest { source, .. } if source.code() == "version" => ErrorCode::ManifestVersion,
-            Error::Manifest { .. } => ErrorCode::ManifestInvalid,
+            Error::Manifest { .. } | Error::Malformed { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } | Error::Unbound { .. } => ErrorCode::Unsupported,
             Error::Io { .. } => ErrorCode::Io,
             Error::Locked { .. } => ErrorCode::Locked,
@@ -351,6 +387,8 @@ impl Error {
             Error::Provider { .. } => ErrorCode::ProviderRefused,
             Error::Elevation { .. } => ErrorCode::ElevationDeclined,
             Error::MachineUnknown { .. } => ErrorCode::MachineUnknown,
+            Error::MachineAmbiguous { .. } => ErrorCode::MachineAmbiguous,
+            Error::NetworkUnknown { .. } => ErrorCode::NetworkUnknown,
             Error::SlotsFull { .. } => ErrorCode::SlotsFull,
             Error::Adopt { .. } => ErrorCode::AdoptRefused,
             Error::Unreachable { .. } => ErrorCode::Unreachable,

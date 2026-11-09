@@ -441,5 +441,17 @@ fn a_target_not_run_on_this_host_is_refused_by_its_name() {
     let f = fixture_with(&m.to_string());
     let err = f.runner.open(&f.manifest, None).unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unsupported);
-    assert_eq!(err.to_string(), "target `docker` on this host isn't supported by this runner yet");
+    assert_eq!(err.to_string(), "target `docker` on this host isn't supported");
+}
+
+#[tokio::test]
+async fn a_verdict_that_isnt_a_regular_expression_is_a_malformed_manifest() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    m["lifecycle"]["up"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "up").unwrap()["verdict"] = "(".into();
+    let f = fixture_with(&m.to_string());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert!(err.to_string().starts_with("lifecycle.up.up.verdict: `(` isn't a regular expression"), "{err}");
+    assert!(f.fake.last(" up --detach ").is_none(), "the step never ran");
 }

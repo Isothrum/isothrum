@@ -149,9 +149,11 @@ fn error_codes() -> Vec<(ErrorCode, String)> {
 /// What to do about `code`.
 fn remedy(code: ErrorCode) -> Option<&'static str> {
     Some(match code {
-        ErrorCode::ManifestInvalid => "Generate the run's files again with the Isoloom this runner was built for.",
+        ErrorCode::ManifestInvalid => {
+            "Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix."
+        }
         ErrorCode::ManifestVersion => "Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom.",
-        ErrorCode::Unsupported => "Upgrade Isothrum, or generate the run for another target.",
+        ErrorCode::Unsupported => "Upgrade Isothrum, generate the run for another target, or ask the run for what its target does.",
         ErrorCode::Io => "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`).",
         ErrorCode::Locked => "Wait for the other operation on the run to end, or stop the process running it.",
         ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
@@ -173,6 +175,8 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ProviderRefused => "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed.",
         ErrorCode::ElevationDeclined => "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators.",
         ErrorCode::MachineUnknown => "Name a machine of the manifest.",
+        ErrorCode::MachineAmbiguous => "Name the machine (`--machine`): the message lists the run's.",
+        ErrorCode::NetworkUnknown => "Name a network of the manifest.",
         ErrorCode::SlotsFull => "`down` a run on the same place first.",
         ErrorCode::AdoptRefused => "The message says why the deployment can't be taken over; start the run with `up` instead.",
         ErrorCode::Unreachable => "Check the machine booted and its network (SSH, `--ssh-jump`), then retry.",

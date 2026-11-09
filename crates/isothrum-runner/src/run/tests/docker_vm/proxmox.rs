@@ -50,7 +50,12 @@ struct Server {
 }
 
 fn proxmox() -> Server {
-    let folder = LabFolder::new("docker-vm/proxmox", DOCKER_VM_PROXMOX);
+    proxmox_with(DOCKER_VM_PROXMOX)
+}
+
+/// [`proxmox`], `manifest` its `run.json`.
+fn proxmox_with(manifest: &str) -> Server {
+    let folder = LabFolder::new("docker-vm/proxmox", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     std::fs::write(folder.target_dir().join("setup.sh"), "set -e\n").unwrap();
     let engine = Arc::new(Mutex::new(Engine::default()));
@@ -156,4 +161,21 @@ async fn on_proxmox_the_vm_the_containers_run_in_is_not_retired() {
     assert_eq!(err.code(), crate::ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("the VM the run's containers run in"), "{err}");
     assert_eq!(s.fake.calls().len(), calls, "nothing ran: {:?}", &s.fake.lines()[calls..]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_archive_step_without_its_folder_is_a_malformed_manifest() {
+    let mut m: serde_json::Value = serde_json::from_str(DOCKER_VM_PROXMOX).unwrap();
+    let archive = m["lifecycle"]["up"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|s| s["action"] == "project.archive")
+        .unwrap();
+    archive["with"].as_object_mut().unwrap().remove("root");
+    let Server { folder, runner, options, .. } = proxmox_with(&m.to_string());
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let err = run.up(&options, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert_eq!(err.to_string(), "archive.with.root: a `project.archive` needs the folder to archive");
 }

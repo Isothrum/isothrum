@@ -68,3 +68,15 @@ async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
     assert!(a.fake.last("terraform").is_none(), "nothing ran");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_copy_with_a_when_it_doesnt_know_is_a_malformed_manifest() {
+    let mut m: serde_json::Value = serde_json::from_str(&own_module()).unwrap();
+    m["lifecycle"]["up"][0]["with"]["when"] = "always".into();
+    let a = account_of(&m.to_string(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert_eq!(err.to_string(), "copy-module.with.when: `always`: only `missing` is a `when`");
+    assert!(a.fake.last("terraform apply").is_none(), "nothing applied");
+}

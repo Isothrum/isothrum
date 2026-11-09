@@ -142,8 +142,9 @@ impl Login {
             .map(str::to_owned)
             .collect();
         match std::iter::once(&target).chain(&jumps).find(|l| !plain_login(l)) {
-            Some(bad) => Err(Error::Unsupported {
-                what: format!("an SSH login `{bad}` (letters, digits, `.`, `-`, `_` and one `@` only)"),
+            Some(bad) => Err(Error::Malformed {
+                at: format!("the SSH login `{bad}`"),
+                reason: "a login takes letters, digits, `.`, `-`, `_` and one `@` only".to_owned(),
             }),
             None => Ok(Login { target, jumps }),
         }
@@ -190,8 +191,9 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
     let arg = |name: &str| cx.vars.with_text(with, &at, name);
     let (host, command) = (arg("host")?, arg("command")?);
     if host.is_empty() || command.is_empty() {
-        return Err(Error::Unsupported {
-            what: format!("{at}: an `ssh.run` without its `host` and `command`"),
+        return Err(Error::Malformed {
+            at,
+            reason: "an `ssh.run` needs its `host` and `command`".to_owned(),
         });
     }
     let login = with_login(cx, &host, arg)?;
@@ -257,13 +259,13 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
     if text.is_empty() {
         return Ok(None);
     }
-    let secs: u64 = text.trim().parse().map_err(|_| Error::Unsupported {
-        what: format!("{at}.with.wait_s `{text}`: a number of seconds"),
-    })?;
+    let malformed = |reason: String| Error::Malformed {
+        at: format!("{at}.with.wait_s"),
+        reason,
+    };
+    let secs: u64 = text.trim().parse().map_err(|_| malformed(format!("`{text}` isn't a number of seconds")))?;
     if secs > WAIT_MAX {
-        return Err(Error::Unsupported {
-            what: format!("{at}.with.wait_s {secs}: at most {WAIT_MAX} seconds"),
-        });
+        return Err(malformed(format!("{secs} is over the {WAIT_MAX} seconds a step may wait")));
     }
     let login = format!("{}@{}", user_or_root(arg("user")?), arg("host")?);
     Ok((secs > 0).then(|| Wait {

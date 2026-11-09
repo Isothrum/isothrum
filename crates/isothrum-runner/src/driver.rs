@@ -323,10 +323,7 @@ mod tests {
         let mut m = crate::testing::docker_manifest();
         let tf: Delivery = serde_json::from_str(r#"{"via": "tf_var", "var": "inputs"}"#).unwrap();
         m.secrets[0].deliver = isoloom_manifest::NonEmpty::one(tf);
-        assert_eq!(
-            AnyDriver::for_manifest(&m).unwrap_err().to_string(),
-            "a `tf_var` delivery isn't supported by this runner yet"
-        );
+        assert_eq!(AnyDriver::for_manifest(&m).unwrap_err().to_string(), "a `tf_var` delivery isn't supported");
         let mut cloud = crate::testing::proxmox_manifest();
         let file: Delivery = serde_json::from_str(r#"{"via": "state_file", "path": "inputs.tfvars.json", "format": "tfvars_json"}"#).unwrap();
         cloud.secrets[0].deliver = isoloom_manifest::NonEmpty::one(file);

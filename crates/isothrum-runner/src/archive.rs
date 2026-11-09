@@ -40,8 +40,9 @@ pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName,
     let root = match with.iter().find(|(k, _)| k.as_str() == "root") {
         Some((_, t)) => cx.vars.render(t, &at)?,
         None => {
-            return Err(Error::Unsupported {
-                what: format!("step `{}`: a `project.archive` without its `root`", step.id),
+            return Err(Error::Malformed {
+                at,
+                reason: "a `project.archive` needs the folder to archive".to_owned(),
             });
         }
     };

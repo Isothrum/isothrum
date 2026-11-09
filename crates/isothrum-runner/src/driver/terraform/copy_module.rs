@@ -22,16 +22,17 @@ const TERRAFORM_FILES: [&str; 4] = [".tf", ".tf.json", ".tfvars", ".tfvars.json"
 /// The copy the action of step `step` asks for: module `from` into the run's state folder, only
 /// when there is none with `when` `missing`.
 pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str>) -> crate::Result<()> {
-    let refuse = |what: String| Error::Unsupported {
-        what: format!("step `{step}`: {what}"),
+    let malformed = |field: &str, reason: String| Error::Malformed {
+        at: format!("{step}.with.{field}"),
+        reason,
     };
-    let from = from.ok_or_else(|| refuse("a `terraform.copy_module` without its `from`".into()))?;
+    let from = from.ok_or_else(|| malformed("from", "a `terraform.copy_module` needs the module to copy".into()))?;
     let only_missing = match when {
         None => false,
         Some("missing") => true,
-        Some(other) => return Err(refuse(format!("`when: {other}` (only `missing`)"))),
+        Some(other) => return Err(malformed("when", format!("`{other}`: only `missing` is a `when`"))),
     };
-    let source = inside_project(cx.run.dir(), from).ok_or_else(|| refuse(format!("the module `{from}` isn't a folder inside the run's project")))?;
+    let source = inside_project(cx.run.dir(), from).ok_or_else(|| malformed("from", format!("`{from}` isn't a folder inside the run's project")))?;
     let copy = cx.run.runner.store.run_dir(cx.run.name())?.join(COPY);
     if only_missing && copy.is_dir() {
         return Ok(());

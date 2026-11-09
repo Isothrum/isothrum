@@ -78,8 +78,9 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
     let id = step.id.as_str();
     let spec = spec_for(cx, list, step)?;
     let verdict = match &step.verdict {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|e| Error::Unsupported {
-            what: format!("step `{id}`'s verdict `{pattern}` ({e})"),
+        Some(pattern) => Some(Regex::new(pattern).map_err(|e| Error::Malformed {
+            at: format!("{}.verdict", plan::at(list, step)),
+            reason: format!("`{pattern}` isn't a regular expression ({e})"),
         })?),
         None => None,
     };

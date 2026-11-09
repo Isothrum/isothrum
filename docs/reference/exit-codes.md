@@ -18,9 +18,9 @@ An operation that fails ends its event stream with an `error` event whose `code`
 
 | Code | Cause | Remedy |
 | ---- | ----- | ------ |
-| `manifest_invalid` | The manifest isn't valid JSON or breaks the contract. | Generate the run's files again with the Isoloom this runner was built for. |
+| `manifest_invalid` | The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used as written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`). | Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix. |
 | `manifest_version` | The manifest is another version of the contract. | Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom. |
-| `unsupported` | The manifest needs something this runner doesn't do yet (a driver, a delivery, a condition). | Upgrade Isothrum, or generate the run for another target. |
+| `unsupported` | The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or the call asks the run for something its target can't do (a console into a Compose service with no VM, a Vagrant VM joined to another network). | Upgrade Isothrum, generate the run for another target, or ask the run for what its target does. |
 | `io` | A file or folder couldn't be read or written. | Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`). |
 | `locked` | Another process runs an operation on this run. | Wait for the other operation on the run to end, or stop the process running it. |
 | `tool_missing` | A tool a step runs isn't installed. | Install the tool, or put it on `PATH`. |
@@ -40,6 +40,8 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `provider_refused` | The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or lacks its plugin. | Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed. |
 | `elevation_declined` | The elevation Hyper-V's commands need couldn't be had (the permission prompt declined). | Approve the Windows permission prompt, or run as a member of Hyper-V Administrators. |
 | `machine_unknown` | A machine the run doesn't have. | Name a machine of the manifest. |
+| `machine_ambiguous` | The run has several machines the call could mean, and it named none. | Name the machine (`--machine`): the message lists the run's. |
+| `network_unknown` | A network the run doesn't have. | Name a network of the manifest. |
 | `slots_full` | Every slot of the place is held by another run. | `down` a run on the same place first. |
 | `adopt_refused` | A deployment can't be taken over as a run. | The message says why the deployment can't be taken over; start the run with `up` instead. |
 | `unreachable` | A machine a step goes to over SSH never answered. | Check the machine booted and its network (SSH, `--ssh-jump`), then retry. |

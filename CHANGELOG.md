@@ -270,6 +270,16 @@ change.
 
 ### Changed
 
+- **Breaking: what was wrong with a call or a manifest value has its own error code, not
+  `unsupported`.** `unsupported` meant both "this runner doesn't do it" and a mistake of the
+  caller's or the manifest's. Now an `attach` (or `detach`) that names none of the run's several
+  on-demand machines fails with the new `machine_ambiguous` (`Error::MachineAmbiguous`), one
+  whose network the run doesn't have with the new `network_unknown` (`Error::NetworkUnknown`),
+  and a manifest value the runner can't use as written (a step's `verdict` that isn't a regular
+  expression, an SSH login, an `ssh.run`'s `wait_s`, `host` or `command`, a `project.archive`
+  without its folder, a `terraform.copy_module`'s `from` or `when`) with `manifest_invalid`
+  (`Error::Malformed`, naming the field). `unsupported`'s message no longer says "by this runner
+  yet": much of what it refuses is a target's limit, not a missing feature.
 - **Breaking: Isothrum reads run manifest version 1.** Isoloom froze its run manifest at
   `manifest_version` 1, with a compatibility policy (`isoloom_manifest::COMPATIBILITY`: changes
   within a version are additive; a reader refuses what it doesn't know) and a schema published at

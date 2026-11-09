@@ -1,8 +1,8 @@
-//! Hot-adding a lab's own on-demand access machine into a running run, and hot-removing it: a
+//! Hot-adding a run's own on-demand access machine into the running run, and hot-removing it: a
 //! manifest machine marked `on_demand`, which the initial `up` left down (a Compose `access`
 //! profile, a Vagrant `autostart: false`). `attach` brings it up on a chosen network with the
-//! image the user picked, `detach` takes it back out. A lab that declares no access machine has
-//! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
+//! image the user picked, `detach` takes it back out. A run that declares no access machine has
+//! nothing to attach: an embedder adds a machine of its own as an ordinary machine of the run
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
 use isoloom_manifest::Machine;
@@ -26,7 +26,7 @@ pub struct AttachReport {
     pub machine: String,
     /// Its native name (the Compose service / Vagrant define).
     pub native: String,
-    /// The lab network it is on (the chosen one, else its first).
+    /// The run's network it is on (the chosen one, else its first).
     pub network: Option<String>,
     /// Its address on that network, where the user reaches it.
     pub address: Option<String>,
@@ -38,11 +38,11 @@ pub struct AttachReport {
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct AccessPick<'a> {
-    /// The on-demand machine, when the lab has more than one.
+    /// The on-demand machine, when the run has more than one.
     pub machine: Option<&'a str>,
-    /// The lab network it joins (default: its first).
+    /// The run's network it joins (default: its first).
     pub network: Option<&'a str>,
-    /// What it runs from (default: the lab's).
+    /// What it runs from (default: the run's).
     pub image: Option<&'a str>,
 }
 
@@ -54,7 +54,7 @@ impl<'a> AccessPick<'a> {
         self
     }
 
-    /// Joins lab network `name`.
+    /// Joins the run's network `name`.
     #[must_use]
     pub fn with_network(mut self, name: &'a str) -> AccessPick<'a> {
         self.network = Some(name);
@@ -70,23 +70,23 @@ impl<'a> AccessPick<'a> {
 }
 
 impl Running<'_> {
-    /// Hot-adds the lab's on-demand access machine into the running run, with `opts` (the params
-    /// and secrets the run's operations take), brought up with the
-    /// user-picked `image` (its baked default otherwise), on `network` when given. `image` is a
-    /// container image for a Compose access service, the Vagrant box for an access VM. `machine`
-    /// names which on-demand machine, needed only when the lab has more than one. `network` is one
-    /// of the manifest's networks: a Compose access service's container also joins it, by the
-    /// native name the run gives it (as status shows it); a VM's networks are its Vagrantfile's,
-    /// so a Vagrant run refuses one.
+    /// Hot-adds the run's on-demand access machine into the running run, with `opts` (the params
+    /// and secrets the run's operations take), brought up with the user-picked `image` (its baked
+    /// default otherwise), on `network` when given. `image` is a container image for a Compose
+    /// access service, the Vagrant box for an access VM. `machine` names which on-demand machine,
+    /// needed only when the run has more than one. `network` is one of the manifest's networks: a
+    /// Compose access service's container also joins it, by the native name the run gives it (as
+    /// status shows it); a VM's networks are its Vagrantfile's, so a Vagrant run refuses one.
     ///
     /// # Errors
     ///
-    /// Fails with `machine_unknown` for a named machine the lab doesn't have, `unsupported` when
-    /// the lab declares no access machine, or several and none is named (or the target brings
-    /// none up later: a server or a cloud), and for a `network` the run doesn't have or can't
-    /// join (a Vagrant run's), `not_running` when the run isn't up, `tool_failed` when the
-    /// container can't join the network (one already on it has), and as the other operations do
-    /// for a step or the state.
+    /// Fails with `machine_unknown` for a named machine the run doesn't have,
+    /// `machine_ambiguous` when it has several and none is named, `network_unknown` for a
+    /// `network` it doesn't have, `unsupported` when it declares no access machine (or the target
+    /// brings none up later: a server or a cloud) and for a network it can't join (a Vagrant
+    /// run's), `not_running` when the run isn't up, `tool_failed` when the container can't join
+    /// the network (one already on it has), and as the other operations do for a step or the
+    /// state.
     pub async fn attach(&self, pick: AccessPick<'_>, opts: &RunOptions, events: &dyn Events) -> Result<AttachReport> {
         let AccessPick { machine, network, image } = pick;
         self.operate(Op::Attach, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
@@ -110,7 +110,7 @@ impl Running<'_> {
         .await
     }
 
-    /// Hot-removes the lab's access machine from the running run, with `opts`, leaving the rest
+    /// Hot-removes the run's access machine from the running run, with `opts`, leaving the rest
     /// up: the on-demand machine chosen as [`Running::attach`] chooses it, taken out as
     /// [`Running::retire`] takes a machine out (its Compose service removed through the `access`
     /// profile, its VM destroyed).
@@ -134,14 +134,16 @@ impl Running<'_> {
         .await
     }
 
-    /// The manifest's network `name`, refused with `unsupported` when the run has none so named.
+    /// The manifest's network `name`, refused with `network_unknown` when the run has none so
+    /// named.
     fn network_named(&self, name: &str) -> Result<&isoloom_manifest::Network> {
         self.manifest()
             .networks
             .iter()
             .find(|n| n.name.as_str() == name)
-            .ok_or_else(|| Error::Unsupported {
-                what: format!("joining network `{name}`, which this run doesn't have"),
+            .ok_or_else(|| Error::NetworkUnknown {
+                run: self.name().to_string(),
+                network: name.to_owned(),
             })
     }
 
@@ -171,13 +173,15 @@ impl Running<'_> {
             (None, _) => Err(Error::Unsupported {
                 what: "hot-adding an access machine (this run declares no access machine)".to_owned(),
             }),
-            _ => Err(Error::Unsupported {
-                what: format!("hot-adding an access machine: this run has several ({}); name which", self.on_demand_names()),
+            _ => Err(Error::MachineAmbiguous {
+                run: self.name().to_string(),
+                which: "on-demand machines",
+                machines: self.on_demand_names(),
             }),
         }
     }
 
-    /// The lab's on-demand access machines, by name, for the "name which" message.
+    /// The run's on-demand access machines, by name, for the "name one" message.
     fn on_demand_names(&self) -> String {
         self.manifest()
             .machines

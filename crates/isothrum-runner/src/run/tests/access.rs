@@ -70,8 +70,8 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
 
     let calls = refused.fake.calls().len();
     let unknown = attach(&run, None, Some("nope"), None, &Recorder::new()).await.unwrap_err();
-    assert_eq!(unknown.code(), ErrorCode::Unsupported, "{unknown}");
-    assert!(unknown.to_string().contains("network `nope`"), "{unknown}");
+    assert_eq!(unknown.code(), ErrorCode::NetworkUnknown, "{unknown}");
+    assert_eq!(unknown.to_string(), "run `web-portal` has no network `nope`");
     assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
 }
 
@@ -300,4 +300,25 @@ async fn an_unreadable_config_fails_attach_and_detach_loudly() {
     let detached = detach(&run, None, &Recorder::new()).await.unwrap_err();
     assert_eq!(detached.code(), ErrorCode::ToolFailed, "{detached}");
     assert!(f.fake.last(" rm -sf").is_none(), "nothing removed");
+}
+
+#[tokio::test]
+async fn an_attach_naming_none_of_several_access_machines_is_refused() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL_ACCESS).unwrap();
+    let machines = m["machines"].as_array_mut().unwrap();
+    let mut second = machines.iter().find(|x| x["on_demand"] == true).unwrap().clone();
+    second["name"] = "second".into();
+    second["native"]["service"] = "second".into();
+    machines.push(second);
+    let f = fixture_with(&m.to_string());
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let calls = f.fake.calls().len();
+    let err = attach(&run, None, None, None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::MachineAmbiguous, "{err}");
+    assert!(
+        err.to_string().ends_with("has several on-demand machines (attacker, second): name one"),
+        "{err}"
+    );
+    assert_eq!(f.fake.calls().len(), calls, "nothing ran");
 }

@@ -559,7 +559,7 @@
       "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
       "oneOf": [
         {
-          "description": "The manifest isn't valid JSON or breaks the contract.",
+          "description": "The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used\nas written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`).",
           "type": "string",
           "const": "manifest_invalid"
         },
@@ -569,7 +569,7 @@
           "const": "manifest_version"
         },
         {
-          "description": "The manifest needs something this runner doesn't do yet (a driver, a delivery, a condition).",
+          "description": "The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or\nthe call asks the run for something its target can't do (a console into a Compose service\nwith no VM, a Vagrant VM joined to another network).",
           "type": "string",
           "const": "unsupported"
         },
@@ -667,6 +667,16 @@
           "description": "A machine the run doesn't have.",
           "type": "string",
           "const": "machine_unknown"
+        },
+        {
+          "description": "The run has several machines the call could mean, and it named none.",
+          "type": "string",
+          "const": "machine_ambiguous"
+        },
+        {
+          "description": "A network the run doesn't have.",
+          "type": "string",
+          "const": "network_unknown"
         },
         {
           "description": "Every slot of the place is held by another run.",
