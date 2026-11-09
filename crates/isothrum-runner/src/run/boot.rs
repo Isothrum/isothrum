@@ -3,10 +3,10 @@
 //! `up`'s steps on a running VM would leave them as they were (a host folder added: the VM never
 //! mounts it). The manifest's `native.boot_digest` of each VM is compared with the one the run
 //! recorded at its last `up` or update: a running VM whose two digests are both known and differ
-//! is restarted (`vagrant reload`, the only engine whose VMs carry a boot digest) before `up`'s steps run
-//! again, which then provision it and start what runs in it (a `docker-vm`'s containers). A VM
-//! with no recorded digest (a run recorded before the runner kept them) or none in the manifest
-//! is left running: an unknown digest never reloads. Either way the update records the
+//! is restarted (`vagrant reload`: only Vagrant's VMs carry a boot digest) before `up`'s steps
+//! run again, which then provision it and start what runs in it (a `docker-vm`'s containers). A
+//! VM with no recorded digest (a run recorded before the runner kept them) or none in the
+//! manifest is left running: an unknown digest never reloads. Either way the update records the
 //! manifest's digests ([`Running::runs_from_this`]).
 
 use std::collections::BTreeMap;

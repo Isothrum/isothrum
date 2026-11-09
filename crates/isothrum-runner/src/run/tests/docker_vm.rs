@@ -30,6 +30,8 @@ struct Engine {
     ps_misses: u32,
     /// How many times the VM was restarted (`vagrant reload`).
     reloads: u32,
+    /// Whether a restart fails (the VM left as it was).
+    reload_fails: bool,
 }
 
 /// `docker compose ps --all --format json` of the started run, one object a line.
@@ -71,6 +73,7 @@ fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
             Reply::ok("==> default: Machine booted and ready!")
         }
         // A restart stops the containers; Docker comes back empty until Compose starts them.
+        ("vagrant", ["reload", "default", "--no-provision"]) if e.reload_fails => Reply::fail(1, "VBoxManage: error: the machine is locked"),
         ("vagrant", ["reload", "default", "--no-provision"]) if e.vm.as_deref() == Some("running") => {
             e.reloads += 1;
             e.up = false;
@@ -324,6 +327,37 @@ async fn an_update_restarts_the_vm_whose_boot_settings_changed_then_starts_its_c
     // Updated again with the same manifest: nothing to restart.
     l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(l.engine.lock().unwrap().reloads, 1);
+}
+
+/// A restart that fails fails its step and the update, before `up`'s steps run, and leaves the
+/// digest the VM booted with recorded: the next update sees the change again and restarts it.
+#[tokio::test(start_paused = true)]
+async fn a_failed_restart_fails_the_update_and_the_next_update_restarts_again() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:shared-folder"))).unwrap();
+    l.engine.lock().unwrap().reload_fails = true;
+    let before = l.fake.calls().len();
+    let events = Recorder::new();
+    let err = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &events).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::ToolFailed, "{err}");
+    let shown = steps(&events);
+    let reload = |state| shown.contains(&("reload-docker".to_owned(), state));
+    assert!(reload(StepState::Running) && reload(StepState::Failed), "{shown:?}");
+    let during: Vec<String> = l.fake.calls()[before..].iter().map(Call::line).collect();
+    assert!(during.iter().all(|c| !c.starts_with("vagrant up")), "no start step ran: {during:?}");
+    let record = l.runner.store.record(run.name()).unwrap().unwrap();
+    assert_eq!(
+        record.vm_boot_digests.get("docker").map(String::as_str),
+        Some(BOOTED),
+        "what the VM booted with"
+    );
+
+    l.engine.lock().unwrap().reload_fails = false;
+    let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(l.engine.lock().unwrap().reloads, 1, "restarted at the next update");
+    assert_eq!(updated.record.vm_boot_digests.get("docker").map(String::as_str), Some("sha256:shared-folder"));
 }
 
 #[tokio::test(start_paused = true)]
