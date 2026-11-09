@@ -82,8 +82,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   the access machine's choice as an `AccessPick`, in the order `retire` and `provision` take
   theirs; the CLI's `attach` and `detach` take `--param` and `--secret-from-env`.
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
-  provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
-  (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out
+  provider detection reads each Vagrant plugin's version and UTM's own (its app bundle's
+  `CFBundleShortVersionString`), and reports UTM unavailable with the way out
   when either is too old: `vagrant_utm` before 0.2.0 (it reads a VM's forwarded ports through a
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
   `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`).
@@ -104,6 +104,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   which starts bash where the machine has it, else sh. `isothrum shell` goes with it: use
   `isothrum console <machine>`.
 
+- **`isothrum-machine` keeps only provider detection and the download record's format.** Its
+  public API is now `providers::{detect, Provider, ProviderStatus}` and `storage::{Owned,
+  OwnedBox, OwnedImage, load, parse_box_list}`. Gone, with no user left: the self-tests
+  (`selftest`, `BootProbe`, `ElevatedBoot`, `Vm`), the system report (`system`, `SystemReport`,
+  `DockerDenied`), `Dirs`, `Error` and `Result`, the `exec` module, the record's writing half
+  (`storage::{path, update, Before, image_ids, box_list, claim, tracked}`), and the provider
+  helpers `parse_plugins`, `parse_plugin_versions`, `version_at_least`, `kvm_problem` and
+  `HYPERV_NEEDS_ADMIN` (still used inside `detect`).
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),

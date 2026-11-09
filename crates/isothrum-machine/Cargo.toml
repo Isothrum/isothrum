@@ -1,6 +1,6 @@
-# The machine-setup domain shared by the apps that embed the runner: what this computer can run
-# (Docker, Vagrant, the hypervisors, the cloud CLIs) and the self-tests that boot a throwaway
-# container or VM to prove it, on the Isothrum runner's no-unsafe `ProcessRunner`.
+# The machine-setup domain: which Vagrant providers (hypervisors) this computer can drive, and the
+# record format of what a program downloaded for its own operations, on the Isothrum runner's
+# no-unsafe `ProcessRunner`.
 [package]
 name = "isothrum-machine"
 version.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Machine-setup domain for Isothrum: detect Docker, Vagrant, the hypervisors and the cloud CLIs, and self-test them by booting a throwaway container or VM."
+description = "Machine-setup domain for Isothrum: detect the Vagrant providers (hypervisors) this computer can drive, and read the record of the images and boxes a program downloaded."
 publish = true
 
 [lints]
@@ -19,9 +19,7 @@ workspace = true
 isothrum-runner.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }

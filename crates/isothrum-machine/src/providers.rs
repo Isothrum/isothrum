@@ -40,18 +40,18 @@ pub enum Provider {
     VmwareEsxi,
     /// A remote Proxmox VE host.
     Proxmox,
-    /// The player's AWS account (Terraform, never a local Vagrant provider).
+    /// An AWS account (Terraform, never a local Vagrant provider).
     Aws,
-    /// The player's Azure subscription (Terraform).
+    /// An Azure subscription (Terraform).
     Azure,
-    /// The player's Google Cloud project (Terraform).
+    /// A Google Cloud project (Terraform).
     Gcp,
-    /// The player's DigitalOcean account (Terraform).
+    /// A DigitalOcean account (Terraform).
     #[serde(rename = "digitalocean")]
     DigitalOcean,
-    /// The player's Linode account (Terraform).
+    /// A Linode account (Terraform).
     Linode,
-    /// The player's Oracle Cloud tenancy (Terraform).
+    /// An Oracle Cloud tenancy (Terraform).
     Oci,
 }
 
@@ -109,7 +109,7 @@ impl Provider {
         )
     }
 
-    /// Whether the provider is a cloud account billed to the player, as opposed to their own server.
+    /// Whether the provider is a billed cloud account, as opposed to the user's own server.
     #[must_use]
     pub fn is_cloud(self) -> bool {
         self.is_remote() && !matches!(self, Provider::VmwareEsxi | Provider::Proxmox)
@@ -183,7 +183,6 @@ impl Provider {
             runner,
             "defaults",
             &["read", &plist, "CFBundleShortVersionString"],
-            None,
         )
         .await
         .ok()?;
@@ -230,9 +229,8 @@ fn hyperv_enabled() -> bool {
 }
 
 /// Why libvirt can't run VMs here although `virsh` is installed: vagrant-libvirt boots KVM guests,
-/// so it needs `/dev/kvm`, and the player must be allowed to open it. `None` when it is fine.
-#[must_use]
-pub fn kvm_problem() -> Option<String> {
+/// so it needs `/dev/kvm`, and the user must be allowed to open it. `None` when it is fine.
+fn kvm_problem() -> Option<String> {
     let dev = Path::new("/dev/kvm");
     if !dev.exists() {
         return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor".to_owned());
@@ -257,7 +255,7 @@ fn qemu_binary() -> &'static str {
     }
 }
 
-/// One provider's readiness, as the setup screen reads it.
+/// One provider's readiness on this machine.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -282,19 +280,9 @@ pub struct ProviderStatus {
     pub reason: Option<String>,
 }
 
-/// The Vagrant plugin names in `vagrant plugin list` lines like `vagrant-libvirt (0.12.2, global)`.
-#[must_use]
-pub fn parse_plugins(out: &str) -> Vec<String> {
-    parse_plugin_versions(out)
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect()
-}
-
 /// Each plugin of `vagrant plugin list` with its version, from lines like `vagrant-libvirt
 /// (0.12.2, global)`; `None` for a line that names no version (a wrapped or cut line).
-#[must_use]
-pub fn parse_plugin_versions(out: &str) -> Vec<(String, Option<String>)> {
+fn parse_plugin_versions(out: &str) -> Vec<(String, Option<String>)> {
     out.lines()
         .filter_map(|l| {
             let mut words = l.split_whitespace();
@@ -315,8 +303,7 @@ pub fn parse_plugin_versions(out: &str) -> Vec<(String, Option<String>)> {
 
 /// Whether version `found` is `min` or later: dot-separated numbers compared in turn, a missing
 /// one as 0 (`4.7` reads as `4.7.0`) and a part that doesn't start with a digit (`beta`) as 0.
-#[must_use]
-pub fn version_at_least(found: &str, min: &str) -> bool {
+fn version_at_least(found: &str, min: &str) -> bool {
     let numbers = |v: &str| -> Vec<u64> {
         v.trim()
             .split('.')
@@ -363,13 +350,13 @@ fn hypervisor_too_old(
 /// Whether `program` is installed: it is, as long as it could be started (a tool that prints usage
 /// and exits non-zero, like `vmrun`, still exists).
 async fn tool_present(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> bool {
-    exec::read(runner, program, args, None).await.is_ok()
+    exec::read(runner, program, args).await.is_ok()
 }
 
 /// The Vagrant plugins installed, each with its version when it says one; empty when `vagrant
 /// plugin list` can't run.
 async fn installed_plugins(runner: &dyn ProcessRunner) -> Vec<(String, Option<String>)> {
-    match exec::read(runner, "vagrant", &["plugin", "list"], None).await {
+    match exec::read(runner, "vagrant", &["plugin", "list"]).await {
         Ok(out) => parse_plugin_versions(&out),
         Err(_) => Vec::new(),
     }
@@ -380,8 +367,8 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 
 /// Why Hyper-V can't be used by this account yet, and the two ways out. Folded into Hyper-V's
 /// status when the caller's `may_manage_hyperv` is `Some(false)`.
-pub const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
-add this account to that group and sign out of Windows and back in, or run the app as administrator";
+const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
+add this account to that group and sign out of Windows and back in, or run this program as administrator";
 
 /// The readiness of every provider usable on this machine: its hypervisor, its plugin, and why it
 /// is not available. `vagrant_installed` is global, so it is a plain argument.
@@ -452,11 +439,8 @@ pub async fn detect(
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so
 /// ask it something that does and see whether that times out.
 async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
-    let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"], None);
-    matches!(
-        exec::within("VBoxManage", VBOX_PROBE, probe).await,
-        Err(crate::Error::Timeout { .. })
-    )
+    let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"]);
+    tokio::time::timeout(VBOX_PROBE, probe).await.is_err()
 }
 
 /// What `detect` learned about one provider, grouped so `unavailable_reason` reads one value
@@ -533,12 +517,6 @@ mod tests {
     use isothrum_runner::process::fake::{FakeProcesses, Reply};
 
     use super::*;
-
-    #[test]
-    fn plugin_lines_are_parsed_to_names() {
-        let out = "vagrant-libvirt (0.12.2, global)\nvagrant_utm (1.0.0)\nnot-a-plugin (1)\n";
-        assert_eq!(parse_plugins(out), ["vagrant-libvirt", "vagrant_utm"]);
-    }
 
     #[test]
     fn plugin_lines_carry_their_versions() {
