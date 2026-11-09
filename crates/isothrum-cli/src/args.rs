@@ -63,14 +63,6 @@ pub(crate) enum Command {
         #[arg(long)]
         machine: Option<String>,
     },
-    /// Print the command that opens an interactive shell into the on-demand access machine.
-    Shell {
-        #[command(flatten)]
-        run: TargetArgs,
-        /// Which on-demand machine, when the lab has more than one (default: its only one).
-        #[arg(long)]
-        machine: Option<String>,
-    },
     /// Print the command that opens an interactive console into any machine of the run.
     Console {
         /// The machine, by its manifest name.

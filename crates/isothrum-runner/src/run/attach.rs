@@ -35,9 +35,10 @@ pub struct AttachReport {
     pub image: Option<String>,
 }
 
-/// Which access machine an attach adds, where, from what: as [`Running::attach`] takes them.
+/// Which access machine an attach adds, where, from what: as [`Running::attach_with`] takes
+/// them.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct BoxPick<'a> {
+pub struct AccessPick<'a> {
     /// The on-demand machine, when the lab has more than one.
     pub machine: Option<&'a str>,
     /// The lab network it joins (default: its first).
@@ -47,7 +48,8 @@ pub struct BoxPick<'a> {
 }
 
 impl Running<'_> {
-    /// Hot-adds the lab's on-demand access machine into the running run, brought up with the
+    /// Hot-adds the lab's on-demand access machine into the running run, with `opts` (the params
+    /// and secrets the run's operations take), brought up with the
     /// learner-picked `image` (its baked default otherwise), on `network` when given. `image` is a
     /// container image for a Compose access service, the Vagrant box for an access VM. `machine`
     /// names which on-demand machine, needed only when the lab has more than one. `network` is one
@@ -63,17 +65,8 @@ impl Running<'_> {
     /// join (a Vagrant run's), `not_running` when the run isn't up, `tool_failed` when the
     /// container can't join the network (one already on it has), and as the other operations do
     /// for a step or the state.
-    pub async fn attach(&self, machine: Option<&str>, network: Option<&str>, image: Option<&str>, events: &dyn Events) -> Result<AttachReport> {
-        self.attach_with(&RunOptions::default(), BoxPick { machine, network, image }, events).await
-    }
-
-    /// [`Running::attach`] with `opts`: the params and secrets the run's operations take.
-    ///
-    /// # Errors
-    ///
-    /// As [`Running::attach`].
-    pub async fn attach_with(&self, opts: &RunOptions, pick: BoxPick<'_>, events: &dyn Events) -> Result<AttachReport> {
-        let BoxPick { machine, network, image } = pick;
+    pub async fn attach_with(&self, pick: AccessPick<'_>, opts: &RunOptions, events: &dyn Events) -> Result<AttachReport> {
+        let AccessPick { machine, network, image } = pick;
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
@@ -97,25 +90,16 @@ impl Running<'_> {
         .await
     }
 
-    /// Hot-removes the lab's access machine from the running run, leaving the rest up: the
-    /// on-demand machine chosen as [`Running::attach`] chooses it, taken out as
+    /// Hot-removes the lab's access machine from the running run, with `opts`, leaving the rest
+    /// up: the on-demand machine chosen as [`Running::attach_with`] chooses it, taken out as
     /// [`Running::retire`] takes a machine out (its Compose service removed through the `access`
     /// profile, its VM destroyed).
     ///
     /// # Errors
     ///
-    /// Fails as [`Running::attach`] does for the machine choice and the target, and as the other
+    /// Fails as [`Running::attach_with`] does for the machine choice and the target, and as the other
     /// operations do for a step or the state.
-    pub async fn detach(&self, machine: Option<&str>, events: &dyn Events) -> Result<()> {
-        self.detach_with(&RunOptions::default(), machine, events).await
-    }
-
-    /// [`Running::detach`] with `opts`, as [`Running::attach_with`].
-    ///
-    /// # Errors
-    ///
-    /// As [`Running::detach`].
-    pub async fn detach_with(&self, opts: &RunOptions, machine: Option<&str>, events: &dyn Events) -> Result<()> {
+    pub async fn detach_with(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
@@ -132,24 +116,11 @@ impl Running<'_> {
         .await
     }
 
-    /// The command that opens an interactive shell into the lab's access machine: its console
-    /// ([`Running::console_command`]), the machine chosen as [`Running::attach`] chooses it. A
-    /// pure query: it runs nothing, emits nothing, and doesn't check the machine is up (the
-    /// embedder runs what it returns in its own terminal once the machine is attached).
-    ///
-    /// # Errors
-    ///
-    /// Fails as [`Running::attach`] does for the machine choice and the target, and as
-    /// [`Running::console_command`] does.
-    pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
-        let target = self.access_machine(machine)?;
-        self.query(|cx| self.console_of(cx, target))
-    }
-
     /// The command that opens an interactive console into `machine`, any machine of the run (an
     /// SSH login on a cloud's), by its native name (the Compose service, the Vagrant define), so
-    /// the embedder never reconstructs a container name: a pure query, as
-    /// [`Running::shell_command`].
+    /// the embedder never reconstructs a container name. A pure query: it runs nothing, emits
+    /// nothing, and doesn't check the machine is up (the embedder runs what it returns in its own
+    /// terminal once the machine is up or attached).
     ///
     /// # Errors
     ///
@@ -204,10 +175,10 @@ impl Running<'_> {
         match (on_demand.next(), on_demand.next()) {
             (Some(one), None) => Ok(one),
             (None, _) => Err(Error::Unsupported {
-                what: "hot-adding an access machine (this lab declares no access machine)".to_owned(),
+                what: "hot-adding an access machine (this run declares no access machine)".to_owned(),
             }),
             _ => Err(Error::Unsupported {
-                what: format!("hot-adding an access machine: this lab has several ({}); name which", self.on_demand_names()),
+                what: format!("hot-adding an access machine: this run has several ({}); name which", self.on_demand_names()),
             }),
         }
     }

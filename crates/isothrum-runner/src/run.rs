@@ -14,7 +14,7 @@ mod tests;
 mod up;
 mod update;
 
-pub use attach::{AttachReport, BoxPick};
+pub use attach::{AccessPick, AttachReport};
 
 use std::collections::BTreeMap;
 use std::path::Path;

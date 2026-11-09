@@ -142,17 +142,33 @@ pub(crate) fn virtualbox_options(flag: &str) -> crate::RunOptions {
     crate::RunOptions::new().with_provider("virtualbox").with_secrets(secrets)
 }
 
-/// A running `run` whose lab declares no access machine has none to attach: an attach, a detach
-/// and the shell into one are each refused (`unsupported`, saying why), and nothing is run.
+/// `run`'s access machine attached, as [`crate::Running::attach_with`] picks it, with no options.
+pub(crate) async fn attach(
+    run: &crate::Running<'_>,
+    machine: Option<&str>,
+    network: Option<&str>,
+    image: Option<&str>,
+    events: &dyn crate::Events,
+) -> crate::Result<crate::AttachReport> {
+    let pick = crate::AccessPick { machine, network, image };
+    run.attach_with(pick, &crate::RunOptions::new(), events).await
+}
+
+/// `run`'s access machine `machine` detached, with no options.
+pub(crate) async fn detach(run: &crate::Running<'_>, machine: Option<&str>, events: &dyn crate::Events) -> crate::Result<()> {
+    run.detach_with(machine, &crate::RunOptions::new(), events).await
+}
+
+/// A running `run` whose lab declares no access machine has none to attach: an attach and a
+/// detach are each refused (`unsupported`, saying why), and nothing is run.
 pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake: &FakeProcesses) {
     let calls = fake.calls().len();
-    let err = run.attach(None, None, Some("me/kali:2026"), &crate::Recorder::new()).await.unwrap_err();
+    let err = attach(run, None, None, Some("me/kali:2026"), &crate::Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unsupported);
-    assert!(err.to_string().contains("this lab declares no access machine"), "{err}");
+    assert!(err.to_string().contains("this run declares no access machine"), "{err}");
     assert_eq!(
-        run.detach(None, &crate::Recorder::new()).await.unwrap_err().code(),
+        detach(run, None, &crate::Recorder::new()).await.unwrap_err().code(),
         crate::ErrorCode::Unsupported
     );
-    assert_eq!(run.shell_command(None).unwrap_err().code(), crate::ErrorCode::Unsupported);
     assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
 }

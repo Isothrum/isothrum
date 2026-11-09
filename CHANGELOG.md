@@ -18,8 +18,6 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   nothing behind the router. Attach and detach now take the services in the machine's namespace
   (`network_mode: service:<machine>`, read from `docker compose config`) with it, and attach waits
   for them (`--wait`).
-- **`shell_command` reads the run's record**, as status does: a Vagrant run's shell gets the host
-  ports its start pinned.
 - **`retire` takes a Compose service out of the run.** It did nothing on Compose, leaving the
   service to the update, which touches no service outside the default start: a service moved
   back to an on-demand machine in the `access` profile kept running (and one gone from the files
@@ -45,7 +43,8 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 ### Added
 
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
-  run, a pure query like `shell_command`. On a Terraform run: `ssh -t` to the machine's address as
+  run, a pure query that reads the run's record as status does (a Vagrant run's console gets the
+  host ports its start pinned). On a Terraform run: `ssh -t` to the machine's address as
   its user (`ssh_user_<machine>`, else `ssh_user`, else root), through the run's SSH settings.
   On Compose: `docker compose exec` of the service. On Vagrant: `vagrant ssh` of the define. A
   Compose service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) goes into that VM,
@@ -62,11 +61,12 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   sealed. An update brings the run up, so the embedder's `Hooks::after_up` runs after it too. New
   operation in events: `update`.
 - **`isothrum console <machine>` and `isothrum retire <machine>`**: the CLI's way to
-  `Running::console_command` (printed as `shell` prints its command, or its JSON) and
+  `Running::console_command` (printed as a line, or its JSON) and
   `Running::retire` (with `--param` and `--secret-from-env`, as `update`).
-- `Running::attach_with` and `detach_with` take the operation's options (secrets and params an
-  attach or detach that changes the run needs), with the box choice as a `BoxPick`; the CLI's
-  `attach` and `detach` take `--param` and `--secret-from-env`.
+- `Running::attach_with(pick, opts, events)` and `detach_with(machine, opts, events)` take the
+  operation's options (secrets and params an attach or detach that changes the run needs), with
+  the access machine's choice as an `AccessPick`, in the order `retire` and `provision` take
+  theirs; the CLI's `attach` and `detach` take `--param` and `--secret-from-env`.
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
   (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out
@@ -77,19 +77,24 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 
 ### Changed
 
-- **`Running::shell_command` is the access machine's console** (`Running::console_command` of
-  the on-demand machine it picks), the drivers' separate shell gone. On Compose it now starts bash
-  where the image has it, else sh, instead of `bash` alone (an image without bash had no shell).
+- **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
+  run's folder.
 
 ### Removed
+
+- **`Running::attach`, `Running::detach` and `Running::shell_command`.** `attach_with` and
+  `detach_with` take the options the two took none of (pass `RunOptions::new()`); the access
+  machine's shell is `Running::console_command` of its name (the `AttachReport`'s `machine`),
+  which starts bash where the machine has it, else sh. `isothrum shell` goes with it: use
+  `isothrum console <machine>`.
 
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),
   no `isoloom-access` VM added to a VM lab through Isoloom's Vagrantfile hook (gone from Isoloom's
   Vagrantfiles too), and status no longer probes for one; `down` and `park` no longer reap one.
-  `attach`, `detach` and `shell_command` on a lab that declares no access machine now fail with
-  `unsupported` ("this lab declares no access machine"). A lab's own on-demand access machine
+  `attach` and `detach` on a run that declares no access machine now fail with `unsupported`
+  ("this run declares no access machine"). A lab's own on-demand access machine
   (`access: true`: a Compose service in the `access` profile, a Vagrant define) is unchanged. An
   embedder adds a box of its own as an ordinary machine of the lab, with `Running::update`,
   `Running::retire` and `Running::console_command`; the Cyber CTF launcher does.

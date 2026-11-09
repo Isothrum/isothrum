@@ -1,6 +1,6 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{BoxPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+use isothrum_runner::{AccessPick, Events, Occupied, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, TargetArgs};
 use crate::error::Result;
@@ -23,18 +23,17 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
         Command::Attach { op, machine, network, image } => {
-            let pick = BoxPick {
+            let pick = AccessPick {
                 machine: machine.as_deref(),
                 network: network.as_deref(),
                 image: image.as_deref(),
             };
-            attach(cli.json, &open(runner, &op.run)?, (&options(op, var)?, pick), events, term).await
+            attach(cli.json, &open(runner, &op.run)?, (pick, &options(op, var)?), events, term).await
         }
         Command::Detach { op, machine } => {
             let run = open(runner, &op.run)?;
-            Ok(Verdict::of(run.detach_with(&options(op, var)?, machine.as_deref(), events).await.is_ok()))
+            Ok(Verdict::of(run.detach_with(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        Command::Shell { run, machine } => print_command(cli.json, &open(runner, run)?.shell_command(machine.as_deref())?, term),
         Command::Console { run, machine } => print_command(cli.json, &open(runner, run)?.console_command(machine)?, term),
         Command::Events(run) => print_events(cli.json, runner, &open(runner, run)?, term),
         Command::Reap(args) => reap::run(args, runner, cli.json, term, var).await,
@@ -104,8 +103,8 @@ async fn status(json: bool, run: &Running<'_>, term: &Term) -> Result<Verdict> {
 }
 
 /// Hot-adds the on-demand access machine, then says where to reach it (JSON, or a line).
-async fn attach(json: bool, run: &Running<'_>, (opts, pick): (&RunOptions, BoxPick<'_>), events: &dyn Events, term: &Term) -> Result<Verdict> {
-    let Ok(report) = run.attach_with(opts, pick, events).await else {
+async fn attach(json: bool, run: &Running<'_>, (pick, opts): (AccessPick<'_>, &RunOptions), events: &dyn Events, term: &Term) -> Result<Verdict> {
+    let Ok(report) = run.attach_with(pick, opts, events).await else {
         return Ok(Verdict::Fail);
     };
     if json {
@@ -117,7 +116,7 @@ async fn attach(json: bool, run: &Running<'_>, (opts, pick): (&RunOptions, BoxPi
     Ok(Verdict::Pass)
 }
 
-/// A command that opens a shell into a machine (`shell`, `console`): its argv, led by the
+/// The command that opens a console into a machine (`console`): its argv, led by the
 /// variables it needs (`VAR=value`, as a shell takes them), or the `ShellCommand` JSON.
 fn print_command(json: bool, cmd: &ShellCommand, term: &Term) -> Result<Verdict> {
     if json {

@@ -245,7 +245,7 @@ pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
     ShellCommand {
         program: spec.program,
         args: spec.args,
-        cwd: Some(cx.run.dir().to_path_buf()),
+        cwd: cx.run.dir().to_path_buf(),
         env: spec.env,
     }
 }

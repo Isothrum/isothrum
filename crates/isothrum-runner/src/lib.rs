@@ -142,7 +142,7 @@ pub use net::{HeldPort, HostPorts, LoopbackPorts};
 pub use options::{Occupied, RunOptions};
 pub use process::{ProcessRunner, ProcessSpec, SystemProcesses};
 pub use reap::{Orphans, Place, Tagged};
-pub use run::{AttachReport, BoxPick, Running};
+pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{Runner, RunnerConfig, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Op, Park, RunState};

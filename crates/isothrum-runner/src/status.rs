@@ -22,7 +22,7 @@ pub struct ShellCommand {
     /// Its arguments.
     pub args: Vec<String>,
     /// The folder to run it in (the run's folder).
-    pub cwd: Option<PathBuf>,
+    pub cwd: PathBuf,
     /// Variables to run it with, besides the embedder's own (a Vagrant run's state folder,
     /// `VAGRANT_DOTFILE_PATH`, without which Vagrant doesn't find the VM; its forwarded ports).
     /// Empty for a Compose run.

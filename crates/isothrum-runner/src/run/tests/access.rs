@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::ErrorCode;
-use crate::testing::{FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS};
+use crate::testing::{FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS, attach, detach};
 
 /// The lab's Docker, the access service's container `c0ffee` once it is up; `connect` answers
 /// its join to a network.
@@ -26,7 +26,7 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     let run = f.runner.open(&f.manifest, None).unwrap();
 
     let events = Recorder::new();
-    let report = run.attach(None, Some("lab"), Some("myimage"), &events).await.unwrap();
+    let report = attach(&run, None, Some("lab"), Some("myimage"), &events).await.unwrap();
 
     assert_eq!((report.machine.as_str(), report.native.as_str()), ("attacker", "attacker"));
     assert_eq!(report.network.as_deref(), Some("lab"));
@@ -57,19 +57,19 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
     });
     already.set(Containers::Up);
     let on_it = already.runner.open(&already.manifest, None).unwrap();
-    on_it.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap();
+    attach(&on_it, None, Some("lab"), None, &Recorder::new()).await.unwrap();
 
     let refused = fixture_answering(FLAG_PORTAL_ACCESS, |e, c| {
         joining(e, c, Reply::fail(1, "Error response from daemon: network flag-portal_lab not found"))
     });
     refused.set(Containers::Up);
     let run = refused.runner.open(&refused.manifest, None).unwrap();
-    let failed = run.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    let failed = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
     assert_eq!(failed.code(), ErrorCode::ToolFailed, "{failed}");
     assert!(failed.to_string().contains("not found"), "{failed}");
 
     let calls = refused.fake.calls().len();
-    let unknown = run.attach(None, Some("nope"), None, &Recorder::new()).await.unwrap_err();
+    let unknown = attach(&run, None, Some("nope"), None, &Recorder::new()).await.unwrap_err();
     assert_eq!(unknown.code(), ErrorCode::Unsupported, "{unknown}");
     assert!(unknown.to_string().contains("network `nope`"), "{unknown}");
     assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
@@ -91,7 +91,7 @@ async fn the_access_machines_routes_come_and_go_with_it() {
     let up = attach_plain(&f).await;
     assert!(up.line().ends_with("up -d --wait --no-deps attacker attacker-routes"), "{}", up.line());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    run.detach(None, &Recorder::new()).await.unwrap();
+    detach(&run, None, &Recorder::new()).await.unwrap();
     let rm = f.fake.last("--profile access rm").unwrap();
     assert!(rm.line().ends_with("rm -sf attacker attacker-routes"), "{}", rm.line());
 }
@@ -101,7 +101,7 @@ async fn the_access_machines_routes_come_and_go_with_it() {
 async fn attach_plain(f: &Fixture) -> Call {
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    run.attach(None, None, None, &Recorder::new()).await.unwrap();
+    attach(&run, None, None, None, &Recorder::new()).await.unwrap();
     f.fake.last("--profile access up").unwrap()
 }
 
@@ -122,7 +122,7 @@ async fn detach_removes_just_the_access_service() {
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
-    run.detach(None, &events).await.unwrap();
+    detach(&run, None, &events).await.unwrap();
     let rm = f.fake.last("--profile access rm").expect("the access service is removed");
     assert!(rm.line().contains("rm -sf attacker"), "{}", rm.line());
     assert!(
@@ -157,7 +157,7 @@ async fn attach_refuses_an_unknown_named_machine() {
     let f = fixture_with(FLAG_PORTAL_ACCESS);
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.attach(Some("nope"), None, None, &Recorder::new()).await.unwrap_err();
+    let err = attach(&run, Some("nope"), None, None, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::MachineUnknown);
 }
 
@@ -166,7 +166,7 @@ async fn attach_refuses_a_lab_that_is_not_running() {
     let f = fixture_with(FLAG_PORTAL_ACCESS);
     // containers left at None: nothing of the run is up
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    let err = attach(&run, None, None, None, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::NotRunning);
 }
 
@@ -194,57 +194,20 @@ async fn vagrant_attach_boots_the_access_vm_with_the_picked_box() {
     });
     let run = runner.open(&folder.manifest, None).unwrap();
 
-    let report = run.attach(None, None, Some("mybox"), &Recorder::new()).await.unwrap();
+    let report = attach(&run, None, None, Some("mybox"), &Recorder::new()).await.unwrap();
     assert_eq!((report.machine.as_str(), report.native.as_str()), ("attacker", "attacker"));
 
     let up = fake.last("up attacker").expect("the access VM is booted");
     assert_eq!(up.env(isoloom_manifest::access::BOX_ENV), Some("mybox"), "the picked box is delivered");
 
-    run.detach(None, &Recorder::new()).await.unwrap();
+    detach(&run, None, &Recorder::new()).await.unwrap();
     assert!(fake.last("destroy -f attacker").is_some(), "the access VM is destroyed");
 
     // A VM's networks are the Vagrantfile's: a chosen one is refused, and no VM is booted.
     let ups = fake.calls().iter().filter(|c| c.line().contains("up attacker")).count();
-    let err = run.attach(None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    let err = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert_eq!(fake.calls().iter().filter(|c| c.line().contains("up attacker")).count(), ups);
-}
-
-/// The shell is the access machine's console: its service by name, bash where its image has it,
-/// else sh.
-#[tokio::test]
-async fn shell_command_opens_the_compose_service_by_name() {
-    let f = fixture_with(FLAG_PORTAL_ACCESS);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let cmd = run.shell_command(None).unwrap();
-    assert_eq!(cmd.program, "docker");
-    let line = cmd.args.join(" ");
-    assert!(line.starts_with("compose --project-name"), "{line}");
-    assert!(line.contains(" exec attacker sh -c "), "addresses the service, no container guessing: {line}");
-    assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
-    assert_eq!(cmd.args, run.console_command("attacker").unwrap().args, "the access machine's console");
-    assert!(cmd.cwd.is_some(), "runs in the run's folder");
-}
-
-#[tokio::test]
-async fn shell_command_opens_the_vagrant_define_by_name() {
-    let (folder, _fake, runner) = vagrant_access(|_| Reply::ok(""));
-    let run = runner.open(&folder.manifest, None).unwrap();
-    let cmd = run.shell_command(None).unwrap();
-    assert_eq!(cmd.program, "vagrant");
-    assert_eq!(cmd.args, vec!["ssh".to_owned(), "attacker".to_owned()]);
-}
-
-#[tokio::test]
-async fn shell_command_refuses_an_unknown_named_machine() {
-    // Naming a machine the lab doesn't have is still an error, access machine or not.
-    let f = fixture_with(FLAG_PORTAL_ACCESS);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    assert_eq!(run.shell_command(Some("nope")).unwrap_err().code(), ErrorCode::MachineUnknown);
-
-    let bare = fixture();
-    let bare = bare.runner.open(&bare.manifest, None).unwrap();
-    assert_eq!(bare.shell_command(Some("nope")).unwrap_err().code(), ErrorCode::MachineUnknown);
 }
 
 /// A console into any machine of a Compose run: `docker compose exec` of its service, bash where
@@ -257,8 +220,9 @@ async fn a_console_opens_any_compose_service_by_name() {
     assert_eq!(cmd.program, "docker");
     let line = cmd.args.join(" ");
     assert!(line.starts_with("compose --project-name"), "{line}");
-    assert!(line.contains(" exec web sh -c "), "{line}");
+    assert!(line.contains(" exec web sh -c "), "addresses the service, no container guessing: {line}");
     assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
+    assert_eq!(cmd.cwd, f.manifest.parent().unwrap(), "runs in the run's folder");
     assert_eq!(run.console_command("nope").unwrap_err().code(), ErrorCode::MachineUnknown);
 }
 
@@ -330,10 +294,10 @@ async fn an_unreadable_config_fails_attach_and_detach_loudly() {
     let f = fixture_answering(FLAG_PORTAL_ACCESS, unreadable_config);
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    let err = attach(&run, None, None, None, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::ToolFailed, "{err}");
     assert!(f.fake.last("--profile access up").is_none(), "nothing started");
-    let detached = run.detach(None, &Recorder::new()).await.unwrap_err();
+    let detached = detach(&run, None, &Recorder::new()).await.unwrap_err();
     assert_eq!(detached.code(), ErrorCode::ToolFailed, "{detached}");
     assert!(f.fake.last(" rm -sf").is_none(), "nothing removed");
 }
