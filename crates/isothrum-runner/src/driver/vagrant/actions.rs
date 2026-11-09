@@ -88,15 +88,9 @@ pub(super) fn reset_state(v: &Vagrant, cx: &Cx<'_>) -> Result<()> {
     remove_dir(&v.dotfile(cx)?)
 }
 
-/// Removes `dir` and what it holds; a missing one is nothing to do. A symbolic link is removed
-/// itself, never followed.
+/// Removes `dir` and what it holds ([`crate::store::remove_path`]).
 fn remove_dir(dir: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(Error::io(dir, "removed")(e)),
-        Ok(m) if m.file_type().is_symlink() || m.is_file() => std::fs::remove_file(dir).map_err(Error::io(dir, "removed")),
-        Ok(_) => std::fs::remove_dir_all(dir).map_err(Error::io(dir, "removed")),
-    }
+    crate::store::remove_path(dir).map_err(Error::io(dir, "removed"))
 }
 
 /// The run's VMs' names under `provider`, from the manifest: what orphan clean-up and the

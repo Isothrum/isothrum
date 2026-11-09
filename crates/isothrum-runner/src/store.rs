@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use isoloom_manifest::{Cloud, Driver, Target};
 use serde::{Deserialize, Serialize};
 
-pub(crate) use fs::{create_private, private_dir, write_private};
+pub(crate) use fs::{create_private, private_dir, remove_path, write_private};
 pub(crate) use lock::RunLocks;
 
 use crate::Result;

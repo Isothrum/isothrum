@@ -222,15 +222,7 @@ fn expiry_var(cx: &Cx<'_>) -> Option<(String, String)> {
 
 /// Removes `path` (a file or a folder); nothing there is fine.
 fn remove(path: &Path) -> Result<()> {
-    let done = if path.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    };
-    match done {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::io(path, "removed")(e)),
-        _ => Ok(()),
-    }
+    crate::store::remove_path(path).map_err(Error::io(path, "removed"))
 }
 
 #[cfg(test)]

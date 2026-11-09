@@ -55,7 +55,7 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
                 WarningCode::OrphanRemoved,
                 &format!("removing a VM folder an earlier run left: {}", folder.display()),
             );
-            if let Err(e) = remove_entry(&folder) {
+            if let Err(e) = crate::store::remove_path(&folder) {
                 cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", folder.display()));
             }
         }
@@ -122,15 +122,6 @@ pub(super) fn leftover_folders(base: &Path, wanted: &BTreeSet<String>) -> Vec<Pa
     out
 }
 
-/// Removes a leftover folder; a symbolic link is removed itself, never what it points at.
-fn remove_entry(path: &Path) -> std::io::Result<()> {
-    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
-        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
-    } else {
-        std::fs::remove_dir_all(path)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,7 +176,7 @@ mod tests {
         std::os::unix::fs::symlink(elsewhere.path(), base.path().join("minilab - dc01")).unwrap();
         let wanted = BTreeSet::from(["minilab · dc01".to_owned()]);
         for f in leftover_folders(base.path(), &wanted) {
-            remove_entry(&f).unwrap();
+            crate::store::remove_path(&f).unwrap();
         }
         assert!(elsewhere.path().join("keep.txt").is_file());
         assert!(std::fs::symlink_metadata(base.path().join("minilab - dc01")).is_err());

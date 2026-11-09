@@ -59,6 +59,27 @@ pub(crate) fn create_private(path: &Path) -> io::Result<File> {
     open(path, std::fs::OpenOptions::new().write(true).create(true).truncate(true))
 }
 
+/// Removes `path`, a file or a folder with all it holds; nothing there is fine. A symbolic link
+/// (a Windows junction too) is removed itself, never followed.
+pub(crate) fn remove_path(path: &Path) -> io::Result<()> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        other => other?,
+    };
+    let done = if meta.file_type().is_symlink() {
+        // A link to a folder is a folder entry on Windows: removed as one there.
+        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
+    } else if meta.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    };
+    match done {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
 /// Opens (creating when missing) `path` for writing without truncating it, owner-only: a lock file.
 pub(crate) fn lock_file(path: &Path) -> io::Result<File> {
     open(path, std::fs::OpenOptions::new().write(true).create(true).truncate(false))
@@ -83,6 +104,35 @@ fn open(path: &Path, options: &mut std::fs::OpenOptions) -> io::Result<File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_a_folder_or_nothing_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (file, folder) = (dir.path().join("f"), dir.path().join("d"));
+        std::fs::write(&file, "x").unwrap();
+        std::fs::create_dir_all(folder.join("inner")).unwrap();
+        std::fs::write(folder.join("inner/g"), "y").unwrap();
+        for p in [&file, &folder] {
+            remove_path(p).unwrap();
+            assert!(std::fs::symlink_metadata(p).is_err(), "{}", p.display());
+        }
+        remove_path(&dir.path().join("missing")).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_removed_never_followed() {
+        let (base, elsewhere) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(elsewhere.path().join("keep.txt"), "x").unwrap();
+        let (to_folder, to_file) = (base.path().join("folder-link"), base.path().join("file-link"));
+        std::os::unix::fs::symlink(elsewhere.path(), &to_folder).unwrap();
+        std::os::unix::fs::symlink(elsewhere.path().join("keep.txt"), &to_file).unwrap();
+        for link in [&to_folder, &to_file] {
+            remove_path(link).unwrap();
+            assert!(std::fs::symlink_metadata(link).is_err(), "{}", link.display());
+        }
+        assert!(elsewhere.path().join("keep.txt").is_file());
+    }
 
     #[test]
     fn a_file_is_replaced_whole_and_no_temporary_file_is_left() {
