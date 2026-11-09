@@ -193,7 +193,7 @@ pub enum Error {
         /// The port.
         port: u16,
         /// `tcp` or `udp`.
-        protocol: &'static str,
+        protocol: String,
     },
     /// No park steps for that mode.
     #[error("run `{run}` can't be parked ({mode}): its manifest has no steps for it")]

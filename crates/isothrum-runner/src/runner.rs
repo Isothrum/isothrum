@@ -10,6 +10,7 @@ use isoloom_manifest::{HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
+use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::events::Event;
 use crate::manifest::load_manifest;
@@ -214,8 +215,10 @@ impl Runner {
     pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (u16, Protocol)>) -> Result<()> {
         for (port, protocol) in ports {
             if self.reserved_elsewhere(name, port, protocol) || self.config.ports.in_use(port, protocol) {
-                let protocol = if protocol == Protocol::Udp { "udp" } else { "tcp" };
-                return Err(Error::PortInUse { port, protocol });
+                return Err(Error::PortInUse {
+                    port,
+                    protocol: wire_name(&protocol),
+                });
             }
         }
         Ok(())

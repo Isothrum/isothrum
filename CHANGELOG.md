@@ -139,6 +139,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `~/.docker/config.json`; `SystemProcesses::new` and `SystemProcesses::for_host` are gone (use
   `SystemProcesses::default()`).
 
+- **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
+  manifest writes it (`tcp`, `udp`).
+
 ### Removed
 
 - The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in

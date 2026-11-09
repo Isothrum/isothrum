@@ -3,6 +3,7 @@
 use isoloom_manifest::Protocol;
 use serde_json::Value;
 
+use crate::encoding::wire_name;
 use crate::error::Error;
 
 /// The config printed by `docker compose config --format json`, `None` when it isn't that JSON (no
@@ -129,7 +130,7 @@ pub(super) fn pinned_ports(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPor
                 .as_deref()
                 .map(|i| if i.contains(':') { format!("[{i}]:") } else { format!("{i}:") })
                 .unwrap_or_default();
-            let proto = if p.protocol == Protocol::Udp { "udp" } else { "tcp" };
+            let proto = wire_name(&p.protocol);
             lines.push(format!("      - {}", yaml_str(&format!("{ip}{host}:{}/{proto}", p.target))));
         }
     }
