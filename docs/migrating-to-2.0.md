@@ -80,17 +80,17 @@ minutes from now, a `dotenv` state file and a WinRM guest delivery.
 
 ## `isothrum-machine`
 
-The crate keeps only provider detection: `providers::{detect, id, Provider, ProviderStatus}`.
+The crate keeps only provider detection: `providers::{detect, Provider, ProviderStatus}`.
 
 - Import `Provider` and `ProviderStatus` from `providers` (the crate root no longer re-exports
   them). `Provider` is Isoloom's `isoloom_manifest::Provider`; a provider's id is
-  `providers::id(provider)` (was `Provider::id`).
+  `isothrum_runner::wire_name(&provider)` (was `Provider::id`).
 - `Provider::Proxmox` and the cloud providers (`Aws`, `Azure`, `Gcp`, `DigitalOcean`, `Linode`,
   `Oci`, `Provider::is_cloud`) are gone: those are Terraform targets, not Vagrant providers.
 - `ProviderStatus::available` is gone: read `reason.is_none()`. Its `remote`, `hypervisor`,
   `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` are gone: `reason` says
   what is missing or too old.
-- `Serialize` and `Deserialize` on `Provider` and `ProviderStatus` are gone.
+- `Serialize` and `Deserialize` on `ProviderStatus` are gone (`Provider`, Isoloom's, keeps them).
 - Gone with no user: the self-tests, the system report, `Dirs`, `Error`, `Result`, the `exec`
   module, the download record (`storage::*`), `Provider::ALL`, `Provider::is_remote` and the
   provider helpers.

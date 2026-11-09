@@ -22,7 +22,6 @@ workspace = true
 [dependencies]
 isoloom-manifest.workspace = true
 isothrum-runner.workspace = true
-serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

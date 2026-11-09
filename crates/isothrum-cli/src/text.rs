@@ -49,10 +49,7 @@ pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
         if m.state == MachineState::Absent && status.machines.iter().any(|o| o.state != MachineState::Absent) {
             continue;
         }
-        let role = serde_json::to_value(m.role)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let role = isothrum_runner::wire_name(&m.role);
         let ports: Vec<String> = m.published.iter().map(|p| format!("{}->{}", p.host_port, p.port)).collect();
         lines.push(
             format!("  {:<24} {:<7} {:<12} {}", m.name, role, m.state.to_string(), ports.join(" "))

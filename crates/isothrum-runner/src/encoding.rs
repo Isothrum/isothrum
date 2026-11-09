@@ -1,15 +1,20 @@
 //! Encodings the runner writes itself: base64, for a PowerShell script handed to an elevated
 //! session and for the values of a guest delivery (one line each, whatever they hold); and a
-//! manifest value's name as the manifest writes it.
+//! manifest value's name as the manifest writes it ([`wire_name`], the one helper every crate of
+//! the workspace names such a value with).
 
 use serde::Serialize;
 
-/// `value`'s name as the manifest writes it (a target, a provider, an action: `vmware_desktop`),
-/// without JSON's quotes; empty for a value that isn't written as a string.
-pub(crate) fn wire_name<T: Serialize>(value: &T) -> String {
+/// `value`'s name as the manifest and the event stream write it (a target, a provider, a
+/// machine's role: `vmware_desktop`), without JSON's quotes. It is meant for the unit enums serde
+/// writes as a string; any other value is named by its JSON text (`3`), and one serde can't write
+/// by why, so a name is never silently empty.
+#[must_use]
+pub fn wire_name<T: Serialize + ?Sized>(value: &T) -> String {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::String(name)) => name,
-        _ => String::new(),
+        Ok(other) => other.to_string(),
+        Err(e) => format!("<{e}>"),
     }
 }
 
@@ -71,7 +76,9 @@ mod tests {
     fn a_manifest_value_is_named_without_json_quotes() {
         assert_eq!(wire_name(&isoloom_manifest::Provider::VmwareDesktop), "vmware_desktop");
         assert_eq!(wire_name(&isoloom_manifest::Target::Docker), "docker");
-        assert_eq!(wire_name(&3), "", "not written as a string");
+        assert_eq!(wire_name(&3), "3", "not written as a string: its JSON text");
+        let map_with_a_list_key = std::collections::BTreeMap::from([(vec![1], 1)]);
+        assert!(wire_name(&map_with_a_list_key).starts_with("<key must be a string"), "named by why");
     }
 
     proptest! {

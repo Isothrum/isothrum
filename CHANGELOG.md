@@ -360,8 +360,9 @@ change.
   `SystemProcesses::default()`).
 
 - **Breaking:** **`isothrum-machine`'s `providers::Provider` is Isoloom's `isoloom_manifest::Provider`**,
-  re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
-  provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
+  re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and
+  `Provider::id` is gone: a provider's id is `isothrum_runner::wire_name(&provider)`, the one
+  helper that names a manifest value as the manifest writes it.
 
 - **Breaking:** **The process port has one path, the crate root**: `Exit`, `ProcessError` and `OnLine` join
   `ProcessRunner`, `ProcessSpec` and `SystemProcesses` there, and the `process` module is
@@ -409,9 +410,8 @@ change.
   that keeps something beside a run does it around the operation's call.
 - **Breaking:** **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
-- **Breaking:** **`Serialize` and `Deserialize` on `isothrum-machine`'s `Provider` and `ProviderStatus`**:
-  nothing wrote or read either as JSON (an embedder reads the fields, and a provider's wire name
-  is `providers::id`).
+- **Breaking:** **`Serialize` and `Deserialize` on `isothrum-machine`'s `ProviderStatus`**: nothing
+  wrote or read it as JSON (an embedder reads its fields). `Provider`, Isoloom's own, keeps both.
 - **Breaking:** **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
   detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox lab is
   Terraform's.

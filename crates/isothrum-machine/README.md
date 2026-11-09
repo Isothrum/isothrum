@@ -30,8 +30,8 @@ async fn main() {
     // account manage Hyper-V", so no administrator reason is added.
     for status in providers::detect(&tools, true, None).await {
         match &status.reason {
-            None => println!("{}: usable", providers::id(status.provider)),
-            Some(why) => println!("{}: {why}", providers::id(status.provider)),
+            None => println!("{}: usable", isothrum_runner::wire_name(&status.provider)),
+            Some(why) => println!("{}: {why}", isothrum_runner::wire_name(&status.provider)),
         }
     }
 }

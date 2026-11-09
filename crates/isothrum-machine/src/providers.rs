@@ -19,15 +19,6 @@ use crate::exec;
 /// manifests name.
 pub use isoloom_manifest::Provider;
 
-/// The id Vagrant knows `provider` by (`vmware_desktop`), as the manifest writes it.
-#[must_use]
-pub fn id(provider: Provider) -> String {
-    match serde_json::to_value(provider) {
-        Ok(serde_json::Value::String(id)) => id,
-        _ => String::new(),
-    }
-}
-
 /// Every provider.
 const ALL: [Provider; 8] = [
     Provider::Virtualbox,
@@ -360,7 +351,7 @@ mod tests {
 
     #[test]
     fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
-        let ids: Vec<String> = ALL.into_iter().map(id).collect();
+        let ids: Vec<String> = ALL.iter().map(isothrum_runner::wire_name).collect();
         assert_eq!(
             ids,
             ["virtualbox", "vmware_desktop", "hyperv", "parallels", "libvirt", "qemu", "utm", "vmware_esxi"]
