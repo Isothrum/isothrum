@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn two_runners_share_nothing() {
-        // Regression (R5): an in-flight map, run locks and probe cache kept in statics let two
+        // Regression: an in-flight map, run locks and probe cache kept in statics let two
         // embedders (or two tests) in one process saw each other's operations.
         let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, b) = (runner(a.path()), runner(b.path()));

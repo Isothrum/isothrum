@@ -108,7 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_whose_output_isnt_piped_is_an_error_not_a_panic() {
-        // R3: an `expect("piped stdout")` panicked here.
+        // An `expect("piped stdout")` panicked here.
         let program = if cfg!(windows) { "cmd" } else { "true" };
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |c| {
             if cfg!(windows) {

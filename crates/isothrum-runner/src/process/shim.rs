@@ -11,7 +11,7 @@
 //! - **Terraform's ambient cloud.** A runner started from a shell carries that shell's cloud
 //!   settings (`AWS_PROFILE`, `AWS_REGION`, `ARM_SUBSCRIPTION_ID`, `GOOGLE_PROJECT`, a stray
 //!   `TF_VAR_region`): a destroy would then go wherever the shell points now, not where the run
-//!   was applied (risk R2). Terraform inherits none of them; the manifest's params and connection
+//!   was applied. Terraform inherits none of them; the manifest's params and connection
 //!   slots, delivered to its steps, are the only cloud settings it gets.
 
 /// The tools run through `cmd /C` on Windows.
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn terraform_inherits_no_cloud_setting_of_the_runners() {
-        // R2: a destroy went where the shell's profile and region pointed, not where it applied.
+        // A destroy went where the shell's profile and region pointed, not where it applied.
         let inherited = [
             "PATH",
             "HOME",

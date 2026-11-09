@@ -1,7 +1,7 @@
 //! Picking the host ports a fresh run pins: a free
 //! loopback port for each ephemeral publish, every socket held until all are picked so the OS
 //! doesn't hand one out twice, and each pick reserved in the runner until the run's start ends, so
-//! another run of this runner starting meanwhile can't take it either (R9). With the
+//! another run of this runner starting meanwhile can't take it either. With the
 //! `ISOLOOM_PUBLISH_FIXED` param set, a port takes its manifest's `preferred` number instead, once
 //! per number and protocol.
 

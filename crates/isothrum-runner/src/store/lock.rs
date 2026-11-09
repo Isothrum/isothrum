@@ -93,7 +93,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_lock_that_cant_be_taken_fails_closed() {
-        // Regression (R2): a run lock that let the operation run unlocked when its file couldn't
+        // Regression: a run lock that let the operation run unlocked when its file couldn't
         // be opened. Here the lock's place is a folder: the operation must not start.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lock");

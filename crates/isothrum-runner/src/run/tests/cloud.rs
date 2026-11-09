@@ -198,7 +198,7 @@ async fn a_lifetime_the_embedder_gives_sets_the_expiry() {
 
 #[tokio::test(start_paused = true)]
 async fn a_destroy_goes_to_the_region_and_profile_applied_never_the_current_ones() {
-    // R2: a destroy used the account's current region and profile, so it "succeeded" against an
+    // A destroy used the account's current region and profile, so it "succeeded" against an
     // empty region while the run kept billing where it was created.
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();

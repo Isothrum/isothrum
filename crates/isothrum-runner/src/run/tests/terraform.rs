@@ -157,7 +157,7 @@ async fn a_second_run_on_the_same_server_takes_the_next_slot() {
 
 #[tokio::test(start_paused = true)]
 async fn a_machine_that_never_answers_over_ssh_fails_the_start() {
-    // R2: a wait that returned OK when SSH never answered within 10 minutes.
+    // A wait that returned OK when SSH never answered within 10 minutes.
     let s = server(HostOs::Linux);
     s.set(Guest::Unreachable);
     let run = s.runner.open(&s.manifest, None).unwrap();
@@ -192,7 +192,7 @@ async fn a_failed_set_up_step_fails_the_start_with_its_log() {
 
 #[tokio::test(start_paused = true)]
 async fn a_destroy_replays_the_applied_params_and_slot_not_the_current_profile() {
-    // R2: a destroy used the profile's current settings, so it went to another node (or region).
+    // A destroy used the profile's current settings, so it went to another node (or region).
     let s = server(HostOs::Linux);
     let run = s.runner.open(&s.manifest, None).unwrap();
     run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();

@@ -1,12 +1,11 @@
-//! The runtime risks (numbered R1, R2… in comments), each pinned by a test that fails on the
-//! risky behaviour.
+//! The runtime risks, each pinned by a test that fails on the risky behaviour.
 
 use super::*;
 use crate::ErrorCode;
 
 #[tokio::test]
 async fn a_run_whose_lock_cant_be_taken_never_starts() {
-    // R2: a run lock that fails open lets the operation run unlocked.
+    // A run lock that fails open lets the operation run unlocked.
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     std::fs::create_dir_all(f.runner.store.lock_path(run.name())).unwrap();
@@ -19,7 +18,7 @@ async fn a_run_whose_lock_cant_be_taken_never_starts() {
 
 #[tokio::test]
 async fn a_down_replays_the_params_the_run_was_started_with() {
-    // R2: a destroy used the profile's current settings (region, credentials), not the applied ones.
+    // A destroy used the profile's current settings (region, credentials), not the applied ones.
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -32,7 +31,7 @@ async fn a_down_replays_the_params_the_run_was_started_with() {
 
 #[tokio::test]
 async fn a_pinned_port_another_run_is_picking_is_never_handed_out_twice() {
-    // R9: ports were picked, then released before Compose bound them, so two starts could pin
+    // Ports were picked, then released before Compose bound them, so two starts could pin
     // the same one. The OS here hands 41873 out twice; the runner's reservation refuses the second.
     let f = fixture();
     let other = crate::RunName::new("other-run").unwrap();
@@ -70,7 +69,7 @@ async fn a_run_recorded_elsewhere_is_refused() {
 
 #[tokio::test]
 async fn an_op_enters_the_flight_map_only_under_the_run_lock() {
-    // R1: `operate` marked the op in flight (and its guard freed the op's port reservations on
+    // `operate` marked the op in flight (and its guard freed the op's port reservations on
     // drop) BEFORE taking the per-run lock, so two overlapping ops on one run clobbered each
     // other's in-flight entry and freed each other's reservations. Entering now happens under the
     // lock, so an op still waiting for the lock is not yet in flight and its guard cannot outlive it.

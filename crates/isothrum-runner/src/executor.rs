@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn a_stale_marker_is_seen_in_any_line_whatever_its_case() {
-        // Regression (R8): lower-case markers matched against VirtualBox's `VERR_ALREADY_EXISTS`,
+        // Regression: lower-case markers matched against VirtualBox's `VERR_ALREADY_EXISTS`,
         // and only in the error's last lines, missed it.
         let stale = Stale::new(&["verr_already_exists".into(), "is locked".into()]);
         stale.notice("    web: Progress state: VBOX_E_FILE_ERROR");

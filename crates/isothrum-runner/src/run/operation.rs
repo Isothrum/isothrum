@@ -74,7 +74,7 @@ impl Running<'_> {
         let store = &self.runner.store;
         let _lock = self.runner.locks.acquire(self.name(), &store.lock_path(self.name())).await?;
         // Mark the op in flight and reserve its ports only now that the run is locked: entered
-        // before the lock (R1), a second op on the same run clobbered this entry, and this guard,
+        // before the lock, a second op on the same run clobbered this entry, and this guard,
         // dropping after the lock was released, freed the second op's port reservations.
         let _flight = self.runner.enter(self.name(), op);
         let before = store.record(self.name())?.map_or(RunState::Absent, |r| r.state);

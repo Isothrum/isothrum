@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn an_existing_run_replays_its_recorded_params() {
-        // Regression (R2): a destroy used the profile's current settings, not the applied ones.
+        // Regression: a destroy used the profile's current settings, not the applied ones.
         let m = docker_manifest();
         let recorded = given(&[("ISOLOOM_PUBLISH_ADDRESS", "127.0.0.1")]);
         let now = given(&[("ISOLOOM_PUBLISH_ADDRESS", "0.0.0.0"), ("ISOLOOM_DERIVED", "0")]);

@@ -424,7 +424,7 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
 
 #[tokio::test]
 async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
-    // R8: VirtualBox prints VERR_ALREADY_EXISTS in capitals; the manifest's markers are lower case.
+    // VirtualBox prints VERR_ALREADY_EXISTS in capitals; the manifest's markers are lower case.
     let f = fixture(crate::runner::this_host());
     f.engine()
         .ups
@@ -674,7 +674,7 @@ async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
     assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
 }
 
-/// R2: a published port with no `preferred` number (an ephemeral port Isoloom emits without a
+/// A published port with no `preferred` number (an ephemeral port Isoloom emits without a
 /// `publish:` number) was dropped from `status` entirely, so `${published…}`/`${host…}` could not
 /// resolve. Its host port is the runner's pick, so it is reported like any other published port.
 #[tokio::test]
