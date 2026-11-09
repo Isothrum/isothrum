@@ -41,9 +41,9 @@ impl Running<'_> {
     /// as the other operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = &self.connected(opts);
-        let target = self.machine_named(machine)?;
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Retire, events, mask, async |e: &Emitter<'_>| {
+            let target = self.machine_named(machine)?;
             let (_, cx) = self.existing(opts, e).await?;
             self.driver.retire(&cx, target).await?;
             Ok(Done {

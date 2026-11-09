@@ -133,3 +133,18 @@ async fn a_console_into_a_machine_is_printed_and_a_machine_is_retired() {
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("retire")));
     assert_eq!(last["data"]["machine"], "web");
 }
+
+/// Retiring a machine the run doesn't have fails through the operation's own `error` event, so
+/// the command says why rather than exiting silently.
+#[tokio::test]
+async fn retiring_an_unknown_machine_says_why() {
+    let s = setup();
+    assert_eq!(s.run(&["retire", "nope"]).await.unwrap(), Verdict::Fail);
+    let said = s.err.take();
+    assert!(said.contains("error: ") && said.contains("nope"), "{said}");
+
+    assert_eq!(s.run(&["retire", "nope", "--json"]).await.unwrap(), Verdict::Fail);
+    let last: serde_json::Value = serde_json::from_str(s.out.take().lines().last().unwrap()).unwrap();
+    assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("error"), Some("retire")));
+    assert_eq!(last["code"], "machine_unknown", "{last}");
+}
