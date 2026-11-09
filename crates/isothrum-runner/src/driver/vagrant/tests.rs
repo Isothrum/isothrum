@@ -34,6 +34,8 @@ struct Engine {
     halting: u32,
     /// How many times SSH to the controller still fails on its way down (then it is off).
     going_down: u32,
+    /// How long the controller takes to answer the halting probe.
+    probe_delay: std::time::Duration,
     /// What `vagrant --version` says (default: 2.4.9).
     version: Option<String>,
     /// What `vagrant halt <controller>` does: `None` halts it; `Some(state)` fails as libvirt's
@@ -180,7 +182,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
                 if e.going_down == 0 {
                     e.states.insert(CONTROLLER.into(), "poweroff".into());
                 }
-                Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2200: Connection refused")
+                Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2200: Connection refused").after(e.probe_delay)
             } else {
                 Reply::ok("up")
             }
@@ -603,6 +605,14 @@ async fn a_controller_no_halt_stops_is_a_warning_after_up() {
 /// The calls of a check run on a started run whose controller still reads as running, after
 /// `set` (how it answers the halting probe): the checks must pass.
 async fn checks_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> Vec<String> {
+    let (checked, calls, _) = check_with_a_running_controller(set).await;
+    assert!(checked.unwrap().ok);
+    calls
+}
+
+/// A check run on a started run whose controller still reads as running, after `set`: how it
+/// ended (its error with its events' text), the calls, and how long it took.
+async fn check_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> (std::result::Result<crate::CheckReport, String>, Vec<String>, std::time::Duration) {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -611,8 +621,15 @@ async fn checks_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> Vec<
         e.states.insert(CONTROLLER.into(), "running".into());
         set(&mut e);
     }
-    assert!(run.check(&opts(), &Recorder::new()).await.unwrap().ok);
-    f.fake.lines()
+    let started = tokio::time::Instant::now();
+    let events = Recorder::new();
+    let checked = run.check(&opts(), &events).await;
+    let took = started.elapsed();
+    let checked = match checked {
+        Ok(report) if report.ok => Ok(report),
+        other => Err(format!("{other:?} {}", serde_json::to_string(&events.events()).unwrap())),
+    };
+    (checked, f.fake.lines(), took)
 }
 
 /// Whether `calls` boot the controller (`vagrant up` without its provisioners).
@@ -635,6 +652,22 @@ async fn a_controller_still_halting_is_waited_for_before_it_boots() {
 async fn a_controller_no_longer_answering_on_its_way_down_is_waited_for_then_booted() {
     let calls = checks_with_a_running_controller(|e| e.going_down = 2).await;
     assert!(boots_controller(&calls).is_some(), "booted once it was off: {calls:#?}");
+}
+
+/// A controller that reads as running and never answers over SSH (each ask hanging until its
+/// time is up) is given up on within the wake's patience, with a clear error, not asked for
+/// hours.
+#[tokio::test(start_paused = true)]
+async fn a_controller_running_but_never_answering_is_given_up_on_in_time() {
+    let (checked, calls, took) = check_with_a_running_controller(|e| {
+        e.going_down = u32::MAX;
+        e.probe_delay = std::time::Duration::from_secs(100);
+    })
+    .await;
+    assert!(took <= std::time::Duration::from_secs(200), "gave up after {took:?}");
+    let said = checked.unwrap_err();
+    assert!(said.contains("still reads as running after 180 s"), "{said}");
+    assert!(boots_controller(&calls).is_none(), "not booted");
 }
 
 /// A controller left running (it answers it isn't halting) is used as it is: no boot.

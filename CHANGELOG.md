@@ -15,7 +15,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   controller for the checks asked it over SSH whether it was halting, and took a failed SSH (a
   controller already on its way down) for "not halting": it skipped the boot and the checks then
   found it off. The controller now answers in words; no answer is waited out like a halting one,
-  then it is booted.
+  then it is booted. The wait is bounded: each ask may take 20 s, and a controller still running
+  without saying it stays up after three minutes fails the step (`tool_failed`) rather than be
+  asked for up to two hours.
 - **An update restarts a running VM whose boot-time settings changed.** Vagrant applies a VM's
   synced folders, networks, forwarded ports, size and provider settings only when it boots it, and
   an update reran `up`'s steps on the running VM: a host folder added to a running `docker-vm`

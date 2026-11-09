@@ -26,8 +26,17 @@ const CONTROLLER: &str = "isoloom-controller";
 /// What the controller holds while it powers itself off after its play.
 const HALTING: &str = "/run/isoloom-halting";
 
-/// How many times, two seconds apart, the controller may still be halting before it is booted.
+/// How many times, two seconds apart, a controller whose halt failed is read before the halt
+/// counts as failed.
 const HALT_POLLS: u32 = 60;
+
+/// How long a controller that reads as running may take to say it stays up, or to go off, before
+/// waking it fails.
+const WAKE_PATIENCE: Duration = Duration::from_secs(180);
+
+/// How long one ask of the controller whether it is halting may take: no answer in time is no
+/// answer, asked again.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How long the controller's boot may take, when its step sets no limit.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(1800);
@@ -135,24 +144,35 @@ pub(super) fn aborted_saved(lines: &[String]) -> bool {
 }
 
 /// `vagrant.wake_controller`: the controller (`with.machine`, else Isoloom's) booted for the
-/// checks. One still powering itself off after its play is waited for first, up to
-/// [`HALT_POLLS`] times two seconds, booting it then would race its own poweroff: it says so
-/// (it holds [`HALTING`]), or no longer answers over SSH on its way down. Only one that answers
-/// it isn't halting is left running as it is.
+/// checks. One still powering itself off after its play is waited for first, two seconds
+/// between reads, booting it then would race its own poweroff: it says so (it holds
+/// [`HALTING`]), or no longer answers over SSH on its way down (each ask given
+/// [`PROBE_TIMEOUT`]). Only one that answers it isn't halting is left running as it is; one
+/// still running and not saying so after [`WAKE_PATIENCE`] fails the step.
 pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
     let machine = controller(cx, with)?;
-    for _ in 0..HALT_POLLS {
-        if !running(v, cx, id, &machine).await? {
-            break;
+    let deadline = tokio::time::Instant::now() + WAKE_PATIENCE;
+    while running(v, cx, id, &machine).await? {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Err(Error::ToolFailed {
+                step: id.to_owned(),
+                reason: format!(
+                    "`{machine}` still reads as running after {} s without saying over SSH that it stays up: \
+                     it may be stuck halting, or its SSH may not answer",
+                    WAKE_PATIENCE.as_secs()
+                ),
+            });
         }
         let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &halting_probe()])?;
-        let said = call(cx, id, &probe, READ_TIMEOUT, Echo::Quiet).await?;
-        if said.succeeded() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) {
+        match call(cx, id, &probe, PROBE_TIMEOUT.min(left), Echo::Quiet).await {
             // Running, and not on its way down: nothing to wait for.
-            return Ok(());
+            Ok(said) if said.succeeded() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) => return Ok(()),
+            Ok(_) | Err(Error::Timeout { .. }) => {}
+            Err(e) => return Err(e),
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2).min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
     }
     let limit = step.timeout_s.map_or(BOOT_TIMEOUT, |s| Duration::from_secs(u64::from(s.get())));
     let up = v.vagrant(cx, id, &["up", &machine, "--no-provision"])?;
