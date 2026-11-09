@@ -29,7 +29,7 @@ pub(crate) use lock::{RunLocks, SlotsLock};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};
-use crate::events::Event;
+use crate::events::EventLog;
 use crate::name::RunName;
 use crate::state::{Op, RunState};
 
@@ -209,10 +209,18 @@ impl Store {
         fs::append_private(&path).map_err(Error::io(&path, "written"))
     }
 
-    /// Run `name`'s logged events, oldest first (a line that doesn't parse is skipped).
-    pub(crate) fn events(&self, name: &RunName) -> Result<Vec<Event>> {
+    /// Run `name`'s logged events, oldest first, with how many of its lines aren't an event
+    /// this runner reads.
+    pub(crate) fn events(&self, name: &RunName) -> Result<EventLog> {
         let path = self.runs.join(name.as_str()).join("events.jsonl");
-        Ok(read_lines(&path)?.iter().filter_map(|l| serde_json::from_str(l).ok()).collect())
+        let mut log = EventLog::default();
+        for line in read_lines(&path)?.iter().filter(|l| !l.trim().is_empty()) {
+            match serde_json::from_str(line) {
+                Ok(event) => log.events.push(event),
+                Err(_) => log.unreadable += 1,
+            }
+        }
+        Ok(log)
     }
 }
 
@@ -282,5 +290,20 @@ mod tests {
         let lines = read_lines(&home.path().join("runs/r/events.jsonl")).unwrap();
         assert_eq!(lines.len(), EVENTS_KEPT / 2);
         assert_eq!(lines.last().unwrap(), &format!("{{\"seq\":{EVENTS_KEPT}}}"));
+    }
+
+    #[test]
+    fn an_event_log_line_this_runner_cant_read_is_counted_not_dropped_unsaid() {
+        let home = tempfile::tempdir().unwrap();
+        let store = Store::open(home.path(), None).unwrap();
+        let name = RunName::new("r").unwrap();
+        let mut log = store.event_log(&name).unwrap();
+        let read = r#"{"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"r","op":"up","event":"result","ok":true,"data":null}"#;
+        // A 1.x warning code this runner no longer has, and a line cut short.
+        let older = r#"{"v":0,"seq":2,"time":"2026-10-15T12:00:01Z","run":"r","op":"up","event":"warning","code":"hook_failed","message":"x"}"#;
+        writeln!(log, "{read}\n{older}\n{{\"v\":0,\"se\n").unwrap();
+        drop(log);
+        let events = store.events(&name).unwrap();
+        assert_eq!((events.events.len(), events.unreadable), (1, 2));
     }
 }

@@ -145,7 +145,7 @@ pub use encoding::wire_name;
 pub use error::{Error, ErrorCode, Result, TimedOut};
 #[cfg(test)]
 pub(crate) use events::Recorder;
-pub use events::{Event, EventKind, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
+pub use events::{Event, EventKind, EventLog, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, load_manifest};

@@ -60,6 +60,7 @@ and `--secret-from-env`.
 | `Error::PortInUse { protocol: &'static str }` | `protocol: String` |
 | `ProcessError::Refused { arg }` | `ProcessError::Refused { why }` |
 | `Event::run: String`, `Event::op: Op` | `Option<String>`, `Option<Op>` |
+| `Runner::events(name) -> Vec<Event>` | `-> EventLog`: its `events`, and `unreadable`, the log's lines it couldn't read (a 1.x `hook_failed` warning). |
 | `isothrum_runner::process::{Exit, ProcessError, OnLine, ...}` | At the crate root: `isothrum_runner::{Exit, ProcessError, OnLine, ProcessRunner, ProcessSpec, SystemProcesses}`. |
 | `process::fake::{FakeProcesses, Reply, Call}` | `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (feature `fake`); `Call` is `ProcessSpec`. |
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |

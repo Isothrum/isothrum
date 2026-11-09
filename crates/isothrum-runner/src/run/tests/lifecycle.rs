@@ -108,7 +108,7 @@ async fn every_operation_ends_with_exactly_one_result_or_error_and_is_logged() {
     assert_eq!((ends(&a), ends(&b)), (1, 1));
     let seqs: Vec<u64> = a.events().iter().map(|e| e.seq).collect();
     assert_eq!(seqs, (1..=u64::try_from(seqs.len()).unwrap()).collect::<Vec<_>>());
-    let logged = f.runner.events(run.name()).unwrap();
+    let logged = f.runner.events(run.name()).unwrap().events;
     assert_eq!(logged.len(), a.events().len() + b.events().len());
     assert!(logged.iter().all(|e| e.time == "2026-10-15T12:00:00Z" && e.v == 0));
 }

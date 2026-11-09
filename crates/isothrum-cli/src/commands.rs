@@ -239,13 +239,21 @@ async fn check(out: &Out<'_>, run: &Running<'_>, opts: &RunOptions) -> Result<Ve
 /// The run's recorded events, oldest first: JSON lines, or a line each for a person.
 fn print_events(out: &Out<'_>, runner: &Runner, run: &Running<'_>) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
-    for event in runner.events(run.name())? {
+    let log = runner.events(run.name())?;
+    for event in log.events {
         if json {
             term.out(&serde_json::to_string(&event)?);
         } else if let Some(line) = human(&event.kind) {
             let op = event.op.map_or("", Op::as_str);
             term.out(&format!("{} {op:<6} {line}", event.time));
         }
+    }
+    if log.unreadable > 0 {
+        term.err(&format!(
+            "warning: {} line(s) of run `{}`'s event log couldn't be read (written by another version of Isothrum, or cut short)",
+            log.unreadable,
+            run.name()
+        ));
     }
     Ok(Verdict::Pass)
 }

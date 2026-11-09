@@ -12,7 +12,7 @@ use crate::Result;
 use crate::clock::{Clock, SystemClock};
 use crate::encoding::wire_name;
 use crate::error::Error;
-use crate::events::Event;
+use crate::events::EventLog;
 use crate::host_env::HostEnv;
 use crate::manifest::load_manifest;
 use crate::name::RunName;
@@ -142,12 +142,13 @@ impl Runner {
         self.store.records()
     }
 
-    /// Run `name`'s logged events, oldest first.
+    /// Run `name`'s logged events, oldest first, with how many of its lines it couldn't read as
+    /// one (written by another version of the runner, or cut short).
     ///
     /// # Errors
     ///
     /// Fails with `io` when the run's event log can't be read.
-    pub fn events(&self, name: &RunName) -> Result<Vec<Event>> {
+    pub fn events(&self, name: &RunName) -> Result<EventLog> {
         self.store.events(name)
     }
 

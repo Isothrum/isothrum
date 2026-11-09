@@ -155,6 +155,18 @@ pub enum EventKind {
     },
 }
 
+/// A run's logged events ([`crate::Runner::events`]), and how many of the log's lines it
+/// couldn't read as one: a line another version of the runner wrote (an event kind or a code
+/// this one doesn't know), or one cut short.
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct EventLog {
+    /// The events, oldest first.
+    pub events: Vec<Event>,
+    /// The lines that aren't an event this runner reads.
+    pub unreadable: usize,
+}
+
 /// One event of an operation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]

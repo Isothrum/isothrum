@@ -286,6 +286,10 @@ change.
 
 ### Changed
 
+- **Breaking: `Runner::events` returns an `EventLog`**: its `events`, and `unreadable`, how many
+  lines of the log it couldn't read as an event. Those lines were dropped without a word, so a
+  1.x log's `hook_failed` warnings vanished from `isothrum events`, which now says how many lines
+  it couldn't read, on standard error.
 - **Breaking: what was wrong with a call or a manifest value has its own error code, not
   `unsupported`.** `unsupported` meant both "this runner doesn't do it" and a mistake of the
   caller's or the manifest's. Now an `attach` (or `detach`) that names none of the run's several

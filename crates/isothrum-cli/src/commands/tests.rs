@@ -24,7 +24,7 @@ const UP: u8 = 1;
 const STOPPED: u8 = 2;
 
 struct Setup {
-    _home: tempfile::TempDir,
+    home: tempfile::TempDir,
     run: tempfile::TempDir,
     runner: Runner,
     fake: Arc<FakeProcesses>,
@@ -83,7 +83,7 @@ fn setup_with(manifest: &str) -> Setup {
     let (out, err) = (Buf::default(), Buf::default());
     let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
     Setup {
-        _home: home,
+        home,
         runner: Runner::new(config).unwrap(),
         run,
         fake,
@@ -310,4 +310,21 @@ async fn attach_takes_the_params_and_secrets_it_is_given() {
     assert_eq!(fresh.run(&["attach", "--param", "ISOLOOM_DERIVED=7"]).await.unwrap(), Verdict::Fail);
     let refused = fresh.err.take();
     assert!(refused.contains("error: ") && refused.contains("ISOLOOM_DERIVED"), "{refused}");
+}
+
+#[tokio::test]
+async fn events_says_how_many_lines_of_the_log_it_couldnt_read() {
+    let s = setup();
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    let log = s.home.path().join("runs/web-portal/events.jsonl");
+    let older = r#"{"v":0,"seq":9,"time":"2026-10-15T12:00:01Z","run":"web-portal","op":"up","event":"warning","code":"hook_failed","message":"x"}"#;
+    std::fs::write(&log, format!("{}{older}\n", std::fs::read_to_string(&log).unwrap())).unwrap();
+    s.out.take();
+    s.err.take();
+    assert_eq!(s.run(&["events"]).await.unwrap(), Verdict::Pass);
+    assert!(s.out.take().contains("up"), "the events it reads are printed");
+    assert_eq!(
+        s.err.take(),
+        "warning: 1 line(s) of run `web-portal`'s event log couldn't be read (written by another version of Isothrum, or cut short)\n"
+    );
 }

@@ -3,7 +3,8 @@
 Every operation reports what it does as JSON events. `isothrum <command> --json` prints them on
 standard output, one object per line; an embedder of `isothrum-runner` receives them through its
 `Events` sink. Each run also keeps the last operations' events in `<home>/runs/<run>/events.jsonl`
-(`isothrum events` prints them).
+(`isothrum events` prints them, and says on standard error how many lines it couldn't read: one
+another version of Isothrum wrote, or one cut short).
 
 The authoritative definition is the JSON Schema committed at
 [`crates/isothrum-runner/schema/events-v0.schema.json`](../../crates/isothrum-runner/schema/events-v0.schema.json)
