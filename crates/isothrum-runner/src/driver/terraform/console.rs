@@ -36,6 +36,24 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
     over_ssh(cx, &login, console::LOGIN_SHELL)
 }
 
+/// Removes `machine`, a Compose service in the run's VM, there with the services in its
+/// namespace, over SSH; nothing for a machine the module makes (the update's apply removes it).
+pub(super) async fn retire(cx: &Cx<'_>, machine: &Machine) -> Result<()> {
+    let Some(isoloom_manifest::Native::Compose { service }) = &machine.native else {
+        return Ok(());
+    };
+    let outputs = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.outputs;
+    let Some(login) = super::guest::login(cx, &outputs)? else { return Ok(()) };
+    let spec = ssh::spec(cx, &login, &console::remove_service(service.as_str()), Vec::new())?;
+    let op = crate::state::Op::Retire.as_str();
+    crate::executor::call_ok(cx, op, &spec, RETIRE_TIMEOUT, crate::executor::Echo::Shown)
+        .await
+        .map(drop)
+}
+
+/// How long removing a service in the run's VM may take.
+const RETIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// `ssh -t` at `login`, running `command` there.
 fn over_ssh(cx: &Cx<'_>, login: &Login, command: &str) -> Result<ShellCommand> {
     let spec = ssh::spec(cx, login, command, Vec::new())?;

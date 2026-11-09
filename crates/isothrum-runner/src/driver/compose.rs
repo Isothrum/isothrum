@@ -153,10 +153,10 @@ impl Driver for Compose {
 
     /// Stops and removes the machine's service with the services in its namespace
     /// ([`Compose::remove`]), through its profile (the `access` one for an on-demand machine, the
-    /// default one otherwise). The update after it wouldn't: the start Isoloom writes removes no
-    /// orphan (no `--remove-orphans`), and touches no service outside the default start, so a
-    /// service gone from the Compose files, or one that only leaves the default start (back to
-    /// an on-demand machine in the `access` profile), would keep running.
+    /// default one otherwise). The update after it can't be relied on for it: whether its start
+    /// removes a service gone from the Compose files is the manifest's (`--remove-orphans`), and
+    /// it touches no service outside the default start, so one that only leaves the default
+    /// start (back to an on-demand machine in the `access` profile) would keep running.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let profile = machine.on_demand.then_some(access::PROFILE);
         self.remove(cx, Op::Retire, profile, native_name(machine)).await

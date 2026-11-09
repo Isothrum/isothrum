@@ -130,12 +130,10 @@ impl Driver for Terraform {
         std::future::ready(Err(on_demand("hot-removing")))
     }
 
-    /// A machine the module no longer makes goes at the update's apply. A Compose service in the
-    /// run's VM (cloud-docker, Proxmox docker-vm) is left to the update too: the runner has no
-    /// way to run Compose in the VM (only the manifest's steps do). The update's start there
-    /// removes no orphan, so its container keeps running until the run goes down.
-    fn retire(&self, _cx: &Cx<'_>, _machine: &Machine) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
+    /// A machine the module makes is left to the update's apply; a Compose service in the run's
+    /// VM is removed there, with its namespace ([`console::retire`]).
+    async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
+        console::retire(cx, machine).await
     }
 
     /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).

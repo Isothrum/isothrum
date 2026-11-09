@@ -4,8 +4,7 @@
 //! engine converges: Terraform makes and removes what changed, Compose starts new services,
 //! Vagrant brings up new VMs. What an update doesn't remove itself is retired first
 //! ([`Running::retire`]): a VM taken out (Vagrant forgets a define the Vagrantfile no longer
-//! has), a Compose service taken out or moved out of the default start (Isoloom's start removes
-//! no orphan).
+//! has), a Compose service taken out or moved out of the default start.
 //! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message.
 //!
 //! A machine that was running keeps what it was given: the guests' secrets go to new machines
@@ -31,10 +30,9 @@ impl Running<'_> {
     /// (then an update), or of its move out of the lab's start (back to an on-demand machine):
     /// what the next update wouldn't remove itself. A Vagrant VM is destroyed (Vagrant forgets a
     /// define the Vagrantfile no longer has); a Compose service is stopped and removed with the
-    /// services in its namespace (the update's start removes no orphan, and leaves a service
-    /// outside the default start running). A Terraform machine is left to the update's apply. A
-    /// Compose service inside the run's VM is left as it is: the runner has no way to run Compose
-    /// there, and it runs until the run goes down.
+    /// services in its namespace, on this computer or inside the run's VM (an update leaves a
+    /// service outside the default start running). A machine a Terraform module makes is left to
+    /// the update's apply.
     ///
     /// # Errors
     ///

@@ -124,3 +124,19 @@ async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() 
         console.args
     );
 }
+
+/// On a server, a Compose service in the run's VM is removed there over SSH, as the guest's
+/// own steps reach it, with the containers in its namespace; the module's apply isn't run.
+#[tokio::test(start_paused = true)]
+async fn on_proxmox_retiring_a_service_removes_it_in_the_vm_over_ssh() {
+    let s = proxmox();
+    let run = s.runner.open(&s.folder.manifest, None).unwrap();
+    run.up(&s.options, &Recorder::new()).await.unwrap();
+    let applies = s.fake.calls().iter().filter(|c| c.line().contains("apply")).count();
+    run.retire("web", &s.options, &Recorder::new()).await.unwrap();
+    let rm = s.fake.last("label=com.docker.compose.service=web").expect("the service removed in the VM");
+    assert_eq!(rm.program, "ssh");
+    assert!(rm.args.iter().any(|a| a == &format!("isoloom@{VM_IP}")), "{:?}", rm.args);
+    assert!(rm.args.last().unwrap().contains("sudo docker rm -f"), "{:?}", rm.args);
+    assert_eq!(s.fake.calls().iter().filter(|c| c.line().contains("apply")).count(), applies, "no apply");
+}

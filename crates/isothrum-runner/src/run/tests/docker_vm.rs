@@ -252,18 +252,19 @@ async fn the_vm_the_containers_run_in_is_not_retired() {
     assert_eq!(l.engine.lock().unwrap().vm.as_deref(), Some("running"));
 }
 
-/// A Compose service in the VM is left to the update: the runner has no way to run Compose in
-/// the VM, so its retire runs nothing there, and nothing of the VM goes.
+/// A Compose service in the VM is removed there, with the containers in its namespace, through
+/// `vagrant ssh` into the VM; nothing of the VM goes.
 #[tokio::test(start_paused = true)]
-async fn retiring_a_service_in_the_vm_runs_nothing_there() {
+async fn retiring_a_service_in_the_vm_removes_it_there() {
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let before = l.fake.calls().len();
     run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();
-    let after: Vec<String> = l.fake.calls()[before..].iter().map(Call::line).collect();
-    assert!(
-        after.iter().all(|c| !c.contains("destroy") && !c.contains(" rm ") && !c.contains(" stop")),
-        "{after:?}"
+    let rm = l.fake.last("label=com.docker.compose.service=web").expect("the service removed in the VM");
+    assert_eq!(
+        (rm.program.as_str(), &rm.args[..3]),
+        ("vagrant", &["ssh".to_owned(), "default".to_owned(), "-c".to_owned()][..])
     );
+    assert!(rm.args[3].contains("sudo docker rm -f"), "{}", rm.args[3]);
+    assert!(l.fake.last("destroy").is_none(), "nothing of the VM goes");
 }

@@ -21,13 +21,12 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 - **`shell_command` reads the run's record**, as status does: a Vagrant run's shell gets the host
   ports its start pinned.
 - **`retire` takes a Compose service out of the run.** It did nothing on Compose, leaving the
-  service to the update, but the update's start removes no orphan (Isoloom's `up` has no
-  `--remove-orphans`) and touches no service outside the default start: a service taken out of
-  the lab, or moved back to an on-demand machine in the `access` profile, kept running. `retire`
-  now stops and removes it with the services in its namespace (`docker compose [--profile access]
-  rm -sf <service> <its sidecars>`, the `access` profile for an on-demand machine). A Compose
-  service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) is still left as it is: the
-  runner has no way to run Compose there.
+  service to the update, which touches no service outside the default start: a service moved
+  back to an on-demand machine in the `access` profile kept running (and one gone from the files
+  stayed unless the manifest's start removes orphans). `retire` now stops and removes it with the
+  services in its namespace: `docker compose [--profile access] rm -sf <service> <its sidecars>`
+  on this computer, and inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) its container
+  and the containers in its namespace, through the VM's way in.
 - **`retire` refuses the VM a lab's containers run in** (`docker-vm`'s guest, `unsupported`):
   destroying it took every container with it. A retired Vagrant VM's destroy gets the detach's
   5 minutes, not an attach's 30.

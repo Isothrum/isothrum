@@ -260,8 +260,8 @@ fn regenerated() -> String {
 }
 
 /// An update of a running Compose lab runs its start again, so a service added comes up with the
-/// others. Its start removes no orphan (Isoloom's `up` has no `--remove-orphans`), so a service
-/// taken out goes at its retire, before the update, and the update removes nothing itself.
+/// others; a service taken out goes at its retire, before the update, which then removes nothing
+/// of its own accord beyond what its start step says.
 #[tokio::test]
 async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_retire() {
     let f = fixture();
@@ -280,5 +280,5 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     let start = f.fake.last(" up --detach ").unwrap();
     assert!(start.line().ends_with(" db web web-routes isoloom-probe-amd64 extra"), "{}", start.line());
     let during: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
-    assert!(during.iter().all(|l| !l.contains(" rm ") && !l.contains("--remove-orphans")), "{during:?}");
+    assert!(during.iter().all(|l| !l.contains(" rm ")), "{during:?}");
 }

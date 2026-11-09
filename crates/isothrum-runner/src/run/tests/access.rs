@@ -233,8 +233,8 @@ async fn retiring_a_vagrant_machine_destroys_only_its_define() {
 }
 
 /// Retiring a Compose service stops and removes it, with the services in its namespace, through
-/// its profile: the update's start removes no orphan, and one that stays in the Compose files but
-/// leaves the default start (back to an on-demand machine) would otherwise keep running.
+/// its profile: one that stays in the Compose files but leaves the default start (back to an
+/// on-demand machine) would otherwise keep running whatever the update's start does.
 #[tokio::test]
 async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     let f = fixture_answering(FLAG_PORTAL_ACCESS, routed_answer);

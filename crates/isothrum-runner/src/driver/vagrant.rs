@@ -248,19 +248,24 @@ impl Driver for Vagrant {
     /// A VM of the run destroyed alone (`vagrant destroy -f <define>`) before its define leaves
     /// the Vagrantfile: once it has, Vagrant no longer knows the VM. Refused for the VM the lab's
     /// containers run in (`docker-vm`'s guest): destroying it would take every container with
-    /// it. A Compose service in that VM is left to the update: the runner has no way to run
-    /// Compose in the VM (only the manifest's steps do). The update's start there removes no
-    /// orphan, so its container keeps running until the run goes down.
+    /// it. A Compose service in that VM is removed there, with its namespace, through
+    /// `vagrant ssh` ([`super::console::remove_service`]).
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         if cx.run.manifest().guest.as_ref().is_some_and(|g| g.machine == machine.name) {
             return Err(Error::Unsupported {
                 what: format!("retiring `{}`, the VM the lab's containers run in", machine.name),
             });
         }
-        let Some(Native::Vagrant { vagrant, .. }) = &machine.native else {
-            return Ok(());
+        let spec = match &machine.native {
+            Some(Native::Vagrant { vagrant, .. }) => self.vagrant(cx, Op::Retire.as_str(), &["destroy", "-f", vagrant.as_str()])?,
+            // A Compose service in the run's VM: removed there, with its namespace.
+            Some(Native::Compose { service }) => {
+                let Some(vm) = guest_define(cx) else { return Ok(()) };
+                let script = super::console::remove_service(service.as_str());
+                self.vagrant(cx, Op::Retire.as_str(), &["ssh", vm.as_str(), "-c", script.as_str()])?
+            }
+            None => return Ok(()),
         };
-        let spec = self.vagrant(cx, Op::Retire.as_str(), &["destroy", "-f", vagrant.as_str()])?;
         call_ok(cx, Op::Retire.as_str(), &spec, DESTROY_TIMEOUT, Echo::Shown).await.map(drop)
     }
 
