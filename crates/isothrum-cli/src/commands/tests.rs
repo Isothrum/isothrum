@@ -122,8 +122,12 @@ async fn a_console_into_a_machine_is_printed_and_a_machine_is_retired() {
     let s = setup();
     assert_eq!(s.run(&["console", "web"]).await.unwrap(), Verdict::Pass);
     let console = s.out.take();
-    assert!(console.starts_with("docker compose --project-name flag-portal "), "{console}");
-    assert!(console.contains(" exec web sh -c "), "{console}");
+    let dir = s.run.path().join(".isoloom/docker").display().to_string();
+    assert!(
+        console.starts_with(&format!("cd {dir} && docker compose --project-name flag-portal ")),
+        "{console}"
+    );
+    assert!(console.contains(" exec web sh -c 'if command -v bash"), "its script quoted whole: {console}");
     assert!(s.run(&["console", "nope"]).await.is_err(), "a machine the run doesn't have");
 
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);

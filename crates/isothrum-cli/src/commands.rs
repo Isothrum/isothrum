@@ -116,15 +116,14 @@ async fn attach(json: bool, run: &Running<'_>, (pick, opts): (AccessPick<'_>, &R
     Ok(Verdict::Pass)
 }
 
-/// The command that opens a console into a machine (`console`): its argv, led by the
-/// variables it needs (`VAR=value`, as a shell takes them), or the `ShellCommand` JSON.
+/// The command that opens a console into a machine (`console`): one line to paste in a POSIX
+/// shell ([`ShellCommand::sh_line`]: its folder, its variables, each word quoted as it needs), or
+/// the `ShellCommand` JSON.
 fn print_command(json: bool, cmd: &ShellCommand, term: &Term) -> Result<Verdict> {
     if json {
         term.out(&serde_json::to_string(cmd)?);
     } else {
-        let env = cmd.env.iter().map(|(k, v)| format!("{k}={v}"));
-        let argv = std::iter::once(&cmd.program).chain(&cmd.args).cloned();
-        term.out(&env.chain(argv).collect::<Vec<_>>().join(" "));
+        term.out(&cmd.sh_line());
     }
     Ok(Verdict::Pass)
 }

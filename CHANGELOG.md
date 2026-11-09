@@ -61,8 +61,13 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   sealed. An update brings the run up, so the embedder's `Hooks::after_up` runs after it too. New
   operation in events: `update`.
 - **`isothrum console <machine>` and `isothrum retire <machine>`**: the CLI's way to
-  `Running::console_command` (printed as a line, or its JSON) and
+  `Running::console_command` (printed as one line to paste in a POSIX shell, or its JSON) and
   `Running::retire` (with `--param` and `--secret-from-env`, as `update`).
+- `ShellCommand::sh_line()`: the command as one line a POSIX shell runs as it is, to paste in a
+  terminal: `cd <its folder> && VAR=value… program args…`, each word that needs it single-quoted
+  (a `sh -c` script with `;` or `>`, a JSON value), so the shell splits it back into the argv.
+  `isothrum console` prints it; before, the CLI joined the words unquoted and left the folder
+  out, so a pasted console broke.
 - `Running::attach_with(pick, opts, events)` and `detach_with(machine, opts, events)` take the
   operation's options (secrets and params an attach or detach that changes the run needs), with
   the access machine's choice as an `AccessPick`, in the order `retire` and `provision` take
