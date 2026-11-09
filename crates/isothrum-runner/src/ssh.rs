@@ -197,7 +197,7 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
 /// (never the Terraform variables every step gets: a server's password stays on this computer).
 pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<ProcessSpec> {
     let at = format!("{list}.{}", step.id);
-    let arg = |name: &str| -> Result<String> { Ok(cx.vars.with_arg(with, &at, name)?.unwrap_or_default()) };
+    let arg = |name: &str| cx.vars.with_text(with, &at, name);
     let (host, command) = (arg("host")?, arg("command")?);
     if host.is_empty() || command.is_empty() {
         return Err(Error::Unsupported {
@@ -262,7 +262,7 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
         return Ok(None);
     };
     let at = format!("{list}.{}", step.id);
-    let arg = |name: &str| -> Result<String> { Ok(cx.vars.with_arg(with, &at, name)?.unwrap_or_default()) };
+    let arg = |name: &str| cx.vars.with_text(with, &at, name);
     let text = arg("wait_s")?;
     if text.is_empty() {
         return Ok(None);

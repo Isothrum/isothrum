@@ -235,6 +235,15 @@ impl<'r> Running<'r> {
         Ok(cx)
     }
 
+    /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet
+    /// (a run taken over from another runtime, or acted on from another home, may need it).
+    pub(crate) async fn ensure_ssh_key(&self) -> Result<()> {
+        if crate::ssh::needed(self.manifest()) {
+            crate::ssh::ensure_key(self.runner.config.processes.as_ref(), &self.runner.config.home).await?;
+        }
+        Ok(())
+    }
+
     /// Starts the macOS relays `cx`'s run needs (Vagrant on an ESXi host), for the operation.
     pub(crate) async fn relay(&self, cx: &mut Cx<'_>) -> Result<()> {
         let config = &self.runner.config;

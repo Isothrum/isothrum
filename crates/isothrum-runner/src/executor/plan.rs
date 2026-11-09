@@ -59,6 +59,18 @@ pub(crate) fn limit_s(step: &Step, scope: &Scope) -> u64 {
     on_provider.or(step.timeout_s).map_or(DEFAULT_TIMEOUT_S, |limit| u64::from(limit.get()))
 }
 
+/// Every argv of `argv`, whatever the host: the one argv, or each host's and the default.
+pub(crate) fn every_argv(argv: &HostArgv) -> impl Iterator<Item = &Argv> {
+    let (every, per_host) = match argv {
+        HostArgv::Every(a) => (Some(a), None),
+        HostArgv::PerHost(p) => (None, Some(p)),
+    };
+    let per_host = per_host
+        .into_iter()
+        .flat_map(|p| [&p.default, &p.linux, &p.macos, &p.windows].into_iter().flatten());
+    every.into_iter().chain(per_host)
+}
+
 /// The argv of `argv` for `host`: the one argv, or the host's own, else the default.
 fn for_host(argv: &HostArgv, host: HostOs) -> Option<&Argv> {
     match argv {

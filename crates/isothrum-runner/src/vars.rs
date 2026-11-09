@@ -95,6 +95,11 @@ impl Vars {
             .transpose()
     }
 
+    /// [`Vars::with_arg`], empty when it isn't given.
+    pub(crate) fn with_text(&self, with: &std::collections::BTreeMap<isoloom_manifest::SnakeName, Template>, at: &str, name: &str) -> Result<String> {
+        Ok(self.with_arg(with, at, name)?.unwrap_or_default())
+    }
+
     /// `template` filled; `at` names where it is, for the error.
     pub(crate) fn render(&self, template: &Template, at: &str) -> Result<String> {
         self.fill(template, None, at)

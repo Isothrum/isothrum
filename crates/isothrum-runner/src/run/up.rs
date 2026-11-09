@@ -54,9 +54,7 @@ impl Running<'_> {
         let mut record = self.record_or_fresh()?;
         self.refuse_elsewhere(&record, opts.host_label.as_deref())?;
         let params = params_for_start(self.manifest(), &opts.params, &scope)?;
-        if crate::ssh::needed(self.manifest()) {
-            crate::ssh::ensure_key(self.runner.config.processes.as_ref(), &self.runner.config.home).await?;
-        }
+        self.ensure_ssh_key().await?;
         let mut cx = self.acting(self.cx(params, &opts.secrets, events, opts.provider.clone())?)?;
         // Leftovers are removed with the names they were made with.
         Self::bind_record(&mut cx, &record);
@@ -224,16 +222,7 @@ fn argv_applies(argv: &isoloom_manifest::HostArgv) -> bool {
         let subcommand = a.args().iter().map(ToString::to_string).find(|w| !w.starts_with('-'));
         ["terraform", "tofu"].contains(&a.program().as_str()) && subcommand.as_deref() == Some("apply")
     };
-    match argv {
-        isoloom_manifest::HostArgv::Every(a) => applies(a),
-        isoloom_manifest::HostArgv::PerHost(p) => p
-            .default
-            .iter()
-            .chain(p.linux.iter())
-            .chain(p.macos.iter())
-            .chain(p.windows.iter())
-            .any(applies),
-    }
+    crate::executor::plan::every_argv(argv).any(applies)
 }
 
 /// How long a run with an `expiry` lives when neither the embedder nor the manifest says.

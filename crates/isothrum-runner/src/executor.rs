@@ -171,8 +171,7 @@ async fn step_work(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
 /// Whether `step` names an output or a machine's host that `vars` has no value for yet.
 fn awaits_state(vars: &Vars, step: &Step) -> bool {
     let argvs: Vec<&isoloom_manifest::Argv> = match &step.run {
-        Run::Argv(isoloom_manifest::HostArgv::Every(a)) => vec![a],
-        Run::Argv(isoloom_manifest::HostArgv::PerHost(p)) => [&p.default, &p.linux, &p.macos, &p.windows].into_iter().flatten().collect(),
+        Run::Argv(argv) => plan::every_argv(argv).collect(),
         Run::Action { .. } => Vec::new(),
     };
     let with = match &step.run {

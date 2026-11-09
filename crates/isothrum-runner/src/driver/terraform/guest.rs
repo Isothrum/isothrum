@@ -24,7 +24,7 @@ pub(super) fn login(cx: &Cx<'_>, outputs: &BTreeMap<String, String>) -> Result<O
     for (name, value) in outputs {
         vars.set_output(name, value.clone());
     }
-    let arg = |name: &str| -> Result<String> { Ok(vars.with_arg(with, "guest.status", name)?.unwrap_or_default()) };
+    let arg = |name: &str| vars.with_text(with, "guest.status", name);
     let host = arg("host")?;
     if host.is_empty() {
         return Err(Error::NotRunning {
