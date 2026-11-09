@@ -8,7 +8,6 @@ use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 
 use crate::Result;
 use crate::error::Error;
-use crate::events::StepState;
 use crate::executor::{Cx, capture_step};
 
 /// The step id the probes report under.
@@ -23,16 +22,14 @@ pub(crate) async fn probe(cx: &Cx<'_>) -> Result<()> {
     if tools.is_empty() {
         return Ok(());
     }
-    cx.events.step(STEP, StepState::Running, Some("Checking the tools…"));
-    let mut done = Ok(());
-    for tool in tools {
-        done = probe_one(cx, tool).await;
-        if done.is_err() {
-            break;
-        }
-    }
-    cx.events.step(STEP, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
-    done
+    cx.events
+        .stepped(STEP, Some("Checking the tools…"), async {
+            for tool in tools {
+                probe_one(cx, tool).await?;
+            }
+            Ok(())
+        })
+        .await
 }
 
 /// Whether this host and provider use `tool`.

@@ -24,15 +24,9 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
         });
     }
     let outputs = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.outputs;
-    let key = machine.name.as_str().replace('-', "_");
-    let host = outputs
-        .get(&format!("address_{key}"))
-        .filter(|a| !a.is_empty())
-        .ok_or_else(|| Error::NotRunning {
-            run: cx.run.name().to_string(),
-        })?;
-    let user = ssh::machine_user(|name| outputs.get(name).cloned(), &key);
-    let login = Login::new(&user, host, cx.ssh_jump.as_deref(), "")?;
+    let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump.as_deref())?.ok_or_else(|| Error::NotRunning {
+        run: cx.run.name().to_string(),
+    })?;
     Ok(console_in_run(cx, over_ssh(cx, &login, shells::LOGIN_SHELL, true)?))
 }
 

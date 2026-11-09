@@ -139,38 +139,33 @@ pub(crate) async fn run_steps(cx: &mut Cx<'_>, list: &str, steps: &[Step]) -> Re
 /// Runs one step, with its `step` events: the driver's state read first when the step names
 /// what only it gives.
 async fn run_step(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
-    let id = step.id.as_str();
-    cx.events.step(id, StepState::Running, step.note.as_deref());
-    let mut done = Ok(());
-    if awaits_state(&cx.vars, step) {
-        let run = cx.run;
-        done = match run.observe(cx).await {
-            Ok(observed) => {
-                run.bind_observed(cx, observed);
-                Ok(())
-            }
-            Err(e) => Err(e),
-        };
-    }
-    if done.is_ok() {
-        let cx: &Cx<'_> = cx;
-        done = match &step.run {
-            // `ssh.run` is a command too: its lines are the step's (a check runner's results).
-            Run::Argv(_) | Run::Action { action: Action::SshRun, .. } => run_argv(cx, list, step, &mut |line| cx.stale.notice(line)).await,
-            // The project's archive is every driver's: the runner's own.
-            Run::Action {
-                action: Action::ProjectArchive,
-                with,
-            } => crate::archive::project(cx, step, with).await,
-            Run::Action { action, with } => cx.run.driver.action(cx, step, *action, with).await,
-        };
-    }
+    let events = cx.events;
+    let done = events.stepped(step.id.as_str(), step.note.as_deref(), step_work(cx, list, step)).await;
     match &done {
         Ok(()) => tracing::debug!("step done"),
         Err(e) => tracing::debug!(error = %e, "step failed"),
     }
-    cx.events.step(id, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
     done
+}
+
+/// What one step does, the driver's state read first when it names what only that gives.
+async fn step_work(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    if awaits_state(&cx.vars, step) {
+        let run = cx.run;
+        let observed = run.observe(cx).await?;
+        run.bind_observed(cx, observed);
+    }
+    let cx: &Cx<'_> = cx;
+    match &step.run {
+        // `ssh.run` is a command too: its lines are the step's (a check runner's results).
+        Run::Argv(_) | Run::Action { action: Action::SshRun, .. } => run_argv(cx, list, step, &mut |line| cx.stale.notice(line)).await,
+        // The project's archive is every driver's: the runner's own.
+        Run::Action {
+            action: Action::ProjectArchive,
+            with,
+        } => crate::archive::project(cx, step, with).await,
+        Run::Action { action, with } => cx.run.driver.action(cx, step, *action, with).await,
+    }
 }
 
 /// Whether `step` names an output or a machine's host that `vars` has no value for yet.

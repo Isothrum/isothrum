@@ -217,10 +217,21 @@ pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<S
     Login::new(&user_or_root(arg("user")?), host, cx.ssh_jump.as_deref(), &arg("via")?)
 }
 
-/// The user a run's module says to log in to machine `key` (its name, `-` written `_`) as:
-/// `ssh_user_<key>`, else the run's `ssh_user`, else `root`; `output` reads the run's outputs.
-pub(crate) fn machine_user(output: impl Fn(&str) -> Option<String>, key: &str) -> String {
-    user_or_root(output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default())
+/// The output holding `machine`'s address: `address_<machine>`, `-` written `_`.
+pub(crate) fn address_output(machine: &str) -> String {
+    format!("address_{}", machine.replace('-', "_"))
+}
+
+/// The login to `machine` a run's module gives in its outputs (read by `output`): its address
+/// ([`address_output`]) as its user (`ssh_user_<machine>`, `-` written `_`, else the run's
+/// `ssh_user`, else `root`), through `jump`. `None` while the address has no value.
+pub(crate) fn machine_login(output: impl Fn(&str) -> Option<String>, machine: &str, jump: Option<&str>) -> Result<Option<Login>> {
+    let Some(host) = output(&address_output(machine)).filter(|a| !a.is_empty()) else {
+        return Ok(None);
+    };
+    let key = machine.replace('-', "_");
+    let user = user_or_root(output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default());
+    Login::new(&user, &host, jump, "").map(Some)
 }
 
 /// The user an SSH login takes: `user`, else `root` (every login the runner makes falls back so).
@@ -281,6 +292,21 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn a_machines_login_is_its_address_as_its_user_else_the_runs_else_root() {
+        let outputs = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
+        let own = outputs(&[("address_web_1", "198.51.100.7"), ("ssh_user_web_1", "admin"), ("ssh_user", "ubuntu")]);
+        let login = machine_login(own, "web-1", Some("me@jump")).unwrap().unwrap();
+        assert_eq!(login.target, "admin@198.51.100.7");
+        assert_eq!(login.jumps, ["me@jump"]);
+        let run_wide = outputs(&[("address_web_1", "198.51.100.7"), ("ssh_user", "ubuntu")]);
+        assert_eq!(machine_login(run_wide, "web-1", None).unwrap().unwrap().target, "ubuntu@198.51.100.7");
+        let none = outputs(&[("address_web_1", "198.51.100.7")]);
+        assert_eq!(machine_login(none, "web-1", None).unwrap().unwrap().target, "root@198.51.100.7");
+        assert_eq!(machine_login(outputs(&[("address_web_1", "")]), "web-1", None).unwrap(), None, "no address yet");
+        assert_eq!(machine_login(outputs(&[]), "web-1", None).unwrap(), None);
+    }
 
     #[test]
     fn a_login_goes_through_the_runs_jump_then_the_manifests() {

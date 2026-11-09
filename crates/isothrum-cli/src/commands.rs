@@ -41,14 +41,23 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
-        Command::Lifecycle(command) => lifecycle(command, cli.json, runner, term, var).await,
+        Command::Lifecycle(command) => {
+            let out = Out { json: cli.json, term, events };
+            lifecycle(command, runner, &out, var).await
+        }
     }
 }
 
-/// A command that changes the run's life, its events written to `term` (JSON lines with `json`).
-async fn lifecycle(command: &Lifecycle, json: bool, runner: &Runner, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
-    let (as_json, human) = (Json(term), Human(term));
-    let events: &dyn Events = if json { &as_json } else { &human };
+/// Where a command writes: the terminal (JSON lines with `json`), and its operation's events.
+struct Out<'a> {
+    json: bool,
+    term: &'a Term,
+    events: &'a dyn Events,
+}
+
+/// A command that changes the run's life, written to `out`.
+async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+    let Out { json, term, events } = *out;
     match command {
         Lifecycle::Up { op, replace, lifetime } => {
             let started = open(runner, &op.run)?.up(&start_opts(op, *replace, *lifetime, var)?, events).await;

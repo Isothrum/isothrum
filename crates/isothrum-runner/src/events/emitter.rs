@@ -154,6 +154,15 @@ impl<'a> Emitter<'a> {
         });
     }
 
+    /// Runs `work` as step `step`: its `running` event (with `note`) first, then `done` or
+    /// `failed` as it ended.
+    pub(crate) async fn stepped<T>(&self, step: &str, note: Option<&str>, work: impl Future<Output = crate::Result<T>>) -> crate::Result<T> {
+        self.step(step, StepState::Running, note);
+        let done = work.await;
+        self.step(step, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
+        done
+    }
+
     /// A line a step's tool printed.
     pub(crate) fn log(&self, step: &str, stream: Stream, line: &str) {
         self.emit(EventKind::Log {

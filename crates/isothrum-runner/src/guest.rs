@@ -21,7 +21,6 @@ use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
 use crate::error::Error;
-use crate::events::StepState;
 use crate::executor::{Cx, Echo, call};
 use crate::secrets::SecretValue;
 use crate::ssh::{self, Login};
@@ -55,12 +54,10 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     let outputs = cx.run.read_outputs(cx).await?;
     let output = |name: &str| outputs.iter().find(|o| o.name == name).and_then(|o| o.value.clone());
     for (machine, lines) in by_machine {
-        let key = machine.replace('-', "_");
-        let host = output(&format!("address_{key}")).ok_or_else(|| Error::Unsupported {
-            what: format!("a guest delivery to `{machine}` without its `address_{key}` output"),
+        let login = ssh::machine_login(output, &machine, cx.ssh_jump.as_deref())?.ok_or_else(|| Error::Unsupported {
+            what: format!("a guest delivery to `{machine}` without its `{}` output", ssh::address_output(&machine)),
         })?;
-        let user = ssh::machine_user(output, &key);
-        to_machine(cx, &machine, &Login::new(&user, &host, cx.ssh_jump.as_deref(), "")?, &lines).await?;
+        to_machine(cx, &machine, &login, &lines).await?;
     }
     Ok(())
 }
@@ -101,16 +98,19 @@ fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str
 /// connect.
 async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> Result<()> {
     let id = format!("guest-{machine}");
-    cx.events.step(&id, StepState::Running, Some(&format!("Delivering {machine}'s secrets…")));
-    let dir = cx.run.runner.store.run_dir(cx.run.name())?;
-    let input = dir.join(format!("{id}.in"));
-    crate::store::write_private(&input, lines.as_bytes()).map_err(Error::io(&input, "written"))?;
-    let done = tries(cx, &id, login, &input).await;
-    if let Err(e) = std::fs::remove_file(&input) {
-        tracing::warn!(error = %e, "a delivery's input file was left in the run's state folder");
-    }
-    cx.events.step(&id, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
-    done
+    let note = format!("Delivering {machine}'s secrets…");
+    cx.events
+        .stepped(&id, Some(&note), async {
+            let dir = cx.run.runner.store.run_dir(cx.run.name())?;
+            let input = dir.join(format!("{id}.in"));
+            crate::store::write_private(&input, lines.as_bytes()).map_err(Error::io(&input, "written"))?;
+            let done = tries(cx, &id, login, &input).await;
+            if let Err(e) = std::fs::remove_file(&input) {
+                tracing::warn!(error = %e, "a delivery's input file was left in the run's state folder");
+            }
+            done
+        })
+        .await
 }
 
 async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) -> Result<()> {

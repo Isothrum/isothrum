@@ -34,7 +34,7 @@ use super::up::ready_run;
 use crate::Result;
 use crate::driver::Observed;
 use crate::error::Error;
-use crate::events::{Emitter, Events, StepState};
+use crate::events::{Emitter, Events};
 use crate::executor::Cx;
 use crate::options::RunOptions;
 use crate::secrets::{check_secrets, sensitive_values};
@@ -136,10 +136,7 @@ impl Running<'_> {
     async fn reload(&self, cx: &Cx<'_>, vm: &Machine) -> Result<()> {
         let id = format!("reload-{}", vm.name);
         let note = format!("Restarting {} to apply its new settings…", vm.name);
-        cx.events.step(&id, StepState::Running, Some(&note));
-        let done = self.driver.reload(cx, vm, &id).await;
-        cx.events.step(&id, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
-        done
+        cx.events.stepped(&id, Some(&note), self.driver.reload(cx, vm, &id)).await
     }
 }
 
