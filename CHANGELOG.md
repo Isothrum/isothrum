@@ -11,6 +11,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **The checks no longer run on a setup machine that is still powering itself off.** Waking the
+  controller for the checks asked it over SSH whether it was halting, and took a failed SSH (a
+  controller already on its way down) for "not halting": it skipped the boot and the checks then
+  found it off. The controller now answers in words; no answer is waited out like a halting one,
+  then it is booted.
 - **An update restarts a running VM whose boot-time settings changed.** Vagrant applies a VM's
   synced folders, networks, forwarded ports, size and provider settings only when it boots it, and
   an update reran `up`'s steps on the running VM: a host folder added to a running `docker-vm`

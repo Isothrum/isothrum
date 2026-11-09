@@ -32,6 +32,8 @@ struct Engine {
     vbox: BTreeMap<String, String>,
     /// How many times the controller still says it halts.
     halting: u32,
+    /// How many times SSH to the controller still fails on its way down (then it is off).
+    going_down: u32,
     /// What `vagrant --version` says (default: 2.4.9).
     version: Option<String>,
     /// What `vagrant halt <controller>` does: `None` halts it; `Some(state)` fails as libvirt's
@@ -166,12 +168,22 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
                 .collect();
             Reply::ok(&lines.join("\n"))
         }
-        ("vagrant", ["ssh", CONTROLLER, "-c", _]) if e.halting > 0 => {
-            e.halting -= 1;
-            if e.halting == 0 {
-                e.states.insert(CONTROLLER.into(), "poweroff".into());
+        ("vagrant", ["ssh", CONTROLLER, "-c", probe]) if probe.contains("isoloom-halting") => {
+            if e.halting > 0 {
+                e.halting -= 1;
+                if e.halting == 0 {
+                    e.states.insert(CONTROLLER.into(), "poweroff".into());
+                }
+                Reply::ok("halting")
+            } else if e.going_down > 0 {
+                e.going_down -= 1;
+                if e.going_down == 0 {
+                    e.states.insert(CONTROLLER.into(), "poweroff".into());
+                }
+                Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2200: Connection refused")
+            } else {
+                Reply::ok("up")
             }
-            Reply::ok("")
         }
         ("vagrant", ["ssh", ..]) => Reply::fail(1, ""),
         // ESXi's guests answer at their own address: what their VMware Tools report.
@@ -588,24 +600,48 @@ async fn a_controller_no_halt_stops_is_a_warning_after_up() {
     );
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_controller_still_halting_is_waited_for_before_it_boots() {
+/// The calls of a check run on a started run whose controller still reads as running, after
+/// `set` (how it answers the halting probe): the checks must pass.
+async fn checks_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> Vec<String> {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     {
         let mut e = f.engine();
         e.states.insert(CONTROLLER.into(), "running".into());
-        e.halting = 3;
+        set(&mut e);
     }
-    let report = run.check(&opts(), &Recorder::new()).await.unwrap();
-    assert!(report.ok);
-    let calls = f.fake.lines();
+    assert!(run.check(&opts(), &Recorder::new()).await.unwrap().ok);
+    f.fake.lines()
+}
+
+/// Whether `calls` boot the controller (`vagrant up` without its provisioners).
+fn boots_controller(calls: &[String]) -> Option<usize> {
+    calls.iter().rposition(|l| l == "vagrant up isoloom-controller --no-provision")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_controller_still_halting_is_waited_for_before_it_boots() {
+    let calls = checks_with_a_running_controller(|e| e.halting = 3).await;
     let probes = calls.iter().filter(|l| l.contains("test -e /run/isoloom-halting")).count();
     assert_eq!(probes, 3, "{calls:#?}");
-    let boot = calls.iter().rposition(|l| l == "vagrant up isoloom-controller --no-provision").unwrap();
     let last_probe = calls.iter().rposition(|l| l.contains("isoloom-halting")).unwrap();
-    assert!(last_probe < boot);
+    assert!(boots_controller(&calls).is_some_and(|boot| last_probe < boot), "{calls:#?}");
+}
+
+/// The race a vm lab's checks lost: the controller's poweroff had begun, its SSH already closed,
+/// while it still read as running. A failed probe is no answer: it is waited for, then booted.
+#[tokio::test(start_paused = true)]
+async fn a_controller_no_longer_answering_on_its_way_down_is_waited_for_then_booted() {
+    let calls = checks_with_a_running_controller(|e| e.going_down = 2).await;
+    assert!(boots_controller(&calls).is_some(), "booted once it was off: {calls:#?}");
+}
+
+/// A controller left running (it answers it isn't halting) is used as it is: no boot.
+#[tokio::test(start_paused = true)]
+async fn a_controller_that_stays_up_is_not_booted_again() {
+    let calls = checks_with_a_running_controller(|_| {}).await;
+    assert!(boots_controller(&calls).is_none(), "{calls:#?}");
 }
 
 #[tokio::test]

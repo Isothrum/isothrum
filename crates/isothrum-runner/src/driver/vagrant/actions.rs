@@ -135,8 +135,10 @@ pub(super) fn aborted_saved(lines: &[String]) -> bool {
 }
 
 /// `vagrant.wake_controller`: the controller (`with.machine`, else Isoloom's) booted for the
-/// checks. One still powering itself off after its play (it holds [`HALTING`]) is waited for
-/// first, up to [`HALT_POLLS`] times two seconds: booting it then would race its own poweroff.
+/// checks. One still powering itself off after its play is waited for first, up to
+/// [`HALT_POLLS`] times two seconds, booting it then would race its own poweroff: it says so
+/// (it holds [`HALTING`]), or no longer answers over SSH on its way down. Only one that answers
+/// it isn't halting is left running as it is.
 pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
     let machine = controller(cx, with)?;
@@ -144,9 +146,9 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
         if !running(v, cx, id, &machine).await? {
             break;
         }
-        let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &format!("test -e {HALTING}")])?;
-        let halting = call(cx, id, &probe, READ_TIMEOUT, Echo::Quiet).await?;
-        if !halting.exit.is_some_and(crate::process::Exit::success) {
+        let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &halting_probe()])?;
+        let said = call(cx, id, &probe, READ_TIMEOUT, Echo::Quiet).await?;
+        if said.exit.is_some_and(crate::process::Exit::success) && said.stdout.iter().any(|l| l.trim() == STAYS_UP) {
             // Running, and not on its way down: nothing to wait for.
             return Ok(());
         }
@@ -155,6 +157,15 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
     let limit = step.timeout_s.map_or(BOOT_TIMEOUT, |s| Duration::from_secs(u64::from(s.get())));
     let up = v.vagrant(cx, id, &["up", &machine, "--no-provision"])?;
     call_ok(cx, id, &up, limit, Echo::Shown).await.map(drop)
+}
+
+/// What the controller prints when it isn't on its way down (see [`halting_probe`]).
+const STAYS_UP: &str = "up";
+
+/// Run on the controller: [`STAYS_UP`] unless it holds [`HALTING`]. An answer, not an exit code:
+/// SSH failing on a controller going down must not read as one staying up.
+fn halting_probe() -> String {
+    format!("if test -e {HALTING}; then echo halting; else echo {STAYS_UP}; fi")
 }
 
 /// What vagrant-vmware-esxi says when the VM it is asked to halt is already off: ESXi refuses the
