@@ -1,7 +1,8 @@
 //! Scripted processes for tests (feature `fake`): every call is recorded and answered from the
 //! test's script, so code that drives docker, vagrant or terraform runs without them and never
-//! touches real ones. In this crate's tests a reply can take time (`Reply::after`): under Tokio's
-//! paused clock that time passes at once, so timeouts are tested without waiting.
+//! touches real ones. In this crate's tests a reply can take time (`Reply::after`) and print its
+//! lines over time (`Reply::paced`): under Tokio's paused clock that time passes at once, so
+//! timeouts are tested without waiting.
 
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
@@ -27,6 +28,8 @@ pub struct Reply {
     pub missing: bool,
     /// How long it runs before answering.
     pub delay: Duration,
+    /// How long it runs before each line it prints, after `delay` (a slow download's progress).
+    pub pace: Duration,
 }
 
 impl Reply {
@@ -61,6 +64,14 @@ impl Reply {
     #[must_use]
     pub(crate) fn after(mut self, delay: Duration) -> Reply {
         self.delay = delay;
+        self
+    }
+
+    /// The same answer, each line printed `pace` after the one before.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn paced(mut self, pace: Duration) -> Reply {
+        self.pace = pace;
         self
     }
 }
@@ -126,8 +137,13 @@ impl FakeProcesses {
         if reply.missing {
             return Err(ProcessError::Missing { program: spec.program.clone() });
         }
-        reply.stdout.iter().for_each(|l| on_line(Stream::Stdout, l));
-        reply.stderr.iter().for_each(|l| on_line(Stream::Stderr, l));
+        let lines = reply.stdout.iter().map(|l| (Stream::Stdout, l));
+        for (stream, line) in lines.chain(reply.stderr.iter().map(|l| (Stream::Stderr, l))) {
+            if !reply.pace.is_zero() {
+                tokio::time::sleep(reply.pace).await;
+            }
+            on_line(stream, line);
+        }
         Ok(Exit { code: Some(reply.code) })
     }
 }
@@ -159,5 +175,17 @@ mod tests {
         assert_eq!((slow.exit, slow.stderr), (Exit { code: Some(2) }, vec!["boom".to_owned()]));
         assert_eq!(fake.lines(), ["docker compose ps", "vagrant up", "slow"]);
         assert!(fake.last("vagrant").is_some() && fake.last("terraform").is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_paced_reply_prints_its_lines_a_pace_apart() {
+        let fake = FakeProcesses::rules(&[("pull", Reply::ok("a\nb").paced(Duration::from_secs(60)))]);
+        let started = tokio::time::Instant::now();
+        let mut seen = Vec::new();
+        let spec = ProcessSpec::new("pull", Vec::<String>::new());
+        fake.run(&spec, &mut |_, line| seen.push((line.to_owned(), started.elapsed().as_secs())))
+            .await
+            .unwrap();
+        assert_eq!(seen, [("a".to_owned(), 60), ("b".to_owned(), 120)]);
     }
 }
