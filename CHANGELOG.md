@@ -160,6 +160,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the
   manifest writes it (`tcp`, `udp`).
 
+- **`plan_json`, `own_files_json` and `choices_json` throw if their JSON can't be written.** Each
+  had its own stand-in (`[]`, `{}`, a failed plan, else an empty string); they now return
+  `Result<String, JsError>`. JavaScript gets the same string as before, and in the case that can't
+  happen, an `Error` saying why.
 - **`cargo run -p xtask -- wasm --copy-to <dir>`** replaces `--website <dir>`: it copies the
   files a page serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into the folder given, not
   into a site's `public/wasm/`.

@@ -3,7 +3,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Plan, bundle_bytes, bundle_target_bytes, choices, own_files, plan};
+use crate::{bundle_bytes, bundle_target_bytes, choices, own_files, plan};
 
 /// The download for one target (see [`bundle_target_bytes`]).
 ///
@@ -26,27 +26,42 @@ pub fn bundle(topology_json: &str) -> Result<Vec<u8>, JsError> {
 }
 
 /// JSON for a JavaScript caller: [`own_files`].
+///
+/// # Errors
+///
+/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
+/// maps of strings) never cause.
 #[wasm_bindgen]
-#[must_use]
-pub fn own_files_json(topology_json: &str) -> String {
-    serde_json::to_string(&own_files(topology_json)).unwrap_or_else(|_| "[]".into())
+pub fn own_files_json(topology_json: &str) -> Result<String, JsError> {
+    json(&own_files(topology_json))
 }
 
-/// JSON for the editor: a [`Plan`](crate::Plan).
+/// JSON for the editor: a [`Plan`](crate::Plan), one that says why it has nothing when the
+/// topology gives none.
+///
+/// # Errors
+///
+/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
+/// maps of strings) never cause.
 #[wasm_bindgen]
-#[must_use]
-pub fn plan_json(topology_json: &str) -> String {
-    // A plan is strings, lists and maps of strings: writing it can't fail. Were it to, the editor
-    // still gets a plan, one that says why it has nothing.
-    serde_json::to_string(&plan(topology_json))
-        .or_else(|e| serde_json::to_string(&Plan::failed(&format!("writing the plan: {e}"))))
-        .unwrap_or_default()
+pub fn plan_json(topology_json: &str) -> Result<String, JsError> {
+    json(&plan(topology_json))
 }
 
 /// JSON for the editor: Isoloom's lists ([`Choices`](crate::Choices)), what its OS, appliance and
 /// protocol fields offer.
+///
+/// # Errors
+///
+/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
+/// maps of strings) never cause.
 #[wasm_bindgen]
-#[must_use]
-pub fn choices_json() -> String {
-    serde_json::to_string(&choices()).unwrap_or_else(|_| "{}".into())
+pub fn choices_json() -> Result<String, JsError> {
+    json(&choices())
+}
+
+/// `value` as JSON. Every value handed out is strings, lists and maps of strings, so writing it
+/// can't fail; were it to, the caller gets a JavaScript `Error` saying why, not a stand-in value.
+fn json(value: &impl serde::Serialize) -> Result<String, JsError> {
+    serde_json::to_string(value).map_err(|e| JsError::new(&format!("writing the JSON: {e}")))
 }

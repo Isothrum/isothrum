@@ -32,19 +32,19 @@ mod js_error {
 
 #[wasm_bindgen_test]
 fn plan_json_is_a_plan() {
-    let plan: serde_json::Value = serde_json::from_str(&plan_json(TOPOLOGY)).unwrap();
+    let plan: serde_json::Value = serde_json::from_str(&plan_json(TOPOLOGY).map_err(message).unwrap()).unwrap();
     assert_eq!(plan["ok"], true);
     assert!(plan["isoloom_yml"].as_str().unwrap().contains("name: pair"));
-    let bad: serde_json::Value = serde_json::from_str(&plan_json(MALFORMED)).unwrap();
+    let bad: serde_json::Value = serde_json::from_str(&plan_json(MALFORMED).map_err(message).unwrap()).unwrap();
     assert_eq!(bad["ok"], false);
     assert!(bad["error"].as_str().unwrap().contains("malformed"));
 }
 
 #[wasm_bindgen_test]
 fn own_files_json_lists_the_starters() {
-    let files: serde_json::Value = serde_json::from_str(&own_files_json(TOPOLOGY)).unwrap();
+    let files: serde_json::Value = serde_json::from_str(&own_files_json(TOPOLOGY).map_err(message).unwrap()).unwrap();
     assert_eq!(files[0]["path"], "provision/client.sh");
-    assert_eq!(own_files_json(MALFORMED), "[]");
+    assert_eq!(own_files_json(MALFORMED).map_err(message).unwrap(), "[]");
 }
 
 #[wasm_bindgen_test]
@@ -63,7 +63,7 @@ fn bundle_target_refuses_a_target_the_lab_has_not() {
 
 #[wasm_bindgen_test]
 fn choices_json_lists_isoloom_s_values() {
-    let c: serde_json::Value = serde_json::from_str(&choices_json()).unwrap();
+    let c: serde_json::Value = serde_json::from_str(&choices_json().map_err(message).unwrap()).unwrap();
     assert!(c["os"].as_array().unwrap().iter().any(|os| os == "debian@12"));
     assert_eq!(c["protocols"][0], "tcp");
 }
