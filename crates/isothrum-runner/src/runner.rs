@@ -1,6 +1,6 @@
-//! The engine: one per embedder. It holds what the launcher kept in process-wide statics (the
-//! operations in flight, the per-run locks, the ports being pinned), so two runners in one
-//! process never share them.
+//! The engine: one per embedder. It holds the operations in flight, the per-run locks and the
+//! ports being pinned, never in process-wide statics, so two runners in one process never share
+//! them.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +25,7 @@ use crate::store::{RunLocks, RunRecord, Store};
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct RunnerConfig {
-    /// The runner's home (`runs/` under it). The launcher passes its app data folder; the
+    /// The runner's home (`runs/` under it). An app passes its data folder; the
     /// `isothrum` command line uses `~/.isothrum`.
     pub home: PathBuf,
     /// Starts the tools.
@@ -289,8 +289,8 @@ mod tests {
 
     #[test]
     fn two_runners_share_nothing() {
-        // Regression (R5): the launcher's in-flight map, run locks and probe cache were statics,
-        // so two embedders (or two tests) in one process saw each other's operations.
+        // Regression (R5): an in-flight map, run locks and probe cache kept in statics let two
+        // embedders (or two tests) in one process saw each other's operations.
         let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, b) = (runner(a.path()), runner(b.path()));
         let name = RunName::new("lab").unwrap();

@@ -4,8 +4,8 @@
 //! The manifest holds the native commands in order, the documented driver actions, readiness,
 //! outputs, check runners, and the slots inputs and secrets travel through. The runner adds what
 //! only it can know: the run's name and private state, one operation per run at a time, the
-//! values of params and secrets, and the event stream an embedder (the Cyber CTF launcher, the
-//! Isothrum desktop app, the `isothrum` command line) shows. It sits between Isoloom (whose
+//! values of params and secrets, and the event stream an embedder (an app, the `isothrum` command
+//! line) shows. It sits between Isoloom (whose
 //! `isoloom-manifest` crate is the contract) and those embedders, and depends on no UI.
 //!
 //! # Example

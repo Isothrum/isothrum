@@ -28,7 +28,7 @@ async fn every_check_reported_passes_and_is_an_event() {
 
 #[tokio::test(start_paused = true)]
 async fn a_runner_waiting_longer_than_five_minutes_runs_to_its_end() {
-    // Regression (R11): the launcher capped every check runner at 5 minutes, shorter than the
+    // Regression (R11): a cap of 5 minutes on every check runner was shorter than the
     // checks' own waits (up to 1500 s in the corpus); the manifest's timeout (465 s here) holds.
     let f = fixture();
     f.check_takes("isoloom-check", Duration::from_secs(400));

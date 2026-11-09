@@ -1,4 +1,4 @@
-//! The WSL 2 part of the system report (Windows only). The launcher probes WSL deeply — the
+//! The WSL 2 part of the system report (Windows only). A full probe of WSL reads the
 //! feature's state, whether a reboot is pending, whether virtualization is off in the firmware; that
 //! full Windows probe is a follow-up port. For now [`report`] is `None` everywhere, which the setup
 //! screen reads exactly as the "not applicable" it already shows on macOS and Linux.
@@ -36,7 +36,7 @@ pub struct WslReport {
 }
 
 /// The WSL report for this machine: `None` off Windows, and — until the full Windows probe is
-/// ported from the launcher — `None` on Windows too. Takes the runner and dirs the ported probe
+/// written — `None` on Windows too. Takes the runner and dirs the ported probe
 /// will need, so adding it is a drop-in change.
 #[must_use]
 pub fn report(_runner: &dyn ProcessRunner, _dirs: &Dirs) -> Option<WslReport> {

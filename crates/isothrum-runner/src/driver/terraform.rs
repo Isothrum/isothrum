@@ -1,6 +1,6 @@
 //! The `terraform` driver: a module Isoloom generated (Proxmox, the clouds), its state kept by the
 //! runner in the run's state folder, never beside the module, so a reinstalled run never orphans
-//! what it created. Ported from the launcher's `runtime/terraform/*`.
+//! what it created.
 //!
 //! - Its actions: `terraform.clear_lock` (a crashed run's lock, safe to remove since the run lock
 //!   makes the runner the state's only writer), `terraform.read_state` (the status: the state

@@ -30,7 +30,7 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
 
     assert_eq!((report.machine.as_str(), report.native.as_str()), ("attacker", "attacker"));
     assert_eq!(report.network.as_deref(), Some("lab"));
-    assert_eq!(report.address.as_deref(), Some("10.30.0.99"), "its static address, for the launcher to show");
+    assert_eq!(report.address.as_deref(), Some("10.30.0.99"), "its static address, for the embedder to show");
     assert_eq!(report.image.as_deref(), Some("myimage"));
 
     let up = f.fake.last("--profile access up").expect("the access profile is brought up");

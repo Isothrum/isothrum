@@ -1,5 +1,4 @@
-//! Owner-only files and folders, written whole (ported from the launcher's `platform/private_fs.rs`
-//! and `platform/atomic_file.rs`). A run's state holds the pinned ports, its record and, on other
+//! Owner-only files and folders, written whole. A run's state holds the pinned ports, its record and, on other
 //! targets, a Terraform state with sensitive outputs: on Unix files are 0600 and folders 0700
 //! (the usual umask would leave them readable by every local account). Windows' per-user profile
 //! already keeps other accounts out.

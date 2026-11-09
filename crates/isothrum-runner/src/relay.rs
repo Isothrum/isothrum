@@ -4,8 +4,7 @@
 //! So a Vagrant run on an ESXi host talks to loopback relays this process runs (SSH and HTTPS to
 //! the host), ovftool gets the HTTPS relay's port through a small wrapper ([`ovftool`]), Vagrant's
 //! WinRM to Windows guests goes through a loopback HTTP proxy ([`http_proxy`]), and Vagrant's SSH
-//! to the guests goes through Apple's `/usr/bin/nc` (`ISOLOOM_SSH_PROXY_COMMAND`). Ported from the
-//! launcher's `lan_relay`.
+//! to the guests goes through Apple's `/usr/bin/nc` (`ISOLOOM_SSH_PROXY_COMMAND`).
 //!
 //! The relays live as long as the operation that started them ([`Relayed`], held by its context),
 //! and only a run that needs them gets them: on macOS, the `vagrant` driver with the
@@ -63,7 +62,7 @@ pub(crate) type ToLan = Box<dyn AsyncWrite + Send + Unpin>;
 
 /// A connection to `host:port` on the LAN, through Apple's `/usr/bin/nc`: the runner's own
 /// process may be a third-party binary macOS keeps off the LAN too (a command line started from a
-/// terminal; the launcher's app is let through, its child tools are not), while Apple's binaries
+/// terminal; an app may be let through while its child tools are not), while Apple's binaries
 /// never are. Not the [`crate::ProcessRunner`] port: this is a byte pipe for as long as the
 /// connection lasts, not a tool run to its end; `nc` goes with the connection (`kill_on_drop`).
 pub(crate) fn connect(host: &str, port: u16) -> std::io::Result<(FromLan, ToLan, tokio::process::Child)> {

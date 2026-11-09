@@ -1,6 +1,6 @@
 //! The `ovftool` wrapper: vagrant-vmware-esxi uploads VMs with ovftool to a `vi://` URL it builds
 //! from the host name alone, so the wrapper adds the HTTPS relay's port before running the real
-//! one. Ported from the launcher's `lan_relay/ovftool.rs`.
+//! one.
 
 use std::path::{Path, PathBuf};
 

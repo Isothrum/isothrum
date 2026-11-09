@@ -2,7 +2,7 @@
 //!
 //! Without an elevation hook, `vagrant up` and `vagrant ssh` run as two separate runner calls (on
 //! Hyper-V each may prompt on its own). With one — an [`ElevatedBoot`] a caller supplies — both run
-//! as one elevated batch (one prompt), matching the launcher. The elevation itself is the `unsafe`
+//! as one elevated batch (one prompt). The elevation itself is the `unsafe`
 //! bit this crate drops: it is the caller's to implement, never computed here.
 
 use std::path::Path;

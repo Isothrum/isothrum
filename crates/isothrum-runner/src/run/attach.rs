@@ -1,7 +1,7 @@
 //! Hot-adding a lab's own on-demand access machine into a running run, and hot-removing it: a
 //! manifest machine marked `on_demand`, which the initial `up` left down (a Compose `access`
 //! profile, a Vagrant `autostart: false`). `attach` brings it up on a chosen network with the
-//! learner's picked image, `detach` takes it back out. A lab that declares no access machine has
+//! image the user picked, `detach` takes it back out. A lab that declares no access machine has
 //! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
@@ -28,9 +28,9 @@ pub struct AttachReport {
     pub native: String,
     /// The lab network it is on (the chosen one, else its first).
     pub network: Option<String>,
-    /// Its address on that network, for the learner to reach it.
+    /// Its address on that network, where the user reaches it.
     pub address: Option<String>,
-    /// The image or box it was brought up with, when the learner picked one.
+    /// The image or box it was brought up with, when the user picked one.
     pub image: Option<String>,
 }
 
@@ -49,7 +49,7 @@ pub struct AccessPick<'a> {
 impl Running<'_> {
     /// Hot-adds the lab's on-demand access machine into the running run, with `opts` (the params
     /// and secrets the run's operations take), brought up with the
-    /// learner-picked `image` (its baked default otherwise), on `network` when given. `image` is a
+    /// user-picked `image` (its baked default otherwise), on `network` when given. `image` is a
     /// container image for a Compose access service, the Vagrant box for an access VM. `machine`
     /// names which on-demand machine, needed only when the lab has more than one. `network` is one
     /// of the manifest's networks: a Compose access service's container also joins it, by the

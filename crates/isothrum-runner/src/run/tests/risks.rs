@@ -1,5 +1,5 @@
-//! The launcher's runtime risks (runner-extraction.md §6), each pinned by a test that failed on
-//! its old behaviour, and the hooks around lifecycle edges.
+//! The runtime risks (runner-extraction.md §6), each pinned by a test that fails on the risky
+//! behaviour, and the hooks around lifecycle edges.
 
 use super::*;
 use crate::hooks::{HookError, Hooks, RunView};
@@ -7,7 +7,7 @@ use crate::{BoxFuture, ErrorCode, Park};
 
 #[tokio::test]
 async fn a_run_whose_lock_cant_be_taken_never_starts() {
-    // R2: the launcher's run lock failed open, and the operation ran unlocked.
+    // R2: a run lock that fails open lets the operation run unlocked.
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     std::fs::create_dir_all(f.runner.store.lock_path(run.name())).unwrap();

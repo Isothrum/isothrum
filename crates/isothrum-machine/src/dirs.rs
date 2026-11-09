@@ -1,6 +1,5 @@
 //! Where the machine domain keeps its files: a data folder for the record of what it has
-//! downloaded, a cache folder for a self-test's throwaway lab. The app shell (the Isothrum desktop
-//! app, or the launcher) resolves the OS paths and hands them in, so this crate stays free of any
+//! downloaded, a cache folder for a self-test's throwaway lab. The app shell resolves the OS paths and hands them in, so this crate stays free of any
 //! one app's identity and of a directory-resolving dependency.
 
 use std::path::{Path, PathBuf};

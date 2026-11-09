@@ -255,7 +255,7 @@ const VERDICT_MAX: usize = 300;
 
 /// The part of `line` the step's `verdict` matches, to the line's end (Vagrant's `<machine>: `
 /// before Ansible's `fatal: [ws01]: …` left out), cut to [`VERDICT_MAX`] bytes on a character
-/// boundary. Ported from the launcher's `ansible_verdict`.
+/// boundary.
 fn verdict_of(verdict: &Regex, line: &str) -> Option<String> {
     let found = verdict.find(line)?;
     let rest = line.get(found.start()..)?.trim_end();

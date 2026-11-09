@@ -1,5 +1,4 @@
-//! Reading `docker compose config --format json`, and writing the pinned-ports override (ported
-//! from the launcher's `runtime/docker/compose.rs` and `runtime/docker/lifecycle.rs`).
+//! Reading `docker compose config --format json`, and writing the pinned-ports override.
 
 use isoloom_manifest::Protocol;
 use serde_json::Value;
@@ -215,8 +214,8 @@ mod tests {
 
     #[test]
     fn networks_are_named_by_their_name_else_the_project_and_key() {
-        let config = r#"{"networks":{"lab":{"name":"cyberctf-x_lab"},"back":{}}}"#;
-        assert_eq!(networks(config, "cyberctf-x"), ["cyberctf-x_lab", "cyberctf-x_back"]);
+        let config = r#"{"networks":{"lab":{"name":"app-x_lab"},"back":{}}}"#;
+        assert_eq!(networks(config, "app-x"), ["app-x_lab", "app-x_back"]);
         assert_eq!(networks("garbage", "p"), Vec::<String>::new());
     }
 }

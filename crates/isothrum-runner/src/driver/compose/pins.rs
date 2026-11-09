@@ -1,4 +1,4 @@
-//! Picking the host ports a fresh run pins (ported from the launcher's `pick_pins`): a free
+//! Picking the host ports a fresh run pins: a free
 //! loopback port for each ephemeral publish, every socket held until all are picked so the OS
 //! doesn't hand one out twice, and each pick reserved in the runner until the run's start ends, so
 //! another run of this runner starting meanwhile can't take it either (R9). With the

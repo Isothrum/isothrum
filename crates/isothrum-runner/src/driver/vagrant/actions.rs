@@ -1,8 +1,7 @@
 //! The `vagrant` actions about Vagrant's own record of the run (run-manifest-v0.md §6): clearing
 //! a record of another provider, a VirtualBox VM's cut-off saved state, the state folder, booting
 //! the controller (waiting for one still halting) and halting it (waiting for one that powers
-//! itself off). Ported from the launcher's `runtime/vm.rs` and `runtime/vm/recover.rs`, and
-//! Isoloom's `tools/vagrant.rs`.
+//! itself off).
 
 use std::collections::BTreeMap;
 use std::path::Path;

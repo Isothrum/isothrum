@@ -1,6 +1,6 @@
 //! The machine-setup domain: what this computer can run (Docker, Vagrant, the hypervisors) and the
-//! self-tests that prove it by booting a throwaway container or VM. Shared by the Isothrum desktop
-//! app and the Cyber CTF launcher.
+//! self-tests that prove it by booting a throwaway container or VM. Shared by the apps that embed
+//! the runner.
 //!
 //! Every tool runs through the Isothrum runner's no-unsafe [`isothrum_runner::ProcessRunner`], so
 //! nothing here forks a shell or touches raw process APIs. A caller passes a `&dyn ProcessRunner`

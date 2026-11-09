@@ -1,5 +1,5 @@
 //! The `compose` actions (run-manifest-v0.md §6), each a read-then-act sequence one argv can't
-//! express. Ported from the launcher's `runtime/docker/lifecycle.rs` and `compose.rs`.
+//! express.
 
 use std::collections::BTreeMap;
 

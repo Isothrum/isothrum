@@ -5,8 +5,7 @@
 //! starts one elevated broker (one UAC prompt per operation, never one per command), and every
 //! call goes through the broker's session folder in the run's state: a request file in, the
 //! output lines and the exit code out (an elevated process inherits neither pipes nor the
-//! environment). No `unsafe`: the prompt is `Start-Process -Verb RunAs`. Ported from the
-//! launcher's `platform/exec/elevate.rs` (its batch becomes a session of requests).
+//! environment). No `unsafe`: the prompt is `Start-Process -Verb RunAs`.
 
 mod script;
 

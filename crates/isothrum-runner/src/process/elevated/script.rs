@@ -3,7 +3,7 @@
 //! environment) read and deleted, its output lines appended to `out-<n>.log` (UTF-8) and its exit
 //! code written to `exit-<n>`. A watcher job ends the broker's whole tree when the session folder
 //! gets a `cancel` file, when the runner's process is gone, or at the deadline; a `done` file ends
-//! it between two requests. Ported from the launcher's `platform/exec/elevate/script.rs`.
+//! it between two requests.
 
 use std::path::Path;
 use std::time::Duration;

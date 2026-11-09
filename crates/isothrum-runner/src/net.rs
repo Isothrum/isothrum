@@ -1,6 +1,5 @@
 //! The host's ports, behind [`HostPorts`]: whether one is taken, a free one to pin, and whether an
-//! address answers. [`LoopbackPorts`] binds real sockets (ported from the launcher's
-//! `runtime/docker/lifecycle.rs`); the `fake` feature's [`FakePorts`] answers from a test's setup.
+//! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's [`FakePorts`] answers from a test's setup.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, UdpSocket};
 use std::time::Duration;
@@ -40,7 +39,7 @@ pub trait HostPorts: Send + Sync {
 }
 
 /// The real host: sockets on the loopback. Never all interfaces: binding 0.0.0.0 made Windows
-/// Firewall ask whether the app may accept connections from the network (launcher #230).
+/// Firewall ask whether the embedder's app may accept connections from the network.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LoopbackPorts;
 

@@ -1,8 +1,7 @@
 //! The `ready_file` condition: a run host's bootstrap writes its progress to a file in the
 //! `isoloom-ready/1` grammar (`running: <step>`, `failed: <step>`, `ready`; no file yet: still
-//! booting), read over SSH every `interval_s` with the bootstrap log's tail. Ported from the
-//! launcher's `runtime/terraform/ready.rs`, with its risk R2 fixed: a host that never answers is a
-//! failure after `unreachable_timeout_s`, never a success.
+//! booting), read over SSH every `interval_s` with the bootstrap log's tail. A host that never
+//! answers is a failure after `unreachable_timeout_s`, never a success (R2).
 
 use std::time::Duration;
 

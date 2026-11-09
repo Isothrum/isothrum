@@ -1,6 +1,5 @@
 //! What a run's Terraform state says, read from its file only (no Terraform run, so it is cheap
-//! to poll): its outputs, whether it holds resources, whether one is tainted. Ported from the
-//! launcher's `runtime/terraform/state.rs`.
+//! to poll): its outputs, whether it holds resources, whether one is tainted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

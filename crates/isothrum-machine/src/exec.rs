@@ -1,6 +1,4 @@
-//! Running a tool and reading its output, with an optional time limit. The launcher's
-//! `platform::exec` did this on its own process layer (with `unsafe` for process groups and UAC);
-//! here it is thin convenience over the Isothrum runner's no-unsafe [`ProcessRunner`], which
+//! Running a tool and reading its output, with an optional time limit. It is thin convenience over the Isothrum runner's no-unsafe [`ProcessRunner`], which
 //! already puts each tool in its own process group (or Windows job object) so a dropped timeout
 //! ends the whole tree it started.
 

@@ -157,7 +157,7 @@ async fn a_second_run_on_the_same_server_takes_the_next_slot() {
 
 #[tokio::test(start_paused = true)]
 async fn a_machine_that_never_answers_over_ssh_fails_the_start() {
-    // R2: the launcher's `wait_ready` returned OK when SSH never answered within 10 minutes.
+    // R2: a wait that returned OK when SSH never answered within 10 minutes.
     let s = server(HostOs::Linux);
     s.set(Guest::Unreachable);
     let run = s.runner.open(&s.manifest, None).unwrap();
@@ -286,7 +286,7 @@ async fn a_guest_step_gets_the_projects_archive_on_its_input_and_only_its_own_va
 
 #[tokio::test(start_paused = true)]
 async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
-    // The launcher's live labs at the switch: their state and params become a run's, so `down`
+    // An embedder's live deployments at the switch: their state and params become a run's, so `down`
     // (and the reaper) destroy them through the runner, on the node they were applied on.
     let s = server(HostOs::Linux);
     let old = s.folder.home.path().join("deployments").join("solo-web").join("proxmox");
@@ -296,7 +296,7 @@ async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
         r#"{"outputs":{"ip":{"value":"10.10.10.7"}},"resources":[{"instances":[{}]}]}"#,
     )
     .unwrap();
-    let name = crate::RunName::new("cyberctf-solo-web").unwrap();
+    let name = crate::RunName::new("app-solo-web").unwrap();
     let params = [("node".to_owned(), "pve-run".to_owned()), ("uplink_bridge".to_owned(), "vmbr1".to_owned())];
     let adoption = crate::Adoption::new(name.clone(), &old)
         .with_params(params)

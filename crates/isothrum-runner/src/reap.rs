@@ -7,8 +7,8 @@
 //!   state covers, read through the cloud's own command line (its argv, never a shell). An orphan
 //!   is only listed, never deleted: no state says what it belongs to, so a person removes it.
 //!
-//! The sweep's schedule is the embedder's (the launcher sweeps every five minutes; the
-//! `isothrum reap` command once).
+//! The sweep's schedule is the embedder's (every few minutes, say; the `isothrum reap` command
+//! sweeps once).
 
 mod tags;
 

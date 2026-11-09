@@ -1,14 +1,14 @@
 //! The VM self-test's Hyper-V elevation hook: an injection point, not an implementation.
 //!
 //! Hyper-V takes management commands from an administrator only (or a member of "Hyper-V
-//! Administrators"), and Vagrant's Hyper-V provider refuses to run otherwise. The launcher boots
-//! the test VM and probes it as one elevated batch (one UAC prompt for both `vagrant up` and
-//! `vagrant ssh`) through its own `unsafe` Win32 job-object code. That `unsafe` is exactly what
-//! this crate forbids, so isothrum-machine never elevates itself: the VM self-test takes an
-//! optional [`ElevatedBoot`] a caller supplies. `None` (the desktop app, and the default) runs the
+//! Administrators"), and Vagrant's Hyper-V provider refuses to run otherwise. An embedder may
+//! boot the test VM and probe it as one elevated batch (one UAC prompt for both `vagrant up` and
+//! `vagrant ssh`) through its own `unsafe` Win32 code. That `unsafe` is exactly what this crate
+//! forbids, so isothrum-machine never elevates itself: the VM self-test takes an
+//! optional [`ElevatedBoot`] a caller supplies. `None` (the default) runs the
 //! two commands as plain [`ProcessRunner`](isothrum_runner::ProcessRunner) calls — today's path,
 //! one prompt each on Hyper-V. `Some` routes the whole boot-and-probe through the caller's hook, so
-//! both commands share one prompt, matching the launcher.
+//! both commands share one prompt.
 
 use std::path::Path;
 
@@ -18,10 +18,9 @@ use crate::error::Result;
 
 /// A caller-supplied way to boot the test VM and probe it as one elevated batch.
 ///
-/// The launcher implements this over its elevated Vagrant batch (its `platform::exec::elevate`
-/// script: `up` as step 0, `ssh` as step 1, both under one UAC prompt), mapping that batch's two
-/// outcomes onto [`BootProbe`]. The desktop app never passes an implementation, so its VM
-/// self-test stays on the unelevated two-call path.
+/// An embedder implements this over an elevated batch of its own (`up` as step 0, `ssh` as step
+/// 1, both under one UAC prompt), mapping that batch's two outcomes onto [`BootProbe`]. An
+/// embedder that passes none keeps its VM self-test on the unelevated two-call path.
 pub trait ElevatedBoot: Send + Sync {
     /// Boots the test VM (`vagrant` with `up`), then runs one command inside it (`vagrant` with
     /// `ssh`), as one elevated batch in `dir`. Each boot output line is handed to `on_line` as it

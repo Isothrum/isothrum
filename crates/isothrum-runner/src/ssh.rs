@@ -3,7 +3,7 @@
 //! `known_hosts`, through a config file written in the run's state folder: `ssh -J` hands `-F` to
 //! each jump host's own `ssh`, never `-i` or `-o`, so the key and the pinned host keys reach a
 //! Proxmox node and a run's router as they reach the machine behind them. The config also keeps
-//! the player's own `~/.ssh/config` out of the run.
+//! the user's own `~/.ssh/config` out of the run.
 //!
 //! The jumps are the run's (`RunOptions::ssh_jump`: a node whose run bridge this host can't
 //! route to), then the manifest's `via`, comma-separated, empty entries skipped.
@@ -107,7 +107,7 @@ fn config(key: &Path, known_hosts: &Path) -> String {
 }
 
 /// A path as an ssh config file reads it: its spaces, quotes and backslashes escaped, and `%`
-/// (a token there) doubled. Ported from the launcher's `runtime/ssh.rs`.
+/// (a token there) doubled.
 fn config_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for c in path.chars() {

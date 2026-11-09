@@ -1,7 +1,6 @@
 //! The vagrant driver through a fake Vagrant: every `vagrant` and `VBoxManage` call answered
 //! from a small model of a Vagrantfile's VMs (the `flag-vm` fixture's `web` and controller),
 //! which keeps Vagrant's record where the call's `VAGRANT_DOTFILE_PATH` says, as Vagrant does.
-//! The launcher's `runtime/vm` tests, rewritten against the runner's fake processes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -425,7 +424,7 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
 
 #[tokio::test]
 async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
-    // R8: VirtualBox prints VERR_ALREADY_EXISTS in capitals; the launcher's markers are lower case.
+    // R8: VirtualBox prints VERR_ALREADY_EXISTS in capitals; the manifest's markers are lower case.
     let f = fixture(crate::this_host());
     f.engine()
         .ups

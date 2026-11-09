@@ -609,7 +609,7 @@ mod tests {
     }
 
     /// An elevation hook that runs nothing itself: it records the call and hands back a canned
-    /// boot-and-probe, standing in for the launcher's elevated Vagrant batch.
+    /// boot-and-probe, standing in for an embedder's elevated Vagrant batch.
     #[derive(Default)]
     struct FakeElevated {
         called: std::sync::atomic::AtomicBool,

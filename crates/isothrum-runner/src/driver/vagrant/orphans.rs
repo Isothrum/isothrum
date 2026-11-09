@@ -1,8 +1,8 @@
 //! `vagrant.remove_orphans`: this run's VMs Vagrant lost track of (a crashed import, a run
 //! folder replaced while its VMs ran), removed at the hypervisor by their exact names from the
 //! manifest. Never a lossy match: a user's own `run-dc01` must survive this run's `run · dc01`,
-//! since `unregistervm --delete` can't be undone. VirtualBox and Parallels, as the launcher's
-//! `runtime/vm/recover.rs` did; the manifest names the providers it runs on.
+//! since `unregistervm --delete` can't be undone. VirtualBox and Parallels; the manifest names the
+//! providers it runs on.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

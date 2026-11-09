@@ -1,6 +1,6 @@
 //! Ready conditions: what must hold, in order, once a run's start steps succeeded. A condition
-//! that can't be checked fails: the launcher's `wait_ready` returned OK when SSH never answered
-//! (R2), so a run that never came up read as ready.
+//! that can't be checked fails: a wait that returns OK when SSH never answers (R2) reads a run
+//! that never came up as ready.
 
 mod file;
 

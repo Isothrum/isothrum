@@ -1,5 +1,4 @@
-//! Real processes (ported from the launcher's `platform/exec.rs` tests): each one a regression
-//! the launcher met.
+//! Real processes: each one a regression a runtime met.
 
 use std::time::Duration;
 

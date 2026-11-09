@@ -1,6 +1,6 @@
 //! The run's checks: the manifest's `setup` steps, then each runner's step under its own timeout
-//! (Isoloom computes it from the checks' waits, so a long-waiting run isn't cut off at the
-//! launcher's old 5-minute cap, R11), its lines read with the `isoloom-check/1` grammar, then the
+//! (Isoloom computes it from the checks' waits, so a long-waiting run isn't cut off at a
+//! fixed cap, R11), its lines read with the `isoloom-check/1` grammar, then the
 //! `teardown`. A check its runner never reported fails; a runner with no `END` is unfinished.
 
 use isoloom_manifest::{Check, CheckRunner};

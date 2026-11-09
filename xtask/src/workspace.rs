@@ -33,7 +33,7 @@ const ROLES: [(&str, Role); 6] = [
     ("isothrum-compiler", Role::Library),
     ("isothrum-runner", Role::Library),
     // Builds on the runner and the apps build on it: a tier of its own between the base libraries
-    // and the apps (the launcher and the desktop app, out of this workspace, consume it too).
+    // and the apps (out of this workspace, which consume it too).
     ("isothrum-machine", Role::Domain),
     ("isothrum-wasm", Role::Binding),
     ("isothrum-cli", Role::App),

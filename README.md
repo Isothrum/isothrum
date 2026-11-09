@@ -32,7 +32,7 @@ native commands in order, the documented driver actions, readiness criteria, out
 host ports, URLs), the check runners, and the slots that inputs and secrets travel through — never
 their values. The runner adds what only it can know: the run's name and private state, one
 operation per run at a time, the values of params and secrets, and the JSON event stream an
-embedder (the Cyber CTF launcher, the Isothrum desktop app, the `isothrum` CLI) consumes.
+embedder (an app, the `isothrum` CLI) consumes.
 
 The manifest is the cross-repo contract; Isoloom's `isoloom-manifest` crate defines it.
 

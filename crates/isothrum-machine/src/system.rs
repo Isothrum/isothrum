@@ -94,8 +94,8 @@ pub struct SystemReport {
 /// the report.
 ///
 /// `may_manage_hyperv` is the caller's injected answer to the one fact this crate cannot compute
-/// without `unsafe` (see [`providers::detect`]): the desktop app passes `None`, the launcher its
-/// own token/SID check.
+/// without `unsafe` (see [`providers::detect`]): an embedder without one passes `None`, another
+/// its own token/SID check.
 pub async fn system_check(
     runner: &dyn ProcessRunner,
     dirs: &Dirs,

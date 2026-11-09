@@ -1,5 +1,4 @@
-//! Host quirks of starting a tool (ported from the launcher's `platform/exec/shim.rs` and
-//! `platform/exec/docker.rs`).
+//! Host quirks of starting a tool.
 //!
 //! - **Windows wrappers.** Some tools ship as a `.cmd` wrapper, not an `.exe`: `CreateProcessW`
 //!   only appends `.exe`, so they go through `cmd /C`. cmd.exe parses the rest of its command

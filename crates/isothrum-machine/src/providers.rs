@@ -1,12 +1,12 @@
 //! The Vagrant providers (hypervisors) this computer can drive, and detecting which are usable.
 //! Vagrant abstracts the hypervisor; we detect what is installed here and let `vagrant up
-//! --provider` do the rest. Ported from the launcher's `runtime/providers`.
+//! --provider` do the rest.
 //!
 //! The Windows "may this account manage Hyper-V" refinement needs `unsafe` Win32 (a token and SID
 //! check) that this crate forbids, so [`detect`] never computes it: a caller supplies the answer
-//! as `may_manage_hyperv: Option<bool>`. The desktop app (and any default) passes `None`, which
-//! adds no admin reason; the launcher passes `Some(its own unsafe check)`, and a `Some(false)`
-//! folds the "needs administrator" reason into Hyper-V's status, exactly as the launcher did.
+//! as `may_manage_hyperv: Option<bool>`. An embedder without such a check passes `None`,
+//! which adds no admin reason; one with it passes `Some(its own unsafe check)`, and a
+//! `Some(false)` folds the "needs administrator" reason into Hyper-V's status.
 
 use std::path::Path;
 use std::time::Duration;
@@ -388,7 +388,7 @@ add this account to that group and sign out of Windows and back in, or run the a
 ///
 /// `may_manage_hyperv` is the one fact this crate cannot work out without `unsafe` (see the module
 /// docs): `Some(false)` folds the "needs administrator" reason into Hyper-V, `Some(true)` and
-/// `None` add nothing. The desktop app passes `None`; the launcher passes its own token/SID check.
+/// `None` add nothing. An embedder without a token/SID check passes `None`.
 pub async fn detect(
     runner: &dyn ProcessRunner,
     vagrant_installed: bool,
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn hyperv_needs_admin_only_when_the_caller_says_the_account_cannot_manage_it() {
         // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so the injected
-        // `needs_admin` is tested through `unavailable_reason` directly, as the launcher did.
+        // `needs_admin` is tested through `unavailable_reason` directly.
         let hyperv = |needs_admin| Detection {
             hypervisor: Some(true),
             hypervisor_version: None,

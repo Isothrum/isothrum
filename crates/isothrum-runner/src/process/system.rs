@@ -1,7 +1,6 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
 //! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows.
-//! Ported from the launcher's `platform/exec.rs` and `platform/exec/group.rs`.
 
 use std::path::Path;
 use std::process::Stdio;

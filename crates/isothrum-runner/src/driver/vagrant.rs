@@ -3,8 +3,7 @@
 //! with `VAGRANT_DOTFILE_PATH` at the manifest's `identity.vagrant.dotfile` (the run's state
 //! folder), so a replaced run folder never loses track of its VMs. Its actions run the native
 //! commands run-manifest-v0.md §6 fixes; its status is `lifecycle.status` (`vagrant status
-//! --machine-readable`) matched to the manifest's machines by their define names. Ported from the
-//! launcher's `runtime/vm.rs`, `runtime/vm/{status,recover}.rs` and `platform/exec/vagrant.rs`.
+//! --machine-readable`) matched to the manifest's machines by their define names.
 
 mod actions;
 mod forwarded;
@@ -120,7 +119,7 @@ impl Vagrant {
     }
 
     /// The address of each running VM that publishes a port, or that Compose runs in, by define
-    /// name, as `vagrant ssh-config` gives it (ESXi forwards no port: the player reaches the VM
+    /// name, as `vagrant ssh-config` gives it (ESXi forwards no port: the user reaches the VM
     /// itself). A VM whose address can't be read is left out, and its ports with it.
     async fn guest_addresses(&self, cx: &Cx<'_>, read: &status::Reading) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();

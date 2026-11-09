@@ -1,5 +1,4 @@
-//! Reading `docker compose ps --all --format json` (ported from the launcher's
-//! `runtime/docker/compose.rs` and `runtime/docker/inspect.rs`), and matching what it lists to the
+//! Reading `docker compose ps --all --format json`, and matching what it lists to the
 //! manifest's machines by their Compose service. Nothing is guessed from names or images.
 
 use std::collections::BTreeMap;

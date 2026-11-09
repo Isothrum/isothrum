@@ -1,11 +1,9 @@
 //! One operation per run: this runner's own lock on it (an async mutex per run, held by the
 //! [`crate::Runner`], never a process-wide static), then an OS lock on the run's `lock` file across
-//! processes, which the OS releases when its holder dies (ported from the launcher's
-//! `deploy_worker/lock.rs` and `runtime/inflight.rs`).
+//! processes, which the OS releases when its holder dies.
 //!
-//! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. The
-//! launcher's first lock carried on without it (`inflight.rs`), which is what the lock is there to
-//! prevent (Terraform's own state lock is cleared on the assumption that this one is held).
+//! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
+//! that carries on without it would allow what the lock is there to prevent (Terraform's own state lock is cleared on the assumption that this one is held).
 
 use std::collections::BTreeMap;
 use std::fs::{File, TryLockError};
@@ -95,8 +93,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_lock_that_cant_be_taken_fails_closed() {
-        // Regression (R2): the launcher's run lock let the operation run unlocked when its file
-        // couldn't be opened. Here the lock's place is a folder: the operation must not start.
+        // Regression (R2): a run lock that let the operation run unlocked when its file couldn't
+        // be opened. Here the lock's place is a folder: the operation must not start.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lock");
         std::fs::create_dir_all(&path).unwrap();

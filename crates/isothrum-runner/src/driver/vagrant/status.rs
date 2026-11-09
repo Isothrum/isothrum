@@ -1,7 +1,6 @@
 //! What `vagrant status --machine-readable` and `vagrant plugin list --machine-readable` say.
 //! Lines are `timestamp,target,type,data…`; Vagrant writes a comma in a field as
-//! `%!(VAGRANT_COMMA)`, so a state is kept whole as printed. Ported from the launcher's
-//! `runtime/vm/status.rs` (`parse_status`, `status_from`).
+//! `%!(VAGRANT_COMMA)`, so a state is kept whole as printed.
 
 use std::collections::BTreeMap;
 

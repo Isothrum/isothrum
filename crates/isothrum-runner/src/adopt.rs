@@ -1,6 +1,6 @@
 //! Taking over a Terraform deployment made before the runner: an embedder whose old runtime kept
-//! its own state (the launcher's `deployments/<run>/<target>/`) hands it to the runner once, so a
-//! player's running cloud run stays destroyable after the switch, by one code path (`down`, the
+//! its own state (in a folder of its own) hands it to the runner once, so a
+//! running cloud run stays destroyable after the switch, by one code path (`down`, the
 //! reaper).
 //!
 //! The deployment's state moves into the run's state folder (`terraform.tfstate`, and its
@@ -47,7 +47,7 @@ pub struct Adoption {
     /// When it was started (RFC 3339), when known (else the time it is taken over).
     pub started_at: Option<String>,
     /// Its slot on its place (`${run.slot}`), for a manifest that names one: the one it was
-    /// applied with (the launcher's Proxmox labs had 1). Unset, the place's lowest free slot.
+    /// applied with. Unset, the place's lowest free slot.
     pub slot: Option<u8>,
 }
 

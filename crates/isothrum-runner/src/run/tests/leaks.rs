@@ -1,7 +1,7 @@
 //! A delivered value never shows where the runner writes or speaks, whatever the run goes through
 //! and however a tool prints it: in no file under the runner's home (the run's record, its event
-//! log, its state), in no event, and in no error. The CTF flag contract relies on it: a player's
-//! flag reaches its run and nothing else.
+//! log, its state), in no event, and in no error. A secret's contract relies on it: a value
+//! given to a run reaches that run and nothing else.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

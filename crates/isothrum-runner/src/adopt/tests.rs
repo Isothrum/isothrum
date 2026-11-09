@@ -33,7 +33,7 @@ fn adoption(old: &Path) -> Adoption {
         ("ssh_private_key_file", "/k"),
         ("ISOLOOM_DERIVED", "1"),
     ];
-    Adoption::new(RunName::new("cyberctf-solo-web").unwrap(), old)
+    Adoption::new(RunName::new("app-solo-web").unwrap(), old)
         .with_params(params.map(|(k, v)| (k.to_owned(), v.to_owned())))
         .with_host_label("pve-1")
         .with_expires_at(1_792_070_000)
@@ -86,7 +86,7 @@ async fn taking_the_same_deployment_over_twice_is_refused_and_changes_nothing() 
 async fn a_run_that_has_a_state_already_is_never_overwritten() {
     let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
     let old = deployment(folder.home.path());
-    let state = runner.store.run_dir(&RunName::new("cyberctf-solo-web").unwrap()).unwrap();
+    let state = runner.store.run_dir(&RunName::new("app-solo-web").unwrap()).unwrap();
     std::fs::write(state.join("terraform.tfstate"), "mine").unwrap();
     let err = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap_err();
     assert!(err.to_string().contains("has a Terraform state already"), "{err}");
@@ -147,7 +147,7 @@ async fn a_run_an_earlier_down_left_absent_takes_a_deployment_over() {
     // record says absent and its state went with the down, so that deployment is adopted.
     let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
     let old = deployment(folder.home.path());
-    earlier(&runner, "cyberctf-solo-web", RunState::Absent);
+    earlier(&runner, "app-solo-web", RunState::Absent);
     let record = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap();
     assert_eq!(record.state, RunState::Ready);
     assert_eq!(
@@ -166,7 +166,7 @@ async fn a_run_that_isnt_absent_is_never_taken_over() {
     for state in [RunState::Ready, RunState::Failed, RunState::Parked, RunState::Starting, RunState::Stopping] {
         let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
         let old = deployment(folder.home.path());
-        let before = earlier(&runner, "cyberctf-solo-web", state);
+        let before = earlier(&runner, "app-solo-web", state);
         let err = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap_err();
         assert_eq!(err.code(), ErrorCode::AdoptRefused, "{state:?}");
         assert!(err.to_string().contains("has a record already"), "{state:?}: {err}");
@@ -179,7 +179,7 @@ async fn a_run_that_isnt_absent_is_never_taken_over() {
 async fn an_absent_run_that_still_has_a_state_is_never_overwritten() {
     let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
     let old = deployment(folder.home.path());
-    let before = earlier(&runner, "cyberctf-solo-web", RunState::Absent);
+    let before = earlier(&runner, "app-solo-web", RunState::Absent);
     let state = runner.store.run_dir(&before.name).unwrap().join("terraform.tfstate");
     std::fs::write(&state, "mine").unwrap();
     let err = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap_err();
