@@ -81,15 +81,21 @@ store is a plain folder under the runner's home: tests give it a temporary one.
 
 ### Secrets and slots
 
-A slot's value reaches only the steps its delivery names (`env` for Compose, `ISOLOOM_SECRET_*`
-or the input's own variable for Vagrant, `TF_VAR_*` / a JSON map entry for Terraform, or over
-`ssh.run` for the self-setup cloud path). Every sensitive value is replaced by `***` in events,
-logs, error messages and results; a sensitive output shows as `***` (in `status` and its JSON
-too: an embedder that hands the value to its user reads `OutputValue::revealed`) and the lab's
-message never substitutes it. **No value is ever stored.** A slot may carry a `default` the runner delivers when
-it has no value (so a lab started without an input, and every resume, still comes up). Leak tests
-assert a delivered value appears in no file under the home and in no event through a whole run,
-not even in a failed step's error that printed it.
+A slot's value reaches only what its delivery names, never a command line. There are four
+deliveries: `env` (a step's environment: Compose's variables, `ISOLOOM_SECRET_*` or the input's own
+variable for Vagrant), `tf_var` (`TF_VAR_*`, or an entry of one JSON map), `state_file` (an
+owner-only Terraform variable file in the run's state folder, written at `up`, kept for the
+destroy, removed by a successful `down`) and `guest` (over SSH into a machine, for a cloud with
+no secret store; the values pass through an owner-only `guest-<machine>.in` in the run's state
+folder while they are delivered, and a file that can't be removed then fails the delivery).
+Every sensitive value is replaced by `***` in events, logs, error messages and results; a
+sensitive output shows as `***` (in `status` and its JSON too: an embedder that hands the value
+to its user reads `OutputValue::revealed`) and the lab's message never substitutes it. **No value
+is stored**, but for those two owner-only files under `runs/<run>/`: a `state_file` until the
+run's successful `down`, a `guest` input while it is delivered. A slot may carry a `default` the
+runner delivers when it has no value (so a lab started without an input, and every resume, still
+comes up). Leak tests assert a value delivered through `env` appears in no file under the home
+and in no event through a whole run, not even in a failed step's error that printed it.
 
 ### SSH relay and slots on servers
 

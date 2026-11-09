@@ -1,5 +1,8 @@
-//! Secret and input values: held by the embedder, handed in per operation, never stored, never
-//! printed. A value reaches only the steps its slot delivers it to, and is masked in every event.
+//! Secret and input values: held by the embedder, handed in per operation, never printed, and
+//! stored only where a delivery says so (a `state_file`, owner-only in the run's state folder
+//! until a successful `down`; a `guest` delivery's input, owner-only there while it is
+//! delivered). A value reaches only the steps its slot delivers it to, and is masked in every
+//! event.
 //! A required slot without a value refuses an operation that needs it.
 
 use std::collections::{BTreeMap, BTreeSet};

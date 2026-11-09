@@ -40,6 +40,26 @@ async fn a_flag_with_no_store_to_read_it_from_is_delivered_into_its_machine_over
     assert!(deliver < lines.iter().position(|l| l.contains("head -n 1")).unwrap());
 }
 
+/// An input file holding the values that can't be removed once delivered fails the delivery,
+/// naming the file, rather than stay in the run's folder with only a trace saying so.
+#[tokio::test(start_paused = true)]
+async fn an_input_that_cannot_be_removed_fails_the_delivery() {
+    let a = account_of(SOLO_WEB_AWS, 0);
+    a.cloud.input_stuck.store(true, Ordering::SeqCst);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let events = Recorder::new();
+    let err = run.up(&with_flag("eu-west-3"), &events).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(err.to_string().contains("guest-web.in"), "{err}");
+    assert!(
+        events
+            .events()
+            .iter()
+            .any(|e| matches!(&e.kind, EventKind::Step { step, state: crate::StepState::Failed, .. } if step == "guest-web")),
+        "the delivery's step fails"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_delivery_reaches_its_machine_at_a_sensitive_address_output() {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();

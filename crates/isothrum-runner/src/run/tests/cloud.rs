@@ -40,6 +40,8 @@ struct FakeCloud {
     /// The module copy's `main.tf` as the destroy found it.
     destroyed_module: Mutex<Option<String>>,
     delivered: Mutex<Vec<String>>,
+    /// A delivery's input can't be removed once delivered (a folder stands in its place).
+    input_stuck: AtomicBool,
     /// The state file `inputs.tfvars.json` as the destroy found it.
     destroyed_with: Mutex<Option<String>>,
 }
@@ -123,6 +125,11 @@ fn guest(cloud: &FakeCloud, call: &Call, line: &str) -> Reply {
         }
         let input = std::fs::read_to_string(call.stdin.as_ref().unwrap()).unwrap();
         cloud.delivered.lock().unwrap_or_else(PoisonError::into_inner).push(input);
+        if cloud.input_stuck.load(Ordering::SeqCst) {
+            let path = call.stdin.as_ref().unwrap();
+            std::fs::remove_file(path).unwrap();
+            std::fs::create_dir_all(path.join("held")).unwrap();
+        }
         return Reply::ok("");
     }
     if line.contains("tar -xzf") {

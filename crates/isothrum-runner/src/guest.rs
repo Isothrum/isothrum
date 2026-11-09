@@ -10,7 +10,8 @@
 //!   jump.
 //! - **How:** one SSH session per machine runs [`RECEIVE`] as root; its standard input holds one
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
-//!   folder removed right after. A value is never on a command line nor in an event.
+//!   folder removed right after (a removal that fails, fails the step). A value is never on a
+//!   command line nor in an event.
 //! - **Retries:** while SSH can't connect (exit 255: a machine still booting), every
 //!   [`RETRY`], for [`PATIENCE`]; any other failure fails the step.
 
@@ -106,10 +107,13 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
             let input = dir.join(format!("{id}.in"));
             crate::store::write_private(&input, lines.as_bytes()).map_err(Error::io(&input, "written"))?;
             let done = tries(cx, &id, login, &input).await;
-            if let Err(e) = std::fs::remove_file(&input) {
-                tracing::warn!(error = %e, "a delivery's input file was left in the run's state folder");
+            // The file holds the values: one left behind fails the delivery, unless it failed
+            // already (that error stands; the next delivery writes the file again).
+            let removed = std::fs::remove_file(&input).map_err(Error::io(&input, "removed"));
+            if let (Err(_), Err(e)) = (&done, &removed) {
+                tracing::error!(error = %e, "a failed delivery's input file was left in the run's state folder");
             }
-            done
+            done.and(removed)
         })
         .await
 }

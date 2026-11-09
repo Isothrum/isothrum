@@ -1,6 +1,8 @@
 //! A delivered value never shows where the runner writes or speaks, whatever the run goes through
 //! and however a tool prints it: in no file under the runner's home (the run's record, its event
-//! log, its state), in no event, and in no error. A secret's contract relies on it: a value
+//! log, its state), in no event, and in no error. The `flag-portal` lab delivers through `env`
+//! only; the owner-only files a `state_file` or `guest` delivery keeps in the run's state folder
+//! are tested with those deliveries (`run/tests/cloud/secrets.rs`). A secret's contract relies on it: a value
 //! given to a run reaches that run and nothing else.
 
 use std::path::{Path, PathBuf};

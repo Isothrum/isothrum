@@ -59,6 +59,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`isothrum reap` no longer passes when it couldn't query the cloud.** A query of what the
   cloud holds that couldn't run or be read was listed (`not checked: …`) but the command passed,
   as for a clean sweep; it now fails.
+- **A guest delivery's input file that can't be removed fails the delivery.** The values a
+  `guest` delivery sends pass through an owner-only `guest-<machine>.in` in the run's state
+  folder; a failure to remove it once delivered was only traced, leaving the values there. It now
+  fails the step (`io`). The README and the crate docs list the four deliveries (`env`, `tf_var`,
+  `state_file`, `guest`) and no longer say no value is ever stored: they name the two owner-only
+  files, and no longer describe a `dotenv` state file.
 
 - **`docker compose ps` output the runner can't read no longer passes for no container.** When
   `ps --format json` printed something that isn't its JSON, every machine read absent: a resume

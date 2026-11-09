@@ -1,6 +1,6 @@
 //! Values delivered as a file in the run's state folder (`state_file`): a Terraform variable
-//! file (`tfvars_json`, one JSON object) or `NAME=value` lines (`dotenv`), owner-only, every
-//! param and slot naming the file merged into it. A start writes them; any other operation
+//! file (`tfvars_json`, one JSON object), owner-only, every param and slot naming the file merged
+//! into it. A start writes them; any other operation
 //! writes one only when it is missing, so a destroy reads the values its apply had; a successful
 //! `down` removes them.
 
