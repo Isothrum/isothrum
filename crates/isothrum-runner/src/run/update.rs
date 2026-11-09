@@ -5,7 +5,8 @@
 //! Vagrant brings up new VMs. What an update doesn't remove itself is retired first
 //! ([`Running::retire`]): a VM taken out (Vagrant forgets a define the Vagrantfile no longer
 //! has), a Compose service taken out or moved out of the default start.
-//! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message.
+//! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message, and
+//! the embedder's `after_up` hooks ([`crate::Hooks::after_up`]): an update brings the run up.
 //!
 //! A machine that was running keeps what it was given: the guests' secrets go to new machines
 //! only (an update carries no launch's values, which a run never keeps).
@@ -78,7 +79,8 @@ impl Running<'_> {
     }
 
     /// Brings the running run up to date with its manifest (see the module doc): `up`'s steps
-    /// again, with the run's recorded params and `opts`' secrets.
+    /// again, with the run's recorded params and `opts`' secrets, then the `after_up` hooks, as
+    /// after `up`.
     ///
     /// # Errors
     ///

@@ -1,6 +1,6 @@
 //! The embedder's sidecars around lifecycle edges: what an embedder keeps beside a run (a
-//! container of its own on the run's network, say) starts or rejoins after `up` and `resume`,
-//! stops before `park`, and goes before `down` so the run's network is free. A hook's failure is
+//! container of its own on the run's network, say) starts or rejoins after `up`, `update` and
+//! `resume`, stops before `park`, and goes before `down` so the run's network is free. A hook's failure is
 //! a warning event, never a failed operation.
 
 use isoloom_manifest::Manifest;
@@ -49,7 +49,9 @@ pub struct RunView<'a> {
 
 /// Hooks around a run's lifecycle edges; each defaults to doing nothing.
 pub trait Hooks: Send + Sync {
-    /// After a successful `up`.
+    /// After a successful `up`, and after a successful `update`: an update brings the run up
+    /// (its machines or networks may have changed), so what joins a run that came up joins it
+    /// again. A hook that must run once per run keeps its own track.
     fn after_up<'a>(&'a self, run: &'a RunView<'a>) -> BoxFuture<'a, Result<(), HookError>> {
         let _ = run;
         Box::pin(async { Ok(()) })

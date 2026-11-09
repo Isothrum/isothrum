@@ -104,26 +104,53 @@ impl Hooks for Sidecar {
     }
 }
 
-#[tokio::test]
-async fn hooks_go_around_the_lifecycle_and_their_failure_is_a_warning() {
+/// The fixture, its runner with a [`Sidecar`] as its hooks.
+fn with_sidecar() -> (Fixture, Arc<Sidecar>) {
     let mut f = fixture();
     let sidecar = Arc::new(Sidecar::default());
     let hooks: Arc<dyn Hooks> = Arc::<Sidecar>::clone(&sidecar);
     f.runner.add_hooks(hooks);
+    (f, sidecar)
+}
+
+/// Whether `events` hold the warning of a failed hook whose message starts with `start`.
+fn hook_failed(events: &Recorder, start: &str) -> bool {
+    kinds(events)
+        .iter()
+        .any(|k| matches!(k, EventKind::Warning { code, message } if *code == crate::WarningCode::HookFailed && message.starts_with(start)))
+}
+
+#[tokio::test]
+async fn hooks_go_around_the_lifecycle_and_their_failure_is_a_warning() {
+    let (f, sidecar) = with_sidecar();
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
-    assert!(
-        kinds(&events).iter().any(
-            |k| matches!(k, EventKind::Warning { code, message } if *code == crate::WarningCode::HookFailed && message.contains("after_up: the attack box"))
-        )
-    );
+    assert!(hook_failed(&events, "after_up: the attack box"));
     run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
     run.resume(&RunOptions::default(), &Recorder::new()).await.unwrap();
     run.down(&RunOptions::default(), &Recorder::new()).await.unwrap();
     let calls = sidecar.0.lock().unwrap().clone();
     let expected = ["after_up", "before_park", "after_resume", "before_down"].map(|e| format!("{e} flag-portal flag-portal_lab"));
     assert_eq!(calls, expected);
+}
+
+/// An update brings the run up, so `after_up` runs after it too (an embedder's sidecar rejoins a
+/// run whose machines or networks may have changed); its failure is the update's warning.
+#[tokio::test]
+async fn after_up_runs_after_an_update_too() {
+    let (f, sidecar) = with_sidecar();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let events = Recorder::new();
+    run.update(&opts(), &events).await.unwrap();
+    assert!(
+        kinds(&events)
+            .iter()
+            .any(|k| matches!(k, EventKind::Warning { code, message } if *code == crate::WarningCode::HookFailed && message.starts_with("after_up: ")))
+    );
+    let calls = sidecar.0.lock().unwrap().clone();
+    assert_eq!(calls, ["after_up flag-portal flag-portal_lab"; 2], "once after the up, once after the update");
 }
 
 #[tokio::test]

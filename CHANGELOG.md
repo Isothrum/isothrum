@@ -59,7 +59,8 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   with the params the run was started with, so each engine converges, then the guests' secrets,
   the ready conditions and the outputs, as at `up`. A machine that was running keeps what it was
   given: guest secrets go to new machines only. The run stays ready meanwhile; a sealed run stays
-  sealed. New operation in events: `update`.
+  sealed. An update brings the run up, so the embedder's `Hooks::after_up` runs after it too. New
+  operation in events: `update`.
 - **`isothrum console <machine>` and `isothrum retire <machine>`**: the CLI's way to
   `Running::console_command` (printed as `shell` prints its command, or its JSON) and
   `Running::retire` (with `--param` and `--secret-from-env`, as `update`).
