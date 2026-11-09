@@ -278,7 +278,7 @@
           "TF_VAR_slot": "${run.slot}",
           "TF_VAR_ssh_public_key": "${run.ssh_public_key}"
         },
-        "timeout_s": 600
+        "timeout_s": 900
       },
       {
         "id": "apply",
@@ -324,7 +324,7 @@
           "TF_VAR_slot": "${run.slot}",
           "TF_VAR_ssh_public_key": "${run.ssh_public_key}"
         },
-        "timeout_s": 600
+        "timeout_s": 900
       },
       {
         "id": "destroy",
@@ -427,7 +427,7 @@
           {
             "name": "checks/web-answers.sh",
             "kind": "script",
-            "wait_s": 0,
+            "wait_s": 60,
             "derived": false
           }
         ],
@@ -441,7 +441,7 @@
             "via": "isoloom@${outputs.ip}"
           },
           "stdin": "checks/networks.sh",
-          "timeout_s": 75
+          "timeout_s": 135
         }
       }
     ],
