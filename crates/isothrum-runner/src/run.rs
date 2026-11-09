@@ -27,6 +27,7 @@ use isoloom_manifest::{Manifest, RunVar};
 
 use crate::Result;
 use crate::driver::AnyDriver;
+use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::events::Emitter;
 use crate::executor::{Cx, Stale};
@@ -63,9 +64,8 @@ impl std::fmt::Debug for Running<'_> {
 impl<'r> Running<'r> {
     pub(crate) fn new(runner: &'r Runner, loaded: LoadedManifest, name: RunName) -> Result<Running<'r>> {
         if !loaded.manifest.hosts.contains(&runner.config.host) {
-            let target = serde_json::to_value(loaded.manifest.target).unwrap_or_default();
             return Err(Error::Unsupported {
-                what: format!("target {target} on this host"),
+                what: format!("target `{}` on this host", wire_name(&loaded.manifest.target)),
             });
         }
         let driver = AnyDriver::for_manifest(&loaded.manifest)?;

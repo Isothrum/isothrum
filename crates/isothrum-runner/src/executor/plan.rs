@@ -4,7 +4,8 @@
 
 use isoloom_manifest::{Argv, HostArgv, HostOs, Step};
 
-use crate::scope::{Scope, provider_id};
+use crate::encoding::wire_name;
+use crate::scope::Scope;
 use crate::vars::Vars;
 use crate::{Error, Result};
 
@@ -53,7 +54,7 @@ pub(crate) fn limit_s(step: &Step, scope: &Scope) -> u64 {
     let on_provider = step
         .provider_timeout_s
         .iter()
-        .find(|(p, _)| scope.provider.as_deref() == Some(provider_id(**p).as_str()))
+        .find(|(p, _)| scope.provider.as_deref() == Some(wire_name(*p).as_str()))
         .map(|(_, limit)| *limit);
     on_provider.or(step.timeout_s).map_or(DEFAULT_TIMEOUT_S, |limit| u64::from(limit.get()))
 }

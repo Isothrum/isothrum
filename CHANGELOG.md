@@ -55,6 +55,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   steps now fail (`tool_failed`); in a VM, the read counts as a missed one (tried again, then the
   containers read `unknown`, "unreadable: …").
 
+- **A target this host doesn't run is named as the manifest writes it.** Opening a run whose
+  manifest leaves this host out said `target "docker" on this host isn't supported…`, the JSON
+  quotes kept; it now says ``target `docker` on this host``.
+
 - **A recorded run's Terraform state that doesn't parse fails the orphan sweep.**
   `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
   listed as orphans; it now fails with `io`, as it does for a state it can't read.

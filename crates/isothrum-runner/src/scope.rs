@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use isoloom_manifest::{HostOs, Provider};
 
+use crate::encoding::wire_name;
+
 /// Where an operation runs: the host's operating system and the run's Vagrant provider. A step,
 /// tool, param or slot narrowed to some hosts or providers concerns only those.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,14 +21,9 @@ impl Scope {
     /// Whether something for `hosts` and `providers` (empty: every one) concerns this scope.
     pub(crate) fn admits(&self, hosts: &BTreeSet<HostOs>, providers: &BTreeSet<Provider>) -> bool {
         let host = hosts.is_empty() || hosts.contains(&self.host);
-        let provider = providers.is_empty() || self.provider.as_deref().is_some_and(|p| providers.iter().any(|q| provider_id(*q) == p));
+        let provider = providers.is_empty() || self.provider.as_deref().is_some_and(|p| providers.iter().any(|q| wire_name(q) == p));
         host && provider
     }
-}
-
-/// A Vagrant provider's id, as the manifest writes it (`vmware_desktop`).
-pub(crate) fn provider_id(p: Provider) -> String {
-    serde_json::to_value(p).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -49,6 +46,5 @@ mod tests {
             provider: None,
         };
         assert!(!no_provider.admits(&any_host, &BTreeSet::from([Provider::Virtualbox])));
-        assert_eq!(provider_id(Provider::VmwareDesktop), "vmware_desktop");
     }
 }

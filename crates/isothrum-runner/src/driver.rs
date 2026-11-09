@@ -18,6 +18,7 @@ use tracing::Instrument;
 
 use crate::Result;
 use crate::console::ShellCommand;
+use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
@@ -267,7 +268,7 @@ pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
 /// `step` of a `driver` run.
 pub(crate) fn foreign_action(driver: &str, step: &Step, action: Action) -> Error {
     Error::Unsupported {
-        what: format!("step `{}`: the action `{}` on a {driver} run", step.id, action_name(action)),
+        what: format!("step `{}`: the action `{}` on a {driver} run", step.id, wire_name(&action)),
     }
 }
 
@@ -290,14 +291,6 @@ pub(crate) fn native_name(m: &Machine) -> &str {
         Some(Native::Vagrant { vagrant, .. }) => vagrant.as_str(),
         None => m.name.as_str(),
     }
-}
-
-/// An action's name, as the manifest writes it.
-pub(crate) fn action_name(action: Action) -> String {
-    serde_json::to_value(action)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
-        .unwrap_or_default()
 }
 
 fn delivery_kind(d: &Delivery) -> &'static str {

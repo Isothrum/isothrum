@@ -391,3 +391,22 @@ async fn an_update_with_an_unreadable_config_removes_no_network() {
         EventKind::Warning { code: crate::WarningCode::StepTolerated, message } if message.contains("networks it defines")
     )));
 }
+
+/// A manifest whose hosts leave this one out is refused at open, its target named as the manifest
+/// writes it.
+#[test]
+fn a_target_not_run_on_this_host_is_refused_by_its_name() {
+    use isoloom_manifest::HostOs;
+    let here = crate::runner::this_host();
+    let others: Vec<String> = [HostOs::Linux, HostOs::Macos, HostOs::Windows]
+        .iter()
+        .filter(|h| **h != here)
+        .map(crate::encoding::wire_name)
+        .collect();
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    m["hosts"] = serde_json::json!(others);
+    let f = fixture_with(&m.to_string());
+    let err = f.runner.open(&f.manifest, None).unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Unsupported);
+    assert_eq!(err.to_string(), "target `docker` on this host isn't supported by this runner yet");
+}

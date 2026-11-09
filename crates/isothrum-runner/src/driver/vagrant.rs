@@ -19,10 +19,10 @@ use isoloom_manifest::{Action, Machine, Native, SnakeName, Step, Template, Vagra
 use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
 use crate::console::ShellCommand;
+use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, step_env};
 use crate::process::ProcessSpec;
-use crate::scope::provider_id;
 use crate::state::Op;
 use crate::status::{MachineStatus, PublishedPort};
 
@@ -77,7 +77,7 @@ impl Vagrant {
         self.identity
             .providers
             .iter()
-            .any(|p| Some(provider_id(p.id).as_str()) == asked && p.elevation == isoloom_manifest::Elevation::Hyperv)
+            .any(|p| Some(wire_name(&p.id).as_str()) == asked && p.elevation == isoloom_manifest::Elevation::Hyperv)
     }
 
     /// The run's provider among the manifest's.
@@ -89,7 +89,7 @@ impl Vagrant {
         self.identity
             .providers
             .iter()
-            .find(|p| provider_id(p.id) == asked)
+            .find(|p| wire_name(&p.id) == asked)
             .ok_or_else(|| Error::Provider {
                 provider: asked.to_owned(),
                 reason: "isn't one of this run's providers".into(),
@@ -167,7 +167,7 @@ impl Driver for Vagrant {
     /// this run, and have its plugin.
     async fn preflight(&self, cx: &Cx<'_>) -> Result<()> {
         let p = self.provider(cx)?;
-        let id = provider_id(p.id);
+        let id = wire_name(&p.id);
         let refuse = |reason: String| Error::Provider { provider: id.clone(), reason };
         if !p.hosts.contains(&cx.scope.host) {
             return Err(refuse("doesn't exist on this host".into()));

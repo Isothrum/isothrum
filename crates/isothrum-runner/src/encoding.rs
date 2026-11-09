@@ -1,5 +1,17 @@
 //! Encodings the runner writes itself: base64, for a PowerShell script handed to an elevated
-//! session and for the values of a guest delivery (one line each, whatever they hold).
+//! session and for the values of a guest delivery (one line each, whatever they hold); and a
+//! manifest value's name as the manifest writes it.
+
+use serde::Serialize;
+
+/// `value`'s name as the manifest writes it (a target, a provider, an action: `vmware_desktop`),
+/// without JSON's quotes; empty for a value that isn't written as a string.
+pub(crate) fn wire_name<T: Serialize>(value: &T) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
+    }
+}
 
 /// Standard base64 (RFC 4648, padded).
 pub(crate) fn base64(bytes: &[u8]) -> String {
@@ -53,6 +65,13 @@ mod tests {
         assert_eq!(base64(b"Ma"), "TWE=");
         assert_eq!(base64(b"M"), "TQ==");
         assert_eq!(base64(b""), "");
+    }
+
+    #[test]
+    fn a_manifest_value_is_named_without_json_quotes() {
+        assert_eq!(wire_name(&isoloom_manifest::Provider::VmwareDesktop), "vmware_desktop");
+        assert_eq!(wire_name(&isoloom_manifest::Target::Docker), "docker");
+        assert_eq!(wire_name(&3), "", "not written as a string");
     }
 
     proptest! {
