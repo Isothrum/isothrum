@@ -3,7 +3,6 @@
 //! touches real ones. In this crate's tests a reply can take time (`Reply::after`): under Tokio's
 //! paused clock that time passes at once, so timeouts are tested without waiting.
 
-use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -11,35 +10,8 @@ use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec};
 use crate::BoxFuture;
 use crate::events::Stream;
 
-/// One call a test's code made.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Call {
-    /// The program.
-    pub program: String,
-    /// Its arguments.
-    pub args: Vec<String>,
-    /// The variables it was given.
-    pub env: Vec<(String, String)>,
-    /// Its working folder.
-    pub cwd: Option<PathBuf>,
-    /// The file piped into it.
-    pub stdin: Option<PathBuf>,
-}
-
-impl Call {
-    /// The call as one line (`docker compose ps`).
-    #[must_use]
-    pub fn line(&self) -> String {
-        super::command_line(&self.program, &self.args)
-    }
-
-    /// The value it was given for variable `name`.
-    #[must_use]
-    pub fn env(&self, name: &str) -> Option<&str> {
-        self.env.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
-    }
-}
+/// One call a test's code made: the process it asked for, as it asked.
+pub type Call = ProcessSpec;
 
 /// A scripted process's answer.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -146,15 +118,8 @@ impl FakeProcesses {
     }
 
     async fn answer(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
-        let call = Call {
-            program: spec.program.clone(),
-            args: spec.args.clone(),
-            env: spec.env.clone(),
-            cwd: spec.cwd.clone(),
-            stdin: spec.stdin.clone(),
-        };
-        let reply = (self.script)(&call);
-        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(call);
+        let reply = (self.script)(spec);
+        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(spec.clone());
         if !reply.delay.is_zero() {
             tokio::time::sleep(reply.delay).await;
         }

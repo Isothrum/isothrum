@@ -119,6 +119,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- `ProcessSpec::env(name)`: the value a process is given for a variable.
 - `Running::console_command(machine)`: the command that opens a console into any machine of the
   run, a pure query that reads the run's record as status does (a Vagrant run's console gets the
   host ports its start pinned). On a Terraform run: `ssh -t` to the machine's address as
@@ -188,6 +189,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   re-exported, in place of a copy of it. It is exhaustive (a `match` needs no `_` arm), and a
   provider's id is `providers::id(provider)` (a `String`) in place of `Provider::id`.
 
+- **The `fake` feature's `process::fake::Call` is `ProcessSpec`** (a type alias): a call is
+  recorded as the spec it ran, its fields and `line()` and `env(name)` as before.
 - **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
   would mangle, it now refuses an elevated call's standard input.
 - **`Error::PortInUse`'s `protocol` is a `String`** (was `&'static str`), the protocol as the

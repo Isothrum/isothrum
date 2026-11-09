@@ -51,6 +51,12 @@ impl ProcessSpec {
     pub fn line(&self) -> String {
         command_line(&self.program, &self.args)
     }
+
+    /// The value it is given for variable `name` (the last, when it is given twice).
+    #[must_use]
+    pub fn env(&self, name: &str) -> Option<&str> {
+        self.env.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
 }
 
 /// How a process ended.
