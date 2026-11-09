@@ -33,7 +33,7 @@ pub struct RunnerConfig {
     /// The host's ports.
     pub ports: Arc<dyn HostPorts>,
     /// The time.
-    pub clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
     /// The host's operating system (it picks per-host argv and filters steps).
     pub host: HostOs,
     /// The tools' `PATH`, where the macOS relays look for the real `ovftool` and put their

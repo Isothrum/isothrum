@@ -111,8 +111,7 @@ impl<'r> Running<'r> {
     }
 
     /// The manifest's file.
-    #[must_use]
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.loaded.path
     }
 

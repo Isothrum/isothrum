@@ -114,7 +114,6 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `CFBundleShortVersionString`), and reports UTM unavailable with the way out
   when either is too old: `vagrant_utm` before 0.2.0 (it reads a VM's forwarded ports through a
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
-  `ProviderStatus` carries both versions (`hypervisor_version`, `plugin_version`).
 
 ### Changed
 
@@ -162,8 +161,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   is `Provider::id`).
 - **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
-  a Vagrant provider's). `Provider::is_remote` is ESXi and Proxmox; `Provider::ALL` is every
-  variant.
+  a Vagrant provider's).
 - **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
@@ -171,9 +169,16 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
   and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
 - **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),
-  `RunnerConfig::with_clock` (set `RunnerConfig::clock`), `JsonLines` (an `Events` sink is a
-  closure), `FixedClock` (now the crate's own test double), and `this_host` (now internal).
-  `Recorder` is behind the `fake` feature, with the other test doubles.
+  `RunnerConfig::with_clock`, `JsonLines` (an `Events` sink is a closure), `FixedClock` (now the
+  crate's own test double), and `this_host` (now internal).
+- **More API nothing used.** In `isothrum-runner`: the `Clock` port (`Clock`, `SystemClock`,
+  `RunnerConfig::clock`: the runner reads the system's clock), `Recorder`, `EVENTS_VERSION` (an
+  event's `v`), `Running::path`, and the test doubles' `FakePorts::take`, `FakePorts::answer`,
+  `Reply::after` and `FakeProcesses::lines` (read `FakeProcesses::calls`). In
+  `isothrum-compiler`: `Compiled::spec` (`Compiled::into_parts` gives the spec). In
+  `isothrum-machine`: `Provider::ALL`, `Provider::is_remote`, and `ProviderStatus`'s `remote`,
+  `hypervisor`, `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` (its
+  `reason` says what is missing or too old).
 - **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
   declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
   computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),

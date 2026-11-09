@@ -16,12 +16,6 @@ pub struct Compiled {
 }
 
 impl Compiled {
-    /// The spec as Isoloom reads it (with where each field is written, for its problems).
-    #[must_use]
-    pub fn spec(&self) -> &Spec {
-        &self.spec
-    }
-
     /// The project's own files, next to `isoloom.yml` where its paths point: the appliances'
     /// configurations, then a starter for each provisioning step (each path once, inside the
     /// project).

@@ -2,14 +2,14 @@
 
 use isothrum_compiler::{Error, Kind, compile};
 
-use crate::testing::{Outcome, accepted, cable, container, ep, join, lan, node, octet, two_lans, yaml};
+use crate::testing::{Outcome, accepted, cable, container, ep, join, lan, node, octet, spec, two_lans, yaml};
 
 #[test]
 fn machines_on_a_lan_take_its_free_addresses() -> Outcome {
     let mut topo = two_lans()?;
     join(&mut topo, "router", "office", Some(10))?;
     let c = accepted(&topo)?;
-    assert_eq!(c.spec().networks["office"].cidr, "10.10.1.0/24");
+    assert_eq!(spec(&c).networks["office"].cidr, "10.10.1.0/24");
     // The router asked for .10 on office, so the client takes the next one.
     assert_eq!(octet(&c, "router", "office")?, 10);
     assert_eq!(octet(&c, "client", "office")?, 11);
@@ -92,7 +92,7 @@ fn lans_and_cables_mix() -> Outcome {
     join(&mut topo, "router", "office", None)?;
     topo.links.push(cable(ep("client", "eth1"), ep("server", "eth1")));
     let c = accepted(&topo)?;
-    assert_eq!(c.spec().networks.len(), 3);
+    assert_eq!(spec(&c).networks.len(), 3);
     assert_eq!(octet(&c, "client", "link-0")?, 2);
     Ok(())
 }
@@ -104,9 +104,10 @@ fn an_automatic_router_lets_its_networks_reach_each_other() -> Outcome {
     join(&mut topo, "router", "office", None)?;
     let c = accepted(&topo)?;
     // Not a machine, and no address taken on its LANs.
-    assert!(!c.spec().machines.contains_key("router"));
+    assert!(!spec(&c).machines.contains_key("router"));
     assert_eq!(octet(&c, "client", "office")?, 10);
-    let pairs: Vec<(&str, &str)> = c.spec().reach.iter().map(|r| (r.from.as_str(), r.to.as_str())).collect();
+    let s = spec(&c);
+    let pairs: Vec<(&str, &str)> = s.reach.iter().map(|r| (r.from.as_str(), r.to.as_str())).collect();
     assert_eq!(pairs, vec![("office", "servers"), ("servers", "office")]);
     Ok(())
 }
@@ -118,9 +119,9 @@ fn an_automatic_router_routes_its_cables_too() -> Outcome {
     topo.nodes["router"].networks.shift_remove("office");
     topo.links.push(cable(ep("router", "eth1"), ep("client", "eth1")));
     let c = accepted(&topo)?;
-    assert_eq!(c.spec().networks["link-0"].cidr, "10.200.0.0/29");
+    assert_eq!(spec(&c).networks["link-0"].cidr, "10.200.0.0/29");
     assert_eq!(octet(&c, "client", "link-0")?, 3);
-    assert!(c.spec().reach.iter().any(|r| r.from == "link-0" && r.to == "servers"));
+    assert!(spec(&c).reach.iter().any(|r| r.from == "link-0" && r.to == "servers"));
     Ok(())
 }
 

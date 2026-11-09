@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "v": {
-      "description": "The stream's version ([`EVENTS_VERSION`]).",
+      "description": "The stream's version (0).",
       "type": "integer",
       "format": "uint32",
       "minimum": 0

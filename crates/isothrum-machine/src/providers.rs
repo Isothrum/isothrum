@@ -42,7 +42,7 @@ pub enum Provider {
 
 impl Provider {
     /// Every provider.
-    pub const ALL: [Provider; 9] = [
+    const ALL: [Provider; 9] = [
         Provider::Virtualbox,
         Provider::VmwareDesktop,
         Provider::Hyperv,
@@ -68,13 +68,6 @@ impl Provider {
             Provider::VmwareEsxi => "vmware_esxi",
             Provider::Proxmox => "proxmox",
         }
-    }
-
-    /// Whether the provider runs VMs on another host (so it needs connection settings, not a local
-    /// hypervisor).
-    #[must_use]
-    pub fn is_remote(self) -> bool {
-        matches!(self, Provider::VmwareEsxi | Provider::Proxmox)
     }
 
     /// Whether this provider can run on the current OS at all: local hypervisors are
@@ -216,20 +209,8 @@ fn qemu_binary() -> &'static str {
 pub struct ProviderStatus {
     /// The provider.
     pub provider: Provider,
-    /// Whether it runs VMs on another host.
-    pub remote: bool,
     /// Whether it is ready to use here.
     pub available: bool,
-    /// Whether the hypervisor itself is installed, `None` when there is nothing to probe.
-    pub hypervisor: Option<bool>,
-    /// The Vagrant plugin it needs, if it is not built in.
-    pub plugin: Option<String>,
-    /// Whether that plugin is present (true when the provider is built in).
-    pub plugin_installed: bool,
-    /// The hypervisor's version, when it is installed and says it (UTM's app bundle).
-    pub hypervisor_version: Option<String>,
-    /// The plugin's version, when `vagrant plugin list` says it.
-    pub plugin_version: Option<String>,
     /// Why it is not available, `None` when it is.
     pub reason: Option<String>,
 }
@@ -351,12 +332,10 @@ pub async fn detect(
         } else {
             None
         };
-        let plugin = provider.plugin().map(str::to_owned);
-        let installed = plugin
-            .as_deref()
-            .and_then(|needed| plugins.iter().find(|(i, _)| i == needed));
+        let plugin = provider.plugin();
+        let installed = plugin.and_then(|needed| plugins.iter().find(|(i, _)| i == needed));
         let plugin_installed = plugin.is_none() || (vagrant_installed && installed.is_some());
-        let plugin_version = installed.and_then(|(_, v)| v.clone());
+        let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox
             && hypervisor == Some(true)
             && vbox_wedged(runner).await;
@@ -369,21 +348,15 @@ pub async fn detect(
             hypervisor,
             hypervisor_version: hypervisor_version.as_deref(),
             unresponsive,
-            plugin: plugin.as_deref(),
+            plugin,
             plugin_installed,
-            plugin_version: plugin_version.as_deref(),
+            plugin_version,
             needs_admin,
         };
         let reason = unavailable_reason(provider, vagrant_installed, detection);
         statuses.push(ProviderStatus {
             provider,
-            remote: provider.is_remote(),
             available: reason.is_none(),
-            hypervisor,
-            plugin,
-            plugin_installed,
-            hypervisor_version,
-            plugin_version,
             reason,
         });
     }
@@ -555,12 +528,6 @@ mod tests {
         assert_eq!(hypervisor_too_old(Provider::Virtualbox, Some("6.0")), None);
     }
 
-    #[test]
-    fn remote_providers_are_classified() {
-        assert!(Provider::Proxmox.is_remote() && Provider::VmwareEsxi.is_remote());
-        assert!(!Provider::Qemu.is_remote());
-    }
-
     #[tokio::test]
     async fn detect_reports_a_ready_qemu_and_an_unavailable_one_by_its_plugin() {
         // QEMU installed, its plugin present: available. A missing plugin makes it unavailable.
@@ -576,10 +543,7 @@ mod tests {
             .into_iter()
             .find(|s| s.provider == Provider::Qemu)
             .unwrap();
-        assert!(
-            qemu.hypervisor == Some(true) && qemu.plugin_installed && qemu.available,
-            "{qemu:?}"
-        );
+        assert!(qemu.available && qemu.reason.is_none(), "{qemu:?}");
 
         let without = FakeProcesses::rules(&[
             ("qemu-system", Reply::ok("QEMU 10.0")),
@@ -590,9 +554,12 @@ mod tests {
             .into_iter()
             .find(|s| s.provider == Provider::Qemu)
             .unwrap();
-        assert!(
-            !no_plugin.available && no_plugin.reason.is_some(),
-            "{no_plugin:?}"
+        assert_eq!(
+            (no_plugin.available, no_plugin.reason.as_deref()),
+            (
+                false,
+                Some("Vagrant plugin `vagrant-qemu` is not installed")
+            ),
         );
     }
 

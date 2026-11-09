@@ -105,12 +105,14 @@ impl FakePorts {
     }
 
     /// Marks `port` taken over `protocol`.
-    pub fn take(&self, port: u16, protocol: Protocol) {
+    #[cfg(test)]
+    pub(crate) fn take(&self, port: u16, protocol: Protocol) {
         self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((port, protocol));
     }
 
     /// Makes `host:port` answer.
-    pub fn answer(&self, host: &str, port: u16) {
+    #[cfg(test)]
+    pub(crate) fn answer(&self, host: &str, port: u16) {
         self.answering
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

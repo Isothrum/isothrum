@@ -9,6 +9,7 @@
 mod emitter;
 
 #[cfg(any(test, feature = "fake"))]
+#[cfg(test)]
 use std::sync::{Mutex, PoisonError};
 
 use isoloom_manifest::OutputRole;
@@ -20,7 +21,7 @@ use crate::error::ErrorCode;
 use crate::state::{Op, RunState};
 
 /// The event stream's version.
-pub const EVENTS_VERSION: u32 = 0;
+pub(crate) const EVENTS_VERSION: u32 = 0;
 
 /// Where a step stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -155,7 +156,7 @@ pub enum EventKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Event {
-    /// The stream's version ([`EVENTS_VERSION`]).
+    /// The stream's version (0).
     pub v: u32,
     /// Its place in the operation, from 1.
     pub seq: u64,
@@ -207,26 +208,26 @@ pub enum WarningCode {
     Retrying,
 }
 
-/// Events kept in memory, for tests (feature `fake`).
-#[cfg(any(test, feature = "fake"))]
+/// Events kept in memory, for tests.
+#[cfg(test)]
 #[derive(Debug, Default)]
-pub struct Recorder(Mutex<Vec<Event>>);
+pub(crate) struct Recorder(Mutex<Vec<Event>>);
 
-#[cfg(any(test, feature = "fake"))]
+#[cfg(test)]
 impl Recorder {
     /// An empty recorder.
     #[must_use]
-    pub fn new() -> Recorder {
+    pub(crate) fn new() -> Recorder {
         Recorder::default()
     }
 
     /// Every event so far, in order.
-    pub fn events(&self) -> Vec<Event> {
+    pub(crate) fn events(&self) -> Vec<Event> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
-#[cfg(any(test, feature = "fake"))]
+#[cfg(test)]
 impl Events for Recorder {
     fn emit(&self, event: &Event) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).push(event.clone());

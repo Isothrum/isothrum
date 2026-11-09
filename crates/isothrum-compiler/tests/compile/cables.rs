@@ -2,12 +2,12 @@
 
 use isothrum_compiler::{Error, compile};
 
-use crate::testing::{Outcome, accepted, cable, ep, octet, three_node, yaml};
+use crate::testing::{Outcome, accepted, cable, ep, octet, spec, three_node, yaml};
 
 #[test]
 fn each_cable_is_a_point_to_point_network() -> Outcome {
     let c = accepted(&three_node()?)?;
-    let nets = &c.spec().networks;
+    let nets = &spec(&c).networks;
     assert_eq!(nets.len(), 2);
     assert_eq!(nets["link-0"].cidr, "10.200.0.0/29");
     assert_eq!(nets["link-1"].cidr, "10.200.0.8/29");
@@ -63,9 +63,9 @@ fn many_cables_get_distinct_blocks() -> Outcome {
         topo.links.push(cable(ep("client", &format!("p{i}")), ep("server", &format!("p{i}"))));
     }
     let c = accepted(&topo)?;
-    assert_eq!(c.spec().networks["link-31"].cidr, "10.200.0.248/29");
-    assert_eq!(c.spec().networks["link-32"].cidr, "10.200.1.0/29");
-    assert_eq!(c.spec().networks["link-99"].cidr, "10.200.3.24/29");
+    assert_eq!(spec(&c).networks["link-31"].cidr, "10.200.0.248/29");
+    assert_eq!(spec(&c).networks["link-32"].cidr, "10.200.1.0/29");
+    assert_eq!(spec(&c).networks["link-99"].cidr, "10.200.3.24/29");
     Ok(())
 }
 
@@ -87,8 +87,8 @@ fn a_cable_between_two_automatic_routers_carries_nothing() -> Outcome {
     topo.nodes["client"].kind = isothrum_compiler::Kind::Router {};
     topo.nodes["router"].kind = isothrum_compiler::Kind::Router {};
     let c = compile(&topo)?;
-    assert!(!c.spec().networks.contains_key("link-0"), "{}", yaml(&c));
-    assert_eq!(c.spec().networks["link-1"].cidr, "10.200.0.8/29");
+    assert!(!spec(&c).networks.contains_key("link-0"), "{}", yaml(&c));
+    assert_eq!(spec(&c).networks["link-1"].cidr, "10.200.0.8/29");
     Ok(())
 }
 

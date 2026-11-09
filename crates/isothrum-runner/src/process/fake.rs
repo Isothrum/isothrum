@@ -1,7 +1,7 @@
 //! Scripted processes for tests (feature `fake`): every call is recorded and answered from the
 //! test's script, so code that drives docker, vagrant or terraform runs without them and never
-//! touches real ones. A reply can take time (`Reply::after`): under Tokio's paused clock that
-//! time passes at once, so timeouts are tested without waiting.
+//! touches real ones. In this crate's tests a reply can take time (`Reply::after`): under Tokio's
+//! paused clock that time passes at once, so timeouts are tested without waiting.
 
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
@@ -85,8 +85,9 @@ impl Reply {
     }
 
     /// The same answer, after running for `delay`.
+    #[cfg(test)]
     #[must_use]
-    pub fn after(mut self, delay: Duration) -> Reply {
+    pub(crate) fn after(mut self, delay: Duration) -> Reply {
         self.delay = delay;
         self
     }
@@ -135,7 +136,7 @@ impl FakeProcesses {
     }
 
     /// Every call so far, as lines.
-    pub fn lines(&self) -> Vec<String> {
+    pub(crate) fn lines(&self) -> Vec<String> {
         self.calls().iter().map(Call::line).collect()
     }
 

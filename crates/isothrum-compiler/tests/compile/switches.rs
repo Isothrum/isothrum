@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Compiled, Error, Lan, ProjectFile, Result, Topology, compile};
 
-use crate::testing::{Outcome, accepted, join, lan, octet, two_lans, yaml};
+use crate::testing::{Outcome, accepted, join, lan, octet, spec, two_lans, yaml};
 
 /// A switch running a Cisco OS, as the editor sends it: a node of its own with no networks,
 /// named as the `device` of its VLANs; machines on its ports join the VLANs.
@@ -23,9 +23,9 @@ fn a_cisco_switch_switches_its_vlans() -> Outcome {
         }"#,
     )?;
     let c = accepted(&topo)?;
-    assert_eq!(c.spec().networks["sw1"].switch.as_deref(), Some("sw1"));
-    assert!(c.spec().machines["sw1"].networks.is_empty());
-    assert_eq!(c.spec().machines["pc1"].networks.keys().collect::<Vec<_>>(), ["sw1.vlan10"]);
+    assert_eq!(spec(&c).networks["sw1"].switch.as_deref(), Some("sw1"));
+    assert!(spec(&c).machines["sw1"].networks.is_empty());
+    assert_eq!(spec(&c).machines["pc1"].networks.keys().collect::<Vec<_>>(), ["sw1.vlan10"]);
     assert!(yaml(&c).contains("appliance: cisco-iol-l2\n      config: configs/sw1.cfg"), "{}", yaml(&c));
     assert_eq!(
         c.files(),
@@ -57,7 +57,7 @@ fn a_cisco_router_on_a_vlan_is_a_member_of_it() -> Outcome {
     let c = accepted(&topo)?;
     assert_eq!(octet(&c, "r", "sw1.vlan10")?, 11);
     // On a plain LAN it is still the gateway.
-    assert_eq!(c.spec().networks["office"].gateway.as_deref(), Some("r"));
+    assert_eq!(spec(&c).networks["office"].gateway.as_deref(), Some("r"));
     assert_eq!(octet(&c, "r", "office")?, 1);
     Ok(())
 }

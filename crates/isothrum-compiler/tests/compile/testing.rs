@@ -111,6 +111,11 @@ pub(crate) fn yaml(c: &Compiled) -> String {
     c.clone().into_parts().0
 }
 
+/// The spec as Isoloom reads it.
+pub(crate) fn spec(c: &Compiled) -> isoloom_spec::Spec {
+    c.clone().into_parts().1
+}
+
 /// The compiled spec, which Isoloom reads and finds nothing wrong with (`isoloom validate`).
 pub(crate) fn accepted(topo: &Topology) -> Outcome<Compiled> {
     let compiled = compile(topo)?;
@@ -124,8 +129,8 @@ pub(crate) fn accepted(topo: &Topology) -> Outcome<Compiled> {
 
 /// Machine `m`'s address on network `net`.
 pub(crate) fn octet(c: &Compiled, m: &str, net: &str) -> Outcome<u8> {
-    let octets = c
-        .spec()
+    let s = spec(c);
+    let octets = s
         .machines
         .get(m)
         .and_then(|m| m.networks.get(net))

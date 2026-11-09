@@ -50,9 +50,9 @@
 //! # Ports
 //!
 //! Every outside effect goes through a port the embedder can replace: [`ProcessRunner`] (the
-//! tools), [`HostPorts`] (the host's ports), [`Clock`] (the time) and [`Events`] (where events
-//! go). They are open traits on purpose, since embedders implement them; the `fake` feature has
-//! test doubles for the tools and the ports, and an [`Events`] sink that keeps what it gets.
+//! tools), [`HostPorts`] (the host's ports) and [`Events`] (where events go). They are open traits
+//! on purpose, since embedders implement them; the `fake` feature has test doubles for the tools
+//! and the ports.
 //!
 //! # Deliveries
 //!
@@ -127,12 +127,12 @@ mod vars;
 
 pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
-pub use clock::{Clock, SystemClock, rfc3339};
+pub use clock::rfc3339;
 pub use console::ShellCommand;
 pub use error::{Error, ErrorCode, Result};
-#[cfg(any(test, feature = "fake"))]
-pub use events::Recorder;
-pub use events::{EVENTS_VERSION, Event, EventKind, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
+#[cfg(test)]
+pub(crate) use events::Recorder;
+pub use events::{Event, EventKind, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, load_manifest};

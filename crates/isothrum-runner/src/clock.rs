@@ -1,16 +1,16 @@
-//! Time, passed in: the runner reads the clock only through [`Clock`], so a test fixes it.
+//! Time, passed in: the runner reads the clock only through `Clock`, so a test fixes it.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Where the runner reads the time (event and record timestamps).
-pub trait Clock: Send + Sync {
+pub(crate) trait Clock: Send + Sync {
     /// Now.
     fn now(&self) -> SystemTime;
 }
 
 /// The system's clock.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SystemClock;
+pub(crate) struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> SystemTime {
