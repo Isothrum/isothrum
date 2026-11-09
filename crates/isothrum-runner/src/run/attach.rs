@@ -5,7 +5,7 @@
 //! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
-use isoloom_manifest::{Machine, Native};
+use isoloom_manifest::Machine;
 use serde::Serialize;
 use serde_json::json;
 
@@ -18,7 +18,6 @@ use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
 use crate::secrets::sensitive_values;
 use crate::state::Op;
-use crate::status::ShellCommand;
 
 /// What a hot-add produced: the access machine brought up, and where to reach it.
 #[derive(Debug, Clone, Serialize)]
@@ -114,30 +113,6 @@ impl Running<'_> {
             })
         })
         .await
-    }
-
-    /// The command that opens an interactive console into `machine`, any machine of the run (an
-    /// SSH login on a cloud's), by its native name (the Compose service, the Vagrant define), so
-    /// the embedder never reconstructs a container name. A pure query: it runs nothing, emits
-    /// nothing, and doesn't check the machine is up (the embedder runs what it returns in its own
-    /// terminal once the machine is up or attached).
-    ///
-    /// # Errors
-    ///
-    /// Fails with `machine_unknown` for a machine the run doesn't have, `not_running` when the
-    /// run gives it no address yet, and `unsupported` where the target has no way in yet.
-    pub fn console_command(&self, machine: &str) -> Result<ShellCommand> {
-        let target = self.machine_named(machine)?;
-        self.query(|cx| self.console_of(cx, target))
-    }
-
-    /// The console into `target`: into the run's VM, then into its container, for a Compose
-    /// service in that VM ([`crate::in_vm::console`]); the driver's otherwise.
-    fn console_of(&self, cx: &crate::executor::Cx<'_>, target: &Machine) -> Result<ShellCommand> {
-        match (&self.manifest().guest, &target.native) {
-            (Some(guest), Some(Native::Compose { service })) => crate::in_vm::console(cx, &self.driver, guest, service.as_str()),
-            _ => self.driver.console_command(cx, target),
-        }
     }
 
     /// The manifest's network `name`, refused with `unsupported` when the run has none so named.

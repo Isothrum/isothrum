@@ -1,5 +1,5 @@
-//! The operations on a run that exists: `down`, `park`, `resume` and `check`. Each replays the
-//! params the run was started with.
+//! The operations on a run that exists: `down`, `park`, `resume`, `check` and `provision`. Each
+//! replays the params the run was started with.
 
 use serde_json::json;
 

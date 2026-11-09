@@ -18,16 +18,6 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   nothing behind the router. Attach and detach now take the services in the machine's namespace
   (`network_mode: service:<machine>`, read from `docker compose config`) with it, and attach waits
   for them (`--wait`).
-- **`retire` takes a Compose service out of the run.** It did nothing on Compose, leaving the
-  service to the update, which touches no service outside the default start: a service moved
-  back to an on-demand machine in the `access` profile kept running (and one gone from the files
-  stayed unless the manifest's start removes orphans). `retire` now stops and removes it with the
-  services in its namespace: `docker compose [--profile access] rm -sf <service> <its sidecars>`
-  on this computer, and inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) its container
-  and the containers in its namespace, through the VM's way in.
-- **`retire` refuses the VM a lab's containers run in** (`docker-vm`'s guest, `unsupported`):
-  destroying it took every container with it. A retired Vagrant VM's destroy gets the detach's
-  5 minutes, not an attach's 30.
 - **`attach` joins the chosen network by the name the run gave it, and says when it can't.** On
   Compose it guessed the network as `<project>_<network>` and swallowed every failure to join
   it, so an attach reported (and its event claimed) a network its machine wasn't on. The network
@@ -49,10 +39,19 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   On Compose: `docker compose exec` of the service. On Vagrant: `vagrant ssh` of the define. A
   Compose service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) goes into that VM,
   then into the service's container. Each starts bash where the machine has it, else sh.
-- `Running::retire(machine)`: takes a machine out of the running run ahead of its removal from
-  the manifest and the update after: a Vagrant VM is destroyed (Vagrant forgets a define the
-  Vagrantfile no longer has), a Compose service stopped and removed; a Terraform run's apply
-  removes it itself. New operation in events: `retire`.
+- `Running::retire(machine, opts, events)` (and `isothrum retire`): takes a machine out of the
+  running run ahead of its removal from the manifest, or its move out of the default start, and
+  the update after: what that update wouldn't remove itself. A Vagrant VM is destroyed alone
+  (`vagrant destroy -f <define>`: Vagrant forgets a define the Vagrantfile no longer has). A
+  Compose service is stopped and removed with the services in its namespace (`docker compose
+  [--profile access] rm -sf <service> <its sidecars>`: an update touches no service outside the
+  default start, so one moved back to an on-demand machine would keep running); inside the run's
+  VM (`docker-vm`, `cloud-docker`, Proxmox) its container and the containers in its namespace go,
+  through the VM's way in. A machine a Terraform module makes is left to the update's apply. The
+  VM a run's containers run in (its `guest`) is refused (`unsupported`: every container would go
+  with it), as is a machine there is nothing to take out of (no native name, a Compose service
+  with no VM to run in, an on-demand machine on a server or cloud). New operation in events:
+  `retire`.
 - `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
   regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
   with the params the run was started with, so each engine converges, then the guests' secrets,
