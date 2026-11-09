@@ -47,20 +47,21 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
     let read = if vm == MachineState::Running {
         read_containers(cx, guest).await
     } else {
-        Err(String::new())
+        Inside::VmDown
     };
     let manifest = cx.run.manifest();
     let (inside, published) = match &read {
-        Ok(out) => crate::driver::read_ps(manifest, out),
-        Err(_) => (Vec::new(), std::collections::BTreeMap::new()),
+        Inside::Read(out) => crate::driver::read_ps(manifest, out),
+        Inside::Unreadable(_) | Inside::VmDown => (Vec::new(), std::collections::BTreeMap::new()),
     };
     for m in observed.machines.iter_mut().filter(|m| in_guest(manifest, &m.name)) {
         *m = match (&read, inside.iter().find(|x| x.name == m.name)) {
-            (Ok(_), Some(x)) => x.clone(),
-            (Ok(_), None) => standing(m, MachineState::Absent),
+            (Inside::Read(_), Some(x)) => x.clone(),
+            (Inside::Read(_), None) => standing(m, MachineState::Absent),
             // The VM runs but its containers can't be read yet (SSH not answering).
-            (Err(why), _) if vm == MachineState::Running => standing(m, MachineState::Unknown(format!("unreadable: {why}"))),
-            (Err(_), _) => standing(m, vm.clone()),
+            (Inside::Unreadable(why), _) => standing(m, MachineState::Unknown(format!("unreadable: {why}"))),
+            // Nothing runs in a VM that doesn't: each container stands as the VM does.
+            (Inside::VmDown, _) => standing(m, vm.clone()),
         };
     }
     for ((machine, port), host_port) in published {
@@ -71,20 +72,30 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
     }
 }
 
+/// What was read of the containers in the run's VM.
+enum Inside {
+    /// What `guest.status` printed there.
+    Read(String),
+    /// The VM runs but its containers couldn't be read: the last failure's words.
+    Unreadable(String),
+    /// The VM doesn't run, so nothing was read.
+    VmDown,
+}
+
 /// The containers as `guest.status` lists them in the running VM, read up to [`READS`] times,
-/// [`RETRY`] apart; the last failure's words otherwise.
-async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Result<String, String> {
+/// [`RETRY`] apart; unreadable, with the last failure's words, otherwise.
+async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
     let mut failed = String::new();
     for attempt in 0..READS {
         if attempt > 0 {
             tokio::time::sleep(RETRY).await;
         }
         match capture_step(cx, "guest.status", &guest.status).await {
-            Ok(out) => return Ok(out),
+            Ok(out) => return Inside::Read(out),
             Err(e) => failed = e.to_string(),
         }
     }
-    Err(failed)
+    Inside::Unreadable(failed)
 }
 
 /// Whether the machine `name` is one of the containers Compose runs in the VM.
