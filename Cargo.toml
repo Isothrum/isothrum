@@ -16,8 +16,10 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-# Isoloom's published crates (crates.io), paired with this release: Isoloom 1.0.9 is live, so the
-# lockfile resolves these from the registry.
+# Isoloom's published crates (crates.io). The unreleased changes here need the next Isoloom
+# release (its manifest without the values it no longer writes): until it is published, build
+# against a local Isoloom checkout through the git-ignored `.cargo/config.toml` patch; the release
+# step raises these pins to it.
 isoloom-spec = "1.0.9"
 isoloom-targets = "1.0.9"
 isoloom-manifest = "1.0.9"

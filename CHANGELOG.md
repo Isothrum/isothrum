@@ -215,8 +215,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 ### Removed
 
 - The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
-  minutes from now, a dotenv state file and a WinRM guest delivery (Isoloom 1.0.10 removed them from
-  the manifest).
+  minutes from now, a dotenv state file and a WinRM guest delivery (the next Isoloom release
+  removes them from the manifest).
 - **`Running::shell_command`.** The access machine's shell is `Running::console_command` of its
   name (the `AttachReport`'s `machine`), which starts bash where the machine has it, else sh.
   `isothrum shell` goes with it: use `isothrum console <machine>`.
