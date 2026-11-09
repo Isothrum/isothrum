@@ -54,16 +54,18 @@ public key.
   manifest, for what the update after wouldn't remove itself.
 - `attach` and `detach` hot-add and hot-remove the lab's on-demand access machine; `console
   <machine>` prints the command that opens a console into any machine of the run.
-- `down`, `park`, `resume`, `check` and `provision` replay the params and secret values the run
-  was started with (recorded ones win over any given again).
+- `down`, `park`, `resume`, `check` and `provision` replay the params the run was started with
+  (recorded ones win over any given again). Secret values are never recorded: an operation that
+  delivers them again (`provision`, an `update`) takes them again.
 - Before `up` and `resume`, every tool the manifest uses on this host runs its version probe and
   must meet its `min_version` — a stopped Docker engine or an old Vagrant fails here, before
   anything is created (`tool_missing`, `tool_too_old`).
 
 ### Drivers
 
-One `Driver` per target, behind a trait; the process runner and the state store are traits too,
-so tests use fakes and never a real tool.
+One `Driver` per manifest driver (`compose`, `vagrant`, `terraform`), behind a trait; the process
+runner and the host ports are traits too, so tests use fakes and never a real tool. The state
+store is a plain folder under the runner's home: tests give it a temporary one.
 
 - **`compose`** — container labs on the host's Docker (Compose ≥ 2.17.0). Ports are pinned to free
   loopback ports, or fixed with `ISOLOOM_PUBLISH_FIXED`; every published port is checked free on
