@@ -169,10 +169,6 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`isothrum` takes `--ssh-jump` on `up` only.** Every command that runs an operation accepted
   it, but only an `up` that starts the run reads it (it is recorded; later operations go the
   same way): given anywhere else it did nothing. `RunOptions::ssh_jump` says so.
-- **`isothrum-machine`'s `storage::load` returns `io::Result<Owned>`.** It read a record it
-  couldn't read or parse as an empty one, so a caller that loads, changes and writes the record
-  back forgot everything it held after one failed read. Only a missing file is an empty record
-  now; a damaged one is an `InvalidData` error.
 - **`RunnerConfig::new` honours the user's Docker context.** It started processes with
   `SystemProcesses::default()`, which never read the Docker CLI's config, so a runner built with
   it didn't drop `DOCKER_HOST` and `DOCKER_CONTEXT` for a context the user picked.
@@ -204,15 +200,16 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   name (the `AttachReport`'s `machine`), which starts bash where the machine has it, else sh.
   `isothrum shell` goes with it: use `isothrum console <machine>`.
 
-- **`isothrum-machine` keeps only provider detection and the download record's format.** Its
-  public API is now `providers::{detect, Provider, ProviderStatus}` and `storage::{Owned,
-  OwnedBox, OwnedImage, load, parse_box_list}` (the crate root no longer re-exports `Provider`
-  and `ProviderStatus`: import them from `providers`). Gone, with no user left: the self-tests
-  (`selftest`, `BootProbe`, `ElevatedBoot`, `Vm`), the system report (`system`, `SystemReport`,
-  `DockerDenied`), `Dirs`, `Error` and `Result`, the `exec` module, the record's writing half
-  (`storage::{path, update, Before, image_ids, box_list, claim, tracked}`), and the provider
-  helpers `parse_plugins`, `parse_plugin_versions`, `version_at_least`, `kvm_problem` and
-  `HYPERV_NEEDS_ADMIN` (still used inside `detect`).
+- **`isothrum-machine` keeps only provider detection.** Its public API is now
+  `providers::{detect, id, Provider, ProviderStatus}` (the crate root no longer re-exports
+  `Provider` and `ProviderStatus`: import them from `providers`). The download record's format
+  goes too (`storage::{Owned, OwnedBox, OwnedImage, load, parse_box_list}`): half a format, its
+  writer in the one program that keeps the record, which now holds all of it. Gone, with no user
+  left: the self-tests (`selftest`, `BootProbe`, `ElevatedBoot`, `Vm`), the system report
+  (`system`, `SystemReport`, `DockerDenied`), `Dirs`, `Error` and `Result`, the `exec` module,
+  the record's writing half (`storage::{path, update, Before, image_ids, box_list, claim,
+  tracked}`), and the provider helpers `parse_plugins`, `parse_plugin_versions`,
+  `version_at_least`, `kvm_problem` and `HYPERV_NEEDS_ADMIN` (still used inside `detect`).
 - **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
   `hook_failed` warning code (gone from the event schema): nothing implemented it. An embedder
   that keeps something beside a run does it around the operation's call.

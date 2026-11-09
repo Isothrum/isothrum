@@ -1,6 +1,4 @@
-//! The machine-setup domain: which Vagrant providers (hypervisors) this computer can drive, and
-//! the record format of what a program downloaded for its own operations (container images,
-//! Vagrant boxes), so it can later remove exactly those.
+//! The machine-setup domain: which Vagrant providers (hypervisors) this computer can drive.
 //!
 //! Every tool runs through the Isothrum runner's no-unsafe [`isothrum_runner::ProcessRunner`], so
 //! nothing here forks a shell or touches raw process APIs. A caller passes a `&dyn ProcessRunner`
@@ -9,4 +7,3 @@
 
 mod exec;
 pub mod providers;
-pub mod storage;
