@@ -84,7 +84,7 @@ pub enum Error {
         switch: String,
     },
     /// A port name the compiler made breaks Isoloom's rule (a bug: the names are generated).
-    #[error("the name of port {port} of `{node}`")]
+    #[error("the name of port {port} of `{node}`: {source}")]
     PortName {
         /// The node.
         node: String,
@@ -95,7 +95,7 @@ pub enum Error {
         source: isoloom_spec::Error,
     },
     /// The spec couldn't be written as YAML.
-    #[error("writing the spec")]
+    #[error("writing the spec: {0}")]
     Yaml(#[source] serde_yaml_ng::Error),
     /// Isoloom doesn't read the spec the compiler wrote (a bug: the compiler writes only what
     /// Isoloom's format holds).
@@ -119,5 +119,22 @@ mod tests {
         let said = Error::Unreadable(problems.clone()).to_string();
         let expected: Vec<String> = problems.iter().map(isoloom_spec::syntax::Problem::line).collect();
         assert_eq!(said, format!("Isoloom doesn't read the compiled spec: {}", expected.join("; ")));
+    }
+
+    #[test]
+    fn a_message_says_its_cause() {
+        let refused = "".parse::<isoloom_spec::syntax::PortName>().unwrap_err();
+        let cause = refused.to_string();
+        let port = Error::PortName {
+            node: "web".into(),
+            port: 80,
+            source: refused,
+        };
+        assert_eq!(port.to_string(), format!("the name of port 80 of `web`: {cause}"));
+        let yaml = serde_yaml_ng::from_str::<u8>("[").unwrap_err();
+        assert_eq!(
+            Error::Yaml(yaml).to_string(),
+            format!("writing the spec: {}", serde_yaml_ng::from_str::<u8>("[").unwrap_err())
+        );
     }
 }

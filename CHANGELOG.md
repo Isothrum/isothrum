@@ -63,6 +63,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `Runner::orphans` skipped such a state silently, so the resources it holds, still live, were
   listed as orphans; it now fails with `io`, as it does for a state it can't read.
 
+- **The editor's errors say their cause.** A zip that couldn't be written said only "writing the
+  zip", and the compiler's `PortName` and `Yaml` errors only what they were doing; their message
+  (a `JsError`'s, for the editor) now ends with the cause.
+
 - **A run's record names the manifest it was last brought up or updated from.** An update runs
   a regenerated manifest, but the record kept the one the run started from, which is what
   `isothrum reap` (and any operation that has only the record) reopens. `RunRecord::manifest` is
