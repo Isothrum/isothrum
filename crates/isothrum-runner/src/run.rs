@@ -170,7 +170,7 @@ impl<'r> Running<'r> {
             None => status::derive_state(&observed.machines, record.as_ref()),
         };
         let machines = std::mem::take(&mut observed.machines);
-        let outputs = self.bind_observed(&mut cx, observed);
+        let outputs = self.bind_observed(&mut cx, observed).values;
         let message = (state == crate::RunState::Ready)
             .then(|| outputs::message(self.manifest(), &cx.vars, &outputs))
             .flatten();
@@ -280,7 +280,7 @@ impl<'r> Running<'r> {
 
     /// Reads what the engine gives back (published ports, outputs) and binds it, so a template
     /// can name it (`${outputs.ip}`): the run's outputs.
-    pub(crate) async fn read_outputs(&self, cx: &mut Cx<'_>) -> Result<Vec<status::OutputValue>> {
+    pub(crate) async fn read_outputs(&self, cx: &mut Cx<'_>) -> Result<outputs::Read> {
         let observed = self.observe(cx).await?;
         Ok(self.bind_observed(cx, observed))
     }
@@ -317,15 +317,15 @@ impl<'r> Running<'r> {
     }
 
     /// Binds what `observed` gives back (published ports, outputs) into `cx`: the run's outputs.
-    pub(crate) fn bind_observed(&self, cx: &mut Cx<'_>, observed: crate::driver::Observed) -> Vec<status::OutputValue> {
+    pub(crate) fn bind_observed(&self, cx: &mut Cx<'_>, observed: crate::driver::Observed) -> outputs::Read {
         cx.vars.set_published(observed.published);
         cx.vars.set_hosts(observed.hosts);
-        let outputs = outputs::read(self.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
+        let read = outputs::read(self.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
         // A value the engine or the manifest keeps secret is masked in every later event.
         cx.events
-            .hide(outputs.iter().filter(|o| o.sensitive).filter_map(|o| o.revealed().map(str::to_owned)));
-        outputs::bind(&mut cx.vars, &outputs);
-        outputs
+            .hide(read.values.iter().filter(|o| o.sensitive).filter_map(|o| o.revealed().map(str::to_owned)));
+        outputs::bind(&mut cx.vars, &read.values);
+        read
     }
 
     /// The run's networks, their native names filled.

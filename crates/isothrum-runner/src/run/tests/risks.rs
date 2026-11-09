@@ -152,3 +152,27 @@ async fn a_failed_operation_whose_record_cant_be_updated_ends_with_its_own_error
         "{kinds:?}"
     );
 }
+
+#[tokio::test]
+async fn an_output_whose_format_cant_be_filled_is_said_at_up() {
+    // It became an output with no value, and nothing said why.
+    let f = fixture_with(&crate::testing::unfillable_format());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    let started = run.up(&opts(), &events).await.unwrap();
+    assert_eq!(started.outputs[0].value, None);
+    let warned: Vec<String> = kinds(&events)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::Warning {
+                code: WarningCode::OutputUnformatted,
+                message,
+            } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        warned,
+        ["an output has no value: outputs.web_portal.format: `${outputs.token}` has no value in this operation"]
+    );
+}

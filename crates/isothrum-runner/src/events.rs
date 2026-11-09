@@ -209,6 +209,9 @@ pub enum WarningCode {
     /// An operation that failed couldn't update the run's record either: the operation's own
     /// error is the one it ends with.
     RecordNotSaved,
+    /// An output's `format` couldn't be filled (it names a value the run doesn't have): the
+    /// output has no value.
+    OutputUnformatted,
 }
 
 /// Events kept in memory, for tests.

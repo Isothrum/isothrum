@@ -197,12 +197,13 @@ impl Running<'_> {
         }
     }
 
-    /// Reads the run's published ports and outputs, and fills its message.
+    /// Reads the run's published ports and outputs (a warning for each output whose format
+    /// couldn't be filled), and fills its message.
     pub(crate) async fn finish(&self, cx: &mut Cx<'_>) -> Result<(Vec<OutputValue>, Option<String>)> {
-        let outputs = self.read_outputs(cx).await?;
-        outputs::emit(cx.events, &outputs);
-        let message = outputs::message(self.manifest(), &cx.vars, &outputs);
-        Ok((outputs, message))
+        let read = self.read_outputs(cx).await?;
+        outputs::emit(cx.events, &read);
+        let message = outputs::message(self.manifest(), &cx.vars, &read.values);
+        Ok((read.values, message))
     }
 }
 

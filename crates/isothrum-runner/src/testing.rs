@@ -58,6 +58,19 @@ pub(crate) fn docker_manifest() -> Manifest {
     isoloom_manifest::parse(FLAG_PORTAL).unwrap()
 }
 
+/// `flag-portal` with an output whose format can't be filled: it names a sensitive output (the
+/// published port again, `token`), which is never bound for a template.
+pub(crate) fn unfillable_format() -> String {
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut token = m["outputs"][0].clone();
+    token["name"] = "token".into();
+    token["sensitive"] = true.into();
+    token.as_object_mut().unwrap().remove("format");
+    m["outputs"][0]["format"] = "http://127.0.0.1:${value}/?token=${outputs.token}".into();
+    m["outputs"].as_array_mut().unwrap().push(token);
+    m.to_string()
+}
+
 /// The `flag-vm` vagrant manifest.
 pub(crate) fn vagrant_manifest() -> Manifest {
     isoloom_manifest::parse(FLAG_VM).unwrap()

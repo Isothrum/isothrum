@@ -82,6 +82,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   --json` printed it. `OutputValue::value` is now `***` for a sensitive output (in its JSON and its
   `Debug` too); the new `OutputValue::revealed()` gives the value itself, for an embedder that
   hands it to its user on request.
+- **An output whose `format` can't be filled is said.** It quietly became an output with no
+  value; `up`, `resume` and `update` now emit an `output_unformatted` warning (new in the event
+  schema) saying which format named what the run doesn't have, before the outputs.
 - **An operation that failed ends with its own error when the run's record can't be updated.**
   The record's I/O error replaced the operation's, and the closing `state` event was never
   emitted. The operation now ends with its own error, after a `record_not_saved` warning (new in

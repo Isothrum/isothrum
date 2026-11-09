@@ -51,7 +51,7 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     if by_machine.is_empty() {
         return Ok(());
     }
-    let outputs = cx.run.read_outputs(cx).await?;
+    let outputs = cx.run.read_outputs(cx).await?.values;
     // The login itself, though the module or the manifest keeps it secret.
     let output = |name: &str| outputs.iter().find(|o| o.name == name).and_then(|o| o.revealed().map(str::to_owned));
     for (machine, lines) in by_machine {
