@@ -134,8 +134,7 @@ fn not_inherited(name: &str, manifest: &toml::Table) -> Vec<String> {
 
 /// The workspace, as `cargo metadata --no-deps` describes it.
 fn metadata() -> Value {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let out = std::process::Command::new(cargo)
+    let out = crate::process::cargo(&repo::root())
         .args(["metadata", "--format-version", "1", "--no-deps", "--offline", "--manifest-path"])
         .arg(repo::root().join("Cargo.toml"))
         .output()
