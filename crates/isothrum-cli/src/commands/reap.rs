@@ -10,9 +10,9 @@ use isothrum_runner::{Events, Orphans, Place, RunOptions, RunRecord, Runner, Sec
 use serde_json::json;
 
 use crate::args::ReapArgs;
+use crate::commands::Out;
 use crate::error::Result;
 use crate::exit::Verdict;
-use crate::term::{Human, Json, Term};
 use crate::values;
 
 /// What the sweep did with the expired runs.
@@ -26,11 +26,10 @@ struct Swept {
     failed: Vec<(String, String)>,
 }
 
-/// Runs `args` on `runner`: its events and its summary on `term` (JSON with `json`); `var` reads
-/// the environment for the connection.
-pub(crate) async fn run(args: &ReapArgs, runner: &Runner, json: bool, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
-    let (as_json, for_people) = (Json(term), Human(term));
-    let events: &dyn Events = if json { &as_json } else { &for_people };
+/// Runs `args` on `runner`: its events and its summary to `out`; `var` reads the environment for
+/// the connection.
+pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+    let Out { json, term, events } = *out;
     let cloud = args.cloud.into();
     let connection = values::secrets(&args.secrets, var)?;
     let now = SystemTime::now();

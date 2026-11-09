@@ -37,7 +37,7 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, var: &dyn Fn(&s
         }
         Command::Console { run, machine } => print_command(&out, &open(runner, run)?.console_command(machine)?),
         Command::Events(run) => print_events(&out, runner, &open(runner, run)?),
-        Command::Reap(args) => reap::run(args, runner, cli.json, term, var).await,
+        Command::Reap(args) => reap::run(args, runner, &out, var).await,
         Command::Key => {
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
