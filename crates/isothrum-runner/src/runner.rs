@@ -42,7 +42,8 @@ pub struct RunnerConfig {
 }
 
 impl RunnerConfig {
-    /// A runner at `home` on this host: real processes, the loopback, the system's clock.
+    /// A runner at `home` on this host: real processes (told the Docker CLI's config, see
+    /// [`SystemProcesses`]), the loopback, the system's clock.
     pub fn new(home: impl Into<PathBuf>) -> RunnerConfig {
         RunnerConfig {
             home: home.into(),

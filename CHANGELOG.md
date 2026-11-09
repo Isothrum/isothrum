@@ -124,6 +124,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   couldn't read or parse as an empty one, so a caller that loads, changes and writes the record
   back forgot everything it held after one failed read. Only a missing file is an empty record
   now; a damaged one is an `InvalidData` error.
+- **`RunnerConfig::new` honours the user's Docker context.** It started processes with
+  `SystemProcesses::default()`, which never read the Docker CLI's config, so a runner built with
+  it didn't drop `DOCKER_HOST` and `DOCKER_CONTEXT` for a context the user picked.
+  `SystemProcesses::default()` now reads `$DOCKER_CONFIG/config.json`, else
+  `~/.docker/config.json`; `SystemProcesses::new` and `SystemProcesses::for_host` are gone (use
+  `SystemProcesses::default()`).
 
 ### Removed
 

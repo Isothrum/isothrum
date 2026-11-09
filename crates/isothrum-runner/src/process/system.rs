@@ -11,18 +11,25 @@ use tokio::process::Command;
 use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, lines, shim};
 use crate::BoxFuture;
 
-/// Starts real processes.
-#[derive(Debug, Clone, Default)]
+/// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
+/// (`$DOCKER_CONFIG/config.json`, else `~/.docker/config.json`) to learn whether the user picked
+/// an engine context of their own.
+#[derive(Debug, Clone)]
 pub struct SystemProcesses {
     /// Drop `DOCKER_HOST` and `DOCKER_CONTEXT` for `docker` (the user picked a context).
     strip_engine_overrides: bool,
 }
 
+impl Default for SystemProcesses {
+    fn default() -> SystemProcesses {
+        SystemProcesses::for_host(|v| std::env::var(v).ok(), std::env::home_dir().as_deref())
+    }
+}
+
 impl SystemProcesses {
     /// Real processes; `docker_cli_config` is the Docker CLI's `config.json`, when there is one
     /// (it says whether the user picked an engine context of their own).
-    #[must_use]
-    pub fn new(docker_cli_config: Option<&str>) -> SystemProcesses {
+    fn new(docker_cli_config: Option<&str>) -> SystemProcesses {
         SystemProcesses {
             strip_engine_overrides: shim::strips_engine_overrides(docker_cli_config),
         }
@@ -30,7 +37,7 @@ impl SystemProcesses {
 
     /// [`SystemProcesses::new`] with the Docker CLI config read from `$DOCKER_CONFIG/config.json`,
     /// else `<home>/.docker/config.json` (`var` reads the environment, `home` is the user's).
-    pub fn for_host(var: impl Fn(&str) -> Option<String>, home: Option<&Path>) -> SystemProcesses {
+    fn for_host(var: impl Fn(&str) -> Option<String>, home: Option<&Path>) -> SystemProcesses {
         let dir = var("DOCKER_CONFIG").map(std::path::PathBuf::from).or_else(|| home.map(|h| h.join(".docker")));
         let config = dir.and_then(|d| std::fs::read_to_string(d.join("config.json")).ok());
         SystemProcesses::new(config.as_deref())

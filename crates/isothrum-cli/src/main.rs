@@ -19,10 +19,9 @@ mod text;
 mod values;
 
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use clap::Parser;
-use isothrum_runner::{Runner, RunnerConfig, SystemProcesses};
+use isothrum_runner::{Runner, RunnerConfig};
 
 use crate::args::Cli;
 use crate::error::Result;
@@ -58,8 +57,6 @@ fn trace_to_stderr(level: &str) -> std::result::Result<(), Box<dyn std::error::E
 async fn start(cli: &Cli, term: &Term, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let user_home = std::env::home_dir();
     let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), user_home.clone())?;
-    let mut config = RunnerConfig::new(home);
-    config.processes = Arc::new(SystemProcesses::for_host(var, user_home.as_deref()));
-    let runner = Runner::new(config)?;
+    let runner = Runner::new(RunnerConfig::new(home))?;
     commands::run(cli, &runner, term, var).await
 }
