@@ -87,7 +87,7 @@ fn setup() -> Setup {
 impl Setup {
     async fn run(&self, args: &[&str]) -> Verdict {
         let cli = Cli::parse_from(std::iter::once("isothrum").chain(args.iter().copied()));
-        commands::run(&cli, &self.runner, &self.term, &crate::term::Trail::default(), &|_| None)
+        commands::run(&cli, || Ok(&self.runner), &self.term, &crate::term::Trail::default(), &|_| None)
             .await
             .unwrap()
     }

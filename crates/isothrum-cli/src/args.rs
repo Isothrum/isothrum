@@ -20,9 +20,24 @@ pub(crate) struct Cli {
     pub(crate) json: bool,
 }
 
-/// The operations.
+/// What the command line asks for.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// A command on the runner: every one but `completions`.
+    #[command(flatten)]
+    Runner(Box<RunnerCommand>),
+    /// Print the shell completion script for `shell` (e.g. `isothrum completions bash >
+    /// /etc/bash_completion.d/isothrum`).
+    Completions {
+        /// The shell.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+}
+
+/// The commands on the runner (flattened into [`Command`]: the same grammar).
+#[derive(Debug, Subcommand)]
+pub(crate) enum RunnerCommand {
     /// The commands that change the run's life: start, stop, park, resume, update, retire.
     #[command(flatten)]
     Lifecycle(Lifecycle),
@@ -79,16 +94,9 @@ pub(crate) enum Command {
     /// Print the runner's SSH public key (made when it has none): authorize it where a run's SSH
     /// goes through (a Proxmox node, with `--ssh-jump`).
     Key,
-    /// Print the shell completion script for `shell` (e.g. `isothrum completions bash >
-    /// /etc/bash_completion.d/isothrum`).
-    Completions {
-        /// The shell.
-        #[arg(value_enum)]
-        shell: clap_complete::Shell,
-    },
 }
 
-/// The commands that change the run's life (flattened into [`Command`]: the same grammar).
+/// The commands that change the run's life (flattened into [`RunnerCommand`]: the same grammar).
 #[derive(Debug, Subcommand)]
 pub(crate) enum Lifecycle {
     /// Start the run (a parked run is resumed; leftovers are removed first).
@@ -252,6 +260,14 @@ pub(crate) fn completions(shell: clap_complete::Shell) -> String {
 mod tests {
     use super::*;
 
+    /// The runner command `command` is.
+    fn on_runner(command: Command) -> RunnerCommand {
+        match command {
+            Command::Runner(command) => *command,
+            Command::Completions { .. } => panic!("not a runner command"),
+        }
+    }
+
     #[test]
     fn the_grammar_is_consistent() {
         Cli::command().debug_assert();
@@ -280,11 +296,11 @@ mod tests {
     }
 
     #[test]
-    fn options_parse_after_the_lab() {
+    fn options_parse_after_the_run_folder() {
         let cli = Cli::parse_from([
             "isothrum",
             "up",
-            "labs/web",
+            "runs/web",
             "--param",
             "ISOLOOM_PUBLISH_FIXED=1",
             "--secret-from-env",
@@ -293,39 +309,55 @@ mod tests {
             "virtualbox",
             "--json",
         ]);
-        let Command::Lifecycle(Lifecycle::Up { op, replace, .. }) = cli.command else {
-            panic!("{cli:?}")
+        let RunnerCommand::Lifecycle(Lifecycle::Up { op, replace, .. }) = on_runner(cli.command) else {
+            panic!("not `up`")
         };
         assert_eq!(op.provider.as_deref(), Some("virtualbox"));
         assert_eq!(
             (op.run.path, op.params, op.secrets, replace, cli.json),
             (
-                "labs/web".into(),
+                "runs/web".into(),
                 vec!["ISOLOOM_PUBLISH_FIXED=1".to_owned()],
                 vec!["DEMO_SECRET".to_owned()],
                 false,
                 true
             )
         );
-        let retire = Cli::parse_from(["isothrum", "retire", "web", "labs/web", "--secret-from-env", "DEMO_SECRET"]);
-        let Command::Lifecycle(Lifecycle::Retire {
+        let retire = Cli::parse_from(["isothrum", "retire", "web", "runs/web", "--secret-from-env", "DEMO_SECRET"]);
+        let RunnerCommand::Lifecycle(Lifecycle::Retire {
             machine: retired,
             op: retiring,
-        }) = retire.command
+        }) = on_runner(retire.command)
         else {
-            panic!("{retire:?}")
+            panic!("not `retire`")
         };
-        assert_eq!((retired.as_str(), retiring.run.path), ("web", "labs/web".into()));
+        assert_eq!((retired.as_str(), retiring.run.path), ("web", "runs/web".into()));
         assert_eq!(retiring.secrets, ["DEMO_SECRET"]);
+    }
+
+    #[test]
+    fn a_console_takes_its_machine_and_the_run_defaults_to_here() {
         let console = Cli::parse_from(["isothrum", "console", "web"]);
-        assert!(matches!(console.command, Command::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
+        assert!(matches!(on_runner(console.command), RunnerCommand::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
+    }
+
+    #[test]
+    fn only_up_takes_the_ssh_jump() {
         let up = Cli::parse_from(["isothrum", "up", "--ssh-jump", "root@pve.lan"]);
-        assert!(matches!(up.command, Command::Lifecycle(Lifecycle::Up { ssh_jump: Some(j), .. }) if j == "root@pve.lan"));
+        assert!(matches!(on_runner(up.command), RunnerCommand::Lifecycle(Lifecycle::Up { ssh_jump: Some(j), .. }) if j == "root@pve.lan"));
         for later in ["down", "park", "resume", "update", "provision", "attach", "detach"] {
             let given = Cli::try_parse_from(["isothrum", later, "--ssh-jump", "root@pve.lan"]);
             assert!(given.is_err(), "only `up` takes the jump the run records: {later}");
         }
+    }
+
+    #[test]
+    fn park_takes_its_mode_and_the_home_comes_after_the_command() {
         let park = Cli::parse_from(["isothrum", "park", "--mode", "pause", "--home", "/tmp/h"]);
-        assert!(matches!(park.command, Command::Lifecycle(Lifecycle::Park { mode: Mode::Pause, .. })) && park.home == Some("/tmp/h".into()));
+        assert_eq!(park.home, Some("/tmp/h".into()));
+        assert!(matches!(
+            on_runner(park.command),
+            RunnerCommand::Lifecycle(Lifecycle::Park { mode: Mode::Pause, .. })
+        ));
     }
 }

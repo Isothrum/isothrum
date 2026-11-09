@@ -27,7 +27,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use isothrum_runner::{EventKind, Runner, RunnerConfig};
 
-use crate::args::{Cli, Command};
+use crate::args::Cli;
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Term, Trail};
@@ -57,17 +57,13 @@ async fn main() -> ExitCode {
     exit::code(&outcome)
 }
 
-/// Builds the runner this host and environment call for, then runs `cli`. Completions need no
-/// runner: they touch no home.
+/// Runs `cli` on the runner this host and environment call for, built when the command needs one.
 async fn start(cli: &Cli, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
-    if let Command::Completions { shell } = &cli.command {
-        term.out(&args::completions(*shell));
-        return Ok(Verdict::Pass);
-    }
-    let user_home = std::env::home_dir();
-    let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), user_home.clone())?;
-    let runner = Runner::new(RunnerConfig::new(home))?;
-    commands::run(cli, &runner, term, trail, var).await
+    let runner = || -> Result<Runner> {
+        let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), std::env::home_dir())?;
+        Ok(Runner::new(RunnerConfig::new(home))?)
+    };
+    commands::run(cli, runner, term, trail, var).await
 }
 
 /// The signal that cancels the command. One whose handler can't be installed is said, and the

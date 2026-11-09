@@ -2,30 +2,56 @@
 
 use isothrum_runner::{AccessPick, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
-use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, TargetArgs};
+use std::borrow::Borrow;
+
+use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunnerCommand, TargetArgs};
 use crate::error::Result;
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
 use crate::{locate, values};
 
-/// Runs `cli` on `runner`, writing to `term` (each event kept in `trail` too); `var` reads the
-/// environment (for secrets). An operation's failure has been reported by its own `error` event,
-/// so it reads as [`Verdict::Fail`]; what failed before any event is an error.
-pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+/// Runs `cli`, writing to `term` (each event kept in `trail` too); `var` reads the environment
+/// (for secrets). Every command but `completions` runs on the runner `runner` builds; completions
+/// need none, so they touch no home. An operation's failure has been reported by its own `error`
+/// event, so it reads as [`Verdict::Fail`]; what failed before any event is an error.
+pub(crate) async fn run<R: Borrow<Runner>>(
+    cli: &Cli,
+    runner: impl FnOnce() -> Result<R>,
+    term: &Term,
+    trail: &Trail,
+    var: &dyn Fn(&str) -> Option<String>,
+) -> Result<Verdict> {
+    let command = match &cli.command {
+        Command::Completions { shell } => {
+            term.out(&crate::args::completions(*shell));
+            return Ok(Verdict::Pass);
+        }
+        Command::Runner(command) => command,
+    };
+    let runner = runner()?;
     let (json, human) = (Json(term), Human(term));
     let sink: &dyn Events = if cli.json { &json } else { &human };
     let traced = Traced { sink, trail };
-    let events: &dyn Events = &traced;
-    let out = Out { json: cli.json, term, events };
-    match &cli.command {
-        Command::Status(run) => status(&out, &open(runner, run)?).await,
-        Command::Check(op) => check(&out, &open(runner, &op.run)?, &options(op, var)?).await,
-        Command::Provision { op, machine } => {
+    let out = Out {
+        json: cli.json,
+        term,
+        events: &traced,
+    };
+    on_runner(command, runner.borrow(), &out, var).await
+}
+
+/// Runs `command` on `runner`, writing to `out`.
+async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+    let Out { term, events, .. } = *out;
+    match command {
+        RunnerCommand::Status(run) => status(out, &open(runner, run)?).await,
+        RunnerCommand::Check(op) => check(out, &open(runner, &op.run)?, &options(op, var)?).await,
+        RunnerCommand::Provision { op, machine } => {
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        Command::Attach { op, machine, network, image } => {
+        RunnerCommand::Attach { op, machine, network, image } => {
             let mut pick = AccessPick::default();
             if let Some(m) = machine {
                 pick = pick.with_machine(m);
@@ -36,41 +62,38 @@ pub(crate) async fn run(cli: &Cli, runner: &Runner, term: &Term, trail: &Trail, 
             if let Some(i) = image {
                 pick = pick.with_image(i);
             }
-            attach(&out, &open(runner, &op.run)?, pick, &options(op, var)?).await
+            attach(out, &open(runner, &op.run)?, pick, &options(op, var)?).await
         }
-        Command::Detach { op, machine } => {
+        RunnerCommand::Detach { op, machine } => {
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        Command::Console { run, machine } => print_command(&out, &open(runner, run)?.console_command(machine)?),
-        Command::Events(run) => print_events(&out, runner, &open(runner, run)?),
-        Command::Reap(args) => reap::run(args, runner, &out, var).await,
-        Command::Key => {
+        RunnerCommand::Console { run, machine } => print_command(out, &open(runner, run)?.console_command(machine)?),
+        RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
+        RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
+        RunnerCommand::Key => {
             term.out(&runner.ssh_public_key().await?);
             Ok(Verdict::Pass)
         }
-        Command::Completions { shell } => {
-            term.out(&crate::args::completions(*shell));
-            Ok(Verdict::Pass)
-        }
-        Command::Lifecycle(command) => lifecycle(command, runner, &out, var).await,
+        RunnerCommand::Lifecycle(command) => lifecycle(command, runner, out, var).await,
     }
 }
 
 /// The operation `command` runs, when it runs one.
 pub(crate) fn op_of(command: &Command) -> Option<Op> {
-    Some(match command {
-        Command::Lifecycle(Lifecycle::Up { .. }) => Op::Up,
-        Command::Lifecycle(Lifecycle::Down(_)) => Op::Down,
-        Command::Lifecycle(Lifecycle::Park { .. }) => Op::Park,
-        Command::Lifecycle(Lifecycle::Resume(_)) => Op::Resume,
-        Command::Lifecycle(Lifecycle::Update(_)) => Op::Update,
-        Command::Lifecycle(Lifecycle::Retire { .. }) => Op::Retire,
-        Command::Check(_) => Op::Check,
-        Command::Provision { .. } => Op::Provision,
-        Command::Attach { .. } => Op::Attach,
-        Command::Detach { .. } => Op::Detach,
-        Command::Status(_) | Command::Console { .. } | Command::Events(_) | Command::Reap(_) | Command::Key | Command::Completions { .. } => {
+    let Command::Runner(command) = command else { return None };
+    Some(match &**command {
+        RunnerCommand::Lifecycle(Lifecycle::Up { .. }) => Op::Up,
+        RunnerCommand::Lifecycle(Lifecycle::Down(_)) => Op::Down,
+        RunnerCommand::Lifecycle(Lifecycle::Park { .. }) => Op::Park,
+        RunnerCommand::Lifecycle(Lifecycle::Resume(_)) => Op::Resume,
+        RunnerCommand::Lifecycle(Lifecycle::Update(_)) => Op::Update,
+        RunnerCommand::Lifecycle(Lifecycle::Retire { .. }) => Op::Retire,
+        RunnerCommand::Check(_) => Op::Check,
+        RunnerCommand::Provision { .. } => Op::Provision,
+        RunnerCommand::Attach { .. } => Op::Attach,
+        RunnerCommand::Detach { .. } => Op::Detach,
+        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
             return None;
         }
     })
@@ -78,8 +101,9 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
 
 /// The run `command` names with `--name`, when it does.
 pub(crate) fn run_named(command: &Command) -> Option<&str> {
-    let target = match command {
-        Command::Lifecycle(
+    let Command::Runner(command) = command else { return None };
+    let target = match &**command {
+        RunnerCommand::Lifecycle(
             Lifecycle::Up { op, .. }
             | Lifecycle::Down(op)
             | Lifecycle::Park { op, .. }
@@ -87,12 +111,12 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
             | Lifecycle::Update(op)
             | Lifecycle::Retire { op, .. },
         )
-        | Command::Check(op)
-        | Command::Provision { op, .. }
-        | Command::Attach { op, .. }
-        | Command::Detach { op, .. } => &op.run,
-        Command::Status(run) | Command::Console { run, .. } | Command::Events(run) => run,
-        Command::Reap(_) | Command::Key | Command::Completions { .. } => return None,
+        | RunnerCommand::Check(op)
+        | RunnerCommand::Provision { op, .. }
+        | RunnerCommand::Attach { op, .. }
+        | RunnerCommand::Detach { op, .. } => &op.run,
+        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Events(run) => run,
+        RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
     };
     target.name.as_deref()
 }

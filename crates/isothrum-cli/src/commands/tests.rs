@@ -103,13 +103,24 @@ impl Setup {
         command_line.push(&run);
         let cli = Cli::parse_from(command_line);
         let var = |name: &str| self.env.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
-        commands::run(&cli, &self.runner, &self.term, &crate::term::Trail::default(), &var).await
+        commands::run(&cli, || Ok(&self.runner), &self.term, &crate::term::Trail::default(), &var).await
     }
 
     /// The last event the command printed (with `--json`).
     fn last_event(&self) -> serde_json::Value {
         serde_json::from_str(self.out.take().lines().last().unwrap()).unwrap()
     }
+}
+
+#[tokio::test]
+async fn completions_build_no_runner_so_touch_no_home() {
+    let out = Buf::default();
+    let term = Term::new(Box::new(out.clone()), Box::new(Buf::default()));
+    let cli = Cli::parse_from(["isothrum", "completions", "bash"]);
+    let no_runner = || -> Result<Runner> { panic!("completions built a runner") };
+    let verdict = commands::run(&cli, no_runner, &term, &crate::term::Trail::default(), &|_| None).await;
+    assert_eq!(verdict.unwrap(), Verdict::Pass);
+    assert!(out.take().contains("isothrum"), "the script");
 }
 
 #[tokio::test]
