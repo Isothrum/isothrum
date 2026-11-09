@@ -1,8 +1,8 @@
 # Publishing Isothrum
 
 The Isothrum library crates are released to [crates.io](https://crates.io) so that consumers
-(the desktop app, the website, the Cyber CTF launcher and any external user) depend on published
-versions rather than git revisions. That way Isoloom's and Isothrum's history can be squashed at
+(the apps and sites built on them, and any external user) depend on published versions rather
+than git revisions. That way Isoloom's and Isothrum's history can be squashed at
 1.0 without breaking anyone, and each consumer upgrades on its own schedule.
 
 Everything here is licensed Apache-2.0.
@@ -14,8 +14,9 @@ before it):
 
 1. `isothrum-compiler` — a drawn lab becomes an Isoloom spec.
 2. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
-3. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for the browser editor.
-4. `isothrum-cli` — the `isothrum` command-line runner.
+3. `isothrum-machine` — which Vagrant providers this computer can drive, and the record format of what a program downloaded.
+4. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for the browser editor.
+5. `isothrum-cli` — the `isothrum` command-line runner.
 
 Not published (`publish = false`, inherited from `[workspace.package]`):
 
@@ -25,10 +26,10 @@ Not published (`publish = false`, inherited from `[workspace.package]`):
 ## Cross-repo dependency on Isoloom
 
 `isothrum-compiler`, `isothrum-wasm` and `isothrum-runner` depend on the Isoloom crates
-(`isoloom-spec`, `isoloom-targets`, `isoloom-manifest`). In the committed manifests these carry
-both a git `rev` (for local development, via `cargo xtask dev-link`) **and** a `version`. On
-publish, cargo drops the git source and keeps the version, so the published crates depend on
-`isoloom-* = "<version>"` from crates.io.
+(`isoloom-spec`, `isoloom-targets`, `isoloom-manifest`) by version, from crates.io
+(`[workspace.dependencies]`). For local development against an Isoloom checkout, a git-ignored
+`.cargo/config.toml` patches them to its paths (`[patch.crates-io]`); the committed manifests
+never name a path or a git source.
 
 **Therefore the Isoloom crates must be on crates.io at the requested version before Isothrum is
 published.** Release Isoloom first, then Isothrum.
@@ -36,8 +37,8 @@ published.** Release Isoloom first, then Isothrum.
 ## Versioning
 
 All crates share one version through `[workspace.package].version`. Bump that single field; every
-crate moves together. Keep the Isoloom `version` in `[workspace.dependencies]` in step with the
-Isoloom release the git `rev` points at.
+crate moves together. The Isoloom `version`s in `[workspace.dependencies]` name the Isoloom
+release this one pairs with; Isoloom keeps its own version numbers.
 
 ## Authentication: crates.io Trusted Publishing (OIDC)
 
@@ -62,21 +63,18 @@ cargo publish -p <crate>
 ```
 
 after which the crate exists and the Trusted Publisher (added above) handles every later version
-from the workflow. **New vs existing:** none of the four crates are on crates.io yet, so all of
-them (`isothrum-compiler`, `isothrum-runner`, `isothrum-wasm`, `isothrum-cli`) are new names and
-need the one-time manual first publish for the `v0.11.0` release candidate (the forward RC the
-release plan settled on; the workspace is at 0.11.0). Confirm each name is free (or already owned)
-before the first release. From `v0.11.1` onward the tag workflow does everything.
+from the workflow. The five crates above are all on crates.io already; only a crate added later
+needs this manual first publish.
 
 ## Release flow
 
 1. Make sure the Isoloom crates for this release are already on crates.io (see above).
-2. Bump `[workspace.package].version` and, if Isoloom moved, the `isoloom-*` `rev`/`version` in
+2. Bump `[workspace.package].version` and, if Isoloom moved, the `isoloom-*` versions in
    `[workspace.dependencies]`.
 3. Commit, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. The tag runs `.github/workflows/publish-crates.yml`, which publishes the four crates in order
-   and skips any version already on crates.io (idempotent — safe to re-run). The same tag also
-   runs `release.yml` for the desktop installers.
+4. The tag runs `.github/workflows/publish-crates.yml`, which passes the release gate
+   (`gate.yml`), then publishes the five crates in order and skips any version already on
+   crates.io (idempotent — safe to re-run).
 5. To publish without a tag, run the **Publish crates** workflow from the Actions tab
    (`workflow_dispatch`).
 
@@ -89,6 +87,7 @@ on crates.io, or resolved to a local checkout with a `[patch.crates-io]` in a gi
 ```
 cargo publish --dry-run -p isothrum-compiler
 cargo publish --dry-run -p isothrum-runner
+cargo publish --dry-run -p isothrum-machine
 cargo publish --dry-run -p isothrum-wasm
 cargo publish --dry-run -p isothrum-cli
 ```
@@ -103,5 +102,3 @@ wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --rele
 
 Today isothrum.com vendors that bundle under `public/wasm/`; the crates.io release above covers
 the Rust crate only. If the bundle is later published to npm it is built from this same crate.
-The launcher's shared UI package, `@cyber-courses/ui`, is a separate concern and already ships
-through GitHub Packages, not crates.io or public npm.

@@ -25,7 +25,7 @@ pub fn bundle(topology_json: &str) -> Result<Vec<u8>, JsError> {
     bundle_bytes(topology_json).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// JSON for the desktop app: [`own_files`].
+/// JSON for a JavaScript caller: [`own_files`].
 #[wasm_bindgen]
 #[must_use]
 pub fn own_files_json(topology_json: &str) -> String {

@@ -6,12 +6,11 @@ Terraform, cloud-init, Ansible) plus a versioned **run manifest**. Isothrum is t
 executes that manifest — bring a lab up, check it, park and resume it, tear it down — and the
 compiler that turns a drawn lab into an Isoloom spec.
 
-This repository is **libraries and a CLI only**. The Isothrum desktop app (the Tauri UI) and the
-shared editor components live in their own repositories (`isoloom/isothrum-desktop`,
-`isoloom/isothrum-ui`), on the crates published from here. Everything here is Apache-2.0.
+This repository is **libraries and a CLI only**: the apps and UI components built on them live
+in their own repositories, on the crates published from here. Everything here is Apache-2.0.
 
-Reference version: **0.11.1** (the current workspace version). 1.0.0 is the target; see
-["Status"](#status) for what is proven versus owed.
+Current version: **1.0.5** (the workspace version, shared by every crate). See
+["Status"](#status) for what is proven by real runs and what is not yet.
 
 ## Crates
 
@@ -20,6 +19,7 @@ Reference version: **0.11.1** (the current workspace version). 1.0.0 is the targ
 | [`isothrum-runner`](https://crates.io/crates/isothrum-runner) | `isothrum-runner` | Executes the run manifest: lifecycle, state and locks, drivers, secrets, checks, the event stream. |
 | [`isothrum-compiler`](https://crates.io/crates/isothrum-compiler) | `isothrum-compiler` | A lab drawn in the editor (machines, the LANs around them, the cables between their ports) becomes an Isoloom spec. |
 | [`isothrum-wasm`](https://crates.io/crates/isothrum-wasm) | `isothrum-wasm` | The compiler plus Isoloom's targets, compiled to WebAssembly for the in-browser editor. The same build runs on isothrum.com's server for its MCP tools. |
+| [`isothrum-machine`](https://crates.io/crates/isothrum-machine) | `isothrum-machine` | Which Vagrant providers (hypervisors) this computer can drive, and the record format of what a program downloaded for its own operations. |
 | [`isothrum-cli`](https://crates.io/crates/isothrum-cli) | `isothrum-cli` | The `isothrum` command-line runner. |
 
 `xtask` and the `fuzz/` targets are not published.
@@ -38,15 +38,22 @@ The manifest is the cross-repo contract; Isoloom's `isoloom-manifest` crate defi
 
 ### Lifecycle
 
-`up`, `down`, `park` (`--mode pause|shutdown`, default `shutdown`), `resume`, `status`, `check`,
-`provision` and `events`, each on a lab folder (its `.isoloom/<target>/run.json`, or `--target`
-when the lab was generated for several) or on a `run.json` given directly. `reap` destroys a
-cloud's expired runs; `key` prints the runner's SSH public key.
+`up`, `down`, `park` (`--mode pause|shutdown`, default `shutdown`), `resume`, `update`, `retire`,
+`status`, `check`, `provision`, `attach`, `detach`, `console` and `events`, each on a lab folder
+(its `.isoloom/<target>/run.json`, or `--target` when the lab was generated for several) or on a
+`run.json` given directly. `reap` destroys a cloud's expired runs; `key` prints the runner's SSH
+public key.
 
 - `up` on a running run fails `already_running`; on a parked run it resumes it. Leftovers of an
   earlier run are removed first (a `leftovers_removed` warning). `--replace` removes whatever
   exists and starts afresh.
 - A run recorded under another `--host-label` fails `running_elsewhere`.
+- `update` brings a running run up to date with its regenerated manifest: `up`'s steps run again
+  with the params it was started with (a running VM whose boot-time settings changed is restarted
+  first). `retire <machine>` takes a machine out of the running run ahead of its removal from the
+  manifest, for what the update after wouldn't remove itself.
+- `attach` and `detach` hot-add and hot-remove the lab's on-demand access machine; `console
+  <machine>` prints the command that opens a console into any machine of the run.
 - `down`, `park`, `resume`, `check` and `provision` replay the params and secret values the run
   was started with (recorded ones win over any given again).
 - Before `up` and `resume`, every tool the manifest uses on this host runs its version probe and
@@ -124,24 +131,24 @@ regenerates it; a test fails if it drifts.
 ### The runner's home
 
 `<home>` defaults to `$ISOTHRUM_HOME`, else `~/.isothrum`. Each run lives in `<home>/runs/<run>/`:
-`record.json` (manifest path and SHA-256, target, driver, state, non-secret params, start time,
-last operation), `lock`, `events.jsonl` (trimmed past 4000 lines), and the run's `${run.state_dir}`.
+`record.json` (the manifest it was last brought up or updated from, target, driver, state,
+non-secret params, start time, last operation), `lock`, `events.jsonl` (trimmed past 4000 lines), and the run's `${run.state_dir}`.
 Files are 0600 and folders 0700 on Unix. Nothing is written in the lab's folder.
 
 ## How it depends on Isoloom
 
 `isothrum-runner`, `isothrum-compiler` and `isothrum-wasm` depend on the Isoloom crates
-`isoloom-spec`, `isoloom-targets` and `isoloom-manifest`. In the committed manifests each of these
-carries **both** a git `rev` (one commit of Isoloom's `main`, for local development via Isoloom's
-`cargo xtask dev-link`) **and** a `version` equal to the workspace version:
+`isoloom-spec`, `isoloom-targets` and `isoloom-manifest`, from crates.io, at the Isoloom release
+each Isothrum release pairs with (Isoloom keeps its own version numbers):
 
 ```toml
-isoloom-manifest = { git = "https://github.com/isoloom/isoloom", rev = "…", version = "0.11.1" }
+[workspace.dependencies]
+isoloom-manifest = "1.0.9"
 ```
 
-On publish, cargo drops the git source and keeps the version, so the **published** Isothrum crates
-depend on `isoloom-* = "0.11.1"` from crates.io. The Isoloom crates for a release must therefore be
-on crates.io at that version before Isothrum is published (release Isoloom first). See
+The Isoloom crates for a release must therefore be on crates.io before Isothrum is published
+(release Isoloom first). To build against a local Isoloom checkout, patch them in a git-ignored
+`.cargo/config.toml` (`[patch.crates-io]`, each crate's `path`). See
 [PUBLISHING.md](PUBLISHING.md) for the full flow.
 
 ## Install
@@ -218,9 +225,9 @@ cargo run -p xtask -- mutants     # mutation testing of the compiler and the run
 ```
 
 The full gate is Isoloom's `cargo xtask check-all --repos isothrum`: fmt, typos, machete, deny,
-clippy on three targets (deny-level lints fail it; it does **not** pass `-D warnings`, because the
-not-yet-zero lints are held at warn by the ratchet), `cargo doc` at `-Dwarnings`, `quality`, msrv,
-features, fuzz-check and the tests; `--deep` adds fuzz and mutants.
+clippy on three targets (every workspace lint is at deny, so any finding fails it), `cargo doc` at
+`-Dwarnings`, `quality`, msrv, features, fuzz-check and the tests; `--deep` adds fuzz and mutants.
+The release gate (`.github/workflows/gate.yml`) runs clippy with `-D warnings` too.
 
 The WebAssembly engine keeps its npm name; isothrum.com serves `web/pkg/isothrum_wasm.js` and
 `isothrum_wasm_bg.wasm` from `public/wasm/`.

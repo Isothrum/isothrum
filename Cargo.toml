@@ -12,8 +12,7 @@ rust-version = "1.90"
 license = "Apache-2.0"
 repository = "https://github.com/Isothrum/isothrum"
 homepage = "https://www.isothrum.com"
-# Default-deny: a crate opts in with `publish = true`. xtask, the fuzz targets and the desktop
-# app stay unpublished.
+# Default-deny: a crate opts in with `publish = true`. xtask and the fuzz targets stay unpublished.
 publish = false
 
 [workspace.dependencies]

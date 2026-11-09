@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   # Tests and the quality ratchet must pass before anything is published: a tag skips ci.yml, so
-  # without this an untested runner could reach crates.io and auto-propagate into the launcher.
+  # without this an untested runner could reach crates.io and auto-propagate into its consumers.
   gate:
     uses: ./.github/workflows/gate.yml
 
