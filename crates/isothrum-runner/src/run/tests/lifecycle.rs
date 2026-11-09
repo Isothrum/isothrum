@@ -356,11 +356,44 @@ fn engine_with(f: &Fixture, networks: &[&str], unreadable_config: bool) {
 /// otherwise pass unchecked. Nothing starts.
 #[tokio::test]
 async fn an_unreadable_config_fails_the_free_ports_check_before_anything_starts() {
+    let f = fixture_answering(FLAG_PORTAL, unreadable_once_pinned);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert!(matches!(&err, crate::Error::ToolFailed { step, .. } if step == "ports-free"), "{err}");
+    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+}
+
+/// The lab's Docker, its config unreadable once the run's ports are pinned.
+fn unreadable_once_pinned(engine: &Mutex<Engine>, call: &Call) -> Reply {
+    if call.line().contains(" config --format json") && pinned(call).is_some() {
+        return Reply::ok("not json");
+    }
+    answer(engine, call)
+}
+
+/// A fresh run whose config can't be read fails the pinning step rather than start on ephemeral
+/// ports a resume would not get back. Nothing starts.
+#[tokio::test]
+async fn an_unreadable_config_fails_the_pinning_of_a_fresh_run() {
     let f = fixture();
     engine_with(&f, &[], true);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert!(matches!(&err, crate::Error::ToolFailed { step, .. } if step == "ports-free"), "{err}");
+    assert!(matches!(&err, crate::Error::ToolFailed { step, .. } if step == "pin-ports"), "{err}");
+    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+}
+
+/// A fresh run with no free host port left for an ephemeral publish fails the pinning step,
+/// naming the port, rather than start on an ephemeral one.
+#[tokio::test]
+async fn no_free_host_port_fails_the_pinning_of_a_fresh_run() {
+    let f = fixture_with_ports(FLAG_PORTAL, []);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert!(
+        matches!(&err, crate::Error::ToolFailed { step, reason } if step == "pin-ports" && reason.contains("no free host port over tcp")),
+        "{err}"
+    );
     assert_eq!(f.called(" up --detach "), 0, "nothing started");
 }
 

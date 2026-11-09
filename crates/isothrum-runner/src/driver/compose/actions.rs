@@ -15,7 +15,9 @@ const PROJECT_LABEL: &str = "com.docker.compose.project";
 
 /// `compose.pin_ports`: on a fresh run only (no container yet), the ephemeral host ports get
 /// fixed ones, so a resumed run keeps its addresses (Docker picks a new ephemeral port each time a
-/// container starts). Pins made for existing containers stay as they were created.
+/// container starts). Pins made for existing containers stay as they were created. A config
+/// that can't be read, or a port no free host port is left for, fails the step: the run would
+/// otherwise start on ephemeral ports and a resume would get new addresses.
 pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let Some(file) = c.pins(cx)? else {
         return Ok(());
@@ -28,7 +30,7 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<(
     }
     write_private(&file, NO_PINS.as_bytes()).map_err(Error::io(&file, "written"))?;
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    if let Some(yaml) = pins::pick(cx, &config) {
+    if let Some(yaml) = pins::pick(cx, step.id.as_str(), &config)? {
         write_private(&file, yaml.as_bytes()).map_err(Error::io(&file, "written"))?;
     }
     Ok(())

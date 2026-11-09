@@ -10,13 +10,17 @@ use std::collections::BTreeSet;
 use isoloom_manifest::{Native, Protocol};
 
 use super::config::{self, ConfigPort};
+use crate::Result;
+use crate::error::Error;
 use crate::executor::Cx;
 use crate::net::HeldPort;
 
-/// The pinned-ports override for `config` (`docker compose config --format json`), or `None`
-/// when nothing is ephemeral or no port could be picked.
-pub(super) fn pick(cx: &Cx<'_>, config: &str) -> Option<String> {
-    let ports = config::ports(config)?;
+/// The pinned-ports override for `config` (`docker compose config --format json`) that `step`
+/// read, or `None` when nothing is ephemeral. A config that can't be read, or a port with no free
+/// host port left to pin it to, fails the step: the run would otherwise start on ephemeral ports
+/// and a resume would get new addresses.
+pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<String>> {
+    let ports = config::ports(config).ok_or_else(|| config::unreadable(step, "the host ports to pin are"))?;
     let fixed = cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED);
     let mut held: Vec<HeldPort> = Vec::new();
     let mut taken: BTreeSet<(u16, Protocol)> = BTreeSet::new();
@@ -24,13 +28,21 @@ pub(super) fn pick(cx: &Cx<'_>, config: &str) -> Option<String> {
         let mine = |n: &u16| cx.run.runner.reserve(cx.run.name(), *n, p.protocol);
         if fixed && let Some(preferred) = preferred(cx, p).filter(|n| !taken.contains(&(*n, p.protocol)) && mine(n)) {
             taken.insert((preferred, p.protocol));
-            return Some(preferred);
+            return Ok(preferred);
         }
-        let port = free_port(cx, p.protocol)?;
+        let port = free_port(cx, p.protocol).ok_or_else(|| Error::ToolFailed {
+            step: step.to_owned(),
+            reason: format!(
+                "no free host port over {} is left to pin service `{}`'s container port {} to",
+                crate::encoding::wire_name(&p.protocol),
+                p.service,
+                p.target
+            ),
+        })?;
         taken.insert((port.port, p.protocol));
         let number = port.port;
         held.push(port);
-        Some(number)
+        Ok(number)
     });
     drop(held);
     pins

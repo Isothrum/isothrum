@@ -101,8 +101,9 @@ pub(super) fn networks(config: &str, project: &str) -> Option<Vec<String>> {
 
 /// The pinned-ports override: every service with an ephemeral port gets its whole `ports` list
 /// again (`!override`: Compose would otherwise add the entries), each ephemeral one with the port
-/// `pick` gives (container port, protocol). `None` when nothing is ephemeral, or a pick fails.
-pub(super) fn pinned_ports(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPort) -> Option<u16>) -> Option<String> {
+/// `pick` gives (container port, protocol). `None` when nothing is ephemeral; the first failed
+/// pick's error when one fails.
+pub(super) fn pinned_ports<E>(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPort) -> Result<u16, E>) -> Result<Option<String>, E> {
     let mut services: Vec<&str> = Vec::new();
     for p in ports.iter().filter(|p| p.published.is_none()) {
         if !services.contains(&p.service.as_str()) {
@@ -110,7 +111,7 @@ pub(super) fn pinned_ports(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPor
         }
     }
     if services.is_empty() {
-        return None;
+        return Ok(None);
     }
     let mut lines = vec![
         "# Written by the Isothrum runner at the run's first start: its host ports, kept across resumes.".to_owned(),
@@ -134,7 +135,7 @@ pub(super) fn pinned_ports(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPor
             lines.push(format!("      - {}", yaml_str(&format!("{ip}{host}:{}/{proto}", p.target))));
         }
     }
-    Some(lines.join("\n") + "\n")
+    Ok(Some(lines.join("\n") + "\n"))
 }
 
 /// A double-quoted YAML scalar. JSON's quoting does most of it, but YAML also reads NEL, LS and
@@ -173,8 +174,9 @@ mod tests {
         let mut next = 40000;
         let yaml = pinned_ports(&ports(json).unwrap(), |_| {
             next += 1;
-            Some(next)
+            Ok::<_, ()>(next)
         })
+        .unwrap()
         .unwrap();
         let (web, dns) = if yaml.find("\"web\"") < yaml.find("\"dns\"") {
             (40001, 40002)
@@ -194,18 +196,22 @@ mod tests {
         assert!(!yaml.contains("db"));
         assert!(
             pinned_ports(&ports(r#"{"services":{"web":{"ports":[{"target":80,"published":"8080"}]}}}"#).unwrap(), |_| {
-                Some(1)
+                Ok::<_, ()>(1)
             })
+            .unwrap()
             .is_none()
         );
-        assert!(pinned_ports(&ports(r#"{"services":{"web":{"ports":[{"target":80}]}}}"#).unwrap(), |_| None).is_none());
+        assert_eq!(
+            pinned_ports(&ports(r#"{"services":{"web":{"ports":[{"target":80}]}}}"#).unwrap(), |_| Err("none free")),
+            Err("none free")
+        );
     }
 
     #[test]
     fn unicode_line_breaks_in_names_stay_inside_their_scalar() {
         for name in ["\u{85}", "a\u{2028}b", "\u{2029}", "na\u{ef}ve \u{1f600}"] {
             let json = serde_json::json!({"services": {name: {"ports": [{"target": 80, "protocol": "tcp"}]}}}).to_string();
-            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Some(40000)).unwrap();
+            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
             let line = yaml.lines().nth(2).unwrap();
             let quoted = line.trim().trim_end_matches(':');
             assert_eq!(
@@ -219,7 +225,7 @@ mod tests {
     #[test]
     fn ipv6_host_addresses_are_bracketed() {
         let json = r#"{"services":{"a":{"ports":[{"target":80,"host_ip":"::1","protocol":"udp"},{"target":443,"published":"8443","host_ip":""}]}}}"#;
-        let yaml = pinned_ports(&ports(json).unwrap(), |_| Some(40000)).unwrap();
+        let yaml = pinned_ports(&ports(json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
         assert!(yaml.contains("- \"[::1]:40000:80/udp\"\n") && yaml.contains("- \"8443:443/tcp\"\n"), "{yaml}");
     }
 
@@ -286,7 +292,7 @@ mod proptests {
         #[test]
         fn any_service_name_reads_back_from_the_override(name in "\\PC{1,24}", target in 1u16..) {
             let json = serde_json::json!({"services": {&name: {"ports": [{"target": target}]}}}).to_string();
-            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Some(40000)).unwrap();
+            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
             prop_assert_eq!(yaml.lines().count(), 5, "{}", yaml);
             let expected = format!("      - \"40000:{target}/tcp\"\n");
             prop_assert!(yaml.ends_with(&expected));

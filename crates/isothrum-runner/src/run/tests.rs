@@ -67,9 +67,18 @@ fn fixture_with(manifest: &str) -> Fixture {
 
 /// [`fixture_with`], its engine answering with `answer`.
 fn fixture_answering(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply) -> Fixture {
+    fixture_of(manifest, answer, [41873, 41874, 41875])
+}
+
+/// [`fixture_with`], the host ports `free` the only free ones.
+fn fixture_with_ports(manifest: &str, free: impl IntoIterator<Item = u16>) -> Fixture {
+    fixture_of(manifest, answer, free)
+}
+
+fn fixture_of(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply, free: impl IntoIterator<Item = u16>) -> Fixture {
     let folder = LabFolder::new("docker", manifest);
     let (engine, fake) = modelled(answer);
-    let ports = Arc::new(FakePorts::new([41873, 41874, 41875]));
+    let ports = Arc::new(FakePorts::new(free));
     let host_ports: Arc<dyn crate::HostPorts> = Arc::<FakePorts>::clone(&ports);
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::runner::this_host())).unwrap();
     Fixture {
