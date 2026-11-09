@@ -25,7 +25,7 @@ pub enum ErrorCode {
     Unsupported,
     /// A file or folder couldn't be read or written.
     Io,
-    /// Another process runs an operation on this run.
+    /// Another process runs an operation on this run, or holds the home's slot pick.
     Locked,
     /// A tool a step runs isn't installed.
     ToolMissing,
@@ -167,6 +167,12 @@ pub enum Error {
     Locked {
         /// The run.
         run: String,
+    },
+    /// Another start held the home's slot pick for as long as a start waits for it.
+    #[error("another start has held this home's slot pick for {waited_s} s; it may hang")]
+    SlotsLocked {
+        /// How long this start waited, in seconds.
+        waited_s: u64,
     },
     /// A step's tool isn't on PATH.
     #[error("step `{step}`: `{tool}` isn't installed or isn't on PATH")]
@@ -369,7 +375,7 @@ impl Error {
             Error::Manifest { .. } | Error::Malformed { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } | Error::Unbound { .. } => ErrorCode::Unsupported,
             Error::Io { .. } => ErrorCode::Io,
-            Error::Locked { .. } => ErrorCode::Locked,
+            Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,

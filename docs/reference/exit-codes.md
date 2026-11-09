@@ -22,7 +22,7 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `manifest_version` | The manifest is another version of the contract. | Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom. |
 | `unsupported` | The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or the call asks the run for something its target can't do (a console into a Compose service with no VM, a Vagrant VM joined to another network). | Upgrade Isothrum, generate the run for another target, or ask the run for what its target does. |
 | `io` | A file or folder couldn't be read or written. | Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`). |
-| `locked` | Another process runs an operation on this run. | Wait for the other operation on the run to end, or stop the process running it. |
+| `locked` | Another process runs an operation on this run, or holds the home's slot pick. | Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it. |
 | `tool_missing` | A tool a step runs isn't installed. | Install the tool, or put it on `PATH`. |
 | `tool_failed` | A step's tool ran and failed. | Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again. |
 | `tool_too_old` | A tool answers at a version older than the run needs. | Upgrade the tool to the version the message names. |

@@ -164,7 +164,7 @@ async fn a_start_picks_its_slot_only_while_no_other_process_picks_one() {
     other.lock().unwrap();
     let run = s.runner.open(&s.manifest, Some(crate::RunName::new("first").unwrap())).unwrap();
     let err = run.up(&opts("pve-run"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert_eq!(err.code(), crate::ErrorCode::Locked, "{err}");
     assert!(s.fake.last("terraform apply").is_none(), "nothing was created");
     drop(other);
     assert_eq!(run.up(&opts("pve-run"), &Recorder::new()).await.unwrap().record.slot, Some(1));

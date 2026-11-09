@@ -579,7 +579,7 @@
           "const": "io"
         },
         {
-          "description": "Another process runs an operation on this run.",
+          "description": "Another process runs an operation on this run, or holds the home's slot pick.",
           "type": "string",
           "const": "locked"
         },

@@ -68,16 +68,15 @@ pub(crate) struct SlotsLock {
 ///
 /// # Errors
 ///
-/// `io`, when the lock file can't be opened or locked, or another start held it for
-/// [`SLOTS_WAIT`].
+/// `io`, when the lock file can't be opened or locked; `locked` ([`Error::SlotsLocked`]) when
+/// another start held it for [`SLOTS_WAIT`].
 pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
     let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
     match locked_within(&file, SLOTS_WAIT).await {
         Ok(true) => Ok(SlotsLock { _file: file }),
-        Ok(false) => {
-            let held = std::io::Error::new(std::io::ErrorKind::TimedOut, "another start held the slots for 30 s");
-            Err(Error::io(path, "locked")(held))
-        }
+        Ok(false) => Err(Error::SlotsLocked {
+            waited_s: SLOTS_WAIT.as_secs(),
+        }),
         Err(e) => Err(Error::io(path, "locked")(e)),
     }
 }
@@ -101,7 +100,7 @@ mod tests {
     use super::*;
 
     fn run() -> RunName {
-        RunName::new("lab").unwrap()
+        RunName::new("demo").unwrap()
     }
 
     #[tokio::test]
@@ -164,7 +163,8 @@ mod tests {
         waiting.await.unwrap().unwrap();
         let held = hold_slots(&path).await.unwrap();
         let stuck = hold_slots(&path).await.unwrap_err();
-        assert_eq!(stuck.code(), crate::ErrorCode::Io, "{stuck}");
+        assert_eq!(stuck.code(), crate::ErrorCode::Locked, "busy, not an I/O failure: {stuck}");
+        assert_eq!(stuck.to_string(), "another start has held this home's slot pick for 30 s; it may hang");
         drop(held);
     }
 }

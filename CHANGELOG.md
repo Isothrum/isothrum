@@ -79,7 +79,8 @@ change.
   one, out of time included.
 - **Two starts in one home no longer take the same slot.** Two `up`s at once (two processes)
   both read the records before either recorded its slot. A start now picks its slot and records it
-  under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick.
+  under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick, then
+  failing with `locked` (`Error::SlotsLocked`).
 - **Terraform uses the user's `TF_PLUGIN_CACHE_DIR`.** The runner replaced it with its own cache
   under the home. A cache the user set is now used as it is (neither created nor narrowed); without
   one, the runs share `<home>/terraform-plugins` as before.
