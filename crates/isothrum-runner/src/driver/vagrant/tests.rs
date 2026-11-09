@@ -901,3 +901,23 @@ async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {
     assert_eq!(updated.record.vm_boot_digests.get("web").map(String::as_str), Some("sha256:web-2"));
     assert_eq!(updated.record.vm_boot_digests.get(CONTROLLER).map(String::as_str), Some("sha256:controller-2"));
 }
+
+/// Vagrant on an ESXi host from macOS, relayed: the hosts this computer sends around its proxy
+/// (as the runner read them) are kept beside the relays' loopback.
+#[tokio::test]
+async fn a_relayed_run_keeps_the_hosts_this_computer_sends_around_its_proxy() {
+    let mut f = fixture(HostOs::Macos);
+    f.runner.config.host_env = crate::host_env::HostEnv::of([("no_proxy", ".corp.example")]);
+    f.engine().plugins.push("vagrant-vmware-esxi".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let mut secrets = Secrets::new();
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
+    secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
+    let opts = RunOptions::new()
+        .with_provider("vmware_esxi")
+        .with_param("ESXI_HOSTNAME", "172.16.1.20")
+        .with_secrets(secrets);
+    run.up(&opts, &Recorder::new()).await.unwrap();
+    let up = f.fake.last("vagrant up").unwrap();
+    assert_eq!(up.env("no_proxy"), Some(".corp.example,localhost,127.0.0.1"));
+}

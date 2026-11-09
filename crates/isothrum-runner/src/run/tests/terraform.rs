@@ -397,3 +397,17 @@ async fn a_compose_service_with_no_vm_is_neither_retired_nor_entered() {
     let console = run.console_command("web").unwrap_err();
     assert_eq!(console.code(), ErrorCode::Unsupported, "{console}");
 }
+
+#[tokio::test(start_paused = true)]
+async fn on_macos_terraform_in_its_image_reaches_the_network_as_this_host_does() {
+    let mut s = server(HostOs::Macos);
+    s.runner.config.host_env = crate::host_env::HostEnv::of([("HTTPS_PROXY", "http://proxy.corp:3128"), ("API_TOKEN", "x")]);
+    let run = s.runner.open(&s.manifest, None).unwrap();
+    run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    let apply = s.fake.last(" apply ").unwrap();
+    assert!(
+        apply.args.windows(2).any(|w| w == ["-e", "HTTPS_PROXY"]),
+        "the runner's proxy, by name: {apply:?}"
+    );
+    assert!(!apply.args.iter().any(|a| a.contains("API_TOKEN") || a.contains("proxy.corp")), "{apply:?}");
+}

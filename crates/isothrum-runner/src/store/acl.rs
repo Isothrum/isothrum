@@ -14,18 +14,17 @@ use std::path::{Component, Path};
 /// SYSTEM and the local Administrators group, granted beside the account.
 const SYSTEM_AND_ADMINISTRATORS: [&str; 2] = ["S-1-5-18", "S-1-5-32-544"];
 
-/// Gives `home` an owner-only, protected DACL, unless it is inside the user's profile.
+/// Gives `home` an owner-only, protected DACL, unless it is inside the user's `profile`
+/// (`USERPROFILE`, as the runner read it).
 ///
 /// # Errors
 ///
 /// The account's SID can't be read (`whoami`), or `icacls` fails: the home is left as it was,
 /// and the runner doesn't start in it.
 #[cfg(windows)]
-pub(super) fn owner_only(home: &Path) -> std::io::Result<()> {
+pub(super) fn owner_only(home: &Path, profile: Option<&Path>) -> std::io::Result<()> {
     let home = std::fs::canonicalize(home)?;
-    let profile = std::env::var_os("USERPROFILE")
-        .map(std::path::PathBuf::from)
-        .and_then(|p| std::fs::canonicalize(p).ok());
+    let profile = profile.and_then(|p| std::fs::canonicalize(p).ok());
     if profile.is_some_and(|p| inside(&home, &p)) {
         return Ok(());
     }

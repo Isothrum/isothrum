@@ -235,3 +235,27 @@ fn check_runner(e: &Engine, line: &str) -> Reply {
     let time = e.check_time.iter().find(|(s, _)| s == service).map_or(Duration::ZERO, |(_, t)| *t);
     Reply::ok(&out.join("\n")).after(time)
 }
+
+#[test]
+fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its_path() {
+    let folder = LabFolder::new("docker", WEB_PORTAL);
+    let mut config = runner_config(
+        folder.home.path(),
+        processes(&Arc::new(FakeProcesses::rules(&[]))),
+        crate::testing::no_ports(),
+        crate::runner::this_host(),
+    );
+    config.host_env = crate::host_env::HostEnv::of([("HTTPS_PROXY", "http://proxy.corp:3128"), ("VAGRANT_HOME", "D:\\boxes")]);
+    config.path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
+    let runner = Runner::new(config).unwrap();
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let handed: Vec<(String, String)> = run.elevated_env().collect();
+    assert_eq!(
+        handed,
+        [
+            ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
+            ("VAGRANT_HOME".to_owned(), "D:\\boxes".to_owned()),
+            ("PATH".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
+        ]
+    );
+}

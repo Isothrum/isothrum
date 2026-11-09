@@ -146,8 +146,8 @@ pub(crate) struct Store {
 impl Store {
     /// The store under `home` (owner-only on Windows, see [`fs::private_home`]), its `runs/`
     /// folder created owner-only.
-    pub(crate) fn open(home: &Path) -> Result<Store> {
-        fs::private_home(home).map_err(Error::io(home, "made owner-only"))?;
+    pub(crate) fn open(home: &Path, profile: Option<&Path>) -> Result<Store> {
+        fs::private_home(home, profile).map_err(Error::io(home, "made owner-only"))?;
         let runs = home.join("runs");
         private_dir(&runs).map_err(Error::io(&runs, "created"))?;
         Ok(Store {
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn records_are_kept_per_run_and_listed_by_name() {
         let home = tempfile::tempdir().unwrap();
-        let store = Store::open(home.path()).unwrap();
+        let store = Store::open(home.path(), None).unwrap();
         assert_eq!(store.record(&RunName::new("b").unwrap()).unwrap(), None);
         let mut b = record("b");
         b.params.insert("ISOLOOM_PUBLISH_FIXED".into(), "1".into());
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn the_event_log_is_trimmed_to_its_newer_half() {
         let home = tempfile::tempdir().unwrap();
-        let store = Store::open(home.path()).unwrap();
+        let store = Store::open(home.path(), None).unwrap();
         let name = RunName::new("r").unwrap();
         let mut log = store.event_log(&name).unwrap();
         for seq in 0..=EVENTS_KEPT {

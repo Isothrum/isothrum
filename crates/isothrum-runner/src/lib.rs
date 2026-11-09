@@ -108,6 +108,7 @@ mod future;
 #[doc(hidden)]
 pub mod fuzzing;
 mod guest;
+mod host_env;
 mod in_vm;
 mod manifest;
 mod name;

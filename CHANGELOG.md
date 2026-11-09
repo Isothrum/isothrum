@@ -284,6 +284,12 @@ change.
   without its folder, a `terraform.copy_module`'s `from` or `when`) with `manifest_invalid`
   (`Error::Malformed`, naming the field). `unsupported`'s message no longer says "by this runner
   yet": much of what it refuses is a target's limit, not a missing feature.
+- **The runner reads its environment once, in `RunnerConfig::new`.** The proxies, CA bundles,
+  `TF_CLI_CONFIG_FILE`, Vagrant's variables and `USERPROFILE` it hands to an elevated Hyper-V
+  session, a containerised tool and the macOS relays were read from the process's environment
+  in the middle of each operation; they are read with `PATH` and `TF_PLUGIN_CACHE_DIR` when the
+  configuration is made, so an embedder that changes its environment later builds a new one. An
+  elevated session gets `RunnerConfig::path` as its `PATH`.
 - **Breaking: Isothrum reads run manifest version 1.** Isoloom froze its run manifest at
   `manifest_version` 1, with a compatibility policy (`isoloom_manifest::COMPATIBILITY`: changes
   within a version are additive; a reader refuses what it doesn't know) and a schema published at

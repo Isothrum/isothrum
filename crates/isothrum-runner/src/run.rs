@@ -228,11 +228,17 @@ impl<'r> Running<'r> {
     pub(crate) fn acting<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
         if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
             let dir = self.runner.store.run_dir(&self.name)?.join("elevated");
-            let own = std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)));
             let inner = std::sync::Arc::clone(&self.runner.config.processes);
-            cx.processes = std::sync::Arc::new(crate::process::Elevated::new(inner, dir, own));
+            cx.processes = std::sync::Arc::new(crate::process::Elevated::new(inner, dir, self.elevated_env()));
         }
         Ok(cx)
+    }
+
+    /// What an elevated session is handed of the runner's environment: the variables it hands on,
+    /// and its `PATH`.
+    pub(crate) fn elevated_env(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        let config = &self.runner.config;
+        config.host_env.vars().chain(config.path.clone().map(|p| ("PATH".to_owned(), p)))
     }
 
     /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet
@@ -252,8 +258,8 @@ impl<'r> Running<'r> {
         let Some((host, port)) = crate::relay::esxi_host(config.host == isoloom_manifest::HostOs::Macos, vagrant, cx.scope.provider.as_deref(), params) else {
             return Ok(());
         };
-        let no_proxy = std::env::var("no_proxy").or_else(|_| std::env::var("NO_PROXY")).ok();
-        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy.as_deref()).await;
+        let no_proxy = config.host_env.get("no_proxy").or_else(|| config.host_env.get("NO_PROXY"));
+        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy).await;
         cx.relayed = Some(relayed.map_err(Error::io(config.home.join("relay"), "set up"))?);
         Ok(())
     }

@@ -13,6 +13,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::events::Event;
+use crate::host_env::HostEnv;
 use crate::manifest::load_manifest;
 use crate::name::RunName;
 use crate::net::{HostPorts, LoopbackPorts};
@@ -37,17 +38,24 @@ pub struct RunnerConfig {
     pub(crate) clock: Arc<dyn Clock>,
     /// The host's operating system (it picks per-host argv and filters steps).
     pub host: HostOs,
-    /// The tools' `PATH`, where the macOS relays look for the real `ovftool` and put their
-    /// wrapper first (default: the runner's own).
+    /// The `PATH` the runner hands on where it isn't inherited: to an elevated Hyper-V session,
+    /// and to Vagrant on an ESXi host from macOS, whose relays look for the real `ovftool` in it
+    /// and put their wrapper first (default: the runner's own). The tools the runner starts as
+    /// its children inherit its environment as it is.
     pub path: Option<String>,
     /// The user's own Terraform plugin cache (`TF_PLUGIN_CACHE_DIR`), which the runs use as it
     /// is; without one, they share one under the home.
     pub(crate) tf_plugin_cache: Option<PathBuf>,
+    /// The variables of the runner's environment it hands on where they aren't inherited (the
+    /// proxies, the CA bundles: [`HostEnv`]).
+    pub(crate) host_env: HostEnv,
 }
 
 impl RunnerConfig {
     /// A runner at `home` on this host: real processes (told the Docker CLI's config, see
-    /// [`SystemProcesses`]), the loopback, the system's clock.
+    /// [`SystemProcesses`]), the loopback, the system's clock, and what it needs of this process's
+    /// environment, read now (`PATH`, `TF_PLUGIN_CACHE_DIR`, the proxies, the CA bundles,
+    /// Terraform's CLI configuration, Vagrant's variables, `USERPROFILE`).
     pub fn new(home: impl Into<PathBuf>) -> RunnerConfig {
         RunnerConfig {
             home: home.into(),
@@ -57,6 +65,7 @@ impl RunnerConfig {
             host: this_host(),
             path: std::env::var("PATH").ok(),
             tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
+            host_env: HostEnv::capture(),
         }
     }
 }
@@ -98,7 +107,7 @@ impl Runner {
     ///
     /// Fails with `io` when the home's `runs/` folder can't be created.
     pub fn new(config: RunnerConfig) -> Result<Runner> {
-        let store = Store::open(&config.home)?;
+        let store = Store::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
         Ok(Runner {
             config,
             store,

@@ -17,6 +17,7 @@ use isoloom_manifest::Tool;
 
 use crate::Result;
 use crate::executor::Cx;
+use crate::host_env::{HostEnv, TF_CLI_CONFIG_FILE};
 use crate::process::ProcessSpec;
 
 /// The tool of the manifest that runs `program` from an image on this host, if one does.
@@ -50,12 +51,9 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
         &home.join("ssh"),
         &crate::driver::plugin_cache(&cx.run.runner.config),
     ]);
-    let network = HostNetwork::read(|name| std::env::var(name).ok());
+    let network = HostNetwork::read(&cx.run.runner.config.host_env);
     Ok(docker_run(image.as_str(), &mounts, &network, spec))
 }
-
-/// The terraform CLI's own configuration file (a provider mirror, credentials).
-const TF_CLI_CONFIG_FILE: &str = "TF_CLI_CONFIG_FILE";
 
 /// What a container needs of this host's network settings: the variables it gets by name, and
 /// the files they name, mounted read-only.
@@ -68,9 +66,9 @@ struct HostNetwork {
 }
 
 impl HostNetwork {
-    /// The settings `var` (the environment) holds.
-    fn read(var: impl Fn(&str) -> Option<String>) -> HostNetwork {
-        let set = |name: &&str| var(name).filter(|v| !v.is_empty());
+    /// The settings `env` (the runner's environment) holds.
+    fn read(env: &HostEnv) -> HostNetwork {
+        let set = |name: &&str| env.get(name).filter(|v| !v.is_empty());
         let names = crate::network_env::NETWORK_VARS
             .iter()
             .chain([&TF_CLI_CONFIG_FILE])
@@ -212,7 +210,7 @@ mod tests {
             ("TF_CLI_CONFIG_FILE", cli_config.display().to_string()),
             ("HTTP_PROXY", String::new()),
         ];
-        let network = HostNetwork::read(|n| env.iter().find(|(k, _)| *k == n).map(|(_, v)| v.clone()));
+        let network = HostNetwork::read(&HostEnv::of(env));
         assert_eq!(
             network.names,
             ["HTTPS_PROXY", "no_proxy", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "TF_CLI_CONFIG_FILE"]
