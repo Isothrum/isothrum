@@ -193,6 +193,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   project's files.
 - **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
   embedder read them.
+- **`LoopbackPorts` and `HeldPort::new` are internal, and `HostPorts` is sealed.** No embedder
+  implemented `HostPorts` or named the loopback's: `RunnerConfig::new` installs it, and a test sets
+  `RunnerConfig::ports` to the `fake` feature's `FakePorts`.
 - **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
   and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
 - **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),

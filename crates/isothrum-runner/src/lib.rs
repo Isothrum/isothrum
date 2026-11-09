@@ -49,10 +49,11 @@
 //!
 //! # Ports
 //!
-//! Every outside effect goes through a port the embedder can replace: [`ProcessRunner`] (the
-//! tools), [`HostPorts`] (the host's ports) and [`Events`] (where events go). They are open traits
-//! on purpose, since embedders implement them; the `fake` feature has test doubles for the tools
-//! and the ports.
+//! Every outside effect goes through a port: [`ProcessRunner`] (the tools), [`HostPorts`] (the
+//! host's ports) and [`Events`] (where events go). [`ProcessRunner`] and [`Events`] are open traits,
+//! since embedders implement them. [`HostPorts`] is sealed: [`RunnerConfig::new`] binds the
+//! loopback itself, and the `fake` feature's `FakePorts` stands in for it in tests, as its
+//! `FakeProcesses` does for the tools.
 //!
 //! # Deliveries
 //!
@@ -139,7 +140,7 @@ pub use manifest::{LoadedManifest, load_manifest};
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
 pub use net::FakePorts;
-pub use net::{HeldPort, HostPorts, LoopbackPorts};
+pub use net::{HeldPort, HostPorts};
 pub use options::{Occupied, RunOptions};
 pub use process::{ProcessRunner, ProcessSpec, SystemProcesses};
 pub use reap::{Orphans, Place, Tagged};

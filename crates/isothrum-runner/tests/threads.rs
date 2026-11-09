@@ -3,7 +3,7 @@
 
 use std::error::Error;
 
-use isothrum_runner::{CheckReport, Event, LoopbackPorts, Park, RunOptions, Runner, RunnerConfig, Running, Started, Status, SystemProcesses};
+use isothrum_runner::{CheckReport, Event, Park, RunOptions, Runner, RunnerConfig, Running, Started, Status, SystemProcesses};
 
 /// A test's outcome: a failed step is its report.
 type Outcome<T = ()> = Result<T, Box<dyn Error>>;
@@ -24,7 +24,6 @@ fn the_types_an_embedder_shares_between_threads_are_send_and_sync() {
     send_sync::<Started>();
     send_sync::<CheckReport>();
     send_sync::<SystemProcesses>();
-    send_sync::<LoopbackPorts>();
 }
 
 #[test]

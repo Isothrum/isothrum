@@ -1,5 +1,6 @@
 //! The host's ports, behind [`HostPorts`]: whether one is taken, a free one to pin, and whether an
-//! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's [`FakePorts`] answers from a test's setup.
+//! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's `FakePorts` answers
+//! from a test's setup.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, UdpSocket};
 use std::time::Duration;
@@ -23,13 +24,15 @@ impl std::fmt::Debug for HeldPort {
 
 impl HeldPort {
     /// `port`, held by `hold` (a socket, or nothing for a fake).
-    pub fn new(port: u16, hold: impl Send + Sync + 'static) -> HeldPort {
+    pub(crate) fn new(port: u16, hold: impl Send + Sync + 'static) -> HeldPort {
         HeldPort { port, _hold: Box::new(hold) }
     }
 }
 
-/// The host's ports.
-pub trait HostPorts: Send + Sync {
+/// The host's ports. Sealed: [`RunnerConfig::new`](crate::RunnerConfig::new) gives the real
+/// host's (sockets on the loopback), and the `fake` feature's `FakePorts` answers from a test's
+/// setup; no other implementation is needed.
+pub trait HostPorts: Send + Sync + sealed::Sealed {
     /// Whether `port` is taken over `protocol` on the loopback.
     fn in_use(&self, port: u16, protocol: Protocol) -> bool;
     /// A free loopback port over `protocol`, held.
@@ -41,7 +44,18 @@ pub trait HostPorts: Send + Sync {
 /// The real host: sockets on the loopback. Never all interfaces: binding 0.0.0.0 made Windows
 /// Firewall ask whether the embedder's app may accept connections from the network.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct LoopbackPorts;
+pub(crate) struct LoopbackPorts;
+
+/// What keeps [`HostPorts`] to this crate's implementations.
+mod sealed {
+    /// Implemented by this crate's ports only.
+    pub trait Sealed {}
+
+    impl Sealed for super::LoopbackPorts {}
+
+    #[cfg(any(test, feature = "fake"))]
+    impl Sealed for super::FakePorts {}
+}
 
 impl HostPorts for LoopbackPorts {
     /// Taken when the IPv4 loopback can't be bound, or the IPv6 one is held (a browser opening

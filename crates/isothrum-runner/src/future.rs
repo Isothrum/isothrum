@@ -1,6 +1,6 @@
 //! The boxed future the ports' object-safe methods return ([`ProcessRunner`](crate::ProcessRunner),
-//! [`HostPorts`](crate::HostPorts)): an embedder implements them without
-//! `async fn` in traits, and the runner holds them as `dyn` values shared between threads.
+//! [`HostPorts`](crate::HostPorts)): an embedder implements `ProcessRunner` without `async fn` in
+//! traits, and the runner holds the ports as `dyn` values shared between threads.
 
 use std::future::Future;
 use std::pin::Pin;
