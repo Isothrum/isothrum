@@ -11,7 +11,7 @@ use isoloom_manifest::HostOs;
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{FLAG_VM, LabFolder, modelled, processes, runner_config, virtualbox_options};
+use crate::testing::{FLAG_VM, LabFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
 const CONTROLLER: &str = "isoloom-controller";
@@ -811,4 +811,24 @@ async fn a_machine_with_no_native_name_has_no_console() {
     let retired = run.retire("web", &opts(), &Recorder::new()).await.unwrap_err();
     assert_eq!(retired.code(), ErrorCode::Unsupported, "{retired}");
     assert!(f.vagrant().iter().all(|l| !l.contains("destroy")), "{:?}", f.vagrant());
+}
+
+/// Both VMs' boot settings changed (a host folder each, say): the update restarts the one that
+/// runs, the web VM, and leaves the controller, off once the lab is built, to boot with them
+/// when it next boots.
+#[tokio::test]
+async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {
+    let f = fixture(crate::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!((f.state("web").as_str(), f.state(CONTROLLER).as_str()), ("running", "poweroff"));
+    let changed = with_boot_digest(&with_boot_digest(FLAG_VM, "web", Some("sha256:web-2")), CONTROLLER, Some("sha256:controller-2"));
+    std::fs::write(&f.manifest, changed).unwrap();
+    let updated = f.runner.open(&f.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
+    let reloads: Vec<String> = f.vagrant().into_iter().filter(|l| l.starts_with("vagrant reload")).collect();
+    assert_eq!(reloads, ["vagrant reload web --no-provision"]);
+    let reload = f.fake.last("vagrant reload").unwrap();
+    assert!(reload.env("VAGRANT_DOTFILE_PATH").is_some_and(|p| !p.is_empty()), "in the run's Vagrant state");
+    assert_eq!(updated.record.vm_boot_digests.get("web").map(String::as_str), Some("sha256:web-2"));
+    assert_eq!(updated.record.vm_boot_digests.get(CONTROLLER).map(String::as_str), Some("sha256:controller-2"));
 }

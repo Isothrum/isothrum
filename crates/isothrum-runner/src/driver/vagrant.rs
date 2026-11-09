@@ -34,6 +34,9 @@ const READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long hot-adding the access machine may take: booting its VM, and maybe fetching its box.
 const ATTACH_TIMEOUT: Duration = Duration::from_secs(1800);
 
+/// How long restarting a running VM may take: shutting it down, then booting it.
+const RELOAD_TIMEOUT: Duration = Duration::from_secs(1800);
+
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
 
@@ -116,6 +119,15 @@ impl Vagrant {
         let mut spec = ProcessSpec::new("vagrant", args.iter().copied());
         spec.env = self.env(cx)?;
         Ok(spec)
+    }
+
+    /// `machine`'s VM restarted as step `id` (`vagrant reload <define> --no-provision`), so it
+    /// boots with what the Vagrantfile now says: its synced folders, networks, forwarded ports,
+    /// size and provider settings, which Vagrant applies only at boot. Its provisioners are left
+    /// to the steps that follow.
+    pub(crate) async fn reload(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
+        let spec = self.vagrant(cx, id, &["reload", define_of(machine, "restarting")?, "--no-provision"])?;
+        call_ok(cx, id, &spec, RELOAD_TIMEOUT, Echo::Shown).await.map(drop)
     }
 
     /// The address of each running VM that publishes a port, or that Compose runs in, by define

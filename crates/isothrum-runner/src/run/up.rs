@@ -74,6 +74,8 @@ impl Running<'_> {
         // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`
         // below binds them into `cx` for the start's own forwards and status.
         record.vm_host_ports = self.driver.forward_ports(&cx);
+        // Every VM the start boots, boots with the Vagrantfile of this manifest.
+        record.vm_boot_digests = super::update::boot_digests(self.manifest());
         record.params = cx.vars.params().clone();
         record.cloud = self.manifest().cloud;
         record.host_label.clone_from(&opts.host_label);

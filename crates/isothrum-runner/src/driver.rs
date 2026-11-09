@@ -221,6 +221,19 @@ impl AnyDriver {
         }
     }
 
+    /// Restarts `machine`, a running VM, so it boots with what its definition now says (Vagrant:
+    /// `vagrant reload`), as step `id`. Refused for a driver whose machines don't boot from a
+    /// definition the runner re-reads.
+    pub(crate) async fn reload(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = %cx.events.op(), machine = %machine.name);
+        match self {
+            AnyDriver::Vagrant(d) => d.reload(cx, machine, id).instrument(span).await,
+            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => Err(Error::Unsupported {
+                what: format!("restarting `{}` to apply its boot settings on a {} run", machine.name, self.name()),
+            }),
+        }
+    }
+
     pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
         let _span = tracing::debug_span!("driver", driver = self.name(), query = "console", machine = %machine.name).entered();
         match self {

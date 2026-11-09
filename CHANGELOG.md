@@ -11,6 +11,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **An update restarts a running VM whose boot-time settings changed.** Vagrant applies a VM's
+  synced folders, networks, forwarded ports, size and provider settings only when it boots it, and
+  an update reran `up`'s steps on the running VM: a host folder added to a running `docker-vm`
+  lab was never mounted in its VM, so its container saw an empty folder (the same for any such
+  change to a running `vagrant` VM). The run's record now keeps each VM's boot digest (the
+  manifest's `native.boot_digest`) at `up` and at every update; an update first restarts each
+  running VM whose digest changed (`vagrant reload <define> --no-provision`, in the run's Vagrant
+  state, as step `reload-<machine>`), then runs `up`'s steps, which provision it and start what
+  runs in it again. A digest that isn't known on both sides (a run recorded before, a manifest
+  without one) restarts nothing; the update records the manifest's.
+
 - **A lab's own access machine reaches the lab through its router.** On Compose, `attach` started
   the access service alone (`--no-deps`), without the service that sets its routes (Isoloom's
   `<machine>-routes`, in its network namespace): an access machine on its own network reached

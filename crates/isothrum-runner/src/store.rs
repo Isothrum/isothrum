@@ -85,6 +85,12 @@ pub struct RunRecord {
     /// one the runner pinned at the first start, kept so a resume forwards the same port.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub vm_host_ports: BTreeMap<String, u16>,
+    /// The boot digest (the manifest's `native.boot_digest`) of the Vagrantfile each VM of the run
+    /// was last brought up or updated with, by machine name: what an update compares to reload a
+    /// running VM whose boot-time settings changed. Empty for a run recorded before the runner
+    /// kept them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub vm_boot_digests: BTreeMap<String, String>,
     /// When it was last started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
@@ -118,6 +124,7 @@ impl RunRecord {
             state: RunState::Absent,
             params: BTreeMap::new(),
             vm_host_ports: BTreeMap::new(),
+            vm_boot_digests: BTreeMap::new(),
             started_at: None,
             slot: None,
             ssh_jump: None,

@@ -10,8 +10,8 @@ use isoloom_manifest::{HostOs, Protocol, Role};
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{DOCKER_VM, LabFolder, modelled, processes, runner_config, virtualbox_options};
-use crate::{ErrorCode, MachineState, Park, Recorder, RunOptions, Runner};
+use crate::testing::{DOCKER_VM, LabFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
+use crate::{ErrorCode, EventKind, MachineState, Park, Recorder, RunOptions, Runner, StepState};
 
 const FLAG: &str = "flag{vm-docker-0001}";
 /// The Docker host's address the fake apply reports.
@@ -28,6 +28,8 @@ struct Engine {
     flag: Option<String>,
     /// How many reads of the containers still miss (the way into the VM refused).
     ps_misses: u32,
+    /// How many times the VM was restarted (`vagrant reload`).
+    reloads: u32,
 }
 
 /// `docker compose ps --all --format json` of the started run, one object a line.
@@ -66,6 +68,12 @@ fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
         ("vagrant", ["status", ..]) => Reply::ok(&format!("1,default,state,{}", e.vm.as_deref().unwrap_or("not_created"))),
         ("vagrant", ["up", ..]) => {
             e.vm = Some("running".into());
+            Reply::ok("==> default: Machine booted and ready!")
+        }
+        // A restart stops the containers; Docker comes back empty until Compose starts them.
+        ("vagrant", ["reload", "default", "--no-provision"]) if e.vm.as_deref() == Some("running") => {
+            e.reloads += 1;
+            e.up = false;
             Reply::ok("==> default: Machine booted and ready!")
         }
         ("vagrant", ["suspend"]) => {
@@ -267,4 +275,82 @@ async fn retiring_a_service_in_the_vm_removes_it_there() {
     );
     assert!(rm.args[3].contains("sudo docker rm -f"), "{}", rm.args[3]);
     assert!(l.fake.last("destroy").is_none(), "nothing of the VM goes");
+}
+
+/// The VM's boot digest in the fixture.
+const BOOTED: &str = "sha256:6dfb163c92b092ca85f70f4083a99f0a7cd6748c17c3d2cfb05a3eb9100ad9ad";
+
+/// The steps `events` show, with their states.
+fn steps(events: &Recorder) -> Vec<(String, StepState)> {
+    events
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::Step { step, state, .. } => Some((step, state)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A container given a host folder after the start: the regenerated Vagrantfile shares it into
+/// the VM, which only a boot applies. The update restarts the running VM first, then its start
+/// steps provision it and start the containers again, which then see the folder.
+#[tokio::test(start_paused = true)]
+async fn an_update_restarts_the_vm_whose_boot_settings_changed_then_starts_its_containers_again() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    let started = run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(started.record.vm_boot_digests.get("docker").map(String::as_str), Some(BOOTED));
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:shared-folder"))).unwrap();
+    let before = l.fake.calls().len();
+    let events = Recorder::new();
+    let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &events).await.unwrap();
+    let during: Vec<String> = l.fake.calls()[before..].iter().map(Call::line).collect();
+    let reloads: Vec<usize> = (0..during.len()).filter(|i| during[*i].starts_with("vagrant reload")).collect();
+    assert_eq!(reloads.len(), 1, "{during:?}");
+    assert_eq!(during[reloads[0]], "vagrant reload default --no-provision");
+    let up = during.iter().position(|c| c.starts_with("vagrant up")).unwrap();
+    let start = during.iter().position(|c| c.contains(" up --detach ")).unwrap();
+    assert!(reloads[0] < up && up < start, "restarted, then provisioned, then the containers: {during:?}");
+    assert!(l.engine.lock().unwrap().up, "the containers run again");
+    let shown = steps(&events);
+    let reload = |state| shown.contains(&("reload-docker".to_owned(), state));
+    assert!(reload(StepState::Running) && reload(StepState::Done), "{shown:?}");
+    assert_eq!(
+        updated.record.vm_boot_digests.get("docker").map(String::as_str),
+        Some("sha256:shared-folder"),
+        "the new digest is recorded"
+    );
+    // Updated again with the same manifest: nothing to restart.
+    l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(l.engine.lock().unwrap().reloads, 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_update_with_the_same_boot_settings_restarts_nothing() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let events = Recorder::new();
+    run.update(&opts(), &events).await.unwrap();
+    assert_eq!(l.engine.lock().unwrap().reloads, 0);
+    assert!(steps(&events).iter().all(|(s, _)| !s.starts_with("reload-")));
+}
+
+/// A run started from a manifest without boot digests (or by a runner that kept none) has no
+/// recorded digest: its first update can't tell what the VM booted with, so it restarts nothing
+/// and records the manifest's; a later change is then restarted for.
+#[tokio::test(start_paused = true)]
+async fn an_unknown_boot_digest_restarts_nothing_and_is_recorded_for_the_next_update() {
+    let l = local();
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", None)).unwrap();
+    let started = l.runner.open(&l.manifest, None).unwrap().up(&opts(), &Recorder::new()).await.unwrap();
+    assert!(started.record.vm_boot_digests.is_empty());
+    std::fs::write(&l.manifest, DOCKER_VM).unwrap();
+    let updated = l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(l.engine.lock().unwrap().reloads, 0, "an unknown digest never restarts");
+    assert_eq!(updated.record.vm_boot_digests.get("docker").map(String::as_str), Some(BOOTED));
+    std::fs::write(&l.manifest, with_boot_digest(DOCKER_VM, "docker", Some("sha256:other"))).unwrap();
+    l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(l.engine.lock().unwrap().reloads, 1);
 }

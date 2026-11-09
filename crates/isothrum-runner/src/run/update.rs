@@ -13,15 +13,29 @@
 //!
 //! A sealed run stays sealed: its recorded seal is replayed, so a machine added to an
 //! `internet: false` network sets itself up without the internet.
+//!
+//! A running VM whose boot-time settings changed is restarted first. Vagrant applies a VM's
+//! synced folders, networks, forwarded ports, size and provider settings only when it boots it;
+//! `up`'s steps on a running VM would leave them as they were (a host folder added: the VM never
+//! mounts it). The manifest's `native.boot_digest` of each VM is compared with the one the run
+//! recorded at its last `up` or update: a running VM whose two digests are both known and differ
+//! is reloaded ([`AnyDriver::reload`](crate::driver::AnyDriver::reload)) before `up`'s steps run
+//! again, which then provision it and start what runs in it (a `docker-vm`'s containers). A VM
+//! with no recorded digest (a run recorded before the runner kept them) or none in the manifest
+//! is left running: an unknown digest never reloads. Either way the update records the
+//! manifest's digests.
 
-use isoloom_manifest::{Machine, Native};
+use std::collections::BTreeMap;
+
+use isoloom_manifest::{Machine, Manifest, Native};
 
 use super::Running;
 use super::operation::Done;
 use super::up::ready_run;
 use crate::Result;
+use crate::driver::Observed;
 use crate::error::Error;
-use crate::events::{Emitter, Events};
+use crate::events::{Emitter, Events, StepState};
 use crate::executor::Cx;
 use crate::hooks::Edge;
 use crate::options::RunOptions;
@@ -105,6 +119,10 @@ impl Running<'_> {
             .filter(|m| m.state == MachineState::Running)
             .map(|m| m.name.clone())
             .collect();
+        for vm in changed_at_boot(self.manifest(), &record.vm_boot_digests, &observed) {
+            self.reload(&cx, vm).await?;
+        }
+        record.vm_boot_digests = boot_digests(self.manifest());
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write(&cx, true)?;
@@ -116,4 +134,41 @@ impl Running<'_> {
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }
+
+    /// Restarts `vm` so it boots with its new settings, as its own step (`reload-<machine>`).
+    async fn reload(&self, cx: &Cx<'_>, vm: &Machine) -> Result<()> {
+        let id = format!("reload-{}", vm.name);
+        let note = format!("Restarting {} to apply its new settings…", vm.name);
+        cx.events.step(&id, StepState::Running, Some(&note));
+        let done = self.driver.reload(cx, vm, &id).await;
+        cx.events.step(&id, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
+        done
+    }
+}
+
+/// Each VM's boot digest in `manifest` (its `native.boot_digest`), by machine name.
+pub(crate) fn boot_digests(manifest: &Manifest) -> BTreeMap<String, String> {
+    manifest
+        .machines
+        .iter()
+        .filter_map(|m| match &m.native {
+            Some(Native::Vagrant { boot_digest: Some(digest), .. }) => Some((m.name.to_string(), digest.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The machines of `manifest` that run (as `observed`) and whose boot digest differs from the
+/// one `recorded`, both known.
+fn changed_at_boot<'m>(manifest: &'m Manifest, recorded: &BTreeMap<String, String>, observed: &Observed) -> Vec<&'m Machine> {
+    let now = boot_digests(manifest);
+    let running = |name: &str| observed.machines.iter().any(|m| m.name == name && m.state == MachineState::Running);
+    manifest
+        .machines
+        .iter()
+        .filter(|m| {
+            let name = m.name.as_str();
+            matches!((recorded.get(name), now.get(name)), (Some(was), Some(is)) if was != is) && running(name)
+        })
+        .collect()
 }

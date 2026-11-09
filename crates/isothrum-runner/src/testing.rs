@@ -63,6 +63,21 @@ pub(crate) fn vagrant_manifest() -> Manifest {
     isoloom_manifest::parse(FLAG_VM).unwrap()
 }
 
+/// `manifest` (JSON) with machine `machine`'s `native.boot_digest` set to `digest`, or taken out
+/// (a manifest written before Isoloom wrote one): a regenerated Vagrantfile whose VM boots
+/// otherwise.
+pub(crate) fn with_boot_digest(manifest: &str, machine: &str, digest: Option<&str>) -> String {
+    let mut m: serde_json::Value = serde_json::from_str(manifest).unwrap();
+    let native = m["machines"].as_array_mut().unwrap().iter_mut().find(|x| x["name"] == machine).unwrap()["native"]
+        .as_object_mut()
+        .unwrap();
+    match digest {
+        Some(d) => native.insert("boot_digest".into(), d.into()),
+        None => native.remove("boot_digest"),
+    };
+    m.to_string()
+}
+
 /// A run generated for one target, and a runner home beside it; both go when it is dropped.
 pub(crate) struct LabFolder {
     /// The runner's home.
