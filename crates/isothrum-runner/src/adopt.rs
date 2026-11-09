@@ -24,10 +24,10 @@ use crate::state::RunState;
 use crate::store::RunRecord;
 
 /// The state file a deployment must hold to be taken over.
-const STATE: &str = "terraform.tfstate";
+const STATE: &str = crate::driver::terraform::state::STATE_FILE;
 
 /// The files that move, the state first (the only one required).
-const MOVED: [&str; 2] = [STATE, "terraform.tfstate.backup"];
+const MOVED: [&str; 2] = [STATE, crate::driver::terraform::state::BACKUP_FILE];
 
 /// A deployment the runner takes over ([`Runner::adopt`]).
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -20,7 +20,6 @@ pub use tags::{Place, Tagged};
 
 use crate::Result;
 use crate::clock::unix_seconds;
-use crate::error::Error;
 use crate::process::{ProcessRunner, ProcessSpec, capture};
 use crate::runner::Runner;
 use crate::state::RunState;
@@ -84,14 +83,10 @@ impl Runner {
     fn covered(&self, cloud: Cloud) -> Result<BTreeSet<String>> {
         let mut out = BTreeSet::new();
         for record in self.store.records()?.into_iter().filter(|r| r.cloud == Some(cloud)) {
-            let path = self.store.run_dir(&record.name)?.join("terraform.tfstate");
-            let text = match std::fs::read_to_string(&path) {
-                Ok(text) => text,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(Error::io(&path, "read")(e)),
-            };
-            let state = serde_json::from_str(&text).map_err(|e| Error::io(&path, "read")(e.into()))?;
-            tags::instances_in_state(&state, &mut out);
+            let dir = self.store.run_dir(&record.name)?;
+            if let Some(state) = crate::driver::terraform::state::read_json(&dir)? {
+                tags::instances_in_state(&state, &mut out);
+            }
         }
         Ok(out)
     }

@@ -5,7 +5,7 @@
 
 mod compose;
 pub(crate) mod shells;
-mod terraform;
+pub(crate) mod terraform;
 mod vagrant;
 
 pub(crate) use compose::{UNREADABLE_PS, read_ps};

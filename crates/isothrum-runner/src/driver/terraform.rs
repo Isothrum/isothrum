@@ -20,7 +20,7 @@
 mod console;
 mod copy_module;
 mod guest;
-mod state;
+pub(crate) mod state;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -40,7 +40,7 @@ const LOCK_FILE: &str = ".terraform.tfstate.lock.info";
 /// What a successful `down` leaves no use for, in the run's state folder.
 const FORGOTTEN: [&str; 6] = [
     state::STATE_FILE,
-    "terraform.tfstate.backup",
+    state::BACKUP_FILE,
     ".terraform",
     "known_hosts",
     "ssh_config",

@@ -7,10 +7,12 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::Result;
-use crate::error::Error;
 
 /// The state file, in the run's state folder.
-pub(super) const STATE_FILE: &str = "terraform.tfstate";
+pub(crate) const STATE_FILE: &str = "terraform.tfstate";
+
+/// The state Terraform kept before its last write, beside [`STATE_FILE`].
+pub(crate) const BACKUP_FILE: &str = "terraform.tfstate.backup";
 
 /// A state, as far as the runner reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -30,17 +32,26 @@ pub(super) struct TfState {
 
 /// Reads the state in `dir`; an empty one when there is none.
 pub(super) fn read(dir: &Path) -> Result<TfState> {
-    let path = dir.join(STATE_FILE);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => parse(&text).map_err(|e| Error::io(&path, "read")(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(TfState::default()),
-        Err(e) => Err(Error::io(&path, "read")(e)),
-    }
+    Ok(read_json(dir)?.map(|v| of(&v)).unwrap_or_default())
+}
+
+/// The state file in `dir` as JSON; `None` when there is none.
+///
+/// # Errors
+///
+/// It exists but can't be read, or isn't JSON (`InvalidData`).
+pub(crate) fn read_json(dir: &Path) -> Result<Option<Value>> {
+    crate::store::read_json(&dir.join(STATE_FILE))
 }
 
 /// A state file's text, read.
+#[cfg(test)]
 pub(super) fn parse(text: &str) -> std::result::Result<TfState, serde_json::Error> {
-    let v: Value = serde_json::from_str(text)?;
+    serde_json::from_str(text).map(|v: Value| of(&v))
+}
+
+/// What state `v` says.
+fn of(v: &Value) -> TfState {
     let mut state = TfState::default();
     if let Some(outputs) = v.get("outputs").and_then(Value::as_object) {
         for (name, o) in outputs {
@@ -63,7 +74,7 @@ pub(super) fn parse(text: &str) -> std::result::Result<TfState, serde_json::Erro
         .iter()
         .flat_map(|r| r.get("instances").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default())
         .any(|i| i.get("status").and_then(Value::as_str) == Some("tainted"));
-    Ok(state)
+    state
 }
 
 /// A scalar value as text (a string as it is); none for null, an object or a list.

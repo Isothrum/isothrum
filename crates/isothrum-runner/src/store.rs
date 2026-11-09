@@ -160,12 +160,7 @@ impl Store {
 
     /// Run `name`'s record, when it has one.
     pub(crate) fn record(&self, name: &RunName) -> Result<Option<RunRecord>> {
-        let path = self.runs.join(name.as_str()).join("record.json");
-        match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(&path, "read")(e.into())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(Error::io(&path, "read")(e)),
-        }
+        read_json(&self.runs.join(name.as_str()).join("record.json"))
     }
 
     /// Writes `record` whole.
@@ -211,6 +206,19 @@ fn read_lines(path: &Path) -> Result<Vec<String>> {
     match std::fs::File::open(path) {
         Ok(f) => BufReader::new(f).lines().collect::<Result<_, _>>().map_err(Error::io(path, "read")),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(Error::io(path, "read")(e)),
+    }
+}
+
+/// The JSON file at `path`, read; `None` when there is none.
+///
+/// # Errors
+///
+/// It exists but can't be read, or doesn't hold a `T` (`InvalidData`).
+pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(path, "read")(e.into())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(Error::io(path, "read")(e)),
     }
 }
