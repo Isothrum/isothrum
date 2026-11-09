@@ -12,14 +12,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use isothrum_runner::ProcessRunner;
-use serde::{Deserialize, Serialize};
 
 use crate::exec;
 
 /// A Vagrant provider id (the value given to `vagrant up --provider`): a local hypervisor, or a
 /// remote host's (ESXi, Proxmox).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Provider {
     /// Oracle VirtualBox (built into Vagrant).
@@ -213,8 +211,7 @@ fn qemu_binary() -> &'static str {
 }
 
 /// One provider's readiness on this machine.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ProviderStatus {
     /// The provider.

@@ -106,7 +106,7 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `CFBundleShortVersionString`), and reports UTM unavailable with the way out
   when either is too old: `vagrant_utm` before 0.2.0 (it reads a VM's forwarded ports through a
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
-  `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`).
+  `ProviderStatus` carries both versions (`hypervisor_version`, `plugin_version`).
 
 ### Changed
 
@@ -139,6 +139,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   that keeps something beside a run does it around the operation's call.
 - **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
+- **`Serialize` and `Deserialize` on `isothrum-machine`'s `Provider` and `ProviderStatus`**:
+  nothing wrote or read either as JSON (an embedder reads the fields, and a provider's wire name
+  is `Provider::id`).
 - **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
   a Vagrant provider's). `Provider::is_remote` is ESXi and Proxmox; `Provider::ALL` is every
