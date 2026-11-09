@@ -313,18 +313,12 @@ async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
-/// A VM lab on a server or a cloud has no VM its containers run in: no attacker box goes
-/// anywhere, and nothing is run trying.
+/// A VM lab on a server or a cloud that declares no access machine has none to attach: nothing
+/// is run trying.
 #[tokio::test(start_paused = true)]
 async fn a_vm_lab_on_a_server_gets_no_attack_box() {
     let s = server(HostOs::Linux);
     let run = s.runner.open(&s.manifest, None).unwrap();
     run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
-    let calls = s.fake.calls().len();
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
-    assert!(err.to_string().contains("no container host VM"), "{err}");
-    assert_eq!(run.shell_command(None).unwrap_err().code(), ErrorCode::Unsupported);
-    assert_eq!(run.detach(None, &Recorder::new()).await.unwrap_err().code(), ErrorCode::Unsupported);
-    assert!(s.fake.calls()[calls..].iter().all(|c| !c.line().contains("docker")), "nothing ran in a VM");
+    crate::testing::refuses_a_box_it_has_none_of(&run, &s.fake).await;
 }

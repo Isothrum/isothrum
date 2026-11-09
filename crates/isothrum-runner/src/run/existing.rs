@@ -16,7 +16,7 @@ use crate::options::RunOptions;
 use crate::params::params_for_existing;
 use crate::secrets::sensitive_values;
 use crate::state::{Op, Park, RunState};
-use crate::status::{MachineState, Started, any_target_running};
+use crate::status::{MachineState, Started};
 use crate::store::RunRecord;
 use crate::{ready, tools};
 
@@ -35,9 +35,6 @@ impl Running<'_> {
             self.hooks(&cx, Edge::BeforeDown, &[]).await;
             self.begin(&mut record, Op::Down)?;
             run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
-            // The manifest's steps remove the project's own containers; an ad-hoc attacker box has
-            // no project, so reap it too or it is left running and still read as the lab.
-            self.driver.reap_attacker(&cx).await;
             self.driver.after_down(&cx)?;
             crate::executor::state_files::forget(&cx)?;
             self.forget_seal()?;
@@ -75,10 +72,6 @@ impl Running<'_> {
             self.hooks(&cx, Edge::BeforePark, &[]).await;
             self.begin(&mut record, Op::Park)?;
             run_steps(&mut cx, "lifecycle.park", steps).await?;
-            // The ad-hoc attacker box is no project container, so the park steps leave it running
-            // while the lab is parked (and a workload scan then still reads the lab as running).
-            // Reap it: a resumed lab re-attaches one, as a launched lab does.
-            self.driver.reap_attacker(&cx).await;
             Ok(Done {
                 value: (),
                 ok: true,
@@ -133,10 +126,7 @@ impl Running<'_> {
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Check, events, mask, async |e: &Emitter<'_>| {
             let (_, mut cx) = self.existing(opts, e).await?;
-            let observed = self.observe(&mut cx).await?;
-            if !any_target_running(&observed.machines) {
-                return Err(Error::NotRunning { run: self.name().to_string() });
-            }
+            let observed = self.observe_running(&mut cx).await?;
             // A runner's step may name an output (`${outputs.ip}`, the router it goes through).
             self.bind_observed(&mut cx, observed);
             let report = checks::run(&mut cx).await?;
@@ -177,9 +167,7 @@ impl Running<'_> {
                 }
                 cx.vars.set_machine(m);
             }
-            if !any_target_running(&self.observe(&mut cx).await?.machines) {
-                return Err(Error::NotRunning { run: self.name().to_string() });
-            }
+            self.observe_running(&mut cx).await?;
             let (list, steps) = match machine {
                 Some(_) => ("lifecycle.provision.machine", &provision.machine),
                 None => ("lifecycle.provision.all", &provision.all),

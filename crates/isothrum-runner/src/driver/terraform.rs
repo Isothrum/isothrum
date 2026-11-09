@@ -15,11 +15,8 @@
 //!   with an `expiry` the computed expiry as its Terraform variable.
 //! - After a successful `down`: the state, its data folder, the run's `known_hosts` and SSH
 //!   configuration, the project's archive and the module's copy go.
-//! - The attacker box: on a container lab whose containers run in a VM the module made (the
-//!   manifest's `guest`), a container the runner stands up in that VM over SSH ([`adhoc`]); a VM
-//!   lab on a cloud or a server has none.
+//! - No on-demand access machine: the module makes every machine it has at `up`.
 
-mod adhoc;
 mod console;
 mod copy_module;
 mod guest;
@@ -30,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Action, ExpiryUnit, SnakeName, Step, Template, TerraformIdentity};
 
-use super::{Attached, Attacker, Driver, Observed};
+use super::{Driver, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
@@ -113,27 +110,9 @@ impl Driver for Terraform {
         std::future::ready(done)
     }
 
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
-        let tf = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?;
-        let manifest = cx.run.manifest();
-        let mut observed = observed(manifest, &tf);
-        // The ad-hoc attacker box the runner stood up in the guest VM, when the lab declares no
-        // access machine of its own, so a run that has one shows it like any other machine. The
-        // box has no Compose service, so the guest's `ps` never lists it: probed while the VM runs.
-        let vm_runs = manifest.guest.as_ref().is_some_and(|g| {
-            observed
-                .machines
-                .iter()
-                .any(|m| m.name == g.machine.as_str() && m.state == MachineState::Running)
-        });
-        if vm_runs
-            && super::takes_adhoc_box(manifest)
-            && let Ok(Some(way)) = adhoc::guest(cx, &tf.outputs)
-            && let Some(access) = super::vm_box::status(&way, cx).await
-        {
-            observed.machines.push(access);
-        }
-        Ok(observed)
+    fn observe(&self, cx: &Cx<'_>) -> impl Future<Output = Result<Observed>> {
+        let read = cx.run.runner.store.run_dir(cx.run.name()).and_then(|dir| state::read(&dir));
+        std::future::ready(read.map(|tf| observed(cx.run.manifest(), &tf)))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
@@ -141,22 +120,14 @@ impl Driver for Terraform {
         FORGOTTEN.iter().try_for_each(|f| remove(&state_dir.join(f)))
     }
 
-    /// Hot-adds the ad-hoc attacker box: a container in the VM the lab's containers run in
-    /// ([`adhoc::attach`]). A manifest access machine, or a run with no such VM, is refused.
-    async fn attach(&self, cx: &Cx<'_>, attacker: Attacker<'_>, image: Option<&str>, network: Option<&str>) -> Result<Attached> {
-        match attacker {
-            Attacker::AdHoc => adhoc::attach(cx, image, network).await,
-            Attacker::Machine(_) => Err(on_demand("hot-adding")),
-        }
+    /// Refused: the module makes every machine it has at `up`, none is brought up later.
+    fn attach(&self, _cx: &Cx<'_>, _native: &str, _image: Option<&str>, _network: Option<&str>) -> impl Future<Output = Result<()>> {
+        std::future::ready(Err(on_demand("hot-adding")))
     }
 
-    /// Hot-removes the ad-hoc attacker box from the VM it is in ([`adhoc::detach`]); a box already
-    /// gone is no failure.
-    async fn detach(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<()> {
-        match attacker {
-            Attacker::AdHoc => adhoc::detach(cx).await,
-            Attacker::Machine(_) => Err(on_demand("hot-removing")),
-        }
+    /// Refused, as [`Terraform::attach`].
+    fn detach(&self, _cx: &Cx<'_>, _native: &str) -> impl Future<Output = Result<()>> {
+        std::future::ready(Err(on_demand("hot-removing")))
     }
 
     /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
@@ -164,13 +135,10 @@ impl Driver for Terraform {
         console::command(cx, machine)
     }
 
-    /// The command that opens an interactive shell into the ad-hoc box: `ssh -t` to its VM, then
-    /// `docker exec` ([`adhoc::shell_command`]).
-    fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
-        match attacker {
-            Attacker::AdHoc => adhoc::shell_command(cx),
-            Attacker::Machine(_) => Err(on_demand("a shell into")),
-        }
+    /// Refused, as [`Terraform::attach`]: a console into any machine is
+    /// [`Driver::console_command`].
+    fn shell_command(&self, _cx: &Cx<'_>, _native: &str) -> Result<ShellCommand> {
+        Err(on_demand("a shell into"))
     }
 }
 

@@ -64,8 +64,7 @@ pub(crate) enum Command {
     },
     /// Hot-add the on-demand access machine (the attacker box) into the running run.
     Attach {
-        /// The run, and what changing it needs (a cloud account's credentials, when the box is
-        /// an instance the module adds).
+        /// The run, and the params and secrets its operations take.
         #[command(flatten)]
         op: OpArgs,
         /// Which on-demand machine, when the lab has more than one (default: its only one).
@@ -74,9 +73,8 @@ pub(crate) enum Command {
         /// The lab network to attach it to (default: its first).
         #[arg(long)]
         network: Option<String>,
-        /// What to run it from (default: the lab's): a container image for the attack box, inside
-        /// the attack VM the runner adds to a VM lab too. Only a lab's own access VM reads it as the
-        /// Vagrant box it boots.
+        /// What to run it from (default: the lab's): a container image for a Compose access
+        /// service, the Vagrant box an access VM boots.
         #[arg(long)]
         image: Option<String>,
     },

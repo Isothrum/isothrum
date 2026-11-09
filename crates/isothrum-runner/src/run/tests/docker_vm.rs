@@ -1,7 +1,6 @@
 //! Scripted runs of Isoloom's `docker-vm` fixtures (flag-portal): the VM made by a fake Vagrant
 //! (VirtualBox) or a fake Terraform (Proxmox), the containers by a fake Compose inside it,
-//! reached through `vagrant ssh` or `ssh`, and the ad-hoc attacker box by a fake Docker in the
-//! VM. No real tool ever runs.
+//! reached through `vagrant ssh` or `ssh`. No real tool ever runs.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -27,16 +26,9 @@ struct Engine {
     up: bool,
     /// The flag the start's session carried, as the VM got it.
     flag: Option<String>,
-    /// The ad-hoc attacker box in the VM: its image, and the Docker networks it is on.
-    attacker: Option<(String, Vec<String>)>,
     /// How many reads of the containers still miss (the way into the VM refused).
     ps_misses: u32,
-    /// The way into the VM refuses every `docker` command (the VM stopped answering).
-    unreachable: bool,
 }
-
-/// The address the fake Docker gives the attacker box on every network.
-const BOX_IP: &str = "10.30.0.77";
 
 /// `docker compose ps --all --format json` of the started run, one object a line.
 const PS: &str = r#"{"Service":"web","State":"running","Health":"healthy","Publishers":[{"PublishedPort":8080,"TargetPort":80,"Protocol":"tcp"}],"Labels":""}
@@ -60,60 +52,8 @@ fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
         }
         return Reply::ok(if e.up { PS } else { "" });
     }
-    if let Some(rest) = command.strip_prefix("sudo docker ") {
-        return docker(e, rest);
-    }
+    assert!(!command.starts_with("sudo docker "), "no container of the runner's own: {command}");
     Reply::ok("")
-}
-
-/// The single-quoted words of a `docker` command the runner wrote (`sh_quote`d names).
-fn quoted(command: &str) -> Vec<&str> {
-    command.split('\'').skip(1).step_by(2).collect()
-}
-
-/// What root's Docker in the VM answers to `docker <rest>`: the attacker box's run, removal,
-/// network joins and inspects (no other container is ever addressed by name).
-fn docker(e: &mut Engine, rest: &str) -> Reply {
-    if e.unreachable {
-        return Reply::fail(255, "ssh: connect to host 127.0.0.1 port 2222: Connection refused");
-    }
-    let words = quoted(rest);
-    let networks_json = |nets: &[String]| {
-        let each: Vec<String> = nets.iter().map(|n| format!(r#""{n}":{{"IPAddress":"{BOX_IP}"}}"#)).collect();
-        format!("{{{}}}", each.join(","))
-    };
-    if rest.starts_with("run -d --name ") {
-        // `run -d --name '<name>' --label isoloom.access=true --network '<net>' '<image>' sleep infinity`
-        assert!(rest.ends_with(" sleep infinity") && rest.contains("--label isoloom.access=true"), "{rest}");
-        let [_, net, image] = words[..] else { panic!("{rest}") };
-        e.attacker = Some((image.to_owned(), vec![net.to_owned()]));
-        return Reply::ok("0123456789ab");
-    }
-    if rest.starts_with("rm -f ") {
-        return match e.attacker.take() {
-            Some(_) => Reply::ok(&words.join("")),
-            None => Reply::fail(1, "Error response from daemon: No such container"),
-        };
-    }
-    if rest.starts_with("network connect ") {
-        let [net, _] = words[..] else { panic!("{rest}") };
-        if let Some((_, nets)) = &mut e.attacker {
-            nets.push(net.to_owned());
-        }
-        return Reply::ok("");
-    }
-    if rest.starts_with("inspect -f ") {
-        let [format, _] = words[..] else { panic!("{rest}") };
-        let Some((_, nets)) = &e.attacker else {
-            return Reply::fail(1, "Error: No such object");
-        };
-        return Reply::ok(&match format {
-            "{{json .NetworkSettings.Networks}}" => networks_json(nets),
-            "{{.State.Running}}|{{json .NetworkSettings.Networks}}" => format!("true|{}", networks_json(nets)),
-            other => panic!("an inspect format the fake doesn't model: {other}"),
-        });
-    }
-    panic!("a docker command the fake doesn't model: {rest}")
 }
 
 fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
@@ -253,88 +193,15 @@ async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
     assert!(l.engine.lock().unwrap().vm.is_none());
 }
 
-/// The ad-hoc attacker box of a container lab in a VM is a container inside that VM, on the lab's
-/// Docker network there, through the run's own Vagrant (`vagrant ssh … docker …`, with the run's
-/// state folder); status finds it, the shell goes through the VM into it, a detach removes it.
+/// A container lab in a VM declares no access machine: the runner puts no box of its own in the
+/// VM, and an attach says so.
 #[tokio::test(start_paused = true)]
-async fn the_attack_box_is_a_container_inside_the_vm_on_the_labs_network() {
-    let l = local();
-    let run = l.runner.open(&l.manifest, None).unwrap();
-    let not_up = run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(not_up.code(), ErrorCode::NotRunning);
-    run.up(&opts(), &Recorder::new()).await.unwrap();
-    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "no box yet");
-    let report = run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap();
-    let name = format!("{}-isoloom-access", run.name());
-    assert_eq!(
-        (report.machine.as_str(), report.native.as_str()),
-        ("isoloom-access", name.as_str()),
-        "named as status names it"
-    );
-    assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some(BOX_IP)));
-    let started = l.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
-    assert_eq!(started.program, "vagrant");
-    assert_eq!(started.args[..3], ["ssh", "--no-tty", "--command"]);
-    assert_eq!(
-        started.args[3],
-        format!(
-            "sudo docker run -d --name '{name}' --hostname attackbox --label isoloom.access=true --network 'flag-portal_lab' 'kalilinux/kali-rolling' sleep infinity"
-        )
-    );
-    assert_eq!(started.args[4], "default", "into the lab's VM");
-    assert!(started.env("VAGRANT_DOTFILE_PATH").is_some(), "with the run's state folder");
-    assert_eq!(
-        l.engine.lock().unwrap().attacker,
-        Some(("kalilinux/kali-rolling".into(), vec!["flag-portal_lab".into()]))
-    );
-
-    let access = running_box(&run).await;
-    assert_eq!(access.published, [], "nothing of it is forwarded to this computer");
-
-    let shell = run.shell_command(None).unwrap();
-    assert_eq!(shell.program, "vagrant");
-    assert_eq!(shell.args[..3], ["ssh", "default", "-c"]);
-    assert!(
-        shell.args[3].starts_with(&format!("sudo docker exec -it '{name}' sh -c '")),
-        "{}",
-        shell.args[3]
-    );
-    assert_eq!(shell.cwd.as_deref(), l.manifest.parent());
-    let dotfile = l.runner.store.run_dir(run.name()).unwrap().join("vagrant");
-    assert!(
-        shell.env.contains(&("VAGRANT_DOTFILE_PATH".to_owned(), dotfile.display().to_string())),
-        "{:?}",
-        shell.env
-    );
-
-    run.detach(None, &Recorder::new()).await.unwrap();
-    assert_eq!(l.fake.last("docker rm -f").unwrap().args[3], format!("sudo docker rm -f '{name}'"));
-    assert!(l.engine.lock().unwrap().attacker.is_none());
-    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "the box is gone");
-    run.detach(None, &Recorder::new()).await.expect("a box already gone is no error");
-}
-
-/// A detach that can't reach the VM fails and says why: the box may still be running there.
-#[tokio::test(start_paused = true)]
-async fn a_detach_that_cannot_reach_the_vm_fails() {
+async fn a_container_lab_in_a_vm_gets_no_attack_box_of_the_runners() {
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.attach(None, None, Some("kalilinux/kali-rolling"), &Recorder::new()).await.unwrap();
-    l.engine.lock().unwrap().unreachable = true;
-    let err = run.detach(None, &Recorder::new()).await.unwrap_err();
-    assert!(err.to_string().contains("Connection refused"), "{err}");
-    assert!(l.engine.lock().unwrap().attacker.is_some(), "the box is still there");
-}
-
-/// A VM that is paused holds its containers as it does: no box goes into it.
-#[tokio::test(start_paused = true)]
-async fn no_attack_box_goes_into_a_parked_vm() {
-    let l = local();
-    let run = up_then_paused(&l).await;
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), ErrorCode::NotRunning);
-    assert!(l.fake.last("docker run").is_none(), "nothing went into the VM");
+    crate::testing::refuses_a_box_it_has_none_of(&run, &l.fake).await;
+    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access));
 }
 
 /// The way into the VM can miss once (an SSH port read from the hypervisor that answers late): a
@@ -353,15 +220,6 @@ async fn a_container_read_that_misses_once_is_read_again() {
     l.engine.lock().unwrap().ps_misses = 2;
     let web = run.status().await.unwrap().machines.iter().find(|m| m.name == "web").unwrap().state.clone();
     assert!(matches!(&web, MachineState::Unknown(why) if why.starts_with("unreadable: ")), "{web:?}");
-}
-
-/// The run's ad-hoc attacker box as status reports it: running, at [`BOX_IP`] on the lab network.
-async fn running_box(run: &crate::Running<'_>) -> crate::MachineStatus {
-    let status = run.status().await.unwrap();
-    let access = status.machines.into_iter().find(|m| m.role == Role::Access).unwrap();
-    assert_eq!((access.name.as_str(), &access.state), ("isoloom-access", &MachineState::Running));
-    assert_eq!(access.addresses.get("lab").map(String::as_str), Some(BOX_IP));
-    access
 }
 
 mod proxmox;

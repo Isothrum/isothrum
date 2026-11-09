@@ -31,20 +31,6 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
 - `Running::attach_with` and `detach_with` take the operation's options (secrets and params an
   attach or detach that changes the run needs), with the box choice as a `BoxPick`; the CLI's
   `attach` and `detach` take `--param` and `--secret-from-env`.
-- **The attack box on a container lab in a VM Terraform made** (`cloud-docker` on every cloud,
-  a container lab on a Proxmox server). `attach` with no access machine stands the ad-hoc box up
-  as a container inside the run's guest VM, as the Vagrant driver does for `docker-vm`: `docker
-  run -d --name <run>-isoloom-access --label isoloom.access=true --network <lab net> <image> sleep
-  infinity`, the lab's other networks joined best effort, its address read with `docker inspect`;
-  `detach` is `docker rm -f`; status reports it as the run's access machine (role access, its
-  address on the lab network) while the VM runs; `shell_command` is `ssh -t` to the VM then `sudo
-  docker exec -it`. The VM is reached as the guest's own `ssh.run` steps reach it (its
-  `${outputs.ip}` from the run's state, the guest's user, the runner's key and the run's SSH
-  configuration, through the run's jump and the step's `via`). The container logic is shared by
-  both drivers (`driver::vm_box`), only the way into the VM differs.
-  **Still unsupported:** a VM lab on a cloud or a server (`cloud-vm`, Proxmox VM labs) has no VM
-  to put the box in and is refused (`unsupported`, "…on a run with no container host VM"), as is
-  a manifest's on-demand access machine on a Terraform run.
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version (`parse_plugin_versions`) and UTM's own
   (its app bundle's `CFBundleShortVersionString`), and reports UTM unavailable with the way out
@@ -53,33 +39,23 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`). What the Cyber
   CTF launcher checks on its own, now shared.
 
-### Changed
-
-- **The attack box answers to `attackbox`.** Every ad-hoc attack box the runner starts gets that
-  hostname: the container beside a container lab here, the container inside a lab's VM (here, on
-  a cloud account, on Proxmox), and the VM added to a VM lab (through Isoloom's hook `hostname:`,
-  Isoloom 1.0.10; an older Vagrantfile keeps its define name). A learner's prompt reads
-  `root@attackbox` instead of a Docker container ID or Isoloom's internal `isoloom-access`, which
-  stays the name status reports.
-- **A VM lab's ad-hoc attack VM runs the learner's container image.** `attach`'s `image` on a plain
-  VM lab (no `guest`, no access machine of its own) no longer becomes the attack VM's Vagrant box:
-  the Cyber CTF launcher's `cyberctf/attack-box@sha256:…` was asked of Vagrant Cloud and answered
-  404. The definition now passes it to Isoloom's hook as `image:` (Isoloom 1.0.10), which makes
-  the VM a container run as a VM: Debian 12 with Docker, the image idle on the VM's network, so
-  the VM's lab address is the attacker's; the shell into it is `vagrant ssh isoloom-access` then
-  `docker exec`. No image gives a plain VM of the host's default box, as before; a Vagrantfile
-  from before the hook's `image:` is refused with the way out (regenerate the lab). The VM's box
-  is still `ISOLOOM_ACCESS_BOX` when set.
-- An attach report names an ad-hoc box `isoloom-access`, as status does; its container name is
-  in `native`.
-
 ### Fixed
 
-- **`shell_command` reads the run's record**, as status does: the shell into an attack box goes
-  through the run's SSH jump, and a Vagrant run's shell gets the host ports its start pinned.
+- **`shell_command` reads the run's record**, as status does: a Vagrant run's shell gets the host
+  ports its start pinned.
 
 ### Removed
 
+- **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
+  declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
+  computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),
+  no `isoloom-access` VM added to a VM lab through Isoloom's Vagrantfile hook (gone from Isoloom's
+  Vagrantfiles too), and status no longer probes for one; `down` and `park` no longer reap one.
+  `attach`, `detach` and `shell_command` on a lab that declares no access machine now fail with
+  `unsupported` ("this lab declares no access machine"). A lab's own on-demand access machine
+  (`access: true`: a Compose service in the `access` profile, a Vagrant define) is unchanged. An
+  embedder adds a box of its own as an ordinary machine of the lab, with `Running::update`,
+  `Running::retire` and `Running::console_command`; the Cyber CTF launcher does.
 - **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own
   repository, `isoloom/isothrum-desktop`, which ships it (installers, the Microsoft Store) on the
   crates published from here; the copy kept here "while that move completes" had drifted from it

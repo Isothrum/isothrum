@@ -1,20 +1,10 @@
-//! Hot-adding the learner's attacker box into a running run, and taking it back out, through the
-//! fake engines: an ad-hoc Docker container on the lab's network (the default, no manifest machine),
-//! the Compose `attacker` service in its `access` profile, and the Vagrant `attacker` define. No
-//! real tool ever runs.
+//! Hot-adding a lab's own access machine into a running run, and taking it back out, through the
+//! fake engines: the Compose `attacker` service in its `access` profile, and the Vagrant
+//! `attacker` define. A lab that declares none has nothing to attach. No real tool ever runs.
 
 use super::*;
 use crate::ErrorCode;
-use crate::testing::{FLAG_PORTAL, FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS};
-
-/// The fake of the lab's Docker, extended to answer the ad-hoc box's calls: `docker inspect`
-/// reports a lab address, and `run`/`rm`/`network connect` succeed (left to the lab model).
-fn adhoc_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
-    if call.line().contains("inspect -f") {
-        return Reply::ok(r#"{"flag-portal_lab":{"IPAddress":"10.30.0.123"}}"#);
-    }
-    answer(engine, call)
-}
+use crate::testing::{FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS};
 
 #[tokio::test]
 async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_image() {
@@ -62,38 +52,9 @@ async fn detach_removes_just_the_access_service() {
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-/// The lab's Docker, extended to report the ad-hoc box up when its status is inspected.
-fn adhoc_status_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
-    if call.line().contains("inspect -f") {
-        return Reply::ok(r#"true|{"flag-portal_lab":{"IPAddress":"10.30.0.123"}}"#);
-    }
-    answer(engine, call)
-}
-
 #[tokio::test]
-async fn status_shows_the_ad_hoc_access_box_once_it_is_up() {
-    // flag-portal declares no access machine, so the box is ad-hoc and `ps` never lists it; the
-    // run's status probes for it and shows it as an access machine with its lab address.
-    let f = fixture_answering(FLAG_PORTAL, adhoc_status_answer);
-    f.set(Containers::Up);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-
-    let status = run.status().await.unwrap();
-    let access = status
-        .machines
-        .iter()
-        .find(|m| m.role == isoloom_manifest::Role::Access)
-        .expect("the ad-hoc box shows as an access machine");
-    assert_eq!(access.state, crate::MachineState::Running);
-    assert_eq!(access.addresses.get("lab").map(String::as_str), Some("10.30.0.123"));
-    // The lab's own targets are unaffected, and the run is still ready off its targets alone.
-    assert!(status.machines.iter().any(|m| m.name == "web" && m.role == isoloom_manifest::Role::Target));
-    assert_eq!(status.state, crate::RunState::Ready);
-}
-
-#[tokio::test]
-async fn status_has_no_access_machine_when_no_box_is_attached() {
-    // No ad-hoc box: the inspect reads empty, so the status carries no access machine.
+async fn status_has_no_access_machine_on_a_lab_that_declares_none() {
+    // The runner stands no box up of its own: nothing but the lab's machines, and no probe.
     let f = fixture();
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -102,108 +63,13 @@ async fn status_has_no_access_machine_when_no_box_is_attached() {
 }
 
 #[tokio::test]
-async fn attach_stands_up_an_ad_hoc_box_when_the_lab_has_no_access_machine() {
-    // flag-portal declares no access machine: attach no longer errors, it makes one ad hoc.
-    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
+async fn a_lab_that_declares_no_access_machine_has_none_to_attach() {
+    // flag-portal declares no access machine: attach, detach and the shell are refused, and
+    // nothing is started.
+    let f = fixture();
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
-
-    let events = Recorder::new();
-    let report = run.attach(None, None, Some("myimage"), &events).await.unwrap();
-
-    assert_eq!(
-        (report.machine.as_str(), report.native.as_str()),
-        ("isoloom-access", "flag-portal-isoloom-access")
-    );
-    assert_eq!(report.native, "flag-portal-isoloom-access");
-    assert_eq!(report.network.as_deref(), Some("lab"), "the lab's first network");
-    assert_eq!(report.address.as_deref(), Some("10.30.0.123"), "its address, read with docker inspect");
-    assert_eq!(report.image.as_deref(), Some("myimage"));
-
-    let run_call = f.fake.last("run -d").expect("an ad-hoc container is started detached");
-    let line = run_call.line();
-    assert!(line.contains("--name flag-portal-isoloom-access"), "named after the project: {line}");
-    assert!(line.contains("--network flag-portal_lab"), "on the lab's project network: {line}");
-    assert!(line.contains("myimage") && line.ends_with("sleep infinity"), "the picked image, idle: {line}");
-    assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
-}
-
-/// The way a run with a leftover ad-hoc attacker box is torn down.
-enum Teardown {
-    Down,
-    Park,
-}
-
-/// The ad-hoc box has no Compose project, so a workload scan would still group it under the lab:
-/// every teardown must remove it by name.
-async fn teardown_reaps_the_ad_hoc_box(teardown: Teardown) {
-    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
-    f.set(Containers::Up);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.attach(None, None, None, &Recorder::new()).await.unwrap();
-
-    match teardown {
-        Teardown::Down => {
-            run.down(&crate::RunOptions::default(), &Recorder::new()).await.unwrap();
-        }
-        Teardown::Park => {
-            run.park(crate::Park::Shutdown, &Recorder::new()).await.unwrap();
-        }
-    }
-    assert!(
-        f.fake.last("rm -f flag-portal-isoloom-access").is_some(),
-        "the ad-hoc box is removed on teardown: {:?}",
-        f.fake.lines()
-    );
-}
-
-#[tokio::test]
-async fn down_reaps_a_leftover_ad_hoc_attack_box() {
-    // Without this, `down` leaves the project-less ad-hoc box running.
-    teardown_reaps_the_ad_hoc_box(Teardown::Down).await;
-}
-
-#[tokio::test]
-async fn park_reaps_a_leftover_ad_hoc_attack_box() {
-    // Park stops the lab's own containers but would leave the ad-hoc box running; a resumed lab
-    // re-attaches one.
-    teardown_reaps_the_ad_hoc_box(Teardown::Park).await;
-}
-
-#[tokio::test]
-async fn an_ad_hoc_box_defaults_to_kali() {
-    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
-    f.set(Containers::Up);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.attach(None, None, None, &Recorder::new()).await.unwrap();
-    let run_call = f.fake.last("run -d").unwrap();
-    assert!(
-        run_call.line().contains(isoloom_manifest::access::DEFAULT_IMAGE),
-        "the Kali default stands when the learner picks nothing: {}",
-        run_call.line()
-    );
-}
-
-#[tokio::test]
-async fn detach_removes_the_ad_hoc_box_by_name() {
-    let f = fixture_answering(FLAG_PORTAL, adhoc_answer);
-    f.set(Containers::Up);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.detach(None, &Recorder::new()).await.unwrap();
-    let rm = f.fake.last("rm -f flag-portal-isoloom-access").expect("the ad-hoc box is removed by name");
-    assert!(rm.line().contains("rm -f flag-portal-isoloom-access"), "{}", rm.line());
-}
-
-#[tokio::test]
-async fn shell_command_execs_into_the_ad_hoc_box() {
-    let f = fixture(); // flag-portal: no access machine, so an ad-hoc box
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let cmd = run.shell_command(None).unwrap();
-    assert_eq!(cmd.program, "docker");
-    let line = cmd.args.join(" ");
-    assert!(line.starts_with("exec -it flag-portal-isoloom-access"), "{line}");
-    assert!(line.contains("exec bash") && line.contains("exec sh"), "bash with an sh fallback: {line}");
-    assert!(cmd.cwd.is_some(), "runs in the run's folder");
+    crate::testing::refuses_a_box_it_has_none_of(&run, &f.fake).await;
 }
 
 #[tokio::test]

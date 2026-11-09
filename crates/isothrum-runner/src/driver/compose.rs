@@ -3,7 +3,6 @@
 //! `lifecycle.status` (`ps --all --format json`) matched to the manifest's machines.
 
 mod actions;
-mod adhoc;
 mod config;
 mod pins;
 mod ps;
@@ -14,7 +13,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, SnakeName, Step, Template, access};
 
-use super::{Attached, Attacker, Driver, Observed};
+use super::{Driver, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
@@ -121,16 +120,7 @@ impl Driver for Compose {
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
-        let (mut machines, published) = ps::machines(cx.run.manifest(), &ps::parse_ps(&out));
-        // The ad-hoc attacker box has no Compose service, so `ps` never lists it. When the lab
-        // declares no access machine of its own, probe for the box the runner hot-added, so a run
-        // that has one shows it like any other machine (its state, its address, the shell into it);
-        // a lab with its own access machine already has it from `ps`.
-        if super::takes_adhoc_box(cx.run.manifest())
-            && let Some(access) = self.adhoc_status(cx).await
-        {
-            machines.push(access);
-        }
+        let (machines, published) = ps::machines(cx.run.manifest(), &ps::parse_ps(&out));
         // Compose publishes on this computer.
         let hosts = published.keys().map(|(machine, _)| (machine.clone(), "127.0.0.1".to_owned())).collect();
         Ok(Observed {
@@ -149,40 +139,20 @@ impl Driver for Compose {
         Ok(())
     }
 
-    /// Hot-adds the attacker box. A manifest machine goes up through its Compose `access` profile
-    /// (the backward-compatible path, [`Compose::attach_profile`]); an ad-hoc box with no machine
-    /// is stood up on the lab's network with no Compose service ([`Compose::attach_adhoc`]).
-    async fn attach(&self, cx: &Cx<'_>, attacker: Attacker<'_>, image: Option<&str>, network: Option<&str>) -> Result<Attached> {
-        match attacker {
-            Attacker::Machine(native) => {
-                self.attach_profile(cx, native, image, network).await?;
-                Ok(Attached::default())
-            }
-            Attacker::AdHoc => self.attach_adhoc(cx, image, network).await,
-        }
+    /// Hot-adds the lab's access service through its Compose `access` profile
+    /// ([`Compose::attach_profile`]).
+    async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
+        self.attach_profile(cx, native, image, network).await
     }
 
-    /// Hot-removes the attacker box: a manifest machine through its profile
-    /// (`docker compose --profile access rm -sf <service>`), an ad-hoc box by `docker rm -f` of
-    /// its container (best effort, idempotent: a box already gone is no error).
-    async fn detach(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<()> {
-        match attacker {
-            Attacker::Machine(native) => {
-                let args = self.compose_args(cx, &["--profile", access::PROFILE, "rm", "-sf", native])?;
-                call_ok(cx, Op::Detach.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Shown).await?;
-                Ok(())
-            }
-            Attacker::AdHoc => {
-                let name = adhoc::container_name(&self.project(cx)?);
-                drop(self.remove_container(cx, &name).await);
-                Ok(())
-            }
-        }
+    /// Hot-removes the lab's access service through its profile
+    /// (`docker compose --profile access rm -sf <service>`).
+    async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()> {
+        let args = self.compose_args(cx, &["--profile", access::PROFILE, "rm", "-sf", native])?;
+        call_ok(cx, Op::Detach.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Shown).await?;
+        Ok(())
     }
 
-    /// The command that opens an interactive shell into the attacker box. A manifest machine is
-    /// addressed by its Compose service (`docker compose … exec <service> bash`); an ad-hoc box by
-    /// its container (`docker exec -it <name> …`, falling back from `bash` to `sh`).
     /// `docker compose exec` into the machine's service, a shell there.
     fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
         let Some(isoloom_manifest::Native::Compose { service }) = &machine.native else {
@@ -198,14 +168,12 @@ impl Driver for Compose {
         })
     }
 
-    fn shell_command(&self, cx: &Cx<'_>, attacker: Attacker<'_>) -> Result<ShellCommand> {
-        let args = match attacker {
-            Attacker::Machine(native) => self.compose_args(cx, &["exec", native, "bash"])?,
-            Attacker::AdHoc => adhoc::shell_args(&adhoc::container_name(&self.project(cx)?)),
-        };
+    /// The command that opens an interactive shell into the lab's access service:
+    /// `docker compose … exec <service> bash`.
+    fn shell_command(&self, cx: &Cx<'_>, native: &str) -> Result<ShellCommand> {
         Ok(ShellCommand {
             program: "docker".into(),
-            args,
+            args: self.compose_args(cx, &["exec", native, "bash"])?,
             cwd: Some(cx.run.dir().to_path_buf()),
             env: Vec::new(),
         })

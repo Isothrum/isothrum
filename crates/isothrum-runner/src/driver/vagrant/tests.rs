@@ -33,8 +33,6 @@ struct Engine {
     vbox: BTreeMap<String, String>,
     /// How many times the controller still says it halts.
     halting: u32,
-    /// The one-VM boot fails half-way (the VM made, its provisioning broken).
-    one_vm_fails: bool,
     /// What `vagrant --version` says (default: 2.4.9).
     version: Option<String>,
     /// What `vagrant halt <controller>` does: `None` halts it; `Some(state)` fails as libvirt's
@@ -156,7 +154,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
         }
         ("vagrant", ["status", rest @ ..]) => {
             let only = rest.first().filter(|r| !r.starts_with("--"));
-            // The Vagrantfile's VMs, then any other VM the run defined (the runner's ad-hoc VM).
+            // The Vagrantfile's VMs, then any other VM the run defined.
             let extra = e.states.keys().filter(|vm| !VMS.contains(&vm.as_str())).map(String::as_str);
             let lines: Vec<String> = VMS
                 .iter()
@@ -190,14 +188,10 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 }
 
 /// One VM booted alone on the run's provider (`vagrant up <vm> --provider=<p>`) and destroyed
-/// alone (`vagrant destroy -f <vm>`): the runner's ad-hoc attack VM, or a spec's access machine.
+/// alone (`vagrant destroy -f <vm>`): a spec's access machine, or a retired one.
 fn one_vm(e: &mut Engine, dotfile: &Path, args: &[&str]) -> Option<Reply> {
     match args {
         ["up", vm, provider] if provider.starts_with("--provider=") => {
-            if e.one_vm_fails {
-                e.states.insert((*vm).to_owned(), "poweroff".into());
-                return Some(Reply::fail(1, "The SSH command responded with a non-zero exit status."));
-            }
             e.states.insert((*vm).to_owned(), "running".into());
             record(dotfile, vm, provider.trim_start_matches("--provider="));
             Some(Reply::ok(&format!("==> {vm}: Machine booted and ready!")))
@@ -332,120 +326,14 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
-/// The runner's ad-hoc attack VM, the Vagrant define Isoloom's hubs keep a port for.
-const ADHOC: &str = "isoloom-access";
-
-/// The fixture's Vagrantfile, as Isoloom writes it with the hook that loads the runner's
-/// machines (only the hook's name and its `image:` keyword matter to the runner).
-fn with_hook(f: &Fixture) {
-    let hook = "# generated\nmodule IsoloomAdHoc\n  def self.define(vagrant, name, network:, ip:, box: nil, image: nil, cpus: 2, memory: 2048)\n  end\nend\n";
-    std::fs::write(f.manifest.parent().unwrap().join("Vagrantfile"), hook).unwrap();
-}
-
-/// A VM lab with no access machine of its own gets its attacker box as a VM the runner adds to
-/// the running environment, as GNS3 adds a node to a live topology: a one-line definition written
-/// under the run's state folder (where the Vagrantfile's hook loads it), at a free address on the
-/// chosen network, running the learner's container image (the hook makes the VM a container run
-/// as a VM), booted alone on the run's provider; status reads it from `vagrant status` with the
-/// address kept beside the definition; the shell is `vagrant ssh` into it, then `docker exec`
-/// into the container; detach destroys it alone and removes the definition, the lab left up.
+/// A VM lab that declares no access machine has none to attach: the runner adds no VM of its own
+/// to the running environment, and nothing is booted.
 #[tokio::test]
-async fn a_vm_lab_gets_an_ad_hoc_vm_added_to_the_running_environment() {
+async fn a_vm_lab_that_declares_no_access_machine_has_none_to_attach() {
     let f = fixture(crate::this_host());
-    with_hook(&f);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
-    let (rb, json) = (
-        dotfile.join("adhoc").join("isoloom-access.rb"),
-        dotfile.join("adhoc").join("isoloom-access.json"),
-    );
-    assert!(!run.status().await.unwrap().machines.iter().any(|m| m.name == ADHOC), "none before an attach");
-
-    let report = run.attach(None, None, Some("me/kali:2026"), &Recorder::new()).await.unwrap();
-    assert_eq!((report.machine.as_str(), report.native.as_str()), (ADHOC, ADHOC));
-    assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some("10.61.0.252")));
-    let definition = std::fs::read_to_string(&rb).expect("the definition is written where the hook loads it");
-    assert!(
-        definition.ends_with("IsoloomAdHoc.define(config, \"isoloom-access\", network: \"lab\", ip: \"10.61.0.252\", image: \"me/kali:2026\")\n"),
-        "{definition}"
-    );
-    assert!(json.is_file(), "its record beside it");
-    let up = f.fake.last(&format!("up {ADHOC}")).expect("the VM is booted");
-    assert_eq!(up.line(), format!("vagrant up {ADHOC} --provider=virtualbox"), "alone, on the run's provider");
-    assert_eq!(up.env(isoloom_manifest::access::BOX_ENV), None, "the image is the hook's, never the VM's box");
-    assert_eq!((f.state(ADHOC).as_str(), f.state("web").as_str()), ("running", "running"));
-
-    let status = run.status().await.unwrap();
-    let access = status.machines.iter().find(|m| m.name == ADHOC).expect("reported as the run's access machine");
-    assert_eq!(access.role, isoloom_manifest::Role::Access);
-    assert_eq!(access.state, crate::status::MachineState::Running);
-    assert_eq!(access.addresses.get("lab").map(String::as_str), Some("10.61.0.252"));
-
-    let shell = run.shell_command(None).unwrap();
-    assert_eq!(shell.program, "vagrant");
-    assert_eq!(&shell.args[..3], ["ssh", ADHOC, "-c"]);
-    assert!(
-        shell.args[3].starts_with("sudo docker exec -it 'isoloom-access' sh -c "),
-        "into the container: {:?}",
-        shell.args
-    );
-    assert!(shell.env.iter().any(|(k, _)| k == "VAGRANT_DOTFILE_PATH"), "{:?}", shell.env);
-
-    run.detach(None, &Recorder::new()).await.unwrap();
-    assert!(f.fake.last(&format!("destroy -f {ADHOC}")).is_some(), "destroyed alone");
-    assert!(!rb.exists() && !json.exists(), "the definition is removed");
-    assert_eq!(
-        (f.state(ADHOC).as_str(), f.state("web").as_str()),
-        ("not_created", "running"),
-        "the lab stays up"
-    );
-    let calls = f.fake.calls().len();
-    run.detach(None, &Recorder::new()).await.unwrap();
-    assert!(
-        f.fake.calls()[calls..].iter().all(|c| c.line().starts_with("vagrant status")),
-        "a second detach destroys nothing"
-    );
-}
-
-/// An attack VM whose boot fails is undone: the half-made VM destroyed and its definition removed,
-/// so the run doesn't list an attack VM that never came up and later commands don't load it.
-#[tokio::test]
-async fn a_failed_ad_hoc_vm_boot_leaves_nothing_behind() {
-    let f = fixture(crate::this_host());
-    with_hook(&f);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
-    f.engine.lock().unwrap().one_vm_fails = true;
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
-    assert!(err.to_string().contains("non-zero exit status"), "{err}");
-    assert!(f.fake.last(&format!("destroy -f {ADHOC}")).is_some(), "the half-made VM is destroyed");
-    let adhoc = f.runner.store.run_dir(run.name()).unwrap().join("vagrant").join("adhoc");
-    assert!(
-        !adhoc.join("isoloom-access.rb").exists() && !adhoc.join("isoloom-access.json").exists(),
-        "no definition left"
-    );
-    assert!(!run.status().await.unwrap().machines.iter().any(|m| m.name == ADHOC), "no attack VM listed");
-}
-
-/// A Vagrantfile written before the hook can't load the runner's definition: refused before any
-/// VM is asked anything, nothing written (the providers the hook serves: `adhoc_vm`'s own tests).
-#[tokio::test]
-async fn an_ad_hoc_vm_is_refused_on_a_vagrantfile_without_the_hook() {
-    let f = fixture(crate::this_host());
-    std::fs::write(f.manifest.parent().unwrap().join("Vagrantfile"), "# generated before the hook\n").unwrap();
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
-    let calls = f.fake.calls().len();
-    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), ErrorCode::Unsupported);
-    assert!(err.to_string().contains("predates the hook"), "{err}");
-    assert!(
-        f.fake.calls()[calls..].iter().all(|c| c.line().starts_with("vagrant status")),
-        "only the status reads of the attach"
-    );
-    let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
-    assert!(!dotfile.join("adhoc").exists(), "nothing written");
+    crate::testing::refuses_a_box_it_has_none_of(&run, &f.fake).await;
 }
 
 #[tokio::test]

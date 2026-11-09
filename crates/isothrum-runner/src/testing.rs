@@ -141,3 +141,18 @@ pub(crate) fn virtualbox_options(flag: &str) -> crate::RunOptions {
     secrets.insert("CTF_FLAG_MAIN", crate::secrets::SecretValue::new(flag));
     crate::RunOptions::new().with_provider("virtualbox").with_secrets(secrets)
 }
+
+/// A running `run` whose lab declares no access machine has none to attach: an attach, a detach
+/// and the shell into one are each refused (`unsupported`, saying why), and nothing is run.
+pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake: &FakeProcesses) {
+    let calls = fake.calls().len();
+    let err = run.attach(None, None, Some("me/kali:2026"), &crate::Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Unsupported);
+    assert!(err.to_string().contains("this lab declares no access machine"), "{err}");
+    assert_eq!(
+        run.detach(None, &crate::Recorder::new()).await.unwrap_err().code(),
+        crate::ErrorCode::Unsupported
+    );
+    assert_eq!(run.shell_command(None).unwrap_err().code(), crate::ErrorCode::Unsupported);
+    assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
+}

@@ -1,12 +1,12 @@
 //! The `docker-vm` fixture on a Proxmox server: the VM made by a fake Terraform, everything in
-//! it reached over `ssh` to its address, the ad-hoc attacker box included.
+//! it reached over `ssh` to its address.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use isoloom_manifest::{HostOs, Role};
+use isoloom_manifest::HostOs;
 
-use super::{BOX_IP, Engine, FLAG, VM_IP, compose, running_box};
+use super::{Engine, FLAG, VM_IP, compose};
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
 use crate::testing::{DOCKER_VM_PROXMOX, LabFolder, processes, runner_config};
@@ -45,7 +45,6 @@ fn server_tools(home: &Path, engine: &Mutex<Engine>, call: &Call) -> Reply {
 struct Server {
     folder: LabFolder,
     fake: Arc<FakeProcesses>,
-    engine: Arc<Mutex<Engine>>,
     runner: Runner,
     options: RunOptions,
 }
@@ -68,13 +67,7 @@ fn proxmox() -> Server {
         .with_param("node", "pve")
         .with_secrets(secrets)
         .with_host_label("pve-run");
-    Server {
-        folder,
-        fake,
-        engine,
-        runner,
-        options,
-    }
+    Server { folder, fake, runner, options }
 }
 
 #[tokio::test(start_paused = true)]
@@ -103,74 +96,15 @@ async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to
     run.down(&server, &Recorder::new()).await.unwrap();
 }
 
-/// On a VM Terraform made (a server, a cloud), the ad-hoc attacker box is a container inside that
-/// VM too, reached as the guest's own steps reach it: `ssh` to its address as the guest's user,
-/// with the run's SSH configuration. Status finds it, the shell is `ssh -t` then `docker exec`, a
-/// detach removes it.
+/// The run's SSH jump (a node whose run bridge this host can't route to) carries a console as it
+/// carries the guest's own steps.
 #[tokio::test(start_paused = true)]
-async fn on_proxmox_the_attack_box_is_a_container_in_the_vm_reached_over_ssh() {
-    let s = proxmox();
-    let run = s.runner.open(&s.folder.manifest, None).unwrap();
-    run.up(&s.options, &Recorder::new()).await.unwrap();
-    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "no box yet");
-    let report = run.attach(None, None, Some("cyberctf/attack-box"), &Recorder::new()).await.unwrap();
-    let name = format!("{}-isoloom-access", run.name());
-    assert_eq!((report.machine.as_str(), report.native.as_str()), ("isoloom-access", name.as_str()));
-    assert_eq!((report.network.as_deref(), report.address.as_deref()), (Some("lab"), Some(BOX_IP)));
-    let started = s.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
-    assert_eq!(started.program, "ssh");
-    let config = s.runner.store.run_dir(run.name()).unwrap().join("ssh_config");
-    assert_eq!(
-        started.args,
-        [
-            "-F".to_owned(),
-            config.display().to_string(),
-            format!("isoloom@{VM_IP}"),
-            format!(
-                "sudo docker run -d --name '{name}' --hostname attackbox --label isoloom.access=true --network 'flag-portal_lab' 'cyberctf/attack-box' sleep infinity"
-            ),
-        ]
-    );
-    assert_eq!(
-        s.engine.lock().unwrap().attacker,
-        Some(("cyberctf/attack-box".into(), vec!["flag-portal_lab".into()]))
-    );
-
-    running_box(&run).await;
-
-    let shell = run.shell_command(None).unwrap();
-    assert_eq!(shell.program, "ssh");
-    assert_eq!(
-        shell.args[..4],
-        ["-t".to_owned(), "-F".to_owned(), config.display().to_string(), format!("isoloom@{VM_IP}")]
-    );
-    assert!(
-        shell.args[4].starts_with(&format!("sudo docker exec -it '{name}' sh -c '")),
-        "{}",
-        shell.args[4]
-    );
-    assert_eq!(shell.env, Vec::<(String, String)>::new());
-
-    run.detach(None, &Recorder::new()).await.unwrap();
-    let rm = s.fake.last("docker rm -f").unwrap();
-    assert_eq!((rm.program.as_str(), rm.args.last().unwrap()), ("ssh", &format!("sudo docker rm -f '{name}'")));
-    assert!(s.engine.lock().unwrap().attacker.is_none());
-    assert!(run.status().await.unwrap().machines.iter().all(|m| m.role != Role::Access), "the box is gone");
-    run.down(&s.options, &Recorder::new()).await.unwrap();
-}
-
-/// The run's SSH jump (a node whose run bridge this host can't route to) carries the box's calls
-/// and its shell as it carries the guest's own.
-#[tokio::test(start_paused = true)]
-async fn the_attack_box_goes_through_the_runs_ssh_jump() {
+async fn a_console_goes_through_the_runs_ssh_jump() {
     let s = proxmox();
     let run = s.runner.open(&s.folder.manifest, None).unwrap();
     run.up(&s.options.clone().with_ssh_jump("root@pve.lan"), &Recorder::new()).await.unwrap();
-    run.attach(None, None, None, &Recorder::new()).await.unwrap();
-    let started = s.fake.calls().into_iter().find(|c| c.line().contains("docker run -d")).unwrap();
-    assert!(started.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", started.args);
-    let shell = run.shell_command(None).unwrap();
-    assert!(shell.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", shell.args);
+    let console = run.console_command("web").unwrap();
+    assert!(console.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", console.args);
 }
 
 /// A console into a service of the lab in the server's VM: `ssh -t` to the VM as the guest's

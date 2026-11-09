@@ -1,35 +1,30 @@
-//! Hot-adding the learner's attacker box into a running run, and hot-removing it. A lab no longer
-//! declares an access machine, so the box is stood up ad hoc on the running lab's network with no
-//! manifest or Compose machine behind it ([`crate::driver::Attacker::AdHoc`]: a container, or a VM
-//! the runner adds to a VM lab).
-//!
-//! For backward compatibility, a lab that still carries an on-demand access machine (a manifest
-//! machine marked `on_demand`, which the initial `up` left down — a Compose `access` profile, a
-//! Vagrant `autostart: false`) keeps its old path: `attach` brings that machine up on a chosen
-//! network with the learner's picked image, `detach` takes it back out.
+//! Hot-adding a lab's own on-demand access machine into a running run, and hot-removing it: a
+//! manifest machine marked `on_demand`, which the initial `up` left down (a Compose `access`
+//! profile, a Vagrant `autostart: false`). `attach` brings it up on a chosen network with the
+//! learner's picked image, `detach` takes it back out. A lab that declares no access machine has
+//! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
+//! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
 use isoloom_manifest::{Machine, Native};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::Running;
 use super::operation::Done;
 use crate::Result;
-use crate::driver::{Attached, Attacker};
 use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
 use crate::secrets::sensitive_values;
 use crate::state::Op;
-use crate::status::{ShellCommand, any_target_running};
+use crate::status::ShellCommand;
 
 /// What a hot-add produced: the attacker box brought up, and where to reach it.
 #[derive(Debug, Clone, Serialize)]
 pub struct AttachReport {
-    /// The box's name, as status reports it: the access machine's manifest name, or
-    /// `isoloom-access` for an ad-hoc box.
+    /// The box's name, as status reports it: the access machine's manifest name.
     pub machine: String,
-    /// Its native name (the Compose service / Vagrant define, or the ad-hoc container name).
+    /// Its native name (the Compose service / Vagrant define).
     pub native: String,
     /// The lab network it is on (the chosen one, else its first).
     pub network: Option<String>,
@@ -37,59 +32,6 @@ pub struct AttachReport {
     pub address: Option<String>,
     /// The image or box it was brought up with, when the learner picked one.
     pub image: Option<String>,
-}
-
-/// Which attacker box a hot-add acts on: the manifest's on-demand access machine when the lab
-/// declares one, else an ad-hoc box with no machine (which the driver stands up itself).
-enum Target<'a> {
-    Machine(&'a Machine),
-    AdHoc,
-}
-
-impl Target<'_> {
-    /// How the driver addresses this box.
-    fn as_attacker(&self) -> Attacker<'_> {
-        match self {
-            Target::Machine(m) => Attacker::Machine(native_name(m)),
-            Target::AdHoc => Attacker::AdHoc,
-        }
-    }
-
-    /// The report for this box: a machine's identity and address come from the manifest, an ad-hoc
-    /// box's from what the driver stood up ([`Attached`]). `network` and `image` are the picks.
-    fn report(&self, network: Option<&str>, image: Option<&str>, attached: Attached) -> AttachReport {
-        let image = image.map(str::to_owned);
-        match self {
-            Target::Machine(m) => {
-                let (network, address) = address_on(m, network);
-                AttachReport {
-                    machine: m.name.as_str().to_owned(),
-                    native: native_name(m).to_owned(),
-                    network,
-                    address,
-                    image,
-                }
-            }
-            Target::AdHoc => {
-                AttachReport {
-                    // The name status reports the box under, so the two can be matched.
-                    machine: crate::driver::ADHOC_NAME.to_owned(),
-                    native: attached.name.unwrap_or_default(),
-                    network: attached.network,
-                    address: attached.address,
-                    image,
-                }
-            }
-        }
-    }
-
-    /// The `result` event's data for a detach.
-    fn detach_data(&self) -> Value {
-        match self {
-            Target::Machine(m) => json!({ "machine": m.name.as_str(), "native": native_name(m) }),
-            Target::AdHoc => json!({ "machine": Value::Null, "native": Value::Null }),
-        }
-    }
 }
 
 /// Which box an attach adds, where, from what: as [`Running::attach`] takes them.
@@ -104,26 +46,22 @@ pub struct BoxPick<'a> {
 }
 
 impl Running<'_> {
-    /// Hot-adds the attacker box into the running run: an ad-hoc box on the lab's network (the
-    /// default now that labs declare no access machine), or the manifest's on-demand access machine
-    /// when the lab still has one. It is brought up with the learner-picked `image` (its baked or
-    /// Kali default otherwise), on `network` when given. `image` is a container image: an ad-hoc
-    /// box runs it, beside a container lab's containers or inside the attack VM the runner adds
-    /// to a VM lab; a manifest access VM alone takes it as its Vagrant box. `machine` names which on-demand machine,
-    /// needed only when the lab has more than one.
+    /// Hot-adds the lab's on-demand access machine into the running run, brought up with the
+    /// learner-picked `image` (its baked default otherwise), on `network` when given. `image` is a
+    /// container image for a Compose access service, the Vagrant box for an access VM. `machine`
+    /// names which on-demand machine, needed only when the lab has more than one.
     ///
     /// # Errors
     ///
     /// Fails with `machine_unknown` for a named machine the lab doesn't have, `unsupported` when
-    /// the lab has several on-demand machines and none is named (or the target can't make an
-    /// ad-hoc box: a VM lab on a server or a cloud), `not_running` when the run isn't up,
-    /// and as the other operations do for a step or the state.
+    /// the lab declares no access machine, or several and none is named (or the target brings
+    /// none up later: a server or a cloud), `not_running` when the run isn't up, and as the other
+    /// operations do for a step or the state.
     pub async fn attach(&self, machine: Option<&str>, network: Option<&str>, image: Option<&str>, events: &dyn Events) -> Result<AttachReport> {
         self.attach_with(&RunOptions::default(), BoxPick { machine, network, image }, events).await
     }
 
-    /// [`Running::attach`] with `opts`: the secrets a target needs to change the run (a cloud
-    /// account's credentials, when the box is an instance of its own the module is applied for).
+    /// [`Running::attach`] with `opts`: the params and secrets the run's operations take.
     ///
     /// # Errors
     ///
@@ -135,11 +73,9 @@ impl Running<'_> {
         self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
             let target = self.attacker(machine)?;
             let (_, mut cx) = self.existing(&opts, e).await?;
-            if !any_target_running(&self.observe(&mut cx).await?.machines) {
-                return Err(Error::NotRunning { run: self.name().to_string() });
-            }
-            let attached = self.driver.attach(&cx, target.as_attacker(), image, network).await?;
-            let report = target.report(network, image, attached);
+            self.observe_running(&mut cx).await?;
+            self.driver.attach(&cx, native_name(target), image, network).await?;
+            let report = report(target, network, image);
             let data = json!({ "machine": report.machine, "native": report.native, "network": report.network, "address": report.address });
             Ok(Done {
                 value: report,
@@ -172,30 +108,29 @@ impl Running<'_> {
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
             let target = self.attacker(machine)?;
             let (_, cx) = self.existing(&opts, e).await?;
-            self.driver.detach(&cx, target.as_attacker()).await?;
+            self.driver.detach(&cx, native_name(target)).await?;
             Ok(Done {
                 value: (),
                 ok: true,
-                data: target.detach_data(),
+                data: json!({ "machine": target.name.as_str(), "native": native_name(target) }),
                 state: None,
             })
         })
         .await
     }
 
-    /// The command that opens an interactive shell into the attacker box: the runner builds it from
-    /// the run's runtime (the Compose project, the Vagrant define), so the embedder opens the box
-    /// by selection and never reconstructs a container name. A pure query — it runs nothing, emits
-    /// nothing, and doesn't check the box is up (the embedder runs what it returns in its own
-    /// terminal once the box is attached).
+    /// The command that opens an interactive shell into the lab's access machine: the runner
+    /// builds it from the run's runtime (the Compose project, the Vagrant define), so the embedder
+    /// opens the box by selection and never reconstructs a container name. A pure query — it runs
+    /// nothing, emits nothing, and doesn't check the box is up (the embedder runs what it returns
+    /// in its own terminal once the box is attached).
     ///
     /// # Errors
     ///
-    /// Fails as [`Running::attach`] does for the box choice, and `unsupported` on a target that
-    /// makes no ad-hoc box (a VM lab on a server or a cloud).
+    /// Fails as [`Running::attach`] does for the box choice and the target.
     pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
         let target = self.attacker(machine)?;
-        self.query(|cx| self.driver.shell_command(cx, target.as_attacker()))
+        self.query(|cx| self.driver.shell_command(cx, native_name(target)))
     }
 
     /// The command that opens an interactive console into `machine`, any machine of the run (an
@@ -206,15 +141,7 @@ impl Running<'_> {
     /// Fails with `machine_unknown` for a machine the run doesn't have, `not_running` when the
     /// run gives it no address yet, and `unsupported` where the target has no way in yet.
     pub fn console_command(&self, machine: &str) -> Result<ShellCommand> {
-        let target = self
-            .manifest()
-            .machines
-            .iter()
-            .find(|m| m.name.as_str() == machine)
-            .ok_or_else(|| Error::MachineUnknown {
-                run: self.name().to_string(),
-                machine: machine.to_owned(),
-            })?;
+        let target = self.machine_named(machine)?;
         self.query(|cx| self.driver.console_command(cx, target))
     }
 
@@ -231,24 +158,20 @@ impl Running<'_> {
         f(&cx)
     }
 
-    /// Which box an attach targets: the on-demand machine `machine` names, or the only one, else
-    /// an ad-hoc box when the lab declares no on-demand machine at all.
-    fn attacker(&self, machine: Option<&str>) -> Result<Target<'_>> {
+    /// Which box an attach targets: the on-demand machine `machine` names, or the only one.
+    fn attacker(&self, machine: Option<&str>) -> Result<&Machine> {
         let mut on_demand = self.manifest().machines.iter().filter(|m| m.on_demand);
         if let Some(name) = machine {
-            return on_demand
-                .find(|m| m.name.as_str() == name)
-                .map(Target::Machine)
-                .ok_or_else(|| Error::MachineUnknown {
-                    run: self.name().to_string(),
-                    machine: name.to_owned(),
-                });
-        }
-        if crate::driver::takes_adhoc_box(self.manifest()) {
-            return Ok(Target::AdHoc);
+            return on_demand.find(|m| m.name.as_str() == name).ok_or_else(|| Error::MachineUnknown {
+                run: self.name().to_string(),
+                machine: name.to_owned(),
+            });
         }
         match (on_demand.next(), on_demand.next()) {
-            (Some(one), None) => Ok(Target::Machine(one)),
+            (Some(one), None) => Ok(one),
+            (None, _) => Err(Error::Unsupported {
+                what: "hot-adding an access machine (this lab declares no access machine)".to_owned(),
+            }),
             _ => Err(Error::Unsupported {
                 what: format!("hot-adding an access machine: this lab has several ({}); name which", self.on_demand_names()),
             }),
@@ -264,6 +187,19 @@ impl Running<'_> {
             .map(|m| m.name.as_str())
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+/// The report of an attach of `m`: its identity and address from the manifest, with the picked
+/// `network` and `image`.
+fn report(m: &Machine, network: Option<&str>, image: Option<&str>) -> AttachReport {
+    let (network, address) = address_on(m, network);
+    AttachReport {
+        machine: m.name.as_str().to_owned(),
+        native: native_name(m).to_owned(),
+        network,
+        address,
+        image: image.map(str::to_owned),
     }
 }
 

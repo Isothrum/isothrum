@@ -289,6 +289,27 @@ impl<'r> Running<'r> {
         Ok(observed)
     }
 
+    /// [`Running::observe`], refused with `not_running` when no target machine runs.
+    pub(crate) async fn observe_running(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
+        let observed = self.observe(cx).await?;
+        if !status::any_target_running(&observed.machines) {
+            return Err(Error::NotRunning { run: self.name().to_string() });
+        }
+        Ok(observed)
+    }
+
+    /// The manifest's machine `name`, refused with `machine_unknown` when the run has none.
+    pub(crate) fn machine_named(&self, name: &str) -> Result<&isoloom_manifest::Machine> {
+        self.manifest()
+            .machines
+            .iter()
+            .find(|m| m.name.as_str() == name)
+            .ok_or_else(|| Error::MachineUnknown {
+                run: self.name().to_string(),
+                machine: name.to_owned(),
+            })
+    }
+
     /// Binds what `observed` gives back (published ports, outputs) into `cx`: the run's outputs.
     pub(crate) fn bind_observed(&self, cx: &mut Cx<'_>, observed: crate::driver::Observed) -> Vec<status::OutputValue> {
         cx.vars.set_published(observed.published);

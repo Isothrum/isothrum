@@ -16,13 +16,12 @@ use super::Running;
 use super::operation::Done;
 use super::up::ready_run;
 use crate::Result;
-use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::hooks::Edge;
 use crate::options::RunOptions;
 use crate::secrets::{check_secrets, sensitive_values};
 use crate::state::{Op, RunState};
-use crate::status::{MachineState, Started, any_target_running};
+use crate::status::{MachineState, Started};
 use crate::{ready, tools};
 
 impl Running<'_> {
@@ -36,15 +35,7 @@ impl Running<'_> {
     /// operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = &self.connected(opts);
-        let target = self
-            .manifest()
-            .machines
-            .iter()
-            .find(|m| m.name.as_str() == machine)
-            .ok_or_else(|| Error::MachineUnknown {
-                run: self.name().to_string(),
-                machine: machine.to_owned(),
-            })?;
+        let target = self.machine_named(machine)?;
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Retire, events, mask, async |e: &Emitter<'_>| {
             let (_, cx) = self.existing(opts, e).await?;
@@ -77,10 +68,7 @@ impl Running<'_> {
         check_secrets(self.manifest(), &opts.secrets, &self.scope(opts.provider.clone()))?;
         let (mut record, mut cx) = self.existing(opts, events).await?;
         tools::probe(&cx).await?;
-        let observed = self.observe(&mut cx).await?;
-        if !any_target_running(&observed.machines) {
-            return Err(Error::NotRunning { run: self.name().to_string() });
-        }
+        let observed = self.observe_running(&mut cx).await?;
         // What runs now keeps what it was given: only a machine new to the run gets its secrets.
         cx.set_up = observed
             .machines
