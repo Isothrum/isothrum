@@ -1,6 +1,9 @@
-//! One manifest opened under one run name: the operations an embedder calls. `operation` is what
-//! every operation does around its own work, `up` starts a run, `existing` holds the operations on
-//! a run that exists (down, park, resume, check, provision).
+//! One manifest opened under one run name: the operations an embedder calls, and the read-only
+//! queries (status, outputs) here. `operation` is what every operation does around its own work,
+//! `up` starts a run, `existing` holds the operations on a run that exists (down, park, resume,
+//! check, provision), `update` brings a running run up to date with its manifest (update,
+//! retire), `attach` hot-adds and removes the lab's access machine and opens consoles (attach,
+//! detach, the shell and console commands), and `seal` seals a run once it is ready.
 
 mod attach;
 mod existing;
@@ -35,9 +38,6 @@ use crate::scope::Scope;
 use crate::secrets::Secrets;
 use crate::state::Op;
 use crate::status::{self, OutputValue, Status};
-
-/// What a read-only query runs with: the run's record, its provider, and its params.
-type QueryPrelude = (Option<crate::store::RunRecord>, Option<String>, BTreeMap<String, String>);
 
 /// A run: a manifest under a name, on a runner.
 pub struct Running<'r> {
@@ -124,9 +124,10 @@ impl<'r> Running<'r> {
         &self.loaded.sha256
     }
 
-    /// What a read-only query runs with: the run's record, the provider it was started on, and
-    /// its params (recorded params replayed; a fresh run's defaults otherwise). No lock, no event.
-    pub(crate) fn query_prelude(&self) -> Result<QueryPrelude> {
+    /// A quiet context of the run, with `events` and what its start kept (its record bound: its
+    /// SSH jump, its slot, its forwards; its provider; its params replayed, a fresh run's
+    /// defaults otherwise), so a way in is the run's: for the read-only queries. No lock.
+    fn quiet<'a>(&'a self, events: &'a Emitter<'a>) -> Result<(Option<crate::store::RunRecord>, Cx<'a>)> {
         let record = self.runner.store.record(&self.name)?;
         let provider = record.as_ref().and_then(|r| r.provider.clone());
         let params = params_for_existing(
@@ -135,7 +136,24 @@ impl<'r> Running<'r> {
             &BTreeMap::new(),
             &self.scope(provider.clone()),
         )?;
-        Ok((record, provider, params))
+        let mut cx = self.cx(params, &self.connection, events, provider)?;
+        if let Some(r) = &record {
+            Self::bind_record(&mut cx, r);
+        }
+        Ok((record, cx))
+    }
+
+    /// Runs `f` on a quiet context of the run ([`Running::quiet`]), emitting nothing: for the
+    /// pure queries.
+    pub(crate) fn query<T>(&self, f: impl FnOnce(&Cx<'_>) -> Result<T>) -> Result<T> {
+        let events = self.silent();
+        let (_, cx) = self.quiet(&events)?;
+        f(&cx)
+    }
+
+    /// An emitter of the run that says nothing.
+    fn silent(&self) -> Emitter<'_> {
+        Emitter::new(self.name.as_str(), Op::Check, self.runner.config.clock.as_ref(), &|_: &crate::events::Event| {})
     }
 
     /// The run as it stands: read-only, never locked, and never an event.
@@ -145,14 +163,9 @@ impl<'r> Running<'r> {
     /// Fails when the engine can't be asked (the status step fails or runs out of time) or the
     /// run's record can't be read.
     pub async fn status(&self) -> Result<Status> {
-        let (record, provider, params) = self.query_prelude()?;
-        let silent = |_: &crate::events::Event| {};
-        let events = Emitter::new(self.name.as_str(), Op::Check, self.runner.config.clock.as_ref(), &silent);
-        let secrets = self.connection.clone();
-        let mut cx = self.cx(params, &secrets, &events, provider.clone())?;
-        if let Some(r) = &record {
-            Self::bind_record(&mut cx, r);
-        }
+        let events = self.silent();
+        let (record, mut cx) = self.quiet(&events)?;
+        let provider = cx.scope.provider.clone();
         self.driver.prepare(&cx)?;
         self.relay(&mut cx).await?;
         let observed = self.observe(&mut cx).await?;

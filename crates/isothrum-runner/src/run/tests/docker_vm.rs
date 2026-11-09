@@ -238,3 +238,32 @@ async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
     let vm = run.console_command("docker").unwrap();
     assert_eq!(vm.args, ["ssh", "default"], "the VM itself: its define");
 }
+
+/// Retiring the VM the lab's containers run in is refused: destroying it would take every
+/// container with it. Nothing is destroyed.
+#[tokio::test(start_paused = true)]
+async fn the_vm_the_containers_run_in_is_not_retired() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let err = run.retire("docker", &RunOptions::new(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
+    assert!(l.fake.last("destroy").is_none(), "nothing destroyed");
+    assert_eq!(l.engine.lock().unwrap().vm.as_deref(), Some("running"));
+}
+
+/// A Compose service in the VM is left to the update: the runner has no way to run Compose in
+/// the VM, so its retire runs nothing there, and nothing of the VM goes.
+#[tokio::test(start_paused = true)]
+async fn retiring_a_service_in_the_vm_runs_nothing_there() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let before = l.fake.calls().len();
+    run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();
+    let after: Vec<String> = l.fake.calls()[before..].iter().map(Call::line).collect();
+    assert!(
+        after.iter().all(|c| !c.contains("destroy") && !c.contains(" rm ") && !c.contains(" stop")),
+        "{after:?}"
+    );
+}

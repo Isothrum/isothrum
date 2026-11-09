@@ -13,7 +13,8 @@ use crate::store::RunRecord;
 
 /// The command that opens an interactive shell into a machine: the runner builds it (it alone
 /// knows the runtime — the Compose project and files, the Vagrant define), the embedder runs it
-/// in its own terminal. Addresses the box by service or define name, never a guessed container.
+/// in its own terminal. Addresses the machine by service or define name, never a guessed
+/// container.
 #[derive(Debug, Clone, Serialize)]
 pub struct ShellCommand {
     /// The program to run (`docker`, `vagrant`).

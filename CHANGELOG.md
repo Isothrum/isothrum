@@ -18,6 +18,22 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   nothing behind the router. Attach and detach now take the services in the machine's namespace
   (`network_mode: service:<machine>`, read from `docker compose config`) with it, and attach waits
   for them (`--wait`).
+- **`shell_command` reads the run's record**, as status does: a Vagrant run's shell gets the host
+  ports its start pinned.
+- **`retire` takes a Compose service out of the run.** It did nothing on Compose, leaving the
+  service to the update, but the update's start removes no orphan (Isoloom's `up` has no
+  `--remove-orphans`) and touches no service outside the default start: a service taken out of
+  the lab, or moved back to an on-demand machine in the `access` profile, kept running. `retire`
+  now stops and removes it with the services in its namespace (`docker compose [--profile access]
+  rm -sf <service> <its sidecars>`, the `access` profile for an on-demand machine). A Compose
+  service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) is still left as it is: the
+  runner has no way to run Compose there.
+- **`retire` refuses the VM a lab's containers run in** (`docker-vm`'s guest, `unsupported`):
+  destroying it took every container with it. A retired Vagrant VM's destroy gets the detach's
+  5 minutes, not an attach's 30.
+- **An access machine whose namespace can't be read isn't started without its routes.** When
+  `docker compose config` printed nothing the runner could read, attach and detach took the
+  machine alone (no routes, or routes left running); they now fail (`tool_failed`).
 
 ### Added
 
@@ -29,8 +45,8 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   then into the service's container. Each starts bash where the machine has it, else sh.
 - `Running::retire(machine)`: takes a machine out of the running run ahead of its removal from
   the manifest and the update after: a Vagrant VM is destroyed (Vagrant forgets a define the
-  Vagrantfile no longer has); the other targets' update removes it itself. New operation in
-  events: `retire`.
+  Vagrantfile no longer has), a Compose service stopped and removed; a Terraform run's apply
+  removes it itself. New operation in events: `retire`.
 - `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
   regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
   with the params the run was started with, so each engine converges, then the guests' secrets,
@@ -48,10 +64,11 @@ desktop app, the isothrum.com editor and the Cyber CTF launcher.
   `ProviderStatus` carries both versions (`hypervisorVersion`, `pluginVersion`). What the Cyber
   CTF launcher checks on its own, now shared.
 
-### Fixed
+### Changed
 
-- **`shell_command` reads the run's record**, as status does: a Vagrant run's shell gets the host
-  ports its start pinned.
+- **`Running::shell_command` is the access machine's console** (`Running::console_command` of
+  the on-demand machine it picks), the drivers' separate shell gone. On Compose it now starts bash
+  where the image has it, else sh, instead of `bash` alone (an image without bash had no shell).
 
 ### Removed
 

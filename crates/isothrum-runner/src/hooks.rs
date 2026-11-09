@@ -1,6 +1,7 @@
-//! The embedder's sidecars around lifecycle edges. The launcher's attack box is these hooks: it
-//! starts (or rejoins) after `up` and `resume`, stops before `park`, and goes before `down` so the
-//! run's network is free. A hook's failure is a warning event, never a failed operation.
+//! The embedder's sidecars around lifecycle edges: what an embedder keeps beside a run (a
+//! container of its own on the run's network, say) starts or rejoins after `up` and `resume`,
+//! stops before `park`, and goes before `down` so the run's network is free. A hook's failure is
+//! a warning event, never a failed operation.
 
 use isoloom_manifest::Manifest;
 

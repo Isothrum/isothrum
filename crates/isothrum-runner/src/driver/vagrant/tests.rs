@@ -40,6 +40,8 @@ struct Engine {
     halt_fails: Option<&'static str>,
     /// The controller powers itself off before `vagrant halt` (ESXi refuses that halt).
     esxi_off_before_halt: bool,
+    /// The VMs a regenerated Vagrantfile defines beyond the fixture's, which `vagrant up` brings up.
+    added: Vec<String>,
 }
 
 struct Fixture {
@@ -220,7 +222,8 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
             if failed {
                 return Reply::fail(1, &out);
             }
-            for vm in VMS {
+            let added = e.added.clone();
+            for vm in VMS.iter().copied().chain(added.iter().map(String::as_str)) {
                 e.states.insert(vm.into(), "running".into());
                 record(&dotfile, vm, provider);
             }
@@ -760,4 +763,49 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
     run.down(&RunOptions::new().with_secrets(other), &Recorder::new()).await.unwrap();
     let destroy = f.fake.last("vagrant destroy").unwrap();
     assert_eq!(destroy.env("ESXI_PASSWORD"), Some("other"));
+}
+
+/// The fixture with a VM added (a copy of `web` under another define), as Isoloom regenerates a
+/// lab with a machine added.
+fn with_vm_added(define: &str) -> String {
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
+    let mut added = m["machines"][0].clone();
+    added["name"] = define.into();
+    added["native"]["vagrant"] = define.into();
+    added["ports"] = serde_json::json!([]);
+    m["machines"].as_array_mut().unwrap().push(added);
+    m.to_string()
+}
+
+/// An update of a running VM lab with a VM added runs its start again (`vagrant up`), which
+/// brings the new VM up beside the running ones; the run stays ready.
+#[tokio::test]
+async fn an_update_brings_a_vm_added_to_the_lab_up() {
+    let f = fixture(crate::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    std::fs::write(&f.manifest, with_vm_added("extra")).unwrap();
+    f.engine().added.push("extra".into());
+    let regenerated = f.runner.open(&f.manifest, None).unwrap();
+    let ups = || f.vagrant().iter().filter(|l| l.starts_with("vagrant up --provider")).count();
+    let before = ups();
+    let updated = regenerated.update(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(updated.record.state, RunState::Ready);
+    assert_eq!(ups(), before + 1, "{:?}", f.vagrant());
+    let status = regenerated.status().await.unwrap();
+    let extra = status.machines.iter().find(|m| m.name == "extra").unwrap();
+    assert_eq!(extra.state, crate::MachineState::Running);
+}
+
+/// A machine whose manifest doesn't say how it runs (no native name) has no console: refused,
+/// rather than a guess at its define.
+#[tokio::test]
+async fn a_machine_with_no_native_name_has_no_console() {
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
+    m["machines"][0].as_object_mut().unwrap().remove("native");
+    let f = fixture_from(crate::this_host(), &m.to_string());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.console_command("web").unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
+    assert!(err.to_string().contains("doesn't say how it runs"), "{err}");
 }

@@ -241,3 +241,44 @@ async fn a_lab_without_provision_steps_isnt_provisioned_again() {
     assert_eq!(err.code(), crate::ErrorCode::Unsupported);
     assert!(err.to_string().contains("no provision steps"), "{err}");
 }
+
+/// The fixture regenerated with a service added (`extra`, started with the others) and one taken
+/// out (`db-routes`).
+fn regenerated() -> String {
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let machines = m["machines"].as_array_mut().unwrap();
+    let mut extra = machines[0].clone();
+    machines.retain(|x| x["name"] != "db-routes");
+    extra["name"] = "extra".into();
+    extra["native"]["service"] = "extra".into();
+    machines.push(extra);
+    let up = m["lifecycle"]["up"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "up").unwrap();
+    let argv = up["argv"].as_array_mut().unwrap();
+    argv.retain(|a| a != "db-routes");
+    argv.push("extra".into());
+    m.to_string()
+}
+
+/// An update of a running Compose lab runs its start again, so a service added comes up with the
+/// others. Its start removes no orphan (Isoloom's `up` has no `--remove-orphans`), so a service
+/// taken out goes at its retire, before the update, and the update removes nothing itself.
+#[tokio::test]
+async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_retire() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    run.retire("db-routes", &RunOptions::new(), &Recorder::new()).await.unwrap();
+    let rm = f.fake.last(" rm -sf").expect("the service taken out is removed");
+    assert!(rm.line().ends_with(" rm -sf db-routes"), "{}", rm.line());
+
+    std::fs::write(&f.manifest, regenerated()).unwrap();
+    let before = f.fake.calls().len();
+    let events = Recorder::new();
+    let updated = f.runner.open(&f.manifest, None).unwrap().update(&opts(), &events).await.unwrap();
+    assert_eq!(updated.record.state, RunState::Ready);
+    assert!(events.events().iter().all(|e| e.op == Op::Update));
+    let start = f.fake.last(" up --detach ").unwrap();
+    assert!(start.line().ends_with(" db web web-routes isoloom-probe-amd64 extra"), "{}", start.line());
+    let during: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
+    assert!(during.iter().all(|l| !l.contains(" rm ") && !l.contains("--remove-orphans")), "{during:?}");
+}

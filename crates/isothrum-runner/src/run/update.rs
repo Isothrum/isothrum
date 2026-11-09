@@ -1,9 +1,11 @@
 //! Bringing a running run up to date with its manifest. The embedder regenerated the manifest
 //! (a machine added to the lab or taken out of it, a set-up changed) and opened the run on it;
 //! `up`'s steps run again against what is up, with the params the run was started with, so each
-//! engine converges: Terraform makes and removes what changed, Compose starts new services and
-//! removes the ones gone (`--remove-orphans`), Vagrant brings up new VMs (a VM taken out is
-//! retired first, [`Running::retire`]: Vagrant forgets a define the Vagrantfile no longer has).
+//! engine converges: Terraform makes and removes what changed, Compose starts new services,
+//! Vagrant brings up new VMs. What an update doesn't remove itself is retired first
+//! ([`Running::retire`]): a VM taken out (Vagrant forgets a define the Vagrantfile no longer
+//! has), a Compose service taken out or moved out of the default start (Isoloom's start removes
+//! no orphan).
 //! Then, as at `up`, the guests' secrets, the ready conditions, the outputs and the message.
 //!
 //! A machine that was running keeps what it was given: the guests' secrets go to new machines
@@ -26,13 +28,19 @@ use crate::{ready, tools};
 
 impl Running<'_> {
     /// Takes machine `machine` out of the running run, ahead of its removal from the manifest
-    /// (then an update): what the next update wouldn't remove itself (a Vagrant VM, which Vagrant
-    /// forgets once its define is gone). Nothing to do on the other targets.
+    /// (then an update), or of its move out of the lab's start (back to an on-demand machine):
+    /// what the next update wouldn't remove itself. A Vagrant VM is destroyed (Vagrant forgets a
+    /// define the Vagrantfile no longer has); a Compose service is stopped and removed with the
+    /// services in its namespace (the update's start removes no orphan, and leaves a service
+    /// outside the default start running). A Terraform machine is left to the update's apply. A
+    /// Compose service inside the run's VM is left as it is: the runner has no way to run Compose
+    /// there, and it runs until the run goes down.
     ///
     /// # Errors
     ///
-    /// Fails with `machine_unknown` for a machine the run doesn't have, and as the other
-    /// operations do for a step or the run's state.
+    /// Fails with `machine_unknown` for a machine the run doesn't have, `unsupported` for the VM
+    /// the lab's containers run in (`docker-vm`'s guest: every container would go with it), and
+    /// as the other operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         let opts = &self.connected(opts);
         let target = self.machine_named(machine)?;

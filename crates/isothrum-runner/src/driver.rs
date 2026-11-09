@@ -12,7 +12,7 @@ pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, SnakeName, Step, Template, Transport};
+use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, SnakeName, Step, Template, Transport};
 use tracing::Instrument;
 
 use crate::Result;
@@ -65,25 +65,14 @@ pub(crate) trait Driver {
     async fn attach(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()>;
     /// Hot-removes the lab's on-demand access machine `native` from the running run.
     async fn detach(&self, cx: &Cx<'_>, native: &str) -> Result<()>;
-    /// The argv that opens an interactive shell into the access machine `native`. A pure query:
-    /// no process runs here, the embedder runs what it returns in its own terminal.
-    fn shell_command(&self, cx: &Cx<'_>, native: &str) -> Result<ShellCommand>;
-    /// Takes `machine` out of the running run, ahead of its removal from the manifest, where the
-    /// next update of the run wouldn't remove it itself. Nothing to do by default: Compose's
-    /// start removes the services the lab no longer has, and Terraform's apply what it no
-    /// longer makes.
-    async fn retire(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<()> {
-        let _ = (cx, machine);
-        Ok(())
-    }
+    /// Takes `machine` out of the running run, ahead of its removal from the manifest (or its
+    /// move out of the lab's default start), where the next update of the run wouldn't remove it
+    /// itself (Terraform's apply removes what its module no longer makes: nothing to do).
+    async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()>;
     /// The argv that opens an interactive console into `machine`, any machine of the run. A pure
-    /// query, as [`Driver::shell_command`]. Refused where the driver has no way in yet.
-    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
-        let _ = cx;
-        Err(Error::Unsupported {
-            what: format!("a console into `{}` on this target", machine.name),
-        })
-    }
+    /// query: no process runs here, the embedder runs what it returns in its own terminal.
+    /// Refused where the driver has no way in.
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand>;
 }
 
 /// The driver a manifest names.
@@ -219,15 +208,7 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) fn shell_command(&self, cx: &Cx<'_>, native: &str) -> Result<ShellCommand> {
-        match self {
-            AnyDriver::Compose(d) => d.shell_command(cx, native),
-            AnyDriver::Vagrant(d) => d.shell_command(cx, native),
-            AnyDriver::Terraform(d) => d.shell_command(cx, native),
-        }
-    }
-
-    pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<()> {
+    pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         match self {
             AnyDriver::Compose(d) => d.retire(cx, machine).await,
             AnyDriver::Vagrant(d) => d.retire(cx, machine).await,
@@ -235,7 +216,7 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
+    pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
         match self {
             AnyDriver::Compose(d) => d.console_command(cx, machine),
             AnyDriver::Vagrant(d) => d.console_command(cx, machine),
@@ -261,6 +242,16 @@ pub(crate) async fn status_report(cx: &Cx<'_>) -> Result<String> {
 /// the manifest fixes on it.
 pub(crate) fn static_addresses(m: &Machine) -> BTreeMap<String, String> {
     m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect()
+}
+
+/// The name the machine's engine addresses it by: its Compose service, its Vagrant define, else
+/// its manifest name.
+pub(crate) fn native_name(m: &Machine) -> &str {
+    match &m.native {
+        Some(Native::Compose { service }) => service.as_str(),
+        Some(Native::Vagrant { vagrant, .. }) => vagrant.as_str(),
+        None => m.name.as_str(),
+    }
 }
 
 /// An action's name, as the manifest writes it.

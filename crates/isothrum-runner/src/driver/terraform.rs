@@ -25,7 +25,7 @@ mod state;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use isoloom_manifest::{Action, ExpiryUnit, SnakeName, Step, Template, TerraformIdentity};
+use isoloom_manifest::{Action, ExpiryUnit, Machine, SnakeName, Step, Template, TerraformIdentity};
 
 use super::{Driver, Observed};
 use crate::Result;
@@ -130,15 +130,17 @@ impl Driver for Terraform {
         std::future::ready(Err(on_demand("hot-removing")))
     }
 
-    /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
-    fn console_command(&self, cx: &Cx<'_>, machine: &isoloom_manifest::Machine) -> Result<ShellCommand> {
-        console::command(cx, machine)
+    /// A machine the module no longer makes goes at the update's apply. A Compose service in the
+    /// run's VM (cloud-docker, Proxmox docker-vm) is left to the update too: the runner has no
+    /// way to run Compose in the VM (only the manifest's steps do). The update's start there
+    /// removes no orphan, so its container keeps running until the run goes down.
+    fn retire(&self, _cx: &Cx<'_>, _machine: &Machine) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
     }
 
-    /// Refused, as [`Terraform::attach`]: a console into any machine is
-    /// [`Driver::console_command`].
-    fn shell_command(&self, _cx: &Cx<'_>, _native: &str) -> Result<ShellCommand> {
-        Err(on_demand("a shell into"))
+    /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
+        console::command(cx, machine)
     }
 }
 

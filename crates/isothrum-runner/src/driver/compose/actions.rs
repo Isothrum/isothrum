@@ -62,8 +62,8 @@ pub(super) async fn remove_stale_networks(c: &Compose, cx: &Cx<'_>, step: &Step)
     Ok(())
 }
 
-/// `compose.remove_networks`: every network of the project, unplugged and removed (whatever
-/// still sits on one, the embedder's attack box, would keep its address block taken).
+/// `compose.remove_networks`: every network of the project, unplugged and removed (a container
+/// still on one, an embedder's own, would keep its address block taken).
 pub(super) async fn remove_networks(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
     for net in project_networks(c, cx, step).await? {
         remove_network(cx, step, &net).await?;

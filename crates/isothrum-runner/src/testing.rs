@@ -15,7 +15,7 @@ use crate::{HostPorts, ProcessRunner, RunnerConfig};
 /// The `flag-portal` docker manifest's text.
 pub(crate) const FLAG_PORTAL: &str = include_str!("../tests/fixtures/flag-portal.run.json");
 
-/// `flag-portal` with an on-demand access box (a Compose `attacker` service in the `access`
+/// `flag-portal` with an on-demand access machine (a Compose `attacker` service in the `access`
 /// profile): the hot-add op's docker fixture.
 pub(crate) const FLAG_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/flag-portal-access.run.json");
 

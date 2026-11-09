@@ -5,13 +5,14 @@
 //! nothing to attach: an embedder adds a box of its own as an ordinary machine of the lab
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
-use isoloom_manifest::{Machine, Native};
+use isoloom_manifest::Machine;
 use serde::Serialize;
 use serde_json::json;
 
 use super::Running;
 use super::operation::Done;
 use crate::Result;
+use crate::driver;
 use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
@@ -19,10 +20,10 @@ use crate::secrets::sensitive_values;
 use crate::state::Op;
 use crate::status::ShellCommand;
 
-/// What a hot-add produced: the attacker box brought up, and where to reach it.
+/// What a hot-add produced: the access machine brought up, and where to reach it.
 #[derive(Debug, Clone, Serialize)]
 pub struct AttachReport {
-    /// The box's name, as status reports it: the access machine's manifest name.
+    /// Its name, as status reports it: the access machine's manifest name.
     pub machine: String,
     /// Its native name (the Compose service / Vagrant define).
     pub native: String,
@@ -34,7 +35,7 @@ pub struct AttachReport {
     pub image: Option<String>,
 }
 
-/// Which box an attach adds, where, from what: as [`Running::attach`] takes them.
+/// Which access machine an attach adds, where, from what: as [`Running::attach`] takes them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoxPick<'a> {
     /// The on-demand machine, when the lab has more than one.
@@ -71,10 +72,10 @@ impl Running<'_> {
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
-            let target = self.attacker(machine)?;
+            let target = self.access_machine(machine)?;
             let (_, mut cx) = self.existing(&opts, e).await?;
             self.observe_running(&mut cx).await?;
-            self.driver.attach(&cx, native_name(target), image, network).await?;
+            self.driver.attach(&cx, driver::native_name(target), image, network).await?;
             let report = report(target, network, image);
             let data = json!({ "machine": report.machine, "native": report.native, "network": report.network, "address": report.address });
             Ok(Done {
@@ -87,11 +88,11 @@ impl Running<'_> {
         .await
     }
 
-    /// Hot-removes the attacker box from the running run, leaving the rest up.
+    /// Hot-removes the lab's access machine from the running run, leaving the rest up.
     ///
     /// # Errors
     ///
-    /// Fails as [`Running::attach`] does for the box choice and the target, and as the other
+    /// Fails as [`Running::attach`] does for the machine choice and the target, and as the other
     /// operations do for a step or the state.
     pub async fn detach(&self, machine: Option<&str>, events: &dyn Events) -> Result<()> {
         self.detach_with(&RunOptions::default(), machine, events).await
@@ -106,35 +107,37 @@ impl Running<'_> {
         let opts = self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
-            let target = self.attacker(machine)?;
+            let target = self.access_machine(machine)?;
             let (_, cx) = self.existing(&opts, e).await?;
-            self.driver.detach(&cx, native_name(target)).await?;
+            self.driver.detach(&cx, driver::native_name(target)).await?;
             Ok(Done {
                 value: (),
                 ok: true,
-                data: json!({ "machine": target.name.as_str(), "native": native_name(target) }),
+                data: json!({ "machine": target.name.as_str(), "native": driver::native_name(target) }),
                 state: None,
             })
         })
         .await
     }
 
-    /// The command that opens an interactive shell into the lab's access machine: the runner
-    /// builds it from the run's runtime (the Compose project, the Vagrant define), so the embedder
-    /// opens the box by selection and never reconstructs a container name. A pure query — it runs
-    /// nothing, emits nothing, and doesn't check the box is up (the embedder runs what it returns
-    /// in its own terminal once the box is attached).
+    /// The command that opens an interactive shell into the lab's access machine: its console
+    /// ([`Running::console_command`]), the machine chosen as [`Running::attach`] chooses it. A
+    /// pure query: it runs nothing, emits nothing, and doesn't check the machine is up (the
+    /// embedder runs what it returns in its own terminal once the machine is attached).
     ///
     /// # Errors
     ///
-    /// Fails as [`Running::attach`] does for the box choice and the target.
+    /// Fails as [`Running::attach`] does for the machine choice and the target, and as
+    /// [`Running::console_command`] does.
     pub fn shell_command(&self, machine: Option<&str>) -> Result<ShellCommand> {
-        let target = self.attacker(machine)?;
-        self.query(|cx| self.driver.shell_command(cx, native_name(target)))
+        let target = self.access_machine(machine)?;
+        self.query(|cx| self.driver.console_command(cx, target))
     }
 
     /// The command that opens an interactive console into `machine`, any machine of the run (an
-    /// SSH login on a cloud's): a pure query, as [`Running::shell_command`].
+    /// SSH login on a cloud's), by its native name (the Compose service, the Vagrant define), so
+    /// the embedder never reconstructs a container name: a pure query, as
+    /// [`Running::shell_command`].
     ///
     /// # Errors
     ///
@@ -145,21 +148,9 @@ impl Running<'_> {
         self.query(|cx| self.driver.console_command(cx, target))
     }
 
-    /// Runs `f` on a quiet context of the run, with what its start kept (its SSH jump, its slot),
-    /// so a way in is the run's: for the pure queries.
-    fn query<T>(&self, f: impl FnOnce(&crate::executor::Cx<'_>) -> Result<T>) -> Result<T> {
-        let (record, provider, params) = self.query_prelude()?;
-        let silent = |_: &crate::events::Event| {};
-        let emit = Emitter::new(self.name().as_str(), Op::Check, self.runner.config.clock.as_ref(), &silent);
-        let mut cx = self.cx(params, &self.connection, &emit, provider)?;
-        if let Some(r) = &record {
-            Self::bind_record(&mut cx, r);
-        }
-        f(&cx)
-    }
-
-    /// Which box an attach targets: the on-demand machine `machine` names, or the only one.
-    fn attacker(&self, machine: Option<&str>) -> Result<&Machine> {
+    /// Which access machine an attach targets: the on-demand machine `machine` names, or the
+    /// only one.
+    fn access_machine(&self, machine: Option<&str>) -> Result<&Machine> {
         let mut on_demand = self.manifest().machines.iter().filter(|m| m.on_demand);
         if let Some(name) = machine {
             return on_demand.find(|m| m.name.as_str() == name).ok_or_else(|| Error::MachineUnknown {
@@ -196,23 +187,14 @@ fn report(m: &Machine, network: Option<&str>, image: Option<&str>) -> AttachRepo
     let (network, address) = address_on(m, network);
     AttachReport {
         machine: m.name.as_str().to_owned(),
-        native: native_name(m).to_owned(),
+        native: driver::native_name(m).to_owned(),
         network,
         address,
         image: image.map(str::to_owned),
     }
 }
 
-/// The native name the driver addresses the box by.
-fn native_name(m: &Machine) -> &str {
-    match &m.native {
-        Some(Native::Compose { service }) => service.as_str(),
-        Some(Native::Vagrant { vagrant, .. }) => vagrant.as_str(),
-        _ => m.name.as_str(),
-    }
-}
-
-/// The box's static address on `network` (its first when none is named), from the manifest.
+/// The machine's static address on `network` (its first when none is named), from the manifest.
 fn address_on(m: &Machine, network: Option<&str>) -> (Option<String>, Option<String>) {
     match network {
         Some(n) => (

@@ -54,21 +54,20 @@ pub(super) fn host_ports(config: &str) -> Vec<(u16, Protocol)> {
 }
 
 /// The services that live in `service`'s network namespace (`network_mode: service:<service>`):
-/// part of that machine (its routes, a sidecar), started and removed with it. In name order; none
-/// when the config isn't the JSON Compose prints.
-pub(super) fn sharing_namespace(config: &str, service: &str) -> Vec<String> {
-    let Ok(v) = serde_json::from_str::<Value>(config) else { return Vec::new() };
+/// part of that machine (its routes, a sidecar), started and removed with it. In name order;
+/// `None` when the config isn't the JSON Compose prints (no `services` object): unknown, not none.
+pub(super) fn sharing_namespace(config: &str, service: &str) -> Option<Vec<String>> {
+    let v = serde_json::from_str::<Value>(config).ok()?;
     let mode = format!("service:{service}");
     let mut names: Vec<String> = v
-        .get("services")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
+        .get("services")?
+        .as_object()?
+        .iter()
         .filter(|(_, s)| s.get("network_mode").and_then(Value::as_str) == Some(mode.as_str()))
         .map(|(name, _)| name.clone())
         .collect();
     names.sort();
-    names
+    Some(names)
 }
 
 /// The networks the config defines, by their Docker names (`name:`, else `<project>_<key>`).
@@ -287,8 +286,14 @@ mod namespace_tests {
     fn a_service_in_another_ones_namespace_is_part_of_it() {
         let config =
             r#"{"services":{"user":{"image":"debian"},"user-routes":{"network_mode":"service:user"},"web":{},"web-routes":{"network_mode":"service:web"}}}"#;
-        assert_eq!(sharing_namespace(config, "user"), ["user-routes"]);
-        assert_eq!(sharing_namespace(config, "nobody"), Vec::<String>::new());
-        assert_eq!(sharing_namespace("not json", "user"), Vec::<String>::new());
+        assert_eq!(sharing_namespace(config, "user").unwrap(), ["user-routes"]);
+        assert_eq!(sharing_namespace(config, "nobody").unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_config_it_cant_read_is_unknown_not_empty() {
+        assert_eq!(sharing_namespace("not json", "user"), None);
+        assert_eq!(sharing_namespace(r#"{"name":"p"}"#, "user"), None, "no services");
+        assert_eq!(sharing_namespace(r#"{"services":[]}"#, "user"), None);
     }
 }

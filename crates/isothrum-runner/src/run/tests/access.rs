@@ -9,7 +9,7 @@ use crate::testing::{FLAG_PORTAL_ACCESS, FLAG_VM_ACCESS};
 #[tokio::test]
 async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_image() {
     let f = fixture_with(FLAG_PORTAL_ACCESS);
-    f.set(Containers::Up); // the lab is already up; the access box was left out of it
+    f.set(Containers::Up); // the lab is already up; the access machine was left out of it
     let run = f.runner.open(&f.manifest, None).unwrap();
 
     let events = Recorder::new();
@@ -47,7 +47,8 @@ async fn the_access_machines_routes_come_and_go_with_it() {
     assert!(rm.line().ends_with("rm -sf attacker attacker-routes"), "{}", rm.line());
 }
 
-/// The lab up without its access box, then the box attached with no image: its `up` call.
+/// The lab up without its access machine, then the machine attached with no image: its `up`
+/// call.
 async fn attach_plain(f: &Fixture) -> Call {
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -150,6 +151,8 @@ async fn vagrant_attach_boots_the_access_vm_with_the_picked_box() {
     assert!(fake.last("destroy -f attacker").is_some(), "the access VM is destroyed");
 }
 
+/// The shell is the access machine's console: its service by name, bash where its image has it,
+/// else sh.
 #[tokio::test]
 async fn shell_command_opens_the_compose_service_by_name() {
     let f = fixture_with(FLAG_PORTAL_ACCESS);
@@ -158,7 +161,9 @@ async fn shell_command_opens_the_compose_service_by_name() {
     assert_eq!(cmd.program, "docker");
     let line = cmd.args.join(" ");
     assert!(line.starts_with("compose --project-name"), "{line}");
-    assert!(line.ends_with("exec attacker bash"), "addresses the service, no container guessing: {line}");
+    assert!(line.contains(" exec attacker sh -c "), "addresses the service, no container guessing: {line}");
+    assert!(line.ends_with(crate::driver::console::CONTAINER_SHELL), "{line}");
+    assert_eq!(cmd.args, run.console_command("attacker").unwrap().args, "the access machine's console");
     assert!(cmd.cwd.is_some(), "runs in the run's folder");
 }
 
@@ -227,18 +232,49 @@ async fn retiring_a_vagrant_machine_destroys_only_its_define() {
     assert_eq!(err.code(), ErrorCode::MachineUnknown);
 }
 
-/// Retiring a Compose service does nothing to the run: the update after its removal from the
-/// manifest takes its container away (`--remove-orphans`).
+/// Retiring a Compose service stops and removes it, with the services in its namespace, through
+/// its profile: the update's start removes no orphan, and one that stays in the Compose files but
+/// leaves the default start (back to an on-demand machine) would otherwise keep running.
 #[tokio::test]
-async fn retiring_a_compose_service_leaves_it_to_the_update() {
-    let f = fixture_with(FLAG_PORTAL_ACCESS);
+async fn retiring_a_compose_service_removes_it_with_its_namespace() {
+    let f = fixture_answering(FLAG_PORTAL_ACCESS, routed_answer);
     f.set(Containers::Up);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let before = f.fake.calls().len();
+    let events = Recorder::new();
+    run.retire("attacker", &RunOptions::new(), &events).await.unwrap();
+    let rm = f.fake.last(" rm -sf").expect("the service is removed");
+    assert!(rm.line().contains(" --profile access rm -sf attacker attacker-routes"), "{}", rm.line());
+    assert!(events.events().iter().all(|e| e.op == crate::state::Op::Retire));
+    let Some(EventKind::Result { ok: true, data }) = kinds(&events).pop() else {
+        panic!("{:?}", kinds(&events))
+    };
+    assert_eq!(data["machine"], "attacker");
+
+    // A machine of the default start: no profile named.
     run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();
-    let after: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
-    assert!(
-        after.iter().all(|l| !l.contains(" rm ") && !l.contains(" down") && !l.contains(" stop")),
-        "{after:?}"
-    );
+    let default = f.fake.last(" rm -sf").unwrap().line();
+    assert!(default.ends_with(" rm -sf web") && !default.contains("--profile"), "{default}");
+}
+
+/// The lab's Docker, its config one Compose can't be read from.
+fn unreadable_config(engine: &Mutex<Engine>, call: &Call) -> Reply {
+    if call.line().contains(" config --format json") {
+        return Reply::ok("not json");
+    }
+    answer(engine, call)
+}
+
+/// When the services in the access machine's namespace can't be read, attach and detach fail
+/// rather than start the machine without its routes (or leave them running).
+#[tokio::test]
+async fn an_unreadable_config_fails_attach_and_detach_loudly() {
+    let f = fixture_answering(FLAG_PORTAL_ACCESS, unreadable_config);
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.attach(None, None, None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::ToolFailed, "{err}");
+    assert!(f.fake.last("--profile access up").is_none(), "nothing started");
+    let detached = run.detach(None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(detached.code(), ErrorCode::ToolFailed, "{detached}");
+    assert!(f.fake.last(" rm -sf").is_none(), "nothing removed");
 }
