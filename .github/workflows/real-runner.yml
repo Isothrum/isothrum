@@ -82,8 +82,6 @@ jobs:
       TARGET: proxmox
       PROXMOX_VE_ENDPOINT: ${{ secrets.PROXMOX_VE_ENDPOINT }}
       PROXMOX_VE_API_TOKEN: ${{ secrets.PROXMOX_VE_API_TOKEN }}
-      TF_VAR_proxmox_endpoint: ${{ secrets.PROXMOX_VE_ENDPOINT }}
-      TF_VAR_proxmox_api_token: ${{ secrets.PROXMOX_VE_API_TOKEN }}
     steps:
       - name: Check out Isothrum (the runner)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -120,7 +118,15 @@ jobs:
             echo "LAB=$RUNNER_TEMP/lab"
           } >> "$GITHUB_ENV"
 
-      - name: Cluster and keys
+      - name: Generate the tree with Isoloom
+        timeout-minutes: 10
+        run: |
+          cp -r ".isoloom-src/examples/$EXAMPLE" "$LAB"
+          isoloom generate --target "$TARGET" "$LAB"
+
+      # The runner takes the run's values as `--param` and `--secret-from-env`; it withholds inherited
+      # TF_VAR_* from Terraform. It connects with its home's key, so the node's key becomes that.
+      - name: Cluster, key and the run's arguments
         env:
           SSH_KEY: ${{ secrets.PROXMOX_SSH_PRIVATE_KEY }}
           NODE: ${{ vars.PROXMOX_NODE }}
@@ -132,45 +138,45 @@ jobs:
           INSECURE: ${{ vars.PROXMOX_INSECURE }}
         run: |
           umask 077
-          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/proxmox_node_key"
-          rm -f "$RUNNER_TEMP"/id_ed25519*
-          ssh-keygen -q -t ed25519 -N '' -C "isothrum-ci-$GITHUB_RUN_ID" -f "$RUNNER_TEMP/id_ed25519"
-          {
-            echo "TF_VAR_proxmox_ssh_private_key_file=$RUNNER_TEMP/proxmox_node_key"
-            echo "TF_VAR_ssh_public_key=$(cat "$RUNNER_TEMP/id_ed25519.pub")"
-            for v in NODE:node DATASTORE:datastore SNIPPETS_DATASTORE:snippets_datastore \
-              UPLINK_BRIDGE:uplink_bridge SSH_USERNAME:proxmox_ssh_username SSH_ADDRESS:proxmox_ssh_address INSECURE:proxmox_insecure; do
-              name=${v%%:*}
-              if [ -n "${!name}" ]; then echo "TF_VAR_${v#*:}=${!name}"; fi
-            done
-          } >> "$GITHUB_ENV"
-
-      - name: Generate the tree with Isoloom
-        timeout-minutes: 10
-        run: |
-          cp -r ".isoloom-src/examples/$EXAMPLE" "$LAB"
-          isoloom generate --target "$TARGET" "$LAB"
+          mkdir -p "$ISOTHRUM_HOME/ssh"
+          printf '%s\n' "$SSH_KEY" > "$ISOTHRUM_HOME/ssh/id_ed25519"
+          ssh-keygen -y -f "$ISOTHRUM_HOME/ssh/id_ed25519" > "$ISOTHRUM_HOME/ssh/id_ed25519.pub"
+          manifest=$(find "$LAB/.isoloom" -name run.json | head -n 1)
+          secrets=(secret:proxmox_api_token=PROXMOX_VE_API_TOKEN)
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" \
+            param:proxmox_endpoint="$PROXMOX_VE_ENDPOINT" param:node="$NODE" param:datastore="$DATASTORE" \
+            param:snippets_datastore="$SNIPPETS_DATASTORE" param:uplink_bridge="$UPLINK_BRIDGE" \
+            param:proxmox_ssh_username="$SSH_USERNAME" param:proxmox_ssh_address="$SSH_ADDRESS" \
+            param:proxmox_insecure="$INSECURE" > "$RUNNER_TEMP/up.args"
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" > "$RUNNER_TEMP/secrets.args"
 
       - name: Up
         id: up
         timeout-minutes: 60
-        run: isothrum up "$LAB" --target "$TARGET" --json | tee "$RECORD/up.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/up.args"
+          isothrum up "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/up.jsonl"
       - name: Check
         id: check
         if: steps.up.outcome == 'success'
         timeout-minutes: 20
-        run: isothrum check "$LAB" --target "$TARGET" --json | tee "$RECORD/check.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum check "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
       - name: Down
         id: down
         if: always() && steps.build.outcome == 'success'
         timeout-minutes: 25
-        run: isothrum down "$LAB" --target "$TARGET" --json | tee "$RECORD/down.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum down "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
       - name: Down, again
         if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
         timeout-minutes: 25
         run: |
           sleep 30
-          if ! isothrum down "$LAB" --target "$TARGET"; then
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          if ! isothrum down "$LAB" --target "$TARGET" "${args[@]}"; then
             echo "::error title=Proxmox leftovers::$EXAMPLE may still have VMs on the cluster: check it by hand"
             exit 1
           fi
@@ -185,7 +191,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
       - name: Forget the keys
         if: always()
-        run: rm -f "$RUNNER_TEMP/proxmox_node_key" "$RUNNER_TEMP"/id_ed25519*
+        run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -261,35 +267,42 @@ jobs:
           cp -r ".isoloom-src/examples/$EXAMPLE" "$LAB"
           isoloom generate --target "$TARGET" -s "defaults.cloud.aws.region=$AWS_REGION" "$LAB"
 
-      - name: Budget guard
+      # The runner takes the run's values as `--param` and `--secret-from-env` (it withholds
+      # inherited TF_VAR_* and cloud credentials from Terraform), sets the expiry from --lifetime
+      # and installs its own SSH key. The size goes to whichever size param the module declares.
+      - name: Budget guard and the run's arguments
         env:
           AWS_SIZE: ${{ vars.REAL_AWS_SIZE || 't3.small' }}
         run: |
-          ssh-keygen -q -t ed25519 -N '' -C "isothrum-ci-$GITHUB_RUN_ID" -f "$RUNNER_TEMP/id_ed25519"
-          {
-            echo "TF_VAR_instance_type=$AWS_SIZE"
-            echo "TF_VAR_region=$AWS_REGION"
-            echo "TF_VAR_expires_at=$(( $(date +%s) + MAX_HOURS * 3600 ))"
-            echo "TF_VAR_auto_stop_minutes=100"
-            echo "TF_VAR_allowed_cidr=$(curl -fsS --retry 3 https://checkip.amazonaws.com)/32"
-            echo "TF_VAR_ssh_public_key=$(cat "$RUNNER_TEMP/id_ed25519.pub")"
-            echo "TF_VAR_ssh_private_key_file=$RUNNER_TEMP/id_ed25519"
-          } >> "$GITHUB_ENV"
+          manifest=$(find "$LAB/.isoloom" -name run.json | head -n 1)
+          secrets=(secret:AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID secret:AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+            secret:AWS_SESSION_TOKEN=AWS_SESSION_TOKEN)
+          sizes=()
+          for size in instance_type size vm_size machine_type shape type; do sizes+=("param:$size=$AWS_SIZE"); done
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" "${sizes[@]}" param:region="$AWS_REGION" \
+            param:allowed_cidr="$(curl -fsS --retry 3 https://checkip.amazonaws.com)/32" > "$RUNNER_TEMP/up.args"
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" > "$RUNNER_TEMP/secrets.args"
 
       - name: Up
         id: up
         timeout-minutes: 35
-        run: isothrum up "$LAB" --target "$TARGET" --lifetime $((MAX_HOURS * 60)) --json | tee "$RECORD/up.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/up.args"
+          isothrum up "$LAB" --target "$TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
       - name: Check
         id: check
         if: steps.up.outcome == 'success'
         timeout-minutes: 15
-        run: isothrum check "$LAB" --target "$TARGET" --json | tee "$RECORD/check.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum check "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
       - name: Down
         id: down
         if: always() && steps.build.outcome == 'success'
         timeout-minutes: 20
-        run: isothrum down "$LAB" --target "$TARGET" --json | tee "$RECORD/down.jsonl"
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum down "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
       - name: Reap after a failed teardown
         if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
         timeout-minutes: 15
@@ -303,9 +316,9 @@ jobs:
             "up=${{ steps.up.outcome }}, check=${{ steps.check.outcome }}, down=${{ steps.down.outcome }}" \
             "Record with: cargo xtask tiers record cloud-vm/aws <host> <result> --os linux --note '...' (in the Isoloom repo)" \
             >> "$GITHUB_STEP_SUMMARY"
-      - name: Forget the key
+      - name: Forget the key and the arguments
         if: always()
-        run: rm -f "$RUNNER_TEMP"/id_ed25519*
+        run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
