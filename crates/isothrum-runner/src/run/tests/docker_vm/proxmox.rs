@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use isoloom_manifest::HostOs;
 
-use super::{Engine, FLAG, VM_IP, compose};
+use super::{Engine, SECRET, VM_IP, compose};
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
 use crate::testing::{DOCKER_VM_PROXMOX, LabFolder, processes, runner_config};
@@ -60,7 +60,7 @@ fn proxmox() -> Server {
     }));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), crate::testing::no_ports(), HostOs::Linux)).unwrap();
     let mut secrets = Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
     secrets.insert("proxmox_password", SecretValue::new("pw"));
     let options = RunOptions::new()
         .with_param("proxmox_endpoint", "https://172.16.1.10:8006/")
@@ -88,7 +88,7 @@ async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to
     assert!(piped.contains(&Some(folder.target_dir().join("setup.sh"))), "{piped:?}");
     assert!(piped.contains(&Some(state.join("project.tgz"))), "{piped:?}");
     let start = ssh.iter().find(|c| c.line().contains(" up --detach ")).unwrap();
-    assert!(start.args.windows(2).any(|w| w == ["-o", "SendEnv=CTF_FLAG_MAIN"]));
+    assert!(start.args.windows(2).any(|w| w == ["-o", "SendEnv=DEMO_SECRET"]));
     assert_eq!(start.env("TF_VAR_proxmox_password"), None);
     let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
     assert_eq!(page.value.as_deref(), Some(format!("http://{VM_IP}:8080/").as_str()));

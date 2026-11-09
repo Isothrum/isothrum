@@ -151,8 +151,8 @@ mod tests {
     fn runner_lines_are_read_anywhere_in_a_line() {
         assert_eq!(parse_line("isoloom-check: PASS login works"), Some(Line::Pass("login works".into())));
         assert_eq!(
-            parse_line("web-1  | isoloom-check: FAIL flag readable: 404"),
-            Some(Line::Fail("flag readable".into(), "404".into()))
+            parse_line("web-1  | isoloom-check: FAIL secret readable: 404"),
+            Some(Line::Fail("secret readable".into(), "404".into()))
         );
         assert_eq!(parse_line("isoloom-check: FAIL no reason"), Some(Line::Fail("no reason".into(), String::new())));
         assert_eq!(parse_line("isoloom-check: END 3 passed, 1 failed"), Some(Line::End(3, 1)));

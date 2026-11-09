@@ -272,14 +272,14 @@ async fn on_macos_terraform_runs_in_its_pinned_image() {
     assert!(s.fake.last("terraform version").is_none());
     let apply = s.fake.last(" apply ").unwrap();
     assert_eq!(apply.program, "docker");
-    assert!(apply.args.iter().any(|a| a.starts_with("hashicorp/terraform:1.9.8@sha256:")), "{apply:?}");
+    assert!(apply.args.iter().any(|a| a.starts_with("hashicorp/terraform:1.16.7@sha256:")), "{apply:?}");
     assert!(apply.args.windows(2).any(|w| w == ["-e", "TF_VAR_proxmox_password"]));
     assert!(!apply.args.iter().any(|a| a.contains("s3cret")));
 }
 
 /// The fixture, its start copying the project into the router over SSH right after the apply
 /// that made it (its address an output of the state): archived by the runner, piped from the
-/// run's state folder, a flag carried into the guest.
+/// run's state folder, a secret carried into the guest.
 fn copying() -> String {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_PROXMOX).unwrap();
     let up = m["lifecycle"]["up"].as_array_mut().unwrap();
@@ -289,8 +289,8 @@ fn copying() -> String {
         "with": {"host": "${outputs.ip}", "user": "isoloom", "command": "sudo tar -xzf - -C /opt/isoloom"}
     }));
     m["secrets"].as_array_mut().unwrap().push(serde_json::json!({
-        "name": "FLAG", "kind": "input", "required": false, "sensitive": true, "default": "",
-        "deliver": [{"via": "env", "var": "FLAG", "steps": ["copy"]}]
+        "name": "DEMO_SECRET", "kind": "input", "required": false, "sensitive": true, "default": "",
+        "deliver": [{"via": "env", "var": "DEMO_SECRET", "steps": ["copy"]}]
     }));
     m.to_string()
 }
@@ -301,7 +301,7 @@ async fn a_guest_step_gets_the_projects_archive_on_its_input_and_only_its_own_va
     std::fs::write(s.manifest.parent().unwrap().join("../../isoloom.yml"), "version: 1\n").unwrap();
     let run = s.runner.open(&s.manifest, None).unwrap();
     let mut o = opts("pve-run");
-    o.secrets.insert("FLAG", SecretValue::new("flag{x}"));
+    o.secrets.insert("DEMO_SECRET", SecretValue::new("token-x"));
     run.up(&o, &Recorder::new()).await.unwrap();
     let state = s.runner.store.run_dir(run.name()).unwrap();
     let copy = s.fake.calls().into_iter().find(|c| c.line().contains("tar -xzf")).unwrap();
@@ -309,11 +309,11 @@ async fn a_guest_step_gets_the_projects_archive_on_its_input_and_only_its_own_va
     // The router's address was read from the state the apply wrote, before the step ran.
     assert!(copy.args.contains(&format!("isoloom@{ROUTER}")), "{copy:?}");
     assert!(state.join("project.tgz").is_file(), "the archive is the run's");
-    // The flag travels in the SSH session, named once and never on the command line; the server's
+    // The secret travels in the SSH session, named once and never on the command line; the server's
     // password, a Terraform variable, stays on this computer.
-    assert!(copy.args.windows(2).any(|w| w == ["-o", "SendEnv=FLAG"]), "{copy:?}");
-    assert_eq!(copy.env("FLAG"), Some("flag{x}"));
-    assert!(!copy.line().contains("flag{x}"));
+    assert!(copy.args.windows(2).any(|w| w == ["-o", "SendEnv=DEMO_SECRET"]), "{copy:?}");
+    assert_eq!(copy.env("DEMO_SECRET"), Some("token-x"));
+    assert!(!copy.line().contains("token-x"));
     assert_eq!(copy.env("TF_VAR_proxmox_password"), None);
     assert!(!copy.args.iter().any(|a| a.contains("TF_VAR")), "{copy:?}");
     run.down(&opts("pve-run"), &Recorder::new()).await.unwrap();

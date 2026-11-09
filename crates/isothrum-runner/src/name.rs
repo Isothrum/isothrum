@@ -1,4 +1,4 @@
-//! A run's name: what the embedder calls the run (`app-flag-portal`), else the run's name.
+//! A run's name: what the embedder calls the run (`app-web-portal`), else the run's name.
 //! It names the run's state folder and, through `${run.name}`, the Compose project and the
 //! networks, so it holds only what every engine accepts.
 
@@ -95,10 +95,10 @@ mod tests {
 
     #[test]
     fn a_run_name_is_a_compose_project_name() {
-        for good in ["flag-portal", "app-invoice-portal-api", "a", "lab_2", "9lives"] {
+        for good in ["web-portal", "app-invoice-portal-api", "a", "lab_2", "9lives"] {
             assert_eq!(RunName::new(good).unwrap().as_str(), good);
         }
-        for bad in ["", "Flag", "-x", "_x", "a b", "a/b", "..", "é", &"a".repeat(64)] {
+        for bad in ["", "Web", "-x", "_x", "a b", "a/b", "..", "é", &"a".repeat(64)] {
             assert_eq!(RunName::new(bad).unwrap_err().code(), crate::ErrorCode::RunName, "{bad}");
         }
     }

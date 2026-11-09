@@ -284,11 +284,11 @@ mod tests {
         let cli = Cli::parse_from([
             "isothrum",
             "up",
-            "labs/flag",
+            "labs/web",
             "--param",
             "ISOLOOM_PUBLISH_FIXED=1",
             "--secret-from-env",
-            "CTF_FLAG_MAIN",
+            "DEMO_SECRET",
             "--provider",
             "virtualbox",
             "--json",
@@ -300,14 +300,14 @@ mod tests {
         assert_eq!(
             (op.run.path, op.params, op.secrets, replace, cli.json),
             (
-                "labs/flag".into(),
+                "labs/web".into(),
                 vec!["ISOLOOM_PUBLISH_FIXED=1".to_owned()],
-                vec!["CTF_FLAG_MAIN".to_owned()],
+                vec!["DEMO_SECRET".to_owned()],
                 false,
                 true
             )
         );
-        let retire = Cli::parse_from(["isothrum", "retire", "web", "labs/flag", "--secret-from-env", "CTF_FLAG_MAIN"]);
+        let retire = Cli::parse_from(["isothrum", "retire", "web", "labs/web", "--secret-from-env", "DEMO_SECRET"]);
         let Command::Lifecycle(Lifecycle::Retire {
             machine: retired,
             op: retiring,
@@ -315,8 +315,8 @@ mod tests {
         else {
             panic!("{retire:?}")
         };
-        assert_eq!((retired.as_str(), retiring.run.path), ("web", "labs/flag".into()));
-        assert_eq!(retiring.secrets, ["CTF_FLAG_MAIN"]);
+        assert_eq!((retired.as_str(), retiring.run.path), ("web", "labs/web".into()));
+        assert_eq!(retiring.secrets, ["DEMO_SECRET"]);
         let console = Cli::parse_from(["isothrum", "console", "web"]);
         assert!(matches!(console.command, Command::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
         let up = Cli::parse_from(["isothrum", "up", "--ssh-jump", "root@pve.lan"]);

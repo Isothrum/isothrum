@@ -382,12 +382,14 @@ mod tests {
 
     #[test]
     fn another_manifest_version_has_its_own_code() {
-        let err = isoloom_manifest::parse(r#"{"manifest_version": 1}"#).unwrap_err();
-        let err = Error::Manifest {
-            path: "run.json".into(),
-            source: err,
-        };
-        assert_eq!(err.code(), ErrorCode::ManifestVersion);
-        assert!(err.to_string().starts_with("run.json: manifest_version 1"), "{err}");
+        for other in [0, 2] {
+            let err = isoloom_manifest::parse(&format!(r#"{{"manifest_version": {other}}}"#)).unwrap_err();
+            let err = Error::Manifest {
+                path: "run.json".into(),
+                source: err,
+            };
+            assert_eq!(err.code(), ErrorCode::ManifestVersion);
+            assert!(err.to_string().starts_with(&format!("run.json: manifest_version {other}")), "{err}");
+        }
     }
 }

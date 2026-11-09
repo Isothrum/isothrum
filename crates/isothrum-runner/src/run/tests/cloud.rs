@@ -50,10 +50,10 @@ fn account(failing_applies: u32) -> Account {
     account_of(&without_guest_delivery(), failing_applies)
 }
 
-/// The fixture without its flag's guest delivery.
+/// The fixture without its secret's guest delivery.
 fn without_guest_delivery() -> String {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
-    m["secrets"].as_array_mut().unwrap().retain(|s| s["name"] != "FLAG");
+    m["secrets"].as_array_mut().unwrap().retain(|s| s["name"] != "DEMO_SECRET");
     m.to_string()
 }
 
@@ -147,7 +147,7 @@ fn guest(cloud: &FakeCloud, call: &Call, line: &str) -> Reply {
     }
     if line.contains("docker compose up") {
         // Compose prints a value its environment gave it; a failing start says it again.
-        let said = format!("web  | starting with FLAG={}", call.env("FLAG").unwrap_or_default());
+        let said = format!("web  | starting with DEMO_SECRET={}", call.env("DEMO_SECRET").unwrap_or_default());
         return if cloud.compose_fails.load(Ordering::SeqCst) {
             Reply::fail(1, &said)
         } else {

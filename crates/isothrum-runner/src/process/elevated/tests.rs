@@ -71,7 +71,7 @@ fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakePr
     let own = [
         ("Path".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
         ("USERPROFILE".to_owned(), "C:\\Users\\ada".to_owned()),
-        ("SECRET".to_owned(), "x".to_owned()),
+        ("API_TOKEN".to_owned(), "x".to_owned()),
         ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
         ("no_proxy".to_owned(), ".corp".to_owned()),
         ("SSL_CERT_FILE".to_owned(), "C:\\certs\\corp.pem".to_owned()),
@@ -104,7 +104,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     let root = e.root.clone();
     let broker = tokio::spawn(broker(root.clone(), "==> dc01: Booting VM...", 0));
     let mut up = ProcessSpec::new("vagrant", ["up", "--provider", "hyperv"]);
-    up.env = vec![("CTF_FLAG_MAIN".into(), "flag{x}".into())];
+    up.env = vec![("DEMO_SECRET".into(), "token-x".into())];
     up.cwd = Some(PathBuf::from("C:\\labs\\ad\\.isoloom\\vagrant"));
     let (exit, lines) = lines_of(&e, &up).await;
     assert!(exit.unwrap().success());
@@ -114,7 +114,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
         env.contains("Path=C:\\HashiCorp\\Vagrant\\bin") && env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
         "{env}"
     );
-    assert!(env.contains("CTF_FLAG_MAIN=flag{x}") && !env.contains("SECRET"), "only what it needs: {env}");
+    assert!(env.contains("DEMO_SECRET=token-x") && !env.contains("API_TOKEN"), "only what it needs: {env}");
     assert!(
         env.contains("HTTPS_PROXY=http://proxy.corp:3128") && env.contains("no_proxy=.corp") && env.contains("SSL_CERT_FILE=C:\\certs\\corp.pem"),
         "the network the way this account reaches it: {env}"
@@ -137,14 +137,14 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
 #[test]
 fn a_request_file_holds_no_value_and_names_its_session_and_turn() {
     let mut spec = ProcessSpec::new("vagrant", ["up"]);
-    spec.env = vec![("CTF_FLAG_MAIN".into(), "flag{x}".into())];
+    spec.env = vec![("DEMO_SECRET".into(), "token-x".into())];
     let forwarded = [("HTTPS_PROXY".to_owned(), "http://user:pw@proxy:3128".to_owned())];
     let req: serde_json::Value = serde_json::from_str(&request("t0k3n", 7, &spec)).unwrap();
     assert_eq!((req["session"].as_str(), req["seq"].as_u64(), req.get("env")), (Some("t0k3n"), Some(7), None));
-    assert!(!req.to_string().contains("flag{x}") && !req.to_string().contains("pw@"));
+    assert!(!req.to_string().contains("token-x") && !req.to_string().contains("pw@"));
     let env: serde_json::Value = serde_json::from_str(&env_file("t0k3n", 7, &spec, &forwarded)).unwrap();
     assert_eq!((env["session"].as_str(), env["seq"].as_u64()), (Some("t0k3n"), Some(7)));
-    assert_eq!(env["env"][1], serde_json::json!({ "k": "CTF_FLAG_MAIN", "v": "flag{x}" }));
+    assert_eq!(env["env"][1], serde_json::json!({ "k": "DEMO_SECRET", "v": "token-x" }));
 }
 
 #[tokio::test]
@@ -158,7 +158,7 @@ async fn what_an_earlier_session_left_is_cleared_never_read_as_this_ones() {
         std::fs::write(stale.join("ready"), "").unwrap();
         std::fs::write(stale.join("out-1.log"), "an earlier command's output").unwrap();
         std::fs::write(stale.join("exit-1"), "0").unwrap();
-        std::fs::write(stale.join("env-2.json"), r#"{"env":[{"k":"CTF_FLAG_MAIN","v":"flag{old}"}]}"#).unwrap();
+        std::fs::write(stale.join("env-2.json"), r#"{"env":[{"k":"DEMO_SECRET","v":"token-old"}]}"#).unwrap();
     }
     let broker = tokio::spawn(broker(root.clone(), "this session's", 4));
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;

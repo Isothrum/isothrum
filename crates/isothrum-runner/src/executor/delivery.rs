@@ -121,18 +121,18 @@ mod tests {
     #[test]
     fn a_string_variable_is_its_value_and_the_map_entries_of_one_make_one_json_object() {
         let token = deliveries(r#"[{"via": "tf_var", "var": "api_token"}]"#);
-        let flag = deliveries(r#"[{"via": "tf_var", "var": "inputs", "shape": "map_entry"}]"#);
+        let secret = deliveries(r#"[{"via": "tf_var", "var": "inputs", "shape": "map_entry"}]"#);
         let user = deliveries(r#"[{"via": "tf_var", "var": "inputs", "shape": "map_entry"}, {"via": "env", "var": "USER_NAME", "steps": ["*"]}]"#);
         let valued = [
             ("token", "t0k".to_owned(), &token),
-            ("CTF_FLAG", "flag{x}".to_owned(), &flag),
+            ("DEMO_SECRET", "secret-x".to_owned(), &secret),
             ("user", "ada".to_owned(), &user),
         ];
         assert_eq!(
             tf_vars(&valued),
             [
                 ("TF_VAR_api_token".to_owned(), "t0k".to_owned()),
-                ("TF_VAR_inputs".to_owned(), r#"{"CTF_FLAG":"flag{x}","user":"ada"}"#.to_owned())
+                ("TF_VAR_inputs".to_owned(), r#"{"DEMO_SECRET":"secret-x","user":"ada"}"#.to_owned())
             ]
         );
     }

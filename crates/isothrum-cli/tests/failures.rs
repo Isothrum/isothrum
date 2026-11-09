@@ -59,7 +59,7 @@ fn a_command_line_clap_refuses_is_a_usage_error_event_with_json() {
     assert!(event["message"].as_str().unwrap().contains("--no-such-flag"));
 }
 
-/// A tiny `docker` for `flag-portal`: every call answers at once, except the start, which writes
+/// A tiny `docker` for `web-portal`: every call answers at once, except the start, which writes
 /// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs (as `sleep`) until it is stopped.
 #[cfg(unix)]
 const FAKE_DOCKER: &str = r#"#!/bin/sh
@@ -101,7 +101,7 @@ fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
     let (home, lab, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let dir = lab.path().join(".isoloom/docker");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/flag-portal.run.json")).unwrap();
+    std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json")).unwrap();
     let docker = bin.path().join("docker");
     std::fs::write(&docker, FAKE_DOCKER).unwrap();
     std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -109,11 +109,11 @@ fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
 
     let child = Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .args(["up", "--json", "--secret-from-env", "CTF_FLAG_MAIN", "--home"])
+        .args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
         .arg(home.path())
         .arg(lab.path())
         .env("PATH", path)
-        .env("CTF_FLAG_MAIN", "flag{x}")
+        .env("DEMO_SECRET", "token-x")
         .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

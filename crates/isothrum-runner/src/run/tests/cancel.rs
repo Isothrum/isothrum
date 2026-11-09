@@ -15,7 +15,7 @@ fn stuck_up(engine: &Mutex<Engine>, call: &Call) -> Reply {
 
 #[tokio::test(start_paused = true)]
 async fn an_operation_cut_short_says_cancelled_and_the_next_start_clears_what_it_left() {
-    let f = fixture_answering(FLAG_PORTAL, stuck_up);
+    let f = fixture_answering(WEB_PORTAL, stuck_up);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     let cut = tokio::time::timeout(Duration::from_secs(600), run.up(&opts(), &events)).await;

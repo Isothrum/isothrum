@@ -145,7 +145,7 @@ impl Running<'_> {
             })
     }
 
-    /// The native name of the run's network `name` (`flag-portal_lab`), as status renders it.
+    /// The native name of the run's network `name` (`web-portal_lab`), as status renders it.
     fn native_network(&self, cx: &crate::executor::Cx<'_>, name: &str) -> Result<String> {
         self.networks(cx)
             .into_iter()

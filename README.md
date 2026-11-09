@@ -49,7 +49,9 @@ The tools of the targets you run, at the versions the run manifest asks for
 - an OpenSSH client, for targets reached over SSH.
 
 Isothrum checks each one before it starts anything. Isoloom generates the files; Isothrum doesn't
-need it at run time.
+need it at run time. Isothrum 2.0 reads run manifest version 1 (`manifest_version: 1`), which
+the matching Isoloom release writes; [Policies](docs/policies.md#run-manifest-versions) pairs each
+release with the version it reads.
 
 Proven by real runs: `docker` (macOS, Linux, Windows); `vagrant` on VirtualBox (macOS), libvirt
 (Linux) and Hyper-V (Windows); `docker-vm` on VirtualBox (macOS); `proxmox` and

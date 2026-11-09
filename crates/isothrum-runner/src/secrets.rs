@@ -110,10 +110,10 @@ mod tests {
     #[test]
     fn a_secret_never_prints() {
         let mut s = Secrets::new();
-        s.insert("CTF_FLAG_MAIN", SecretValue::new("flag{hunter2}"));
+        s.insert("DEMO_SECRET", SecretValue::new("token-hunter2"));
         let shown = format!("{s:?}");
         assert!(!shown.contains("hunter2") && shown.contains("<redacted>"), "{shown}");
-        assert_eq!(s.get("CTF_FLAG_MAIN").map(SecretValue::expose), Some("flag{hunter2}"));
+        assert_eq!(s.get("DEMO_SECRET").map(SecretValue::expose), Some("token-hunter2"));
     }
 
     fn scope() -> Scope {
@@ -132,8 +132,8 @@ mod tests {
             crate::ErrorCode::SecretMissing
         );
         let mut s = Secrets::new();
-        s.insert("CTF_FLAG_MAIN", SecretValue::new("flag{x}"));
+        s.insert("DEMO_SECRET", SecretValue::new("token-x"));
         check_secrets(&m, &s, &scope()).unwrap();
-        assert_eq!(sensitive_values(&m, &s), ["flag{x}"]);
+        assert_eq!(sensitive_values(&m, &s), ["token-x"]);
     }
 }

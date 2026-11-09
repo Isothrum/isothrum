@@ -1,9 +1,20 @@
 # Migrating to 2.0
 
 Isothrum 2.0 removes public API that nothing used and changes some signatures, so it is a major
-release. The run manifest is still `manifest_version` 0, and a run recorded by 1.x keeps working:
-a 1.x record still loads. This page lists what to change; [CHANGELOG.md](../CHANGELOG.md) has the
-detail of each item.
+release. It also reads run manifest version 1, which the next Isoloom release writes, and refuses
+the version 0 that 1.x read. A 1.x record (`record.json`) still loads. This page lists what to
+change; [CHANGELOG.md](../CHANGELOG.md) has the detail of each item.
+
+## Run manifest
+
+| 1.x | 2.0 |
+|---|---|
+| Reads `manifest_version` 0 | Reads `manifest_version` 1 only; a version 0 `run.json` fails with `manifest_version` before anything runs. |
+
+Regenerate the files with the Isoloom release that writes version 1 (`isoloom generate`). For a
+run 1.x brought up, either take it down with 1.x before upgrading, or regenerate its files in the
+same folder: the record names the `run.json` it was brought up from, and 2.0 reads the regenerated
+one there. [Policies](policies.md#run-manifest-versions) has which Isothrum reads which version.
 
 ## Command line
 

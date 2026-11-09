@@ -153,8 +153,8 @@ mod tests {
     fn every_step_of_a_manifest_is_planned_once() {
         let manifest = crate::testing::docker_manifest();
         let mut values = Values::default();
-        values.run(RunVar::Name, "flag-portal");
-        values.run(RunVar::StateDir, "/runs/flag-portal");
+        values.run(RunVar::Name, "web-portal");
+        values.run(RunVar::StateDir, "/runs/web-portal");
         let planned = plan(&manifest, HostOs::Linux, None, &values);
         let steps = lists(&manifest).iter().map(|(_, s)| s.len()).sum::<usize>();
         assert_eq!(planned.len(), steps);

@@ -22,6 +22,8 @@ change.
   `--ssh-jump` is taken by `up` only, and `attach` no longer stands up an ad-hoc box.
 - **Breaking, for event readers:** an event's `run` and `op` can be absent (an `error` outside an
   operation), and the `hook_failed` warning is gone.
+- **Breaking, for every run:** Isothrum reads run manifest version 1, the frozen contract the next
+  Isoloom release writes, and refuses the version 0 that 1.x read: regenerate the files first.
 - **New operations:** `update` (bring a running run up to date with its regenerated manifest),
   `retire` and `console`; `isothrum completions`.
 - **CI-ready command line:** Ctrl-C and SIGTERM stop the tools and exit 130/143 with a `cancelled`
@@ -260,6 +262,16 @@ change.
 
 ### Changed
 
+- **Breaking: Isothrum reads run manifest version 1.** Isoloom froze its run manifest at
+  `manifest_version` 1, with a compatibility policy (`isoloom_manifest::COMPATIBILITY`: changes
+  within a version are additive; a reader refuses what it doesn't know) and a schema published at
+  `https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json`.
+  Isothrum reads version 1 only: a `run.json` of version 0 (what Isoloom 1.x writes) or 2 fails
+  with `manifest_version` before anything runs. Regenerate the files with the matching Isoloom; a
+  run 1.x brought up is taken down with 1.x, or its files are regenerated in the same folder.
+  Version 1's `timeout_s` and `provider_timeout_s` mean time without progress, as Isothrum already
+  counts them (below). [Policies](docs/policies.md#run-manifest-versions) pairs each release with
+  the version it reads.
 - **Breaking: an event's `run` and `op` are optional.** `Event::run` is an `Option<String>` and
   `Event::op` an `Option<Op>`, absent from the JSON only on an `error` written outside an
   operation (a command line's usage error, a `status` that failed); the event schema no longer

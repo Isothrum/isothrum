@@ -1,4 +1,4 @@
-//! Scripted runs of Isoloom's `docker-vm` fixtures (flag-portal): the VM made by a fake Vagrant
+//! Scripted runs of Isoloom's `docker-vm` fixtures (web-portal): the VM made by a fake Vagrant
 //! (VirtualBox) or a fake Terraform (Proxmox), the containers by a fake Compose inside it,
 //! reached through `vagrant ssh` or `ssh`. No real tool ever runs.
 
@@ -15,7 +15,7 @@ use crate::{ErrorCode, EventKind, MachineState, Park, Recorder, RunOptions, Runn
 
 /// The VM the containers run in, as the run manifest names it.
 const HOST: &str = "isoloom-docker-host";
-const FLAG: &str = "flag{vm-docker-0001}";
+const SECRET: &str = "token-vm-docker-0001";
 /// The Docker host's address the fake apply reports.
 const VM_IP: &str = "10.10.10.9";
 
@@ -26,8 +26,8 @@ struct Engine {
     vm: Option<String>,
     /// Whether Compose started the run in it.
     up: bool,
-    /// The flag the start's session carried, as the VM got it.
-    flag: Option<String>,
+    /// The secret the start's session carried, as the VM got it.
+    secret: Option<String>,
     /// How many reads of the containers still miss (the way into the VM refused).
     ps_misses: u32,
     /// Whether a read of the containers prints something that isn't Compose's JSON.
@@ -50,8 +50,8 @@ fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
     }
     if command.contains(" up --detach ") {
         e.up = true;
-        e.flag = call.env("CTF_FLAG_MAIN").map(str::to_owned);
-        return Reply::ok("Container flag-portal-web-1  Healthy");
+        e.secret = call.env("DEMO_SECRET").map(str::to_owned);
+        return Reply::ok("Container web-portal-web-1  Healthy");
     }
     if command.contains("ps --all --format json") {
         if e.ps_misses > 0 {
@@ -134,7 +134,7 @@ fn local_with(manifest: &str) -> Running {
 }
 
 fn opts() -> RunOptions {
-    virtualbox_options(FLAG)
+    virtualbox_options(SECRET)
 }
 
 #[tokio::test(start_paused = true)]
@@ -144,11 +144,11 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     let up = l.fake.last("vagrant up").unwrap();
     assert!(up.line().ends_with("--provision-with nat-route,docker,accept-env,project"), "{}", up.line());
-    // The flag reached Compose in the VM through the session, named by Vagrant's forward_env.
+    // The secret reached Compose in the VM through the session, named by Vagrant's forward_env.
     let start = l.fake.calls().into_iter().find(|c| c.line().contains(" up --detach ")).unwrap();
-    assert_eq!(start.env("CTF_FLAG_MAIN"), Some(FLAG));
-    assert!(!start.line().contains(FLAG));
-    assert_eq!(l.engine.lock().unwrap().flag.as_deref(), Some(FLAG));
+    assert_eq!(start.env("DEMO_SECRET"), Some(SECRET));
+    assert!(!start.line().contains(SECRET));
+    assert_eq!(l.engine.lock().unwrap().secret.as_deref(), Some(SECRET));
     let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
     assert_eq!(page.value.as_deref(), Some("http://127.0.0.1:8080/"));
     let status = run.status().await.unwrap();
@@ -172,7 +172,7 @@ async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Macos)).unwrap();
     let run = runner.open(&folder.manifest, None).unwrap();
     let mut secrets = Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
     run.up(&RunOptions::new().with_provider("qemu").with_secrets(secrets), &Recorder::new())
         .await
         .unwrap();
@@ -341,7 +341,7 @@ async fn retiring_a_service_in_the_vm_removes_it_there() {
 }
 
 /// The VM's boot digest in the fixture.
-const BOOTED: &str = "sha256:9c8be5edc003c6ba11b928ad0a1c451bedf24001425ebf23f6e6fb28730c768a";
+const BOOTED: &str = "sha256:71edc375270830a2a92e5908973881c36f83f39dcca42eb93bf74a5485e493b2";
 
 /// The steps `events` show, with their states.
 fn steps(events: &Recorder) -> Vec<(String, StepState)> {

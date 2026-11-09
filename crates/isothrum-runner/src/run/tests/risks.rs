@@ -118,7 +118,7 @@ async fn a_failed_operation_whose_record_cant_be_updated_ends_with_its_own_error
             // The record can't be read back, nor written: a folder where it was.
             std::fs::remove_file(&record).unwrap();
             std::fs::create_dir(&record).unwrap();
-            Err(Error::NotRunning { run: "flag-portal".into() })
+            Err(Error::NotRunning { run: "web-portal".into() })
         })
         .await
         .unwrap_err();

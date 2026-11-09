@@ -1,5 +1,5 @@
 //! The vagrant driver through a fake Vagrant: every `vagrant` and `VBoxManage` call answered
-//! from a small model of a Vagrantfile's VMs (the `flag-vm` fixture's `web` and controller),
+//! from a small model of a Vagrantfile's VMs (the `web-vm` fixture's `web` and controller),
 //! which keeps Vagrant's record where the call's `VAGRANT_DOTFILE_PATH` says, as Vagrant does.
 
 use std::collections::BTreeMap;
@@ -11,11 +11,11 @@ use isoloom_manifest::HostOs;
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{FLAG_VM, LabFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
+use crate::testing::{LabFolder, WEB_VM, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
 const CONTROLLER: &str = "isoloom-controller";
-const FLAG: &str = "flag{vm-0001}";
+const SECRET: &str = "token-vm-0001";
 
 /// A small model of the Vagrantfile's VMs and of what the host has installed.
 #[derive(Debug, Default)]
@@ -56,7 +56,7 @@ struct Fixture {
 }
 
 fn fixture(host: HostOs) -> Fixture {
-    fixture_from(host, FLAG_VM)
+    fixture_from(host, WEB_VM)
 }
 
 fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
@@ -77,7 +77,7 @@ fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
 /// Isoloom now generates a VM's published ports: the runner picks a free host port for each,
 /// unless `ISOLOOM_PUBLISH_FIXED` asks for its own number.
 fn ephemeral_manifest() -> String {
-    let mut v: serde_json::Value = serde_json::from_str(FLAG_VM).expect("the fixture parses");
+    let mut v: serde_json::Value = serde_json::from_str(WEB_VM).expect("the fixture parses");
     for machine in v["machines"].as_array_mut().into_iter().flatten() {
         for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
             if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
@@ -132,9 +132,9 @@ impl Fixture {
     }
 }
 
-/// The options the tests start with: VirtualBox, the flag given.
+/// The options the tests start with: VirtualBox, the secret given.
 fn opts() -> RunOptions {
-    virtualbox_options(FLAG)
+    virtualbox_options(SECRET)
 }
 
 /// The VMs of the fixture's Vagrantfile.
@@ -241,7 +241,7 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
                 record(&dotfile, vm, provider);
             }
             e.provider = Some((*provider).to_owned());
-            Reply::ok(&format!("{out}\nseeding {}", call.env("CTF_FLAG_MAIN").unwrap_or("no flag")))
+            Reply::ok(&format!("{out}\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")))
         }
         ["up", "--no-provision", "--provider", _, vms @ ..] | ["up", vms @ .., "--no-provision"] => {
             for vm in vms {
@@ -374,14 +374,14 @@ async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
     let up = f.fake.last("vagrant up --provider").unwrap();
-    assert_eq!(up.env("CTF_FLAG_MAIN"), Some(FLAG));
+    assert_eq!(up.env("DEMO_SECRET"), Some(SECRET));
     assert_eq!(
-        f.fake.last("vagrant halt").unwrap().env("CTF_FLAG_MAIN"),
+        f.fake.last("vagrant halt").unwrap().env("DEMO_SECRET"),
         None,
         "only the steps that run provisioners"
     );
     let text = serde_json::to_string(&events.events()).unwrap();
-    assert!(!text.contains(FLAG) && text.contains("seeding ***"), "{text}");
+    assert!(!text.contains(SECRET) && text.contains("seeding ***"), "{text}");
     // ESXi's connection never reaches a VirtualBox run.
     assert!(
         f.fake
@@ -391,7 +391,7 @@ async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty
     );
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     run.up(&RunOptions::new().with_provider("virtualbox"), &Recorder::new()).await.unwrap();
-    assert_eq!(f.fake.last("vagrant up --provider").unwrap().env("CTF_FLAG_MAIN"), Some(""), "its default");
+    assert_eq!(f.fake.last("vagrant up --provider").unwrap().env("DEMO_SECRET"), Some(""), "its default");
 }
 
 #[tokio::test]
@@ -443,13 +443,13 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
-    f.engine().vbox.insert("flag-vm · web".into(), "poweroff".into());
+    f.engine().vbox.insert("web-vm · web".into(), "poweroff".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
     let calls = f.fake.lines();
     let at = |text: &str| calls.iter().position(|l| l.contains(text)).unwrap_or_else(|| panic!("{text}: {calls:#?}"));
-    assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-flag-vm · web --delete"));
+    assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-web-vm · web --delete"));
     assert_eq!(calls.iter().filter(|l| l.starts_with("vagrant up --provider")).count(), 2);
     assert!(f.engine().vbox.is_empty(), "the orphan is gone");
 }
@@ -514,11 +514,11 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
     let f = fixture(crate::runner::this_host());
-    f.engine().vbox.insert("flag-vm · web".into(), "aborted-saved".into());
+    f.engine().vbox.insert("web-vm · web".into(), "aborted-saved".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
-    let discard = calls.iter().position(|l| l == "VBoxManage discardstate flag-vm · web").expect("discarded");
+    let discard = calls.iter().position(|l| l == "VBoxManage discardstate web-vm · web").expect("discarded");
     assert!(discard < calls.iter().position(|l| l.starts_with("vagrant up --provider")).unwrap());
 }
 
@@ -686,10 +686,10 @@ async fn provisioning_again_runs_on_the_running_machines_with_the_values_given_a
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run.provision(Some("web"), &opts(), &Recorder::new()).await.unwrap();
     let one = f.fake.last("vagrant provision web").unwrap();
-    assert_eq!(one.env("CTF_FLAG_MAIN"), Some(FLAG), "the value given again");
+    assert_eq!(one.env("DEMO_SECRET"), Some(SECRET), "the value given again");
     run.provision(None, &RunOptions::new(), &Recorder::new()).await.unwrap();
     assert_eq!(
-        f.fake.last("vagrant provision").unwrap().env("CTF_FLAG_MAIN"),
+        f.fake.last("vagrant provision").unwrap().env("DEMO_SECRET"),
         Some(""),
         "none given: its default"
     );
@@ -706,7 +706,7 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
     f.engine().plugins.push("vagrant-vmware-esxi".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let mut secrets = Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
     secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
     let opts = RunOptions::new()
         .with_provider("vmware_esxi")
@@ -802,12 +802,12 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
     let mut connection = Secrets::new();
     connection.insert("ESXI_PASSWORD", SecretValue::new("pw"));
     let run = f.runner.open(&f.manifest, None).unwrap().with_connection(connection);
-    let mut flag = Secrets::new();
-    flag.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    let mut secrets = Secrets::new();
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
     let opts = RunOptions::new()
         .with_provider("vmware_esxi")
         .with_param("ESXI_HOSTNAME", "172.16.1.20")
-        .with_secrets(flag);
+        .with_secrets(secrets);
     run.up(&opts, &Recorder::new()).await.unwrap();
     let after_up = f.fake.calls().len();
     run.status().await.unwrap();
@@ -836,7 +836,7 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
 /// The fixture with a VM added (a copy of `web` under another define), as Isoloom regenerates a
 /// lab with a machine added.
 fn with_vm_added(define: &str) -> String {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
     let mut added = m["machines"][0].clone();
     added["name"] = define.into();
     added["native"]["vagrant"] = define.into();
@@ -869,7 +869,7 @@ async fn an_update_brings_a_vm_added_to_the_lab_up() {
 /// retired: refused, rather than a guess at its define.
 #[tokio::test]
 async fn a_machine_with_no_native_name_has_no_console() {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_VM).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
     m["machines"][0].as_object_mut().unwrap().remove("native");
     let f = fixture_from(crate::runner::this_host(), &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -891,7 +891,7 @@ async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!((f.state("web").as_str(), f.state(CONTROLLER).as_str()), ("running", "poweroff"));
-    let changed = with_boot_digest(&with_boot_digest(FLAG_VM, "web", Some("sha256:web-2")), CONTROLLER, Some("sha256:controller-2"));
+    let changed = with_boot_digest(&with_boot_digest(WEB_VM, "web", Some("sha256:web-2")), CONTROLLER, Some("sha256:controller-2"));
     std::fs::write(&f.manifest, changed).unwrap();
     let updated = f.runner.open(&f.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     let reloads: Vec<String> = f.vagrant().into_iter().filter(|l| l.starts_with("vagrant reload")).collect();

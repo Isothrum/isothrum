@@ -41,22 +41,22 @@ mod tests {
             BTreeMap::from([("A".into(), "1".into()), ("B".into(), "x=y".into())])
         );
         assert!(params(&["A".into()]).is_err());
-        let env = |k: &str| (k == "FLAG_VAR").then(|| "flag{x}".to_owned());
-        let s = secrets(&["CTF_FLAG_MAIN=FLAG_VAR".into()], &env).unwrap();
-        assert_eq!(s.get("CTF_FLAG_MAIN").map(SecretValue::expose), Some("flag{x}"));
+        let env = |k: &str| (k == "SECRET_VAR").then(|| "token-x".to_owned());
+        let s = secrets(&["DEMO_SECRET=SECRET_VAR".into()], &env).unwrap();
+        assert_eq!(s.get("DEMO_SECRET").map(SecretValue::expose), Some("token-x"));
         assert!(
-            secrets(&["CTF_FLAG_MAIN".into()], &env)
+            secrets(&["DEMO_SECRET".into()], &env)
                 .unwrap_err()
                 .to_string()
-                .contains("`CTF_FLAG_MAIN` isn't set")
+                .contains("`DEMO_SECRET` isn't set")
         );
     }
 
     #[test]
     fn a_slot_named_alone_is_read_from_its_own_variable() {
-        let env = |k: &str| (k == "FLAG_VAR").then(|| "flag{y}".to_owned());
-        let s = secrets(&["FLAG_VAR".into()], &env).unwrap();
-        assert_eq!(s.get("FLAG_VAR").map(SecretValue::expose), Some("flag{y}"));
+        let env = |k: &str| (k == "SECRET_VAR").then(|| "token-y".to_owned());
+        let s = secrets(&["SECRET_VAR".into()], &env).unwrap();
+        assert_eq!(s.get("SECRET_VAR").map(SecretValue::expose), Some("token-y"));
     }
 
     proptest::proptest! {

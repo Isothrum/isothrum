@@ -1,12 +1,12 @@
 {
-  "$schema": "https://www.isoloom.com/schema/run-manifest/v0.json",
-  "manifest_version": 0,
+  "$schema": "https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json",
+  "manifest_version": 1,
   "generator": {
     "name": "isoloom",
     "version": "0.10.1"
   },
   "environment": {
-    "name": "flag-vm",
+    "name": "web-vm",
     "instance": null,
     "message": "The page answers at http://localhost:${published.web.web}/."
   },
@@ -318,7 +318,7 @@
   ],
   "secrets": [
     {
-      "name": "CTF_FLAG_MAIN",
+      "name": "DEMO_SECRET",
       "kind": "input",
       "required": false,
       "sensitive": true,
@@ -329,7 +329,7 @@
       "deliver": [
         {
           "via": "env",
-          "var": "CTF_FLAG_MAIN",
+          "var": "DEMO_SECRET",
           "steps": [
             "up",
             "provision",
@@ -362,7 +362,7 @@
       "name": "lab",
       "cidr": "10.61.0.0/24",
       "internet": true,
-      "native": "isoloom-flag-vm-lab"
+      "native": "isoloom-web-vm-lab"
     }
   ],
   "machines": [
@@ -381,13 +381,13 @@
       "native": {
         "vagrant": "web",
         "vm_names": {
-          "virtualbox": "flag-vm · web",
-          "vmware_desktop": "flag-vm · web",
-          "hyperv": "flag-vm-web",
-          "parallels": "flag-vm · web",
-          "libvirt": "flag-vm_web",
-          "utm": "flag-vm · web",
-          "vmware_esxi": "flag-vm-web"
+          "virtualbox": "web-vm · web",
+          "vmware_desktop": "web-vm · web",
+          "hyperv": "web-vm-web",
+          "parallels": "web-vm · web",
+          "libvirt": "web-vm_web",
+          "utm": "web-vm · web",
+          "vmware_esxi": "web-vm-web"
         },
         "boot_digest": "sha256:d5b2d485728610b27e8743a9d6cded3b5824143ecc34ec9c018a314fc092fb44"
       },
@@ -418,13 +418,13 @@
       "native": {
         "vagrant": "isoloom-controller",
         "vm_names": {
-          "virtualbox": "flag-vm · controller",
-          "vmware_desktop": "flag-vm · controller",
-          "hyperv": "flag-vm-controller",
-          "parallels": "flag-vm · controller",
-          "libvirt": "flag-vm_isoloom-controller",
-          "utm": "flag-vm · controller",
-          "vmware_esxi": "flag-vm-controller"
+          "virtualbox": "web-vm · controller",
+          "vmware_desktop": "web-vm · controller",
+          "hyperv": "web-vm-controller",
+          "parallels": "web-vm · controller",
+          "libvirt": "web-vm_isoloom-controller",
+          "utm": "web-vm · controller",
+          "vmware_esxi": "web-vm-controller"
         },
         "boot_digest": "sha256:1b690cd2c4113788e875312de8b5865d27ed72d7b61981fd29b17a1b00f26947"
       }

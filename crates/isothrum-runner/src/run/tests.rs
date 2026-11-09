@@ -1,4 +1,4 @@
-//! Scripted end-to-end runs: the `flag-portal` manifest through a fake Compose engine (every
+//! Scripted end-to-end runs: the `web-portal` manifest through a fake Compose engine (every
 //! `docker` call answered from a small model of a project's containers), fake host ports and a
 //! fixed clock. No real tool ever runs.
 
@@ -19,12 +19,11 @@ use std::time::Duration;
 
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
-use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{FLAG_PORTAL, LabFolder, modelled, processes, runner_config};
-use crate::{Event, EventKind, Recorder, RunOptions, Runner};
+use crate::testing::{LabFolder, WEB_PORTAL, modelled, processes, runner_config};
+use crate::{Event, EventKind, Recorder, RunOptions, Runner, SecretValue, Secrets};
 
-/// The flag the tests deliver.
-const FLAG: &str = "flag{fake-0001}";
+/// The secret the tests deliver.
+const SECRET: &str = "token-fake-0001";
 
 /// Where the project's containers are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -60,7 +59,7 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    fixture_with(FLAG_PORTAL)
+    fixture_with(WEB_PORTAL)
 }
 
 fn fixture_with(manifest: &str) -> Fixture {
@@ -121,10 +120,10 @@ impl Fixture {
     }
 }
 
-/// The options the tests start with: the flag given.
+/// The options the tests start with: the secret given.
 fn opts() -> RunOptions {
     let mut secrets = Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", SecretValue::new(FLAG));
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
     RunOptions {
         secrets,
         ..RunOptions::default()
@@ -160,7 +159,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     }
     if line.contains(" up --detach ") {
         e.containers = Containers::Up;
-        return Reply::ok(&format!(" Container web  Started\nseeding {}", call.env("CTF_FLAG_MAIN").unwrap_or("no flag")));
+        return Reply::ok(&format!(" Container web  Started\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")));
     }
     if line.starts_with("docker network ls ") {
         return Reply::ok(&e.networks.join("\n"));
@@ -219,7 +218,7 @@ fn ps(containers: Containers, all: bool, port: Option<u16>) -> String {
 fn config(published: Option<u16>) -> String {
     let published = published.map_or_else(|| "\"\"".to_owned(), |p| format!("\"{p}\""));
     format!(
-        r#"{{"services":{{"web":{{"ports":[{{"target":80,"host_ip":"127.0.0.1","published":{published},"protocol":"tcp"}}]}},"db":{{}}}},"networks":{{"lab":{{"name":"flag-portal_lab"}}}}}}"#
+        r#"{{"services":{{"web":{{"ports":[{{"target":80,"host_ip":"127.0.0.1","published":{published},"protocol":"tcp"}}]}},"db":{{}}}},"networks":{{"lab":{{"name":"web-portal_lab"}}}}}}"#
     )
 }
 

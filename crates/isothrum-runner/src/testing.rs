@@ -12,33 +12,33 @@ use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::{HostPorts, ProcessRunner, RunnerConfig};
 
-/// The `flag-portal` docker manifest's text.
-pub(crate) const FLAG_PORTAL: &str = include_str!("../tests/fixtures/flag-portal.run.json");
+/// The `web-portal` docker manifest's text.
+pub(crate) const WEB_PORTAL: &str = include_str!("../tests/fixtures/web-portal.run.json");
 
-/// `flag-portal` with an on-demand access machine (a Compose `attacker` service in the `access`
+/// `web-portal` with an on-demand access machine (a Compose `attacker` service in the `access`
 /// profile): the hot-add op's docker fixture.
-pub(crate) const FLAG_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/flag-portal-access.run.json");
+pub(crate) const WEB_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/web-portal-access.run.json");
 
-/// `flag-vm` with an on-demand access VM (a Vagrant `attacker` define): the hot-add op's VM fixture.
-pub(crate) const FLAG_VM_ACCESS: &str = include_str!("../tests/fixtures/flag-vm-access.run.json");
+/// `web-vm` with an on-demand access VM (a Vagrant `attacker` define): the hot-add op's VM fixture.
+pub(crate) const WEB_VM_ACCESS: &str = include_str!("../tests/fixtures/web-vm-access.run.json");
 
 /// Isoloom's `proxmox` fixture (the solo-web example): Terraform, ready files and checks over SSH.
 pub(crate) const SOLO_WEB_PROXMOX: &str = include_str!("../tests/fixtures/solo-web.proxmox.run.json");
 
 /// A cloud-vm manifest on AWS (the solo-web example), shaped as Isoloom writes them: its region
-/// and profile as params, its credentials as connection slots, an expiry, a flag delivered to
+/// and profile as params, its credentials as connection slots, an expiry, a secret delivered to
 /// the guest over SSH, its machine's address an output.
 pub(crate) const SOLO_WEB_AWS: &str = include_str!("../tests/fixtures/solo-web.cloud-vm-aws.run.json");
 
-/// The `flag-vm` vagrant manifest's text (Isoloom's Linux vagrant fixture): a Debian web VM
-/// with its flag as a file, its page forwarded to the host, checked from the controller.
-pub(crate) const FLAG_VM: &str = include_str!("../tests/fixtures/flag-vm.run.json");
+/// The `web-vm` vagrant manifest's text (Isoloom's Linux vagrant fixture): a Debian web VM
+/// with its secret as a file, its page forwarded to the host, checked from the controller.
+pub(crate) const WEB_VM: &str = include_str!("../tests/fixtures/web-vm.run.json");
 
-/// Isoloom's `docker-vm` fixture (flag-portal): Compose inside a VM Vagrant makes.
-pub(crate) const DOCKER_VM: &str = include_str!("../tests/fixtures/flag-portal.docker-vm.run.json");
+/// Isoloom's `docker-vm` fixture (web-portal): Compose inside a VM Vagrant makes.
+pub(crate) const DOCKER_VM: &str = include_str!("../tests/fixtures/web-portal.docker-vm.run.json");
 
 /// Isoloom's `docker-vm` fixture on Proxmox: Compose inside a VM Terraform makes, over SSH.
-pub(crate) const DOCKER_VM_PROXMOX: &str = include_str!("../tests/fixtures/flag-portal.docker-vm-proxmox.run.json");
+pub(crate) const DOCKER_VM_PROXMOX: &str = include_str!("../tests/fixtures/web-portal.docker-vm-proxmox.run.json");
 
 /// When the tests' clock stands: 2026-10-15T12:00:00Z.
 pub(crate) const TEST_TIME: u64 = 1_792_065_600;
@@ -53,15 +53,15 @@ pub(crate) fn solo_web_aws_manifest() -> Manifest {
     isoloom_manifest::parse(SOLO_WEB_AWS).unwrap()
 }
 
-/// The `flag-portal` docker manifest.
+/// The `web-portal` docker manifest.
 pub(crate) fn docker_manifest() -> Manifest {
-    isoloom_manifest::parse(FLAG_PORTAL).unwrap()
+    isoloom_manifest::parse(WEB_PORTAL).unwrap()
 }
 
-/// `flag-portal` with an output whose format can't be filled: it names a sensitive output (the
+/// `web-portal` with an output whose format can't be filled: it names a sensitive output (the
 /// published port again, `token`), which is never bound for a template.
 pub(crate) fn unfillable_format() -> String {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     let mut token = m["outputs"][0].clone();
     token["name"] = "token".into();
     token["sensitive"] = true.into();
@@ -71,9 +71,9 @@ pub(crate) fn unfillable_format() -> String {
     m.to_string()
 }
 
-/// The `flag-vm` vagrant manifest.
+/// The `web-vm` vagrant manifest.
 pub(crate) fn vagrant_manifest() -> Manifest {
-    isoloom_manifest::parse(FLAG_VM).unwrap()
+    isoloom_manifest::parse(WEB_VM).unwrap()
 }
 
 /// `manifest` (JSON) with machine `machine`'s `native.boot_digest` set to `digest`, or taken out
@@ -164,10 +164,10 @@ pub(crate) fn no_ports() -> Arc<dyn HostPorts> {
     Arc::new(FakePorts::new([]))
 }
 
-/// The options a VM run's tests start with: VirtualBox, `flag` given as the main flag.
-pub(crate) fn virtualbox_options(flag: &str) -> crate::RunOptions {
+/// The options a VM run's tests start with: VirtualBox, `secret` given as the main secret.
+pub(crate) fn virtualbox_options(secret: &str) -> crate::RunOptions {
     let mut secrets = crate::secrets::Secrets::new();
-    secrets.insert("CTF_FLAG_MAIN", crate::secrets::SecretValue::new(flag));
+    secrets.insert("DEMO_SECRET", crate::secrets::SecretValue::new(secret));
     crate::RunOptions::new().with_provider("virtualbox").with_secrets(secrets)
 }
 

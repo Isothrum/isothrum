@@ -1,4 +1,4 @@
-//! The commands end to end, on a runner whose tools are scripted (`flag-portal` through a tiny
+//! The commands end to end, on a runner whose tools are scripted (`web-portal` through a tiny
 //! fake Compose engine).
 
 use std::sync::Arc;
@@ -15,8 +15,8 @@ use crate::exit::Verdict;
 use crate::term::Term;
 use crate::testing::Buf;
 
-const FLAG_PORTAL: &str = include_str!("../../../isothrum-runner/tests/fixtures/flag-portal.run.json");
-const FLAG_PORTAL_ACCESS: &str = include_str!("../../../isothrum-runner/tests/fixtures/flag-portal-access.run.json");
+const WEB_PORTAL: &str = include_str!("../../../isothrum-runner/tests/fixtures/web-portal.run.json");
+const WEB_PORTAL_ACCESS: &str = include_str!("../../../isothrum-runner/tests/fixtures/web-portal-access.run.json");
 
 /// Where the fake project's containers are.
 const NONE: u8 = 0;
@@ -37,7 +37,7 @@ struct Setup {
 
 /// A run generated for docker, and a runner whose `docker` is a tiny model of one project.
 fn setup() -> Setup {
-    setup_with(FLAG_PORTAL)
+    setup_with(WEB_PORTAL)
 }
 
 /// [`setup`] with `manifest` as the run's `run.json`.
@@ -58,7 +58,7 @@ fn setup_with(manifest: &str) -> Setup {
             () if line.contains("--profile access up") => Reply::ok(&format!("attacker from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
             () if line.contains(" up --detach ") => {
                 state.store(UP, Ordering::SeqCst);
-                Reply::ok(&format!("seeding {}", call.env("CTF_FLAG_MAIN").unwrap_or("no flag")))
+                Reply::ok(&format!("seeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")))
             }
             () if line.ends_with(" stop") => {
                 state.store(STOPPED, Ordering::SeqCst);
@@ -137,12 +137,12 @@ async fn a_lab_goes_up_reports_checks_and_goes_down() {
     let last = s.last_event();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("down")));
     assert_eq!(s.run(&["status"]).await.unwrap(), Verdict::Pass);
-    assert!(s.out.take().starts_with("flag-portal: absent\n"));
+    assert!(s.out.take().starts_with("web-portal: absent\n"));
 }
 
 #[tokio::test]
 async fn a_sensitive_output_shows_as_masked_in_the_status_json_and_text() {
-    let s = setup_with(&FLAG_PORTAL.replace(r#""sensitive": false"#, r#""sensitive": true"#));
+    let s = setup_with(&WEB_PORTAL.replace(r#""sensitive": false"#, r#""sensitive": true"#));
     assert_eq!(s.run(&["up", "--json"]).await.unwrap(), Verdict::Pass);
     assert!(!s.out.take().contains("127.0.0.1:41873"), "no event says it");
 
@@ -164,7 +164,7 @@ async fn a_refused_operation_is_reported_by_its_error_event() {
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     s.err.take();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Fail);
-    assert!(s.err.take().contains("error: run `flag-portal` is already running"));
+    assert!(s.err.take().contains("error: run `web-portal` is already running"));
 }
 
 #[tokio::test]
@@ -182,7 +182,7 @@ async fn a_console_into_a_machine_is_printed_and_a_machine_is_retired() {
     let console = s.out.take();
     let dir = s.run.path().join(".isoloom/docker").display().to_string();
     assert!(
-        console.starts_with(&format!("cd {dir} && docker compose --project-name flag-portal ")),
+        console.starts_with(&format!("cd {dir} && docker compose --project-name web-portal ")),
         "{console}"
     );
     assert!(console.contains(" exec web sh -c 'if command -v bash"), "its script quoted whole: {console}");
@@ -240,7 +240,7 @@ async fn provision_runs_the_set_up_again_and_says_when_there_is_none() {
     assert_eq!(s.run(&["provision"]).await.unwrap(), Verdict::Fail);
     assert!(s.err.take().contains("no provision steps"));
 
-    let mut manifest: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     let again = serde_json::json!({ "id": "again", "argv": ["docker", "compose", "-p", "${run.name}", "exec", "-T", "web", "true"], "timeout_s": 30 });
     manifest["lifecycle"]["provision"] = serde_json::json!({ "all": [again], "machine": [] });
     let with_steps = setup_with(&manifest.to_string());
@@ -255,14 +255,14 @@ async fn provision_runs_the_set_up_again_and_says_when_there_is_none() {
 
 #[tokio::test]
 async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
-    let mut s = setup_with(FLAG_PORTAL_ACCESS);
-    s.env.push(("MY_FLAG", "flag{from-env}"));
+    let mut s = setup_with(WEB_PORTAL_ACCESS);
+    s.env.push(("MY_SECRET", "token-from-env"));
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     s.out.take();
     s.err.take();
 
     let attached = s
-        .run(&["attach", "--network", "lab", "--image", "me/kali", "--secret-from-env", "CTF_FLAG_MAIN=MY_FLAG"])
+        .run(&["attach", "--network", "lab", "--image", "me/kali", "--secret-from-env", "DEMO_SECRET=MY_SECRET"])
         .await;
     assert_eq!(attached.unwrap(), Verdict::Pass);
     assert_eq!(s.out.take(), "Attached attacker at 10.30.0.99.\n");
@@ -281,17 +281,17 @@ async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
 /// masked in what it prints, and a param it refuses fails it.
 #[tokio::test]
 async fn attach_takes_the_params_and_secrets_it_is_given() {
-    let mut s = setup_with(FLAG_PORTAL_ACCESS);
-    s.env.push(("MY_FLAG", "me/kali"));
+    let mut s = setup_with(WEB_PORTAL_ACCESS);
+    s.env.push(("MY_SECRET", "me/kali"));
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     s.err.take();
     // The image is the secret's value here: what the attach prints of it is masked.
-    let attached = s.run(&["attach", "--image", "me/kali", "--secret-from-env", "CTF_FLAG_MAIN=MY_FLAG"]).await;
+    let attached = s.run(&["attach", "--image", "me/kali", "--secret-from-env", "DEMO_SECRET=MY_SECRET"]).await;
     assert_eq!(attached.unwrap(), Verdict::Pass);
     let said = s.err.take();
     assert!(said.contains("attacker from ***") && !said.contains("me/kali"), "{said}");
 
-    let fresh = setup_with(FLAG_PORTAL_ACCESS);
+    let fresh = setup_with(WEB_PORTAL_ACCESS);
     assert_eq!(fresh.run(&["attach", "--param", "ISOLOOM_DERIVED=7"]).await.unwrap(), Verdict::Fail);
     let refused = fresh.err.take();
     assert!(refused.contains("error: ") && refused.contains("ISOLOOM_DERIVED"), "{refused}");

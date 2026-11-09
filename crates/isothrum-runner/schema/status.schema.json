@@ -283,7 +283,7 @@
           "type": "boolean"
         },
         "native": {
-          "description": "Its name where the target created it (`flag-portal_lab`), when known.",
+          "description": "Its name where the target created it (`web-portal_lab`), when known.",
           "type": [
             "string",
             "null"

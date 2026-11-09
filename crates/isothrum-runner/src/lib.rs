@@ -18,11 +18,11 @@
 //! let home = tempfile::tempdir()?;
 //! let dir = tempfile::tempdir()?;
 //! let manifest = dir.path().join("run.json");
-//! std::fs::write(&manifest, include_str!("../tests/fixtures/flag-portal.run.json"))?;
+//! std::fs::write(&manifest, include_str!("../tests/fixtures/web-portal.run.json"))?;
 //!
 //! let runner = Runner::new(RunnerConfig::new(home.path()))?;
 //! let run = runner.open(&manifest, Some(RunName::new("demo")?))?;
-//! assert_eq!(run.manifest().environment.name.as_str(), "flag-portal");
+//! assert_eq!(run.manifest().environment.name.as_str(), "web-portal");
 //! assert_eq!(run.name().as_str(), "demo");
 //! assert!(runner.runs()?.is_empty(), "no operation has run");
 //! # Ok::<(), Box<dyn std::error::Error>>(())

@@ -221,17 +221,17 @@ mod tests {
     fn events_are_numbered_timed_and_masked() {
         let clock = FixedClock(UNIX_EPOCH + Duration::from_secs(1_792_065_600));
         let sink = Recorder::new();
-        let e = Emitter::new("flag-portal", Op::Up, &clock, &sink).masking(["flag{x}".to_owned(), "flag{x}-long".to_owned(), String::new()]);
-        e.log("up", Stream::Stderr, "seeding flag{x}-long and flag{x}");
+        let e = Emitter::new("web-portal", Op::Up, &clock, &sink).masking(["token-x".to_owned(), "token-x-long".to_owned(), String::new()]);
+        e.log("up", Stream::Stderr, "seeding token-x-long and token-x");
         e.emit(EventKind::Result {
             ok: true,
-            data: serde_json::json!({"message": ["at flag{x}"]}),
+            data: serde_json::json!({"message": ["at token-x"]}),
         });
         let got = sink.events();
         assert_eq!(got.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2]);
         assert!(
             got.iter()
-                .all(|event| event.time == "2026-10-15T12:00:00Z" && event.run.as_deref() == Some("flag-portal") && event.op == Some(Op::Up))
+                .all(|event| event.time == "2026-10-15T12:00:00Z" && event.run.as_deref() == Some("web-portal") && event.op == Some(Op::Up))
         );
         assert!(
             matches!(&got[0].kind, EventKind::Log { line, .. } if line == "seeding *** and ***"),

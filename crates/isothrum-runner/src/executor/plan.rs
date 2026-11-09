@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn a_command_is_filled_for_its_host() {
         let mut vars = Vars::default();
-        vars.set_run(RunVar::Name, "flag-portal");
+        vars.set_run(RunVar::Name, "web-portal");
         vars.set_params(BTreeMap::from([("P".to_owned(), "1".to_owned())]));
         let argv: HostArgv =
             serde_json::from_str(r#"{"default": ["docker", "compose", "-p", "${run.name}", "up"], "windows": ["docker.exe", "${params.P}"]}"#).unwrap();
@@ -133,7 +133,7 @@ mod tests {
             command(&argv, HostOs::Linux, &vars, "lifecycle.up.up").unwrap(),
             Command {
                 program: "docker".into(),
-                args: ["compose", "-p", "flag-portal", "up"].map(String::from).into()
+                args: ["compose", "-p", "web-portal", "up"].map(String::from).into()
             }
         );
         let windows = command(&argv, HostOs::Windows, &vars, "lifecycle.up.up").unwrap();

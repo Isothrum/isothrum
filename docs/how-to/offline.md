@@ -20,7 +20,7 @@ Services in a Compose profile (an on-demand access machine) are listed with `--p
 Images the Compose file builds (`build:`) need their base images, and whatever their build
 downloads, available too.
 
-On macOS, the Proxmox targets run Terraform from the image `hashicorp/terraform:1.9.8` pinned by
+On macOS, the Proxmox targets run Terraform from the image `hashicorp/terraform:1.16.7` pinned by
 digest (see the manifest's `tools`): load it the same way.
 
 ## Vagrant boxes and plugins

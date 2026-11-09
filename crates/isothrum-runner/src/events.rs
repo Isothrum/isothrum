@@ -288,7 +288,7 @@ mod tests {
             v: 0,
             seq: 1,
             time: "2026-10-15T12:00:00Z".into(),
-            run: Some("flag-portal".into()),
+            run: Some("web-portal".into()),
             op: Some(Op::Up),
             kind,
         }
@@ -303,7 +303,7 @@ mod tests {
         });
         assert_eq!(
             serde_json::to_value(&e).unwrap(),
-            serde_json::json!({"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"flag-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
+            serde_json::json!({"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
         );
         let error = event(EventKind::Error {
             code: ErrorCode::PortInUse,

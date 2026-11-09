@@ -17,7 +17,7 @@ fn pulling(engine: &Mutex<Engine>, call: &Call, progress: fn(u32) -> String) -> 
 async fn a_slow_pull_still_moving_runs_past_the_steps_limit() {
     // Regression: a 1.1 GB image pulled through a slow VM network was still downloading when its
     // 30-minute `up` step was stopped. Its limit now counts the time without progress.
-    let f = fixture_answering(FLAG_PORTAL, |e, call| {
+    let f = fixture_answering(WEB_PORTAL, |e, call| {
         pulling(e, call, |n| format!("36b0bafd7f97 Downloading {}MB/1.121GB", n * 28))
     });
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -29,7 +29,7 @@ async fn a_slow_pull_still_moving_runs_past_the_steps_limit() {
 
 #[tokio::test(start_paused = true)]
 async fn a_stuck_pull_repeating_its_line_is_stopped_at_the_steps_limit() {
-    let f = fixture_answering(FLAG_PORTAL, |e, call| pulling(e, call, |_| "36b0bafd7f97 Downloading 1.121GB".to_owned()));
+    let f = fixture_answering(WEB_PORTAL, |e, call| pulling(e, call, |_| "36b0bafd7f97 Downloading 1.121GB".to_owned()));
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     let started = tokio::time::Instant::now();

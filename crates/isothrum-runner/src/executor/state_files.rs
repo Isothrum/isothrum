@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn a_tfvars_file_is_one_json_object_of_strings_in_key_order() {
-        let entries = BTreeMap::from([("region".to_owned(), "eu-west-3".to_owned()), ("flag".to_owned(), "a\"b".to_owned())]);
-        assert_eq!(tfvars_json(&entries), "{\n  \"flag\": \"a\\\"b\",\n  \"region\": \"eu-west-3\"\n}\n");
+        let entries = BTreeMap::from([("region".to_owned(), "eu-west-3".to_owned()), ("label".to_owned(), "a\"b".to_owned())]);
+        assert_eq!(tfvars_json(&entries), "{\n  \"label\": \"a\\\"b\",\n  \"region\": \"eu-west-3\"\n}\n");
     }
 }

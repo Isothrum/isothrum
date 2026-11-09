@@ -5,7 +5,7 @@ use isoloom_manifest::HostOs;
 
 use super::*;
 use crate::process::fake::{FakeProcesses, Reply};
-use crate::testing::{FLAG_PORTAL, LabFolder, SOLO_WEB_PROXMOX, no_ports, processes, runner_config};
+use crate::testing::{LabFolder, SOLO_WEB_PROXMOX, WEB_PORTAL, no_ports, processes, runner_config};
 use crate::{ErrorCode, RunName};
 
 /// A runner beside a run holding `manifest` for `target`, no tool ever answering.
@@ -96,7 +96,7 @@ async fn a_run_that_has_a_state_already_is_never_overwritten() {
 
 #[tokio::test]
 async fn only_a_terraform_manifest_takes_a_deployment_over() {
-    let (folder, runner) = runner("docker", FLAG_PORTAL);
+    let (folder, runner) = runner("docker", WEB_PORTAL);
     let old = deployment(folder.home.path());
     let err = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::AdoptRefused);

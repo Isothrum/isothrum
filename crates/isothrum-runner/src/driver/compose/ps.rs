@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_machine_is_found_by_its_compose_service_not_its_name() {
-        let manifest = isoloom_manifest::parse(&crate::testing::FLAG_PORTAL.replace(r#""service": "web""#, r#""service": "portal""#)).unwrap();
+        let manifest = isoloom_manifest::parse(&crate::testing::WEB_PORTAL.replace(r#""service": "web""#, r#""service": "portal""#)).unwrap();
         let ps = r#"[{"Service":"portal","State":"running"},{"Service":"web","State":"exited","ExitCode":1}]"#;
         let (machines, _) = machines(&manifest, &read(ps));
         let web = machines.iter().find(|m| m.name == "web").unwrap();

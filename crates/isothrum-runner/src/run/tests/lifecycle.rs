@@ -31,7 +31,7 @@ async fn a_run_comes_up_with_its_entry_and_message_then_goes() {
 
     let status = run.status().await.unwrap();
     assert_eq!(status.state, RunState::Ready);
-    assert!(status.message.is_some() && status.networks[0].native.as_deref() == Some("flag-portal_lab"));
+    assert!(status.message.is_some() && status.networks[0].native.as_deref() == Some("web-portal_lab"));
 
     let down = Recorder::new();
     run.down(&RunOptions::default(), &down).await.unwrap();
@@ -47,18 +47,18 @@ async fn the_flag_reaches_only_the_steps_that_create_things_and_never_an_event()
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
     for call in f.fake.calls() {
-        let has = call.env("CTF_FLAG_MAIN").is_some();
+        let has = call.env("DEMO_SECRET").is_some();
         let creates = call.line().contains(" up --detach ") || call.line().contains("--exit-code-from web-init-1");
         assert_eq!(has, creates, "{}", call.line());
     }
     let text = serde_json::to_string(&events.events()).unwrap();
-    assert!(!text.contains(FLAG) && text.contains("seeding ***"), "{text}");
+    assert!(!text.contains(SECRET) && text.contains("seeding ***"), "{text}");
     let log = std::fs::read_to_string(f.runner.store.run_dir(run.name()).unwrap().join("events.jsonl")).unwrap();
-    assert!(!log.contains(FLAG));
+    assert!(!log.contains(SECRET));
     assert!(
         !std::fs::read_to_string(f.runner.store.run_dir(run.name()).unwrap().join("record.json"))
             .unwrap()
-            .contains(FLAG)
+            .contains(SECRET)
     );
 }
 
@@ -67,29 +67,29 @@ async fn a_slot_without_a_value_gets_its_default_so_a_resume_needs_no_inputs() {
     // Isoloom delivers an input to `start` too, with `default: ""`: Compose reads an
     // environment-sourced secret on every start. A resume re-creates nothing, and its embedder
     // has no values to give.
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     m["secrets"][0]["deliver"][0]["steps"].as_array_mut().unwrap().push("start".into());
     let f = fixture_with(&m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&RunOptions::default(), &Recorder::new()).await.unwrap();
     let up = f.fake.last(" up --detach ").unwrap();
-    assert_eq!(up.env("CTF_FLAG_MAIN"), Some(""), "an optional input left out is set, empty");
+    assert_eq!(up.env("DEMO_SECRET"), Some(""), "an optional input left out is set, empty");
     run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     let events = Recorder::new();
     run.resume(&RunOptions::default(), &events).await.unwrap();
     let start = f.fake.calls().into_iter().rev().find(|c| c.line().ends_with(" start")).unwrap();
-    assert_eq!(start.env("CTF_FLAG_MAIN"), Some(""));
+    assert_eq!(start.env("DEMO_SECRET"), Some(""));
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
 #[tokio::test]
 async fn a_slot_without_a_value_or_a_default_is_not_delivered() {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     m["secrets"][0].as_object_mut().unwrap().remove("default");
     let f = fixture_with(&m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&RunOptions::default(), &Recorder::new()).await.unwrap();
-    assert_eq!(f.fake.last(" up --detach ").unwrap().env("CTF_FLAG_MAIN"), None);
+    assert_eq!(f.fake.last(" up --detach ").unwrap().env("DEMO_SECRET"), None);
 }
 
 #[tokio::test]
@@ -187,7 +187,7 @@ async fn unreadable_ps_output_fails_a_resume_and_keeps_the_run_parked() {
 /// A `tcp` ready condition holds once its address answers, and fails a start when it never does.
 #[tokio::test(start_paused = true)]
 async fn a_tcp_condition_holds_once_its_port_answers() {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     m["ready"]
         .as_array_mut()
         .unwrap()
@@ -290,7 +290,7 @@ async fn a_lab_without_provision_steps_isnt_provisioned_again() {
 /// The fixture regenerated with a service added (`extra`, started with the others) and one taken
 /// out (`db-routes`).
 fn regenerated() -> String {
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     let machines = m["machines"].as_array_mut().unwrap();
     let mut extra = machines[0].clone();
     machines.retain(|x| x["name"] != "db-routes");
@@ -356,7 +356,7 @@ fn engine_with(f: &Fixture, networks: &[&str], unreadable_config: bool) {
 /// otherwise pass unchecked. Nothing starts.
 #[tokio::test]
 async fn an_unreadable_config_fails_the_free_ports_check_before_anything_starts() {
-    let f = fixture_answering(FLAG_PORTAL, unreadable_once_pinned);
+    let f = fixture_answering(WEB_PORTAL, unreadable_once_pinned);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
     assert!(matches!(&err, crate::Error::ToolFailed { step, .. } if step == "ports-free"), "{err}");
@@ -387,7 +387,7 @@ async fn an_unreadable_config_fails_the_pinning_of_a_fresh_run() {
 /// naming the port, rather than start on an ephemeral one.
 #[tokio::test]
 async fn no_free_host_port_fails_the_pinning_of_a_fresh_run() {
-    let f = fixture_with_ports(FLAG_PORTAL, []);
+    let f = fixture_with_ports(WEB_PORTAL, []);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
     assert!(
@@ -401,11 +401,11 @@ async fn no_free_host_port_fails_the_pinning_of_a_fresh_run() {
 #[tokio::test]
 async fn a_stale_network_goes_and_a_defined_one_stays() {
     let f = fixture();
-    engine_with(&f, &["flag-portal_lab", "flag-portal_old"], false);
+    engine_with(&f, &["web-portal_lab", "web-portal_old"], false);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    assert_eq!(f.called("docker network rm flag-portal_old"), 1);
-    assert_eq!(f.called("docker network rm flag-portal_lab"), 0);
+    assert_eq!(f.called("docker network rm web-portal_old"), 1);
+    assert_eq!(f.called("docker network rm web-portal_lab"), 0);
 }
 
 /// An update whose config can't be read removes no network: read as empty, every live network of
@@ -415,7 +415,7 @@ async fn an_update_with_an_unreadable_config_removes_no_network() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    engine_with(&f, &["flag-portal_lab", "flag-portal_old"], true);
+    engine_with(&f, &["web-portal_lab", "web-portal_old"], true);
     let events = Recorder::new();
     run.update(&opts(), &events).await.unwrap();
     assert_eq!(f.called("docker network rm"), 0, "no network removed");
@@ -436,7 +436,7 @@ fn a_target_not_run_on_this_host_is_refused_by_its_name() {
         .filter(|h| **h != here)
         .map(crate::encoding::wire_name)
         .collect();
-    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     m["hosts"] = serde_json::json!(others);
     let f = fixture_with(&m.to_string());
     let err = f.runner.open(&f.manifest, None).unwrap_err();

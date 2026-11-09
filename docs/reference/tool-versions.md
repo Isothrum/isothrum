@@ -19,7 +19,7 @@ authority: `jq '.tools' .isoloom/<target>/run.json` shows it.
 | Terraform | 1.11.0 | `cloud-vm/*`, `cloud-docker/*` (and Isoloom's other cloud targets) | `terraform version` |
 | OpenSSH client | any that answers | targets reached over SSH | `ssh -V` |
 
-On macOS, the Proxmox targets run Terraform from the image `hashicorp/terraform:1.9.8`, pinned by
+On macOS, the Proxmox targets run Terraform from the image `hashicorp/terraform:1.16.7`, pinned by
 digest, instead of a host binary (macOS's Local Network Privacy keeps third-party binaries off the
 local network); only Docker has to answer there.
 

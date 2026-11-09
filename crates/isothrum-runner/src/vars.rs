@@ -166,8 +166,8 @@ mod tests {
 
     fn vars() -> Vars {
         let mut v = Vars::default();
-        v.set_run(RunVar::Name, "flag-portal");
-        v.set_run(RunVar::StateDir, "/home/u/.isothrum/runs/flag-portal");
+        v.set_run(RunVar::Name, "web-portal");
+        v.set_run(RunVar::StateDir, "/home/u/.isothrum/runs/web-portal");
         v.set_params(BTreeMap::from([("ISOLOOM_DERIVED".to_owned(), "1".to_owned())]));
         v.set_published(BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
         v.set_hosts(BTreeMap::from([("web".to_owned(), "127.0.0.1".to_owned())]));
@@ -180,11 +180,11 @@ mod tests {
         let v = vars();
         assert_eq!(
             v.render(&t("${run.state_dir}/ports.yml"), "x").unwrap(),
-            "/home/u/.isothrum/runs/flag-portal/ports.yml"
+            "/home/u/.isothrum/runs/web-portal/ports.yml"
         );
         assert_eq!(
             v.render(&t("${run.name}_lab cost $$5 ${params.ISOLOOM_DERIVED}"), "x").unwrap(),
-            "flag-portal_lab cost $5 1"
+            "web-portal_lab cost $5 1"
         );
         assert_eq!(
             v.render_value(&t("http://127.0.0.1:${value}/"), "41873", "x").unwrap(),

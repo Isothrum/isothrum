@@ -313,14 +313,14 @@ mod tests {
     #[test]
     fn the_variables_sent_are_named_before_the_host_their_values_never_in_the_arguments() {
         let l = Login::new("isoloom", "10.0.0.9", None, "").unwrap();
-        let sent = ["FLAG".to_owned(), "TOKEN".to_owned()];
+        let sent = ["DEMO_SECRET".to_owned(), "TOKEN".to_owned()];
         assert_eq!(
             l.args(Path::new("c"), &sent, "sudo -E docker compose up"),
             [
                 "-F",
                 "c",
                 "-o",
-                "SendEnv=FLAG",
+                "SendEnv=DEMO_SECRET",
                 "-o",
                 "SendEnv=TOKEN",
                 "isoloom@10.0.0.9",

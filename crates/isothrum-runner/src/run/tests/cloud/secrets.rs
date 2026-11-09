@@ -1,4 +1,4 @@
-//! Secrets in a cloud run: the flag delivered into its machine over SSH where no store holds it,
+//! Secrets in a cloud run: the secret delivered into its machine over SSH where no store holds it,
 //! values in a state file, outputs the state marks sensitive, and a secret carried into a guest step
 //! (`SendEnv`): never on a command line, in an event or in the run's log.
 
@@ -6,31 +6,31 @@ use std::sync::atomic::Ordering;
 
 use super::*;
 
-/// A start's options with the run's flag.
-fn with_flag(region: &str) -> RunOptions {
+/// A start's options with the run's secret.
+fn with_secret(region: &str) -> RunOptions {
     let mut o = opts(region, "labs");
-    o.secrets.insert("FLAG", SecretValue::new("flag{it's $HOME}"));
+    o.secrets.insert("DEMO_SECRET", SecretValue::new("token-it's $HOME"));
     o
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_flag_with_no_store_to_read_it_from_is_delivered_into_its_machine_over_ssh() {
-    // DigitalOcean and Linode have no secret store: the runner writes the flag into the machine,
+    // DigitalOcean and Linode have no secret store: the runner writes the secret into the machine,
     // whose set-up waits for it.
     let a = account_of(SOLO_WEB_AWS, 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    run.up(&with_flag("eu-west-3"), &events).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &events).await.unwrap();
     let delivered = a.cloud.delivered.lock().unwrap().clone();
-    assert_eq!(delivered, [format!("FLAG {}\n", crate::encoding::base64(b"flag{it's $HOME}"))]);
+    assert_eq!(delivered, [format!("DEMO_SECRET {}\n", crate::encoding::base64(b"token-it's $HOME"))]);
     let call = a.fake.last("/var/lib/isoloom/secrets").unwrap();
     assert!(call.args.contains(&format!("admin@{PUBLIC}")), "the machine's address and login: {call:?}");
     assert!(call.line().contains("sudo sh -c"), "{call:?}");
-    assert!(!call.line().contains("flag{"), "never on a command line");
+    assert!(!call.line().contains("token-"), "never on a command line");
     assert!(!call.stdin.as_ref().unwrap().exists(), "the input goes once delivered");
     let shown = serde_json::to_string(&events.events()).unwrap();
     assert!(
-        !shown.contains("flag{") && !shown.contains(&crate::encoding::base64(b"flag{it's $HOME}")),
+        !shown.contains("token-") && !shown.contains(&crate::encoding::base64(b"token-it's $HOME")),
         "never in an event"
     );
     // Delivered after the start's steps, before the machine's ready file is read.
@@ -48,7 +48,7 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     a.cloud.input_stuck.store(true, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    let err = run.up(&with_flag("eu-west-3"), &events).await.unwrap_err();
+    let err = run.up(&with_secret("eu-west-3"), &events).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
     assert!(err.to_string().contains("guest-web.in"), "{err}");
     assert!(
@@ -70,7 +70,7 @@ async fn a_delivery_reaches_its_machine_at_a_sensitive_address_output() {
     m["ready"][1]["host"] = serde_json::json!("${outputs.ip}");
     let a = account_of(&m.to_string(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
     let call = a.fake.last("/var/lib/isoloom/secrets").unwrap();
     assert!(call.args.contains(&format!("admin@{PUBLIC}")), "the address itself, not its mask: {call:?}");
 }
@@ -80,7 +80,7 @@ async fn a_machine_still_booting_gets_its_secrets_once_ssh_answers() {
     let a = account_of(SOLO_WEB_AWS, 0);
     a.cloud.unreachable.store(3, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1);
     assert_eq!(a.fake.calls().iter().filter(|c| c.line().contains("/var/lib/isoloom/secrets")).count(), 4);
 }
@@ -90,7 +90,7 @@ async fn a_machine_that_never_answers_fails_the_delivery_after_its_patience() {
     let a = account_of(SOLO_WEB_AWS, 0);
     a.cloud.unreachable.store(u32::MAX, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ToolFailed);
     assert!(err.to_string().contains("guest-web") && err.to_string().contains("Connection refused"), "{err}");
 }
@@ -98,19 +98,19 @@ async fn a_machine_that_never_answers_fails_the_delivery_after_its_patience() {
 #[tokio::test(start_paused = true)]
 async fn a_delivery_waiting_for_a_step_goes_right_after_it() {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
-    let flag = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "FLAG").unwrap();
-    flag["deliver"][0]["during_step"] = serde_json::json!("apply");
+    let secret = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "DEMO_SECRET").unwrap();
+    secret["deliver"][0]["during_step"] = serde_json::json!("apply");
     let a = account_of(&m.to_string(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "once");
 }
 
-/// The fixture with its flag in a Terraform variable file of the run's state folder.
-fn flag_in_a_state_file() -> String {
+/// The fixture with its secret in a Terraform variable file of the run's state folder.
+fn secret_in_a_state_file() -> String {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
-    let flag = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "FLAG").unwrap();
-    flag["deliver"] = serde_json::json!([{"via": "state_file", "path": "inputs.tfvars.json", "format": "tfvars_json", "key": "flag"}]);
+    let secret = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "DEMO_SECRET").unwrap();
+    secret["deliver"] = serde_json::json!([{"via": "state_file", "path": "inputs.tfvars.json", "format": "tfvars_json", "key": "secret"}]);
     m["params"][0]["deliver"]
         .as_array_mut()
         .unwrap()
@@ -120,12 +120,12 @@ fn flag_in_a_state_file() -> String {
 
 #[tokio::test(start_paused = true)]
 async fn values_in_a_state_file_are_written_at_up_kept_for_the_destroy_and_gone_after_it() {
-    let a = account_of(&flag_in_a_state_file(), 0);
+    let a = account_of(&secret_in_a_state_file(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&with_flag("eu-west-3"), &Recorder::new()).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
     let file = a.runner.store.run_dir(run.name()).unwrap().join("inputs.tfvars.json");
     let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(written, serde_json::json!({"flag": "flag{it's $HOME}", "region": "eu-west-3"}));
+    assert_eq!(written, serde_json::json!({"secret": "token-it's $HOME", "region": "eu-west-3"}));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -133,7 +133,7 @@ async fn values_in_a_state_file_are_written_at_up_kept_for_the_destroy_and_gone_
     }
     // A destroy reads what its apply had, whatever it is given now.
     let mut later = opts("us-east-1", "default");
-    later.secrets.insert("FLAG", SecretValue::new("another"));
+    later.secrets.insert("DEMO_SECRET", SecretValue::new("another"));
     run.down(&later, &Recorder::new()).await.unwrap();
     let seen: serde_json::Value = serde_json::from_str(a.cloud.destroyed_with.lock().unwrap().as_deref().unwrap()).unwrap();
     assert_eq!(seen, written);
@@ -178,7 +178,7 @@ async fn an_output_the_state_marks_sensitive_is_masked_and_never_in_the_message(
     assert!(!status.message.unwrap_or_default().contains("hunter2-db"));
 }
 
-/// The fixture as cloud-docker's: its flag an environment variable of the guest step that starts
+/// The fixture as cloud-docker's: its secret an environment variable of the guest step that starts
 /// Compose, carried over SSH (`SendEnv`), never on the command line.
 fn compose_over_ssh() -> String {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
@@ -186,8 +186,8 @@ fn compose_over_ssh() -> String {
         "id": "compose-up", "action": "ssh.run",
         "with": {"host": "${outputs.address_web}", "user": "${outputs.ssh_user}", "command": "cd /opt/isoloom && sudo -E docker compose up -d"}
     }));
-    let flag = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "FLAG").unwrap();
-    flag["deliver"] = serde_json::json!([{"via": "env", "var": "FLAG", "steps": ["compose-up"]}]);
+    let secret = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "DEMO_SECRET").unwrap();
+    secret["deliver"] = serde_json::json!([{"via": "env", "var": "DEMO_SECRET", "steps": ["compose-up"]}]);
     m.to_string()
 }
 
@@ -202,14 +202,14 @@ async fn a_secret_carried_into_a_guest_step_never_shows_in_an_event_or_the_log()
     let a = account_of(&compose_over_ssh(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    run.up(&with_flag("eu-west-3"), &events).await.unwrap();
+    run.up(&with_secret("eu-west-3"), &events).await.unwrap();
     let call = a.fake.last("docker compose up").unwrap();
-    assert!(call.args.windows(2).any(|w| w == ["-o", "SendEnv=FLAG"]), "{call:?}");
-    assert_eq!(call.env("FLAG"), Some("flag{it's $HOME}"));
-    assert!(!call.line().contains("flag{"), "never on the command line");
+    assert!(call.args.windows(2).any(|w| w == ["-o", "SendEnv=DEMO_SECRET"]), "{call:?}");
+    assert_eq!(call.env("DEMO_SECRET"), Some("token-it's $HOME"));
+    assert!(!call.line().contains("token-"), "never on the command line");
     let shown = everything(&a, &run, &events);
-    assert!(shown.contains("starting with FLAG=***"), "its line, masked: {shown}");
-    assert!(!shown.contains("flag{"), "{shown}");
+    assert!(shown.contains("starting with DEMO_SECRET=***"), "its line, masked: {shown}");
+    assert!(!shown.contains("token-"), "{shown}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -218,8 +218,8 @@ async fn a_guest_step_that_fails_saying_a_secret_is_reported_masked() {
     a.cloud.compose_fails.store(true, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    let err = run.up(&with_flag("eu-west-3"), &events).await.unwrap_err();
-    assert!(err.to_string().contains("compose-up") && err.to_string().contains("FLAG=***"), "{err}");
+    let err = run.up(&with_secret("eu-west-3"), &events).await.unwrap_err();
+    assert!(err.to_string().contains("compose-up") && err.to_string().contains("DEMO_SECRET=***"), "{err}");
     let shown = everything(&a, &run, &events);
-    assert!(!shown.contains("flag{"), "{shown}");
+    assert!(!shown.contains("token-"), "{shown}");
 }

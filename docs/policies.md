@@ -29,13 +29,16 @@ marked **Breaking**.
 
 Isothrum reads the run manifest Isoloom writes (`run.json`), whose `manifest_version` says its
 contract. Isothrum reads exactly the one version that the `isoloom-manifest` crate it is built
-with accepts (that crate's `SUPPORTED_VERSION`); any other fails with `manifest_version` before
-anything runs.
+with accepts; any other fails with `manifest_version` before anything runs. What may change
+within a version, and what bumps it, is Isoloom's policy (`isoloom_manifest::COMPATIBILITY`, also
+stated in the [run manifest schema](https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json)):
+within a version changes are additive, but the reader is strict, so a manifest that uses a field
+added in a minor Isoloom release needs an Isothrum built with that release.
 
 | Isothrum | `isoloom-manifest` it builds with | Reads `manifest_version` |
 |---|---|---|
 | 1.0.0 to 1.0.5 | 1.0.x (1.0.9 for 1.0.5) | 0 |
-| next release (unreleased) | the next Isoloom release | 0 |
+| 2.0.0 (unreleased) | the next Isoloom release | 1 |
 
 Each Isothrum release names the Isoloom release it pairs with in `Cargo.toml`
 (`[workspace.dependencies]`). Moving to a new `manifest_version` means older manifests are

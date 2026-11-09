@@ -1,10 +1,10 @@
 # isothrum-runner
 
 Executes the run manifest [Isoloom](https://github.com/isoloom/isoloom) writes next to a target's
-generated files (`.isoloom/<target>/run.json`): bring an environment up, check it, park, resume,
-update and tear it down with Docker Compose, Vagrant or Terraform. The runner keeps each run's
-state and lock under a home folder, delivers params and secrets without ever putting a value on a
-command line, and reports every operation as a stream of JSON events.
+generated files (`.isoloom/<target>/run.json`, `manifest_version` 1): bring an environment up,
+check it, park, resume, update and tear it down with Docker Compose, Vagrant or Terraform. The
+runner keeps each run's state and lock under a home folder, delivers params and secrets without
+ever putting a value on a command line, and reports every operation as a stream of JSON events.
 
 It is the library behind the [`isothrum`](https://crates.io/crates/isothrum-cli) command line;
 embed it to drive runs from your own program.

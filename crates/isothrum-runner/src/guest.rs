@@ -141,20 +141,20 @@ async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) ->
 mod tests {
     use super::due_lines;
 
-    /// The solo-web cloud-vm manifest delivers `FLAG` to `web`, over SSH, at the end of `up`.
+    /// The solo-web cloud-vm manifest delivers `DEMO_SECRET` to `web`, over SSH, at the end of `up`.
     fn slots(default: Option<&str>) -> Vec<isoloom_manifest::SecretSlot> {
         let mut m = crate::testing::solo_web_aws_manifest();
         m.secrets
             .iter_mut()
-            .filter(|s| s.name.as_str() == "FLAG")
+            .filter(|s| s.name.as_str() == "DEMO_SECRET")
             .for_each(|s| s.default = default.map(str::to_owned));
         m.secrets
     }
 
     #[test]
     fn a_given_value_goes_to_its_machine_in_base64() {
-        let due = due_lines(&slots(None), |n| (n == "FLAG").then_some("CTF{x}"), None);
-        assert_eq!(due["web"], format!("FLAG {}\n", crate::encoding::base64(b"CTF{x}")));
+        let due = due_lines(&slots(None), |n| (n == "DEMO_SECRET").then_some("token-x"), None);
+        assert_eq!(due["web"], format!("DEMO_SECRET {}\n", crate::encoding::base64(b"token-x")));
     }
 
     #[test]

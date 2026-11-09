@@ -86,11 +86,11 @@ async fn an_update_never_delivers_again_to_a_machine_already_set_up() {
     let a = account_of(SOLO_WEB_AWS, 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let mut secrets = crate::Secrets::new();
-    secrets.insert("FLAG", crate::SecretValue::new("CTF{real}"));
+    secrets.insert("DEMO_SECRET", crate::SecretValue::new("token-real"));
     run.up(&opts("eu-west-3", "labs").with_secrets(secrets), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "delivered at up");
     run.update(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
-    assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "web keeps its flag: nothing delivered again");
+    assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "web keeps its secret: nothing delivered again");
 }
 
 /// A console into a machine the state gives no address (no `address_<machine>` output): not

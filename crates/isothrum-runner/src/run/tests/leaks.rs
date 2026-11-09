@@ -1,6 +1,6 @@
 //! A delivered value never shows where the runner writes or speaks, whatever the run goes through
 //! and however a tool prints it: in no file under the runner's home (the run's record, its event
-//! log, its state), in no event, and in no error. The `flag-portal` lab delivers through `env`
+//! log, its state), in no event, and in no error. The `web-portal` lab delivers through `env`
 //! only; the owner-only files a `state_file` or `guest` delivery keeps in the run's state folder
 //! are tested with those deliveries (`run/tests/cloud/secrets.rs`). A secret's contract relies on it: a value
 //! given to a run reaches that run and nothing else.
@@ -8,9 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::{Engine, FLAG, answer, fixture, fixture_answering, opts};
+use super::{Engine, SECRET, answer, fixture, fixture_answering, opts};
 use crate::process::fake::{Call, Reply};
-use crate::testing::{FLAG_PORTAL, FLAG_PORTAL_ACCESS};
+use crate::testing::{WEB_PORTAL, WEB_PORTAL_ACCESS};
 use crate::{AccessPick, Park, Recorder, RunOptions, Running};
 
 /// Every file under `dir` whose bytes hold `value`.
@@ -34,10 +34,10 @@ fn files_holding(dir: &Path, value: &str) -> Vec<PathBuf> {
 }
 
 /// The fake engine, its `up` failing with the value it was given in its error lines.
-fn up_fails_saying_the_flag(engine: &Mutex<Engine>, call: &Call) -> Reply {
+fn up_fails_saying_the_secret(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if call.line().contains(" up --detach ") {
-        let flag = call.env("CTF_FLAG_MAIN").unwrap_or_default();
-        return Reply::fail(1, &format!("Error response from daemon: can't place {flag} in the secret"));
+        let secret = call.env("DEMO_SECRET").unwrap_or_default();
+        return Reply::fail(1, &format!("Error response from daemon: can't place {secret} in the secret"));
     }
     answer(engine, call)
 }
@@ -54,31 +54,31 @@ async fn a_delivered_value_lands_in_no_file_and_no_event_through_a_whole_run() {
     // An embedder may give the values again at a resume: they are masked there too.
     run.resume(&opts(), &events).await.unwrap();
     run.down(&RunOptions::default(), &events).await.unwrap();
-    assert!(f.fake.calls().iter().any(|c| c.env("CTF_FLAG_MAIN") == Some(FLAG)), "the value was delivered");
+    assert!(f.fake.calls().iter().any(|c| c.env("DEMO_SECRET") == Some(SECRET)), "the value was delivered");
     let said = serde_json::to_string(&events.events()).unwrap();
-    assert!(!said.contains(FLAG) && said.contains("seeding ***"), "{said}");
-    assert_eq!(files_holding(f.home(), FLAG), Vec::<PathBuf>::new());
+    assert!(!said.contains(SECRET) && said.contains("seeding ***"), "{said}");
+    assert_eq!(files_holding(f.home(), SECRET), Vec::<PathBuf>::new());
 }
 
 #[tokio::test]
 async fn a_failed_step_that_prints_the_value_shows_it_in_no_error_event_or_file() {
-    let f = fixture_answering(FLAG_PORTAL, up_fails_saying_the_flag);
+    let f = fixture_answering(WEB_PORTAL, up_fails_saying_the_secret);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     let err = run.up(&opts(), &events).await.unwrap_err();
     let (shown, debug) = (err.to_string(), format!("{err:?}"));
     assert!(
-        !shown.contains(FLAG) && !debug.contains(FLAG) && shown.contains("can't place *** in the secret"),
+        !shown.contains(SECRET) && !debug.contains(SECRET) && shown.contains("can't place *** in the secret"),
         "{shown}"
     );
-    assert!(!serde_json::to_string(&events.events()).unwrap().contains(FLAG));
-    assert_eq!(files_holding(f.home(), FLAG), Vec::<PathBuf>::new());
+    assert!(!serde_json::to_string(&events.events()).unwrap().contains(SECRET));
+    assert_eq!(files_holding(f.home(), SECRET), Vec::<PathBuf>::new());
 }
 
 /// The fake engine, every tool it runs also printing the value on its standard error.
-fn every_tool_says_the_flag(engine: &Mutex<Engine>, call: &Call) -> Reply {
+fn every_tool_says_the_secret(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let mut reply = answer(engine, call);
-    reply.stderr.push(format!("note: {FLAG}"));
+    reply.stderr.push(format!("note: {SECRET}"));
     reply
 }
 
@@ -106,14 +106,14 @@ async fn every_operation_masks_the_values_in_its_events() {
         ("down", |r, e| Box::pin(async move { drop(r.down(&opts(), e).await) })),
     ];
     // The lab with a set-up to run again, so a provision runs a tool too.
-    let mut manifest: serde_json::Value = serde_json::from_str(FLAG_PORTAL_ACCESS).unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_str(WEB_PORTAL_ACCESS).unwrap();
     manifest["lifecycle"]["provision"] = serde_json::json!({
         "all": [{ "id": "provision", "argv": ["docker", "compose", "--project-name", "${run.name}", "exec", "web", "true"], "timeout_s": 60 }],
         "machine": []
     });
     let manifest = manifest.to_string();
     for (op, operate) in table {
-        let f = fixture_answering(&manifest, every_tool_says_the_flag);
+        let f = fixture_answering(&manifest, every_tool_says_the_secret);
         let run = f.runner.open(&f.manifest, None).unwrap().with_connection(opts().secrets);
         if op != "up" {
             run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -124,7 +124,7 @@ async fn every_operation_masks_the_values_in_its_events() {
         let events = Recorder::new();
         operate(&run, &events).await;
         let said = serde_json::to_string(&events.events()).unwrap();
-        assert!(!said.contains(FLAG), "{op}: {said}");
+        assert!(!said.contains(SECRET), "{op}: {said}");
         assert!(said.contains("note: ***"), "{op} ran a tool whose output it showed masked: {said}");
     }
 }

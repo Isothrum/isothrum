@@ -1,9 +1,9 @@
 {
-  "$schema": "https://www.isoloom.com/schema/run-manifest/v0.json",
-  "manifest_version": 0,
+  "$schema": "https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json",
+  "manifest_version": 1,
   "generator": {
     "name": "isoloom",
-    "version": "0.10.1"
+    "version": "1.0.9"
   },
   "environment": {
     "name": "solo-web",
@@ -25,7 +25,7 @@
         "version"
       ],
       "min_version": "1.6.0",
-      "container": "hashicorp/terraform:1.9.8@sha256:18f9986038bbaf02cf49db9c09261c778161c51dcc7fb7e355ae8938459428cd",
+      "container": "hashicorp/terraform:1.16.7@sha256:c9c77f5b9820832cbc7b88d16df406ac6e75fee5a9077e5437db0c54e5ff33e3",
       "container_hosts": [
         "macos"
       ]
@@ -71,8 +71,8 @@
     },
     {
       "name": "proxmox_insecure",
-      "description": "Accept the server's self-signed certificate.",
-      "default": "true",
+      "description": "Accept the server's self-signed certificate (TLS isn't verified).",
+      "default": "false",
       "values": [
         "true",
         "false"

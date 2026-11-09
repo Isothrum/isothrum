@@ -31,7 +31,7 @@ fn an_operation_can_run_on_any_thread() -> Outcome {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
     let manifest = dir.path().join("run.json");
-    std::fs::write(&manifest, include_str!("fixtures/flag-portal.run.json"))?;
+    std::fs::write(&manifest, include_str!("fixtures/web-portal.run.json"))?;
     let runner = Runner::new(RunnerConfig::new(home.path()))?;
     let run = runner.open(&manifest, None)?;
     let (opts, events) = (RunOptions::new(), |_: &Event| {});
