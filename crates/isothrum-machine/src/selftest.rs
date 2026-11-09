@@ -137,7 +137,7 @@ fn explain(raw: &str) -> String {
 ///
 /// # Errors
 ///
-/// [`Error::Invalid`] when the cache folder is unknown, [`Error::Io`] when it can't be created.
+/// [`Error::Invalid`](crate::error::Error::Invalid) when the cache folder is unknown, [`Error::Io`](crate::error::Error::Io) when it can't be created.
 pub fn work_dir(dirs: &Dirs, kind: &str) -> Result<PathBuf> {
     let dir = dirs.cache()?.join("selftest").join(kind);
     std::fs::create_dir_all(&dir)?;
@@ -178,7 +178,7 @@ async fn tracked<T>(
 ///
 /// # Errors
 ///
-/// The download's own failure, or [`Error::Invalid`]/[`Error::Io`] resolving the work folder.
+/// The download's own failure, or [`Error::Invalid`](crate::error::Error::Invalid)/[`Error::Io`](crate::error::Error::Io) resolving the work folder.
 pub async fn machine_selftest_prefetch(
     runner: &dyn ProcessRunner,
     dirs: &Dirs,

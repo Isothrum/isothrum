@@ -23,6 +23,9 @@ jobs:
       # ratchet (cargo run -p xtask -- quality) owns the counted warn-level ones, so no -D warnings.
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
       - name: WebAssembly build
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
