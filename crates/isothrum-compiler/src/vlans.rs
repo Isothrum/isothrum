@@ -1,7 +1,5 @@
 //! A switch's VLANs, nested under the LAN named after the switch (Isoloom's `vlans`).
 
-use std::net::Ipv4Addr;
-
 use indexmap::IndexMap;
 use isoloom_spec::validate::Cidr;
 
@@ -99,12 +97,6 @@ fn rename_refs(draft: &mut Draft, renamed: &IndexMap<&String, String>) {
     }
 }
 
-/// The network address and prefix length of `a.b.c.d/n`.
-fn block(cidr: &str) -> Option<(u32, u8)> {
-    let (address, len) = cidr.split_once('/')?;
-    Some((u32::from(address.parse::<Ipv4Addr>().ok()?), len.parse().ok()?))
-}
-
 /// The mask of a prefix of `len` bits (at most 32).
 fn mask(len: u8) -> u32 {
     u32::MAX.checked_shl(32 - u32::from(len.min(32))).unwrap_or(0)
@@ -112,7 +104,7 @@ fn mask(len: u8) -> u32 {
 
 /// The smallest IPv4 block holding every one of `cidrs` (at most a /8).
 fn covering<'a>(cidrs: impl Iterator<Item = &'a str>) -> String {
-    let blocks: Vec<(u32, u8)> = cidrs.filter_map(block).collect();
+    let blocks: Vec<(u32, u8)> = cidrs.filter_map(crate::lans::block).collect();
     let Some(&(first, _)) = blocks.first() else {
         return String::new();
     };

@@ -20,12 +20,17 @@ fn usable(prefix: u8) -> std::ops::RangeInclusive<u8> {
     first..=broadcast - 3
 }
 
-/// The prefix length of `a.b.c.d/n`. Whether the block is one Isoloom takes is Isoloom's to say.
+/// The address and prefix length of `a.b.c.d/n`, read leniently: whether the block is one Isoloom
+/// takes (its network address, a size it allows) is Isoloom's to say.
+pub(crate) fn block(cidr: &str) -> Option<(u32, u8)> {
+    let (address, len) = cidr.split_once('/')?;
+    let len = len.parse::<u8>().ok().filter(|l| *l <= 32)?;
+    Some((u32::from(address.parse::<std::net::Ipv4Addr>().ok()?), len))
+}
+
+/// The prefix length of `a.b.c.d/n` ([`block`]).
 fn prefix_of(cidr: &str) -> Option<u8> {
-    let (addr, len) = cidr.split_once('/')?;
-    let octets = addr.split('.').filter_map(|o| o.parse::<u8>().ok()).count() == 4;
-    let len = len.parse::<u8>().ok()?;
-    (octets && len <= 32).then_some(len)
+    block(cidr).map(|(_, len)| len)
 }
 
 /// Each LAN becomes a network, and each machine on it gets its address there.
