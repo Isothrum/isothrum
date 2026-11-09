@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, Machine, Native, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
 
-use super::{Driver, Observed, native_name};
+use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, step_env};
@@ -276,15 +276,16 @@ impl Driver for Vagrant {
         Ok(super::console_in_run(cx, self.console(cx, &["ssh", define_of(machine, "a console into")?])?))
     }
 
-    /// `vagrant ssh <define> -c <script>` (Vagrant gives `-c` a terminal by default): for a
-    /// console, with the run's own variables only ([`Driver::env`]); otherwise as the operation's
-    /// step, with what the manifest delivers to it.
-    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, console: bool) -> Result<ProcessSpec> {
+    /// `vagrant ssh <define> -c <script>` (Vagrant gives `-c` a terminal by default): a console
+    /// gets the run's own variables only ([`Driver::env`]), never what the manifest delivers to a
+    /// step, since the embedder is handed its command; a step of the operation gets what the
+    /// manifest delivers to it ([`GuestUse`]).
+    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
         let args = ["ssh", define_of(vm, "running a script in")?, "-c", script];
-        if console {
-            return self.console(cx, &args);
+        match use_ {
+            GuestUse::Console => self.console(cx, &args),
+            GuestUse::Step => self.vagrant(cx, cx.events.op().as_str(), &args),
         }
-        self.vagrant(cx, cx.events.op().as_str(), &args)
     }
 }
 

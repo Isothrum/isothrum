@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, SnakeName, Step, Template, access};
 
-use super::{Driver, Observed};
+use super::{Driver, GuestUse, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
@@ -164,7 +164,7 @@ impl Driver for Compose {
     }
 
     /// Refused: a Compose run's containers run on this computer, in no VM.
-    fn in_guest(&self, _cx: &Cx<'_>, vm: &Machine, _script: &str, _tty: bool) -> Result<ProcessSpec> {
+    fn in_guest(&self, _cx: &Cx<'_>, vm: &Machine, _script: &str, _use: GuestUse) -> Result<ProcessSpec> {
         Err(Error::Unsupported {
             what: format!("running a script in `{}`: a Compose run has no VM its containers run in", vm.name),
         })

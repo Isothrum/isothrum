@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Action, ExpiryUnit, Machine, SnakeName, Step, Template, TerraformIdentity};
 
-use super::{Driver, Observed};
+use super::{Driver, GuestUse, Observed};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
@@ -147,8 +147,8 @@ impl Driver for Terraform {
     }
 
     /// `ssh` to the run's VM, as the guest's steps reach it ([`console::in_guest`]).
-    fn in_guest(&self, cx: &Cx<'_>, _vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec> {
-        console::in_guest(cx, script, tty)
+    fn in_guest(&self, cx: &Cx<'_>, _vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
+        console::in_guest(cx, script, use_)
     }
 }
 

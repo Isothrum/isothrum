@@ -84,9 +84,21 @@ pub(crate) trait Driver {
     /// here: [`crate::in_vm::console`] opens it.
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand>;
     /// The process that runs `script` inside `vm`, the VM the run's containers run in
-    /// (`docker-vm`'s guest), through the VM's way in, with a terminal when `tty`. Refused by a
-    /// driver whose runs have no such VM.
-    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec>;
+    /// (`docker-vm`'s guest), through the VM's way in, as `use_` says. Refused by a driver whose
+    /// runs have no such VM.
+    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec>;
+}
+
+/// What a script run in the run's VM ([`Driver::in_guest`]) is for, which decides how it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GuestUse {
+    /// A console the embedder runs in its own terminal: with a terminal, and with the run's own
+    /// variables only. Nothing the manifest delivers to a step goes in: the embedder is handed
+    /// the command, its variables included, so a secret delivered there would show.
+    Console,
+    /// Part of the operation, run by the runner itself: no terminal, with what the manifest
+    /// delivers to the operation's step (the values reach only the process).
+    Step,
 }
 
 /// The driver a manifest names.
@@ -243,11 +255,11 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, tty: bool) -> Result<ProcessSpec> {
+    pub(crate) fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
         match self {
-            AnyDriver::Compose(d) => d.in_guest(cx, vm, script, tty),
-            AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, tty),
-            AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, tty),
+            AnyDriver::Compose(d) => d.in_guest(cx, vm, script, use_),
+            AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, use_),
+            AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, use_),
         }
     }
 }

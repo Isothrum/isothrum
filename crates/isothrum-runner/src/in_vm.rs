@@ -16,7 +16,7 @@ use std::time::Duration;
 use isoloom_manifest::{Guest, Machine, Native};
 
 use crate::Result;
-use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, Observed, REMOVE_TIMEOUT, console_in_run, shells};
+use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_TIMEOUT, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
 use crate::ssh::sh_quote;
@@ -106,14 +106,14 @@ fn standing(m: &MachineStatus, state: MachineState) -> MachineStatus {
 /// The command that opens a console into Compose service `service`, running in `guest`'s VM:
 /// into the VM, then into the service's container there ([`into_service`]).
 pub(crate) fn console(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str) -> Result<ShellCommand> {
-    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &into_service(service), true)?;
+    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &into_service(service), GuestUse::Console)?;
     Ok(console_in_run(cx, spec))
 }
 
 /// Removes Compose service `service`, running in `guest`'s VM, there with the containers in its
 /// namespace ([`remove_service`]); nothing of the VM goes.
 pub(crate) async fn retire(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str) -> Result<()> {
-    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &remove_service(service), false)?;
+    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &remove_service(service), GuestUse::Step)?;
     call_ok(cx, cx.events.op().as_str(), &spec, REMOVE_TIMEOUT, Echo::Shown).await.map(drop)
 }
 
