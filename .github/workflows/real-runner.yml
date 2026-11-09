@@ -10,6 +10,10 @@
 # The runner has no tier list of its own; tiers live in Isoloom. Each job uploads its evidence
 # (the up/check/down/reap records), which the maintainer records into Isoloom's tiers.json with
 # `cargo xtask tiers record`. See the Isoloom repository's docs/ci-real-hosts.md.
+#
+# Every action is pinned to a commit. They stay on the majors that run on Node 20 here, since the
+# Proxmox job runs on a self-hosted runner whose version this file can't know (the Node 24 majors
+# need runner 2.327.1 or later).
 name: Cert — real runner (server + cloud)
 
 on:
@@ -22,7 +26,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: real-runner
@@ -83,19 +86,23 @@ jobs:
       TF_VAR_proxmox_api_token: ${{ secrets.PROXMOX_VE_API_TOKEN }}
     steps:
       - name: Check out Isothrum (the runner)
-        uses: actions/checkout@v4
-      - name: Check out Isoloom (the generator)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - name: Check out Isoloom (the generator)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
           repository: isoloom/isoloom
           ref: ${{ env.ISOLOOM_REF }}
           path: .isoloom-src
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
       - name: Rust toolchain
-        run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+        # rust-toolchain.toml's toolchain, the one the gates test.
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build the runner and the generator
         id: build
@@ -181,7 +188,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/proxmox_node_key" "$RUNNER_TEMP"/id_ed25519*
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: runner-cert-proxmox-${{ env.EXAMPLE }}
           path: ${{ runner.temp }}/record
@@ -191,6 +198,10 @@ jobs:
     needs: gate
     if: ${{ needs.gate.outputs.aws == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Assuming the AWS role over OIDC, when REAL_AWS_ROLE_ARN is set.
+      id-token: write
     timeout-minutes: 130
     env:
       TARGET: cloud-vm
@@ -199,25 +210,29 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Check out Isothrum (the runner)
-        uses: actions/checkout@v4
-      - name: Check out Isoloom (the generator)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - name: Check out Isoloom (the generator)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
           repository: isoloom/isoloom
           ref: ${{ env.ISOLOOM_REF }}
           path: .isoloom-src
       - name: Assume the AWS role (OIDC)
         if: ${{ vars.REAL_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.REAL_AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
       - name: Rust toolchain
-        run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+        # rust-toolchain.toml's toolchain, the one the gates test.
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build the runner and the generator
         id: build
@@ -293,7 +308,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP"/id_ed25519*
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: runner-cert-aws-${{ env.EXAMPLE }}
           path: ${{ runner.temp }}/record

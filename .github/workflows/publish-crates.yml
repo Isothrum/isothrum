@@ -2,16 +2,16 @@ name: Publish crates
 
 # Publishes the Isothrum library crates to crates.io with crates.io Trusted Publishing: the job
 # mints a short-lived token over OIDC at run time (no long-lived secret is stored). Triggered by a
-# release tag `vX.Y.Z` or run by hand from the
-# Actions tab. It publishes in dependency order and skips any crate whose version is already on
-# crates.io, so re-running after a partial failure is safe.
+# release tag `vX.Y.Z` or run by hand from the Actions tab. It publishes in dependency order and
+# skips any crate whose version is already on crates.io, so re-running after a partial failure is
+# safe.
 #
 # Setup (per crate, done once by the maintainer): add a Trusted Publisher on crates.io for the
 # crate, pointing at repository `Isothrum/isothrum`, this workflow file (`publish-crates.yml`) and
 # the `crates-io` environment. A brand-new crate name must be created by one manual `cargo publish`
 # first (trusted publishing cannot create a crate that does not exist). The Isoloom crates this
 # release depends on must already be on crates.io at the requested version (publish isoloom first).
-# See PUBLISHING.md.
+# See PUBLISHING.md. Keep this file's name: the Trusted Publishers name it.
 on:
   push:
     tags: ["v*"]
@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 jobs:
-  # Tests and the quality ratchet must pass before anything is published: a tag skips ci.yml, so
-  # without this an untested runner could reach crates.io and auto-propagate into its consumers.
+  # Tests and the quality ratchet must pass before anything is published: without this an
+  # untested runner could reach crates.io and propagate into its consumers.
   gate:
     uses: ./.github/workflows/gate.yml
 
@@ -36,11 +36,14 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The toolchain rust-toolchain.toml pins (the one the gate tested), not whatever is stable.
+      - run: rustup toolchain install --profile minimal
 
       # Mints a short-lived crates.io token over OIDC and exports it for the publish step.
-      - uses: rust-lang/crates-io-auth-action@v1
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
 
       - name: Publish in dependency order

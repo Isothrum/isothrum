@@ -1,45 +1,191 @@
 name: CI
 
-# Manual only for now: CI is re-enabled at the squash, so the push/pull_request triggers stay off
-# until the maintainer turns them on. `workflow_dispatch` lets a run be started by hand meanwhile.
+# Every push to main and every pull request: formatting, clippy and the tests on Linux, macOS and
+# Windows, the API docs, the quality ratchet, the supply chain (cargo-deny, unused dependencies),
+# spelling, SemVer against the last release, the declared minimum Rust and the WebAssembly build.
+# The release gate (gate.yml) runs a subset of these again on the tag.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  engine:
-    name: Engine (compiler, wasm, runner, cli)
+  fmt:
+    name: rustfmt
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      # The toolchain comes from rust-toolchain.toml (its channel, rustfmt, clippy and the two
-      # cross targets); the engine also needs wasm32 for the WebAssembly build.
-      - name: Rust toolchain
-        run: |
-          rustup toolchain install --profile minimal
-          rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The toolchain (its channel, rustfmt and clippy) is pinned by rust-toolchain.toml.
+      - run: rustup toolchain install --profile minimal
       - run: cargo fmt --all --check
-      # Every lint is at "deny" in the workspace manifest, so clippy fails on any finding; the
-      # ratchet (cargo run -p xtask -- quality) owns the counted warn-level ones, so no -D warnings.
-      - run: cargo clippy --workspace --all-targets
-      - run: cargo test --workspace
-      - run: cargo doc --workspace --no-deps
+
+  test:
+    name: Clippy and tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Only main writes the cache, so a pull request can't seed what main builds with.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  docs:
+    name: API docs and the quality ratchet
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
-      - name: WebAssembly build
+      # The ratchet counts what cargo-machete reports, so it needs it installed.
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-machete@0.9.2
+      - run: cargo run -p xtask --locked -- quality
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Advisories, licences, bans and sources, as deny.toml sets them.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          arguments: --all-features
+
+  machete:
+    name: Unused dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-machete@0.9.2
+      - run: cargo machete
+
+  typos:
+    name: Spelling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Reads _typos.toml.
+      - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
+
+  semver:
+    name: SemVer against the last release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-semver-checks@0.51.0
+      # The baseline is each crate's latest version on crates.io. The release type comes from the
+      # workspace version: when it is still the published one, the changes are checked as a patch,
+      # so a breaking change fails until the version is raised on purpose. One exception, decided
+      # for the release after 1.x: while crates.io's latest is a 1.x, the unreleased changes are
+      # checked as the 2.0.0 major they are (they remove public API). Once 2.0.0 is published,
+      # the exception no longer matches and the rule above applies.
+      - name: Release type
+        id: release
         run: |
-          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
-          wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --release
-      # The exports as JavaScript calls them (wasm-bindgen-test, on Node).
-      - run: wasm-pack test --node crates/isothrum-wasm
+          set -euo pipefail
+          published="$(curl -fsS -A "isothrum-ci (https://github.com/Isothrum/isothrum)" \
+            https://crates.io/api/v1/crates/isothrum-runner | jq -r .crate.max_stable_version)"
+          echo "Latest isothrum-runner on crates.io: ${published}"
+          case "$published" in
+            1.*) echo "args=--release-type major" >> "$GITHUB_OUTPUT" ;;
+            *) echo "args=" >> "$GITHUB_OUTPUT" ;;
+          esac
+      # isothrum-cli is a binary (no library API); xtask is not published.
+      - name: cargo semver-checks
+        env:
+          RELEASE_ARGS: ${{ steps.release.outputs.args }}
+        run: |
+          # shellcheck disable=SC2086 # RELEASE_ARGS is empty or one flag and its value.
+          cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask $RELEASE_ARGS
 
   msrv:
     name: MSRV (Rust 1.90)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      # The engine declares rust-version 1.90. +1.90 overrides the rust-toolchain.toml pin for this
-      # check only.
-      - uses: dtolnay/rust-toolchain@1.90
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +1.90 check --all-targets
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The crates declare rust-version 1.90. `+1.90` overrides the rust-toolchain.toml pin for
+      # this check only.
+      - run: rustup toolchain install 1.90 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo +1.90 check --workspace --all-targets --locked
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # wasm-pack uses a wasm-bindgen on PATH when its version is the one Cargo.lock locks, so
+      # both come from install-action, which checks each download's SHA-256.
+      - name: wasm-bindgen version (from Cargo.lock)
+        id: bindgen
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: wasm-pack@0.13.1,wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - run: wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --release
+      # The exports as JavaScript calls them (wasm-bindgen-test, on Node).
+      - run: wasm-pack test --node crates/isothrum-wasm
