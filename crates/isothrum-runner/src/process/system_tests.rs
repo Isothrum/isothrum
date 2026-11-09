@@ -142,3 +142,22 @@ async fn an_argument_cmd_would_interpret_is_refused_before_anything_starts() {
         .unwrap_err();
     assert!(matches!(err, ProcessError::Refused { .. }), "{err:?}");
 }
+
+#[test]
+fn the_docker_cli_config_is_read_from_docker_config_before_the_home() {
+    let (env_dir, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let context = |name: &str| format!(r#"{{"currentContext":"{name}"}}"#);
+    std::fs::create_dir_all(home.path().join(".docker")).unwrap();
+    std::fs::write(home.path().join(".docker/config.json"), context("colima")).unwrap();
+    std::fs::write(env_dir.path().join("config.json"), context("default")).unwrap();
+    let env = env_dir.path().display().to_string();
+    let with = |docker_config: Option<&str>| {
+        SystemProcesses::for_host(
+            |v| (v == "DOCKER_CONFIG").then(|| docker_config.map(str::to_owned)).flatten(),
+            Some(home.path()),
+        )
+    };
+    assert!(with(None).strip_engine_overrides, "the home's config picks a context");
+    assert!(!with(Some(&env)).strip_engine_overrides, "$DOCKER_CONFIG's config comes first");
+    assert!(!SystemProcesses::for_host(|_| None, None).strip_engine_overrides, "no config: nothing picked");
+}

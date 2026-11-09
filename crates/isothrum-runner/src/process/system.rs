@@ -27,20 +27,15 @@ impl Default for SystemProcesses {
 }
 
 impl SystemProcesses {
-    /// Real processes; `docker_cli_config` is the Docker CLI's `config.json`, when there is one
-    /// (it says whether the user picked an engine context of their own).
-    fn new(docker_cli_config: Option<&str>) -> SystemProcesses {
-        SystemProcesses {
-            strip_engine_overrides: shim::strips_engine_overrides(docker_cli_config),
-        }
-    }
-
-    /// [`SystemProcesses::new`] with the Docker CLI config read from `$DOCKER_CONFIG/config.json`,
-    /// else `<home>/.docker/config.json` (`var` reads the environment, `home` is the user's).
+    /// Real processes, the Docker CLI's config read from `$DOCKER_CONFIG/config.json`, else
+    /// `<home>/.docker/config.json` (`var` reads the environment, `home` is the user's): it says
+    /// whether the user picked an engine context of their own.
     fn for_host(var: impl Fn(&str) -> Option<String>, home: Option<&Path>) -> SystemProcesses {
         let dir = var("DOCKER_CONFIG").map(std::path::PathBuf::from).or_else(|| home.map(|h| h.join(".docker")));
         let config = dir.and_then(|d| std::fs::read_to_string(d.join("config.json")).ok());
-        SystemProcesses::new(config.as_deref())
+        SystemProcesses {
+            strip_engine_overrides: shim::strips_engine_overrides(config.as_deref()),
+        }
     }
 
     async fn run_to_end(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
