@@ -88,26 +88,27 @@ impl Running<'_> {
     pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
         let opts = &self.connected(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Resume, events, mask, async |e: &Emitter<'_>| self.resume_work(opts, e, true).await)
-            .await
+        self.operate(Op::Resume, events, mask, async |e: &Emitter<'_>| {
+            let (record, mut cx) = self.existing(opts, e).await?;
+            tools::probe(&cx).await?;
+            self.resume_work(record, &mut cx).await
+        })
+        .await
     }
 
-    /// Resumes the run; `probe`: its tools are checked first (an `up` that resumes did it).
-    pub(crate) async fn resume_work(&self, opts: &RunOptions, events: &Emitter<'_>, probe: bool) -> Result<Done<Started>> {
-        let (mut record, mut cx) = self.existing(opts, events).await?;
-        if probe {
-            tools::probe(&cx).await?;
-        }
-        if !self.exists(&mut cx).await? {
+    /// Resumes the run of `record` in `cx` (the context of an operation on the run that exists,
+    /// [`Running::existing`]), its tools already checked.
+    pub(crate) async fn resume_work(&self, mut record: RunRecord, cx: &mut Cx<'_>) -> Result<Done<Started>> {
+        if !self.exists(cx).await? {
             // Nothing left: the parked mark goes, and a fresh start is the way back.
             record.state = RunState::Absent;
             self.runner.store.save(&record)?;
             return Err(Error::NothingToResume { run: self.name().to_string() });
         }
         self.begin(&mut record, Op::Resume)?;
-        run_steps(&mut cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
-        ready::check(&mut cx, None).await?;
-        let (outputs, message) = self.finish(&mut cx).await?;
+        run_steps(cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
+        ready::check(cx, None).await?;
+        let (outputs, message) = self.finish(cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }

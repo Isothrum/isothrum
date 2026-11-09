@@ -65,7 +65,7 @@ impl Running<'_> {
         tools::probe(&cx).await?;
         let observed = self.observe(&mut cx).await?;
         match self.slot(&observed, &record, opts.occupied)? {
-            Slot::Parked => return self.resume_work(opts, events, false).await,
+            Slot::Parked => return self.resume_parked(opts, events).await,
             Slot::Leftovers => self.clear(&mut cx, &record, opts).await?,
             Slot::Free => {}
         }
@@ -94,6 +94,13 @@ impl Running<'_> {
         let (outputs, message) = self.finish(&mut cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
+    }
+
+    /// Resumes the parked run an `up` found, as an operation on the run that exists: its tools
+    /// were checked by the `up`.
+    async fn resume_parked(&self, opts: &RunOptions, events: &Emitter<'_>) -> Result<Done<Started>> {
+        let (record, mut cx) = self.existing(opts, events).await?;
+        self.resume_work(record, &mut cx).await
     }
 
     /// Fails when the run's record puts it on another place than `asked`.

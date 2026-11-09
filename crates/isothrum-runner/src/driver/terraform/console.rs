@@ -27,7 +27,7 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
     let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump.as_deref())?.ok_or_else(|| Error::NotRunning {
         run: cx.run.name().to_string(),
     })?;
-    Ok(console_in_run(cx, over_ssh(cx, &login, shells::LOGIN_SHELL, true)?))
+    Ok(console_in_run(cx, over_ssh(cx, &login, shells::LOGIN_SHELL, GuestUse::Console)?))
 }
 
 /// `script` run in the run's VM over `ssh`, with a terminal for a console; refused when the run
@@ -38,13 +38,13 @@ pub(super) fn in_guest(cx: &Cx<'_>, script: &str, use_: GuestUse) -> Result<Proc
     let login = super::guest::login(cx, &outputs)?.ok_or_else(|| Error::Unsupported {
         what: "running a script in the run's VM: this run has none".to_owned(),
     })?;
-    over_ssh(cx, &login, script, use_ == GuestUse::Console)
+    over_ssh(cx, &login, script, use_)
 }
 
-/// `ssh` at `login` (`-t` with `tty`), running `command` there.
-fn over_ssh(cx: &Cx<'_>, login: &Login, command: &str, tty: bool) -> Result<ProcessSpec> {
+/// `ssh` at `login`, running `command` there: with a terminal (`-t`) for a console.
+fn over_ssh(cx: &Cx<'_>, login: &Login, command: &str, use_: GuestUse) -> Result<ProcessSpec> {
     let mut spec = ssh::spec(cx, login, command, Vec::new())?;
-    if tty {
+    if use_ == GuestUse::Console {
         spec.args.insert(0, "-t".to_owned());
     }
     Ok(spec)
