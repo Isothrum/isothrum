@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc d95296c36e5b760032aa2490ceb4876d3694fccb48fa22039e3d800096b93bbc # shrinks to topo = Topology { name: "generated-lab", nodes: {"m0": Node { kind: Vm { os: OsRef(Os { family: "windows", version: "11", name: "windows-11" }), provision: ["provision/step0.yml"] }, access: false, services: [], networks: {"lan0": None} }}, networks: {"lan0": Lan { cidr: "10.1.0.0/24", internet: false, switch: None, vlan: None, device: None, tc: None }}, links: [] }

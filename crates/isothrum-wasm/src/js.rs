@@ -3,7 +3,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{bundle_bytes, bundle_target_bytes, choices, own_files, plan};
+use crate::{Plan, bundle_bytes, bundle_target_bytes, choices, own_files, plan};
 
 /// The download for one target (see [`bundle_target_bytes`]).
 ///
@@ -36,8 +36,11 @@ pub fn own_files_json(topology_json: &str) -> String {
 #[wasm_bindgen]
 #[must_use]
 pub fn plan_json(topology_json: &str) -> String {
+    // A plan is strings, lists and maps of strings: writing it can't fail. Were it to, the editor
+    // still gets a plan, one that says why it has nothing.
     serde_json::to_string(&plan(topology_json))
-        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string(), "problems": [], "files": [], "skipped": [], "addresses": {} }).to_string())
+        .or_else(|e| serde_json::to_string(&Plan::failed(&format!("writing the plan: {e}"))))
+        .unwrap_or_default()
 }
 
 /// JSON for the editor: Isoloom's lists ([`Choices`](crate::Choices)), what its OS, appliance and

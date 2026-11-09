@@ -30,7 +30,8 @@ pub struct Plan {
 }
 
 impl Plan {
-    fn failed(error: &Error) -> Plan {
+    /// The plan of a topology that gives none, for `error`.
+    pub(crate) fn failed(error: &dyn std::fmt::Display) -> Plan {
         Plan {
             ok: false,
             error: Some(error.to_string()),
