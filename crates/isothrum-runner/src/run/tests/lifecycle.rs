@@ -184,6 +184,32 @@ async fn unreadable_ps_output_fails_a_resume_and_keeps_the_run_parked() {
     assert_eq!(f.containers(), Containers::Stopped, "nothing started");
 }
 
+/// A `tcp` ready condition holds once its address answers, and fails a start when it never does.
+#[tokio::test(start_paused = true)]
+async fn a_tcp_condition_holds_once_its_port_answers() {
+    let mut m: serde_json::Value = serde_json::from_str(FLAG_PORTAL).unwrap();
+    m["ready"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({ "kind": "tcp", "address": "127.0.0.1", "port": "${published.web.portal}", "timeout_s": 10 }));
+    let manifest = m.to_string();
+    let silent = fixture_with(&manifest);
+    let unanswered = silent.runner.open(&silent.manifest, None).unwrap();
+    let err = unanswered.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::NotReady, "{err}");
+
+    let f = fixture_with(&manifest);
+    f.ports.answer("127.0.0.1", 41873);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    run.up(&opts(), &events).await.unwrap();
+    assert!(kinds(&events).contains(&EventKind::Ready {
+        condition: "tcp 127.0.0.1:41873".into(),
+        state: crate::ReadyState::Ok,
+        detail: String::new(),
+    }));
+}
+
 #[tokio::test]
 async fn leftovers_are_removed_before_a_start() {
     let f = fixture();

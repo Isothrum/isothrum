@@ -162,8 +162,8 @@ impl Runner {
         crate::ssh::ensure_key(self.config.processes.as_ref(), &self.config.home).await
     }
 
-    /// The operations in flight in this runner (a quit guard, a UI rehydrating).
-    pub fn in_flight(&self) -> Vec<(RunName, Op)> {
+    /// The operations in flight in this runner.
+    pub(crate) fn in_flight(&self) -> Vec<(RunName, Op)> {
         self.flight
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

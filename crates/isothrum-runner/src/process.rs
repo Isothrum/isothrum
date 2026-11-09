@@ -127,22 +127,18 @@ fn command_line(program: &str, args: &[String]) -> String {
 
 /// What a process printed, kept: its standard output, and its last standard error lines.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Captured {
+pub(crate) struct Captured {
     /// How it ended.
-    pub exit: Option<Exit>,
+    pub(crate) exit: Option<Exit>,
     /// Its standard output, one line each.
-    pub stdout: Vec<String>,
+    pub(crate) stdout: Vec<String>,
     /// Its last standard error lines (a Ruby backtrace's frames left out).
-    pub stderr: Vec<String>,
+    pub(crate) stderr: Vec<String>,
 }
 
-/// Runs `spec`, keeping what it prints.
-///
-/// # Errors
-///
-/// Fails when the process can't start: missing, refused, or an I/O error.
-pub async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
+/// Runs `spec`, keeping what it prints; fails when the process can't start (missing, refused, an
+/// I/O error).
+pub(crate) async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
     let mut stdout = Vec::new();
     let mut tail = Tail::default();
     let mut keep = |stream: Stream, line: &str| match stream {
