@@ -44,11 +44,7 @@ pub(crate) fn human(kind: &EventKind) -> Option<String> {
 
 /// A run's status as text: its state, then a line per machine, its outputs and message.
 pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
-    let state = serde_json::to_value(status.state)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
-        .unwrap_or_default();
-    let mut lines = vec![format!("{name}: {state}")];
+    let mut lines = vec![format!("{name}: {}", status.state.as_str())];
     for m in &status.machines {
         if m.state == MachineState::Absent && status.machines.iter().any(|o| o.state != MachineState::Absent) {
             continue;

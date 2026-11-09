@@ -142,3 +142,82 @@ impl fmt::Display for Park {
         f.write_str(self.as_str())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OPS: &[Op] = &[
+        Op::Up,
+        Op::Down,
+        Op::Park,
+        Op::Resume,
+        Op::Check,
+        Op::Provision,
+        Op::Attach,
+        Op::Detach,
+        Op::Update,
+        Op::Retire,
+    ];
+
+    const STATES: &[RunState] = &[
+        RunState::Starting,
+        RunState::Ready,
+        RunState::Failed,
+        RunState::Parking,
+        RunState::Parked,
+        RunState::Resuming,
+        RunState::Stopping,
+        RunState::Absent,
+    ];
+
+    const PARKS: &[Park] = &[Park::Pause, Park::Shutdown];
+
+    /// Each of `all` serializes as its `name`, reads back as itself, and no two share a name.
+    fn agree<T>(all: &[T], name: fn(T) -> &'static str)
+    where
+        T: Copy + PartialEq + std::fmt::Debug + Serialize + serde::de::DeserializeOwned,
+    {
+        for &value in all {
+            let json = serde_json::to_value(value).unwrap();
+            assert_eq!(json, serde_json::json!(name(value)), "as_str() disagrees with serde for {value:?}");
+            let back: T = serde_json::from_value(json).unwrap();
+            assert_eq!(back, value, "{value:?} didn't read back as itself");
+        }
+        let mut names: Vec<&str> = all.iter().map(|&v| name(v)).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), all.len(), "two variants share a name");
+    }
+
+    #[test]
+    fn every_op_state_and_park_mode_is_written_as_serde_writes_it() {
+        // Exhaustiveness guard: these matches fail to compile if a variant is added or removed, a
+        // reminder to update the lists above. They are no-ops at run time.
+        for &op in OPS {
+            match op {
+                Op::Up | Op::Down | Op::Park | Op::Resume | Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update | Op::Retire => {}
+            }
+        }
+        for &state in STATES {
+            match state {
+                RunState::Starting
+                | RunState::Ready
+                | RunState::Failed
+                | RunState::Parking
+                | RunState::Parked
+                | RunState::Resuming
+                | RunState::Stopping
+                | RunState::Absent => {}
+            }
+        }
+        for &mode in PARKS {
+            match mode {
+                Park::Pause | Park::Shutdown => {}
+            }
+        }
+        agree(OPS, Op::as_str);
+        agree(STATES, RunState::as_str);
+        agree(PARKS, Park::as_str);
+    }
+}
