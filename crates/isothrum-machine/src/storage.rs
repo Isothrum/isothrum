@@ -43,14 +43,20 @@ pub struct Owned {
     pub boxes: BTreeSet<OwnedBox>,
 }
 
-/// The record at `store`; empty when there is none yet, or it can't be parsed (nothing is then the
-/// program's, which only means less gets cleaned up).
-#[must_use]
-pub fn load(store: &Path) -> Owned {
-    std::fs::read(store)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+/// The record at `store`; empty when there is none yet.
+///
+/// # Errors
+///
+/// The file exists but can't be read, or isn't a record (`InvalidData`). A caller that changes
+/// the record and writes it back must stop there: writing an empty record over one it couldn't
+/// read would forget everything the program downloaded.
+pub fn load(store: &Path) -> std::io::Result<Owned> {
+    match std::fs::read(store) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Owned::default()),
+        Err(e) => Err(e),
+    }
 }
 
 /// `vagrant box list` lines: `generic/debian12   (virtualbox, 202510.26.0, (amd64))`.
@@ -101,21 +107,28 @@ mod tests {
     }
 
     #[test]
-    fn a_record_loads_and_a_missing_or_damaged_one_is_empty() {
+    fn a_record_loads_a_missing_one_is_empty_and_a_damaged_one_is_an_error() {
         let dir = std::env::temp_dir().join(format!("isothrum-owned-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = dir.join("storage.json");
-        assert_eq!(load(&store), Owned::default());
+        assert_eq!(load(&store).unwrap(), Owned::default());
         std::fs::write(
             &store,
             r#"{"images":[{"reference":"nginx:1.27","id":"sha256:nginx"}]}"#,
         )
         .unwrap();
-        let owned = load(&store);
+        let owned = load(&store).unwrap();
         assert_eq!(owned.images.len(), 1);
         assert!(owned.boxes.is_empty());
         std::fs::write(&store, "{not json").unwrap();
-        assert_eq!(load(&store), Owned::default());
+        assert_eq!(
+            load(&store).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert!(
+            load(&dir).is_err(),
+            "a folder where the file should be is an error, not an empty record"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
