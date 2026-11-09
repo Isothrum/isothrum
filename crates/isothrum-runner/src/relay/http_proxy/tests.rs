@@ -202,3 +202,27 @@ async fn proxy_keeps_one_origin_connection_for_several_requests() {
         assert_eq!(String::from_utf8(got).unwrap(), expect);
     }
 }
+
+// Regression: a client that closed its side never reached the origin (nc's input was shut down,
+// which leaves a pipe open), so the origin's connection, nc and the proxy's task for it stayed
+// until the operation ended.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_client_that_closes_its_side_closes_it_at_the_origin() {
+    let origin = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = origin.local_addr().unwrap().port();
+    let seen = tokio::spawn(async move {
+        let (mut s, _) = origin.accept().await.unwrap();
+        let mut got = Vec::new();
+        // Read to the end: only the client's close ends it.
+        s.read_to_end(&mut got).await.unwrap();
+        got
+    });
+    let proxy = start_http_proxy(Targets::only("127.0.0.1", port)).await.unwrap();
+    let mut c = TcpStream::connect(("127.0.0.1", proxy.port)).await.unwrap();
+    let request = format!("GET http://127.0.0.1:{port}/wsman HTTP/1.1\r\nHost: x\r\n\r\n");
+    c.write_all(request.as_bytes()).await.unwrap();
+    c.shutdown().await.unwrap();
+    let got = tokio::time::timeout(std::time::Duration::from_secs(5), seen).await;
+    assert_eq!(got.expect("the origin saw the close").unwrap(), b"GET /wsman HTTP/1.1\r\nHost: x\r\n\r\n");
+}

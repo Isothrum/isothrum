@@ -62,6 +62,10 @@ change.
   with `elevation_declined` saying so, as does every later call of the operation. A request whose
   file couldn't be written, or whose answer couldn't be read, now fails the session too (the
   broker waited for it and took no later request), and a failed `whoami /groups` is traced.
+- **The macOS WinRM proxy passes a client's close on to the guest.** It shut `nc`'s input down,
+  which leaves a pipe open, so the guest never saw the client's end: each WinRM connection's
+  `nc`, its connection to the guest and the proxy's task for it stayed until the operation ended.
+  It closes `nc`'s input now, as the SSH relay already did.
 - **Two starts in one home no longer take the same slot.** Two `up`s at once (two processes)
   both read the records before either recorded its slot. A start now picks its slot and records it
   under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick.

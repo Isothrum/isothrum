@@ -224,13 +224,13 @@ impl Peer {
         Ok(())
     }
 
-    /// The client is done: lets the last response finish.
+    /// The client is done: its end passed on to the origin, the last response let finish. nc's
+    /// input is closed, not shut down: a pipe's shutdown leaves it open, so nc would never pass
+    /// the end on, and the origin, nc and this connection's task would wait for each other.
     async fn finish(self) {
-        if let Peer::Connected(mut upstream) = self {
-            if let Err(e) = upstream.to_origin.shutdown().await {
-                tracing::debug!(error = %e, "the origin's connection was already closed");
-            }
-            if let Err(e) = upstream.pump.await {
+        if let Peer::Connected(Upstream { to_origin, pump, .. }) = self {
+            drop(to_origin);
+            if let Err(e) = pump.await {
                 tracing::debug!(error = %e, "the responses' pump ended early");
             }
         }
