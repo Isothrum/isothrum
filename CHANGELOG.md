@@ -66,6 +66,17 @@ change.
   which leaves a pipe open, so the guest never saw the client's end: each WinRM connection's
   `nc`, its connection to the guest and the proxy's task for it stayed until the operation ended.
   It closes `nc`'s input now, as the SSH relay already did.
+- **SSH through a jump host works from a home whose path has a space.** `ssh` was given
+  `-F <home>/runs/<run>/ssh_config`, and `-J` hands that path to each jump host's own `ssh`
+  through a shell, unquoted: under macOS's `~/Library/Application Support` every jump failed at
+  once ("Can't open user config file …/Library/Application"), so a `ready_file` read through a
+  Proxmox run's router never answered. `ssh` now runs in the run's state folder with
+  `-F ssh_config`; a console over SSH (`Running::console_command`) runs there too.
+- **A `ready_file` wait says why its reads fail.** A read over SSH that failed was dropped
+  without a word, and a host that never answered failed with "didn't answer over SSH within
+  600s" alone. Each new reason is now a `ready` event (`waiting`, "no answer over SSH yet: …",
+  ssh's last error line and its exit status, masked), and the wait's error ends with the last
+  one, out of time included.
 - **Two starts in one home no longer take the same slot.** Two `up`s at once (two processes)
   both read the records before either recorded its slot. A start now picks its slot and records it
   under an OS lock on `<home>/slots.lock`, waiting up to 30 s for another start's pick.

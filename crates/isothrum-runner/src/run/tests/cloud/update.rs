@@ -69,6 +69,10 @@ async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
     assert_eq!(console.program, "ssh");
     assert_eq!(console.args.first().map(String::as_str), Some("-t"));
     assert!(console.args.iter().any(|x| x == "admin@198.51.100.10"), "{:?}", console.args);
+    // In ssh's own folder, the run's state, which its config is named relative to: the console
+    // the embedder runs reads the config there.
+    assert_eq!(console.cwd, a.runner.store.run_dir(run.name()).unwrap());
+    assert!(console.args.windows(2).any(|w| w == ["-F", "ssh_config"]), "{:?}", console.args);
     // Bash where the machine has it, with nothing of the shell redirected (its prompt is on its
     // error output).
     assert_eq!(

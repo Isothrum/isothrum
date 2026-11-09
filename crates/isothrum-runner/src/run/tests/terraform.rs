@@ -196,9 +196,21 @@ async fn a_machine_that_never_answers_over_ssh_fails_the_start() {
     let s = server(HostOs::Linux);
     s.set(Guest::Unreachable);
     let run = s.runner.open(&s.manifest, None).unwrap();
-    let err = run.up(&opts("pve-run"), &Recorder::new()).await.unwrap_err();
+    let events = Recorder::new();
+    let err = run.up(&opts("pve-run"), &events).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::NotReady);
-    assert!(err.to_string().contains("didn't answer over SSH within 600s"), "{err}");
+    // Why each read failed is said, not swallowed: once as it waits, and in the error.
+    let why = "ssh: connect to host 10.10.10.7 port 22: Operation timed out (exited with code 255)";
+    assert!(err.to_string().contains(&format!("didn't answer over SSH within 600s: {why}")), "{err}");
+    let said: Vec<String> = events
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            crate::EventKind::Ready { detail, .. } if detail.starts_with("no answer over SSH yet") => Some(detail),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, [format!("no answer over SSH yet: {why}")], "once, while the reason stays the same");
     assert_eq!(s.runner.store.record(run.name()).unwrap().unwrap().state, RunState::Failed);
 }
 
@@ -410,4 +422,31 @@ async fn on_macos_terraform_in_its_image_reaches_the_network_as_this_host_does()
         "the runner's proxy, by name: {apply:?}"
     );
     assert!(!apply.args.iter().any(|a| a.contains("API_TOKEN") || a.contains("proxy.corp")), "{apply:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn ssh_runs_in_the_state_folder_so_a_home_with_a_space_reaches_every_jump() {
+    // Regression: `-F <home>/runs/<run>/ssh_config` went whole to ssh, but `-J` hands it to each
+    // jump's ssh through a shell, unquoted: under macOS's `~/Library/Application Support` every
+    // jump failed ("Can't open user config file …/Library/Application"), and a ready file read
+    // through the router never answered.
+    let s = server(HostOs::Linux);
+    let home = s.folder.home.path().join("Application Support").join("isothrum");
+    let key = crate::ssh::key_path(&home);
+    std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+    std::fs::write(&key, "private").unwrap();
+    std::fs::write(key.with_extension("pub"), "ssh-ed25519 AAAAfake isothrum\n").unwrap();
+    let runner = Runner::new(runner_config(&home, processes(&s.fake), no_ports(), HostOs::Linux)).unwrap();
+    let run = runner.open(&s.manifest, None).unwrap();
+    run.up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    let state = runner.store.run_dir(run.name()).unwrap();
+    let read = s.fake.last("head -n 1").unwrap();
+    assert!(read.args.windows(2).any(|w| w == ["-J", &format!("isoloom@{ROUTER}")]), "{read:?}");
+    assert_eq!(read.args[..2], ["-F", "ssh_config"]);
+    assert_eq!(read.cwd.as_deref(), Some(state.as_path()));
+    assert!(state.join("ssh_config").is_file());
+    assert!(
+        !read.args.iter().any(|a| a.contains("Application Support")),
+        "no path with a space on the line: {read:?}"
+    );
 }

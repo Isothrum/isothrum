@@ -9,6 +9,7 @@ use crate::Result;
 use crate::error::Error;
 use crate::events::ReadyState;
 use crate::executor::{Cx, Echo, call};
+use crate::process::Captured;
 use crate::ssh::{self, Login};
 
 /// How long a host may stay unreachable when the manifest says nothing.
@@ -92,37 +93,64 @@ fn split(out: &[String]) -> (String, Vec<String>) {
 }
 
 /// Waits until the file says `ready`; fails when it says `failed:` (with the log's tail), when
-/// the bootstrap runs out of time, or when the host never answered.
+/// the bootstrap runs out of time, or when the host never answered. A read that fails is said
+/// (a `ready` event, `waiting`, each time its reason changes), and the last one's reason ends
+/// the error a wait that runs out of time fails with.
 pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
     let spec = ssh::spec(cx, &w.login, &read_command(&w.path, w.log.as_deref()), Vec::new())?;
     let started = tokio::time::Instant::now();
     let unreachable = w.unreachable.unwrap_or(UNREACHABLE_DEFAULT);
-    let (mut reached, mut last) = (false, Progress::Booting);
+    let (mut reached, mut last, mut failed) = (false, Progress::Booting, None::<String>);
     loop {
-        let read = call(cx, &w.condition, &spec, READ_LIMIT, Echo::Quiet).await;
-        match read {
+        match call(cx, &w.condition, &spec, READ_LIMIT, Echo::Quiet).await {
             Ok(out) if out.succeeded() => {
-                reached = true;
+                (reached, failed) = (true, None);
                 let (line, tail) = split(&out.stdout);
                 if let Some(done) = settle(cx, w, progress(&line), &tail, &mut last) {
                     return done;
                 }
             }
             Err(e @ Error::ToolMissing { .. }) => return Err(e),
-            _ if !reached && started.elapsed() >= unreachable => {
-                let detail = format!("{} didn't answer over SSH within {}s", w.login.target, unreachable.as_secs());
-                return Err(not_ready(cx, w, detail));
+            read => {
+                let why = cx.events.mask(&read.map_or_else(|e| e.to_string(), |out| read_failure(&out)));
+                if failed.as_deref() != Some(why.as_str()) {
+                    cx.events.ready(&w.condition, ReadyState::Waiting, &format!("no answer over SSH yet: {why}"));
+                }
+                if !reached && started.elapsed() >= unreachable {
+                    let detail = format!("{} didn't answer over SSH within {}s: {why}", w.login.target, unreachable.as_secs());
+                    return Err(not_ready(cx, w, detail));
+                }
+                failed = Some(why);
             }
-            _ => {}
         }
         if started.elapsed() >= w.within {
-            let step = match &last {
-                Progress::Running(s) => s.as_str(),
-                _ => "booting",
-            };
-            return Err(not_ready(cx, w, format!("not done within {}s (last step: {step})", w.within.as_secs())));
+            return Err(not_ready(cx, w, out_of_time(w, &last, failed.as_deref())));
         }
         tokio::time::sleep(w.every).await;
+    }
+}
+
+/// Why a read that ran failed: ssh's last error line (else its output's), with its exit status.
+fn read_failure(out: &Captured) -> String {
+    let said = |lines: &[String]| lines.iter().rev().find(|l| !l.trim().is_empty()).map(|l| l.trim().to_owned());
+    let status = out.exit.code.map_or_else(|| "a signal".to_owned(), |c| format!("code {c}"));
+    match said(&out.stderr).or_else(|| said(&out.stdout)) {
+        Some(line) => format!("{line} (exited with {status})"),
+        None => format!("exited with {status}"),
+    }
+}
+
+/// What a wait out of time says: the last step the file named, and why the last read failed
+/// when it did.
+fn out_of_time(w: &Wait, last: &Progress, failed: Option<&str>) -> String {
+    let step = match last {
+        Progress::Running(s) => s.as_str(),
+        _ => "booting",
+    };
+    let detail = format!("not done within {}s (last step: {step})", w.within.as_secs());
+    match failed {
+        Some(why) => format!("{detail}; its last read over SSH failed: {why}"),
+        None => detail,
     }
 }
 
@@ -187,6 +215,39 @@ mod tests {
             ("failed: provision/web.sh".into(), vec!["E: Unable to locate package nginx".to_owned()])
         );
         assert_eq!(split(&[LOG_MARK.to_owned()]), (String::new(), Vec::new()), "no file yet");
+    }
+
+    #[test]
+    fn a_wait_out_of_time_says_why_its_last_read_failed() {
+        let w = Wait {
+            condition: "ready_file 10.0.0.9".into(),
+            login: Login::new("isoloom", "10.0.0.9", None, "").unwrap(),
+            path: "/var/lib/isoloom/ready".into(),
+            log: None,
+            within: Duration::from_secs(900),
+            unreachable: None,
+            every: Duration::from_secs(5),
+        };
+        let running = Progress::Running("provision/web.sh".into());
+        assert_eq!(out_of_time(&w, &running, None), "not done within 900s (last step: provision/web.sh)");
+        assert_eq!(
+            out_of_time(&w, &Progress::Booting, Some("Connection reset (exited with code 255)")),
+            "not done within 900s (last step: booting); its last read over SSH failed: Connection reset (exited with code 255)"
+        );
+    }
+
+    #[test]
+    fn a_failed_read_is_its_last_error_line_and_exit_status() {
+        let out = |stderr: &[&str], code| Captured {
+            exit: crate::process::Exit::new(code),
+            stdout: Vec::new(),
+            stderr: stderr.iter().map(|l| (*l).to_owned()).collect(),
+        };
+        assert_eq!(
+            read_failure(&out(&["Warning: x", "Permission denied (publickey).", ""], Some(255))),
+            "Permission denied (publickey). (exited with code 255)"
+        );
+        assert_eq!(read_failure(&out(&[], None)), "exited with a signal");
     }
 
     proptest! {

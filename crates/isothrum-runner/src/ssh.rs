@@ -5,6 +5,11 @@
 //! Proxmox node and a run's router as they reach the machine behind them. The config also keeps
 //! the user's own `~/.ssh/config` out of the run.
 //!
+//! `ssh` runs in the run's state folder and names the config relative to it (`-F ssh_config`):
+//! the command `-J` makes for each jump host's `ssh` is run by a shell with the `-F` path
+//! unquoted, so a path with a space (a home under macOS's `~/Library/Application Support`) broke
+//! every jump.
+//!
 //! The jumps are the run's (`RunOptions::ssh_jump`: a node whose run bridge this host can't
 //! route to), then the manifest's `via`, comma-separated, empty entries skipped.
 
@@ -150,12 +155,12 @@ impl Login {
         }
     }
 
-    /// The `ssh` arguments running `command` there, with the configuration at `config`, the
-    /// variables `sent` carried into the session (`SendEnv`: their values travel in the SSH
-    /// channel from ssh's own environment, never on a command line; the guest's `sshd` takes those
-    /// its `AcceptEnv` names).
-    pub(crate) fn args(&self, config: &Path, sent: &[String], command: &str) -> Vec<String> {
-        let mut args = vec!["-F".to_owned(), config.display().to_string()];
+    /// The `ssh` arguments running `command` there, run from the run's state folder (the config
+    /// named relative to it), the variables `sent` carried into the session (`SendEnv`: their
+    /// values travel in the SSH channel from ssh's own environment, never on a command line; the
+    /// guest's `sshd` takes those its `AcceptEnv` names).
+    pub(crate) fn args(&self, sent: &[String], command: &str) -> Vec<String> {
+        let mut args = vec!["-F".to_owned(), CONFIG_FILE.to_owned()];
         for var in sent {
             args.extend(["-o".to_owned(), format!("SendEnv={var}")]);
         }
@@ -168,7 +173,7 @@ impl Login {
 }
 
 /// The process running `command` at `login` for `cx`'s run, the variables of `env` carried into
-/// the session: its configuration written first.
+/// the session: its configuration written first, in the run's state folder, where it runs.
 pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
     let home = &cx.run.runner.config.home;
     let state = cx.run.runner.store.run_dir(cx.run.name())?;
@@ -178,7 +183,8 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
     let mut sent: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
     sent.sort();
     sent.dedup();
-    let mut spec = ProcessSpec::new("ssh", login.args(&path, &sent, command));
+    let mut spec = ProcessSpec::new("ssh", login.args(&sent, command));
+    spec.cwd = Some(state);
     spec.env = env;
     Ok(spec)
 }
@@ -198,7 +204,6 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
     }
     let login = with_login(cx, &host, arg)?;
     let mut spec = spec(cx, &login, &command, crate::executor::env_deliveries(cx, step.id.as_str()))?;
-    spec.cwd = Some(cx.run.dir().to_path_buf());
     spec.stdin = crate::executor::stdin_of(cx, list, step)?;
     Ok(spec)
 }
@@ -305,11 +310,11 @@ mod tests {
         let l = Login::new("isoloom", "10.60.0.10", Some("root@pve.lan"), ",isoloom@10.10.10.5").unwrap();
         assert_eq!(l.jumps, ["root@pve.lan", "isoloom@10.10.10.5"]);
         assert_eq!(
-            l.args(Path::new("/s/ssh_config"), &[], "sh -s"),
-            ["-F", "/s/ssh_config", "-J", "root@pve.lan,isoloom@10.10.10.5", "isoloom@10.60.0.10", "sh -s"]
+            l.args(&[], "sh -s"),
+            ["-F", "ssh_config", "-J", "root@pve.lan,isoloom@10.10.10.5", "isoloom@10.60.0.10", "sh -s"]
         );
         let direct = Login::new("isoloom", "10.0.0.9", None, "").unwrap();
-        assert_eq!(direct.args(Path::new("c"), &[], "true"), ["-F", "c", "isoloom@10.0.0.9", "true"]);
+        assert_eq!(direct.args(&[], "true"), ["-F", "ssh_config", "isoloom@10.0.0.9", "true"]);
     }
 
     #[test]
@@ -317,10 +322,10 @@ mod tests {
         let l = Login::new("isoloom", "10.0.0.9", None, "").unwrap();
         let sent = ["DEMO_SECRET".to_owned(), "TOKEN".to_owned()];
         assert_eq!(
-            l.args(Path::new("c"), &sent, "sudo -E docker compose up"),
+            l.args(&sent, "sudo -E docker compose up"),
             [
                 "-F",
-                "c",
+                "ssh_config",
                 "-o",
                 "SendEnv=DEMO_SECRET",
                 "-o",
@@ -366,7 +371,7 @@ mod tests {
         fn a_plain_login_never_starts_an_option(user in "[a-z][a-z0-9_]{0,8}", host in "[a-z0-9.-]{1,20}") {
             let l = Login::new(&user, &host, None, "");
             prop_assert!(l.is_ok());
-            let args = l.unwrap().args(Path::new("c"), &[], "true");
+            let args = l.unwrap().args(&[], "true");
             prop_assert!(!args[2].starts_with('-'));
         }
     }
