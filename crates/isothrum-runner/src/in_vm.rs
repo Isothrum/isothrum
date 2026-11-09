@@ -16,11 +16,12 @@ use std::time::Duration;
 use isoloom_manifest::{Guest, Machine, Native};
 
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_TIMEOUT, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
 use crate::ssh::sh_quote;
-use crate::status::{MachineState, MachineStatus, ShellCommand};
+use crate::status::{MachineState, MachineStatus};
 
 /// How many times the containers are read while the VM runs, before the read counts as failed.
 const READS: u32 = 2;

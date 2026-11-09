@@ -18,12 +18,13 @@ use isoloom_manifest::{Action, Machine, Native, SnakeName, Step, Template, Vagra
 
 use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, step_env};
 use crate::process::ProcessSpec;
 use crate::scope::provider_id;
 use crate::state::Op;
-use crate::status::{MachineStatus, PublishedPort, ShellCommand};
+use crate::status::{MachineStatus, PublishedPort};
 
 /// The variable Vagrant reads its state folder from.
 const DOTFILE_VAR: &str = "VAGRANT_DOTFILE_PATH";

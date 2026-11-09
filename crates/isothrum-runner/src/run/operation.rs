@@ -119,7 +119,7 @@ impl Running<'_> {
     /// VM, which the next update compares.
     pub(crate) fn runs_from_this(&self, record: &mut RunRecord) {
         record.manifest = self.path().to_path_buf();
-        record.vm_boot_digests = super::update::boot_digests(self.manifest());
+        record.vm_boot_digests = super::boot::digests(self.manifest());
     }
 
     /// The run's record, or a fresh one for this manifest.

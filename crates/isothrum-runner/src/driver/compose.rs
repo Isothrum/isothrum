@@ -15,11 +15,11 @@ use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, SnakeName, Step
 
 use super::{Driver, GuestUse, Observed};
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::process::ProcessSpec;
 use crate::state::Op;
-use crate::status::ShellCommand;
 use crate::store::write_private;
 
 /// Every machine of `manifest` as `ps --all --format json`'s output `out` shows it, and the host

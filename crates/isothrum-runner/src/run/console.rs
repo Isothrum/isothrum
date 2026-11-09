@@ -5,8 +5,8 @@ use isoloom_manifest::{Machine, Native};
 
 use super::Running;
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::executor::Cx;
-use crate::status::ShellCommand;
 
 impl Running<'_> {
     /// The command that opens an interactive console into `machine`, any machine of the run (an

@@ -28,11 +28,11 @@ use std::path::{Path, PathBuf};
 use isoloom_manifest::{Action, ExpiryUnit, Machine, SnakeName, Step, Template, TerraformIdentity};
 
 use super::{Driver, GuestUse, Observed};
-use crate::Result;
-use crate::error::Error;
+use crate::console::ShellCommand;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
-use crate::status::{MachineState, MachineStatus, ShellCommand};
+use crate::status::{MachineState, MachineStatus};
+use crate::{Error, Result};
 
 /// The local backend's lock file, left behind by a crashed or killed run.
 const LOCK_FILE: &str = ".terraform.tfstate.lock.info";

@@ -8,12 +8,12 @@ use isoloom_manifest::Machine;
 
 use super::state;
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::driver::{GuestUse, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
 use crate::ssh::{self, Login};
-use crate::status::ShellCommand;
 
 /// The command that opens a console into `machine`, a VM the module makes; not running while
 /// the state gives it no address.

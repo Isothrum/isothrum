@@ -16,10 +16,11 @@ use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, Sn
 use tracing::Instrument;
 
 use crate::Result;
+use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
-use crate::status::{MachineStatus, ShellCommand};
+use crate::status::MachineStatus;
 use crate::vars::PortKey;
 
 /// The env var naming the host ports a run forwards from this computer, as a JSON object
