@@ -11,7 +11,7 @@ use super::{Cx, plan};
 use crate::Result;
 use crate::error::Error;
 use crate::events::Stream;
-use crate::process::{Captured, Exit, ProcessError, ProcessSpec, Tail, capture};
+use crate::process::{Captured, Exit, ProcessError, ProcessSpec, Tail, capture, capture_echoing};
 use crate::scope::Scope;
 
 /// Runs argv step `step` of list `list`; `observe` sees each line too (a check runner's results).
@@ -126,34 +126,18 @@ pub(crate) enum Echo {
 /// last error lines are kept, its exit status returned (a failure is the caller's to judge). A
 /// missing tool and a timeout are errors.
 pub(crate) async fn call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<Captured> {
-    let mut stdout = Vec::new();
-    let mut tail = Tail::default();
-    let mut keep = |stream: Stream, line: &str| {
+    let mut shown = |stream: Stream, line: &str| {
         if echo == Echo::Shown {
             cx.events.log(id, stream, line);
         }
-        match stream {
-            Stream::Stdout => stdout.push(line.to_owned()),
-            Stream::Stderr => tail.push(line),
-        }
     };
-    let run = cx.processes.run(spec, &mut keep);
-    let exit = tokio::time::timeout(limit, run).await.map_err(|_| Error::Timeout {
-        step: id.to_owned(),
-        after_s: limit.as_secs(),
-    })?;
-    let exit = exit.map_err(|e| process_error(id, e))?;
-    Ok(Captured {
-        stdout,
-        stderr: tail.into_lines(),
-        exit: Some(exit),
-    })
+    within(id, limit, capture_echoing(cx.processes.as_ref(), spec, &mut shown)).await
 }
 
 /// [`call`], failing unless it exits 0: its standard output.
 pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
     let out = call(cx, id, spec, limit, echo).await?;
-    if out.exit.is_some_and(Exit::success) {
+    if out.succeeded() {
         return Ok(out.stdout.join("\n"));
     }
     let reason = format!("`{}` failed: {}", spec.line(), why_failed(&out));
@@ -168,7 +152,7 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
     let spec = spec_for(cx, list, step)?;
     let out = timed(step, &cx.scope, capture(cx.processes.as_ref(), &spec)).await?;
-    if !out.exit.is_some_and(Exit::success) {
+    if !out.succeeded() {
         let reason = why_failed(&out);
         return Err(Error::ToolFailed {
             step: step.id.to_string(),
@@ -227,12 +211,17 @@ pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String
 
 /// `run` given up after `step`'s time limit in `scope` (dropping it ends the process tree).
 async fn timed<T>(step: &Step, scope: &Scope, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
-    let secs = plan::limit_s(step, scope);
-    let done = tokio::time::timeout(Duration::from_secs(secs), run).await.map_err(|_| Error::Timeout {
-        step: step.id.to_string(),
-        after_s: secs,
+    within(step.id.as_str(), Duration::from_secs(plan::limit_s(step, scope)), run).await
+}
+
+/// `run`, for step `id`, given up after `limit` (dropping it ends the process tree): a timeout
+/// and a tool that couldn't run to its end are the step's errors.
+pub(crate) async fn within<T>(id: &str, limit: Duration, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
+    let done = tokio::time::timeout(limit, run).await.map_err(|_| Error::Timeout {
+        step: id.to_owned(),
+        after_s: limit.as_secs(),
     })?;
-    done.map_err(|e| process_error(step.id.as_str(), e))
+    done.map_err(|e| process_error(id, e))
 }
 
 /// A tool that couldn't run to its end, as step `step`'s failure.
@@ -278,7 +267,7 @@ pub(crate) fn why_failed(out: &Captured) -> String {
     } else {
         &out.stderr[..]
     };
-    failure_text(said, out.exit.unwrap_or(Exit::new(None)))
+    failure_text(said, out.exit)
 }
 
 /// What a failed tool's error says: its last stderr lines, else its exit status.
@@ -299,7 +288,7 @@ mod tests {
     fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
         Captured {
-            exit: Some(Exit::new(code)),
+            exit: Exit::new(code),
             stdout: lines(stdout),
             stderr: lines(stderr),
         }

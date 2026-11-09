@@ -191,7 +191,7 @@ mod tests {
             Err(ProcessError::Missing { .. })
         ));
         let slow = capture(&fake, &ProcessSpec::new("slow", Vec::<String>::new())).await.unwrap();
-        assert_eq!((slow.exit, slow.stderr), (Some(Exit { code: Some(2) }), vec!["boom".to_owned()]));
+        assert_eq!((slow.exit, slow.stderr), (Exit { code: Some(2) }, vec!["boom".to_owned()]));
         assert_eq!(fake.lines(), ["docker compose ps", "vagrant up", "slow"]);
         assert!(fake.last("vagrant").is_some() && fake.last("terraform").is_none());
     }

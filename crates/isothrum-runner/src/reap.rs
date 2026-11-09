@@ -108,7 +108,7 @@ async fn query(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> std::result
     let out = ran
         .map_err(|_| format!("no answer within {}s", QUERY_LIMIT.as_secs()))?
         .map_err(|e| e.to_string())?;
-    if out.exit.is_some_and(crate::process::Exit::success) {
+    if out.succeeded() {
         Ok(out.stdout.join("\n"))
     } else {
         Err(format!("failed: {}", crate::executor::why_failed(&out)))

@@ -28,6 +28,9 @@ const CONFIG_FILE: &str = "ssh_config";
 /// How long making the key may take.
 const KEYGEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// The id a failure to make the key reads as.
+const KEY_STEP: &str = "ssh-key";
+
 /// The runner's private key: `<home>/ssh/id_ed25519`.
 pub(crate) fn key_path(home: &Path) -> PathBuf {
     home.join("ssh").join(KEY_FILE)
@@ -55,26 +58,12 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
             .into_iter()
             .chain([path.display().to_string()]),
     );
-    let mut lines = Vec::new();
-    let mut keep = |_: crate::events::Stream, line: &str| lines.push(line.to_owned());
-    let run = processes.run(&spec, &mut keep);
-    let exit = tokio::time::timeout(KEYGEN_LIMIT, run).await.map_err(|_| Error::Timeout {
-        step: "ssh-key".into(),
-        after_s: KEYGEN_LIMIT.as_secs(),
-    })?;
-    let failed = |reason: String| Error::ToolFailed {
-        step: "ssh-key".into(),
-        reason,
-    };
-    match exit {
-        Ok(e) if e.success() => public_key(home).ok_or_else(|| failed("ssh-keygen wrote no public key".into())),
-        Ok(_) => Err(failed(lines.join("\n"))),
-        Err(crate::process::ProcessError::Missing { program }) => Err(Error::ToolMissing {
-            step: "ssh-key".into(),
-            tool: program,
-        }),
-        Err(e) => Err(failed(e.to_string())),
+    let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, crate::process::capture(processes, &spec)).await?;
+    let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
+    if !out.succeeded() {
+        return Err(failed(crate::executor::why_failed(&out)));
     }
+    public_key(home).ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
 }
 
 /// Whether a run of `manifest` needs the runner's key: it reaches a machine over SSH, or names

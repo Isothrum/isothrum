@@ -117,7 +117,7 @@ pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()
     let id = step.id.as_str();
     for name in vm_names(cx, Provider::Virtualbox) {
         let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_TIMEOUT, Echo::Quiet).await?;
-        if !info.exit.is_some_and(crate::process::Exit::success) || !aborted_saved(&info.stdout) {
+        if !info.succeeded() || !aborted_saved(&info.stdout) {
             continue;
         }
         cx.events.warning(
@@ -148,7 +148,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
         }
         let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &halting_probe()])?;
         let said = call(cx, id, &probe, READ_TIMEOUT, Echo::Quiet).await?;
-        if said.exit.is_some_and(crate::process::Exit::success) && said.stdout.iter().any(|l| l.trim() == STAYS_UP) {
+        if said.succeeded() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) {
             // Running, and not on its way down: nothing to wait for.
             return Ok(());
         }
@@ -183,7 +183,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
     let machine = controller(cx, with)?;
     let limit = step.timeout_s.map_or(HALT_TIMEOUT, |s| Duration::from_secs(u64::from(s.get())));
     let halt = call(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
-    let halted = halt.exit.is_some_and(crate::process::Exit::success);
+    let halted = halt.succeeded();
     if !halted && already_off(&halt) {
         cx.events.log(id, Stream::Stdout, &format!("{machine} was already off."));
         return Ok(());

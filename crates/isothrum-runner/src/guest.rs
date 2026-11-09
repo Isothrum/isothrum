@@ -124,7 +124,7 @@ async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) ->
         let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(RECEIVE)), Vec::new())?;
         spec.stdin = Some(input.to_path_buf());
         let out = call(cx, id, &spec, TRY_LIMIT, Echo::Quiet).await?;
-        match out.exit.and_then(|e| e.code) {
+        match out.exit.code {
             Some(0) => return Ok(()),
             Some(SSH_UNREACHABLE) if tokio::time::Instant::now() < deadline => tokio::time::sleep(RETRY).await,
             _ => {

@@ -126,28 +126,43 @@ fn command_line(program: &str, args: &[String]) -> String {
 }
 
 /// What a process printed, kept: its standard output, and its last standard error lines.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Captured {
     /// How it ended.
-    pub(crate) exit: Option<Exit>,
+    pub(crate) exit: Exit,
     /// Its standard output, one line each.
     pub(crate) stdout: Vec<String>,
     /// Its last standard error lines (a Ruby backtrace's frames left out).
     pub(crate) stderr: Vec<String>,
 }
 
+impl Captured {
+    /// Whether it exited 0.
+    pub(crate) fn succeeded(&self) -> bool {
+        self.exit.success()
+    }
+}
+
 /// Runs `spec`, keeping what it prints; fails when the process can't start (missing, refused, an
 /// I/O error).
 pub(crate) async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
+    capture_echoing(runner, spec, &mut |_, _| {}).await
+}
+
+/// [`capture`], each line also handed to `echo` as it comes.
+pub(crate) async fn capture_echoing(runner: &dyn ProcessRunner, spec: &ProcessSpec, echo: OnLine<'_>) -> Result<Captured, ProcessError> {
     let mut stdout = Vec::new();
     let mut tail = Tail::default();
-    let mut keep = |stream: Stream, line: &str| match stream {
-        Stream::Stdout => stdout.push(line.to_owned()),
-        Stream::Stderr => tail.push(line),
+    let mut keep = |stream: Stream, line: &str| {
+        echo(stream, line);
+        match stream {
+            Stream::Stdout => stdout.push(line.to_owned()),
+            Stream::Stderr => tail.push(line),
+        }
     };
     let exit = runner.run(spec, &mut keep).await?;
     Ok(Captured {
-        exit: Some(exit),
+        exit,
         stdout,
         stderr: tail.into_lines(),
     })

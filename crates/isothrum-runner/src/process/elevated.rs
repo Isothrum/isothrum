@@ -105,7 +105,7 @@ impl Elevated {
         let launcher = script::launcher(&script::broker(&self.dir, std::process::id()));
         let start = ProcessSpec::new("powershell", ["-NoProfile".to_owned(), "-NonInteractive".into(), "-Command".into(), launcher]);
         match capture(self.inner.as_ref(), &start).await {
-            Ok(out) if out.exit.is_some_and(Exit::success) => {}
+            Ok(out) if out.succeeded() => {}
             Ok(out) => return Session::Failed(declined(&out.stderr.join("\n"))),
             Err(e) => return Session::Failed(e.to_string()),
         }

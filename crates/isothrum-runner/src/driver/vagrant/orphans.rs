@@ -14,7 +14,7 @@ use super::actions::{vboxmanage, vm_names};
 use crate::Result;
 use crate::events::WarningCode;
 use crate::executor::{Cx, Echo, call};
-use crate::process::{Exit, ProcessSpec};
+use crate::process::ProcessSpec;
 
 /// Removes the run's orphaned VMs on its provider.
 pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
@@ -28,7 +28,7 @@ pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
 /// Runs `spec`, its failure only noted: each removal is best effort ("nothing there" is fine).
 async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<String>> {
     let out = call(cx, step.id.as_str(), spec, READ_TIMEOUT, Echo::Quiet).await?;
-    Ok(out.exit.is_some_and(Exit::success).then(|| out.stdout.join("\n")))
+    Ok(out.succeeded().then(|| out.stdout.join("\n")))
 }
 
 /// VirtualBox: each registered VM of ours powered off and deleted (a saved one's state discarded

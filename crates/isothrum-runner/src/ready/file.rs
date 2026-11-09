@@ -101,7 +101,7 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
     loop {
         let read = call(cx, &w.condition, &spec, READ_LIMIT, Echo::Quiet).await;
         match read {
-            Ok(out) if out.exit.is_some_and(crate::process::Exit::success) => {
+            Ok(out) if out.succeeded() => {
                 reached = true;
                 let (line, tail) = split(&out.stdout);
                 if let Some(done) = settle(cx, w, progress(&line), &tail, &mut last) {
