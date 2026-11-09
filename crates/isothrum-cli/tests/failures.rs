@@ -118,20 +118,14 @@ fn wait_until(ready: impl Fn() -> bool) -> bool {
 #[cfg(unix)]
 #[test]
 fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
-    let seen = sent_while_up("-INT").unwrap();
-    assert_eq!(seen.code, Some(130), "{}", seen.stderr);
-    assert_eq!(seen.last_event(), (Some("error"), Some("cancelled"), Some("up")), "{}", seen.event);
-    assert!(seen.tool_stopped, "the tool outlived the command");
+    sent_while_up("-INT").unwrap().assert_cancelled(130);
 }
 
 #[cfg(unix)]
 #[test]
 fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
     // A CI runner cancelling its job sends SIGTERM.
-    let seen = sent_while_up("-TERM").unwrap();
-    assert_eq!(seen.code, Some(143), "{}", seen.stderr);
-    assert_eq!(seen.last_event(), (Some("error"), Some("cancelled"), Some("up")), "{}", seen.event);
-    assert!(seen.tool_stopped, "the tool outlived the command");
+    sent_while_up("-TERM").unwrap().assert_cancelled(143);
 }
 
 /// What a command sent a signal showed.
@@ -149,10 +143,13 @@ struct Signalled {
 
 #[cfg(unix)]
 impl Signalled {
-    /// The last event's kind, code and operation.
-    fn last_event(&self) -> (Option<&str>, Option<&str>, Option<&str>) {
+    /// The command exited `code`, its stream ended with a `cancelled` error, and its tool is gone.
+    fn assert_cancelled(&self, code: i32) {
+        assert_eq!(self.code, Some(code), "{}", self.stderr);
         let field = |name: &str| self.event.get(name).and_then(Value::as_str);
-        (field("event"), field("code"), field("op"))
+        let last = (field("event"), field("code"), field("op"));
+        assert_eq!(last, (Some("error"), Some("cancelled"), Some("up")), "{}", self.event);
+        assert!(self.tool_stopped, "the tool outlived the command");
     }
 }
 

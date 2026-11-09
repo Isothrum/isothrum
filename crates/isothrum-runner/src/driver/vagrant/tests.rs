@@ -697,6 +697,22 @@ async fn provisioning_again_runs_on_the_running_machines_with_the_values_given_a
     assert_eq!(unknown.code(), ErrorCode::MachineUnknown, "only the run's own machines");
 }
 
+/// The run's main secret and the ESXi host's password.
+fn esxi_secrets() -> Secrets {
+    let mut secrets = Secrets::new();
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
+    secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
+    secrets
+}
+
+/// The options of a run on the ESXi host at 172.16.1.20, with `secrets`.
+fn on_esxi(secrets: Secrets) -> RunOptions {
+    RunOptions::new()
+        .with_provider("vmware_esxi")
+        .with_param("ESXI_HOSTNAME", "172.16.1.20")
+        .with_secrets(secrets)
+}
+
 /// ESXi forwards no port to this computer: a published port is shown at its VM's own address
 /// (what `vagrant ssh-config` reports), with the VM's own port; locally, at the loopback with the
 /// forwarded one.
@@ -705,13 +721,7 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
     let f = fixture(HostOs::Linux);
     f.engine().plugins.push("vagrant-vmware-esxi".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let mut secrets = Secrets::new();
-    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
-    let opts = RunOptions::new()
-        .with_provider("vmware_esxi")
-        .with_param("ESXI_HOSTNAME", "172.16.1.20")
-        .with_secrets(secrets);
+    let opts = on_esxi(esxi_secrets());
     let started = run.up(&opts, &Recorder::new()).await.unwrap();
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://172.16.1.53:80/"));
     let status = run.status().await.unwrap();
@@ -804,10 +814,7 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
     let run = f.runner.open(&f.manifest, None).unwrap().with_connection(connection);
     let mut secrets = Secrets::new();
     secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    let opts = RunOptions::new()
-        .with_provider("vmware_esxi")
-        .with_param("ESXI_HOSTNAME", "172.16.1.20")
-        .with_secrets(secrets);
+    let opts = on_esxi(secrets);
     run.up(&opts, &Recorder::new()).await.unwrap();
     let after_up = f.fake.calls().len();
     run.status().await.unwrap();
@@ -910,13 +917,7 @@ async fn a_relayed_run_keeps_the_hosts_this_computer_sends_around_its_proxy() {
     f.runner.config.host_env = crate::host_env::HostEnv::of([("no_proxy", ".corp.example")]);
     f.engine().plugins.push("vagrant-vmware-esxi".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let mut secrets = Secrets::new();
-    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
-    let opts = RunOptions::new()
-        .with_provider("vmware_esxi")
-        .with_param("ESXI_HOSTNAME", "172.16.1.20")
-        .with_secrets(secrets);
+    let opts = on_esxi(esxi_secrets());
     run.up(&opts, &Recorder::new()).await.unwrap();
     let up = f.fake.last("vagrant up").unwrap();
     assert_eq!(up.env("no_proxy"), Some(".corp.example,localhost,127.0.0.1"));

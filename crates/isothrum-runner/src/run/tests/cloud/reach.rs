@@ -58,18 +58,23 @@ async fn a_command_that_ran_and_failed_is_never_tried_again() {
     assert_eq!(copies(&a), 1);
 }
 
+/// A start of `manifest` refused as malformed, saying `why`, with nothing copied.
+async fn refused_as_malformed(manifest: &str, why: &str) {
+    let a = account_of(manifest, 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert!(err.to_string().contains(why), "{err}");
+    assert_eq!(copies(&a), 0);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_wait_over_half_an_hour_or_not_in_seconds_is_a_malformed_manifest() {
     for (wait, why) in [
         ("1801", "wait_s: 1801 is over the 1800 seconds"),
         ("soon", "wait_s: `soon` isn't a number of seconds"),
     ] {
-        let a = account_of(&copying(wait), 0);
-        let run = a.runner.open(&a.folder.manifest, None).unwrap();
-        let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
-        assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
-        assert!(err.to_string().contains(why), "{err}");
-        assert_eq!(copies(&a), 0);
+        refused_as_malformed(&copying(wait), why).await;
     }
 }
 
@@ -81,12 +86,7 @@ async fn an_ssh_step_without_its_host_or_with_a_login_ssh_cant_take_is_a_malform
     ] {
         let mut m: serde_json::Value = serde_json::from_str(&copying("60")).unwrap();
         m["lifecycle"]["up"].as_array_mut().unwrap().last_mut().unwrap()["with"]["host"] = host.into();
-        let a = account_of(&m.to_string(), 0);
-        let run = a.runner.open(&a.folder.manifest, None).unwrap();
-        let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
-        assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
-        assert!(err.to_string().contains(why), "{err}");
-        assert_eq!(copies(&a), 0);
+        refused_as_malformed(&m.to_string(), why).await;
     }
 }
 

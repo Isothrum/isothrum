@@ -276,11 +276,16 @@ mod tests {
         assert_eq!(store.record(&b.name).unwrap(), Some(b));
     }
 
-    #[test]
-    fn the_event_log_is_trimmed_to_its_newer_half() {
+    /// A store in a home of its own, and run `r`.
+    fn run_r() -> (tempfile::TempDir, Store, RunName) {
         let home = tempfile::tempdir().unwrap();
         let store = Store::open(home.path(), None).unwrap();
-        let name = RunName::new("r").unwrap();
+        (home, store, RunName::new("r").unwrap())
+    }
+
+    #[test]
+    fn the_event_log_is_trimmed_to_its_newer_half() {
+        let (home, store, name) = run_r();
         let mut log = store.event_log(&name).unwrap();
         for seq in 0..=EVENTS_KEPT {
             writeln!(log, "{{\"seq\":{seq}}}").unwrap();
@@ -294,9 +299,7 @@ mod tests {
 
     #[test]
     fn an_event_log_line_this_runner_cant_read_is_counted_not_dropped_unsaid() {
-        let home = tempfile::tempdir().unwrap();
-        let store = Store::open(home.path(), None).unwrap();
-        let name = RunName::new("r").unwrap();
+        let (_home, store, name) = run_r();
         let mut log = store.event_log(&name).unwrap();
         let read = r#"{"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"r","op":"up","event":"result","ok":true,"data":null}"#;
         // A 1.x warning code this runner no longer has, and a line cut short.
