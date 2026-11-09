@@ -14,7 +14,7 @@ use crate::events::{Emitter, Events};
 use crate::executor::{Cx, Ran, run_steps};
 use crate::options::{Occupied, RunOptions};
 use crate::params::{params_for_existing, params_for_start};
-use crate::secrets::{check_secrets, sensitive_values};
+use crate::secrets::check_secrets;
 use crate::state::{Op, RunState};
 use crate::status::{MachineState, OutputValue, Started, any_target_running};
 use crate::store::RunRecord;
@@ -42,9 +42,10 @@ impl Running<'_> {
     /// `tool_missing`, `timeout`); when a ready condition doesn't hold (`not_ready`); or when the
     /// run's state can't be locked or written (`locked`, `io`).
     pub async fn up(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Up, events, mask, async |e: &Emitter<'_>| self.up_work(opts, e).await).await
+        self.operate(Op::Up, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
+            self.up_work(connected, e).await
+        })
+        .await
     }
 
     async fn up_work(&self, opts: &RunOptions, events: &Emitter<'_>) -> Result<Done<Started>> {

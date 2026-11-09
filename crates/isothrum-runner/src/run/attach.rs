@@ -16,7 +16,6 @@ use crate::driver;
 use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
-use crate::secrets::sensitive_values;
 use crate::state::Op;
 
 /// What a hot-add produced: the access machine brought up, and where to reach it.
@@ -65,14 +64,12 @@ impl Running<'_> {
     /// for a step or the state.
     pub async fn attach(&self, pick: AccessPick<'_>, opts: &RunOptions, events: &dyn Events) -> Result<AttachReport> {
         let AccessPick { machine, network, image } = pick;
-        let opts = self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Attach, events, mask, async |e: &Emitter<'_>| {
+        self.operate(Op::Attach, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let target = self.access_machine(machine)?;
             if let Some(n) = network {
                 self.network_named(n)?;
             }
-            let (_, mut cx) = self.existing(&opts, e).await?;
+            let (_, mut cx) = self.existing(connected, e).await?;
             let native = network.map(|n| self.native_network(&cx, n)).transpose()?;
             self.observe_running(&mut cx).await?;
             self.driver.attach(&cx, target, image, native.as_deref()).await?;
@@ -98,11 +95,9 @@ impl Running<'_> {
     /// Fails as [`Running::attach`] does for the machine choice and the target, and as the other
     /// operations do for a step or the state.
     pub async fn detach(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        let opts = self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Detach, events, mask, async |e: &Emitter<'_>| {
+        self.operate(Op::Detach, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let target = self.access_machine(machine)?;
-            let (_, cx) = self.existing(&opts, e).await?;
+            let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
             Ok(Done {
                 value: (),

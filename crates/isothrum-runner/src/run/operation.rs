@@ -8,7 +8,9 @@ use tracing::Instrument;
 use crate::clock::rfc3339;
 use crate::error::Error;
 use crate::events::{Emitter, EventKind, Events};
+use crate::options::RunOptions;
 use crate::run::Running;
+use crate::secrets::sensitive_values;
 use crate::state::{Op, RunState};
 use crate::store::{LastOp, RunRecord};
 
@@ -25,16 +27,19 @@ pub(crate) struct Done<T> {
 }
 
 impl Running<'_> {
-    /// Runs `work`, the body of `op`, with the run locked and its events going to `events`;
-    /// `mask` lists the values no event may show.
+    /// Runs `work`, the body of `op`, with the run locked and its events going to `events`. `work`
+    /// gets `opts` with the run's connection values ([`Running::connected`]); no event shows a
+    /// sensitive value of the manifest or of those secrets.
     pub(crate) async fn operate<T>(
         &self,
         op: Op,
+        opts: &RunOptions,
         events: &dyn Events,
-        mask: Vec<String>,
-        work: impl AsyncFnOnce(&Emitter<'_>) -> Result<Done<T>>,
+        work: impl AsyncFnOnce(&RunOptions, &Emitter<'_>) -> Result<Done<T>>,
     ) -> Result<T> {
         let runner = self.runner;
+        let opts = self.connected(opts);
+        let mask = sensitive_values(self.manifest(), &opts.secrets);
         let emitter = Emitter::new(self.name().as_str(), op, runner.config.clock.as_ref(), events).masking(mask);
         let emitter = match runner.store.event_log(self.name()) {
             Ok(log) => emitter.with_log(log),
@@ -44,7 +49,7 @@ impl Running<'_> {
             }
         };
         let span = tracing::info_span!("run", run = %self.name(), op = %op);
-        let done = self.locked(op, &emitter, work).instrument(span.clone()).await;
+        let done = self.locked(op, &opts, &emitter, work).instrument(span.clone()).await;
         span.in_scope(|| match &done {
             Ok(d) => tracing::info!(ok = d.ok, "operation done"),
             Err(e) => tracing::warn!(code = %e.code(), error = %e, "operation failed"),
@@ -59,7 +64,13 @@ impl Running<'_> {
         done.map(|d| d.value)
     }
 
-    async fn locked<T>(&self, op: Op, emitter: &Emitter<'_>, work: impl AsyncFnOnce(&Emitter<'_>) -> Result<Done<T>>) -> Result<Done<T>> {
+    async fn locked<T>(
+        &self,
+        op: Op,
+        opts: &RunOptions,
+        emitter: &Emitter<'_>,
+        work: impl AsyncFnOnce(&RunOptions, &Emitter<'_>) -> Result<Done<T>>,
+    ) -> Result<Done<T>> {
         let store = &self.runner.store;
         let _lock = self.runner.locks.acquire(self.name(), &store.lock_path(self.name())).await?;
         // Mark the op in flight and reserve its ports only now that the run is locked: entered
@@ -70,7 +81,7 @@ impl Running<'_> {
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State { from: before, to: during });
         }
-        let done = work(emitter).await;
+        let done = work(opts, emitter).await;
         let code = done.as_ref().err().map(Error::code);
         let after = self.close_record(op, code, done.as_ref().ok().and_then(|d| d.state))?;
         if let Some(during) = op.during() {

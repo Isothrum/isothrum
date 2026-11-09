@@ -23,7 +23,7 @@ use super::up::ready_run;
 use crate::Result;
 use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
-use crate::secrets::{check_secrets, sensitive_values};
+use crate::secrets::check_secrets;
 use crate::state::{Op, RunState};
 use crate::status::{MachineState, Started};
 use crate::{ready, tools};
@@ -37,10 +37,10 @@ impl Running<'_> {
     /// Fails with `not_running` when no target machine runs, when a secret or tool is missing,
     /// and as `up` does for a step, a ready condition or the run's state.
     pub async fn update(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Update, events, mask, async |e: &Emitter<'_>| self.update_work(opts, e).await)
-            .await
+        self.operate(Op::Update, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
+            self.update_work(connected, e).await
+        })
+        .await
     }
 
     async fn update_work(&self, opts: &RunOptions, events: &Emitter<'_>) -> Result<Done<Started>> {

@@ -13,7 +13,6 @@ use crate::events::{Emitter, Events};
 use crate::executor::{Cx, run_steps};
 use crate::options::RunOptions;
 use crate::params::params_for_existing;
-use crate::secrets::sensitive_values;
 use crate::state::{Op, Park, RunState};
 use crate::status::{MachineState, Started};
 use crate::store::RunRecord;
@@ -27,10 +26,8 @@ impl Running<'_> {
     /// Fails, after its `error` event, when the run is recorded elsewhere, a `down` step fails, or
     /// the run's state can't be locked or written.
     pub async fn down(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Down, events, mask, async |e: &Emitter<'_>| {
-            let (mut record, mut cx) = self.existing(opts, e).await?;
+        self.operate(Op::Down, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
+            let (mut record, mut cx) = self.existing(connected, e).await?;
             self.begin(&mut record, Op::Down)?;
             run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
             self.driver.after_down(&cx)?;
@@ -54,16 +51,14 @@ impl Running<'_> {
     /// Fails with `not_parkable` when the manifest has no steps for `mode`, with `not_running` when
     /// nothing of the run is there, and as [`Running::down`] does for a step or the state.
     pub async fn park(&self, mode: Park, events: &dyn Events) -> Result<()> {
-        let opts = self.connected(&RunOptions::default());
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Park, events, mask, async |e: &Emitter<'_>| {
+        self.operate(Op::Park, &RunOptions::default(), events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let park = self.manifest().lifecycle.park.as_ref();
             let steps = park.and_then(|p| if mode == Park::Pause { p.pause.as_ref() } else { p.shutdown.as_ref() });
             let steps = steps.ok_or_else(|| Error::NotParkable {
                 run: self.name().to_string(),
                 mode: mode.as_str(),
             })?;
-            let (mut record, mut cx) = self.existing(&opts, e).await?;
+            let (mut record, mut cx) = self.existing(connected, e).await?;
             if !self.exists(&mut cx).await? {
                 return Err(Error::NotRunning { run: self.name().to_string() });
             }
@@ -86,10 +81,8 @@ impl Running<'_> {
     /// Fails with `nothing_to_resume` when nothing is left (the parked mark is dropped), and as
     /// [`Running::up`] does for a tool, a step, a ready condition or the state.
     pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Resume, events, mask, async |e: &Emitter<'_>| {
-            let (record, mut cx) = self.existing(opts, e).await?;
+        self.operate(Op::Resume, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
+            let (record, mut cx) = self.existing(connected, e).await?;
             tools::probe(&cx).await?;
             self.resume_work(record, &mut cx).await
         })
@@ -120,10 +113,8 @@ impl Running<'_> {
     /// Fails with `not_running` when no target machine runs, and when a setup or teardown step
     /// fails. A failing check isn't an error: the report says it (`ok: false`).
     pub async fn check(&self, opts: &RunOptions, events: &dyn Events) -> Result<CheckReport> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Check, events, mask, async |e: &Emitter<'_>| {
-            let (_, mut cx) = self.existing(opts, e).await?;
+        self.operate(Op::Check, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
+            let (_, mut cx) = self.existing(connected, e).await?;
             let observed = self.observe_running(&mut cx).await?;
             // A runner's step may name an output (`${outputs.ip}`, the router it goes through).
             self.bind_observed(&mut cx, observed);
@@ -144,13 +135,11 @@ impl Running<'_> {
     /// target machine runs, `unsupported` when the manifest has no provision steps, and as
     /// [`Running::up`] does for a step or the state.
     pub async fn provision(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Provision, events, mask, async |e: &Emitter<'_>| {
+        self.operate(Op::Provision, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let provision = self.manifest().lifecycle.provision.as_ref().ok_or_else(|| Error::Unsupported {
                 what: "provisioning this run (its manifest has no provision steps)".into(),
             })?;
-            let (_, mut cx) = self.existing(opts, e).await?;
+            let (_, mut cx) = self.existing(connected, e).await?;
             if let Some(m) = machine {
                 // Only a target machine is provisioned: another (the run's router, its checks)
                 // is as unknown here as a name the run doesn't have.

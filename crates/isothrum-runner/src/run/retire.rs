@@ -10,7 +10,6 @@ use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::executor::Cx;
 use crate::options::RunOptions;
-use crate::secrets::sensitive_values;
 use crate::state::Op;
 
 impl Running<'_> {
@@ -31,16 +30,14 @@ impl Running<'_> {
     /// runs, a Compose service with no VM to run in, an on-demand machine on a server or cloud);
     /// and as the other operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        let opts = &self.connected(opts);
-        let mask = sensitive_values(self.manifest(), &opts.secrets);
-        self.operate(Op::Retire, events, mask, async |e: &Emitter<'_>| {
+        self.operate(Op::Retire, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let target = self.machine_named(machine)?;
             if self.manifest().guest.as_ref().is_some_and(|g| g.machine == target.name) {
                 return Err(Error::Unsupported {
                     what: format!("retiring `{machine}`, the VM the run's containers run in"),
                 });
             }
-            let (_, cx) = self.existing(opts, e).await?;
+            let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
             Ok(Done {
                 value: (),
