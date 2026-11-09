@@ -34,12 +34,12 @@ fn with_own_module() -> (Account, PathBuf) {
 async fn the_labs_own_module_is_copied_into_the_run_and_destroyed_as_applied() {
     let (a, module) = with_own_module();
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     let copy = a.runner.store.run_dir(run.name()).unwrap().join("module");
     assert!(copy.join("main.tf").is_file() && copy.join("old.tf").is_file(), "the start copied the module");
     // The project changes after the apply: the destroy takes the module as it was applied.
     std::fs::write(module.join("main.tf"), "changed").unwrap();
-    run.down(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.down(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     let destroyed = a.cloud.destroyed_module.lock().unwrap().clone();
     assert_eq!(destroyed.as_deref(), Some("resource \"aws_s3_bucket\" \"site\" {}"));
     assert!(!copy.exists(), "a successful down forgets the copy");
@@ -49,10 +49,10 @@ async fn the_labs_own_module_is_copied_into_the_run_and_destroyed_as_applied() {
 async fn a_new_start_takes_the_module_as_it_is_now() {
     let (a, module) = with_own_module();
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     std::fs::remove_file(module.join("old.tf")).unwrap();
     std::fs::write(module.join("main.tf"), "changed").unwrap();
-    let again = opts("eu-west-3", "labs").with_occupied(crate::Occupied::Replace);
+    let again = opts("eu-west-3", "demo").with_occupied(crate::Occupied::Replace);
     run.up(&again, &Recorder::new()).await.unwrap();
     let copy = a.runner.store.run_dir(run.name()).unwrap().join("module");
     assert_eq!(std::fs::read_to_string(copy.join("main.tf")).unwrap(), "changed");
@@ -64,7 +64,7 @@ async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     let (a, module) = with_own_module();
     std::fs::remove_dir_all(&module).unwrap();
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
     assert!(a.fake.last("terraform").is_none(), "nothing ran");
 }

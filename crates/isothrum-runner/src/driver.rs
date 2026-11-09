@@ -281,7 +281,7 @@ pub(crate) async fn status_report(cx: &Cx<'_>) -> Result<String> {
     crate::executor::capture_step(cx, "lifecycle.status", &cx.run.manifest().lifecycle.status).await
 }
 
-/// A machine's static addresses as the status shows them: each lab network's name to the address
+/// A machine's static addresses as the status shows them: each of the run's networks, by name, to the address
 /// the manifest fixes on it.
 pub(crate) fn static_addresses(m: &Machine) -> BTreeMap<String, String> {
     m.addresses.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect()

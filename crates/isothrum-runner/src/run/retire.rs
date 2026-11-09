@@ -14,7 +14,7 @@ use crate::state::Op;
 
 impl Running<'_> {
     /// Takes machine `machine` out of the running run, ahead of its removal from the manifest
-    /// (then an update), or of its move out of the lab's start (back to an on-demand machine):
+    /// (then an update), or of its move out of the run's start (back to an on-demand machine):
     /// what the next update wouldn't remove itself. A Vagrant VM is destroyed (Vagrant forgets a
     /// define the Vagrantfile no longer has); a Compose service is stopped and removed with the
     /// services in its namespace, on this computer or inside the run's VM (an update leaves a

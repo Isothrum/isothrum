@@ -27,7 +27,7 @@ async fn a_guest_step_waits_for_its_machine_to_answer_over_ssh() {
     a.cloud.copy_unreachable.store(4, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    run.up(&opts("eu-west-3", "labs"), &events).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &events).await.unwrap();
     assert_eq!(copies(&a), 5, "tried until it answered");
     let shown = serde_json::to_string(&events.events()).unwrap();
     assert!(!shown.contains("Connection refused"), "ssh's own complaints aren't the step's log");
@@ -39,7 +39,7 @@ async fn a_machine_that_never_answers_fails_the_step_naming_where_it_tried() {
     let a = account_of(&copying("60"), 0);
     a.cloud.copy_unreachable.store(u32::MAX, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unreachable);
     let text = err.to_string();
     assert!(
@@ -53,7 +53,7 @@ async fn a_command_that_ran_and_failed_is_never_tried_again() {
     let a = account_of(&copying("600"), 0);
     a.cloud.copy_fails.store(true, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ToolFailed);
     assert_eq!(copies(&a), 1);
 }
@@ -96,6 +96,6 @@ async fn only_a_failed_apply_is_applied_again() {
     let a = account_of(&copying("600"), 0);
     a.cloud.copy_fails.store(true, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(a.fake.calls().iter().filter(|c| c.line().starts_with("terraform apply")).count(), 1);
 }

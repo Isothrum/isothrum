@@ -1,6 +1,6 @@
 //! `vagrant.check_forwarded_ports`: a VM forwards each published port
 //! from this computer, at its own `publish` number when it is `fixed`, or at a free one the runner
-//! picks (and pins for the VM's life) when it is `ephemeral`. Two labs forwarding one fixed number
+//! picks (and pins for the VM's life) when it is `ephemeral`. Two runs forwarding one fixed number
 //! collide, and Vagrant says so only once the VM was imported, so unless the run's VMs exist
 //! (their forwards are this run's own) each host port it will forward must be free over its
 //! protocol, and not reserved by another run of this runner starting meanwhile.

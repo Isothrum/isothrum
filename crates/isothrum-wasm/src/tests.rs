@@ -241,7 +241,7 @@ fn a_cisco_iol_router_is_its_lans_gateway_with_its_config() -> Outcome {
 fn a_windows_machines_playbook_runs_from_the_controller_and_the_vm_targets_take_it() -> Outcome {
     let t = r#"{"name":"domain","networks":{"corp":{"cidr":"10.50.1.0/24"}},"nodes":{
         "dc01":{"kind":{"vm":{"os":"windows-server@2022","provision":["provision/dc01.ps1","provision/dc01.yml"]}},"networks":{"corp":10}},
-        "attacker":{"kind":{"vm":{"os":"kali"}},"access":true,"networks":{"corp":50}}}}"#;
+        "workstation":{"kind":{"vm":{"os":"debian"}},"access":true,"networks":{"corp":50}}}}"#;
     let (plan, yml) = clean_plan(t)?;
     assert!(yml.contains("steps:\n      - run: provision/dc01.ps1\n"), "{yml}");
     assert!(yml.ends_with("provision:\n- ansible: provision/dc01.yml\n"), "{yml}");

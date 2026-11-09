@@ -96,14 +96,14 @@ async fn a_cloud_whose_command_line_is_missing_is_said_unchecked_not_a_failure()
 
 #[test]
 fn each_cloud_asks_its_own_command_line_read_only() {
-    let place = Place::new(vec!["eu-west-3".into(), "us-east-1".into()], Some("labs-123".into()));
+    let place = Place::new(vec!["eu-west-3".into(), "us-east-1".into()], Some("demo-123".into()));
     let lines: Vec<Vec<String>> = CLOUDS
         .iter()
         .map(|c| tags::queries(*c, &place).iter().map(ProcessSpec::line).collect())
         .collect();
     assert_eq!(lines[0].len(), 2, "one query per AWS region");
     assert!(lines[0][1].ends_with("--region us-east-1"));
-    assert!(lines[2][0].ends_with("--project=labs-123"));
+    assert!(lines[2][0].ends_with("--project=demo-123"));
     for (cloud, l) in CLOUDS.iter().zip(&lines) {
         assert!(l[0].starts_with(tags::cloud_cli(*cloud)), "{l:?}");
         for word in [" delete", " remove", " destroy", " rm "] {

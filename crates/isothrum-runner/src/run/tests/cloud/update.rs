@@ -1,10 +1,10 @@
 //! Bringing a running cloud run up to date with a regenerated manifest (a machine added to the
-//! lab): `up`'s steps again, with the params it was started with, and it stays ready.
+//! run): `up`'s steps again, with the params it was started with, and it stays ready.
 
 use super::*;
 use crate::state::RunState;
 
-/// The fixture with one more machine and the step that reaches it, as Isoloom writes a lab with
+/// The fixture with one more machine and the step that reaches it, as Isoloom writes a run with
 /// a machine added.
 fn with_extra_machine() -> String {
     let mut m: serde_json::Value = serde_json::from_str(&without_guest_delivery()).unwrap();
@@ -27,14 +27,14 @@ fn applies(a: &Account) -> Vec<Call> {
 async fn an_update_applies_the_regenerated_manifest_with_the_runs_params_and_stays_ready() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     // The embedder regenerated the manifest with a machine added, and opens the run on it.
     std::fs::write(&a.folder.manifest, with_extra_machine()).unwrap();
     let regenerated = a.runner.open(&a.folder.manifest, None).unwrap();
     let before = applies(&a).len();
     // Given another region now: the run's own (recorded) one is what the apply gets.
     let events = Recorder::new();
-    let updated = regenerated.update(&opts("us-east-1", "labs"), &events).await.unwrap();
+    let updated = regenerated.update(&opts("us-east-1", "demo"), &events).await.unwrap();
     assert_eq!(updated.record.state, RunState::Ready);
     let applied = applies(&a);
     assert_eq!(applied.len(), before + 1, "the module applied again");
@@ -54,7 +54,7 @@ async fn an_update_applies_the_regenerated_manifest_with_the_runs_params_and_sta
 async fn a_run_that_is_not_up_is_not_updated() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.update(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.update(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NotRunning, "{err}");
     assert!(applies(&a).is_empty(), "nothing applied");
 }
@@ -64,7 +64,7 @@ async fn a_run_that_is_not_up_is_not_updated() {
 async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     let console = run.console_command("web").unwrap();
     assert_eq!(console.program, "ssh");
     assert_eq!(console.args.first().map(String::as_str), Some("-t"));
@@ -91,9 +91,9 @@ async fn an_update_never_delivers_again_to_a_machine_already_set_up() {
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let mut secrets = crate::Secrets::new();
     secrets.insert("DEMO_SECRET", crate::SecretValue::new("token-real"));
-    run.up(&opts("eu-west-3", "labs").with_secrets(secrets), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo").with_secrets(secrets), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "delivered at up");
-    run.update(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.update(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "web keeps its secret: nothing delivered again");
 }
 
@@ -103,7 +103,7 @@ async fn an_update_never_delivers_again_to_a_machine_already_set_up() {
 async fn a_console_into_a_machine_with_no_address_is_not_running() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     let state = a.runner.store.run_dir(run.name()).unwrap().join("terraform.tfstate");
     std::fs::write(&state, r#"{"outputs": {}, "resources": []}"#).unwrap();
     let err = run.console_command("web").unwrap_err();

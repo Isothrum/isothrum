@@ -255,7 +255,7 @@ mod tests {
     fn record(name: &str) -> RunRecord {
         RunRecord::fresh(
             RunName::new(name).unwrap(),
-            "/labs/x/.isoloom/docker/run.json".into(),
+            "/work/x/.isoloom/docker/run.json".into(),
             Target::Docker,
             Driver::Compose,
         )

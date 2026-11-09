@@ -28,8 +28,8 @@ machines:
       corp: 11
     ports:
       rdp: 3389
-  attacker:
-    os: kali@rolling
+  workstation:
+    os: debian@12
     networks:
       corp: 50
     access: true

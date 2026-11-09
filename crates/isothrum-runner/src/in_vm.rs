@@ -6,7 +6,7 @@
 //! VM). While the VM isn't running, its containers stand as it does. A read that fails while the
 //! VM runs is tried once more after a moment: the way in can miss once (an SSH port read from the
 //! hypervisor that answers late, a session refused while the VM settles), and one miss must not
-//! make a running lab read as not running, or refuse an operation on it.
+//! make a run that is up read as not running, or refuse an operation on it.
 //!
 //! A console into one of those containers, and its removal at a retire, run a script inside the
 //! VM: the VM's driver says only how a script runs there ([`AnyDriver::in_guest`]).

@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/isothrum-runner"
 readme = "README.md"
-keywords = ["isothrum", "runner", "infrastructure", "lab"]
+keywords = ["isothrum", "runner", "infrastructure", "environment"]
 categories = ["virtualization", "development-tools"]
 # The crate's own tests embed the run-manifest fixtures from tests/ (src/testing.rs), so tests/
 # stays in the package and they run from it; only the local formatter config is dropped.

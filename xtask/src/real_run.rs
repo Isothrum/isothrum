@@ -40,14 +40,14 @@ pub(crate) fn run(a: &Args) -> Res<()> {
         return cloud::run(cloud, &isoloom);
     }
     let out = root.join("target").join("real-run");
-    let lab = out.join(&a.example);
-    repo::remove(&lab)?;
-    repo::copy_dir(&isoloom.join("examples").join(&a.example), &lab).map_err(|e| format!("copying the example: {e}"))?;
+    let run_dir = out.join(&a.example);
+    repo::remove(&run_dir)?;
+    repo::copy_dir(&isoloom.join("examples").join(&a.example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
     let bin = build_isoloom(&root, &isoloom)?;
-    process::run(Command::new(bin).args(["generate", "--target", "docker"]).current_dir(&lab))?;
+    process::run(Command::new(bin).args(["generate", "--target", "docker"]).current_dir(&run_dir))?;
     let mut test = process::cargo(&root);
     test.args(["test", "-p", "isothrum-cli", "--test", "real_run", "--", "--ignored", "--nocapture"])
-        .env("ISOTHRUM_REAL_LAB", &lab)
+        .env("ISOTHRUM_REAL_RUN_DIR", &run_dir)
         .env("ISOTHRUM_REAL_EVENTS", out.join(format!("{}.events.jsonl", a.example)));
     process::run(&mut test)
 }

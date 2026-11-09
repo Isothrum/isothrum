@@ -152,8 +152,8 @@ mod tests {
         assert_eq!(keys.secrets, ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]);
         assert_eq!(keys.params, [("region".to_owned(), "eu-west-3".to_owned())]);
         assert_eq!(keys.place, ["--region", "eu-west-3"]);
-        let profile = account(CloudName::Aws, &env(&[("AWS_PROFILE", "labs")]), &none, None).unwrap();
-        assert_eq!(profile.params, [("AWS_PROFILE".to_owned(), "labs".to_owned())]);
+        let profile = account(CloudName::Aws, &env(&[("AWS_PROFILE", "demo")]), &none, None).unwrap();
+        assert_eq!(profile.params, [("AWS_PROFILE".to_owned(), "demo".to_owned())]);
         let nothing = account(CloudName::Aws, &env(&[("AWS_ACCESS_KEY_ID", "AKIA")]), &none, None).unwrap_err();
         assert_eq!(nothing, ["AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_PROFILE"]);
     }
@@ -175,9 +175,9 @@ mod tests {
     #[test]
     fn google_cloud_signs_in_with_a_token_or_the_clis_own_credentials() {
         let adc = |p: &Path| p == Path::new("/home/u/.config/gcloud/application_default_credentials.json");
-        let a = account(CloudName::Gcp, &env(&[("GOOGLE_PROJECT", "labs-1")]), &adc, Some(Path::new("/home/u"))).unwrap();
-        assert_eq!(a.params, [("project".to_owned(), "labs-1".to_owned())]);
-        assert_eq!(a.place, ["--project", "labs-1"]);
+        let a = account(CloudName::Gcp, &env(&[("GOOGLE_PROJECT", "demo-1")]), &adc, Some(Path::new("/home/u"))).unwrap();
+        assert_eq!(a.params, [("project".to_owned(), "demo-1".to_owned())]);
+        assert_eq!(a.place, ["--project", "demo-1"]);
         let token = account(
             CloudName::Gcp,
             &env(&[("GOOGLE_PROJECT", "p"), ("GOOGLE_OAUTH_ACCESS_TOKEN", "t")]),
@@ -216,9 +216,9 @@ mod tests {
     #[test]
     fn oracle_clouds_profile_is_the_modules_config_file_profile() {
         let config = |p: &Path| p == Path::new("/home/u/.oci/config");
-        let vars = env(&[("OCI_COMPARTMENT_ID", "c"), ("OCI_CLI_PROFILE", "LABS")]);
+        let vars = env(&[("OCI_COMPARTMENT_ID", "c"), ("OCI_CLI_PROFILE", "DEMO")]);
         let a = account(CloudName::Oci, &vars, &config, Some(Path::new("/home/u"))).unwrap();
-        assert!(a.params.contains(&("config_file_profile".to_owned(), "LABS".to_owned())), "{a:?}");
+        assert!(a.params.contains(&("config_file_profile".to_owned(), "DEMO".to_owned())), "{a:?}");
     }
 
     #[test]

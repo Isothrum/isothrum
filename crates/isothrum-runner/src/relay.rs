@@ -181,7 +181,7 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
     ];
     // Windows guests: Vagrant's WinRM (plain HTTP to the guest) through the proxy. The one
     // override that is required: WinRM reaches a guest only through `http_proxy`, and only this
-    // process may reach the LAN, so a proxy of the user's own (which can't reach a lab's guests
+    // process may reach the LAN, so a proxy of the user's own (which can't reach a run's guests
     // either) is replaced for plain HTTP. The run's other traffic is HTTPS (box downloads, the
     // ESXi API): it reads `https_proxy`, left as it is. Only the lowercase name, which Ruby reads
     // before the uppercase one.

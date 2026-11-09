@@ -91,12 +91,12 @@ mod tests {
         let cmd = ShellCommand {
             program: "vagrant".into(),
             args: vec!["ssh".into(), "web".into()],
-            cwd: PathBuf::from("/labs/web-vm"),
+            cwd: PathBuf::from("/work/web-vm"),
             env: vec![("VAGRANT_DOTFILE_PATH".into(), "/home/u/.isothrum/runs/web-vm/vagrant".into())],
         };
         assert_eq!(
             cmd.sh_line(),
-            "cd /labs/web-vm && VAGRANT_DOTFILE_PATH=/home/u/.isothrum/runs/web-vm/vagrant vagrant ssh web"
+            "cd /work/web-vm && VAGRANT_DOTFILE_PATH=/home/u/.isothrum/runs/web-vm/vagrant vagrant ssh web"
         );
     }
 }

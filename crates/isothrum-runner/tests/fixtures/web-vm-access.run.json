@@ -428,19 +428,19 @@
    }
   },
   {
-   "name": "attacker",
+   "name": "user",
    "role": "access",
    "on_demand": true,
    "addresses": {
     "lab": "10.61.0.99"
    },
    "native": {
-    "vagrant": "attacker",
+    "vagrant": "user",
     "vm_names": {
-     "virtualbox": "web-vm \u00b7 attacker",
-     "libvirt": "web-vm_attacker",
-     "hyperv": "web-vm-attacker",
-     "vmware_esxi": "web-vm-attacker"
+     "virtualbox": "web-vm \u00b7 user",
+     "libvirt": "web-vm_user",
+     "hyperv": "web-vm-user",
+     "vmware_esxi": "web-vm-user"
     }
    }
   }

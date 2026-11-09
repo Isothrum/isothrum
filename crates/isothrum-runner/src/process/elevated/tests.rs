@@ -105,7 +105,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     let broker = tokio::spawn(broker(root.clone(), "==> dc01: Booting VM...", 0));
     let mut up = ProcessSpec::new("vagrant", ["up", "--provider", "hyperv"]);
     up.env = vec![("DEMO_SECRET".into(), "token-x".into())];
-    up.cwd = Some(PathBuf::from("C:\\labs\\ad\\.isoloom\\vagrant"));
+    up.cwd = Some(PathBuf::from("C:\\work\\ad\\.isoloom\\vagrant"));
     let (exit, lines) = lines_of(&e, &up).await;
     assert!(exit.unwrap().success());
     assert_eq!(lines[..2], ["vagrant up".to_owned(), "==> dc01: Booting VM...".to_owned()]);

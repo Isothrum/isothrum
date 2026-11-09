@@ -1,6 +1,6 @@
 //! A delivered value never shows where the runner writes or speaks, whatever the run goes through
 //! and however a tool prints it: in no file under the runner's home (the run's record, its event
-//! log, its state), in no event, and in no error. The `web-portal` lab delivers through `env`
+//! log, its state), in no event, and in no error. The `web-portal` run delivers through `env`
 //! only; the owner-only files a `state_file` or `guest` delivery keeps in the run's state folder
 //! are tested with those deliveries (`run/tests/cloud/secrets.rs`). A secret's contract relies on it: a value
 //! given to a run reaches that run and nothing else.
@@ -87,7 +87,7 @@ type Operate = for<'a> fn(&'a Running<'a>, &'a Recorder) -> crate::BoxFuture<'a,
 
 #[tokio::test]
 async fn every_operation_masks_the_values_in_its_events() {
-    // Each runs on a lab that is up; whether it succeeds doesn't matter, only what its events say.
+    // Each runs on a run that is up; whether it succeeds doesn't matter, only what its events say.
     let table: [(&str, Operate); 10] = [
         ("up", |r, e| Box::pin(async move { drop(r.up(&opts(), e).await) })),
         ("update", |r, e| Box::pin(async move { drop(r.update(&opts(), e).await) })),
@@ -105,7 +105,7 @@ async fn every_operation_masks_the_values_in_its_events() {
         ("resume", |r, e| Box::pin(async move { drop(r.resume(&opts(), e).await) })),
         ("down", |r, e| Box::pin(async move { drop(r.down(&opts(), e).await) })),
     ];
-    // The lab with a set-up to run again, so a provision runs a tool too.
+    // The run with a set-up to run again, so a provision runs a tool too.
     let mut manifest: serde_json::Value = serde_json::from_str(WEB_PORTAL_ACCESS).unwrap();
     manifest["lifecycle"]["provision"] = serde_json::json!({
         "all": [{ "id": "provision", "argv": ["docker", "compose", "--project-name", "${run.name}", "exec", "web", "true"], "timeout_s": 60 }],

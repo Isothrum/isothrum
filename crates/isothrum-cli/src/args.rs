@@ -53,18 +53,18 @@ pub(crate) enum RunnerCommand {
         #[arg(long)]
         machine: Option<String>,
     },
-    /// Hot-add the lab's on-demand access machine into the running run.
+    /// Hot-add the run's on-demand access machine into the running run.
     Attach {
         /// The run, and the params and secrets its operations take.
         #[command(flatten)]
         op: OpArgs,
-        /// Which on-demand machine, when the lab has more than one (default: its only one).
+        /// Which on-demand machine, when the run has more than one (default: its only one).
         #[arg(long)]
         machine: Option<String>,
-        /// The lab network to attach it to (default: its first).
+        /// The run's network to attach it to (default: its first).
         #[arg(long)]
         network: Option<String>,
-        /// What to run it from (default: the lab's): a container image for a Compose access
+        /// What to run it from (default: the run's): a container image for a Compose access
         /// service, the Vagrant box an access VM boots.
         #[arg(long)]
         image: Option<String>,
@@ -74,7 +74,7 @@ pub(crate) enum RunnerCommand {
         /// The run, and what changing it needs, as for `attach`.
         #[command(flatten)]
         op: OpArgs,
-        /// Which on-demand machine, when the lab has more than one (default: its only one).
+        /// Which on-demand machine, when the run has more than one (default: its only one).
         #[arg(long)]
         machine: Option<String>,
     },
@@ -135,7 +135,7 @@ pub(crate) enum Lifecycle {
     /// `update` after.
     ///
     /// What the update wouldn't remove itself: a Vagrant VM is destroyed, a Compose service
-    /// stopped and removed (also one only moved out of the lab's start).
+    /// stopped and removed (also one only moved out of the run's start).
     Retire {
         /// The machine, by its manifest name.
         machine: String,

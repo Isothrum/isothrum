@@ -361,7 +361,7 @@ async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
-/// A VM lab on a server or a cloud that declares no access machine has none to attach: nothing
+/// A VM run on a server or a cloud that declares no access machine has none to attach: nothing
 /// is run trying.
 #[tokio::test(start_paused = true)]
 async fn a_vm_lab_on_a_server_gets_no_attack_box() {

@@ -46,7 +46,7 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
     let state = cx.run.runner.store.run_dir(cx.run.name())?;
     let home = &cx.run.runner.config.home;
     let mounts = mounts(&[
-        lab_root(cx.run.dir()),
+        run_root(cx.run.dir()),
         &state,
         &home.join("ssh"),
         &crate::driver::plugin_cache(&cx.run.runner.config),
@@ -86,7 +86,7 @@ impl HostNetwork {
 
 /// The run folder a manifest's folder belongs to: the parent of its `.isoloom…` folder (the
 /// folder itself when it isn't under one). A module reads the run's files from there.
-pub(crate) fn lab_root(dir: &Path) -> &Path {
+pub(crate) fn run_root(dir: &Path) -> &Path {
     dir.ancestors()
         .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(".isoloom")))
         .and_then(Path::parent)
@@ -147,10 +147,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_lab_root_is_above_its_isoloom_folder() {
-        assert_eq!(lab_root(Path::new("/l/x/.isoloom/proxmox")), Path::new("/l/x"));
-        assert_eq!(lab_root(Path::new("/l/x/.isoloom-2/docker-vm/proxmox")), Path::new("/l/x"));
-        assert_eq!(lab_root(Path::new("/tmp/m")), Path::new("/tmp/m"));
+    fn the_run_root_is_above_its_isoloom_folder() {
+        assert_eq!(run_root(Path::new("/l/x/.isoloom/proxmox")), Path::new("/l/x"));
+        assert_eq!(run_root(Path::new("/l/x/.isoloom-2/docker-vm/proxmox")), Path::new("/l/x"));
+        assert_eq!(run_root(Path::new("/tmp/m")), Path::new("/tmp/m"));
     }
 
     #[test]

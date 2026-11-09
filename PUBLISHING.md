@@ -11,7 +11,7 @@ Everything here is licensed Apache-2.0.
 Published to crates.io, in this order (leaf crates first; each crate's dependencies are published
 before it):
 
-1. `isothrum-compiler` — a drawn lab becomes an Isoloom spec.
+1. `isothrum-compiler` — a drawn topology becomes an Isoloom spec.
 2. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
 3. `isothrum-machine` — which Vagrant providers this computer can drive.
 4. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for the browser editor.

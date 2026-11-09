@@ -281,7 +281,7 @@ mod tests {
         // embedders (or two tests) in one process saw each other's operations.
         let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, b) = (runner(a.path()), runner(b.path()));
-        let name = RunName::new("lab").unwrap();
+        let name = RunName::new("demo").unwrap();
         let flight = a.enter(&name, Op::Up);
         assert!(a.reserve(&name, 8080, Protocol::Tcp));
         assert_eq!(a.in_flight(), [(name.clone(), Op::Up)]);

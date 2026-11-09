@@ -1,5 +1,5 @@
 //! Bringing a running run up to date with its manifest. The embedder regenerated the manifest
-//! (a machine added to the lab or taken out of it, a set-up changed) and opened the run on it;
+//! (a machine added to the run or taken out of it, a set-up changed) and opened the run on it;
 //! `up`'s steps run again against what is up, with the params the run was started with, so each
 //! engine converges: Terraform makes and removes what changed, Compose starts new services,
 //! Vagrant brings up new VMs. Then, as at `up`, the guests' secrets, the ready conditions, the

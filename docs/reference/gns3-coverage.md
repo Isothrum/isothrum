@@ -3,7 +3,7 @@
 Which of GNS3's features this repository's crates cover: the compiler (`isothrum-compiler`, a
 drawn topology to an Isoloom spec, and `isothrum-wasm`, the same in the browser with every
 target's files and the download) and the runner (`isothrum-runner` and its CLI, which run what
-Isoloom generates). What an application built on them adds around a running lab (console
+Isoloom generates). What an application built on them adds around a run that is up (console
 windows, packet capture, links set down and up, snapshots) is that application's to list.
 
 Built from GNS3's documented feature set; check a row against docs.gns3.com before quoting it.
@@ -40,11 +40,11 @@ Status: **Covered** · **Partial** (part of it, or another mechanism) · **Not c
 | Validation before running | Covered | The engine's plan lists the problems Isoloom finds in the spec |
 | Import a `.gns3` project | Not covered | |
 
-## Running a lab (runner)
+## Running an environment (runner)
 
 | GNS3 feature | Status | What covers it |
 |---|---|---|
-| Start, stop and suspend a lab | Covered | `up`, `down`, `park` (`pause` or `shutdown`) and `resume` |
-| Start and stop one node | Partial | `retire` takes a machine out of a running lab; `attach` and `detach` the lab's on-demand access machine |
+| Start, stop and suspend a run | Covered | `up`, `down`, `park` (`pause` or `shutdown`) and `resume` |
+| Start and stop one node | Partial | `retire` takes a machine out of a run that is up; `attach` and `detach` the run's on-demand access machine |
 | Console to a node | Covered | `console <machine>`: the command that opens a shell in any machine of the run |
-| Remote server | Partial | Proxmox and cloud targets run a lab on another host; no server of the runner's own |
+| Remote server | Partial | Proxmox and cloud targets bring a run up on another host; no server of the runner's own |

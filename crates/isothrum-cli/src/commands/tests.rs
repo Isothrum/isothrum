@@ -54,8 +54,8 @@ fn setup_with(manifest: &str) -> Setup {
         match () {
             () if line.contains(" ps --all ") && now == STOPPED => Reply::ok(&web("exited")),
             () if line.contains(" ps ") && !line.contains(" ps -q ") => Reply::ok(if now == UP { web("running") } else { String::new() }.as_str()),
-            () if line.contains(" ps -q attacker") => Reply::ok("c0ffee"),
-            () if line.contains("--profile access up") => Reply::ok(&format!("attacker from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
+            () if line.contains(" ps -q user") => Reply::ok("c0ffee"),
+            () if line.contains("--profile access up") => Reply::ok(&format!("user from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
             () if line.contains(" up --detach ") => {
                 state.store(UP, Ordering::SeqCst);
                 Reply::ok(&format!("seeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")))
@@ -72,7 +72,7 @@ fn setup_with(manifest: &str) -> Setup {
                 state.store(NONE, Ordering::SeqCst);
                 Reply::ok("")
             }
-            () if line.contains(" config --format json") => Reply::ok(r#"{"services":{"web":{},"db":{},"attacker":{}}}"#),
+            () if line.contains(" config --format json") => Reply::ok(r#"{"services":{"web":{},"db":{},"user":{}}}"#),
             () if line.contains("--profile check run") => Reply::ok("isoloom-check: PASS http://web/\nisoloom-check: END 1 passed, 0 failed"),
             () => Reply::ok(""),
         }
@@ -277,19 +277,27 @@ async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
     s.err.take();
 
     let attached = s
-        .run(&["attach", "--network", "lab", "--image", "me/kali", "--secret-from-env", "DEMO_SECRET=MY_SECRET"])
+        .run(&[
+            "attach",
+            "--network",
+            "lab",
+            "--image",
+            "me/toolbox",
+            "--secret-from-env",
+            "DEMO_SECRET=MY_SECRET",
+        ])
         .await;
     assert_eq!(attached.unwrap(), Verdict::Pass);
-    assert_eq!(s.out.take(), "Attached attacker at 10.30.0.99.\n");
+    assert_eq!(s.out.take(), "Attached user at 10.30.0.99.\n");
     let up = s.fake.calls().into_iter().rfind(|c| c.line().contains("--profile access up")).unwrap();
-    assert_eq!(up.env("ISOLOOM_ACCESS_IMAGE"), Some("me/kali"), "the picked image is delivered");
-    assert!(s.err.take().contains("attacker from me/kali"));
+    assert_eq!(up.env("ISOLOOM_ACCESS_IMAGE"), Some("me/toolbox"), "the picked image is delivered");
+    assert!(s.err.take().contains("user from me/toolbox"));
 
     assert_eq!(s.run(&["detach", "--json"]).await.unwrap(), Verdict::Pass);
     let last = s.last_event();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("detach")));
-    assert_eq!(last["data"]["machine"], "attacker");
-    assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sf attacker")));
+    assert_eq!(last["data"]["machine"], "user");
+    assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sf user")));
 }
 
 /// `attach`'s `--param` and `--secret-from-env` reach the operation: a value it was given is
@@ -297,14 +305,14 @@ async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
 #[tokio::test]
 async fn attach_takes_the_params_and_secrets_it_is_given() {
     let mut s = setup_with(WEB_PORTAL_ACCESS);
-    s.env.push(("MY_SECRET", "me/kali"));
+    s.env.push(("MY_SECRET", "me/toolbox"));
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     s.err.take();
     // The image is the secret's value here: what the attach prints of it is masked.
-    let attached = s.run(&["attach", "--image", "me/kali", "--secret-from-env", "DEMO_SECRET=MY_SECRET"]).await;
+    let attached = s.run(&["attach", "--image", "me/toolbox", "--secret-from-env", "DEMO_SECRET=MY_SECRET"]).await;
     assert_eq!(attached.unwrap(), Verdict::Pass);
     let said = s.err.take();
-    assert!(said.contains("attacker from ***") && !said.contains("me/kali"), "{said}");
+    assert!(said.contains("user from ***") && !said.contains("me/toolbox"), "{said}");
 
     let fresh = setup_with(WEB_PORTAL_ACCESS);
     assert_eq!(fresh.run(&["attach", "--param", "ISOLOOM_DERIVED=7"]).await.unwrap(), Verdict::Fail);

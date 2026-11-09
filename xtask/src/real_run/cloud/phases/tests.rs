@@ -25,7 +25,7 @@ fn declared(params: &[(&str, bool)], slots: &[&str]) -> String {
 fn aws() -> Account {
     Account {
         secrets: vec!["AWS_ACCESS_KEY_ID".into(), "AWS_SECRET_ACCESS_KEY".into()],
-        params: vec![("AWS_PROFILE".into(), "labs".into()), ("region".into(), "eu-west-3".into())],
+        params: vec![("AWS_PROFILE".into(), "demo".into()), ("region".into(), "eu-west-3".into())],
         place: vec!["--region".into(), "eu-west-3".into()],
     }
 }
@@ -35,8 +35,8 @@ fn plan() -> Vec<Phase> {
         &[("region", false), ("allowed_cidr", true), ("AWS_PROFILE", false), ("instance_type", false)],
         &["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"],
     );
-    let (lab, home) = (PathBuf::from("/r/solo-web"), PathBuf::from("/r/home"));
-    phases(&args(CloudName::Aws), &aws(), &declared, "203.0.113.7/32", (&lab, &home)).unwrap()
+    let (run_dir, home) = (PathBuf::from("/r/solo-web"), PathBuf::from("/r/home"));
+    phases(&args(CloudName::Aws), &aws(), &declared, "203.0.113.7/32", (&run_dir, &home)).unwrap()
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn the_start_takes_the_accounts_place_the_smallest_size_this_machines_address_an
     for part in [
         "--param allowed_cidr=203.0.113.7/32",
         "--param instance_type=t3.micro",
-        "--param AWS_PROFILE=labs",
+        "--param AWS_PROFILE=demo",
         "--param region=eu-west-3",
         "--secret-from-env AWS_ACCESS_KEY_ID",
         "--lifetime 60",
@@ -70,12 +70,12 @@ fn the_start_takes_the_accounts_place_the_smallest_size_this_machines_address_an
 fn a_module_without_a_size_param_keeps_its_own_sizes() {
     // cloud-vm modules size each machine from the spec: solo-web is the smallest already.
     let declared = declared(&[("allowed_cidr", true), ("subscription_id", true)], &[]);
-    let (lab, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
+    let (run_dir, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
     let account = Account {
         params: vec![("subscription_id".into(), "sub-1".into())],
         ..Account::default()
     };
-    let p = phases(&args(CloudName::Azure), &account, &declared, "1.2.3.4/32", (&lab, &home)).unwrap();
+    let p = phases(&args(CloudName::Azure), &account, &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap();
     let up = p[0].args.join(" ");
     assert!(
         up.contains("--param subscription_id=sub-1") && up.contains("--param allowed_cidr=1.2.3.4/32"),
@@ -87,8 +87,8 @@ fn a_module_without_a_size_param_keeps_its_own_sizes() {
 #[test]
 fn a_param_the_manifest_requires_and_the_account_lacks_refuses_the_run() {
     let declared = declared(&[("allowed_cidr", true), ("compartment_id", true)], &[]);
-    let (lab, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
-    let err = phases(&args(CloudName::Oci), &Account::default(), &declared, "1.2.3.4/32", (&lab, &home)).unwrap_err();
+    let (run_dir, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
+    let err = phases(&args(CloudName::Oci), &Account::default(), &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap_err();
     assert!(err.to_string().contains("needs `compartment_id`"), "{err}");
 }
 

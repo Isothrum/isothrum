@@ -180,13 +180,13 @@ fn opts(region: &str, profile: &str) -> RunOptions {
 async fn a_cloud_run_records_its_cloud_and_expiry_and_gives_terraform_its_place_and_keys() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let started = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    let started = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(started.record.cloud, Some(Cloud::Aws));
     assert_eq!(started.record.expires_at, Some(TEST_TIME + 240 * 60), "the manifest's default life");
     let apply = a.fake.last("terraform apply").unwrap();
     assert_eq!(apply.env("TF_VAR_region"), Some("eu-west-3"));
     assert_eq!(apply.env("TF_VAR_expires_at"), Some((TEST_TIME + 240 * 60).to_string().as_str()));
-    assert_eq!(apply.env("AWS_PROFILE"), Some("labs"));
+    assert_eq!(apply.env("AWS_PROFILE"), Some("demo"));
     assert_eq!(apply.env("AWS_SECRET_ACCESS_KEY"), Some("s3cr3t-key"));
     assert!(!apply.line().contains("s3cr3t"), "never on a command line");
     let entry = started.outputs.iter().find(|o| o.name == "web_web").unwrap();
@@ -198,7 +198,7 @@ async fn a_cloud_run_records_its_cloud_and_expiry_and_gives_terraform_its_place_
 async fn a_lifetime_the_embedder_gives_sets_the_expiry() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let opts = opts("eu-west-3", "labs").with_lifetime(std::time::Duration::from_secs(3600));
+    let opts = opts("eu-west-3", "demo").with_lifetime(std::time::Duration::from_secs(3600));
     let started = run.up(&opts, &Recorder::new()).await.unwrap();
     assert_eq!(started.record.expires_at, Some(TEST_TIME + 3600));
 }
@@ -209,11 +209,11 @@ async fn a_destroy_goes_to_the_region_and_profile_applied_never_the_current_ones
     // empty region while the run kept billing where it was created.
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     run.down(&opts("us-east-1", "default"), &Recorder::new()).await.unwrap();
     let destroy = a.fake.last("terraform destroy").unwrap();
     assert_eq!(destroy.env("TF_VAR_region"), Some("eu-west-3"));
-    assert_eq!(destroy.env("AWS_PROFILE"), Some("labs"));
+    assert_eq!(destroy.env("AWS_PROFILE"), Some("demo"));
     assert_eq!(destroy.env("TF_VAR_expires_at"), Some((TEST_TIME + 240 * 60).to_string().as_str()));
     assert_eq!(destroy.env("AWS_ACCESS_KEY_ID"), Some("AKIAFAKE"), "the connection is the current one");
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
@@ -226,7 +226,7 @@ async fn an_apply_that_converges_on_a_second_try_is_applied_again() {
     let a = account(1);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    let started = run.up(&opts("eu-west-3", "labs"), &events).await.unwrap();
+    let started = run.up(&opts("eu-west-3", "demo"), &events).await.unwrap();
     assert_eq!(started.record.state, RunState::Ready);
     assert_eq!(a.fake.calls().iter().filter(|c| c.line().starts_with("terraform apply")).count(), 2);
     let retried = events
@@ -240,7 +240,7 @@ async fn an_apply_that_converges_on_a_second_try_is_applied_again() {
 async fn an_apply_that_keeps_failing_fails_the_start_after_its_retries() {
     let a = account(2);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ToolFailed);
     assert_eq!(
         a.fake.calls().iter().filter(|c| c.line().starts_with("terraform apply")).count(),

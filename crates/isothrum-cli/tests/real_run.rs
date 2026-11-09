@@ -1,5 +1,5 @@
 //! A real run on this host's Docker (ignored; `cargo run -p xtask -- real-run` sets it up): the
-//! run Isoloom generated in `$ISOTHRUM_REAL_LAB` goes up, answers on its entry, passes its
+//! run Isoloom generated in `$ISOTHRUM_REAL_RUN_DIR` goes up, answers on its entry, passes its
 //! checks, parks, resumes on the same address, and goes, leaving nothing. Every event is kept in
 //! `$ISOTHRUM_REAL_EVENTS` when it is set.
 
@@ -115,7 +115,7 @@ fn lifecycle(real: &mut Real) -> Outcome {
 #[test]
 #[ignore = "needs Docker and a generated run: cargo run -p xtask -- real-run"]
 fn a_generated_lab_runs_for_real() -> Outcome {
-    let run = PathBuf::from(std::env::var("ISOTHRUM_REAL_LAB").map_err(|_| "ISOTHRUM_REAL_LAB: a run folder Isoloom generated for docker")?);
+    let run = PathBuf::from(std::env::var("ISOTHRUM_REAL_RUN_DIR").map_err(|_| "ISOTHRUM_REAL_RUN_DIR: a run folder Isoloom generated for docker")?);
     let mut real = Real {
         run,
         home: tempfile::tempdir()?,

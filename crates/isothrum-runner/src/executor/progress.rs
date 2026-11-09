@@ -23,7 +23,7 @@ use crate::error::{Error, TimedOut};
 use crate::process::{Captured, ProcessError, ProcessRunner, ProcessSpec, capture_echoing};
 
 /// The most any step runs, from its start, however much progress it makes, unless its own limit
-/// is longer: six hours, the longest limit Isoloom gives a step today (a Windows lab's `vagrant
+/// is longer: six hours, the longest limit Isoloom gives a step today (a Windows run's `vagrant
 /// up`), so no step stops sooner than it did when its limit counted from its start.
 pub(crate) const CEILING: Duration = Duration::from_secs(6 * 3600);
 

@@ -103,7 +103,7 @@ isothrum update [OPTIONS] [PATH]
 
 Take a machine out of the running run, ahead of its removal from the manifest and the `update` after.
 
-What the update wouldn't remove itself: a Vagrant VM is destroyed, a Compose service stopped and removed (also one only moved out of the lab's start).
+What the update wouldn't remove itself: a Vagrant VM is destroyed, a Compose service stopped and removed (also one only moved out of the run's start).
 
 ```text
 isothrum retire [OPTIONS] <MACHINE> [PATH]
@@ -165,7 +165,7 @@ isothrum provision [OPTIONS] [PATH]
 
 ## `isothrum attach`
 
-Hot-add the lab's on-demand access machine into the running run.
+Hot-add the run's on-demand access machine into the running run.
 
 ```text
 isothrum attach [OPTIONS] [PATH]
@@ -178,9 +178,9 @@ isothrum attach [OPTIONS] [PATH]
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
 - `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
-- `--machine <MACHINE>`: Which on-demand machine, when the lab has more than one (default: its only one)
-- `--network <NETWORK>`: The lab network to attach it to (default: its first)
-- `--image <IMAGE>`: What to run it from (default: the lab's): a container image for a Compose access service, the Vagrant box an access VM boots.
+- `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
+- `--network <NETWORK>`: The run's network to attach it to (default: its first)
+- `--image <IMAGE>`: What to run it from (default: the run's): a container image for a Compose access service, the Vagrant box an access VM boots.
 
 ## `isothrum detach`
 
@@ -197,7 +197,7 @@ isothrum detach [OPTIONS] [PATH]
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
 - `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
-- `--machine <MACHINE>`: Which on-demand machine, when the lab has more than one (default: its only one)
+- `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
 
 ## `isothrum console`
 

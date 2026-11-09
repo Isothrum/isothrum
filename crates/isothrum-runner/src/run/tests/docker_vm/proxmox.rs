@@ -41,7 +41,7 @@ fn server_tools(home: &Path, engine: &Mutex<Engine>, call: &Call) -> Reply {
     Reply::ok("")
 }
 
-/// A Proxmox server's run of the lab: its folder, fakes, runner and options.
+/// A run on a Proxmox server: its folder, fakes, runner and options.
 struct Server {
     folder: LabFolder,
     fake: Arc<FakeProcesses>,
@@ -115,7 +115,7 @@ async fn a_console_goes_through_the_runs_ssh_jump() {
     assert!(console.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", console.args);
 }
 
-/// A console into a service of the lab in the server's VM: `ssh -t` to the VM as the guest's
+/// A console into a service of the run in the server's VM: `ssh -t` to the VM as the guest's
 /// user, then into the service's container.
 #[tokio::test(start_paused = true)]
 async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() {
@@ -149,7 +149,7 @@ async fn on_proxmox_retiring_a_service_removes_it_in_the_vm_over_ssh() {
     assert_eq!(s.fake.calls().iter().filter(|c| c.line().contains("apply")).count(), applies, "no apply");
 }
 
-/// On a server too, the VM the lab's containers run in is never retired: refused from the
+/// On a server too, the VM the run's containers run in is never retired: refused from the
 /// manifest's `guest`, before anything runs.
 #[tokio::test(start_paused = true)]
 async fn on_proxmox_the_vm_the_containers_run_in_is_not_retired() {

@@ -8,7 +8,7 @@ use super::*;
 
 /// A start's options with the run's secret.
 fn with_secret(region: &str) -> RunOptions {
-    let mut o = opts(region, "labs");
+    let mut o = opts(region, "demo");
     o.secrets.insert("DEMO_SECRET", SecretValue::new("token-it's $HOME"));
     o
 }
@@ -157,7 +157,7 @@ async fn an_output_the_state_marks_sensitive_is_masked_and_never_in_the_message(
     let a = account_of(&with_a_state_secret(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let events = Recorder::new();
-    let started = run.up(&opts("eu-west-3", "labs"), &events).await.unwrap();
+    let started = run.up(&opts("eu-west-3", "demo"), &events).await.unwrap();
     let secret = started.outputs.iter().find(|o| o.name == "db_password").unwrap();
     assert!(secret.sensitive, "the state's word wins over the manifest's");
     assert_eq!((secret.value.as_deref(), secret.revealed()), (Some("***"), Some("hunter2-db")));

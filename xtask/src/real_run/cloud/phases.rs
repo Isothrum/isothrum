@@ -10,7 +10,7 @@ use crate::Res;
 /// What a phase does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Step {
-    /// Start the lab.
+    /// Start the run.
     Up,
     /// Read its state.
     Status,
@@ -71,14 +71,14 @@ pub(crate) trait Runs {
 /// The params a module takes for its machines' size, the smallest set on them.
 const SIZES: [&str; 6] = ["instance_type", "size", "vm_size", "machine_type", "shape", "type"];
 
-/// The phases on `lab` (`.isoloom/<target>/<cloud>/run.json`) with the runner's home `home`:
+/// The phases on `run` (`.isoloom/<target>/<cloud>/run.json`) with the runner's home `home`:
 /// `account`'s params and slots that the generated manifest `declared` takes, the smallest size,
 /// the firewall open to `cidr`.
 ///
 /// # Errors
 ///
 /// The manifest isn't JSON, or it needs a param the account can't give.
-pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &str, (lab, home): (&Path, &Path)) -> Res<Vec<Phase>> {
+pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &str, (run_dir, home): (&Path, &Path)) -> Res<Vec<Phase>> {
     let manifest: serde_json::Value = serde_json::from_str(declared)?;
     let names = |key: &str| -> Vec<String> {
         let list = manifest.get(key).and_then(serde_json::Value::as_array);
@@ -99,9 +99,9 @@ pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &st
     let secrets: Vec<&String> = account.secrets.iter().filter(|s| slots.contains(s)).collect();
     let common = |step: &str| -> Vec<String> {
         let target = format!("{}/{}", a.target.id(), a.cloud.id());
-        let lab = lab.display().to_string();
+        let run_dir = run_dir.display().to_string();
         let home = home.display().to_string();
-        [step, &lab, "--target", &target, "--name", NAME, "--home", &home, "--json"]
+        [step, &run_dir, "--target", &target, "--name", NAME, "--home", &home, "--json"]
             .map(str::to_owned)
             .to_vec()
     };

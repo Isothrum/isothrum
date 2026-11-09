@@ -15,11 +15,11 @@ use crate::{HostPorts, ProcessRunner, RunnerConfig};
 /// The `web-portal` docker manifest's text.
 pub(crate) const WEB_PORTAL: &str = include_str!("../tests/fixtures/web-portal.run.json");
 
-/// `web-portal` with an on-demand access machine (a Compose `attacker` service in the `access`
+/// `web-portal` with an on-demand access machine (a Compose `user` service in the `access`
 /// profile): the hot-add op's docker fixture.
 pub(crate) const WEB_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/web-portal-access.run.json");
 
-/// `web-vm` with an on-demand access VM (a Vagrant `attacker` define): the hot-add op's VM fixture.
+/// `web-vm` with an on-demand access VM (a Vagrant `user` define): the hot-add op's VM fixture.
 pub(crate) const WEB_VM_ACCESS: &str = include_str!("../tests/fixtures/web-vm-access.run.json");
 
 /// Isoloom's `proxmox` fixture (the solo-web example): Terraform, ready files and checks over SSH.
@@ -189,11 +189,11 @@ pub(crate) async fn detach(run: &crate::Running<'_>, machine: Option<&str>, even
     run.detach(machine, &crate::RunOptions::new(), events).await
 }
 
-/// A running `run` whose lab declares no access machine has none to attach: an attach and a
+/// A running `run` that declares no access machine has none to attach: an attach and a
 /// detach are each refused (`unsupported`, saying why), and nothing is run.
 pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake: &FakeProcesses) {
     let calls = fake.calls().len();
-    let err = attach(run, None, None, Some("me/kali:2026"), &crate::Recorder::new()).await.unwrap_err();
+    let err = attach(run, None, None, Some("me/toolbox:2026"), &crate::Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Unsupported);
     assert!(err.to_string().contains("this run declares no access machine"), "{err}");
     assert_eq!(

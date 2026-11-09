@@ -304,7 +304,7 @@ fn regenerated() -> String {
     m.to_string()
 }
 
-/// An update of a running Compose lab runs its start again, so a service added comes up with the
+/// An update of a running Compose run runs its start again, so a service added comes up with the
 /// others; a service taken out goes at its retire, before the update, which then removes nothing
 /// of its own accord beyond what its start step says.
 #[tokio::test]
@@ -363,7 +363,7 @@ async fn an_unreadable_config_fails_the_free_ports_check_before_anything_starts(
     assert_eq!(f.called(" up --detach "), 0, "nothing started");
 }
 
-/// The lab's Docker, its config unreadable once the run's ports are pinned.
+/// The run's Docker, its config unreadable once the run's ports are pinned.
 fn unreadable_once_pinned(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if call.line().contains(" config --format json") && pinned(call).is_some() {
         return Reply::ok("not json");

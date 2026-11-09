@@ -115,14 +115,14 @@ jobs:
           {
             echo "RECORD=$RECORD"
             echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
-            echo "LAB=$RUNNER_TEMP/lab"
+            echo "RUN_DIR=$RUNNER_TEMP/run"
           } >> "$GITHUB_ENV"
 
       - name: Generate the tree with Isoloom
         timeout-minutes: 10
         run: |
-          cp -r ".isoloom-src/examples/$EXAMPLE" "$LAB"
-          isoloom generate --target "$TARGET" "$LAB"
+          cp -r ".isoloom-src/examples/$EXAMPLE" "$RUN_DIR"
+          isoloom generate --target "$TARGET" "$RUN_DIR"
 
       # The runner takes the run's values as `--param` and `--secret-from-env`; it withholds inherited
       # TF_VAR_* from Terraform. It connects with its home's key, so the node's key becomes that.
@@ -141,7 +141,7 @@ jobs:
           mkdir -p "$ISOTHRUM_HOME/ssh"
           printf '%s\n' "$SSH_KEY" > "$ISOTHRUM_HOME/ssh/id_ed25519"
           ssh-keygen -y -f "$ISOTHRUM_HOME/ssh/id_ed25519" > "$ISOTHRUM_HOME/ssh/id_ed25519.pub"
-          manifest=$(find "$LAB/.isoloom" -name run.json | head -n 1)
+          manifest=$(find "$RUN_DIR/.isoloom" -name run.json | head -n 1)
           secrets=(secret:proxmox_api_token=PROXMOX_VE_API_TOKEN)
           .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" \
             param:proxmox_endpoint="$PROXMOX_VE_ENDPOINT" param:node="$NODE" param:datastore="$DATASTORE" \
@@ -155,28 +155,28 @@ jobs:
         timeout-minutes: 60
         run: |
           mapfile -t args < "$RUNNER_TEMP/up.args"
-          isothrum up "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/up.jsonl"
+          isothrum up "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/up.jsonl"
       - name: Check
         id: check
         if: steps.up.outcome == 'success'
         timeout-minutes: 20
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum check "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
+          isothrum check "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
       - name: Down
         id: down
         if: always() && steps.build.outcome == 'success'
         timeout-minutes: 25
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum down "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
+          isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
       - name: Down, again
         if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
         timeout-minutes: 25
         run: |
           sleep 30
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          if ! isothrum down "$LAB" --target "$TARGET" "${args[@]}"; then
+          if ! isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}"; then
             echo "::error title=Proxmox leftovers::$EXAMPLE may still have VMs on the cluster: check it by hand"
             exit 1
           fi
@@ -253,7 +253,7 @@ jobs:
           {
             echo "RECORD=$RECORD"
             echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
-            echo "LAB=$RUNNER_TEMP/lab"
+            echo "RUN_DIR=$RUNNER_TEMP/run"
           } >> "$GITHUB_ENV"
 
       - name: Reap what earlier runs left (expired only)
@@ -264,8 +264,8 @@ jobs:
       - name: Generate the tree with Isoloom
         timeout-minutes: 10
         run: |
-          cp -r ".isoloom-src/examples/$EXAMPLE" "$LAB"
-          isoloom generate --target "$TARGET" -s "defaults.cloud.aws.region=$AWS_REGION" "$LAB"
+          cp -r ".isoloom-src/examples/$EXAMPLE" "$RUN_DIR"
+          isoloom generate --target "$TARGET" -s "defaults.cloud.aws.region=$AWS_REGION" "$RUN_DIR"
 
       # The runner takes the run's values as `--param` and `--secret-from-env` (it withholds
       # inherited TF_VAR_* and cloud credentials from Terraform), sets the expiry from --lifetime
@@ -274,7 +274,7 @@ jobs:
         env:
           AWS_SIZE: ${{ vars.REAL_AWS_SIZE || 't3.small' }}
         run: |
-          manifest=$(find "$LAB/.isoloom" -name run.json | head -n 1)
+          manifest=$(find "$RUN_DIR/.isoloom" -name run.json | head -n 1)
           secrets=(secret:AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID secret:AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
             secret:AWS_SESSION_TOKEN=AWS_SESSION_TOKEN)
           sizes=()
@@ -288,21 +288,21 @@ jobs:
         timeout-minutes: 35
         run: |
           mapfile -t args < "$RUNNER_TEMP/up.args"
-          isothrum up "$LAB" --target "$TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
+          isothrum up "$RUN_DIR" --target "$TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
       - name: Check
         id: check
         if: steps.up.outcome == 'success'
         timeout-minutes: 15
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum check "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
+          isothrum check "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
       - name: Down
         id: down
         if: always() && steps.build.outcome == 'success'
         timeout-minutes: 20
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum down "$LAB" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
+          isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
       - name: Reap after a failed teardown
         if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
         timeout-minutes: 15

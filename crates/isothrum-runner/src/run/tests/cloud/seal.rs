@@ -36,7 +36,7 @@ fn sealed_in(a: &Account, what: &str) -> Vec<String> {
 async fn a_run_is_sealed_once_ready_then_reported_ready() {
     let a = account_of(&sealing(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let started = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    let started = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(sealed_in(&a, "terraform apply"), ["false", "true"], "set up open, then sealed");
     let lines = a.fake.lines();
     let seal = lines.iter().rposition(|l| l.starts_with("terraform apply")).unwrap();
@@ -50,7 +50,7 @@ async fn a_failed_seal_leaves_the_run_not_ready_and_says_so() {
     let a = account_of(&sealing(), 0);
     a.cloud.seal_fails.store(true, Ordering::SeqCst);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap_err();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::NotSealed);
     assert!(err.to_string().contains("UnauthorizedOperation"), "{err}");
     let record = a.runner.store.record(run.name()).unwrap().unwrap();
@@ -58,7 +58,7 @@ async fn a_failed_seal_leaves_the_run_not_ready_and_says_so() {
     assert_eq!(record.last.unwrap().code, Some(ErrorCode::NotSealed));
     assert_ne!(run.status().await.unwrap().state, RunState::Ready);
     // Its destroy still replays the seal it tried.
-    run.down(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.down(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(sealed_in(&a, "terraform destroy"), ["true"]);
 }
 
@@ -66,7 +66,7 @@ async fn a_failed_seal_leaves_the_run_not_ready_and_says_so() {
 async fn every_later_operation_replays_the_seal_and_a_down_forgets_it() {
     let a = account_of(&sealing(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     // A later start over what exists removes it with the seal it has, then starts open again.
     let again = opts("us-east-1", "default").with_occupied(Occupied::Replace);
     run.up(&again, &Recorder::new()).await.unwrap();
@@ -78,6 +78,6 @@ async fn every_later_operation_replays_the_seal_and_a_down_forgets_it() {
     assert_eq!(sealed_in(&a, "terraform destroy"), ["true", "true"], "the down replays it");
     let record = a.runner.store.record(run.name()).unwrap().unwrap();
     assert!(!record.params.contains_key("sealed"), "forgotten after a successful down");
-    run.up(&opts("eu-west-3", "labs"), &Recorder::new()).await.unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(sealed_in(&a, "terraform apply")[4], "false", "a fresh start begins unsealed");
 }

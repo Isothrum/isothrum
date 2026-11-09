@@ -91,7 +91,7 @@ pub(crate) struct CloudArgs {
     /// starts but the destroy.
     #[arg(long, default_value_t = 45)]
     pub(crate) budget_minutes: u64,
-    /// How long the lab may live before the cloud's own guard (and the reaper) ends it, in minutes.
+    /// How long the run may live before the cloud's own guard (and the reaper) ends it, in minutes.
     #[arg(long, default_value_t = 60)]
     pub(crate) lifetime_minutes: u64,
     /// This host, as `cargo xtask tiers record` names it (mac, jarvis, karen, friday).
@@ -99,7 +99,7 @@ pub(crate) struct CloudArgs {
     pub(crate) host: String,
 }
 
-/// The run's name, its own so it never meets a lab started by hand.
+/// The run's name, its own so it never meets a run started by hand.
 pub(crate) const NAME: &str = "isothrum-real-run";
 
 /// Runs `a` with the Isoloom checkout `isoloom`: refused without credentials; else the example
@@ -112,19 +112,19 @@ pub(crate) fn run(a: &CloudArgs, isoloom: &Path) -> Res<()> {
         .map_err(|missing| format!("no {} credentials in the environment: {}", a.cloud.id(), missing.join("; ")))?;
     let root = repo::root();
     let out = root.join("target").join("real-run").join(format!("{}-{}", a.target.id(), a.cloud.id()));
-    let lab = out.join(&a.example);
-    repo::remove(&lab)?;
-    repo::copy_dir(&isoloom.join("examples").join(&a.example), &lab).map_err(|e| format!("copying the example: {e}"))?;
+    let run_dir = out.join(&a.example);
+    repo::remove(&run_dir)?;
+    repo::copy_dir(&isoloom.join("examples").join(&a.example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
     let isoloom_bin = super::build_isoloom(&root, isoloom)?;
-    process::run(Command::new(isoloom_bin).args(["generate", "--target", a.target.id()]).current_dir(&lab))?;
-    let manifest = lab.join(".isoloom").join(a.target.id()).join(a.cloud.id()).join("run.json");
+    process::run(Command::new(isoloom_bin).args(["generate", "--target", a.target.id()]).current_dir(&run_dir))?;
+    let manifest = run_dir.join(".isoloom").join(a.target.id()).join(a.cloud.id()).join("run.json");
     let declared = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let cidr = match var("ALLOWED_CIDR") {
         Some(c) => c,
         None => format!("{}/32", account::public_ip()?),
     };
     let bin = build_isothrum(&root)?;
-    let plan = phases(a, &account, &declared, &cidr, (&lab, &out.join("home")))?;
+    let plan = phases(a, &account, &declared, &cidr, (&run_dir, &out.join("home")))?;
     let started = Instant::now();
     let outcome = execute(&plan, Duration::from_secs(a.budget_minutes * 60), &mut Real { bin }, &|| started.elapsed());
     for (phase, ran) in &outcome {
@@ -140,7 +140,7 @@ pub(crate) fn run(a: &CloudArgs, isoloom: &Path) -> Res<()> {
         );
         Ok(())
     } else {
-        Err("the real run failed (the lab was destroyed; see the phases above)".into())
+        Err("the real run failed (the run was destroyed; see the phases above)".into())
     }
 }
 

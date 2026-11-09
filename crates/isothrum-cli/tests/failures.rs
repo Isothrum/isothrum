@@ -27,9 +27,9 @@ fn last_event(out: &Output) -> Outcome<Value> {
 
 #[test]
 fn a_folder_without_a_manifest_is_a_usage_error_event_with_json() {
-    let (home, lab) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let lab = lab.path().to_str().unwrap();
-    let out = isothrum(home.path(), &["up", lab, "--name", "ci-run", "--json"]).unwrap();
+    let (home, run_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let run_dir = run_dir.path().to_str().unwrap();
+    let out = isothrum(home.path(), &["up", run_dir, "--name", "ci-run", "--json"]).unwrap();
     assert_eq!(out.status.code(), Some(2));
     let event = last_event(&out).unwrap();
     assert_eq!((event["event"].as_str(), event["code"].as_str()), (Some("error"), Some("usage")), "{event}");
@@ -40,7 +40,7 @@ fn a_folder_without_a_manifest_is_a_usage_error_event_with_json() {
     assert!(event["message"].as_str().unwrap().contains("isoloom generate"), "{event}");
     assert!(out.stderr.is_empty(), "nothing else: {}", String::from_utf8_lossy(&out.stderr));
 
-    let text = isothrum(home.path(), &["status", lab]).unwrap();
+    let text = isothrum(home.path(), &["status", run_dir]).unwrap();
     assert_eq!(text.status.code(), Some(2));
     assert!(text.stdout.is_empty() && String::from_utf8_lossy(&text.stderr).starts_with("error: "));
 }
@@ -120,8 +120,8 @@ fn wait_until(ready: impl Fn() -> bool) -> bool {
 fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
     use std::os::unix::fs::PermissionsExt;
 
-    let (home, lab, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let dir = lab.path().join(".isoloom/docker");
+    let (home, run_dir, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let dir = run_dir.path().join(".isoloom/docker");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json")).unwrap();
     let docker = bin.path().join("docker");
@@ -133,7 +133,7 @@ fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
     let child = Command::new(env!("CARGO_BIN_EXE_isothrum"))
         .args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
         .arg(home.path())
-        .arg(lab.path())
+        .arg(run_dir.path())
         .env("PATH", path)
         .env("DEMO_SECRET", "token-x")
         .env("ISOTHRUM_TEST_PIDFILE", &pidfile)

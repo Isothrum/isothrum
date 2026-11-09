@@ -45,7 +45,7 @@ pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str
 /// `from` (relative to the manifest's folder `dir`) as a folder inside the run's project: the
 /// folder above the `.isoloom…` one.
 pub(super) fn inside_project(dir: &Path, from: &str) -> Option<PathBuf> {
-    let project = std::fs::canonicalize(crate::container::lab_root(dir)).ok()?;
+    let project = std::fs::canonicalize(crate::container::run_root(dir)).ok()?;
     let source = std::fs::canonicalize(dir.join(from)).ok()?;
     (source.starts_with(&project) && source.is_dir()).then_some(source)
 }

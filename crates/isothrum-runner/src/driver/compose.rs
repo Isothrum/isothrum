@@ -185,7 +185,7 @@ fn service_of<'m>(machine: &'m Machine, what: &str) -> Result<&'m str> {
 
 impl Compose {
     /// Brings the manifest's access service up in its profile, so the initial `up` left it down,
-    /// with the services in its namespace (its routes through the lab's router):
+    /// with the services in its namespace (its routes through the run's router):
     /// `docker compose --profile access up -d --wait --no-deps <service> <its sidecars>`, with the
     /// picked image in [`access::IMAGE_ENV`] (the service's `${VAR:-default}` keeps its default
     /// otherwise). When a network is named (its native name), the started container is also

@@ -4,7 +4,7 @@ All notable changes to Isothrum are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Isothrum is the runner (crate and CLI) and the lab-model compiler (drawing → spec)
+Isothrum is the runner (crate and CLI) and the topology compiler (drawing → spec)
 plus its WASM build. It executes what Isoloom generates; the apps that embed it share it.
 
 ## [Unreleased]
@@ -101,7 +101,7 @@ change.
 - **An update restarts a running VM whose boot-time settings changed.** Vagrant applies a VM's
   synced folders, networks, forwarded ports, size and provider settings only when it boots it, and
   an update reran `up`'s steps on the running VM: a host folder added to a running `docker-vm`
-  lab was never mounted in its VM, so its container saw an empty folder (the same for any such
+  run was never mounted in its VM, so its container saw an empty folder (the same for any such
   change to a running `vagrant` VM). The run's record now keeps each VM's boot digest (the
   manifest's `native.boot_digest`) at `up` and at every update; an update first restarts each
   running VM whose digest changed (`vagrant reload <define> --no-provision`, in the run's Vagrant
@@ -109,7 +109,7 @@ change.
   runs in it again. A digest that isn't known on both sides (a run recorded before, a manifest
   without one) restarts nothing; the update records the manifest's.
 
-- **A lab's own access machine reaches the lab through its router.** On Compose, `attach` started
+- **A run's own access machine reaches the run through its router.** On Compose, `attach` started
   the access service alone (`--no-deps`), without the service that sets its routes (Isoloom's
   `<machine>-routes`, in its network namespace): an access machine on its own network reached
   nothing behind the router. Attach and detach now take the services in the machine's namespace
@@ -266,7 +266,7 @@ change.
   with no VM to run in, an on-demand machine on a server or cloud). New operation in events:
   `retire`.
 - `Running::update` (and `isothrum update`): brings a running run up to date with its manifest,
-  regenerated since it started (a machine added to the lab or taken out). `up`'s steps run again
+  regenerated since it started (a machine added to the run or taken out). `up`'s steps run again
   with the params the run was started with, so each engine converges, then the guests' secrets,
   the ready conditions and the outputs, as at `up`. A machine that was running keeps what it was
   given: guest secrets go to new machines only. The run stays ready meanwhile; a sealed run stays
@@ -288,6 +288,10 @@ change.
 
 ### Changed
 
+- **No more "lab" on the public surface.** The command line's help (`attach`, `detach`,
+  `retire`), the runner's rustdoc and the crates' keywords speak of runs; the real-run test reads
+  its run folder from `ISOTHRUM_REAL_RUN_DIR` (was `ISOTHRUM_REAL_LAB`); the tests' access machine
+  is a neutral `user`.
 - **Breaking: `Runner::events` returns an `EventLog`**: its `events`, and `unreadable`, how many
   lines of the log it couldn't read as an event. Those lines were dropped without a word, so a
   1.x log's `hook_failed` warnings vanished from `isothrum events`, which now says how many lines
@@ -329,7 +333,7 @@ change.
   the program, and each request carries the session's random token and its number, without which
   the broker deletes it unrun. Only a broker of this release reads them.
 
-- **Breaking:** **A step's timeout counts time without progress, not its total time.** A docker-vm lab's
+- **Breaking:** **A step's timeout counts time without progress, not its total time.** A docker-vm run's
   `docker compose up --pull missing` pulling a 1.1 GB image through a slow VM network was still
   downloading when its 30-minute step was stopped. A step's `timeout_s` (and every limit the
   runner gives its own tool calls) is now the time it may go without progress: a new output line,
@@ -403,7 +407,7 @@ change.
   `isothrum shell` goes with it: use `isothrum console <machine>`.
 
 - **Breaking:** **`isothrum-machine` keeps only provider detection.** Its public API is now
-  `providers::{detect, id, Provider, ProviderStatus}` (the crate root no longer re-exports
+  `providers::{detect, Provider, ProviderStatus}` (the crate root no longer re-exports
   `Provider` and `ProviderStatus`: import them from `providers`). The download record's format
   goes too (`storage::{Owned, OwnedBox, OwnedImage, load, parse_box_list}`): half a format, its
   writer in the one program that keeps the record, which now holds all of it. Gone, with no user
@@ -420,10 +424,10 @@ change.
 - **Breaking:** **`Serialize` and `Deserialize` on `isothrum-machine`'s `ProviderStatus`**: nothing
   wrote or read it as JSON (an embedder reads its fields). `Provider`, Isoloom's own, keeps both.
 - **Breaking:** **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
-  detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox lab is
+  detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox run is
   Terraform's.
 - **Breaking:** **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
-  Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud lab is Terraform's, not
+  Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud run is Terraform's, not
   a Vagrant provider's).
 - **Breaking:** **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
 - **Breaking:** **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
@@ -452,15 +456,15 @@ change.
   `isothrum-machine`: `Provider::ALL`, `Provider::is_remote`, and `ProviderStatus`'s `remote`,
   `hypervisor`, `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` (its
   `reason` says what is missing or too old).
-- **Breaking:** **The ad-hoc attack box.** The runner no longer stands up an attacker box of its own when a lab
-  declares no access machine: no `<run>-isoloom-access` container on the lab's network (on this
-  computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or a cloud),
-  no `isoloom-access` VM added to a VM lab through Isoloom's Vagrantfile hook (gone from Isoloom's
-  Vagrantfiles too), and status no longer probes for one; `down` and `park` no longer reap one.
-  `attach` and `detach` on a run that declares no access machine now fail with `unsupported`
-  ("this run declares no access machine"). A lab's own on-demand access machine
+- **Breaking:** **The ad-hoc access machine.** The runner no longer stands up an access machine
+  of its own when a run declares none: no `<run>-isoloom-access` container on the run's network
+  (on this computer's Docker, inside a `docker-vm` VM, inside a VM Terraform made on a server or
+  a cloud), no `isoloom-access` VM added to a VM run through Isoloom's Vagrantfile hook (gone from
+  Isoloom's Vagrantfiles too), and status no longer probes for one; `down` and `park` no longer
+  reap one. `attach` and `detach` on a run that declares no access machine now fail with
+  `unsupported` ("this run declares no access machine"). A run's own on-demand access machine
   (`access: true`: a Compose service in the `access` profile, a Vagrant define) is unchanged. An
-  embedder adds a box of its own as an ordinary machine of the lab, with `Running::update`,
+  embedder adds a machine of its own as an ordinary machine of the run, with `Running::update`,
   `Running::retire` and `Running::console_command`.
 - **The desktop app's crate, `apps/desktop`.** The Isothrum desktop app lives in its own
   repository, `isoloom/isothrum-desktop`, which ships it (installers, the Microsoft Store) on the

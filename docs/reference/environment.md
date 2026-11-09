@@ -55,4 +55,4 @@ Each tool inherits the environment `isothrum` runs in, with these changes:
   proxy (the one override: WinRM reaches the guests only through it; `https_proxy` is left as it
   is), `no_proxy` is the user's own plus `localhost,127.0.0.1`, and `ovftool` runs through a
   wrapper (`ISOTHRUM_REAL_OVFTOOL`, `ISOTHRUM_OVFTOOL_PORT`). A `no_proxy` entry covering the
-  lab's guest network sends WinRM around the relay, where macOS refuses it.
+  run's guest network sends WinRM around the relay, where macOS refuses it.

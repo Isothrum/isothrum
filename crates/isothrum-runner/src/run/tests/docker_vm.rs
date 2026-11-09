@@ -160,9 +160,9 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
 }
 
 /// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with
-/// weak auto-correct, so two local docker-vm labs — or a half-created VM left behind — collide on
+/// weak auto-correct, so two local docker-vm runs — or a half-created VM left behind — collide on
 /// it. The runner gives the helper VM's SSH forward a free host port of its own, carried to the
-/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `<host>/ssh` ([`HOST`], the guest machine's name); the lab's own
+/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `<host>/ssh` ([`HOST`], the guest machine's name); the run's own
 /// `web/portal` is fixed, so that is the only entry.
 #[tokio::test(start_paused = true)]
 async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
@@ -194,7 +194,7 @@ async fn a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_mad
     assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
 }
 
-/// The lab up in its VM, then paused.
+/// The run up in its VM, then paused.
 async fn up_then_paused(l: &Running) -> crate::Running<'_> {
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -219,7 +219,7 @@ async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
     assert!(l.engine.lock().unwrap().vm.is_none());
 }
 
-/// A container lab in a VM declares no access machine: the runner puts no box of its own in the
+/// A container run in a VM declares no access machine: the runner puts no box of its own in the
 /// VM, and an attach says so.
 #[tokio::test(start_paused = true)]
 async fn a_container_lab_in_a_vm_gets_no_attack_box_of_the_runners() {
@@ -231,7 +231,7 @@ async fn a_container_lab_in_a_vm_gets_no_attack_box_of_the_runners() {
 }
 
 /// The way into the VM can miss once (an SSH port read from the hypervisor that answers late): a
-/// running lab still reads as running, and only a read that misses again counts as unreadable.
+/// running run still reads as running, and only a read that misses again counts as unreadable.
 #[tokio::test(start_paused = true)]
 async fn a_container_read_that_misses_once_is_read_again() {
     let l = local();
@@ -266,7 +266,7 @@ async fn container_output_that_cant_be_read_is_unreadable_not_absent() {
 
 mod proxmox;
 
-/// A console into a service of the lab in the VM: `vagrant ssh` into the VM, then into the
+/// A console into a service of the run in the VM: `vagrant ssh` into the VM, then into the
 /// service's container, found by its Compose label.
 #[tokio::test(start_paused = true)]
 async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
@@ -293,13 +293,13 @@ async fn a_console_into_the_vm_carries_no_step_delivery_and_a_retire_does() {
         "name": "LAB_TOKEN", "kind": "input", "required": false, "sensitive": true, "deliver": every_step("LAB_TOKEN"),
     }));
     m["params"].as_array_mut().unwrap().push(serde_json::json!({
-        "name": "LAB_REGION", "description": "Where the lab runs.", "set_by": "embedder", "deliver": every_step("LAB_REGION"),
+        "name": "RUN_REGION", "description": "Where the run goes.", "set_by": "embedder", "deliver": every_step("RUN_REGION"),
     }));
     let l = local_with(&m.to_string());
     let run = l.runner.open(&l.manifest, None).unwrap();
     let mut opts = opts();
     opts.secrets.insert("LAB_TOKEN", SecretValue::new(TOKEN));
-    opts.params.insert("LAB_REGION".into(), REGION.into());
+    opts.params.insert("RUN_REGION".into(), REGION.into());
     run.up(&opts, &Recorder::new()).await.unwrap();
     let console = run.console_command("web").unwrap();
     let words = format!("{:?} {:?}", console.args, console.env);
@@ -307,10 +307,10 @@ async fn a_console_into_the_vm_carries_no_step_delivery_and_a_retire_does() {
     run.retire("web", &opts, &Recorder::new()).await.unwrap();
     let rm = l.fake.last("label=com.docker.compose.service=web").unwrap();
     assert_eq!(rm.args[..3], ["ssh", "default", "-c"]);
-    assert_eq!((rm.env("LAB_TOKEN"), rm.env("LAB_REGION")), (Some(TOKEN), Some(REGION)));
+    assert_eq!((rm.env("LAB_TOKEN"), rm.env("RUN_REGION")), (Some(TOKEN), Some(REGION)));
 }
 
-/// Retiring the VM the lab's containers run in is refused: destroying it would take every
+/// Retiring the VM the run's containers run in is refused: destroying it would take every
 /// container with it. Nothing is destroyed.
 #[tokio::test(start_paused = true)]
 async fn the_vm_the_containers_run_in_is_not_retired() {

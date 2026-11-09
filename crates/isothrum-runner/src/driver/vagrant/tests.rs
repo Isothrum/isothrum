@@ -342,7 +342,7 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
-/// A VM lab that declares no access machine has none to attach: the runner adds no VM of its own
+/// A VM run that declares no access machine has none to attach: the runner adds no VM of its own
 /// to the running environment, and nothing is booted.
 #[tokio::test]
 async fn a_vm_lab_that_declares_no_access_machine_has_none_to_attach() {
@@ -646,7 +646,7 @@ async fn a_controller_still_halting_is_waited_for_before_it_boots() {
     assert!(boots_controller(&calls).is_some_and(|boot| last_probe < boot), "{calls:#?}");
 }
 
-/// The race a vm lab's checks lost: the controller's poweroff had begun, its SSH already closed,
+/// The race a vm run's checks lost: the controller's poweroff had begun, its SSH already closed,
 /// while it still read as running. A failed probe is no answer: it is waited for, then booted.
 #[tokio::test(start_paused = true)]
 async fn a_controller_no_longer_answering_on_its_way_down_is_waited_for_then_booted() {
@@ -726,7 +726,7 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
 }
 
 /// A fresh local start pins a free host port for an ephemeral published port, forwards the VM to
-/// it (the Vagrantfile reads `ISOLOOM_HOSTPORTS`), and the lab answers on it — not on its own 80.
+/// it (the Vagrantfile reads `ISOLOOM_HOSTPORTS`), and the run answers on it — not on its own 80.
 #[tokio::test]
 async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
     let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
@@ -771,7 +771,7 @@ async fn a_resume_forwards_the_same_pinned_port() {
     assert_eq!(web.published.iter().find(|p| p.port == 80).unwrap().host_port, 41000);
 }
 
-/// With `ISOLOOM_PUBLISH_FIXED`, a VM forwards the lab's own port number instead of a free one.
+/// With `ISOLOOM_PUBLISH_FIXED`, a VM forwards the run's own port number instead of a free one.
 #[tokio::test]
 async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
     let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
@@ -781,7 +781,7 @@ async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:8086/"));
 }
 
-/// A VM with only fixed ports (Isoloom before this change, or a lab that pins a port) picks
+/// A VM with only fixed ports (Isoloom before this change, or a run that pins a port) picks
 /// nothing and sets no `ISOLOOM_HOSTPORTS`; it forwards each port at its own number.
 #[tokio::test]
 async fn a_vm_with_only_fixed_ports_sets_no_host_ports_env() {
@@ -834,7 +834,7 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
 }
 
 /// The fixture with a VM added (a copy of `web` under another define), as Isoloom regenerates a
-/// lab with a machine added.
+/// run with a machine added.
 fn with_vm_added(define: &str) -> String {
     let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
     let mut added = m["machines"][0].clone();
@@ -845,7 +845,7 @@ fn with_vm_added(define: &str) -> String {
     m.to_string()
 }
 
-/// An update of a running VM lab with a VM added runs its start again (`vagrant up`), which
+/// An update of a running VM run with a VM added runs its start again (`vagrant up`), which
 /// brings the new VM up beside the running ones; the run stays ready.
 #[tokio::test]
 async fn an_update_brings_a_vm_added_to_the_lab_up() {
@@ -883,7 +883,7 @@ async fn a_machine_with_no_native_name_has_no_console() {
 }
 
 /// Both VMs' boot settings changed (a host folder each, say): the update restarts the one that
-/// runs, the web VM, and leaves the controller, off once the lab is built, to boot with them
+/// runs, the web VM, and leaves the controller, off once the run is built, to boot with them
 /// when it next boots.
 #[tokio::test]
 async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {

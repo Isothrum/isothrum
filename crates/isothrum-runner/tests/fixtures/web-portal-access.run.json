@@ -217,7 +217,7 @@
    }
   },
   {
-   "name": "attacker",
+   "name": "user",
    "role": "access",
    "on_demand": true,
    "arch": "amd64",
@@ -225,7 +225,7 @@
     "lab": "10.30.0.99"
    },
    "native": {
-    "service": "attacker"
+    "service": "user"
    }
   },
   {
