@@ -5,18 +5,43 @@
 use std::path::Path;
 
 use super::*;
+#[cfg(windows)]
+use crate::events::Stream;
 use crate::process::fake::{FakeProcesses, Reply};
 
-/// Plays the broker in `dir`: once `ready`, each request answered with `lines` and `code`.
-async fn broker(dir: PathBuf, lines: &'static str, code: i32) {
+/// The session folder the runner opened under `root` (its name is the session's token).
+async fn session_dir(root: &Path) -> PathBuf {
+    loop {
+        let opened = std::fs::read_dir(root)
+            .ok()
+            .and_then(|mut e| e.find_map(|d| d.ok().map(|d| d.path()).filter(|p| p.is_dir())));
+        if let Some(dir) = opened {
+            return dir;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Plays the broker as the PowerShell one does, in the session the runner opens under `root`:
+/// once `ready`, each request of the session (its token, its turn) answered with `lines` and
+/// `code`, its files read and deleted first; any other request deleted unrun.
+async fn broker(root: PathBuf, lines: &'static str, code: i32) {
+    let dir = session_dir(&root).await;
+    let token = dir.file_name().unwrap().to_string_lossy().into_owned();
     std::fs::write(dir.join("ready"), "").unwrap();
     let mut n = 1;
-    while !dir.join("done").exists() {
+    while dir.exists() && !dir.join("done").exists() {
         let req = dir.join(format!("req-{n}.json"));
         if let Ok(text) = std::fs::read_to_string(&req) {
-            let r: serde_json::Value = serde_json::from_str(&text).unwrap();
             std::fs::remove_file(&req).unwrap();
-            let env: Vec<String> = r["env"]
+            let r: serde_json::Value = serde_json::from_str(&text).unwrap();
+            if r["session"] != token.as_str() || r["seq"] != n {
+                continue;
+            }
+            let env_file = dir.join(format!("env-{n}.json"));
+            let e: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&env_file).unwrap()).unwrap();
+            std::fs::remove_file(&env_file).unwrap();
+            let env: Vec<String> = e["env"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -47,6 +72,9 @@ fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakePr
         ("Path".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
         ("USERPROFILE".to_owned(), "C:\\Users\\ada".to_owned()),
         ("SECRET".to_owned(), "x".to_owned()),
+        ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
+        ("no_proxy".to_owned(), ".corp".to_owned()),
+        ("SSL_CERT_FILE".to_owned(), "C:\\certs\\corp.pem".to_owned()),
     ];
     let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), own);
     (home, fake, e)
@@ -73,30 +101,96 @@ async fn an_account_that_may_manage_hyperv_runs_the_tools_as_they_are() {
 #[tokio::test]
 async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     let (_home, fake, e) = session("\"Everyone\",\"Well-known group\",\"S-1-1-0\",\"Enabled group\"", Reply::ok(""));
-    let dir = e.dir.clone();
-    let broker = tokio::spawn(broker(dir.clone(), "==> dc01: Booting VM...", 0));
+    let root = e.root.clone();
+    let broker = tokio::spawn(broker(root.clone(), "==> dc01: Booting VM...", 0));
     let mut up = ProcessSpec::new("vagrant", ["up", "--provider", "hyperv"]);
     up.env = vec![("CTF_FLAG_MAIN".into(), "flag{x}".into())];
     up.cwd = Some(PathBuf::from("C:\\labs\\ad\\.isoloom\\vagrant"));
     let (exit, lines) = lines_of(&e, &up).await;
     assert!(exit.unwrap().success());
     assert_eq!(lines[..2], ["vagrant up".to_owned(), "==> dc01: Booting VM...".to_owned()]);
+    let env = &lines[2];
     assert!(
-        lines[2].contains("Path=C:\\HashiCorp\\Vagrant\\bin") && lines[2].contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
-        "{}",
-        lines[2]
+        env.contains("Path=C:\\HashiCorp\\Vagrant\\bin") && env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
+        "{env}"
     );
+    assert!(env.contains("CTF_FLAG_MAIN=flag{x}") && !env.contains("SECRET"), "only what it needs: {env}");
     assert!(
-        lines[2].contains("CTF_FLAG_MAIN=flag{x}") && !lines[2].contains("SECRET"),
-        "only what it needs: {}",
-        lines[2]
+        env.contains("HTTPS_PROXY=http://proxy.corp:3128") && env.contains("no_proxy=.corp") && env.contains("SSL_CERT_FILE=C:\\certs\\corp.pem"),
+        "the network the way this account reaches it: {env}"
     );
     let (halted, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt", "isoloom-controller"])).await;
     assert!(halted.unwrap().success());
     assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
-    assert!(!dir.join("req-1.json").exists(), "the request (and its values) is gone");
+    let dir = session_dir(&root).await;
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|f| f.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["ready"], "every request's files are gone once answered");
     drop(e);
-    assert!(dir.join("done").exists());
+    assert!(!root.exists(), "the session's folder goes with it");
+    broker.await.unwrap();
+}
+
+#[test]
+fn a_request_file_holds_no_value_and_names_its_session_and_turn() {
+    let mut spec = ProcessSpec::new("vagrant", ["up"]);
+    spec.env = vec![("CTF_FLAG_MAIN".into(), "flag{x}".into())];
+    let forwarded = [("HTTPS_PROXY".to_owned(), "http://user:pw@proxy:3128".to_owned())];
+    let req: serde_json::Value = serde_json::from_str(&request("t0k3n", 7, &spec)).unwrap();
+    assert_eq!((req["session"].as_str(), req["seq"].as_u64(), req.get("env")), (Some("t0k3n"), Some(7), None));
+    assert!(!req.to_string().contains("flag{x}") && !req.to_string().contains("pw@"));
+    let env: serde_json::Value = serde_json::from_str(&env_file("t0k3n", 7, &spec, &forwarded)).unwrap();
+    assert_eq!((env["session"].as_str(), env["seq"].as_u64()), (Some("t0k3n"), Some(7)));
+    assert_eq!(env["env"][1], serde_json::json!({ "k": "CTF_FLAG_MAIN", "v": "flag{x}" }));
+}
+
+#[tokio::test]
+async fn what_an_earlier_session_left_is_cleared_never_read_as_this_ones() {
+    // Regression: a session read the `ready`, `exit-1` and `out-1.log` an earlier operation left
+    // in the folder as its own: it took the broker for started and the first command for done.
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let root = e.root.clone();
+    for stale in [root.clone(), root.join("an-earlier-session")] {
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("ready"), "").unwrap();
+        std::fs::write(stale.join("out-1.log"), "an earlier command's output").unwrap();
+        std::fs::write(stale.join("exit-1"), "0").unwrap();
+        std::fs::write(stale.join("env-2.json"), r#"{"env":[{"k":"CTF_FLAG_MAIN","v":"flag{old}"}]}"#).unwrap();
+    }
+    let broker = tokio::spawn(broker(root.clone(), "this session's", 4));
+    let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
+    assert_eq!(exit.unwrap().code, Some(4), "{lines:?}");
+    assert_eq!(lines[1], "this session's");
+    let names: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().map(|f| f.file_name()).collect();
+    assert_eq!(names.len(), 1, "only this session's folder: {names:?}");
+    drop(e);
+    broker.await.unwrap();
+}
+
+#[tokio::test]
+async fn the_broker_runs_no_request_of_another_session() {
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let root = e.root.clone();
+    let broker = tokio::spawn(broker(root.clone(), "ran", 0));
+    let (first, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
+    assert!(first.unwrap().success());
+    let dir = session_dir(&root).await;
+    // A request planted in turn 2 without the session's token is deleted unrun; the runner's own
+    // request 2 then runs.
+    std::fs::write(
+        dir.join("req-2.json"),
+        r#"{"session":"guess","seq":2,"program":"cmd","args":["/c","whoami"],"cwd":"."}"#,
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!dir.join("req-2.json").exists() && !dir.join("exit-2").exists(), "deleted unrun");
+    let (second, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
+    assert!(second.unwrap().success());
+    assert_eq!(lines[0], "vagrant halt");
+    drop(e);
     broker.await.unwrap();
 }
 
@@ -116,7 +210,7 @@ async fn a_declined_prompt_fails_every_call_plainly() {
 #[tokio::test]
 async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_refused() {
     let (_home, _fake, e) = session("", Reply::ok(""));
-    let broker = tokio::spawn(broker(e.dir.clone(), "boom", 3));
+    let broker = tokio::spawn(broker(e.root.clone(), "boom", 3));
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["destroy", "--force"])).await;
     assert_eq!(exit.unwrap().code, Some(3));
     assert_eq!(lines[1], "boom");
@@ -124,13 +218,14 @@ async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_
     assert!(matches!(refused, Err(ProcessError::Refused { .. })));
     // A standard input the broker wouldn't pass on is refused, not dropped.
     let mut piped = ProcessSpec::new("vagrant", ["ssh", "web", "-c", "sh"]);
-    piped.stdin = Some(e.dir.join("script.sh"));
+    piped.stdin = Some(e.root.join("script.sh"));
     let (no_input, _) = lines_of(&e, &piped).await;
     assert!(
         matches!(&no_input, Err(ProcessError::Refused { why, .. }) if why.contains("standard input")),
         "{no_input:?}"
     );
-    assert!(!e.dir.join("req-3.json").exists() && !e.dir.join("req-2.json").exists(), "no request made");
+    let dir = session_dir(&e.root).await;
+    assert!(!dir.join("req-3.json").exists() && !dir.join("req-2.json").exists(), "no request made");
     drop(e);
     broker.await.unwrap();
 }
@@ -138,15 +233,26 @@ async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_
 #[tokio::test]
 async fn a_request_cut_short_ends_the_broker() {
     let (_home, _fake, e) = session("", Reply::ok(""));
-    let dir = e.dir.clone();
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("ready"), "").unwrap();
+    let root = e.root.clone();
+    // A broker that starts, then never answers.
+    let started = tokio::spawn(async move { std::fs::write(session_dir(&root).await.join("ready"), "").unwrap() });
     let spec = ProcessSpec::new("vagrant", ["up"]);
-    let cut = tokio::time::timeout(Duration::from_millis(300), lines_of(&e, &spec)).await;
+    let cut = tokio::time::timeout(Duration::from_millis(600), lines_of(&e, &spec)).await;
     assert!(cut.is_err(), "nobody answered");
-    assert!(dir.join("cancel").exists());
+    started.await.unwrap();
+    assert!(session_dir(&e.root).await.join("cancel").exists());
     let (exit, _) = lines_of(&e, &spec).await;
     assert!(matches!(exit, Err(ProcessError::Elevation { .. })));
+    let folder = e.root.clone();
+    drop(e);
+    assert!(!folder.exists(), "the cut session's files (its values) are gone");
+}
+
+#[test]
+fn a_session_token_is_random_hex() {
+    let (a, b) = (token().unwrap(), token().unwrap());
+    assert_eq!(a.len(), 32);
+    assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) && a != b, "{a} {b}");
 }
 
 #[test]
@@ -154,7 +260,6 @@ fn the_groups_that_may_manage_hyperv_are_read_by_sid() {
     assert!(may_manage("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\","));
     assert!(!may_manage("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\","));
     assert!(!may_manage(""));
-    let _ = Path::new("");
 }
 
 /// The real processes, except that `whoami` says the account may not manage Hyper-V: the broker
@@ -190,5 +295,5 @@ async fn a_real_broker_runs_a_command_elevated_and_reads_back_its_exit() {
     assert!(lines.iter().any(|l| l.trim() == "hello"), "{lines:?}");
     assert!(lines.iter().any(|l| l.contains("S-1-16-12288")), "high integrity: {lines:?}");
     drop(e);
-    assert!(home.path().join("elevated").join("done").exists());
+    assert!(!home.path().join("elevated").exists());
 }

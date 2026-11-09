@@ -3,21 +3,35 @@
 //! refuses to run otherwise. An operation on such a run gets an [`Elevated`] process runner: when
 //! this account may already manage Hyper-V, it runs the tools as they are; else its first call
 //! starts one elevated broker (one UAC prompt per operation, never one per command), and every
-//! call goes through the broker's session folder in the run's state: a request file in, the
-//! output lines and the exit code out (an elevated process inherits neither pipes nor the
-//! environment). No `unsafe`: the prompt is `Start-Process -Verb RunAs`.
+//! call goes through the session's folder in the run's state (an elevated process inherits
+//! neither pipes nor the environment). No `unsafe`: the prompt is `Start-Process -Verb RunAs`.
+//!
+//! A session's folder is `<run state>/elevated/<token>/`, the token random per session. Opening a
+//! session clears `elevated/` first, so nothing an earlier session left (its `ready`, an
+//! `exit-1`) is ever read as this one's. Request `n` is two owner-only files: `env-<n>.json`
+//! (its variables, values included), then `req-<n>.json` (the program, its arguments and folder,
+//! the session's token and `n`; no value of any variable). The broker runs only the request it
+//! expects next, with this session's token (it deletes any other unrun), reads and deletes both
+//! files before it starts the program, and answers in `out-<n>.log` and `exit-<n>`, which the
+//! runner deletes once read. When the session ends, its folder goes.
+//!
+//! Why a file for the values, and not a pipe: the elevated broker is started by the shell (the
+//! UAC prompt), which hands it no handle of its parent, so no inherited pipe; and a named pipe
+//! would need a security descriptor of its own (raw FFI, which this crate forbids), as its
+//! default one lets every local account connect. The file sits in the run's owner-only state
+//! folder from just before the broker picks the request up to the moment it has read it.
 
+mod log;
 mod script;
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use self::log::LogReader;
 use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, capture};
 use crate::BoxFuture;
-use crate::events::Stream;
 
 /// How often the session folder is read.
 const POLL: Duration = Duration::from_millis(200);
@@ -36,8 +50,13 @@ enum Session {
     Unchecked,
     /// The account may manage Hyper-V: the tools run as they are.
     Direct,
-    /// The broker answers in the session folder.
-    Broker,
+    /// The broker answers in the session's folder `dir`, to requests carrying `token`.
+    Broker {
+        /// The session's folder.
+        dir: PathBuf,
+        /// The session's random token.
+        token: String,
+    },
     /// The broker couldn't start, or was ended: every call fails with why.
     Failed(String),
 }
@@ -45,26 +64,28 @@ enum Session {
 /// A process runner that elevates, for one operation.
 pub(crate) struct Elevated {
     inner: Arc<dyn ProcessRunner>,
-    dir: PathBuf,
+    /// The run's `elevated/` folder, holding the session's.
+    root: PathBuf,
     session: Mutex<Session>,
     next: AtomicU64,
-    /// The variables an elevated process starts without: `PATH`, `VAGRANT_*`, `VAGRANT_HOME`.
+    /// The variables an elevated process starts without: `PATH`, `VAGRANT_*`, `VAGRANT_HOME`, the
+    /// proxies and CA bundles.
     forwarded: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for Elevated {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Elevated").field("dir", &self.dir).finish_non_exhaustive()
+        f.debug_struct("Elevated").field("root", &self.root).finish_non_exhaustive()
     }
 }
 
 impl Elevated {
-    /// A session in `dir` (the run's state), its calls otherwise through `inner`; `own` is this
-    /// process's environment, whose `PATH` and Vagrant variables the broker gets.
-    pub(crate) fn new(inner: Arc<dyn ProcessRunner>, dir: PathBuf, own: impl IntoIterator<Item = (String, String)>) -> Elevated {
+    /// A session under `root` (the run's state), its calls otherwise through `inner`; `own` is this
+    /// process's environment, whose `PATH`, Vagrant and network variables the broker gets.
+    pub(crate) fn new(inner: Arc<dyn ProcessRunner>, root: PathBuf, own: impl IntoIterator<Item = (String, String)>) -> Elevated {
         Elevated {
             inner,
-            dir,
+            root,
             session: Mutex::new(Session::Unchecked),
             next: AtomicU64::new(1),
             forwarded: forwarded(own),
@@ -87,7 +108,7 @@ impl Elevated {
         match self.session() {
             Session::Direct | Session::Unchecked => self.inner.run(spec, on_line).await,
             Session::Failed(reason) => Err(ProcessError::Elevation { reason }),
-            Session::Broker => self.request(spec, on_line).await,
+            Session::Broker { dir, token } => self.request(&dir, &token, spec, on_line).await,
         }
     }
 
@@ -99,58 +120,60 @@ impl Elevated {
         {
             return Session::Direct;
         }
-        if let Err(e) = crate::store::private_dir(&self.dir) {
-            return Session::Failed(format!("{}: {e}", self.dir.display()));
-        }
-        let launcher = script::launcher(&script::broker(&self.dir, std::process::id()));
+        self.start_broker().await.unwrap_or_else(Session::Failed)
+    }
+
+    /// Starts the broker in a fresh session folder, once the account approved the prompt.
+    async fn start_broker(&self) -> Result<Session, String> {
+        let token = token().map_err(|e| format!("no random session token: {e}"))?;
+        let dir = self.root.join(&token);
+        fresh_session_dir(&self.root, &dir).map_err(|e| format!("{}: {e}", self.root.display()))?;
+        let launcher = script::launcher(&script::broker(&dir, &token, std::process::id()));
         let start = ProcessSpec::new("powershell", ["-NoProfile".to_owned(), "-NonInteractive".into(), "-Command".into(), launcher]);
         match capture(self.inner.as_ref(), &start).await {
             Ok(out) if out.succeeded() => {}
-            Ok(out) => return Session::Failed(declined(&out.stderr.join("\n"))),
-            Err(e) => return Session::Failed(e.to_string()),
+            Ok(out) => return Err(declined(&out.stderr.join("\n"))),
+            Err(e) => return Err(e.to_string()),
         }
-        if wait_for(&self.dir.join("ready"), PROMPT_TIMEOUT).await {
-            Session::Broker
+        if wait_for(&dir.join("ready"), PROMPT_TIMEOUT).await {
+            Ok(Session::Broker { dir, token })
         } else {
-            Session::Failed("the elevated session didn't start".into())
+            Err("the elevated session didn't start".into())
         }
     }
 
-    /// One request through the broker: its lines as they come, then its exit code. Dropped before
-    /// it ends (a timeout), the broker's tree is ended and the session with it.
-    async fn request(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
-        let refused = |why: String| {
-            Err(ProcessError::Refused {
+    /// One request through the broker in `dir`: its lines as they come, then its exit code, its
+    /// answer's files deleted once read. Dropped before it ends (a timeout), the broker's tree is
+    /// ended and the session with it.
+    async fn request(&self, dir: &Path, token: &str, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
+        if let Some(why) = refusal(spec) {
+            return Err(ProcessError::Refused {
                 program: spec.program.clone(),
                 why,
-            })
-        };
-        if let Some(arg) = spec.args.iter().find(|a| !script::passes_intact(a)) {
-            return refused(format!("its argument `{}` wouldn't reach it intact through PowerShell", arg.escape_debug()));
-        }
-        // The broker starts the program with no input: one asked for would be dropped.
-        if let Some(stdin) = &spec.stdin {
-            return refused(format!("an elevated call can't be given a standard input ({})", stdin.display()));
+            });
         }
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let io = |source| ProcessError::Io {
             program: spec.program.clone(),
             source,
         };
-        crate::store::write_private(&self.dir.join(format!("req-{n}.json")), request(spec, &self.forwarded).as_bytes()).map_err(io)?;
+        // The values first: the broker takes a request only once its `req` file is there.
+        crate::store::write_private(&dir.join(format!("env-{n}.json")), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(format!("req-{n}.json")), request(token, n, spec).as_bytes()).map_err(io)?;
         let mut guard = Cancel {
-            dir: &self.dir,
+            dir,
             armed: true,
             session: &self.session,
         };
         let mut log_reader = LogReader::default();
-        let (log, exit) = (self.dir.join(format!("out-{n}.log")), self.dir.join(format!("exit-{n}")));
+        let (log, exit) = (dir.join(format!("out-{n}.log")), dir.join(format!("exit-{n}")));
         loop {
             let done = std::fs::read_to_string(&exit).ok();
             log_reader.read(&log, on_line).map_err(io)?;
             if let Some(code) = done {
                 log_reader.finish(on_line);
                 guard.armed = false;
+                answered(dir, n).map_err(io)?;
                 return Ok(Exit::new(code.trim().parse().ok()));
             }
             tokio::time::sleep(POLL).await;
@@ -166,9 +189,15 @@ impl ProcessRunner for Elevated {
 
 impl Drop for Elevated {
     fn drop(&mut self) {
-        if self.session() == Session::Broker {
-            // Between two requests: the broker ends on its own once it reads `done`.
-            signal(&self.dir, "done");
+        if let Session::Broker { dir, .. } = self.session() {
+            // Between two requests: the broker ends on its own once it reads `done` (or finds its
+            // folder gone).
+            signal(&dir, "done");
+        }
+        // What the session wrote goes with it (nothing is there when it ran direct). The next
+        // session clears what can't be removed now (a file the broker still holds).
+        if let Err(e) = crate::store::remove_path(&self.root) {
+            tracing::warn!(error = %e, folder = %self.root.display(), "the elevated session's folder couldn't be removed");
         }
     }
 }
@@ -197,42 +226,42 @@ fn signal(dir: &Path, what: &str) {
     }
 }
 
-/// A growing log, read a line at a time from where the last read stopped.
-#[derive(Debug, Default)]
-struct LogReader {
-    offset: u64,
-    partial: Vec<u8>,
+/// Empties `root` of every earlier session, then creates the session's folder `dir` in it,
+/// owner-only.
+fn fresh_session_dir(root: &Path, dir: &Path) -> std::io::Result<()> {
+    crate::store::remove_path(root)?;
+    crate::store::private_dir(dir)
 }
 
-impl LogReader {
-    /// Hands `on_line` every whole line `log` gained since the last read.
-    fn read(&mut self, log: &Path, on_line: OnLine<'_>) -> std::io::Result<()> {
-        let mut f = match std::fs::File::open(log) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e),
-        };
-        std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(self.offset))?;
-        let mut bytes = Vec::new();
-        let read = f.read_to_end(&mut bytes)?;
-        self.offset += u64::try_from(read).unwrap_or(0);
-        self.partial.extend(bytes);
-        while let Some(end) = self.partial.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.partial.drain(..=end).collect();
-            on_line(Stream::Stdout, String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']));
-        }
-        Ok(())
+/// Deletes what request `n` left in `dir` once its answer is read: its output, its exit code, and
+/// its variables (the broker deleted them already, unless it refused the request).
+fn answered(dir: &Path, n: u64) -> std::io::Result<()> {
+    for file in [format!("out-{n}.log"), format!("exit-{n}"), format!("env-{n}.json")] {
+        crate::store::remove_path(&dir.join(file))?;
     }
+    Ok(())
+}
 
-    /// The last line, when the log didn't end with a line break.
-    fn finish(&mut self, on_line: OnLine<'_>) {
-        if !self.partial.is_empty() {
-            on_line(
-                Stream::Stdout,
-                String::from_utf8_lossy(&std::mem::take(&mut self.partial)).trim_end_matches('\r'),
-            );
-        }
+/// A random session token: 128 bits, as lowercase hex.
+fn token() -> Result<String, getrandom::Error> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)?;
+    Ok(bytes.iter().fold(String::with_capacity(32), |mut hex, b| {
+        hex.extend(char::from_digit(u32::from(b >> 4), 16));
+        hex.extend(char::from_digit(u32::from(b & 15), 16));
+        hex
+    }))
+}
+
+/// Why the broker can't carry `spec` as asked, if it can't: an argument PowerShell would mangle,
+/// a standard input (the broker starts the program with none, so it would be dropped).
+fn refusal(spec: &ProcessSpec) -> Option<String> {
+    if let Some(arg) = spec.args.iter().find(|a| !script::passes_intact(a)) {
+        return Some(format!("its argument `{}` wouldn't reach it intact through PowerShell", arg.escape_debug()));
     }
+    spec.stdin
+        .as_ref()
+        .map(|stdin| format!("an elevated call can't be given a standard input ({})", stdin.display()))
 }
 
 /// Whether `whoami /groups /fo csv /nh` lists a group that may manage Hyper-V.
@@ -241,7 +270,8 @@ fn may_manage(groups: &str) -> bool {
 }
 
 /// The variables of `own` an elevated process needs: `PATH` (the tools found here are found
-/// there), every `VAGRANT_*`, and `VAGRANT_HOME` pinned to this account's boxes, whoever approved.
+/// there), every `VAGRANT_*`, `VAGRANT_HOME` pinned to this account's boxes, whoever approved,
+/// and the proxies and CA bundles (a box download goes out the way this account's does).
 fn forwarded(own: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut profile = None;
@@ -250,7 +280,7 @@ fn forwarded(own: impl IntoIterator<Item = (String, String)>) -> Vec<(String, St
         if upper == "USERPROFILE" {
             profile = Some(v.clone());
         }
-        if upper == "PATH" || upper.starts_with("VAGRANT_") {
+        if upper == "PATH" || upper.starts_with("VAGRANT_") || crate::network_env::is_network_var(&k) {
             out.push((k, v));
         }
     }
@@ -262,18 +292,30 @@ fn forwarded(own: impl IntoIterator<Item = (String, String)>) -> Vec<(String, St
     out
 }
 
-/// A request's JSON: the program, its arguments and folder, and its environment (the forwarded
-/// variables, then the call's own).
-fn request(spec: &ProcessSpec, forwarded: &[(String, String)]) -> String {
+/// Request `n`'s file: the program, its arguments and folder, under the session's `token`. No
+/// value of any variable: those are in its [`env_file`].
+fn request(token: &str, n: u64, spec: &ProcessSpec) -> String {
+    serde_json::json!({
+        "session": token,
+        "seq": n,
+        "program": spec.program,
+        "args": spec.args,
+        "cwd": spec.cwd.as_ref().map_or_else(|| ".".into(), |c| c.display().to_string()),
+    })
+    .to_string()
+}
+
+/// Request `n`'s variables, under the session's `token`: the forwarded ones, then the call's own
+/// (which win).
+fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, String)]) -> String {
     let mut env: Vec<(String, String)> = forwarded.to_vec();
     for (k, v) in &spec.env {
         env.retain(|(o, _)| !o.eq_ignore_ascii_case(k));
         env.push((k.clone(), v.clone()));
     }
     serde_json::json!({
-        "program": spec.program,
-        "args": spec.args,
-        "cwd": spec.cwd.as_ref().map_or_else(|| ".".into(), |c| c.display().to_string()),
+        "session": token,
+        "seq": n,
         "env": env.iter().map(|(k, v)| serde_json::json!({ "k": k, "v": v })).collect::<Vec<_>>(),
     })
     .to_string()

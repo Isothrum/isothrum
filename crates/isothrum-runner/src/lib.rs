@@ -110,6 +110,7 @@ mod in_vm;
 mod manifest;
 mod name;
 mod net;
+mod network_env;
 mod options;
 mod outputs;
 mod params;

@@ -1,9 +1,11 @@
 //! The elevated broker's PowerShell (Windows PowerShell 5.1, which every Windows has): it runs
-//! the session's requests one after the other, each `req-<n>.json` (program, arguments, folder,
-//! environment) read and deleted, its output lines appended to `out-<n>.log` (UTF-8) and its exit
-//! code written to `exit-<n>`. A watcher job ends the broker's whole tree when the session folder
-//! gets a `cancel` file, when the runner's process is gone, or at the deadline; a `done` file ends
-//! it between two requests.
+//! the session's requests one after the other. Request `n` is `req-<n>.json` (program,
+//! arguments, folder) and `env-<n>.json` (its variables), each read and deleted before the
+//! program starts; one that doesn't carry the session's token and `n` is deleted unrun. Its
+//! output lines are appended to `out-<n>.log` (UTF-8) and its exit code is written to `exit-<n>`
+//! whole (renamed into place). A watcher job ends the broker's whole tree when the session folder
+//! gets a `cancel` file or is gone, when the runner's process is gone, or at the deadline; a
+//! `done` file (or the folder gone) ends it between two requests.
 
 use std::path::Path;
 use std::time::Duration;
@@ -32,47 +34,61 @@ pub(super) fn passes_intact(arg: &str) -> bool {
     !(arg.is_empty() || arg.contains(['"', '\0', '\n', '\r']) || arg == "--%")
 }
 
-/// The broker for the session in `dir`, ended with the runner's process `runner`.
-pub(super) fn broker(dir: &Path, runner: u32) -> String {
+/// The broker for the session in `dir`, taking only requests that carry `token`, ended with the
+/// runner's process `runner`.
+pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
     let dir = ps_quote(&dir.display().to_string());
+    let token = ps_quote(token);
     let secs = DEADLINE.as_secs();
     format!(
         "$ErrorActionPreference = 'Continue'\n\
          $ProgressPreference = 'SilentlyContinue'\n\
          try {{ [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false }} catch {{}}\n\
          $d = {dir}\n\
+         $token = {token}\n\
          $null = Start-Job -ArgumentList $PID, {runner}, $d, {secs} -ScriptBlock {{\n\
          \x20 param($main, $runnerId, $d, $secs)\n\
          \x20 $runner = Get-Process -Id $runnerId -ErrorAction SilentlyContinue\n\
          \x20 $end = (Get-Date).AddSeconds($secs)\n\
          \x20 while (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
-         \x20   if ((Test-Path -LiteralPath (Join-Path $d 'cancel')) -or $null -eq $runner -or $runner.HasExited -or (Get-Date) -gt $end) {{\n\
+         \x20   $gone = -not (Test-Path -LiteralPath $d)\n\
+         \x20   if ($gone -or (Test-Path -LiteralPath (Join-Path $d 'cancel')) -or $null -eq $runner -or $runner.HasExited -or (Get-Date) -gt $end) {{\n\
          \x20     & taskkill.exe /T /F /PID $main | Out-Null; return\n\
          \x20   }}\n\
          \x20   Start-Sleep -Milliseconds 500\n\
          \x20 }}\n\
          }}\n\
+         function Read-Once($path) {{ $text = [System.IO.File]::ReadAllText($path); Remove-Item -LiteralPath $path -Force; $text | ConvertFrom-Json }}\n\
          [System.IO.File]::WriteAllText((Join-Path $d 'ready'), '')\n\
          $n = 1\n\
-         while (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
+         while ((Test-Path -LiteralPath $d) -and -not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
          \x20 $req = Join-Path $d \"req-$n.json\"\n\
          \x20 if (-not (Test-Path -LiteralPath $req)) {{ Start-Sleep -Milliseconds 200; continue }}\n\
-         \x20 $r = [System.IO.File]::ReadAllText($req) | ConvertFrom-Json\n\
-         \x20 Remove-Item -LiteralPath $req -Force\n\
+         \x20 $r = Read-Once $req\n\
+         \x20 if ($r.session -ne $token -or $r.seq -ne $n) {{ continue }}\n\
+         \x20 $envFile = Join-Path $d \"env-$n.json\"\n\
+         \x20 $e = $null\n\
+         \x20 if (Test-Path -LiteralPath $envFile) {{ $e = Read-Once $envFile }}\n\
          \x20 $f = [System.IO.File]::Open((Join-Path $d \"out-$n.log\"), [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)\n\
          \x20 $log = New-Object System.IO.StreamWriter -ArgumentList $f, (New-Object System.Text.UTF8Encoding -ArgumentList $false)\n\
          \x20 $log.AutoFlush = $true\n\
-         \x20 foreach ($p in $r.env) {{ [System.Environment]::SetEnvironmentVariable($p.k, $p.v, 'Process') }}\n\
          \x20 $rc = 1\n\
-         \x20 try {{\n\
-         \x20   Set-Location -LiteralPath $r.cwd -ErrorAction Stop\n\
-         \x20   $global:LASTEXITCODE = 0\n\
-         \x20   & $r.program @($r.args) 2>&1 | ForEach-Object {{ $log.WriteLine([string]$_) }}\n\
-         \x20   $rc = $LASTEXITCODE\n\
-         \x20 }} catch {{ $log.WriteLine([string]$_) }}\n\
-         \x20 foreach ($p in $r.env) {{ [System.Environment]::SetEnvironmentVariable($p.k, $null, 'Process') }}\n\
+         \x20 if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n) {{\n\
+         \x20   $log.WriteLine('isothrum: refused: the request came without its own variables')\n\
+         \x20 }} else {{\n\
+         \x20   foreach ($p in $e.env) {{ [System.Environment]::SetEnvironmentVariable($p.k, $p.v, 'Process') }}\n\
+         \x20   try {{\n\
+         \x20     Set-Location -LiteralPath $r.cwd -ErrorAction Stop\n\
+         \x20     $global:LASTEXITCODE = 0\n\
+         \x20     & $r.program @($r.args) 2>&1 | ForEach-Object {{ $log.WriteLine([string]$_) }}\n\
+         \x20     $rc = $LASTEXITCODE\n\
+         \x20   }} catch {{ $log.WriteLine([string]$_) }}\n\
+         \x20   foreach ($p in $e.env) {{ [System.Environment]::SetEnvironmentVariable($p.k, $null, 'Process') }}\n\
+         \x20 }}\n\
          \x20 $log.Close()\n\
-         \x20 [System.IO.File]::WriteAllText((Join-Path $d \"exit-$n\"), [string]$rc)\n\
+         \x20 $exit = Join-Path $d \"exit-$n\"\n\
+         \x20 [System.IO.File]::WriteAllText(\"$exit.tmp\", [string]$rc)\n\
+         \x20 Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force\n\
          \x20 $n++\n\
          }}\n"
     )
@@ -116,10 +132,12 @@ mod tests {
 
     #[test]
     fn the_broker_follows_its_session_folder() {
-        let s = broker(Path::new("C:\\Users\\ada\\runs\\r\\elevated"), 4242);
+        let s = broker(Path::new("C:\\Users\\ada\\runs\\r\\elevated\\0f1e"), "0f1e2d", 4242);
         for part in [
-            "'C:\\Users\\ada\\runs\\r\\elevated'",
+            "$d = 'C:\\Users\\ada\\runs\\r\\elevated\\0f1e'",
+            "$token = '0f1e2d'",
             "req-$n.json",
+            "env-$n.json",
             "out-$n.log",
             "exit-$n",
             "'ready'",
@@ -130,6 +148,23 @@ mod tests {
         ] {
             assert!(s.contains(part), "{part}: {s}");
         }
+    }
+
+    #[test]
+    fn the_broker_runs_only_this_sessions_next_request_and_keeps_no_values() {
+        let s = broker(Path::new("C:\\e\\t"), "t", 1);
+        // A request of another session, or out of turn, is deleted unrun.
+        assert!(
+            s.contains("$r = Read-Once $req\n  if ($r.session -ne $token -or $r.seq -ne $n) { continue }"),
+            "{s}"
+        );
+        // The variables are read and deleted before the program starts, and refused unless theirs.
+        let read = s.find("$e = Read-Once $envFile").unwrap();
+        assert!(read < s.find("& $r.program").unwrap());
+        assert!(s.contains("if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n)"));
+        assert!(s.contains("Remove-Item -LiteralPath $path -Force"));
+        // The exit code appears whole.
+        assert!(s.contains("Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force"));
     }
 
     #[test]

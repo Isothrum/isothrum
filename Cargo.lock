@@ -785,6 +785,7 @@ name = "isothrum-runner"
 version = "1.0.5"
 dependencies = [
  "flate2",
+ "getrandom",
  "isoloom-manifest",
  "process-wrap",
  "proptest",

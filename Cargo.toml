@@ -48,6 +48,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 toml = "1"
 tar = "0.4"
 flate2 = "1"
+getrandom = "0.4"
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now

@@ -23,6 +23,8 @@ fuzzing = []
 
 [dependencies]
 flate2.workspace = true
+# The random token of an elevated session (`process/elevated.rs`).
+getrandom.workspace = true
 isoloom-manifest.workspace = true
 process-wrap.workspace = true
 regex.workspace = true
