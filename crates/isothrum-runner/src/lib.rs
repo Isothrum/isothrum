@@ -73,16 +73,18 @@
 //! # Concurrency
 //!
 //! The runner is **async**, on Tokio, chosen once for the whole crate: every tool runs as an async
-//! process with a time limit (a step's `timeout_s`, else an hour; 25 s for a probe; two minutes
-//! for an action's own Docker calls), and dropping an operation's future ends the
-//! process tree it started. The limit counts the time a tool shows no progress: it is stopped
-//! once it printed no new line for that long (a line, on either stream, that isn't blank and
-//! isn't one of its last distinct lines; from its start when it prints nothing), and at the
-//! latest six hours after its start, or at its limit when that is longer ([`TimedOut`] says
-//! which). Operations on one run are serialized; operations on different runs
-//! run side by side. One exception to "no blocking call in async code": the run's state files (a
-//! record, a lock, the pinned ports, the event log) are a few KB on the local disk, so they are
-//! read and written inline rather than through `spawn_blocking`.
+//! process with a time limit (a step's `provider_timeout_s` for the run's provider, else its
+//! `timeout_s`, else an hour; 25 s for a probe; two minutes for an action's own Docker calls),
+//! and dropping an operation's future ends the process tree it started. The limit counts the time
+//! a tool shows no progress: it is stopped once it printed no new line for that long (a line, on
+//! either stream, that isn't blank and isn't one of its last distinct lines; from its start when
+//! it prints nothing), and at the latest six hours after its start, or at its limit when that is
+//! longer ([`TimedOut`] says which). Operations on one run in one [`Runner`] wait for each other;
+//! an operation on it from another process (or another runner) fails with `locked` once it has
+//! waited a second for the run's lock. Operations on different runs run side by side. One
+//! exception to "no blocking call in async code": the run's state files (a record, a lock, the
+//! pinned ports, the event log) are a few KB on the local disk, so they are read and written
+//! inline rather than through `spawn_blocking`.
 //!
 //! # Errors and tracing
 //!

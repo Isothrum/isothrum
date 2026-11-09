@@ -65,8 +65,10 @@ one of cmd.exe's operators is refused.
 
 ## Concurrency
 
-The runner is async, on Tokio. Operations on one run are serialized by an OS file lock, across
-processes; operations on different runs proceed side by side.
+The runner is async, on Tokio. Operations on one run in one runner wait for each other. Across
+processes, an OS file lock on the run keeps a second operation out: it waits a second for the
+lock, then fails with `locked` (it never queues behind the first). Operations on different runs
+proceed side by side.
 
 ## Where it runs the tools
 
