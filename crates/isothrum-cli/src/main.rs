@@ -108,7 +108,7 @@ fn report(e: &Error, cli: &Cli, term: &Term, trail: &Trail) {
 /// prints it, or as an `error` event (`usage`) when the command line asks for JSON. Exit 2 (0
 /// for help and version).
 fn refused(e: &clap::Error, term: &Term) -> ExitCode {
-    let json = std::env::args().any(|a| a == "--json");
+    let json = std::env::args_os().any(|a| a == "--json");
     if !json || !e.use_stderr() {
         e.exit()
     }

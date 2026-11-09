@@ -59,6 +59,28 @@ fn a_command_line_clap_refuses_is_a_usage_error_event_with_json() {
     assert!(event["message"].as_str().unwrap().contains("--no-such-flag"));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
+    // Regression: telling a refused command line asked for JSON read the arguments as UTF-8, and
+    // panicked (exit 101) on one that isn't.
+    use std::os::unix::ffi::OsStrExt;
+
+    let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .arg("up")
+        .arg(run.path())
+        .arg("--name")
+        .arg(std::ffi::OsStr::from_bytes(b"r\xffn"))
+        .args(["--json", "--home"])
+        .arg(home.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    let event = last_event(&out).unwrap();
+    assert_eq!((event["event"].as_str(), event["code"].as_str()), (Some("error"), Some("usage")), "{event}");
+}
+
 /// A tiny `docker` for `web-portal`: every call answers at once, except the start, which writes
 /// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs (as `sleep`) until it is stopped.
 #[cfg(unix)]
