@@ -198,7 +198,7 @@ async fn a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_mad
 async fn up_then_paused(l: &Running) -> crate::Running<'_> {
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.park(Park::Pause, &Recorder::new()).await.unwrap();
+    run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.unwrap();
     run
 }
 
@@ -210,7 +210,10 @@ async fn a_parked_vm_holds_its_containers_as_it_does_and_down_removes_the_vm() {
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.state, MachineState::Stopped);
     assert_eq!(web.published, []);
-    assert!(run.park(Park::Shutdown, &Recorder::new()).await.is_err(), "a container run in a VM only pauses");
+    assert!(
+        run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.is_err(),
+        "a container run in a VM only pauses"
+    );
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     assert!(l.engine.lock().unwrap().vm.is_none());

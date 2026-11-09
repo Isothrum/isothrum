@@ -196,10 +196,12 @@ async fn retiring_an_unknown_machine_says_why() {
 #[tokio::test]
 async fn a_run_parks_resumes_and_updates() {
     let s = setup();
-    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(s.run(&["up", "--host-label", "here"]).await.unwrap(), Verdict::Pass);
     s.out.take();
 
-    assert_eq!(s.run(&["park", "--json"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(s.run(&["park", "--host-label", "elsewhere", "--json"]).await.unwrap(), Verdict::Fail);
+    assert_eq!(s.last_event()["code"], "running_elsewhere");
+    assert_eq!(s.run(&["park", "--host-label", "here", "--json"]).await.unwrap(), Verdict::Pass);
     let last = s.last_event();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("park")));
     assert_eq!(last["data"]["state"], "parked");

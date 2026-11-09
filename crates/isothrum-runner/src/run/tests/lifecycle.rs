@@ -74,7 +74,7 @@ async fn a_slot_without_a_value_gets_its_default_so_a_resume_needs_no_inputs() {
     run.up(&RunOptions::default(), &Recorder::new()).await.unwrap();
     let up = f.fake.last(" up --detach ").unwrap();
     assert_eq!(up.env("CTF_FLAG_MAIN"), Some(""), "an optional input left out is set, empty");
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     let events = Recorder::new();
     run.resume(&RunOptions::default(), &events).await.unwrap();
     let start = f.fake.calls().into_iter().rev().find(|c| c.line().ends_with(" start")).unwrap();
@@ -131,7 +131,7 @@ async fn a_parked_run_resumes_without_being_re_created() {
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let parked = Recorder::new();
-    run.park(Park::Shutdown, &parked).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &parked).await.unwrap();
     assert_eq!(f.containers(), Containers::Stopped);
     assert_eq!(run.status().await.unwrap().state, RunState::Parked);
     assert!(kinds(&parked).contains(&EventKind::State {
@@ -150,7 +150,7 @@ async fn up_on_a_parked_run_resumes_it() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.park(Park::Pause, &Recorder::new()).await.unwrap();
+    run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.unwrap();
     let ups = f.called(" up --detach ");
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!((f.containers(), f.called(" up --detach ")), (Containers::Up, ups));
@@ -161,7 +161,7 @@ async fn nothing_left_to_resume_drops_the_parked_mark() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     f.set(Containers::None);
     let err = run.resume(&RunOptions::default(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NothingToResume);
@@ -175,7 +175,7 @@ async fn unreadable_ps_output_fails_a_resume_and_keeps_the_run_parked() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     f.engine.lock().unwrap().unreadable_ps = true;
     let err = run.resume(&RunOptions::default(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ToolFailed, "{err}");
@@ -232,7 +232,7 @@ async fn leftovers_are_removed_before_a_start() {
 async fn a_park_of_a_run_that_isnt_there_is_refused() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.park(Park::Shutdown, &Recorder::new()).await.unwrap_err();
+    let err = run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NotRunning);
 }
 

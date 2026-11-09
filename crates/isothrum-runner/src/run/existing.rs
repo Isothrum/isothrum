@@ -44,14 +44,17 @@ impl Running<'_> {
         .await
     }
 
-    /// Stops the run, keeping what it created, with the manifest's `park` steps for `mode`.
+    /// Stops the run, keeping what it created, with the manifest's `park` steps for `mode`; `opts`
+    /// as the other operations take them (the place the run is on, the params its steps read, the
+    /// SSH jump host).
     ///
     /// # Errors
     ///
     /// Fails with `not_parkable` when the manifest has no steps for `mode`, with `not_running` when
-    /// nothing of the run is there, and as [`Running::down`] does for a step or the state.
-    pub async fn park(&self, mode: Park, events: &dyn Events) -> Result<()> {
-        self.operate(Op::Park, &RunOptions::default(), events, async |connected: &RunOptions, e: &Emitter<'_>| {
+    /// nothing of the run is there, and as [`Running::down`] does for a run recorded elsewhere, a
+    /// step or the state.
+    pub async fn park(&self, mode: Park, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.operate(Op::Park, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let park = self.manifest().lifecycle.park.as_ref();
             let steps = park.and_then(|p| if mode == Park::Pause { p.pause.as_ref() } else { p.shutdown.as_ref() });
             let steps = steps.ok_or_else(|| Error::NotParkable {

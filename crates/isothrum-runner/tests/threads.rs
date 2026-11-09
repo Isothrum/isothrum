@@ -38,7 +38,7 @@ fn an_operation_can_run_on_any_thread() -> Outcome {
     let (opts, events) = (RunOptions::new(), |_: &Event| {});
     send(&run.up(&opts, &events));
     send(&run.down(&opts, &events));
-    send(&run.park(Park::Pause, &events));
+    send(&run.park(Park::Pause, &opts, &events));
     send(&run.resume(&opts, &events));
     send(&run.check(&opts, &events));
     send(&run.status());

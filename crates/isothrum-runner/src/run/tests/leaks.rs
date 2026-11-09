@@ -48,7 +48,7 @@ async fn a_delivered_value_lands_in_no_file_and_no_event_through_a_whole_run() {
     run.up(&opts(), &events).await.unwrap();
     run.status().await.unwrap();
     run.check(&opts(), &events).await.unwrap();
-    run.park(Park::Shutdown, &events).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &events).await.unwrap();
     // An embedder may give the values again at a resume: they are masked there too.
     run.resume(&opts(), &events).await.unwrap();
     run.down(&RunOptions::default(), &events).await.unwrap();
@@ -97,7 +97,9 @@ async fn every_operation_masks_the_values_in_its_events() {
         ("detach", |r, e| Box::pin(async move { drop(r.detach(None, &opts(), e).await) })),
         ("retire", |r, e| Box::pin(async move { drop(r.retire("db", &opts(), e).await) })),
         // Park takes no options: the value comes with the run's connection.
-        ("park", |r, e| Box::pin(async move { drop(r.park(Park::Shutdown, e).await) })),
+        ("park", |r, e| {
+            Box::pin(async move { drop(r.park(Park::Shutdown, &RunOptions::new(), e).await) })
+        }),
         ("resume", |r, e| Box::pin(async move { drop(r.resume(&opts(), e).await) })),
         ("down", |r, e| Box::pin(async move { drop(r.down(&opts(), e).await) })),
     ];
@@ -115,7 +117,7 @@ async fn every_operation_masks_the_values_in_its_events() {
             run.up(&opts(), &Recorder::new()).await.unwrap();
         }
         if op == "resume" {
-            run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+            run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
         }
         let events = Recorder::new();
         operate(&run, &events).await;

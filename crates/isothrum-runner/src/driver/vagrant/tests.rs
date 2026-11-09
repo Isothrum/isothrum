@@ -309,7 +309,7 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
         f.vagrant()
     );
 
-    run.park(Park::Pause, &Recorder::new()).await.unwrap();
+    run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.unwrap();
     assert_eq!(f.state("web"), "saved");
     assert_eq!(run.status().await.unwrap().state, RunState::Parked);
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
@@ -318,7 +318,7 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
         ("running", "poweroff"),
         "the controller stays off"
     );
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     assert_eq!(f.state("web"), "poweroff");
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     assert_eq!(f.state("web"), "running");
@@ -694,7 +694,7 @@ async fn a_resume_forwards_the_same_pinned_port() {
     let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":41000}"#));
     let status = run.status().await.unwrap();
@@ -742,7 +742,7 @@ async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
     run.up(&opts, &Recorder::new()).await.unwrap();
     let after_up = f.fake.calls().len();
     run.status().await.unwrap();
-    run.park(Park::Shutdown, &Recorder::new()).await.unwrap();
+    run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let vagrant: Vec<Call> = f
         .fake

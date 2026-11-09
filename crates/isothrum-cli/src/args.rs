@@ -101,7 +101,7 @@ pub(crate) enum Lifecycle {
     /// Stop the run, keeping what it created.
     Park {
         #[command(flatten)]
-        run: TargetArgs,
+        op: OpArgs,
         /// `pause` or `shutdown`.
         #[arg(long, value_enum, default_value_t = Mode::Shutdown)]
         mode: Mode,

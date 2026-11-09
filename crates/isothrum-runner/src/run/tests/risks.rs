@@ -1,7 +1,7 @@
 //! The runtime risks, each pinned by a test that fails on the risky behaviour.
 
 use super::*;
-use crate::ErrorCode;
+use crate::{ErrorCode, Park};
 
 #[tokio::test]
 async fn a_run_whose_lock_cant_be_taken_never_starts() {
@@ -65,6 +65,9 @@ async fn a_run_recorded_elsewhere_is_refused() {
     run.up(&here, &Recorder::new()).await.unwrap();
     here.host_label = Some("other-server".into());
     assert_eq!(run.down(&here, &Recorder::new()).await.unwrap_err().code(), ErrorCode::RunningElsewhere);
+    let park = run.park(Park::Shutdown, &here, &Recorder::new()).await;
+    assert_eq!(park.unwrap_err().code(), ErrorCode::RunningElsewhere);
+    assert_eq!(f.called(" stop"), 0, "nothing parked elsewhere");
 }
 
 #[tokio::test]

@@ -62,7 +62,10 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &dy
             Ok(said(json, started.ok(), "The run is up.", term))
         }
         Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
-        Lifecycle::Park { run, mode } => Ok(Verdict::of(open(runner, run)?.park(park_mode(*mode), events).await.is_ok())),
+        Lifecycle::Park { op, mode } => {
+            let parked = open(runner, &op.run)?.park(park_mode(*mode), &options(op, var)?, events).await;
+            Ok(Verdict::of(parked.is_ok()))
+        }
         Lifecycle::Resume(op) => {
             let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
             Ok(said(json, resumed.ok(), "The run is up again.", term))

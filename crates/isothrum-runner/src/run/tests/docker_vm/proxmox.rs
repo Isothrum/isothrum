@@ -92,7 +92,10 @@ async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to
     assert_eq!(start.env("TF_VAR_proxmox_password"), None);
     let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
     assert_eq!(page.value.as_deref(), Some(format!("http://{VM_IP}:8080/").as_str()));
-    assert!(run.park(Park::Pause, &Recorder::new()).await.is_err(), "a server run isn't parked");
+    assert!(
+        run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.is_err(),
+        "a server run isn't parked"
+    );
     run.down(&server, &Recorder::new()).await.unwrap();
 }
 

@@ -39,7 +39,7 @@
 //! let opts = RunOptions::new().with_param("ISOLOOM_PUBLISH_FIXED", "1");
 //! let started = run.up(&opts, &events).await?;
 //! let report = run.check(&opts, &events).await?;
-//! run.park(Park::Shutdown, &events).await?;
+//! run.park(Park::Shutdown, &opts, &events).await?;
 //! run.resume(&opts, &events).await?;
 //! run.down(&opts, &events).await?;
 //! # let _ = (started, report);
