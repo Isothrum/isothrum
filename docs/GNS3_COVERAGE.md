@@ -1,83 +1,50 @@
 # GNS3 feature coverage
 
-Internal map: which GNS3 features Isothrum covers, which it covers partly, which it plans, and
-which it leaves out. Built from GNS3's documented feature set; the docs site returned only its
-navigation when fetched, so each row should be checked against docs.gns3.com before we claim it
-publicly.
+Which of GNS3's features this repository's crates cover: the compiler (`isothrum-compiler`, a
+drawn topology to an Isoloom spec, and `isothrum-wasm`, the same in the browser with every
+target's files and the download) and the runner (`isothrum-runner` and its CLI, which run what
+Isoloom generates). What an application built on them adds around a running lab (console
+windows, packet capture, links set down and up, snapshots) is that application's to list.
 
-Status: **Covered** (works today in Isothrum or Isoloom) · **Partial** (part of it, or a different
-mechanism) · **Planned** (on the roadmap) · **Out** (not planned; reason given).
+Built from GNS3's documented feature set; check a row against docs.gns3.com before quoting it.
 
-## Nodes
+Status: **Covered** · **Partial** (part of it, or another mechanism) · **Not covered**.
 
-| GNS3 feature | Status | Isothrum / Isoloom mapping |
+## Nodes (compiler)
+
+| GNS3 feature | Status | What covers it |
 |---|---|---|
-| Docker container nodes | Covered | `kind: container`, one image per node |
-| QEMU / full VM nodes | Covered | `kind: vm`, Vagrant, Proxmox and cloud targets |
-| VirtualBox / VMware nodes | Partial | Through Vagrant providers, not as separate node types |
-| VPCS (simple PC) | Planned | A small container image with the same commands |
-| Ethernet switch | Covered | Switch nodes with VLANs and trunks (Isoloom's `vlans` under a LAN), or a Cisco IOL/IOSv L2 switch in the forwarding path (Isoloom's `switch`) |
-| Ethernet hub | Out | Hubs are switches with no MAC learning; nothing to model |
-| Cloud node (bridge to host) | Partial | Hybrid target uses macvlan on the VM host; no explicit cloud node |
-| NAT node | Partial | `internet` flag and gateway machines; no explicit NAT node |
-| Cisco IOS / Dynamips / IOU router images | Covered | IOL, IOSv, CSR 1000v, Catalyst 8000v (vrnetlab images) and Dynamips routers, each with its own configuration; the user brings the images |
-| Frame Relay and ATM switches | Out | Legacy WAN technologies |
-| Router as FRR container | Covered | Any container or VM as a router you configure, or the automatic router (`reach` rules between its networks) |
+| Docker container nodes | Covered | A container node, one image each, kept running idle when its image runs nothing of its own |
+| QEMU / full VM nodes | Covered | A VM node: its OS and its provisioning steps; the Isoloom target decides what runs it (Vagrant, Proxmox, a cloud) |
+| VirtualBox / VMware nodes | Partial | The Vagrant providers the runner drives, not node types of their own |
+| Ethernet switch | Covered | A LAN on a switch, with its VLAN (the switch's VLANs nest under a network named after it) |
+| Cisco IOS / IOU / Dynamips images | Covered | A container node with an `appliance` (IOL and the other vrnetlab images, or Dynamips) and its configuration; the user brings the images |
+| Router you configure | Covered | Any container or VM (FRR, a Cisco appliance as its LANs' gateway) |
+| NAT / cloud node | Partial | A LAN's `internet` flag; no node of its own |
+| VPCS, Ethernet hub, Frame Relay and ATM switches | Not covered | |
 
-## Links
+## Links (compiler)
 
-| GNS3 feature | Status | Isothrum / Isoloom mapping |
+| GNS3 feature | Status | What covers it |
 |---|---|---|
-| Point-to-point cabling between ports | Covered | Each cable is its own /29 network (`isothrum-core`) |
-| Named ports (interfaces) | Covered | Free-text port names on each endpoint |
-| Link filters: latency, jitter, loss, bandwidth | Covered | Isoloom's `tc` on a LAN or a cable (netem on its router) |
-| Start / stop / suspend a link | Covered | Desktop app: a cable's ends (or every link of a LAN) set down in the machines' namespaces, and up again with their routes; a cut link stays cut through a restart of the machine or the lab, until the lab stops |
-| Packet capture on a link | Covered | Desktop app: `tcpdump` in a capture container (or a VM) on the LAN or cable, live into Wireshark or into a `.pcap` |
-| Routing between links | Covered | Routers you configure (Cisco, FRR…) or the automatic router's `reach` rules |
+| Point-to-point cabling between ports | Covered | Each cable is its own /29 network, cut from `10.200.0.0/16` |
+| Named ports | Covered | A cable's ends name their nodes' ports |
+| Link filters: latency, jitter, loss, bandwidth | Covered | `tc` on a LAN or a cable (Isoloom's netem) |
+| Routing between links | Covered | A router you configure, or the automatic router: its networks reach each other (`reach` rules both ways) |
 
-## Consoles and runtime
+## Projects (compiler)
 
-| GNS3 feature | Status | Isothrum / Isoloom mapping |
+| GNS3 feature | Status | What covers it |
 |---|---|---|
-| Telnet console to a node | Covered | Desktop app: a terminal with a shell in the container, SSH to a Cisco appliance, or `vagrant ssh` to a VM |
-| VNC / SPICE console | Covered | Desktop app: a container's VNC server (its image exposes a port in 5900–5999), through a forwarder on 127.0.0.1, in the system's VNC viewer; a VirtualBox VM's screen window; a libvirt VM's VNC or SPICE display |
-| Start / stop / suspend / reload a node | Covered | Desktop app: start, stop and restart one machine (no suspend) |
-| Auto-start on open | Covered | Desktop app: a lab set to it in the Run window starts when the app opens on it |
-| Snapshots of a node | Covered | Desktop app: `docker commit` for containers, `vagrant snapshot` for VMs |
+| Save and export a project | Covered | The compiler writes `isoloom.yml` and the project's own files (appliance configurations, provisioning starters); the WebAssembly engine zips them with every target's files |
+| Validation before running | Covered | The engine's plan lists the problems Isoloom finds in the spec |
+| Import a `.gns3` project | Not covered | |
 
-## Projects and editing
+## Running a lab (runner)
 
-| GNS3 feature | Status | Isothrum / Isoloom mapping |
+| GNS3 feature | Status | What covers it |
 |---|---|---|
-| Save and reopen a project | Covered | `isoloom.yml` is the project file; the editor writes it |
-| Import an existing config | Partial | `isoloom import compose / vagrant / terraform` exists; no `.gns3` import |
-| Export a project | Covered | The editor downloads `isoloom.yml` and the generated bundle |
-| Node templates / appliances | Planned | Saved node presets in the editor |
-| Drawing tools: notes, shapes, labels | Planned | Editor-only; nothing in the spec |
-| Topology summary | Partial | `isoloom validate`, `targets`, `resources` |
-| Validation before running | Covered | `isoloom validate` problems shown in the editor |
-
-## Remote and scale
-
-| GNS3 feature | Status | Isothrum / Isoloom mapping |
-|---|---|---|
-| Remote GNS3 server | Out for v1 | Proxmox and cloud targets cover remote hosts |
-| GNS3 VM (the bundled Linux VM) | Out | Vagrant and Proxmox targets do this job |
-| Multi-user / shared labs | Out for v1 | Revisit with the hosted option |
-| Clustering | Out for v1 | Proxmox |
-
-## Beyond GNS3
-
-Isothrum/Isoloom features GNS3 does not have, which should lead the marketing:
-
-- One spec runs on Docker, VMs, Proxmox and the clouds.
-- Checks: black-box scripts that prove the behavior on every target.
-- `reach` rules that declare which networks may talk, verified by checks.
-- The spec is a plain text file that works in Git and CI.
-
-## Decisions taken
-
-1. **Routing**: both. Routers you configure (Cisco appliances, FRR or any container or VM), and
-   the automatic router, which writes Isoloom `reach` rules.
-2. **Runner**: the desktop app runs labs (Docker Compose, or Vagrant for VMs) and owns consoles,
-   start/stop, snapshots and capture.
+| Start, stop and suspend a lab | Covered | `up`, `down`, `park` (`pause` or `shutdown`) and `resume` |
+| Start and stop one node | Partial | `retire` takes a machine out of a running lab; `attach` and `detach` the lab's on-demand access machine |
+| Console to a node | Covered | `console <machine>`: the command that opens a shell in any machine of the run |
+| Remote server | Partial | Proxmox and cloud targets run a lab on another host; no server of the runner's own |

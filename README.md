@@ -209,9 +209,6 @@ isothrum up --provider virtualbox
   `vagrant/vmware_esxi` from macOS against the lab servers.
 - **Generated and validated, not yet run for real:** the six clouds (`cloud-vm`, `cloud-docker`,
   `cloud-services`) — they need budget-capped accounts.
-- **RC-level / owed:** the apt-repo Docker bootstrap needs a real apt-guest run on a Linux host to
-  record; the RPM family still installs Docker from the pinned install script (an apt-style
-  repository is a 1.0 follow-up).
 
 ## Development
 
