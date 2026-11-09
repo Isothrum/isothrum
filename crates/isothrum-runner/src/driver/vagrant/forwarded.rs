@@ -15,9 +15,6 @@ use crate::executor::Cx;
 use crate::net::HeldPort;
 use crate::status::MachineState;
 
-/// The param asking each port for its own `publish:` number instead of a free one.
-const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
-
 /// The key a chosen host port is held under: `"<machine>/<port>"`.
 pub(super) fn key(m: &Machine, p: &Port) -> String {
     format!("{}/{}", m.name, p.name)
@@ -43,10 +40,10 @@ fn ephemeral(p: &Port) -> bool {
 /// address) or when no published port is ephemeral.
 pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     let mut chosen = BTreeMap::new();
-    if cx.scope.provider.as_deref() == Some(super::ESXI) {
+    if cx.scope.provider.as_deref() == Some(crate::driver::ESXI) {
         return chosen;
     }
-    let fixed = cx.vars.params().contains_key(PUBLISH_FIXED);
+    let fixed = cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED);
     let mut held: Vec<HeldPort> = Vec::new();
     let mut taken: BTreeSet<(u16, Protocol)> = BTreeSet::new();
     for m in &cx.run.manifest().machines {

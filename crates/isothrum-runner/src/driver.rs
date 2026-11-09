@@ -31,6 +31,13 @@ use crate::vars::PortKey;
 /// `publish` number.
 pub(crate) const HOSTPORTS: &str = "ISOLOOM_HOSTPORTS";
 
+/// The param asking each published port for its own `preferred` number instead of a free one.
+pub(crate) const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
+
+/// The Vagrant provider of a remote VMware ESXi host: it forwards no port to this computer (a VM's
+/// published ports answer at its own address), and on macOS its run goes through the relays.
+pub(crate) const ESXI: &str = "vmware_esxi";
+
 /// The label Compose puts on each container naming its service, which finds a service's
 /// container whatever project and file started it.
 pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";

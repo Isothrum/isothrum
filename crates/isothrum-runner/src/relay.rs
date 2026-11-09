@@ -24,6 +24,8 @@ use self::http_proxy::{Targets, start_http_proxy};
 /// The params naming the ESXi host and its SSH port, in the Vagrantfiles Isoloom writes.
 const HOSTNAME: &str = "ESXI_HOSTNAME";
 const HOSTPORT: &str = "ESXI_HOSTPORT";
+/// The host's SSH port when `ESXI_HOSTPORT` doesn't say one.
+const DEFAULT_SSH_PORT: u16 = 22;
 /// What Vagrant's SSH to the guests goes through.
 const PROXY_COMMAND: &str = "ISOLOOM_SSH_PROXY_COMMAND";
 
@@ -146,10 +148,17 @@ where
 }
 
 /// Whether a run needs the relays: on macOS, Vagrant on an ESXi host (`provider`), whose address
-/// (`params`' `ESXI_HOSTNAME`) isn't this machine. The host, when it does.
-pub(crate) fn esxi_host<'a>(macos: bool, vagrant: bool, provider: Option<&str>, params: &'a std::collections::BTreeMap<String, String>) -> Option<&'a str> {
+/// (`params`' `ESXI_HOSTNAME`) isn't this machine. The host and its SSH port (`ESXI_HOSTPORT`,
+/// else 22), when it does.
+pub(crate) fn esxi_host<'a>(
+    macos: bool,
+    vagrant: bool,
+    provider: Option<&str>,
+    params: &'a std::collections::BTreeMap<String, String>,
+) -> Option<(&'a str, u16)> {
     let host = params.get(HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h))?;
-    (macos && vagrant && provider == Some("vmware_esxi")).then_some(host)
+    let port = params.get(HOSTPORT).and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_SSH_PORT);
+    (macos && vagrant && provider == Some(crate::driver::ESXI)).then_some((host, port))
 }
 
 /// The relays to ESXi host `host` (its SSH on `ssh_port`, its HTTPS, WinRM to its guests), and
@@ -241,7 +250,10 @@ mod tests {
     #[test]
     fn only_vagrant_on_an_esxi_host_from_macos_is_relayed() {
         let p = params("10.0.0.5");
-        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &p), Some("10.0.0.5"));
+        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &p), Some(("10.0.0.5", 22)));
+        let mut on_2222 = p.clone();
+        on_2222.insert(HOSTPORT.to_owned(), "2222".to_owned());
+        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &on_2222), Some(("10.0.0.5", 2222)));
         assert_eq!(esxi_host(false, true, Some("vmware_esxi"), &p), None, "not on Linux or Windows");
         assert_eq!(esxi_host(true, false, Some("vmware_esxi"), &p), None, "not Terraform");
         assert_eq!(esxi_host(true, true, Some("virtualbox"), &p), None);

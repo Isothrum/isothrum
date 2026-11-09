@@ -240,10 +240,9 @@ impl<'r> Running<'r> {
         let config = &self.runner.config;
         let vagrant = self.manifest().driver == isoloom_manifest::Driver::Vagrant;
         let params = cx.vars.params();
-        let Some(host) = crate::relay::esxi_host(config.host == isoloom_manifest::HostOs::Macos, vagrant, cx.scope.provider.as_deref(), params) else {
+        let Some((host, port)) = crate::relay::esxi_host(config.host == isoloom_manifest::HostOs::Macos, vagrant, cx.scope.provider.as_deref(), params) else {
             return Ok(());
         };
-        let port = params.get("ESXI_HOSTPORT").and_then(|p| p.parse().ok()).unwrap_or(22);
         let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref()).await;
         cx.relayed = Some(relayed.map_err(Error::io(config.home.join("relay"), "set up"))?);
         Ok(())

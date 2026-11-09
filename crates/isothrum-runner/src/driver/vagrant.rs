@@ -41,10 +41,6 @@ const RELOAD_TIMEOUT: Duration = Duration::from_secs(1800);
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
 
-/// The provider that forwards no port to this computer: a VM's published ports answer at its
-/// own address.
-const ESXI: &str = "vmware_esxi";
-
 /// The QEMU provider (vagrant-qemu), whose VMs need a chosen host port for their SSH forward.
 const QEMU: &str = "qemu";
 
@@ -223,7 +219,7 @@ impl Driver for Vagrant {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
         let read = status::parse(&out);
-        let guests = if cx.scope.provider.as_deref() == Some(ESXI) {
+        let guests = if cx.scope.provider.as_deref() == Some(super::ESXI) {
             Some(self.guest_addresses(cx, &read).await)
         } else {
             None

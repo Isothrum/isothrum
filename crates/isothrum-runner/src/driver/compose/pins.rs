@@ -13,14 +13,11 @@ use super::config::{self, ConfigPort};
 use crate::executor::Cx;
 use crate::net::HeldPort;
 
-/// The param asking for each port's own `publish:` number.
-const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
-
 /// The pinned-ports override for `config` (`docker compose config --format json`), or `None`
 /// when nothing is ephemeral or no port could be picked.
 pub(super) fn pick(cx: &Cx<'_>, config: &str) -> Option<String> {
     let ports = config::ports(config)?;
-    let fixed = cx.vars.params().contains_key(PUBLISH_FIXED);
+    let fixed = cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED);
     let mut held: Vec<HeldPort> = Vec::new();
     let mut taken: BTreeSet<(u16, Protocol)> = BTreeSet::new();
     let pins = config::pinned_ports(&ports, |p| {
