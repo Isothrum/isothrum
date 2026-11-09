@@ -153,12 +153,6 @@ pub(crate) async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> R
     })
 }
 
-impl From<Option<i32>> for Exit {
-    fn from(code: Option<i32>) -> Exit {
-        Exit { code }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

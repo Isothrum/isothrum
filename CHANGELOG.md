@@ -179,7 +179,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **More API nothing used.** In `isothrum-runner`: the `Clock` port (`Clock`, `SystemClock`,
   `RunnerConfig::clock`: the runner reads the system's clock), `Recorder`, `EVENTS_VERSION` (an
   event's `v`), `Running::path`, and the test doubles' `FakePorts::take`, `FakePorts::answer`,
-  `Reply::after` and `FakeProcesses::lines` (read `FakeProcesses::calls`). In
+  `Reply::after` and `FakeProcesses::lines` (read `FakeProcesses::calls`), and `From<Option<i32>>`
+  for `process::Exit` (use `Exit::new`). In
   `isothrum-compiler`: `Compiled::spec` (`Compiled::into_parts` gives the spec). In
   `isothrum-machine`: `Provider::ALL`, `Provider::is_remote`, and `ProviderStatus`'s `remote`,
   `hypervisor`, `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` (its
