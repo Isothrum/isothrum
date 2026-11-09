@@ -110,7 +110,7 @@ async fn values_in_a_state_file_are_written_at_up_kept_for_the_destroy_and_gone_
 fn with_a_state_secret() -> String {
     let mut m: serde_json::Value = serde_json::from_str(&without_guest_delivery()).unwrap();
     m["outputs"].as_array_mut().unwrap().push(serde_json::json!({
-        "name": "db_password", "role": "credential", "sensitive": false,
+        "name": "db_password", "role": "info", "sensitive": false,
         "from": {"kind": "terraform_output", "name": "db_password"}
     }));
     m["environment"]["message"] = serde_json::json!("The database takes ${outputs.db_password}; the site is at ${outputs.address_web}.");

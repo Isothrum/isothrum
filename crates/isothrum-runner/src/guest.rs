@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use isoloom_manifest::{Delivery, SecretSlot, Transport};
+use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
 use crate::error::Error;
@@ -45,7 +45,7 @@ const SSH_UNREACHABLE: i32 = 255;
 /// Delivers to each machine the slots whose guest delivery waits for step `after` (`None`: for the
 /// end of `up`'s steps).
 pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> {
-    let mut by_machine = due(cx, after)?;
+    let mut by_machine = due(cx, after);
     // A machine set up before this operation keeps what it was given (an update carries no
     // launch's values: delivering again would overwrite them).
     by_machine.retain(|machine, _| !cx.set_up.contains(machine));
@@ -65,9 +65,8 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     Ok(())
 }
 
-/// Each machine's input lines (`<slot> <base64>`) due after `after`; refused for a transport the
-/// runner doesn't deliver over.
-fn due(cx: &Cx<'_>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
+/// Each machine's input lines (`<slot> <base64>`) due after `after`.
+fn due(cx: &Cx<'_>, after: Option<&str>) -> BTreeMap<String, String> {
     let given = |name: &str| cx.secrets.get(name).map(SecretValue::expose);
     due_lines(&cx.run.manifest().secrets, given, after)
 }
@@ -75,26 +74,16 @@ fn due(cx: &Cx<'_>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
 /// [`due`] over `slots`, each slot's value from `given` else its default. A machine with a
 /// delivery due gets its entry even when every value is unset (no lines): its set-up waits for
 /// `.delivered`, which only a delivery writes.
-fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str>, after: Option<&str>) -> Result<BTreeMap<String, String>> {
+fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str>, after: Option<&str>) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     for slot in slots {
         let value = given(slot.name.as_str()).or(slot.default.as_deref());
         for d in &slot.deliver {
-            let Delivery::Guest {
-                machine,
-                transport,
-                during_step,
-            } = d
-            else {
+            let Delivery::Guest { machine, during_step, .. } = d else {
                 continue;
             };
             if during_step.as_ref().map(isoloom_manifest::StepId::as_str) != after {
                 continue;
-            }
-            if *transport != Transport::Ssh {
-                return Err(Error::Unsupported {
-                    what: format!("a guest delivery to `{machine}` over {transport:?}"),
-                });
             }
             let lines = out.entry(machine.to_string()).or_default();
             let Some(v) = value else { continue };
@@ -105,7 +94,7 @@ fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str
             lines.push('\n');
         }
     }
-    Ok(out)
+    out
 }
 
 /// One machine's delivery: `lines` piped into [`RECEIVE`] at `login`, retried while SSH can't
@@ -159,19 +148,19 @@ mod tests {
 
     #[test]
     fn a_given_value_goes_to_its_machine_in_base64() {
-        let due = due_lines(&slots(None), |n| (n == "FLAG").then_some("CTF{x}"), None).unwrap();
+        let due = due_lines(&slots(None), |n| (n == "FLAG").then_some("CTF{x}"), None);
         assert_eq!(due["web"], format!("FLAG {}\n", crate::encoding::base64(b"CTF{x}")));
     }
 
     #[test]
     fn a_machine_whose_values_are_all_unset_still_gets_its_delivery() {
         // No value and no default: no line, but the delivery still runs and writes `.delivered`.
-        let due = due_lines(&slots(None), |_| None, None).unwrap();
+        let due = due_lines(&slots(None), |_| None, None);
         assert_eq!(due.get("web").map(String::as_str), Some(""));
     }
 
     #[test]
     fn a_delivery_waits_for_its_step() {
-        assert!(due_lines(&slots(Some("x")), |_| None, Some("some-step")).unwrap().is_empty());
+        assert!(due_lines(&slots(Some("x")), |_| None, Some("some-step")).is_empty());
     }
 }

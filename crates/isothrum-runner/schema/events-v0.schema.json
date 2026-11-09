@@ -465,19 +465,9 @@
           "const": "entry"
         },
         {
-          "description": "The lab host's login.",
-          "type": "string",
-          "const": "ssh"
-        },
-        {
           "description": "An address.",
           "type": "string",
           "const": "address"
-        },
-        {
-          "description": "A credential.",
-          "type": "string",
-          "const": "credential"
         },
         {
           "description": "Anything else worth showing.",

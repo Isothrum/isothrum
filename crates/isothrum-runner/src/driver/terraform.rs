@@ -216,10 +216,6 @@ fn expiry_var(cx: &Cx<'_>) -> Option<(String, String)> {
     let at = cx.expires_at?;
     let value = match expiry.unit {
         ExpiryUnit::UnixSeconds => at.to_string(),
-        ExpiryUnit::MinutesFromNow => {
-            let now = crate::clock::unix_seconds(cx.run.runner.config.clock.now());
-            (at.saturating_sub(now) / 60).to_string()
-        }
     };
     Some((format!("TF_VAR_{}", expiry.tf_var), value))
 }

@@ -22,7 +22,6 @@ pub(crate) fn read(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, S
         .iter()
         .map(|o| match &o.from {
             OutputSource::PublishedPort { machine, port } => vars.published().get(&(machine.to_string(), port.to_string())).map(u16::to_string),
-            OutputSource::Static { value } => Some(value.clone()),
             OutputSource::TerraformOutput { name, default } => engine.get(name.as_str()).cloned().or_else(|| default.clone()),
         })
         .collect();

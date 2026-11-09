@@ -12,7 +12,7 @@ pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, SnakeName, Step, Template, Transport};
+use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, SnakeName, Step, Template};
 use tracing::Instrument;
 
 use crate::Result;
@@ -114,9 +114,8 @@ impl AnyDriver {
         let terraform = matches!(driver, AnyDriver::Terraform(_));
         for delivery in deliveries {
             let ok = match delivery {
-                Delivery::Env { .. } | Delivery::StateFile { .. } => true,
+                Delivery::Env { .. } | Delivery::StateFile { .. } | Delivery::Guest { .. } => true,
                 Delivery::TfVar { .. } => terraform,
-                Delivery::Guest { transport, .. } => *transport == Transport::Ssh,
             };
             if !ok {
                 return unsupported(format!("a `{}` delivery", delivery_kind(delivery)));
@@ -322,12 +321,5 @@ mod tests {
         let file: Delivery = serde_json::from_str(r#"{"via": "state_file", "path": "inputs.tfvars.json", "format": "tfvars_json"}"#).unwrap();
         cloud.secrets[0].deliver = isoloom_manifest::NonEmpty::one(file);
         assert!(AnyDriver::for_manifest(&cloud).is_ok(), "a state file");
-        let winrm: Delivery = serde_json::from_str(r#"{"via": "guest", "machine": "web", "transport": "winrm"}"#).unwrap();
-        cloud.secrets[0].deliver = isoloom_manifest::NonEmpty::one(winrm);
-        assert_eq!(
-            AnyDriver::for_manifest(&cloud).unwrap_err().to_string(),
-            "a `guest` delivery isn't supported by this runner yet",
-            "over SSH only"
-        );
     }
 }

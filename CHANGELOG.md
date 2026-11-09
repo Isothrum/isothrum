@@ -84,6 +84,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Removed
 
+- The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
+  minutes from now, a dotenv state file and a WinRM guest delivery (Isoloom 1.0.10 removed them from
+  the manifest).
 - **`Running::attach`, `Running::detach` and `Running::shell_command`.** `attach_with` and
   `detach_with` take the options the two took none of (pass `RunOptions::new()`); the access
   machine's shell is `Running::console_command` of its name (the `AttachReport`'s `machine`),
