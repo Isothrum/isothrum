@@ -200,3 +200,55 @@ pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake:
     );
     assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
 }
+
+/// Every variant of the unit enum `T`, read back from the names its JSON schema lists (serde's
+/// own): a list nobody keeps, so a variant added is in it.
+fn every_variant<T: schemars::JsonSchema + serde::de::DeserializeOwned>() -> Vec<T> {
+    fn names(schema: &serde_json::Value, out: &mut Vec<String>) {
+        match schema {
+            serde_json::Value::Object(fields) => {
+                if let Some(serde_json::Value::String(name)) = fields.get("const") {
+                    out.push(name.clone());
+                }
+                if let Some(serde_json::Value::Array(listed)) = fields.get("enum") {
+                    out.extend(listed.iter().filter_map(|v| v.as_str().map(str::to_owned)));
+                }
+                fields.values().for_each(|v| names(v, out));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| names(v, out)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    names(&serde_json::to_value(schemars::schema_for!(T)).unwrap(), &mut found);
+    found.iter().map(|n| serde_json::from_value(serde_json::json!(n)).unwrap()).collect()
+}
+
+/// Every variant of `T` is written as `name` writes it (as serde does), reads back as itself, and
+/// no two share a name.
+pub(crate) fn assert_named_as_serde<T>(name: fn(T) -> &'static str)
+where
+    T: Copy + PartialEq + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned + schemars::JsonSchema,
+{
+    let all: Vec<T> = every_variant();
+    assert!(!all.is_empty(), "no variant found in the schema");
+    for &value in &all {
+        let json = serde_json::to_value(value).unwrap();
+        assert_eq!(json, serde_json::json!(name(value)), "the name disagrees with serde for {value:?}");
+        let back: T = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value, "{value:?} didn't read back as itself");
+    }
+    let mut names: Vec<&str> = all.iter().map(|&v| name(v)).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), all.len(), "two variants share a name");
+}
+
+#[test]
+fn every_variant_is_read_from_the_schema_in_order() {
+    use crate::{ErrorCode, Park};
+    assert_eq!(every_variant::<Park>(), [Park::Pause, Park::Shutdown]);
+    let codes = every_variant::<ErrorCode>();
+    assert_eq!(codes.first(), Some(&ErrorCode::ManifestInvalid));
+    assert!(codes.contains(&ErrorCode::NotSealed), "the last variant too: {codes:?}");
+}

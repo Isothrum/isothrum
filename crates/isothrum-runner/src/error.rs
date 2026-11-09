@@ -362,87 +362,9 @@ impl std::fmt::Display for ErrorCode {
 mod tests {
     use super::*;
 
-    /// Every [`ErrorCode`], in declaration order. The match in [`all_lists_every_code_once`] fails
-    /// to compile if a variant is added or removed without updating this list, so the exhaustive
-    /// tests below can't silently cover only some codes.
-    const ALL: &[ErrorCode] = &[
-        ErrorCode::ManifestInvalid,
-        ErrorCode::ManifestVersion,
-        ErrorCode::Unsupported,
-        ErrorCode::Io,
-        ErrorCode::Locked,
-        ErrorCode::ToolMissing,
-        ErrorCode::ToolFailed,
-        ErrorCode::ToolTooOld,
-        ErrorCode::Timeout,
-        ErrorCode::AlreadyRunning,
-        ErrorCode::RunningElsewhere,
-        ErrorCode::PortInUse,
-        ErrorCode::NotParkable,
-        ErrorCode::NothingToResume,
-        ErrorCode::NotRunning,
-        ErrorCode::NotReady,
-        ErrorCode::SecretMissing,
-        ErrorCode::ParamInvalid,
-        ErrorCode::RunName,
-        ErrorCode::ProviderRefused,
-        ErrorCode::ElevationDeclined,
-        ErrorCode::MachineUnknown,
-        ErrorCode::SlotsFull,
-        ErrorCode::AdoptRefused,
-        ErrorCode::Unreachable,
-        ErrorCode::NotSealed,
-    ];
-
     #[test]
-    fn all_lists_every_code_once() {
-        // Exhaustiveness guard: this match fails to compile if a variant is added or removed, a
-        // reminder to update ALL above. It is a no-op at run time.
-        for &code in ALL {
-            match code {
-                ErrorCode::ManifestInvalid
-                | ErrorCode::ManifestVersion
-                | ErrorCode::Unsupported
-                | ErrorCode::Io
-                | ErrorCode::Locked
-                | ErrorCode::ToolMissing
-                | ErrorCode::ToolFailed
-                | ErrorCode::ToolTooOld
-                | ErrorCode::Timeout
-                | ErrorCode::AlreadyRunning
-                | ErrorCode::RunningElsewhere
-                | ErrorCode::PortInUse
-                | ErrorCode::NotParkable
-                | ErrorCode::NothingToResume
-                | ErrorCode::NotRunning
-                | ErrorCode::NotReady
-                | ErrorCode::SecretMissing
-                | ErrorCode::ParamInvalid
-                | ErrorCode::RunName
-                | ErrorCode::ProviderRefused
-                | ErrorCode::ElevationDeclined
-                | ErrorCode::MachineUnknown
-                | ErrorCode::SlotsFull
-                | ErrorCode::AdoptRefused
-                | ErrorCode::Unreachable
-                | ErrorCode::NotSealed => {}
-            }
-        }
-        let codes: Vec<&str> = ALL.iter().map(|c| c.as_str()).collect();
-        let mut unique = codes.clone();
-        unique.sort_unstable();
-        unique.dedup();
-        assert_eq!(unique.len(), codes.len(), "two variants share a code string: {codes:?}");
-    }
-
-    #[test]
-    fn every_code_round_trips_through_json_as_its_written_form() {
-        for &code in ALL {
-            let json = serde_json::to_value(code).unwrap();
-            assert_eq!(json, serde_json::json!(code.as_str()), "as_str() disagrees with serde for {code:?}");
-            let back: ErrorCode = serde_json::from_value(json).unwrap();
-            assert_eq!(back, code, "{code:?} didn't read back as itself");
-        }
+    fn every_code_is_written_as_serde_writes_it() {
+        crate::testing::assert_named_as_serde(ErrorCode::as_str);
     }
 
     #[test]
