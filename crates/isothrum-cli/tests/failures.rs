@@ -118,15 +118,57 @@ fn wait_until(ready: impl Fn() -> bool) -> bool {
 #[cfg(unix)]
 #[test]
 fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
+    let seen = sent_while_up("-INT").unwrap();
+    assert_eq!(seen.code, Some(130), "{}", seen.stderr);
+    assert_eq!(seen.last_event(), (Some("error"), Some("cancelled"), Some("up")), "{}", seen.event);
+    assert!(seen.tool_stopped, "the tool outlived the command");
+}
+
+#[cfg(unix)]
+#[test]
+fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
+    // A CI runner cancelling its job sends SIGTERM.
+    let seen = sent_while_up("-TERM").unwrap();
+    assert_eq!(seen.code, Some(143), "{}", seen.stderr);
+    assert_eq!(seen.last_event(), (Some("error"), Some("cancelled"), Some("up")), "{}", seen.event);
+    assert!(seen.tool_stopped, "the tool outlived the command");
+}
+
+/// What a command sent a signal showed.
+#[cfg(unix)]
+struct Signalled {
+    /// Its exit code.
+    code: Option<i32>,
+    /// Its standard error.
+    stderr: String,
+    /// Its last event.
+    event: Value,
+    /// Whether the tool it started was gone after it.
+    tool_stopped: bool,
+}
+
+#[cfg(unix)]
+impl Signalled {
+    /// The last event's kind, code and operation.
+    fn last_event(&self) -> (Option<&str>, Option<&str>, Option<&str>) {
+        let field = |name: &str| self.event.get(name).and_then(Value::as_str);
+        (field("event"), field("code"), field("op"))
+    }
+}
+
+/// `isothrum up --json` on a tool that runs until it is stopped, sent `signal` (as `kill` names
+/// it) once the tool runs.
+#[cfg(unix)]
+fn sent_while_up(signal: &str) -> Outcome<Signalled> {
     use std::os::unix::fs::PermissionsExt;
 
-    let (home, run_dir, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
     let dir = run_dir.path().join(".isoloom/docker");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json")).unwrap();
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json"))?;
     let docker = bin.path().join("docker");
-    std::fs::write(&docker, FAKE_DOCKER).unwrap();
-    std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(&docker, FAKE_DOCKER)?;
+    std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))?;
     let pidfile = bin.path().join("docker.pid");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
 
@@ -139,24 +181,22 @@ fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
         .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    assert!(
-        wait_until(|| std::fs::read_to_string(&pidfile).is_ok_and(|p| !p.trim().is_empty())),
-        "the start never began"
-    );
-    let tool = std::fs::read_to_string(&pidfile).unwrap().trim().to_owned();
-    assert!(alive(&tool));
-
-    let sent = Command::new("kill").args(["-INT", &child.id().to_string()]).status().unwrap();
-    assert!(sent.success());
-    let out = child.wait_with_output().unwrap();
-    assert_eq!(out.status.code(), Some(130), "{}", String::from_utf8_lossy(&out.stderr));
-    let event = last_event(&out).unwrap();
-    assert_eq!(
-        (event["event"].as_str(), event["code"].as_str(), event["op"].as_str()),
-        (Some("error"), Some("cancelled"), Some("up")),
-        "{event}"
-    );
-    assert!(wait_until(|| !alive(&tool)), "the tool {tool} outlived the command");
+        .spawn()?;
+    if !wait_until(|| std::fs::read_to_string(&pidfile).is_ok_and(|p| !p.trim().is_empty())) {
+        return Err("the start never began".into());
+    }
+    let tool = std::fs::read_to_string(&pidfile)?.trim().to_owned();
+    if !alive(&tool) {
+        return Err(format!("the tool {tool} wasn't running").into());
+    }
+    if !Command::new("kill").args([signal, &child.id().to_string()]).status()?.success() {
+        return Err(format!("kill {signal} failed").into());
+    }
+    let out = child.wait_with_output()?;
+    Ok(Signalled {
+        code: out.status.code(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        event: last_event(&out)?,
+        tool_stopped: wait_until(|| !alive(&tool)),
+    })
 }
