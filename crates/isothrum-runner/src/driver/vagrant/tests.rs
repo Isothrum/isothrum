@@ -61,6 +61,11 @@ struct Engine {
     up_takes: std::time::Duration,
     /// Until when the `vagrant up` under way holds the VMs' locks.
     up_holds_until: Option<tokio::time::Instant>,
+    /// How many `vagrant status` calls after the controller's halt Vagrant's machine index lock
+    /// refuses, as on libvirt ([`index_locked_status`]).
+    index_locks_after_halt: u32,
+    /// How many `vagrant status` calls Vagrant's machine index lock still refuses.
+    index_locked_reads: u32,
 }
 
 struct Fixture {
@@ -234,6 +239,15 @@ fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
                 ..Reply::default()
             })
         }
+        ["status", ..] if e.index_locked_reads > 0 => {
+            e.index_locked_reads -= 1;
+            Some(Reply {
+                stdout: index_locked_status(CONTROLLER),
+                stderr: vec![FOG_WARNING.to_owned(); VMS.len()],
+                code: 1,
+                ..Reply::default()
+            })
+        }
         ["halt", CONTROLLER] if e.locked_halts > 0 => {
             e.locked_halts -= 1;
             Some(Reply::fail(1, &locked_halt(CONTROLLER)))
@@ -255,6 +269,25 @@ fn locked_status(vm: &str) -> Vec<String> {
         "1794307174,isoloom-controller,action,read_state,end".to_owned(),
         format!("1794307174,,ui,error,{said}"),
         format!("1794307174,,error-exit,Vagrant::Errors::MachineActionLockedError,{said}"),
+    ]
+}
+
+/// What vagrant-libvirt's fog prints on standard error at each of Vagrant's calls, once per
+/// machine it reads.
+const FOG_WARNING: &str = "[fog][WARNING] Unrecognized arguments: libvirt_ip_command";
+
+/// What `vagrant status --machine-readable` prints when another Vagrant process holds `vm`'s
+/// machine index lock (Vagrant 2.4.9 on libvirt, a `vagrant status` at the same time): the error
+/// on standard output, fog's warnings alone on standard error.
+fn index_locked_status(vm: &str) -> Vec<String> {
+    let said = format!(
+        "Vagrant can't use the requested machine because it is locked! This\\nmeans that another Vagrant process is \
+         currently reading or modifying\\nthe machine. Please wait for that Vagrant process to end and try\\nagain. Details \
+         about the machine are shown below:\\n\\nName: {vm}\\nProvider: libvirt"
+    );
+    vec![
+        format!("1794342958,,ui,error,{said}"),
+        format!("1794342958,,error-exit,Vagrant::Errors::MachineLocked,{said}"),
     ]
 }
 
@@ -314,18 +347,7 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
             }
             Reply::ok("")
         }
-        ["halt", vm] => {
-            if e.esxi_off_before_halt && *vm == CONTROLLER {
-                e.states.insert(CONTROLLER.into(), "powered_off".into());
-                return Reply::fail(1, ESXI_ALREADY_OFF);
-            }
-            if let Some(state) = e.halt_fails.filter(|_| *vm == CONTROLLER) {
-                e.states.insert(CONTROLLER.into(), state.into());
-                return Reply::fail(1, "SSH connection was refused! This usually happens if the VM failed to\nboot properly.");
-            }
-            e.states.insert((*vm).to_owned(), "poweroff".into());
-            Reply::ok(&format!("==> {vm}: Attempting graceful shutdown of VM...")).after(e.halt_delay)
-        }
+        ["halt", vm] => halt(e, vm),
         // Every VM, or those named (Isoloom suspends the environment's own, not the controller).
         [verb @ ("halt" | "suspend"), vms @ ..] => {
             let label = if *verb == "halt" { "poweroff" } else { "saved" };
@@ -360,6 +382,23 @@ fn prlctl(e: &mut Engine, args: &[&str]) -> Reply {
         }
         _ => Reply::ok(""),
     }
+}
+
+/// `vagrant halt <vm>`, one VM.
+fn halt(e: &mut Engine, vm: &str) -> Reply {
+    if vm == CONTROLLER {
+        e.index_locked_reads = std::mem::take(&mut e.index_locks_after_halt);
+    }
+    if e.esxi_off_before_halt && vm == CONTROLLER {
+        e.states.insert(CONTROLLER.into(), "powered_off".into());
+        return Reply::fail(1, ESXI_ALREADY_OFF);
+    }
+    if let Some(state) = e.halt_fails.filter(|_| vm == CONTROLLER) {
+        e.states.insert(CONTROLLER.into(), state.into());
+        return Reply::fail(1, "SSH connection was refused! This usually happens if the VM failed to\nboot properly.");
+    }
+    e.states.insert(vm.to_owned(), "poweroff".into());
+    Reply::ok(&format!("==> {vm}: Attempting graceful shutdown of VM...")).after(e.halt_delay)
 }
 
 fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
@@ -591,6 +630,21 @@ async fn a_vagrant_crash_leads_with_its_error_not_its_backtrace() {
     assert!(
         err.contains("wait_for timeout (2 seconds) was exceeded") && !err.contains("builder.rb"),
         "{err}"
+    );
+}
+
+/// Regression: on libvirt, every Vagrant call prints fog's warnings on standard error, which led
+/// a failed start's error before Vagrant's own.
+#[tokio::test]
+async fn a_failed_start_leads_with_vagrants_error_not_fogs_warnings() {
+    let f = fixture(crate::runner::this_host());
+    let said = format!("{FOG_WARNING}\n{FOG_WARNING}\nThe SSH command responded with a non-zero exit status.");
+    f.engine().ups.push((said, true));
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "step `up` failed: The SSH command responded with a non-zero exit status. (exited with code 1)"
     );
 }
 
@@ -900,6 +954,35 @@ async fn a_status_read_locked_out_past_the_patience_with_no_operation_still_fail
     f.engine().locked_reads = u32::MAX;
     let err = run.status().await.unwrap_err();
     assert!(err.to_string().contains("MachineActionLockedError"), "{err}");
+}
+
+/// Regression: on libvirt, the status read that followed the controller's park was refused by
+/// Vagrant's machine index lock (`MachineLocked`, another Vagrant process reading the same VMs),
+/// which wasn't recognised as a lock: the start failed at once, and its error said only fog's
+/// warnings. The read is tried again until the lock is free.
+#[tokio::test(start_paused = true)]
+async fn a_status_read_after_the_park_another_process_index_locked_is_read_again() {
+    let f = starts_without_a_tolerated_step(|e| e.index_locks_after_halt = 3).await;
+    assert_eq!(f.engine().index_locked_reads, 0);
+    assert_eq!(f.state(CONTROLLER), "poweroff");
+}
+
+/// An index lock held past [`super::lock::PATIENCE`] still fails the start, with Vagrant's own
+/// error, which it printed on standard output, never fog's warnings.
+#[tokio::test(start_paused = true)]
+async fn an_index_lock_held_past_the_patience_fails_with_vagrants_error() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().index_locks_after_halt = u32::MAX;
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err().to_string();
+    assert!(
+        err.starts_with("step `status` failed: Vagrant can't use the requested machine because it is locked! This\nmeans")
+            && err.ends_with("Name: isoloom-controller\nProvider: libvirt (Vagrant::Errors::MachineLocked) (exited with code 1)")
+            && !err.contains("[fog]"),
+        "{err}"
+    );
+    let reads = f.fake.lines().iter().filter(|l| l.starts_with("vagrant status")).count();
+    assert!((3..=32).contains(&reads), "{reads} reads");
 }
 
 /// The controller's halt refused for another Vagrant process's lock did nothing: it is tried again

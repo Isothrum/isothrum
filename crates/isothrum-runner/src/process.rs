@@ -168,18 +168,22 @@ impl Captured {
         self.exit.success()
     }
 
-    /// Why it failed, the one wording every failed tool's error uses: its last error lines, else
-    /// its last output lines (a tool, or a cloud image refusing a login, may print its refusal
-    /// there), with how it ended (`denied (exited with code 1)`, `exited with a signal`).
+    /// Why it failed, the one wording every failed tool's error uses: the error it printed as a
+    /// machine-readable record on its standard output (Vagrant's `error-exit`, with
+    /// `--machine-readable`), else its last error lines, else its last output lines (a tool, or a
+    /// cloud image refusing a login, may print its refusal there), with how it ended (`denied
+    /// (exited with code 1)`, `exited with a signal`).
     #[must_use]
     pub fn reason(&self) -> String {
-        let quiet = self.stderr.iter().all(|l| l.trim().is_empty());
-        let said = if quiet {
-            self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
-        } else {
-            &self.stderr[..]
-        };
-        let cause = said.join("\n");
+        let cause = crate::tool_output::vagrant_error(&self.stdout).unwrap_or_else(|| {
+            let quiet = self.stderr.iter().all(|l| l.trim().is_empty());
+            let said = if quiet {
+                self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
+            } else {
+                &self.stderr[..]
+            };
+            said.join("\n")
+        });
         if cause.trim().is_empty() {
             self.exit.to_string()
         } else {
@@ -258,6 +262,24 @@ mod tests {
             "line 5\nline 6\nline 7\nline 8\nline 9 (exited with code 2)"
         );
         assert_eq!(reason(&ended(None, &[], &[])), "exited with a signal");
+    }
+
+    /// Regression: on libvirt, a `vagrant status --machine-readable` refused for another
+    /// process's lock failed with only fog's warnings on standard error, which stood in for the
+    /// error Vagrant printed on its standard output.
+    #[test]
+    fn a_machine_readable_vagrant_error_is_the_reason() {
+        let said = "Vagrant can't use the requested machine because it is locked! This\\nmeans that another Vagrant \
+                    process is currently reading or modifying\\nthe machine.";
+        let ui = format!("1794342958,,ui,error,{said}");
+        let exit = format!("1794342958,,error-exit,Vagrant::Errors::MachineLocked,{said}");
+        let fog = "[fog][WARNING] Unrecognized arguments: libvirt_ip_command";
+        let want = "Vagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant \
+                    process is currently reading or modifying\nthe machine. (Vagrant::Errors::MachineLocked) (exited with code 1)";
+        assert_eq!(reason(&ended(Some(1), &[fog, fog, fog], &["1,web,state,running", &ui, &exit])), want);
+        assert_eq!(reason(&ended(Some(1), &[], &[&ui, &exit])), want);
+        // A Ruby error on standard error yields to Vagrant's own record of it.
+        assert_eq!(reason(&ended(Some(1), &["Traceback"], &[&exit])), want);
     }
 
     #[test]

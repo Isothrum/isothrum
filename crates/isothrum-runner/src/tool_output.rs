@@ -1,6 +1,7 @@
 //! What the host's tools say of themselves, read in one place for the runner and the
 //! machine-setup backend (`isothrum-machine`): whether the version a tool prints is recent
-//! enough, and the plugins `vagrant plugin list --machine-readable` lists.
+//! enough, the plugins `vagrant plugin list --machine-readable` lists, and the error a
+//! machine-readable Vagrant call failed with.
 
 /// The first version in `text` (`v2.29.1`, `Docker Compose version 5.5.1`, `0.2.0-beta`), as its
 /// major, minor and patch numbers (a missing patch is 0); `None` when `text` holds no
@@ -46,6 +47,33 @@ pub fn vagrant_plugins(out: &str) -> Vec<(String, Option<String>)> {
         .filter(|(_, kind, data)| *kind == "plugin-name" && !data.is_empty())
         .map(|(_, _, name)| ((*name).to_owned(), version(name)))
         .collect()
+}
+
+/// The error a Vagrant call printed as its `--machine-readable` `error-exit` record among `stdout`
+/// (its last, when there are more): its message as Vagrant words it for a person, followed by
+/// its class (`… because it is locked! … (Vagrant::Errors::MachineLocked)`). With
+/// `--machine-readable`, Vagrant prints its error there, on standard output, and nothing of it on
+/// standard error.
+pub(crate) fn vagrant_error(stdout: &[String]) -> Option<String> {
+    let data = stdout
+        .iter()
+        .rev()
+        .filter_map(|line| vagrant_fields(line))
+        .find_map(|(_, kind, data)| (kind == "error-exit").then_some(data))?;
+    let (class, message) = data.split_once(',').unwrap_or((data, ""));
+    let (class, message) = (unescape(class), unescape(message));
+    match (class.trim(), message.trim()) {
+        ("", "") => None,
+        (class, "") => Some(class.to_owned()),
+        ("", message) => Some(message.to_owned()),
+        (class, message) => Some(format!("{message} ({class})")),
+    }
+}
+
+/// A `--machine-readable` field as Vagrant wrote it, its escapes undone: a comma written as
+/// `%!(VAGRANT_COMMA)`, a line break as `\n`, a carriage return as `\r`.
+fn unescape(field: &str) -> String {
+    field.replace("%!(VAGRANT_COMMA)", ",").replace("\\r", "").replace("\\n", "\n")
 }
 
 /// One line of Vagrant's `--machine-readable` output: its target, type and data (the rest of the
@@ -100,5 +128,35 @@ mod tests {
             ]
         );
         assert_eq!(vagrant_plugins(""), Vec::<(String, Option<String>)>::new());
+    }
+
+    fn lines(text: &str) -> Vec<String> {
+        text.lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_machine_readable_error_is_read_whole_with_its_class() {
+        // As Vagrant 2.4.9 prints it on libvirt while another process holds the machine's lock.
+        let said = "Vagrant can't use the requested machine because it is locked! This\\nmeans that another Vagrant \
+                    process is currently reading or modifying\\nthe machine.\\n\\nName: probe\\nProvider: libvirt";
+        let out = lines(&format!(
+            "1794342958,,ui,error,{said}\n1794342958,,error-exit,Vagrant::Errors::MachineLocked,{said}\n"
+        ));
+        assert_eq!(
+            vagrant_error(&out).as_deref(),
+            Some(
+                "Vagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant \
+                 process is currently reading or modifying\nthe machine.\n\nName: probe\nProvider: libvirt \
+                 (Vagrant::Errors::MachineLocked)"
+            )
+        );
+        let commas = lines("1,,error-exit,Vagrant::Errors::VagrantError,a%!(VAGRANT_COMMA) b\\r\\n");
+        assert_eq!(vagrant_error(&commas).as_deref(), Some("a, b (Vagrant::Errors::VagrantError)"));
+        assert_eq!(
+            vagrant_error(&lines("1,,error-exit,Vagrant::Errors::X,")).as_deref(),
+            Some("Vagrant::Errors::X")
+        );
+        assert_eq!(vagrant_error(&lines("1,web,state,running\n==> web: up")), None);
+        assert_eq!(vagrant_error(&lines("1,,error-exit,")), None);
     }
 }
