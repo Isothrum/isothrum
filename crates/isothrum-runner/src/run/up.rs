@@ -152,7 +152,6 @@ impl Running<'_> {
             _ if record.state == RunState::Failed => Ok(Occupancy::Leftovers),
             _ if running && !parked => already(),
             Occupied::ResumeParked if parked => Ok(Occupancy::Parked),
-            Occupied::Refuse if parked => already(),
             _ => Ok(Occupancy::Leftovers),
         }
     }

@@ -92,7 +92,8 @@ Removed, with no replacement because nothing used them: the `Hooks` port (`Hooks
 `Running::path`; `JsonLines` (an `Events` sink is a closure); `FixedClock`; the `Clock` port and
 `SystemClock`; `this_host`; `Recorder`; `EVENTS_VERSION`; `FakePorts::take`, `FakePorts::answer`,
 `Reply::after`, `FakeProcesses::lines` (read `FakeProcesses::calls`); `From<Option<i32>>` for
-`Exit` (use `Exit::new`).
+`Exit` (use `Exit::new`); `Occupied::Refuse` (`ResumeParked`, the default, resumes a parked run;
+`Replace` starts afresh; without `Replace`, a run that is up is refused with `already_running`).
 
 The run manifest's values Isoloom never wrote are no longer read: a `static` output, an expiry in
 minutes from now, a `dotenv` state file and a WinRM guest delivery.

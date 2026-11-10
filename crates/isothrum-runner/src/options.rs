@@ -8,8 +8,6 @@ use crate::secrets::Secrets;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum Occupied {
-    /// Fails with `already_running` when anything of the run is up or parked.
-    Refuse,
     /// Resumes a parked run instead of starting it again (leftovers are still removed first).
     #[default]
     ResumeParked,
