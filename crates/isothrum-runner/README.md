@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Feature | What it adds |
 |---|---|
-| `fake` | Test doubles for embedders' tests: `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (scripted tools, every call recorded) and `FakePorts` (scripted host ports). Set them on `RunnerConfig::processes` and `RunnerConfig::ports`. |
+| `fake` | Test doubles for embedders' tests: `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (scripted tools answering at once, every call recorded) and `FakePorts` (the free host ports a run is handed, in order; none taken, no address answering). Set them on `RunnerConfig::processes` and `RunnerConfig::ports`. |
 | `fuzzing` | Internal: the pure cores the repository's fuzz targets drive. Hidden from the docs and not part of the public API. |
 
 No feature is on by default.

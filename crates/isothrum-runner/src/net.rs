@@ -106,8 +106,9 @@ fn held_elsewhere(e: &std::io::Error) -> bool {
     matches!(e.kind(), std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied)
 }
 
-/// Ports answered from a test's setup (feature `fake`): taken ones, the free ones handed out in
-/// order, and the addresses that answer.
+/// Ports answered from a test's setup (feature `fake`): the free ones handed out in order. An
+/// embedder's tests script those only; the runner's own also mark ports taken, addresses
+/// answering and binds refused.
 #[cfg(any(test, feature = "fake"))]
 #[derive(Debug, Default)]
 pub struct FakePorts {
