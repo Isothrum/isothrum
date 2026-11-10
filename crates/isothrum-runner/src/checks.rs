@@ -1,8 +1,10 @@
 //! The run's checks: the manifest's `setup` steps, then each runner's step under its own timeout
 //! (Isoloom computes it from the checks' waits, so a long-waiting run isn't cut off at a
 //! fixed cap), its lines read with the `isoloom-check/1` grammar ([`CheckLine::parse`]), then the
-//! `teardown`. A check its runner never reported fails; a runner with no `END` line (both counts
-//! in it) is unfinished.
+//! `teardown`. A check its runner never reported by name fails, whatever else it reported; a
+//! runner with no `END` line (both counts in it) is unfinished.
+
+use std::collections::BTreeSet;
 
 use isoloom_manifest::{Check, CheckLine, CheckRunner};
 use serde::{Deserialize, Serialize};
@@ -83,8 +85,8 @@ async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner, report: &mut CheckRep
             }
         }
     }
-    let reported = report.results.len() - before;
-    for check in runner.checks.iter().skip(reported) {
+    let reported: BTreeSet<String> = report.results.iter().skip(before).map(|r| r.name.clone()).collect();
+    for check in runner.checks.iter().filter(|c| !reported.contains(&c.name)) {
         push(cx, &mut report.results, unreported(runner, check));
     }
     if ran.is_err() || !ended {

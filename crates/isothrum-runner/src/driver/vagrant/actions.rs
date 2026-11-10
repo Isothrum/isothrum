@@ -251,7 +251,11 @@ async fn running(v: &Vagrant, cx: &Cx<'_>, id: &str, machine: &str) -> Result<bo
     if !read.succeeded() {
         return Err(call_failed(cx, id, &spec, &read));
     }
-    Ok(super::status::parse(&read.stdout.join("\n")).states.get(machine).map(String::as_str).is_some_and(up))
+    Ok(super::status::parse(&read.stdout.join("\n"))
+        .states
+        .get(machine)
+        .map(String::as_str)
+        .is_some_and(up))
 }
 
 /// Whether a VM in state `label` is up: running (UTM's `started` too, [`status::machine_state`]),

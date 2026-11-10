@@ -69,6 +69,28 @@ async fn a_runner_whose_end_line_lacks_its_counts_is_unfinished() {
     assert_eq!(report.unfinished.len(), 3, "{report:?}");
 }
 
+/// Regression: the checks a runner never reported were taken by position, after as many as it
+/// reported, so a runner that reported its second check and stopped had its first counted as
+/// reported and its second failed as never reached.
+#[tokio::test(start_paused = true)]
+async fn a_check_its_runner_never_reported_by_name_fails() {
+    let f = fixture();
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).check_said = Some("isoloom-check: PASS db:3306\nisoloom-check: PASS db:3306");
+    let (report, _) = started_and_checked(&f).await;
+    let outcomes: Vec<(&str, bool)> = report
+        .results
+        .iter()
+        .filter(|r| r.runner == "isoloom-check")
+        .map(|r| (r.name.as_str(), r.ok))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [("db:3306", true), ("db:3306", true), ("http://web/", false), ("build/check/check.sh", false)],
+        "{report:?}"
+    );
+    assert!(!report.ok && report.unfinished == ["isoloom-check"], "{report:?}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn checks_need_a_running_run() {
     let f = fixture();

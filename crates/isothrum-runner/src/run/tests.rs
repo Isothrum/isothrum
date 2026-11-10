@@ -44,6 +44,8 @@ struct Engine {
     check_time: Vec<(String, Duration)>,
     /// The `END` line the check runners print instead of their own, if any.
     end_line: Option<&'static str>,
+    /// What the `isoloom-check` runner prints instead of its own lines, if anything.
+    check_said: Option<&'static str>,
     /// The networks labelled as the project's (`docker network ls`).
     networks: Vec<String>,
     /// Whether `docker compose config` prints something that isn't its JSON.
@@ -245,7 +247,11 @@ fn check_runner(e: &Engine, line: &str) -> Reply {
             .map_or_else(|| format!("isoloom-check: END {} passed, 0 failed", names.len()), str::to_owned),
     );
     let time = e.check_time.iter().find(|(s, _)| s == service).map_or(Duration::ZERO, |(_, t)| *t);
-    Reply::ok(&out.join("\n")).after(time)
+    let said = e
+        .check_said
+        .filter(|_| service == "isoloom-check")
+        .map_or_else(|| out.join("\n"), str::to_owned);
+    Reply::ok(&said).after(time)
 }
 
 #[test]

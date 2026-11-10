@@ -37,6 +37,10 @@ change.
 
 ### Fixed
 
+- **A check its runner never reported is the one that fails.** The checks a runner left out were
+  taken by position, after as many results as it printed: a runner that reported its second
+  check, or one check twice, then stopped had the wrong check failed as never reached, and the
+  one it never reported counted as reported. They are now matched by name.
 - **A UTM controller still up is no longer taken for one that is off.** The controller's halt and
   its wake before the checks waited only while Vagrant read it `running`, but UTM calls a running
   VM `started`: a failed halt counted as done, and a controller still powering itself off was

@@ -136,9 +136,10 @@ async fn a_run_goes_up_reports_checks_and_goes_down() {
 
     let checked = s.run(&["check"]).await.unwrap();
     let said = s.out.take();
-    // Each of the three runners reports one pass; the fixture's other four checks go unreported.
+    // Each of the three runners reports `http://web/` passing, a check of the first one's only:
+    // every other check of the fixture's goes unreported, six of them.
     assert_eq!(checked, Verdict::Fail, "{said}");
-    assert!(said.contains("3 passed, 4 failed"), "{said}");
+    assert!(said.contains("3 passed, 6 failed"), "{said}");
 
     assert_eq!(s.run(&["events", "--json"]).await.unwrap(), Verdict::Pass);
     let events: Vec<serde_json::Value> = s.out.take().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
