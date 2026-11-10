@@ -19,14 +19,13 @@
 
 use super::Running;
 use super::operation::Done;
-use super::up::ready_run;
 use crate::Result;
 use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
 use crate::secrets::check_secrets;
-use crate::state::{Op, RunState};
+use crate::state::Op;
 use crate::status::{MachineState, Started};
-use crate::{ready, tools};
+use crate::tools;
 
 impl Running<'_> {
     /// Brings the running run up to date with its manifest (see the module doc): `up`'s steps
@@ -60,12 +59,7 @@ impl Running<'_> {
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write(&cx, true)?;
-        let ran = self.start(&mut cx).await?;
-        crate::guest::deliver(&mut cx, None).await?;
-        self.read_outputs(&mut cx).await?;
-        ready::check(&mut cx, Some(&ran)).await?;
-        let (outputs, message) = self.finish(&mut cx).await?;
-        record.state = RunState::Ready;
-        Ok(ready_run(record, outputs, message))
+        self.converge(&mut cx).await?;
+        self.ready(&mut cx, record).await
     }
 }

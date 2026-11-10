@@ -5,7 +5,6 @@ use serde_json::json;
 
 use super::Running;
 use super::operation::Done;
-use super::up::ready_run;
 use crate::Result;
 use crate::checks::{self, CheckReport};
 use crate::error::Error;
@@ -105,9 +104,7 @@ impl Running<'_> {
         self.begin(&mut record, Op::Resume)?;
         run_steps(cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
         ready::check(cx, None).await?;
-        let (outputs, message) = self.finish(cx).await?;
-        record.state = RunState::Ready;
-        Ok(ready_run(record, outputs, message))
+        self.ready(cx, record).await
     }
 
     /// Runs the run's checks against the running run.

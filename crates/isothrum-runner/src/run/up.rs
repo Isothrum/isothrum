@@ -68,17 +68,7 @@ impl Running<'_> {
             Slot::Leftovers => self.clear(&mut cx, &record, opts).await?,
             Slot::Free => {}
         }
-        // A driver that forwards host ports it picks itself (Vagrant, locally) pins them now, into
-        // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`
-        // below binds them into `cx` for the start's own forwards and status.
-        record.vm_host_ports = self.driver.forward_ports(&cx);
-        // Every VM the start boots, boots with the Vagrantfile of this manifest.
-        self.runs_from_this(&mut record);
-        record.params = cx.vars.params().clone();
-        record.cloud = self.manifest().cloud;
-        record.host_label.clone_from(&opts.host_label);
-        record.provider.clone_from(&opts.provider);
-        record.started_at = Some(clock::rfc3339(self.runner.config.clock.now()));
+        self.record_start(&mut record, &cx, opts);
         // The slot is picked and recorded (the run `starting`) under the home's lock: a start
         // in another process waits, then sees it taken.
         let slots = self.hold_slots().await?;
@@ -87,14 +77,42 @@ impl Running<'_> {
         self.begin(&mut record, Op::Up)?;
         drop(slots);
         crate::executor::state_files::write(&cx, true)?;
-        let ran = self.start(&mut cx).await?;
-        // What the guests wait for once they exist: their secrets, where no store holds them.
-        crate::guest::deliver(&mut cx, None).await?;
-        // The ready conditions may name an output (`${outputs.ip}`, the run host).
-        self.read_outputs(&mut cx).await?;
-        ready::check(&mut cx, Some(&ran)).await?;
+        self.converge(&mut cx).await?;
         self.seal(&mut cx, &mut record).await?;
-        let (outputs, message) = self.finish(&mut cx).await?;
+        self.ready(&mut cx, record).await
+    }
+
+    /// What a fresh start of `cx`'s run with `opts` keeps in its `record`: the host ports it
+    /// pins, the manifest it runs from, its params, cloud, place, provider and start time.
+    fn record_start(&self, record: &mut RunRecord, cx: &Cx<'_>, opts: &RunOptions) {
+        // A driver that forwards host ports it picks itself (Vagrant, locally) pins them now, into
+        // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`
+        // binds them into `cx` for the start's own forwards and status.
+        record.vm_host_ports = self.driver.forward_ports(cx);
+        // Every VM the start boots, boots with the Vagrantfile of this manifest.
+        self.runs_from_this(record);
+        record.params = cx.vars.params().clone();
+        record.cloud = self.manifest().cloud;
+        record.host_label.clone_from(&opts.host_label);
+        record.provider.clone_from(&opts.provider);
+        record.started_at = Some(clock::rfc3339(self.runner.config.clock.now()));
+    }
+
+    /// `up`'s steps ([`Running::start`]), then what follows them at `up` and `update`: the
+    /// guests' secrets (what they wait for once they exist, where no store holds them), the
+    /// outputs (a ready condition may name one: `${outputs.ip}`, the run host) and the ready
+    /// conditions.
+    pub(super) async fn converge(&self, cx: &mut Cx<'_>) -> Result<()> {
+        let ran = self.start(cx).await?;
+        crate::guest::deliver(cx, None).await?;
+        self.read_outputs(cx).await?;
+        ready::check(cx, Some(&ran)).await
+    }
+
+    /// The end of an operation that leaves the run ready: its outputs and message read
+    /// ([`Running::finish`]), and `record` marked ready.
+    pub(super) async fn ready(&self, cx: &mut Cx<'_>, mut record: RunRecord) -> Result<Done<Started>> {
+        let (outputs, message) = self.finish(cx).await?;
         record.state = RunState::Ready;
         Ok(ready_run(record, outputs, message))
     }
@@ -211,7 +229,7 @@ impl Running<'_> {
 
     /// Reads the run's published ports and outputs (a warning for each output whose format
     /// couldn't be filled), and fills its message.
-    pub(crate) async fn finish(&self, cx: &mut Cx<'_>) -> Result<(Vec<OutputValue>, Option<String>)> {
+    async fn finish(&self, cx: &mut Cx<'_>) -> Result<(Vec<OutputValue>, Option<String>)> {
         let read = self.read_outputs(cx).await?;
         outputs::emit(cx.events, &read);
         let message = outputs::message(self.manifest(), &cx.vars, &read.values);
@@ -242,7 +260,7 @@ fn argv_applies(argv: &isoloom_manifest::HostArgv) -> bool {
 const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 
 /// A run that came up, as the operation returns it and its `result` event says.
-pub(crate) fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
+fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
     let shown: Vec<serde_json::Value> = outputs.iter().map(|o| json!({ "name": o.name, "role": o.role, "value": o.value })).collect();
     let data = json!({ "state": RunState::Ready, "outputs": shown, "message": message });
     Done {
