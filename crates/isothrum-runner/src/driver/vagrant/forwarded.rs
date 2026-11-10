@@ -102,7 +102,9 @@ fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
     ports
 }
 
-/// Runs the action for step `step`.
+/// `vagrant.check_forwarded_ports` (step `step`): unless the run's VMs exist (their forwards are
+/// its own), every host port the run will forward ([`host_ports`]) must be free, and not reserved
+/// by another run of this runner; the first that isn't fails the step (`port_in_use`).
 pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
     let read = status::parse(&super::lock::read_status(cx).await?);
     if read.states.values().any(|s| status::machine_state(s) != MachineState::Absent) {

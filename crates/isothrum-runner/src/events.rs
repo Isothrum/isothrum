@@ -279,7 +279,7 @@ impl Events for Recorder {
 /// The JSON Schema of one event.
 #[must_use]
 pub fn events_schema() -> serde_json::Value {
-    titled_schema::<Event>("Isothrum runner event, version 0")
+    titled_schema::<Event>(&format!("Isothrum runner event, version {EVENTS_VERSION}"))
 }
 
 /// `T`'s JSON Schema, titled `title`.
