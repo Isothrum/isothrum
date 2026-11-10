@@ -193,9 +193,9 @@ impl Running<'_> {
         Ok(())
     }
 
-    /// The start steps; a failure whose message holds one of `recovery.stale_markers` runs the
-    /// recovery steps and starts again, up to `recovery.retries` times. A genuine failure never
-    /// retries.
+    /// The start steps; a failure after a step printed one of `recovery.stale_markers` (any line
+    /// of an argv or `ssh.run` step's, see [`crate::executor::Stale`]) runs the recovery steps
+    /// and starts again, up to `recovery.retries` times. A genuine failure never retries.
     pub(super) async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
         let up = self.manifest().lifecycle.up.as_slice();
         let none = Recovery {

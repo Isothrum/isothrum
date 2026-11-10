@@ -58,9 +58,10 @@ pub(crate) struct Cx<'a> {
     pub(crate) set_up: std::collections::BTreeSet<String>,
 }
 
-/// The manifest's `recovery.stale_markers`, watched over every line the steps print, whatever its
-/// case (Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the manifest writes it in
-/// lower case; and the line may be any of the step's, not one of the last it printed).
+/// The manifest's `recovery.stale_markers`, watched over every line an argv or `ssh.run` step
+/// prints (a driver action's own calls aren't watched), whatever its case (Vagrant prints
+/// VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the manifest writes it in lower case; and the
+/// line may be any of the step's, not one of the last it printed).
 #[derive(Debug, Default)]
 pub(crate) struct Stale {
     markers: Vec<String>,
