@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Compiled, Error, Lan, ProjectFile, Result, Topology, compile};
 
-use crate::testing::{Outcome, accepted, join, lan, octet, spec, two_lans, yaml};
+use crate::testing::{Outcome, accepted, cable, ep, join, lan, octet, spec, two_lans, yaml};
 
 /// A switch running a Cisco OS, as the editor sends it: a node of its own with no networks,
 /// named as the `device` of its VLANs; machines on its ports join the VLANs.
@@ -81,6 +81,26 @@ fn a_dynamips_router_boots_its_firmware() -> Outcome {
         "{}",
         yaml(&c)
     );
+    Ok(())
+}
+
+/// A switch named like a cable's network would have its VLANs nest under that network, which the
+/// cable then takes over: refused, as a LAN of that name is.
+#[test]
+fn a_switch_can_not_take_a_cables_name() -> Outcome {
+    let mut topo = two_lans()?;
+    topo.networks.insert(
+        "vlan10".into(),
+        Lan {
+            switch: Some("link-0".into()),
+            vlan: Some(10),
+            ..lan("10.10.10.0/24")
+        },
+    );
+    join(&mut topo, "server", "vlan10", None)?;
+    topo.links.push(cable(ep("client", "eth1"), ep("server", "eth1")));
+    let e = compile(&topo).unwrap_err();
+    assert!(matches!(&e, Error::ReservedName(n) if n == "link-0"), "{e}");
     Ok(())
 }
 

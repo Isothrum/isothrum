@@ -46,9 +46,10 @@ pub enum Error {
         /// The LAN it names.
         lan: String,
     },
-    /// A LAN's name is one the cables use (`link-<n>`).
-    #[error("`{0}` is a name the cables use; call the LAN something else")]
-    ReservedLanName(String),
+    /// A LAN's or a switch's name starts with `link-`, which the cables' networks take
+    /// (`link-<n>`): a switch's name is the name of the network its VLANs nest under.
+    #[error("`{0}` starts with `link-`, which the cables' networks take; rename it")]
+    ReservedName(String),
     /// A LAN's CIDR isn't a block Isoloom gives machines addresses on: its network's own address
     /// and a /24 to a /29.
     #[error("LAN `{lan}`: `{cidr}` isn't a block like 10.10.1.0/24 (the network's own address, a /24 to a /29)")]

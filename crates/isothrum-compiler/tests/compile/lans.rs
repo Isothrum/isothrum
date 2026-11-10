@@ -95,8 +95,8 @@ fn a_lan_named_like_a_cable_is_refused() -> Outcome {
     let mut topo = two_lans()?;
     topo.networks.insert("link-0".into(), lan("10.10.9.0/24"));
     let e = compile(&topo).unwrap_err();
-    assert!(matches!(&e, Error::ReservedLanName(n) if n == "link-0"), "{e}");
-    assert_eq!(e.to_string(), "`link-0` is a name the cables use; call the LAN something else");
+    assert!(matches!(&e, Error::ReservedName(n) if n == "link-0"), "{e}");
+    assert_eq!(e.to_string(), "`link-0` starts with `link-`, which the cables' networks take; rename it");
     Ok(())
 }
 

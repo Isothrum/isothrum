@@ -113,6 +113,8 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
 `Compiled::yaml` and `Compiled::spec` are gone: `Compiled::into_parts()` returns the spec's text,
 the spec and the project's files.
 
+`Error::ReservedLanName` is `Error::ReservedName`: a switch named `link-…` is refused too.
+
 ## `isothrum-wasm`
 
 `own_files_json` throws an `Error` for a topology that is malformed or doesn't compile, where it

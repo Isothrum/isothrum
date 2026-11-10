@@ -24,7 +24,7 @@ fn link_network(i: usize) -> String {
     format!("link-{i}")
 }
 
-/// Whether `name` is one the cables' networks take (`link-<n>`), which a LAN can't have.
+/// Whether `name` starts as the cables' networks do (`link-<n>`), which no LAN or switch may.
 pub(crate) fn is_link_network(name: &str) -> bool {
     name.starts_with("link-")
 }

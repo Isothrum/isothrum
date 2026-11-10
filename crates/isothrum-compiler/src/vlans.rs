@@ -3,6 +3,7 @@
 use indexmap::IndexMap;
 use isoloom_spec::validate::Cidr;
 
+use crate::cables::is_link_network;
 use crate::document::{NetworkDoc, ReachDoc, VlanDoc};
 use crate::draft::Draft;
 use crate::{Error, Lan, Result, Topology};
@@ -18,13 +19,19 @@ fn vlan_of(lan: &Lan) -> Option<(&str, u16)> {
     Some((lan.switch.as_deref()?, lan.vlan?))
 }
 
-/// Refuses a switch named like a plain LAN: its VLANs nest under a LAN of the switch's name.
+/// Refuses a switch named like a plain LAN or like a cable's network: its VLANs nest under a
+/// network of the switch's name.
 pub(crate) fn check_switch_names(topo: &Topology) -> Result<()> {
     let plain = |name: &String| topo.networks.get(name).is_some_and(|l| vlan_of(l).is_none());
-    match topo.networks.values().find_map(|l| l.switch.as_ref().filter(|s| plain(s))) {
-        Some(switch) => Err(Error::SwitchNameTaken { switch: switch.clone() }),
-        None => Ok(()),
+    for switch in topo.networks.values().filter_map(|l| l.switch.as_ref()) {
+        if is_link_network(switch) {
+            return Err(Error::ReservedName(switch.clone()));
+        }
+        if plain(switch) {
+            return Err(Error::SwitchNameTaken { switch: switch.clone() });
+        }
     }
+    Ok(())
 }
 
 /// The switches' VLANs, nested under each switch's LAN: the LAN's block is the smallest one

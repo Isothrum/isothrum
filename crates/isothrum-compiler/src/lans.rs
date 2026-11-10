@@ -39,7 +39,7 @@ pub(crate) fn address(topo: &Topology, draft: &mut Draft) -> Result<()> {
 
 fn address_one(topo: &Topology, draft: &mut Draft, name: &str, lan: &Lan) -> Result<()> {
     if is_link_network(name) {
-        return Err(Error::ReservedLanName(name.into()));
+        return Err(Error::ReservedName(name.into()));
     }
     let block = block_of(name, lan)?;
     draft

@@ -235,6 +235,10 @@ change.
   stays whole); a home whose path no release reads as written fails the SSH call with `io`. The
   refused login's message names `:`, which a login takes.
 
+- **A switch named like a cable's network is refused.** A switch called `link-<n>` nested its
+  VLANs under the network of that name, which a cable then took over: the VLANs vanished from the
+  spec. It is now refused as a LAN of that name is (`Error::ReservedName`).
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
@@ -439,6 +443,8 @@ change.
   had its own stand-in (`[]`, `{}`, a failed plan, else an empty string); they now return
   `Result<String, JsError>`. JavaScript gets the same string as before, and in the case that can't
   happen, an `Error` saying why.
+- **Breaking: the compiler's `Error::ReservedLanName` is `ReservedName`**: a switch's name may not
+  start with `link-` either. Its message says the prefix is the cables'.
 - **Breaking:** **`own_files_json` throws for a topology that is malformed or doesn't compile.**
   It returned `[]`, so a caller couldn't tell a project with no file of its own from a drawing
   that failed; it now throws an `Error` saying why, as `bundle` does.
