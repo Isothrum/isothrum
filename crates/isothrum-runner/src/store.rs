@@ -334,10 +334,15 @@ impl Store {
     pub(crate) fn events(&self, name: &RunName) -> Result<EventLog> {
         let path = self.events_path(name);
         let mut log = EventLog::default();
-        for line in read_lines(&path)?.iter().filter(|l| !l.trim_ascii().is_empty()) {
+        for (n, line) in read_lines(&path)?.iter().enumerate().filter(|(_, l)| !l.trim_ascii().is_empty()) {
             match serde_json::from_slice(line) {
                 Ok(event) => log.events.push(event),
-                Err(_) => log.unreadable += 1,
+                Err(e) => {
+                    // Counted for the caller; why (a line cut short, an event kind this runner
+                    // doesn't know) is traced.
+                    tracing::debug!(line = n + 1, error = %e, path = %path.display(), "a line of the event log isn't an event this runner reads");
+                    log.unreadable += 1;
+                }
             }
         }
         Ok(log)
@@ -429,8 +434,8 @@ mod tests {
         assert_eq!(lines.last().unwrap(), format!("{{\"seq\":{EVENTS_KEPT}}}").as_bytes());
     }
 
-    #[test]
-    fn an_event_log_line_this_runner_cant_read_is_counted_not_dropped_unsaid() {
+    #[tokio::test]
+    async fn an_event_log_line_this_runner_cant_read_is_counted_not_dropped_unsaid() {
         let (_home, store, name) = run_r();
         let mut log = store.event_log(&name).unwrap();
         let read = r#"{"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"r","op":"up","event":"result","ok":true,"data":null}"#;
@@ -438,8 +443,12 @@ mod tests {
         let older = r#"{"v":0,"seq":2,"time":"2026-10-15T12:00:01Z","run":"r","op":"up","event":"warning","code":"hook_failed","message":"x"}"#;
         writeln!(log, "{read}\n{older}\n{{\"v\":0,\"se\n").unwrap();
         drop(log);
-        let events = store.events(&name).unwrap();
+        let (events, traced) = crate::testing::traced(async { store.events(&name) }).await;
+        let events = events.unwrap();
         assert_eq!((events.events.len(), events.unreadable), (1, 2));
+        // Why each line isn't read is traced, by its number.
+        assert!(traced.contains("line=2") && traced.contains("hook_failed"), "{traced}");
+        assert!(traced.contains("line=3"), "{traced}");
     }
 
     /// A log cut mid-character (a full disk, a killed process) holds a line that isn't UTF-8: it
