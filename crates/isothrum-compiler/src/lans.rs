@@ -2,7 +2,7 @@
 //! there, the one it asks for or the next free one.
 
 use indexmap::IndexMap;
-use isoloom_spec::net::Cidr;
+use isoloom_spec::net::NetworkBlock;
 
 use crate::cables::is_link_network;
 use crate::document::NetworkDoc;
@@ -10,18 +10,18 @@ use crate::draft::Draft;
 use crate::{Error, Lan, Result, Topology};
 
 /// The last octets a machine may take on `block`, lowest first: those Isoloom gives machines
-/// ([`Cidr::host`]: not the network address, the gateway, the two last usable addresses (its
+/// ([`NetworkBlock::host`]: not the network address, the gateway, the two last usable addresses (its
 /// controller and router) or the broadcast). A /24 starts at .10, leaving room for the
 /// infrastructure people expect low in a LAN.
-fn usable(block: Cidr) -> impl Iterator<Item = u8> {
+fn usable(block: NetworkBlock) -> impl Iterator<Item = u8> {
     let floor = if block.prefix() == 24 { 10 } else { 0 };
     (floor..=u8::MAX).filter(move |octet| block.host(*octet).is_some())
 }
 
 /// A LAN's block: one Isoloom gives machines addresses on (its network's own address, a /24 to a
 /// /29).
-fn block_of(name: &str, lan: &Lan) -> Result<Cidr> {
-    Cidr::parse(&lan.cidr)
+fn block_of(name: &str, lan: &Lan) -> Result<NetworkBlock> {
+    NetworkBlock::parse(&lan.cidr)
         .filter(|block| usable(*block).next().is_some())
         .ok_or_else(|| Error::BadCidr {
             lan: name.into(),
@@ -89,10 +89,10 @@ fn asked_addresses(topo: &Topology, draft: &Draft, lan: &str) -> Result<IndexMap
     Ok(taken)
 }
 
-/// Refuses an address asked for on `lan` that Isoloom gives no machine there ([`Cidr::host`]):
+/// Refuses an address asked for on `lan` that Isoloom gives no machine there ([`NetworkBlock::host`]):
 /// outside its block, or one it keeps (the network's own, the gateway, the two last usable ones,
 /// the broadcast). A /24's octets below .10 are a machine's to ask for.
-fn check_inside(name: &str, lan: &Lan, block: Cidr, taken: &IndexMap<u8, String>) -> Result<()> {
+fn check_inside(name: &str, lan: &Lan, block: NetworkBlock, taken: &IndexMap<u8, String>) -> Result<()> {
     match taken.iter().find(|(octet, _)| block.host(**octet).is_none()) {
         Some((octet, node)) => Err(Error::AddressOutside {
             lan: name.into(),
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     fn usable_in(cidr: &str) -> Vec<u8> {
-        Cidr::parse(cidr).map(|block| usable(block).collect()).unwrap_or_default()
+        NetworkBlock::parse(cidr).map(|block| usable(block).collect()).unwrap_or_default()
     }
 
     fn range(octets: std::ops::RangeInclusive<u8>) -> Vec<u8> {

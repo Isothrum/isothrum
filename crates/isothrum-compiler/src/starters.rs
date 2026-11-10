@@ -14,7 +14,7 @@ mod packages;
 
 use isoloom_manifest::contract::OUTPUT_DIR;
 use isoloom_spec::Spec;
-use isoloom_spec::net::Cidr;
+use isoloom_spec::net::NetworkBlock;
 use isoloom_spec::syntax::{Machine, Octets, OsRef, Step};
 
 use crate::ProjectFile;
@@ -94,7 +94,7 @@ fn addresses(spec: &Spec, m: &Machine) -> Vec<String> {
                 Octets::One(o) => *o,
                 Octets::Several(list) => *list.first()?,
             };
-            let address = Cidr::parse(cidr_of(spec, net)?)?.host(octet)?;
+            let address = NetworkBlock::parse(cidr_of(spec, net)?)?.host(octet)?;
             Some(format!("{address} ({net})"))
         })
         .collect()

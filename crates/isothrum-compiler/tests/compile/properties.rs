@@ -6,7 +6,7 @@ use std::num::NonZeroU16;
 
 use indexmap::IndexMap;
 use isoloom_spec::appliance::is_switch;
-use isoloom_spec::net::Cidr;
+use isoloom_spec::net::NetworkBlock;
 use isoloom_spec::syntax::{OsRef, PortProtocol};
 use isoloom_spec::{Appliance, Tc};
 use isothrum_compiler::{Endpoint, Error, Kind, Lan, Link, Node, Service, Topology, compile};
@@ -210,7 +210,7 @@ fn add_machines(topo: &mut Topology, machines: Vec<(Kind, Vec<Service>, Vec<Inde
 
 /// Whether a machine may take `octet` on `lan`.
 fn offers(lan: &Lan, octet: u8) -> bool {
-    Cidr::parse(&lan.cidr).and_then(|block| block.host(octet)).is_some()
+    NetworkBlock::parse(&lan.cidr).and_then(|block| block.host(octet)).is_some()
 }
 
 /// Cables between two different machines, each on a port of its own.
