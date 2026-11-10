@@ -361,3 +361,13 @@ async fn events_says_how_many_lines_of_the_log_it_couldnt_read() {
         "warning: 1 line(s) of run `web-portal`'s event log couldn't be read (written by another version of Isothrum, or cut short)\n"
     );
 }
+
+/// Regression: a malformed `--name` exited 1 with the code `run_name`, where the exit-code
+/// reference promises 2 for a malformed value.
+#[tokio::test]
+async fn a_malformed_name_is_a_usage_error() {
+    let s = setup();
+    let err = s.run(&["status", "--name", "Not A Name"]).await.unwrap_err();
+    assert!(matches!(&err, Error::Usage(why) if why.starts_with("--name: ")), "{err}");
+    assert_eq!(crate::exit::code(&Err(err)), std::process::ExitCode::from(crate::exit::USAGE));
+}

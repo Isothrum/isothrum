@@ -5,7 +5,7 @@ use isothrum_runner::{AccessPick, Events, Occupied, Op, Park, RunName, RunOption
 use std::borrow::Borrow;
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunnerCommand, TargetArgs};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
@@ -260,7 +260,13 @@ fn print_events(out: &Out<'_>, runner: &Runner, run: &Running<'_>) -> Result<Ver
 /// The run `args` names.
 fn open<'r>(runner: &'r Runner, args: &TargetArgs) -> Result<Running<'r>> {
     let manifest = locate::manifest(&args.path, args.target.as_deref())?;
-    let name = args.name.as_deref().map(RunName::new).transpose()?;
+    // A malformed `--name` is a malformed value: a usage error, as clap's own are.
+    let name = args
+        .name
+        .as_deref()
+        .map(RunName::new)
+        .transpose()
+        .map_err(|e| Error::Usage(format!("--name: {e}")))?;
     Ok(runner.open(&manifest, name)?)
 }
 

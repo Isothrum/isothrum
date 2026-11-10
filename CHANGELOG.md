@@ -296,6 +296,13 @@ change.
   that already had a cable); it now fails with `Error::SelfLink`, as a cable between two ports of
   one node does.
 
+- **A malformed `--name` exits 2, a usage error.** It exited 1 with the code `run_name`, where
+  the exit-code reference promises 2 for a value missing or malformed; its `error` event's code
+  is now `usage`.
+
+- **An `ISOTHRUM_HOME` that isn't UTF-8 is the home.** It was read as unset, and `isothrum` went
+  to `~/.isothrum`; it is now a path, as `--home`'s is.
+
 - **A mistyped `--param` on an existing run is refused.** `down`, `park`, `check`, `update` and
   the other operations on a run that exists dropped a param the manifest doesn't take and passed
   a value outside its `values` unchecked. They now check what is given as a start does (an
