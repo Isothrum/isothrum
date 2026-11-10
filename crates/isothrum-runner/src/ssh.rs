@@ -333,7 +333,7 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
     if secs > WAIT_MAX {
         return Err(malformed(format!("{secs} is over the {WAIT_MAX} seconds a step may wait")));
     }
-    let login = format!("{}@{}", user_or_root(arg("user")?), arg("host")?);
+    let login = with_login(cx, &arg("host")?, arg)?.target;
     Ok((secs > 0).then(|| Wait {
         limit: std::time::Duration::from_secs(secs),
         login,

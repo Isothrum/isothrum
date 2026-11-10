@@ -184,7 +184,7 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
     let mut env = vec![
         (ESXI_HOSTNAME.to_owned(), "127.0.0.1".to_owned()),
         (ESXI_HOSTPORT.to_owned(), ssh.port.to_string()),
-        (SSH_PROXY_COMMAND.to_owned(), "/usr/bin/nc %h %p".to_owned()),
+        (SSH_PROXY_COMMAND.to_owned(), format!("{NC} %h %p")),
     ];
     // Windows guests: Vagrant's WinRM (plain HTTP to the guest) through the proxy. The one
     // override that is required: WinRM reaches a guest only through `http_proxy`, and only this

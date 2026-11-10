@@ -35,6 +35,12 @@ use crate::state::{Op, RunState};
 /// The record format's version.
 const RECORD_VERSION: u32 = 0;
 
+/// A run's record, in its folder.
+const RECORD_FILE: &str = "record.json";
+
+/// A run's event log, in its folder.
+const EVENTS_FILE: &str = "events.jsonl";
+
 /// How many event lines a run's log keeps before an operation trims it to half.
 pub(crate) const EVENTS_KEPT: usize = 4000;
 
@@ -167,6 +173,16 @@ impl Store {
         Ok(dir)
     }
 
+    /// Run `name`'s record file (its folder not made).
+    fn record_path(&self, name: &RunName) -> PathBuf {
+        self.runs.join(name.as_str()).join(RECORD_FILE)
+    }
+
+    /// Run `name`'s event log (its folder not made).
+    fn events_path(&self, name: &RunName) -> PathBuf {
+        self.runs.join(name.as_str()).join(EVENTS_FILE)
+    }
+
     /// Run `name`'s lock file.
     pub(crate) fn lock_path(&self, name: &RunName) -> PathBuf {
         self.runs.join(name.as_str()).join("lock")
@@ -174,12 +190,13 @@ impl Store {
 
     /// Run `name`'s record, when it has one.
     pub(crate) fn record(&self, name: &RunName) -> Result<Option<RunRecord>> {
-        read_json(&self.runs.join(name.as_str()).join("record.json"))
+        read_json(&self.record_path(name))
     }
 
     /// Writes `record` whole.
     pub(crate) fn save(&self, record: &RunRecord) -> Result<()> {
-        let path = self.run_dir(&record.name)?.join("record.json");
+        self.run_dir(&record.name)?;
+        let path = self.record_path(&record.name);
         let text = serde_json::to_vec_pretty(record).map_err(|e| Error::io(&path, "written")(e.into()))?;
         write_private(&path, &text).map_err(Error::io(&path, "written"))
     }
@@ -202,7 +219,8 @@ impl Store {
 
     /// Run `name`'s event log, opened to append.
     pub(crate) fn event_log(&self, name: &RunName) -> Result<std::fs::File> {
-        let path = self.run_dir(name)?.join("events.jsonl");
+        self.run_dir(name)?;
+        let path = self.events_path(name);
         fs::append_private(&path).map_err(Error::io(&path, "written"))
     }
 
@@ -210,7 +228,8 @@ impl Store {
     /// the file, so only the holder of the run's lock trims it, with no handle of its own still
     /// open on it: an operation appending to it would go on appending to the file it replaced.
     pub(crate) fn trim_event_log(&self, name: &RunName) -> Result<()> {
-        let path = self.run_dir(name)?.join("events.jsonl");
+        self.run_dir(name)?;
+        let path = self.events_path(name);
         let lines = read_lines(&path)?;
         if lines.len() > EVENTS_KEPT {
             let mut kept = Vec::new();
@@ -226,7 +245,7 @@ impl Store {
     /// Run `name`'s logged events, oldest first, with how many of its lines aren't an event
     /// this runner reads (a line cut short, mid-character included).
     pub(crate) fn events(&self, name: &RunName) -> Result<EventLog> {
-        let path = self.runs.join(name.as_str()).join("events.jsonl");
+        let path = self.events_path(name);
         let mut log = EventLog::default();
         for line in read_lines(&path)?.iter().filter(|l| !l.trim_ascii().is_empty()) {
             match serde_json::from_slice(line) {

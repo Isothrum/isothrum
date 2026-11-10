@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use isoloom_manifest::{Guest, Machine, Native};
+use isoloom_manifest::{Guest, Machine};
 
 use crate::Result;
 use crate::console::ShellCommand;
@@ -115,7 +115,7 @@ fn is_container_in_vm(manifest: &isoloom_manifest::Manifest, name: &str) -> bool
     manifest
         .machines
         .iter()
-        .any(|m| m.name.as_str() == name && matches!(m.native, Some(Native::Compose { .. })))
+        .any(|m| m.name.as_str() == name && crate::driver::is_compose_service(m))
 }
 
 /// `m` in `state`, with nothing published.
