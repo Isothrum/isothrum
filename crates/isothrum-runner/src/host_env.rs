@@ -6,6 +6,8 @@
 //! no operation reads the process's environment itself. A tool the runner starts as its child
 //! inherits the environment as it is, never this copy.
 
+use std::ffi::OsStr;
+
 use crate::network_env::is_network_var;
 
 /// Terraform's CLI configuration file (a provider mirror, credentials).
@@ -39,9 +41,17 @@ impl HostEnv {
     /// What an elevated Hyper-V session's broker, which inherits nothing, is handed: the Vagrant
     /// and network variables (a box download goes out the way this account's does), `path` as
     /// `PATH` (the tools found here are found there), and `VAGRANT_HOME` pinned to this account's
-    /// boxes, whoever approved the prompt, when none is set.
-    pub(crate) fn for_elevation(&self, path: Option<&str>) -> Vec<(String, String)> {
+    /// boxes, whoever approved the prompt, when none is set. A `path` that isn't UTF-8 can't be
+    /// handed on as a variable: it is left out, and traced.
+    pub(crate) fn for_elevation(&self, path: Option<&OsStr>) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self.vars().filter(|(k, _)| is_vagrant_var(k) || is_network_var(k)).collect();
+        let path = path.and_then(|p| {
+            let text = p.to_str();
+            if text.is_none() {
+                tracing::warn!("the PATH isn't UTF-8: an elevated session is handed none");
+            }
+            text
+        });
         out.extend(path.map(|p| ("PATH".to_owned(), p.to_owned())));
         if self.get("VAGRANT_HOME").is_none()
             && let Some(profile) = self.get("USERPROFILE")
@@ -110,7 +120,7 @@ mod tests {
             ("VAGRANT_LOG", "info"),
         ]);
         assert_eq!(
-            env.for_elevation(Some("C:\\HashiCorp\\Vagrant\\bin")),
+            env.for_elevation(Some(OsStr::new("C:\\HashiCorp\\Vagrant\\bin"))),
             [
                 ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
                 ("VAGRANT_LOG".to_owned(), "info".to_owned()),

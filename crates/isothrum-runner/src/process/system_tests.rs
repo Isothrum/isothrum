@@ -228,11 +228,25 @@ fn the_docker_cli_config_is_read_from_docker_config_before_the_home() {
     let env = env_dir.path().display().to_string();
     let with = |docker_config: Option<&str>| {
         SystemProcesses::for_host(
-            |v| (v == "DOCKER_CONFIG").then(|| docker_config.map(str::to_owned)).flatten(),
+            |v| (v == "DOCKER_CONFIG").then(|| docker_config.map(std::ffi::OsString::from)).flatten(),
             Some(home.path()),
         )
     };
     assert!(with(None).strip_engine_overrides, "the home's config picks a context");
     assert!(!with(Some(&env)).strip_engine_overrides, "$DOCKER_CONFIG's config comes first");
     assert!(!SystemProcesses::for_host(|_| None, None).strip_engine_overrides, "no config: nothing picked");
+}
+
+/// Regression: a `DOCKER_CONFIG` that isn't UTF-8 was read as unset, and the home's config,
+/// another one, was read instead.
+#[cfg(unix)]
+#[test]
+fn a_docker_config_that_isnt_utf8_is_still_the_one_read() {
+    use std::os::unix::ffi::OsStringExt;
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join(".docker")).unwrap();
+    std::fs::write(home.path().join(".docker/config.json"), r#"{"currentContext":"colima"}"#).unwrap();
+    let elsewhere = std::ffi::OsString::from_vec(b"/nowhere/bad\xff".to_vec());
+    let read = SystemProcesses::for_host(|v| (v == "DOCKER_CONFIG").then(|| elsewhere.clone()), Some(home.path()));
+    assert!(!read.strip_engine_overrides, "the home's config isn't the one DOCKER_CONFIG names");
 }

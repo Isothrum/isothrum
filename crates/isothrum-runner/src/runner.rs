@@ -3,6 +3,7 @@
 //! them.
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -42,7 +43,7 @@ pub struct RunnerConfig {
     /// and to Vagrant on an ESXi host from macOS, whose relays look for the real `ovftool` in it
     /// and put their wrapper first (default: the runner's own). The tools the runner starts as
     /// its children inherit its environment as it is.
-    pub path: Option<String>,
+    pub path: Option<OsString>,
     /// The user's own Terraform plugin cache (`TF_PLUGIN_CACHE_DIR`), which the runs use as it
     /// is; without one, they share one under the home.
     pub(crate) tf_plugin_cache: Option<PathBuf>,
@@ -63,7 +64,7 @@ impl RunnerConfig {
             ports: Arc::new(LoopbackPorts),
             clock: Arc::new(SystemClock),
             host: this_host(),
-            path: std::env::var("PATH").ok(),
+            path: std::env::var_os("PATH"),
             tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
             host_env: HostEnv::capture(),
         }

@@ -23,6 +23,13 @@ it reaches the tool through its environment, as the run manifest's deliveries sa
 | `USERPROFILE` (Windows) | Whether the home is inside the user's profile (no DACL of its own needed), and the `VAGRANT_HOME` an elevated Hyper-V session gets. |
 | `SystemRoot` (Windows, `isothrum-machine`) | Where Windows' own tools are. |
 
+A value that isn't UTF-8 is never taken for an unset variable. Where it names a path
+(`ISOTHRUM_HOME`, `DOCKER_CONFIG`, `PATH`, `TF_PLUGIN_CACHE_DIR`) it is read as it is. Where it is
+text, it is refused by name: a secret's variable is a usage error (exit 2), and an `ISOTHRUM_LOG`
+or `ISOTHRUM_LOG_FORMAT` a warning, with no tracing. A `PATH` is handed on as text: one that isn't
+UTF-8 is left out of an elevated session's variables (and traced), and fails the macOS relay's
+set-up when its `ovftool` wrapper must go first on it.
+
 ## What the tools get
 
 Each tool inherits the environment `isothrum` runs in, with these changes:

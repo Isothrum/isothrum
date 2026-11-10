@@ -7,6 +7,14 @@
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, fmt};
 
+use crate::values::Var;
+
+/// The variable that asks for tracing, and the filter it gives.
+const LOG: &str = "ISOTHRUM_LOG";
+
+/// The variable that names the format.
+const LOG_FORMAT: &str = "ISOTHRUM_LOG_FORMAT";
+
 /// A subscriber of either format.
 type Subscriber = Box<dyn tracing::Subscriber + Send + Sync>;
 
@@ -22,13 +30,35 @@ enum Format {
 /// Why the tracing asked for can't be set up.
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// Traces to standard error as the environment `var` reads asks: nothing when `ISOTHRUM_LOG`
+/// isn't set.
+///
+/// # Errors
+///
+/// A variable that isn't UTF-8, and what [`to_stderr`] refuses, each naming its variable.
+pub(crate) fn from_env(var: &Var<'_>) -> Result<(), Error> {
+    let Some(filter) = text(var, LOG)? else {
+        return Ok(());
+    };
+    let format = text(var, LOG_FORMAT)?;
+    to_stderr(&filter, format.as_deref()).map_err(|e| format!("{LOG}={filter}: {e}").into())
+}
+
+/// Variable `name`, read through `var`: `None` when it isn't set, an error naming it when it
+/// isn't UTF-8.
+fn text(var: &Var<'_>, name: &str) -> Result<Option<String>, Error> {
+    var(name)
+        .map(|value| value.into_string().map_err(|_| format!("{name} isn't UTF-8: no tracing").into()))
+        .transpose()
+}
+
 /// Traces to standard error as `filter` (`ISOTHRUM_LOG`) and `format` (`ISOTHRUM_LOG_FORMAT`:
 /// `text`, the default, or `json`) ask.
 ///
 /// # Errors
 ///
 /// A filter that doesn't parse, a format that isn't one, a subscriber already set.
-pub(crate) fn to_stderr(filter: &str, format: Option<&str>) -> Result<(), Error> {
+fn to_stderr(filter: &str, format: Option<&str>) -> Result<(), Error> {
     tracing::subscriber::set_global_default(subscriber(filter, format, std::io::stderr)?)?;
     Ok(())
 }
@@ -94,6 +124,23 @@ mod tests {
         let line: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
         assert_eq!(line["fields"]["message"], "starting a process");
         assert_eq!((line["fields"]["program"].as_str(), line["level"].as_str()), (Some("docker"), Some("DEBUG")));
+    }
+
+    /// Regression: an `ISOTHRUM_LOG` or `ISOTHRUM_LOG_FORMAT` that isn't UTF-8 was read as unset,
+    /// and ignored without a word.
+    #[cfg(unix)]
+    #[test]
+    fn a_log_variable_that_isnt_utf8_is_refused_by_name() {
+        use std::os::unix::ffi::OsStringExt;
+        for name in [LOG, LOG_FORMAT] {
+            let var = |asked: &str| match asked {
+                _ if asked == name => Some(std::ffi::OsString::from_vec(b"bad\xff".to_vec())),
+                LOG => Some("debug".into()),
+                _ => None,
+            };
+            let refused = from_env(&var).unwrap_err().to_string();
+            assert!(refused.contains(&format!("{name} isn't UTF-8")), "{refused}");
+        }
     }
 
     #[test]

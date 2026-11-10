@@ -32,15 +32,16 @@ pub struct SystemProcesses {
 
 impl Default for SystemProcesses {
     fn default() -> SystemProcesses {
-        SystemProcesses::for_host(|v| std::env::var(v).ok(), std::env::home_dir().as_deref())
+        SystemProcesses::for_host(|v| std::env::var_os(v), std::env::home_dir().as_deref())
     }
 }
 
 impl SystemProcesses {
     /// Real processes, the Docker CLI's config read from `$DOCKER_CONFIG/config.json`, else
     /// `<home>/.docker/config.json` (`var` reads the environment, `home` is the user's): it says
-    /// whether the user picked an engine context of their own.
-    fn for_host(var: impl Fn(&str) -> Option<String>, home: Option<&Path>) -> SystemProcesses {
+    /// whether the user picked an engine context of their own. A `DOCKER_CONFIG` that isn't UTF-8
+    /// is a path like any other.
+    fn for_host(var: impl Fn(&str) -> Option<std::ffi::OsString>, home: Option<&Path>) -> SystemProcesses {
         let dir = var("DOCKER_CONFIG").map(std::path::PathBuf::from).or_else(|| home.map(|h| h.join(".docker")));
         let config = dir.and_then(|d| std::fs::read_to_string(d.join("config.json")).ok());
         SystemProcesses {

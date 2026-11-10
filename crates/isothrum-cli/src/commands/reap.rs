@@ -15,7 +15,7 @@ use crate::commands::Out;
 use crate::error::Result;
 use crate::exit::Verdict;
 use crate::term::{Trail, failure};
-use crate::values;
+use crate::values::{self, Var};
 
 /// What the sweep did with the expired runs.
 #[derive(Debug, Default)]
@@ -30,7 +30,7 @@ struct Swept {
 
 /// Runs `args` on `runner`: its events and its summary to `out`; `var` reads the environment for
 /// the connection.
-pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     let cloud = args.cloud;
     let connection = values::secrets(&args.secrets, var)?;

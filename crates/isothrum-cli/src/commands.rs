@@ -9,19 +9,14 @@ use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
+use crate::values::Var;
 use crate::{locate, values};
 
 /// Runs `cli`, writing to `term` (each event kept in `trail` too); `var` reads the environment
 /// (for secrets). Every command but `completions` runs on the runner `runner` builds; completions
 /// need none, so they touch no home. An operation's failure has been reported by its own `error`
 /// event, so it reads as [`Verdict::Fail`]; what failed before any event is an error.
-pub(crate) async fn run<R: Borrow<Runner>>(
-    cli: &Cli,
-    runner: impl FnOnce() -> Result<R>,
-    term: &Term,
-    trail: &Trail,
-    var: &dyn Fn(&str) -> Option<String>,
-) -> Result<Verdict> {
+pub(crate) async fn run<R: Borrow<Runner>>(cli: &Cli, runner: impl FnOnce() -> Result<R>, term: &Term, trail: &Trail, var: &Var<'_>) -> Result<Verdict> {
     let command = match &cli.command {
         Command::Completions { shell } => {
             term.out(&crate::args::completions(*shell));
@@ -42,7 +37,7 @@ pub(crate) async fn run<R: Borrow<Runner>>(
 }
 
 /// Runs `command` on `runner`, writing to `out`.
-async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let Out { term, events, .. } = *out;
     match command {
         RunnerCommand::Status(run) => status(out, &open(runner, run)?).await,
@@ -129,7 +124,7 @@ struct Out<'a> {
 }
 
 /// A command that changes the run's life, written to `out`.
-async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     match command {
         Lifecycle::Up {
@@ -272,7 +267,7 @@ fn open<'r>(runner: &'r Runner, args: &TargetArgs) -> Result<Running<'r>> {
 
 /// The start options: `args`, plus `replace` (remove leftovers first), a `lifetime` in minutes
 /// and the SSH jump the run records.
-fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, ssh_jump: Option<&str>, var: &dyn Fn(&str) -> Option<String>) -> Result<RunOptions> {
+fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, ssh_jump: Option<&str>, var: &Var<'_>) -> Result<RunOptions> {
     let mut opts = options(args, var)?;
     if let Some(jump) = ssh_jump {
         opts = opts.with_ssh_jump(jump);
@@ -287,7 +282,7 @@ fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, ssh_jump: Opt
 }
 
 /// The options `args` gives.
-fn options(args: &OpArgs, var: &dyn Fn(&str) -> Option<String>) -> Result<RunOptions> {
+fn options(args: &OpArgs, var: &Var<'_>) -> Result<RunOptions> {
     let mut opts = RunOptions::new()
         .with_params(values::params(&args.params)?)
         .with_secrets(values::secrets(&args.secrets, var)?);

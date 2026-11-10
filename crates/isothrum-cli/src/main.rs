@@ -32,6 +32,7 @@ use crate::args::Cli;
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Term, Trail, failure};
+use crate::values::Var;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -40,11 +41,9 @@ async fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(e) => return refused(&e, &term),
     };
-    let var = |name: &str| std::env::var(name).ok();
-    if let Some(filter) = var("ISOTHRUM_LOG")
-        && let Err(e) = log::to_stderr(&filter, var("ISOTHRUM_LOG_FORMAT").as_deref())
-    {
-        term.err(&format!("warning: ISOTHRUM_LOG={filter}: {e}"));
+    let var = |name: &str| std::env::var_os(name);
+    if let Err(e) = log::from_env(&var) {
+        term.err(&format!("warning: {e}"));
     }
     let trail = Trail::default();
     let processes = SystemProcesses::default();
@@ -62,7 +61,7 @@ async fn main() -> ExitCode {
 
 /// Runs `cli` on the runner this host and environment call for, built when the command needs one,
 /// its tools started by `processes`.
-async fn start(cli: &Cli, processes: &SystemProcesses, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+async fn start(cli: &Cli, processes: &SystemProcesses, term: &Term, trail: &Trail, var: &Var<'_>) -> Result<Verdict> {
     let runner = || -> Result<Runner> {
         let home = locate::home(cli.home.clone(), std::env::var_os("ISOTHRUM_HOME"), std::env::home_dir())?;
         let mut config = RunnerConfig::new(home);

@@ -75,7 +75,7 @@ fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakePr
         ("no_proxy", ".corp"),
         ("SSL_CERT_FILE", "C:\\certs\\corp.pem"),
     ]);
-    let forwarded = own.for_elevation(Some("C:\\HashiCorp\\Vagrant\\bin"));
+    let forwarded = own.for_elevation(Some(std::ffi::OsStr::new("C:\\HashiCorp\\Vagrant\\bin")));
     let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), forwarded);
     (home, fake, e)
 }

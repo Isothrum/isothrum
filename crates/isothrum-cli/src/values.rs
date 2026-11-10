@@ -2,10 +2,14 @@
 //! (`NAME=VALUE`) and the slots' values, read from the environment (`NAME[=VAR]`).
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 
 use isothrum_runner::{SecretValue, Secrets};
 
 use crate::error::{Error, Result};
+
+/// Reads the environment: variable `name`'s value, `None` when it isn't set.
+pub(crate) type Var<'a> = dyn Fn(&str) -> Option<OsString> + 'a;
 
 /// `NAME=VALUE` pairs, by name.
 pub(crate) fn params(pairs: &[String]) -> Result<BTreeMap<String, String>> {
@@ -20,11 +24,13 @@ pub(crate) fn params(pairs: &[String]) -> Result<BTreeMap<String, String>> {
 }
 
 /// The slots' values, each `NAME[=VAR]` read from variable `VAR` (default `NAME`) through `var`.
-pub(crate) fn secrets(specs: &[String], var: &dyn Fn(&str) -> Option<String>) -> Result<Secrets> {
+pub(crate) fn secrets(specs: &[String], var: &Var<'_>) -> Result<Secrets> {
     let mut out = Secrets::new();
     for spec in specs {
         let (name, from) = spec.split_once('=').unwrap_or((spec, spec));
-        let value = var(from).ok_or_else(|| Error::Usage(format!("`--secret-from-env {spec}`: `{from}` isn't set")))?;
+        let refused = |why: &str| Error::Usage(format!("`--secret-from-env {spec}`: `{from}` {why}"));
+        let value = var(from).ok_or_else(|| refused("isn't set"))?;
+        let value = value.into_string().map_err(|_| refused("isn't UTF-8"))?;
         out.insert(name, SecretValue::new(value));
     }
     Ok(out)
@@ -41,7 +47,7 @@ mod tests {
             BTreeMap::from([("A".into(), "1".into()), ("B".into(), "x=y".into())])
         );
         assert!(params(&["A".into()]).is_err());
-        let env = |k: &str| (k == "SECRET_VAR").then(|| "token-x".to_owned());
+        let env = |k: &str| (k == "SECRET_VAR").then(|| OsString::from("token-x"));
         let s = secrets(&["DEMO_SECRET=SECRET_VAR".into()], &env).unwrap();
         assert_eq!(s.get("DEMO_SECRET").map(SecretValue::expose), Some("token-x"));
         assert!(
@@ -54,9 +60,19 @@ mod tests {
 
     #[test]
     fn a_slot_named_alone_is_read_from_its_own_variable() {
-        let env = |k: &str| (k == "SECRET_VAR").then(|| "token-y".to_owned());
+        let env = |k: &str| (k == "SECRET_VAR").then(|| OsString::from("token-y"));
         let s = secrets(&["SECRET_VAR".into()], &env).unwrap();
         assert_eq!(s.get("SECRET_VAR").map(SecretValue::expose), Some("token-y"));
+    }
+
+    /// Regression: a variable that isn't UTF-8 was read as unset, and refused as "isn't set".
+    #[cfg(unix)]
+    #[test]
+    fn a_secret_variable_that_isnt_utf8_is_refused_as_such() {
+        use std::os::unix::ffi::OsStringExt;
+        let env = |k: &str| (k == "SECRET_VAR").then(|| OsString::from_vec(b"bad\xff".to_vec()));
+        let refused = secrets(&["DEMO_SECRET=SECRET_VAR".into()], &env).unwrap_err().to_string();
+        assert!(refused.contains("`SECRET_VAR` isn't UTF-8"), "{refused}");
     }
 
     proptest::proptest! {

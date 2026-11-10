@@ -74,6 +74,7 @@ and `--secret-from-env`.
 | `process::fake::{FakeProcesses, Reply, Call}` | `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (feature `fake`); `Call` is `ProcessSpec`. |
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |
 | `RunnerConfig::with_processes`, `with_ports`, `with_clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's. |
+| `RunnerConfig::path: Option<String>` | `Option<OsString>`: a `PATH` that isn't UTF-8 is kept. |
 | `AccessPick`, `AttachReport` built with struct literals | Both are `#[non_exhaustive]`. |
 
 A tool an operation cut short (its future dropped, a step's timeout) is now asked to stop

@@ -37,6 +37,13 @@ change.
 
 ### Fixed
 
+- **An environment variable that isn't UTF-8 is no longer taken for one that isn't set.** A
+  `--secret-from-env` variable was refused as "isn't set", an `ISOTHRUM_LOG` was ignored without a
+  word, a `DOCKER_CONFIG` was passed over for `~/.docker`, and a `PATH` was dropped, so ovftool
+  wasn't found on it and the macOS ESXi relay set `PATH` to its wrapper's folder followed by an
+  empty entry. A secret's variable and the log's are now refused by name; `DOCKER_CONFIG` and
+  `PATH` are read as paths, and the wrapper's folder goes first on the `PATH` (alone when there is
+  none). **Breaking, for embedders:** `RunnerConfig::path` is an `OsString`.
 - **A check its runner never reported is the one that fails.** The checks a runner left out were
   taken by position, after as many results as it printed: a runner that reported its second
   check, or one check twice, then stopped had the wrong check failed as never reached, and the

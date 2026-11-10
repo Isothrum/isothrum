@@ -102,7 +102,7 @@ impl Setup {
         command_line.extend_from_slice(args);
         command_line.push(&run);
         let cli = Cli::parse_from(command_line);
-        let var = |name: &str| self.env.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
+        let var = |name: &str| self.env.iter().find(|(k, _)| *k == name).map(|(_, v)| std::ffi::OsString::from(v));
         commands::run(&cli, || Ok(&self.runner), &self.term, &crate::term::Trail::default(), &var).await
     }
 

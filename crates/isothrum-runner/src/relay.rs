@@ -13,6 +13,7 @@
 mod http_proxy;
 mod ovftool;
 
+use std::ffi::OsStr;
 use std::path::Path;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -184,7 +185,7 @@ pub(crate) fn esxi_host<'a>(
 /// the environment pointing Vagrant, its plugin and ovftool at them. `path` is the run's `PATH`
 /// and `no_proxy` the hosts it already sends around its proxy; the ovftool wrapper goes in a
 /// folder under `home`.
-pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&str>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
+pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
     let ssh = start(host.to_owned(), ssh_port).await?;
     let https = start(host.to_owned(), 443).await?;
     let mut env = vec![
@@ -203,9 +204,9 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
     env.push(("no_proxy".into(), around_proxy(no_proxy)));
     if let Some(real) = ovftool::real(path) {
         let dir = ovftool::wrapper_dir(home)?;
-        env.push(("ISOTHRUM_REAL_OVFTOOL".into(), real));
+        env.push(("ISOTHRUM_REAL_OVFTOOL".into(), ovftool::text(real.into_os_string(), "ovftool's path")?));
         env.push(("ISOTHRUM_OVFTOOL_PORT".into(), https.port.to_string()));
-        env.push(("PATH".into(), format!("{}:{}", dir.display(), path.unwrap_or_default())));
+        env.push(("PATH".into(), ovftool::first_on(&dir, path)?));
     }
     Ok(Relayed {
         env,
@@ -327,7 +328,7 @@ mod tests {
     #[tokio::test]
     async fn a_relayed_run_points_vagrant_at_its_relays() {
         let home = tempfile::tempdir().unwrap();
-        let r = prepare("10.0.0.5", 22, home.path(), Some("/usr/bin:/bin"), Some(".corp.example,mirror.lan"))
+        let r = prepare("10.0.0.5", 22, home.path(), Some(OsStr::new("/usr/bin:/bin")), Some(".corp.example,mirror.lan"))
             .await
             .unwrap();
         let get = |k: &str| r.env.iter().rev().find(|(n, _)| n == k).map(|(_, v)| v.clone());

@@ -290,3 +290,18 @@ fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
         .unwrap();
     assert!(!user.join(".isothrum").exists(), "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+/// Regression: an `ISOTHRUM_LOG` that isn't UTF-8 was read as unset, and the tracing asked for
+/// was left off without a word.
+#[cfg(unix)]
+#[test]
+fn a_log_variable_that_isnt_utf8_is_warned_about() {
+    use std::os::unix::ffi::OsStringExt;
+    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .args(["completions", "bash"])
+        .env("ISOTHRUM_LOG", std::ffi::OsString::from_vec(b"bad\xff".to_vec()))
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success() && said.contains("warning: ISOTHRUM_LOG isn't UTF-8"), "{said}");
+}
