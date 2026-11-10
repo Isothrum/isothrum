@@ -58,7 +58,7 @@ pub enum ReadyState {
     Waiting,
     /// It holds.
     Ok,
-    /// It didn't hold in time.
+    /// It doesn't hold: the operation fails (`not_ready`).
     Failed,
 }
 

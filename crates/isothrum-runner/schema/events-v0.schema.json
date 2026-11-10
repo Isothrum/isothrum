@@ -469,7 +469,7 @@
           "const": "ok"
         },
         {
-          "description": "It didn't hold in time.",
+          "description": "It doesn't hold: the operation fails (`not_ready`).",
           "type": "string",
           "const": "failed"
         }

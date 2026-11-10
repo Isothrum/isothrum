@@ -39,7 +39,7 @@ carries every outcome, one event per line. `isothrum attach
 | `state` | `from`, `to` | The run moved from one state to another (`starting`, `ready`, `failed`, `parking`, `parked`, `resuming`, `stopping`, `absent`). |
 | `step` | `step`, `state`, `note` | A step started (`running`), finished (`done`), `failed` or was `skipped`. |
 | `log` | `step`, `stream`, `line` | A line a step's tool printed on `stdout` or `stderr`. |
-| `ready` | `condition`, `state`, `detail` | A ready condition was checked. |
+| `ready` | `condition`, `state`, `detail` | A ready condition was checked: `waiting` (not yet, checked again), `ok` (it holds) or `failed` (it doesn't, and the operation fails with `not_ready`). |
 | `output` | `name`, `role`, `value`, `sensitive` | An output's value, once the run is up (`***` when sensitive). |
 | `check` | `runner`, `from`, `name`, `ok`, `detail` | One check's result. |
 | `warning` | `code`, `message` | Something worth showing that didn't fail the operation. |
