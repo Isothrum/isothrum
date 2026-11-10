@@ -10,7 +10,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use isothrum_runner::ProcessRunner;
+use isothrum_runner::{ProcessRunner, version_at_least};
 
 use crate::exec;
 
@@ -138,15 +138,6 @@ pub struct ProviderStatus {
     pub provider: Provider,
     /// Why it is not ready to use here, `None` when it is.
     pub reason: Option<String>,
-}
-
-/// Whether version `found` is `min` or later ([`isothrum_runner::version_in`]); a version that
-/// can't be read holds nothing back.
-fn version_at_least(found: &str, min: &str) -> bool {
-    match (isothrum_runner::version_in(found), isothrum_runner::version_in(min)) {
-        (Some(found), Some(min)) => found >= min,
-        _ => true,
-    }
 }
 
 /// The version `installed` of `provider`'s plugin when it is older than the one that works

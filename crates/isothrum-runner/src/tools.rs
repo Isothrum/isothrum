@@ -9,7 +9,7 @@ use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, capture_step};
-use crate::tool_output::version_in;
+use crate::tool_output::{version_at_least, version_in};
 
 /// The step id the probes report under.
 const STEP: &str = "tools";
@@ -51,10 +51,10 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
     let Some(min) = &tool.min_version else { return Ok(()) };
-    match (version_in(&out), version_in(min.as_str())) {
-        (Some(found), Some(required)) if found < required => Err(Error::ToolTooOld {
+    match version_in(&out) {
+        Some((major, minor, patch)) if !version_at_least(&out, min.as_str()) => Err(Error::ToolTooOld {
             tool: tool.name.to_string(),
-            found: format!("{}.{}.{}", found.0, found.1, found.2),
+            found: format!("{major}.{minor}.{patch}"),
             required: min.as_str().to_owned(),
         }),
         _ => Ok(()),
