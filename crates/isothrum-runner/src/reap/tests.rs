@@ -49,7 +49,8 @@ fn a_run_is_expired_once_its_time_passed_while_something_of_it_is_left() {
 }
 
 /// What `aws resourcegroupstaggingapi get-resources` answers: an expired instance no run covers,
-/// one a recorded run's state names, and one not expired yet.
+/// one a recorded run's state names, one not expired yet, and two whose expiry isn't a time (one
+/// no run covers, one a recorded run's state names).
 const AWS: &str = r#"{"ResourceTagMappingList": [
   {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:instance/i-0abandoned", "Tags": [
     {"Key": "isoloom-expires-at", "Value": "1792000000"}, {"Key": "isoloom-instance", "Value": "isoloom-solo-web-dead0000"}]},
@@ -57,7 +58,9 @@ const AWS: &str = r#"{"ResourceTagMappingList": [
     {"Key": "isoloom-expires-at", "Value": "1792000000"}, {"Key": "isoloom-instance", "Value": "isoloom-solo-web-ab12cd34"}]},
   {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:vpc/vpc-0later", "Tags": [
     {"Key": "isoloom-expires-at", "Value": "1999999999"}, {"Key": "isoloom-instance", "Value": "isoloom-other-0000aaaa"}]},
-  {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:subnet/subnet-0none", "Tags": [{"Key": "isoloom-expires-at", "Value": ""}]}
+  {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:subnet/subnet-0none", "Tags": [{"Key": "isoloom-expires-at", "Value": ""}]},
+  {"ResourceARN": "arn:aws:ec2:eu-west-3:123456789012:subnet/subnet-0covered", "Tags": [
+    {"Key": "isoloom-expires-at", "Value": "2026-12-01"}, {"Key": "isoloom-instance", "Value": "isoloom-solo-web-ab12cd34"}]}
 ]}"#;
 
 /// A recorded run's state that exists but doesn't parse fails the sweep: what it holds is unknown,
@@ -79,10 +82,14 @@ async fn an_orphan_is_tagged_past_its_expiry_with_no_recorded_run_holding_it() {
     record(&r, "live", RunState::Ready, Some(TEST_TIME + 60), Some(state));
     let place = Place::new(vec!["eu-west-3".into()], None);
     let found = r.orphans(Cloud::Aws, &place, now()).await.unwrap();
-    assert!(found.unread.is_empty(), "{found:?}");
     let ids: Vec<&str> = found.resources.iter().map(|t| t.id.as_str()).collect();
     assert_eq!(ids, ["arn:aws:ec2:eu-west-3:123456789012:instance/i-0abandoned"]);
     assert_eq!(found.resources[0].kind, "ec2 instance");
+    assert_eq!(
+        found.unread,
+        ["`arn:aws:ec2:eu-west-3:123456789012:subnet/subnet-0none`: its expiry tag `` isn't a time"],
+        "an expiry that isn't a time is said, unless a recorded run covers the resource"
+    );
 }
 
 #[tokio::test]
@@ -146,13 +153,28 @@ fn every_clouds_answer_reads_as_tagged_resources() {
         (Cloud::Linode, linodes, "7", "linode"),
         (Cloud::Oci, oci, "ocid1.instance.oc1..aaa", "Instance"),
     ] {
-        let found = tags::parse(cloud, text).unwrap();
+        let found: Vec<Tagged> = tags::parse(cloud, text).unwrap().into_iter().map(Result::unwrap).collect();
         assert_eq!(found.len(), 1, "{cloud:?}: {found:?}");
         assert_eq!((found[0].id.as_str(), found[0].kind.as_str()), (id, kind), "{cloud:?}");
         assert_eq!(found[0].expires_at, Some(1_792_000_000), "{cloud:?}");
         assert_eq!(found[0].instance.as_deref(), Some("isoloom-x-1"), "{cloud:?}");
     }
     assert!(tags::parse(Cloud::Aws, "[]").unwrap_err().contains("not the shape aws gives"));
+}
+
+#[test]
+fn an_expiry_that_isnt_a_time_is_said_on_every_kind_of_tag() {
+    let keyed = r#"[{"id": "/r/web", "type": "vm", "tags": {"isoloom-expires-at": "soon", "isoloom-instance": "isoloom-x-1"}}]"#;
+    let words = r#"[{"id": 7, "tags": ["isoloom-x-1", "isoloom-expires-tomorrow"]}]"#;
+    for (cloud, text, id, value) in [(Cloud::Azure, keyed, "/r/web", "soon"), (Cloud::Linode, words, "7", "tomorrow")] {
+        let found = tags::parse(cloud, text).unwrap();
+        let expected = tags::Unreadable {
+            id: id.into(),
+            instance: Some("isoloom-x-1".into()),
+            value: value.into(),
+        };
+        assert_eq!(found, [Err(expected)], "{cloud:?}");
+    }
 }
 
 #[test]
@@ -172,15 +194,15 @@ proptest! {
         let cloud = CLOUDS[cloud];
         // Read or refused; an expiry read is one the answer holds.
         if let Ok(found) = tags::parse(cloud, &text) {
-            prop_assert!(found.iter().all(|t| t.expires_at.is_none_or(|at| text.contains(&at.to_string()))));
+            prop_assert!(found.iter().flatten().all(|t| t.expires_at.is_none_or(|at| text.contains(&at.to_string()))));
         }
     }
 
     #[test]
     fn a_word_tags_expiry_reads_back(at in 0u64..4_000_000_000, instance in "isoloom-[a-df-z0-9][a-z0-9-]{0,19}") {
         let text = serde_json::json!([{"id": 1, "tags": ["isoloom", instance.clone(), format!("isoloom-expires-{at}")]}]).to_string();
-        let found = tags::parse(Cloud::Linode, &text).unwrap();
-        prop_assert_eq!(found[0].expires_at, Some(at));
-        prop_assert_eq!(found[0].instance.as_deref(), Some(instance.as_str()));
+        let found = tags::parse(Cloud::Linode, &text).unwrap().remove(0).unwrap();
+        prop_assert_eq!(found.expires_at, Some(at));
+        prop_assert_eq!(found.instance.as_deref(), Some(instance.as_str()));
     }
 }

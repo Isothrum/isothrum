@@ -37,9 +37,24 @@ const QUERY_STEP: &str = "reap";
 pub struct Orphans {
     /// The resources, as the cloud lists them.
     pub resources: Vec<Tagged>,
-    /// Why a query couldn't be read: its command line missing or failing, or an answer of
-    /// another shape. The cloud wasn't checked there.
+    /// What couldn't be read: a query whose command line is missing or fails, or whose answer is
+    /// of another shape (the cloud wasn't checked there), and a resource no recorded run covers
+    /// whose expiry tag isn't a time (whether it is past its expiry is unknown).
     pub unread: Vec<String>,
+}
+
+impl Orphans {
+    /// Adds what of `found`, a query's answer, no recorded run covers (`covered`): a resource
+    /// past its expiry at `now`, and one whose expiry can't be read.
+    fn sort(&mut self, found: Vec<tags::Found>, now: u64, covered: &BTreeSet<String>) {
+        for item in found {
+            match item {
+                Ok(t) if orphaned(&t, now, covered) => self.resources.push(t),
+                Err(e) if !is_covered(e.instance.as_ref(), covered) => self.unread.push(e.to_string()),
+                Ok(_) | Err(_) => {}
+            }
+        }
+    }
 }
 
 impl Runner {
@@ -73,7 +88,7 @@ impl Runner {
         for spec in tags::queries(cloud, place) {
             let answer = query(self.config.processes.as_ref(), &spec).await.and_then(|text| tags::parse(cloud, &text));
             match answer {
-                Ok(found) => out.resources.extend(found.into_iter().filter(|t| orphaned(t, now, &covered))),
+                Ok(found) => out.sort(found, now, &covered),
                 Err(why) => out.unread.push(format!("`{}`: {why}", spec.line())),
             }
         }
@@ -97,7 +112,12 @@ impl Runner {
 
 /// Whether `t` is past its expiry at `now` and no recorded run covers its environment.
 fn orphaned(t: &Tagged, now: u64, covered: &BTreeSet<String>) -> bool {
-    t.expires_at.is_some_and(|at| at <= now) && t.instance.as_ref().is_none_or(|i| !covered.contains(i))
+    t.expires_at.is_some_and(|at| at <= now) && !is_covered(t.instance.as_ref(), covered)
+}
+
+/// Whether a recorded run covers `instance`, a resource's environment (none when it doesn't say).
+fn is_covered(instance: Option<&String>, covered: &BTreeSet<String>) -> bool {
+    instance.is_some_and(|i| covered.contains(i))
 }
 
 /// What `spec` prints, when it ran to a success without going [`QUERY_LIMIT`] without progress

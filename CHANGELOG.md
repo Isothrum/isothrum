@@ -37,6 +37,11 @@ change.
 
 ### Fixed
 
+- **A cloud resource whose expiry tag isn't a time is said by `reap`, not passed over.** Every
+  resource a cloud's query returns carries Isoloom's expiry tag; one whose value didn't parse (empty,
+  a date, a typo) was left out of both the orphans and `unread`, so the one resource the sweep
+  couldn't judge was the one it never showed. It is now listed in `unread` (`not checked:` on the
+  command line), unless a recorded run's state covers it.
 - **A variable the runner hands on that isn't UTF-8 is no longer dropped in silence.** The
   proxies, the CA bundles, `TF_CLI_CONFIG_FILE`, Vagrant's variables and `USERPROFILE` were read
   only when they held UTF-8: one that didn't was taken for unset, so a `VAGRANT_HOME` that isn't

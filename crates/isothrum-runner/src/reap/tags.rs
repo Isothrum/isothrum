@@ -32,6 +32,27 @@ pub struct Tagged {
     pub instance: Option<String>,
 }
 
+/// A resource with Isoloom's expiry tag whose value isn't a time: whether it is past its expiry
+/// is unknown, so it is said rather than taken for one that isn't.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Unreadable {
+    /// Its id as the cloud names it.
+    pub(crate) id: String,
+    /// Its environment's name, when it says.
+    pub(crate) instance: Option<String>,
+    /// The expiry tag's value, as the cloud gives it.
+    pub(crate) value: String,
+}
+
+impl std::fmt::Display for Unreadable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}`: its expiry tag `{}` isn't a time", self.id, self.value)
+    }
+}
+
+/// What a query's answer says of one resource: it, or why its expiry can't be read.
+pub(crate) type Found = Result<Tagged, Unreadable>;
+
 /// Where a query looks: the regions (AWS) or the project (Google Cloud); the CLI's own default
 /// when unset.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -98,15 +119,16 @@ pub(crate) fn queries(cloud: Cloud, place: &Place) -> Vec<ProcessSpec> {
 }
 
 /// The tagged resources in `cloud`'s answer `json` to its query (those without Isoloom's expiry
-/// tag left out on the clouds whose query can't filter by it).
+/// tag left out on the clouds whose query can't filter by it), each one whose expiry tag isn't a
+/// time said as [`Unreadable`].
 ///
 /// # Errors
 ///
 /// The answer isn't JSON, or isn't the shape the cloud's command line gives.
-pub(crate) fn parse(cloud: Cloud, json: &str) -> Result<Vec<Tagged>, String> {
+pub(crate) fn parse(cloud: Cloud, json: &str) -> Result<Vec<Found>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let shape = || format!("not the shape {} gives", cloud_cli(cloud));
-    let items: Vec<Tagged> = match cloud {
+    let items: Vec<Found> = match cloud {
         Cloud::Aws => list(v.get("ResourceTagMappingList")).ok_or_else(shape)?.iter().filter_map(aws).collect(),
         Cloud::Azure => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(azure).collect(),
         Cloud::Gcp => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(gcp).collect(),
@@ -146,18 +168,37 @@ fn text(v: Option<&Value>) -> Option<String> {
 }
 
 /// A resource from its id, kind and key-value tags (an object of strings).
-fn keyed(id: Option<String>, kind: String, tags: Option<&Value>) -> Option<Tagged> {
+fn keyed(id: Option<String>, kind: String, tags: Option<&Value>) -> Option<Found> {
     let tags = tags?.as_object()?;
-    Some(Tagged {
+    let tagged = Tagged {
         id: id?,
         kind,
-        expires_at: text(tags.get(EXPIRES_KEY)).and_then(|t| t.trim().parse().ok()),
+        expires_at: None,
         instance: text(tags.get(INSTANCE_KEY)),
+    };
+    Some(match text(tags.get(EXPIRES_KEY)) {
+        Some(at) => expiring(tagged, &at),
+        None => Ok(tagged),
     })
 }
 
+/// `tagged` expiring at `at`, its expiry tag's value: [`Unreadable`] when it isn't a time.
+fn expiring(tagged: Tagged, at: &str) -> Found {
+    match at.trim().parse() {
+        Ok(at) => Ok(Tagged {
+            expires_at: Some(at),
+            ..tagged
+        }),
+        Err(_) => Err(Unreadable {
+            id: tagged.id,
+            instance: tagged.instance,
+            value: at.to_owned(),
+        }),
+    }
+}
+
 /// An AWS resource: its ARN, its service and type (`ec2 instance`), its `Tags` list.
-fn aws(r: &Value) -> Option<Tagged> {
+fn aws(r: &Value) -> Option<Found> {
     let arn = text(r.get("ResourceARN"))?;
     let tags: serde_json::Map<String, Value> = list(r.get("Tags"))?
         .iter()
@@ -169,16 +210,16 @@ fn aws(r: &Value) -> Option<Tagged> {
     keyed(Some(arn.clone()), format!("{service} {kind}").trim().to_owned(), Some(&Value::Object(tags)))
 }
 
-fn azure(r: &Value) -> Option<Tagged> {
+fn azure(r: &Value) -> Option<Found> {
     keyed(text(r.get("id")), text(r.get("type")).unwrap_or_default(), r.get("tags"))
 }
 
-fn gcp(r: &Value) -> Option<Tagged> {
+fn gcp(r: &Value) -> Option<Found> {
     let id = text(r.get("selfLink")).or_else(|| text(r.get("name")));
     keyed(id, "compute instance".into(), r.get("labels"))
 }
 
-fn oci(r: &Value) -> Option<Tagged> {
+fn oci(r: &Value) -> Option<Found> {
     keyed(
         text(r.get("identifier")),
         text(r.get("resource-type")).unwrap_or_default(),
@@ -189,15 +230,16 @@ fn oci(r: &Value) -> Option<Tagged> {
 /// A resource whose tags are words (DigitalOcean, Linode): its expiry from
 /// `isoloom-expires-<time>`, its environment the other `isoloom-…` word; none without the
 /// expiry word.
-fn words(r: &Value, id: &str, kind: &str) -> Option<Tagged> {
+fn words(r: &Value, id: &str, kind: &str) -> Option<Found> {
     let tags: Vec<String> = list(r.get("tags"))?.iter().filter_map(|t| text(Some(t))).collect();
     let expires = tags.iter().find_map(|t| t.strip_prefix(EXPIRES_WORD))?;
-    Some(Tagged {
+    let tagged = Tagged {
         id: text(r.get(id))?,
         kind: kind.to_owned(),
-        expires_at: expires.parse().ok(),
+        expires_at: None,
         instance: tags.iter().find(|t| is_instance_word(t)).cloned(),
-    })
+    };
+    Some(expiring(tagged, expires))
 }
 
 /// The environments a Terraform state's resources carry (their `isoloom-instance` tag, or the
