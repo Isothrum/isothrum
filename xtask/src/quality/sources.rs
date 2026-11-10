@@ -31,13 +31,13 @@ pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
 pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res<()> {
     for c in crates {
         let dir = path_in(root, &c.dir);
-        for file in rust_files(&dir.join("src")) {
+        for file in rust_files(&dir.join("src"))? {
             let text = std::fs::read_to_string(&file)?;
             if file.file_name().is_some_and(|n| n != "tests.rs") && code_lines(&text) > MAX_CODE_LINES {
                 add(counts, "file/over-400-loc", &c.name);
             }
         }
-        for file in rust_files(&dir) {
+        for file in rust_files(&dir)? {
             let text = std::fs::read_to_string(&file)?;
             for _ in 0..expectations(&text) {
                 add(counts, "exception/expect", &c.name);
@@ -48,19 +48,23 @@ pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res
 }
 
 /// Every `.rs` file under `dir`, recursively, build folders aside.
-fn rust_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+///
+/// # Errors
+///
+/// A folder or an entry of it can't be read: a file left out would count as none.
+fn rust_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    for path in entries.flatten().map(|e| e.path()) {
+    for entry in std::fs::read_dir(dir).map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", dir.display())))? {
+        let path = entry?.path();
         if path.is_dir() {
             if path.file_name().is_some_and(|n| n != "target") {
-                out.extend(rust_files(&path));
+                out.extend(rust_files(&path)?);
             }
         } else if path.extension().is_some_and(|x| x == "rs") {
             out.push(path);
         }
     }
-    out
+    Ok(out)
 }
 
 /// The lines of `src` that count: not blank, not a comment, not inside the inline test module.
@@ -251,6 +255,17 @@ fn char_literal(chars: &[char], i: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: a folder that couldn't be read counted as one with no file, so the ratchet
+    /// could under-count and pass.
+    #[test]
+    fn a_folder_that_cant_be_read_fails_the_count() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src").join("lib.rs"), "").unwrap();
+        assert_eq!(rust_files(dir.path()).unwrap(), [dir.path().join("src").join("lib.rs")]);
+        assert!(rust_files(&dir.path().join("missing")).is_err());
+    }
 
     #[test]
     fn comments_blanks_and_the_test_module_are_not_counted() {
