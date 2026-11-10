@@ -18,7 +18,7 @@ fn project(machine: &str) -> Spec {
 }
 
 #[test]
-fn a_database_gets_postgresql_listening_on_the_lab() {
+fn a_database_gets_postgresql_listening_on_the_network() {
     let files = starters_of(&project(
         "  db:\n    os: debian@12\n    networks: { lan: 12 }\n    ports: { postgres: 5432 }\n    app: { steps: [{ run: provision/db.sh }] }\n",
     ));
@@ -149,7 +149,7 @@ fn a_starter_names_the_services_it_answers_only_when_it_has_ports() {
 }
 
 #[test]
-fn mariadb_and_redis_listen_on_the_lab() {
+fn mariadb_and_redis_listen_on_the_network() {
     let sh = &starters_of(&project(
         "  data:\n    os: debian@12\n    networks: { lan: 12 }\n    ports: { mysql: 3306, redis: 6379 }\n    app: { steps: [{ run: provision/data.sh }] }\n",
     ))[0]

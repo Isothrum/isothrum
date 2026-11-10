@@ -1,5 +1,5 @@
 {
-  "name": "vlan-lab",
+  "name": "vlans",
   "networks": {
     "vlan10": { "cidr": "10.10.10.0/24", "switch": "sw1", "vlan": 10 },
     "vlan20": { "cidr": "10.10.20.0/24", "switch": "sw1", "vlan": 20, "internet": false }

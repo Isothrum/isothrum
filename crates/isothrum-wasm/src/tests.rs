@@ -40,7 +40,7 @@ fn read(zip: Vec<u8>, path: &str) -> Outcome<String> {
 }
 
 #[test]
-fn the_labs_own_files_are_its_starters() {
+fn the_projects_own_files_are_its_starters() {
     let files = own_files(PAIR);
     assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["provision/client.sh"]);
     assert!(files[0].contents.starts_with("#!"));
@@ -157,7 +157,7 @@ fn the_bundle_holds_the_spec_and_the_generated_files() -> Outcome {
 }
 
 #[test]
-fn a_vm_lab_comes_with_its_provisioning_scripts() -> Outcome {
+fn a_vm_project_comes_with_its_provisioning_scripts() -> Outcome {
     let vms = r#"{"name":"vms","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
         "db":{"kind":{"vm":{"os":"debian@12","provision":["provision/db.sh"]}},"networks":{"lan":null},"services":[{"port":5432}]},
         "app":{"kind":{"vm":{"os":"debian@12","provision":["provision/app.sh"]}},"networks":{"lan":null},"access":true}}}"#;

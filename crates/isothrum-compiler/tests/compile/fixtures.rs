@@ -30,31 +30,31 @@ fn compiled(name: &str, targets: &[&str]) -> Outcome<String> {
 }
 
 #[test]
-fn the_office_lab_compiles_to_a_spec_isoloom_runs() -> Outcome {
-    insta::assert_snapshot!("office-lab", compiled("office-lab", &["hybrid"])?);
+fn the_office_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
+    insta::assert_snapshot!("office", compiled("office", &["hybrid"])?);
     Ok(())
 }
 
 #[test]
-fn the_vlan_lab_compiles_to_a_spec_isoloom_runs() -> Outcome {
-    insta::assert_snapshot!("vlan-lab", compiled("vlan-lab", &["docker"])?);
+fn the_vlan_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
+    insta::assert_snapshot!("vlans", compiled("vlans", &["docker"])?);
     Ok(())
 }
 
 #[test]
-fn the_cisco_lab_compiles_to_a_spec_isoloom_runs() -> Outcome {
+fn the_cisco_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
     insta::assert_snapshot!("cisco-ospf", compiled("cisco-ospf", &["docker"])?);
     Ok(())
 }
 
 #[test]
-fn the_wan_lab_compiles_to_a_spec_isoloom_runs() -> Outcome {
+fn the_wan_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
     insta::assert_snapshot!("wan-links", compiled("wan-links", &["hybrid"])?);
     Ok(())
 }
 
 #[test]
-fn the_windows_lab_compiles_to_a_spec_isoloom_runs() -> Outcome {
+fn the_windows_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
     insta::assert_snapshot!("windows-domain", compiled("windows-domain", &["vagrant"])?);
     Ok(())
 }

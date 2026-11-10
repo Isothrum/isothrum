@@ -11,7 +11,7 @@ use isoloom_manifest::HostOs;
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{LabFolder, WEB_VM, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
+use crate::testing::{RunFolder, WEB_VM, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
 const CONTROLLER: &str = "isoloom-controller";
@@ -48,7 +48,7 @@ struct Engine {
 }
 
 struct Fixture {
-    _folder: LabFolder,
+    _folder: RunFolder,
     manifest: PathBuf,
     fake: Arc<FakeProcesses>,
     engine: Arc<Mutex<Engine>>,
@@ -60,7 +60,7 @@ fn fixture(host: HostOs) -> Fixture {
 }
 
 fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
-    let folder = LabFolder::new("vagrant", manifest);
+    let folder = RunFolder::new("vagrant", manifest);
     let (engine, fake) = modelled(answer);
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([41000]));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, host)).unwrap();
@@ -304,7 +304,7 @@ fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
 }
 
 #[tokio::test]
-async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
+async fn a_vm_run_comes_up_is_checked_parked_resumed_and_goes() {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -345,7 +345,7 @@ async fn a_lab_comes_up_is_checked_parked_resumed_and_goes() {
 /// A VM run that declares no access machine has none to attach: the runner adds no VM of its own
 /// to the running environment, and nothing is booted.
 #[tokio::test]
-async fn a_vm_lab_that_declares_no_access_machine_has_none_to_attach() {
+async fn a_vm_run_that_declares_no_access_machine_has_none_to_attach() {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -395,7 +395,7 @@ async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty
 }
 
 #[tokio::test]
-async fn a_provider_that_cant_run_the_lab_is_refused_before_anything_runs() {
+async fn a_provider_that_cant_run_the_machines_is_refused_before_anything_runs() {
     let f = fixture(HostOs::Macos);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let code = |r: crate::Result<crate::Started>| r.map(drop).unwrap_err();
@@ -806,7 +806,7 @@ async fn a_vm_with_only_fixed_ports_sets_no_host_ports_env() {
 /// run given it once ([`crate::Running::with_connection`]) delivers it to every operation, status
 /// (which takes no options) and an operation given none too; a value given to an operation wins.
 #[tokio::test]
-async fn a_connection_secret_given_to_the_lab_reaches_every_operation() {
+async fn a_connection_secret_given_to_the_run_reaches_every_operation() {
     let f = fixture(HostOs::Linux);
     f.engine().plugins.push("vagrant-vmware-esxi".into());
     let mut connection = Secrets::new();
@@ -855,7 +855,7 @@ fn with_vm_added(define: &str) -> String {
 /// An update of a running VM run with a VM added runs its start again (`vagrant up`), which
 /// brings the new VM up beside the running ones; the run stays ready.
 #[tokio::test]
-async fn an_update_brings_a_vm_added_to_the_lab_up() {
+async fn an_update_brings_a_vm_added_to_the_run_up() {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();

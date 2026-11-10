@@ -1,5 +1,5 @@
 {
-  "name": "office-lab",
+  "name": "office",
   "networks": {
     "office": { "cidr": "10.10.1.0/24" },
     "servers": { "cidr": "10.10.2.0/24" }

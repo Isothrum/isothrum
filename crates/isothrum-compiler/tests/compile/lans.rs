@@ -67,7 +67,7 @@ fn a_block_isoloom_gives_no_address_on_is_refused() -> Outcome {
 }
 
 #[test]
-fn a_node_on_a_lan_the_lab_has_not_is_refused() -> Outcome {
+fn a_node_on_a_lan_the_project_has_not_is_refused() -> Outcome {
     let mut topo = two_lans()?;
     join(&mut topo, "client", "dmz", None)?;
     assert_eq!(

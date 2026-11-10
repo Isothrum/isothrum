@@ -171,8 +171,8 @@ async fn attach_refuses_a_lab_that_is_not_running() {
 }
 
 /// A runner over the vagrant access fixture (`WEB_VM_ACCESS`), its Vagrant answered by `answer`.
-fn vagrant_access(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (LabFolder, Arc<FakeProcesses>, Runner) {
-    let folder = LabFolder::new("vagrant", WEB_VM_ACCESS);
+fn vagrant_access(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (RunFolder, Arc<FakeProcesses>, Runner) {
+    let folder = RunFolder::new("vagrant", WEB_VM_ACCESS);
     let fake = Arc::new(FakeProcesses::new(answer));
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(std::iter::empty::<u16>()));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap();

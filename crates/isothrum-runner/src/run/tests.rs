@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
-use crate::testing::{LabFolder, WEB_PORTAL, modelled, processes, runner_config};
+use crate::testing::{RunFolder, WEB_PORTAL, modelled, processes, runner_config};
 use crate::{Event, EventKind, Recorder, RunOptions, Runner, SecretValue, Secrets};
 
 /// The secret the tests deliver.
@@ -50,7 +50,7 @@ struct Engine {
 
 /// A test's runner and its fakes.
 struct Fixture {
-    folder: LabFolder,
+    folder: RunFolder,
     manifest: PathBuf,
     fake: Arc<FakeProcesses>,
     ports: Arc<FakePorts>,
@@ -77,7 +77,7 @@ fn fixture_with_ports(manifest: &str, free: impl IntoIterator<Item = u16>) -> Fi
 }
 
 fn fixture_of(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply, free: impl IntoIterator<Item = u16>) -> Fixture {
-    let folder = LabFolder::new("docker", manifest);
+    let folder = RunFolder::new("docker", manifest);
     let (engine, fake) = modelled(answer);
     let ports = Arc::new(FakePorts::new(free));
     let host_ports: Arc<dyn crate::HostPorts> = Arc::<FakePorts>::clone(&ports);
@@ -238,7 +238,7 @@ fn check_runner(e: &Engine, line: &str) -> Reply {
 
 #[test]
 fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its_path() {
-    let folder = LabFolder::new("docker", WEB_PORTAL);
+    let folder = RunFolder::new("docker", WEB_PORTAL);
     let mut config = runner_config(
         folder.home.path(),
         processes(&Arc::new(FakeProcesses::rules(&[]))),

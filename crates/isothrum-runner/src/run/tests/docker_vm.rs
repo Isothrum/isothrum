@@ -10,7 +10,7 @@ use isoloom_manifest::{HostOs, Protocol, Role};
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{DOCKER_VM, LabFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
+use crate::testing::{DOCKER_VM, RunFolder, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, EventKind, MachineState, Park, Recorder, RunOptions, Runner, StepState};
 
 /// The VM the containers run in, as the run manifest names it.
@@ -103,7 +103,7 @@ fn vagrant(engine: &Mutex<Engine>, call: &Call) -> Reply {
 }
 
 struct Running {
-    _folder: LabFolder,
+    _folder: RunFolder,
     manifest: PathBuf,
     fake: Arc<FakeProcesses>,
     engine: Arc<Mutex<Engine>>,
@@ -117,7 +117,7 @@ fn local() -> Running {
 
 /// [`local`] of `manifest`.
 fn local_with(manifest: &str) -> Running {
-    let folder = LabFolder::new("docker-vm", manifest);
+    let folder = RunFolder::new("docker-vm", manifest);
     let (engine, fake) = modelled(vagrant);
     let ports = Arc::new(FakePorts::new([]));
     let held: Arc<FakePorts> = Arc::clone(&ports);
@@ -166,7 +166,7 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
 /// `web/portal` is fixed, so that is the only entry.
 #[tokio::test(start_paused = true)]
 async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
-    let folder = LabFolder::new("docker-vm", DOCKER_VM);
+    let folder = RunFolder::new("docker-vm", DOCKER_VM);
     let (_engine, fake) = modelled(vagrant);
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([50123]));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Macos)).unwrap();

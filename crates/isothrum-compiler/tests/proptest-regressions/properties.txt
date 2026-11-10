@@ -4,4 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc a2161c8b01d6f7383b23cd70c61e4ec69b14930868075a6ade21542e595d5fe5 # shrinks to topo = Topology { name: "generated-lab", nodes: {"m0": Node { kind: Vm { os: OsRef(Os { family: "windows", version: "11", name: "windows-11" }), provision: ["provision/step0.yml"] }, access: false, services: [], networks: {"lan0": None} }}, networks: {"lan0": Lan { cidr: "10.1.0.0/24", internet: false, switch: None, vlan: None, device: None, tc: None }}, links: [] }
+cc a2161c8b01d6f7383b23cd70c61e4ec69b14930868075a6ade21542e595d5fe5 # shrinks to topo = Topology { name: "generated-project", nodes: {"m0": Node { kind: Vm { os: OsRef(Os { family: "windows", version: "11", name: "windows-11" }), provision: ["provision/step0.yml"] }, access: false, services: [], networks: {"lan0": None} }}, networks: {"lan0": Lan { cidr: "10.1.0.0/24", internet: false, switch: None, vlan: None, device: None, tc: None }}, links: [] }

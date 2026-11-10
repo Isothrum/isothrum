@@ -55,7 +55,7 @@ fn bundle_is_a_zip() {
 }
 
 #[wasm_bindgen_test]
-fn bundle_target_refuses_a_target_the_lab_has_not() {
+fn bundle_target_refuses_a_target_the_project_has_not() {
     assert_eq!(&bundle_target(TOPOLOGY, "docker").unwrap()[..2], b"PK");
     let e = message(bundle_target(TOPOLOGY, "nowhere").unwrap_err());
     assert!(e.contains("no files for `nowhere`"), "{e}");

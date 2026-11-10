@@ -5,12 +5,12 @@ use isoloom_manifest::HostOs;
 
 use super::*;
 use crate::process::fake::{FakeProcesses, Reply};
-use crate::testing::{LabFolder, SOLO_WEB_PROXMOX, WEB_PORTAL, no_ports, processes, runner_config};
+use crate::testing::{RunFolder, SOLO_WEB_PROXMOX, WEB_PORTAL, no_ports, processes, runner_config};
 use crate::{ErrorCode, RunName};
 
 /// A runner beside a run holding `manifest` for `target`, no tool ever answering.
-fn runner(target: &str, manifest: &str) -> (LabFolder, Runner) {
-    let folder = LabFolder::new(target, manifest);
+fn runner(target: &str, manifest: &str) -> (RunFolder, Runner) {
+    let folder = RunFolder::new(target, manifest);
     let fake = Arc::new(FakeProcesses::new(|_| Reply::ok("")));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), no_ports(), HostOs::Linux)).unwrap();
     (folder, runner)

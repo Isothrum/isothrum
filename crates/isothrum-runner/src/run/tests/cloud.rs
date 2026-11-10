@@ -10,7 +10,7 @@ use isoloom_manifest::{Cloud, HostOs};
 
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{LabFolder, SOLO_WEB_AWS, TEST_TIME, no_ports, processes, runner_config};
+use crate::testing::{RunFolder, SOLO_WEB_AWS, TEST_TIME, no_ports, processes, runner_config};
 use crate::{EventKind, Recorder, RunOptions, RunState, Runner, WarningCode};
 
 /// The machine's public address the fake apply reports.
@@ -18,7 +18,7 @@ const PUBLIC: &str = "198.51.100.10";
 
 /// A test's runner on the cloud fixture and its fake tools.
 struct Account {
-    folder: LabFolder,
+    folder: RunFolder,
     fake: Arc<FakeProcesses>,
     cloud: Arc<FakeCloud>,
     runner: Runner,
@@ -59,7 +59,7 @@ fn without_guest_delivery() -> String {
 
 /// A test's runner on `manifest`, its first `failing_applies` applies failing.
 fn account_of(manifest: &str, failing_applies: u32) -> Account {
-    let folder = LabFolder::new("cloud-vm/aws", manifest);
+    let folder = RunFolder::new("cloud-vm/aws", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     let cloud = Arc::new(FakeCloud::default());
     cloud.failing_applies.store(failing_applies, Ordering::SeqCst);

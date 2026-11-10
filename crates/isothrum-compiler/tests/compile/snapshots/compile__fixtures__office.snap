@@ -1,9 +1,9 @@
 ---
 source: crates/isothrum-compiler/tests/compile/fixtures.rs
-expression: "compiled(\"office-lab\", &[\"docker\"])"
+expression: "compiled(\"office\", &[\"hybrid\"])"
 ---
 version: 1
-name: office-lab
+name: office
 networks:
   office:
     cidr: 10.10.1.0/24

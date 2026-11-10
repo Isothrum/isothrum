@@ -183,8 +183,8 @@ mod tests {
             "/home/u/.isothrum/runs/web-portal/ports.yml"
         );
         assert_eq!(
-            v.render(&t("${run.name}_lab cost $$5 ${params.ISOLOOM_DERIVED}"), "x").unwrap(),
-            "web-portal_lab cost $5 1"
+            v.render(&t("${run.name}_net cost $$5 ${params.ISOLOOM_DERIVED}"), "x").unwrap(),
+            "web-portal_net cost $5 1"
         );
         assert_eq!(
             v.render_value(&t("http://127.0.0.1:${value}/"), "41873", "x").unwrap(),

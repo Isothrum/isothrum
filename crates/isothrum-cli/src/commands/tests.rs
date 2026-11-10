@@ -124,7 +124,7 @@ async fn completions_build_no_runner_so_touch_no_home() {
 }
 
 #[tokio::test]
-async fn a_lab_goes_up_reports_checks_and_goes_down() {
+async fn a_run_goes_up_reports_checks_and_goes_down() {
     let s = setup();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     assert_eq!(s.out.take(), "The portal answers at http://localhost:41873/.\n");
@@ -179,7 +179,7 @@ async fn a_refused_operation_is_reported_by_its_error_event() {
 }
 
 #[tokio::test]
-async fn a_lab_without_a_manifest_is_a_usage_error() {
+async fn a_run_folder_without_a_manifest_is_a_usage_error() {
     let s = setup();
     std::fs::remove_dir_all(s.run.path().join(".isoloom")).unwrap();
     let err = s.run(&["status"]).await.unwrap_err();

@@ -1,9 +1,9 @@
 ---
 source: crates/isothrum-compiler/tests/compile/fixtures.rs
-expression: "compiled(\"vlan-lab\", &[\"docker\"])"
+expression: "compiled(\"vlans\", &[\"docker\"])"
 ---
 version: 1
-name: vlan-lab
+name: vlans
 networks:
   sw1:
     cidr: 10.10.0.0/19

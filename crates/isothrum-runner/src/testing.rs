@@ -92,26 +92,26 @@ pub(crate) fn with_boot_digest(manifest: &str, machine: &str, digest: Option<&st
 }
 
 /// A run generated for one target, and a runner home beside it; both go when it is dropped.
-pub(crate) struct LabFolder {
+pub(crate) struct RunFolder {
     /// The runner's home.
     pub(crate) home: tempfile::TempDir,
     /// The run's folder, kept while the test runs.
-    _lab: tempfile::TempDir,
+    _run: tempfile::TempDir,
     /// Its run manifest, `.isoloom/<target>/run.json`.
     pub(crate) manifest: PathBuf,
 }
 
-impl LabFolder {
+impl RunFolder {
     /// `manifest` written for `target`.
-    pub(crate) fn new(target: &str, manifest: &str) -> LabFolder {
+    pub(crate) fn new(target: &str, manifest: &str) -> RunFolder {
         let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let dir = run.path().join(".isoloom").join(target);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("run.json"), manifest).unwrap();
-        LabFolder {
+        RunFolder {
             manifest: dir.join("run.json"),
             home,
-            _lab: run,
+            _run: run,
         }
     }
 

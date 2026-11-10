@@ -82,7 +82,7 @@ pub struct NetworkView {
     pub cidr: String,
     /// Whether it reaches the internet.
     pub internet: bool,
-    /// Its name where the target created it (`web-portal_lab`), when known.
+    /// Its name where the target created it (`web-portal_backend`), when known.
     pub native: Option<String>,
 }
 

@@ -9,7 +9,7 @@ use isoloom_manifest::HostOs;
 use super::{Engine, SECRET, VM_IP, compose};
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{DOCKER_VM_PROXMOX, LabFolder, processes, runner_config};
+use crate::testing::{DOCKER_VM_PROXMOX, RunFolder, processes, runner_config};
 use crate::{Park, Recorder, RunOptions, Runner};
 
 /// The fake tools of a Proxmox run: Terraform writing the state, `ssh` to the Docker host.
@@ -43,7 +43,7 @@ fn server_tools(home: &Path, engine: &Mutex<Engine>, call: &Call) -> Reply {
 
 /// A run on a Proxmox server: its folder, fakes, runner and options.
 struct Server {
-    folder: LabFolder,
+    folder: RunFolder,
     fake: Arc<FakeProcesses>,
     runner: Runner,
     options: RunOptions,
@@ -55,7 +55,7 @@ fn proxmox() -> Server {
 
 /// [`proxmox`], `manifest` its `run.json`.
 fn proxmox_with(manifest: &str) -> Server {
-    let folder = LabFolder::new("docker-vm/proxmox", manifest);
+    let folder = RunFolder::new("docker-vm/proxmox", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     std::fs::write(folder.target_dir().join("setup.sh"), "set -e\n").unwrap();
     let engine = Arc::new(Mutex::new(Engine::default()));

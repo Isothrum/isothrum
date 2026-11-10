@@ -10,7 +10,7 @@ use isoloom_manifest::HostOs;
 
 use crate::process::fake::{Call, FakeProcesses, Reply};
 use crate::secrets::{SecretValue, Secrets};
-use crate::testing::{LabFolder, SOLO_WEB_PROXMOX, no_ports, processes, runner_config};
+use crate::testing::{RunFolder, SOLO_WEB_PROXMOX, no_ports, processes, runner_config};
 use crate::{ErrorCode, Recorder, RunOptions, RunState, Runner};
 
 /// The router's uplink address the fake apply reports.
@@ -29,7 +29,7 @@ enum Guest {
 
 /// A test's runner and its fakes.
 struct Server {
-    folder: LabFolder,
+    folder: RunFolder,
     manifest: PathBuf,
     fake: Arc<FakeProcesses>,
     guest: Arc<Mutex<Guest>>,
@@ -42,7 +42,7 @@ fn server(host: HostOs) -> Server {
 
 /// A test's runner on `manifest`.
 fn server_of(host: HostOs, manifest: &str) -> Server {
-    let folder = LabFolder::new("proxmox", manifest);
+    let folder = RunFolder::new("proxmox", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     let guest = Arc::new(Mutex::new(Guest::Ready));
     let fake = Arc::new(FakeProcesses::new({

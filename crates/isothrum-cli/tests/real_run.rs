@@ -114,7 +114,7 @@ fn lifecycle(real: &mut Real) -> Outcome {
 
 #[test]
 #[ignore = "needs Docker and a generated run: cargo run -p xtask -- real-run"]
-fn a_generated_lab_runs_for_real() -> Outcome {
+fn a_generated_run_runs_for_real() -> Outcome {
     let run = PathBuf::from(std::env::var("ISOTHRUM_REAL_RUN_DIR").map_err(|_| "ISOTHRUM_REAL_RUN_DIR: a run folder Isoloom generated for docker")?);
     let mut real = Real {
         run,
