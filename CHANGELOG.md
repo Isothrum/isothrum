@@ -478,6 +478,8 @@ change.
   A VirtualBox machine folder that can't be read is a warning, not a folder with nothing left.
 - **A step whose file name holds `..` (`provision/a..b.sh`) gets its starter.** Only a `..`
   segment leaves the project, as Isoloom reads it.
+- **A Compose port of a protocol other than TCP or UDP no longer reads as TCP.** In the config
+  it makes the config unreadable (no pin is guessed for it); in `ps` it is left out, and traced.
 
 ### Added
 

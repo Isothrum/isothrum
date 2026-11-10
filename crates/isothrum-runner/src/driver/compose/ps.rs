@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Manifest, Protocol};
+use isoloom_manifest::Manifest;
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -64,7 +64,14 @@ impl PsEntry {
     fn published(&self) -> Vec<PublishedPort> {
         let mut out: Vec<PublishedPort> = Vec::new();
         for p in self.publishers.iter().filter(|p| p.published_port > 0 && p.target_port > 0) {
-            let protocol = if p.protocol == "udp" { Protocol::Udp } else { Protocol::Tcp };
+            let Some(protocol) = super::protocol(&p.protocol) else {
+                tracing::warn!(
+                    service = self.service,
+                    protocol = p.protocol,
+                    "a published port's protocol isn't TCP or UDP: it is left out"
+                );
+                continue;
+            };
             let port = PublishedPort {
                 port: p.target_port,
                 protocol,
@@ -141,6 +148,8 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
 
 #[cfg(test)]
 mod tests {
+    use isoloom_manifest::Protocol;
+
     use super::*;
     use crate::testing::docker_manifest;
 
@@ -218,6 +227,17 @@ mod tests {
             host_port: 41874,
         };
         assert_eq!(read(ps)[0].published(), [udp]);
+    }
+
+    /// Regression: a protocol other than `udp` read as TCP.
+    #[tokio::test]
+    async fn a_port_published_over_another_protocol_is_left_out_and_traced() {
+        let ps = r#"[{"Service":"web","State":"running","Publishers":[
+            {"PublishedPort":41873,"TargetPort":80,"Protocol":"sctp"},
+            {"PublishedPort":41874,"TargetPort":81}]}]"#;
+        let (published, traced) = crate::testing::traced(async { read(ps)[0].published() }).await;
+        assert_eq!(published.iter().map(|p| (p.port, p.protocol)).collect::<Vec<_>>(), [(81, Protocol::Tcp)]);
+        assert!(traced.contains("WARN") && traced.contains("sctp"), "{traced}");
     }
 
     #[test]

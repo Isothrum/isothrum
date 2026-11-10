@@ -36,7 +36,7 @@ pub(super) struct ConfigPort {
 }
 
 /// The config's published ports; none when it isn't the JSON Compose prints. A port without a
-/// readable target makes its whole service unreadable (no half override), as before.
+/// readable target or protocol makes the config unreadable (no half override).
 pub(super) fn ports(config: &str) -> Option<Vec<ConfigPort>> {
     let v = read(config)?;
     let mut out = Vec::new();
@@ -45,11 +45,7 @@ pub(super) fn ports(config: &str) -> Option<Vec<ConfigPort>> {
             out.push(ConfigPort {
                 service: service.clone(),
                 target: number(p.get("target")).filter(|t| *t > 0)?,
-                protocol: if p.get("protocol").and_then(Value::as_str) == Some("udp") {
-                    Protocol::Udp
-                } else {
-                    Protocol::Tcp
-                },
+                protocol: super::protocol(p.get("protocol").and_then(Value::as_str).unwrap_or_default())?,
                 host_ip: p.get("host_ip").and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_owned),
                 published: number(p.get("published")).filter(|n| *n > 0),
             });
@@ -166,6 +162,15 @@ mod tests {
         let one = r#"{"services": {"web": {"ports": [{"target": 1, "published": "0"}]}}}"#;
         let read = ports(one).unwrap();
         assert_eq!((read[0].target, read[0].published), (1, None), "port 0 is no published port");
+    }
+
+    /// Regression: a protocol other than `udp` read as TCP.
+    #[test]
+    fn a_port_of_a_protocol_compose_has_no_tcp_or_udp_for_makes_the_config_unreadable() {
+        let sctp = r#"{"services": {"web": {"ports": [{"target": 80, "protocol": "sctp"}]}}}"#;
+        assert_eq!(ports(sctp), None);
+        let said_none = r#"{"services": {"web": {"ports": [{"target": 80}]}}}"#;
+        assert_eq!(ports(said_none).unwrap()[0].protocol, Protocol::Tcp);
     }
 
     #[test]

@@ -91,6 +91,16 @@ pub(super) async fn docker(cx: &Cx<'_>, step: &Step, args: Vec<String>, env: &[(
     call_ok(cx, step.id.as_str(), &spec, CALL_LIMIT, Echo::Quiet).await
 }
 
+/// A port's protocol as Compose writes it: `tcp` (also when it says none) or `udp`; `None` for
+/// another (`sctp`), which no port of a manifest is.
+fn protocol(said: &str) -> Option<Protocol> {
+    match said {
+        "tcp" | "" => Some(Protocol::Tcp),
+        "udp" => Some(Protocol::Udp),
+        _ => None,
+    }
+}
+
 /// Machine `m`'s port that Compose publishes as container port `port` over `protocol`.
 fn machine_port(m: &Machine, port: u16, protocol: Protocol) -> Option<&Port> {
     m.ports.iter().find(|q| q.port.get() == port && q.kind.transport() == protocol)
