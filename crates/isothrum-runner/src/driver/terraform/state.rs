@@ -68,13 +68,18 @@ fn of(v: &Value) -> TfState {
             }
         }
     }
-    let resources = v.get("resources").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let resources = array(v, "resources");
     state.resources = !resources.is_empty();
     state.tainted = resources
         .iter()
-        .flat_map(|r| r.get("instances").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default())
+        .flat_map(|r| array(r, "instances"))
         .any(|i| i.get("status").and_then(Value::as_str) == Some("tainted"));
     state
+}
+
+/// `v[key]` as a list; empty when it isn't one (a state's `resources`, a resource's `instances`).
+pub(super) fn array<'a>(v: &'a Value, key: &str) -> &'a [Value] {
+    v.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
 }
 
 /// A scalar value as text (a string as it is); none for null, an object or a list.

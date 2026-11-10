@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use isoloom_manifest::{Argv, GoneError, HostArgv, HostOs, Run, Step, Template};
 use serde_json::Value;
 
+use super::state::array;
 use crate::Result;
 use crate::events::WarningCode;
 use crate::executor::Cx;
@@ -46,11 +47,6 @@ pub(super) fn in_state(state: &Value, errors: &[GoneError]) -> Vec<Gone> {
         }
     }
     out
-}
-
-/// `v[key]` as a list; empty when it isn't one.
-fn array<'a>(v: &'a Value, key: &str) -> &'a [Value] {
-    v.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
 }
 
 /// An instance's address as Terraform writes it: its module's (`module.lab.`), its resource's
