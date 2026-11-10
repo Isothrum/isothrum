@@ -579,7 +579,7 @@
           "const": "manifest_version"
         },
         {
-          "description": "The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or\nthe call asks the run for something its target can't do (a console into a Compose service\nwith no VM, a Vagrant VM joined to another network).",
+          "description": "The manifest needs something this runner doesn't do (a target that doesn't run on this\nhost, a delivery its driver doesn't take, an action of another driver's, a step with no\ncommand for this host), or the call asks the run for something its target can't do (a\nconsole into a Compose service with no VM, a Vagrant VM joined to another network).",
           "type": "string",
           "const": "unsupported"
         },

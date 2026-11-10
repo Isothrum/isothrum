@@ -124,8 +124,8 @@ impl Runner {
     /// # Errors
     ///
     /// Fails as [`load_manifest`](crate::load_manifest) does; with `run_name` when the run's name
-    /// can't name a run; with `unsupported` when this runner can't run the manifest (its driver, a
-    /// delivery, this host).
+    /// can't name a run; with `unsupported` when this runner can't run the manifest here (its target
+    /// doesn't run on this host, or it has a delivery its driver doesn't take).
     pub fn open(&self, manifest: &Path, name: Option<RunName>) -> Result<Running<'_>> {
         let loaded = load_manifest(manifest)?;
         let name = match name {

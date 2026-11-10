@@ -22,9 +22,10 @@ pub enum ErrorCode {
     ManifestInvalid,
     /// The manifest is another version of the contract.
     ManifestVersion,
-    /// The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or
-    /// the call asks the run for something its target can't do (a console into a Compose service
-    /// with no VM, a Vagrant VM joined to another network).
+    /// The manifest needs something this runner doesn't do (a target that doesn't run on this
+    /// host, a delivery its driver doesn't take, an action of another driver's, a step with no
+    /// command for this host), or the call asks the run for something its target can't do (a
+    /// console into a Compose service with no VM, a Vagrant VM joined to another network).
     Unsupported,
     /// A file or folder couldn't be read or written, or a socket on this computer bound.
     Io,
