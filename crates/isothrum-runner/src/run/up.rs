@@ -253,10 +253,7 @@ fn applied(up: &[isoloom_manifest::Step], e: &Error) -> bool {
 /// Whether `argv` (on any host) is `terraform apply …` (or `tofu`), global options such as
 /// `-chdir=<module>` before the subcommand.
 fn argv_applies(argv: &isoloom_manifest::HostArgv) -> bool {
-    let applies = |a: &isoloom_manifest::Argv| {
-        let subcommand = a.args().iter().map(ToString::to_string).find(|w| !w.starts_with('-'));
-        crate::process::TERRAFORM_PROGRAMS.contains(&a.program().as_str()) && subcommand.as_deref() == Some("apply")
-    };
+    let applies = |a: &isoloom_manifest::Argv| crate::executor::plan::terraform_subcommand(a).is_some_and(|(_, s)| s == "apply");
     crate::executor::plan::every_argv(argv).any(applies)
 }
 

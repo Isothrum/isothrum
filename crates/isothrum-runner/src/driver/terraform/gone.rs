@@ -94,8 +94,8 @@ pub(super) async fn forget(cx: &Cx<'_>, list: &str, step: &Step, held: Vec<Gone>
 fn state_rm(step: &Step, host: HostOs, gone: &[Gone]) -> Option<Step> {
     let Run::Argv(command) = &step.run else { return None };
     let chosen = crate::executor::plan::for_host(command, host)?;
-    let (at, subcommand) = chosen.args().iter().map(ToString::to_string).enumerate().find(|(_, w)| !w.starts_with('-'))?;
-    if gone.is_empty() || subcommand != "destroy" || !crate::process::TERRAFORM_PROGRAMS.contains(&chosen.program().as_str()) {
+    let (at, subcommand) = crate::executor::plan::terraform_subcommand(chosen)?;
+    if gone.is_empty() || subcommand != "destroy" {
         return None;
     }
     let mut args: Vec<Template> = chosen.args().iter().take(at).cloned().collect();

@@ -88,6 +88,15 @@ pub(crate) fn for_host(argv: &HostArgv, host: HostOs) -> Option<&Argv> {
     }
 }
 
+/// The subcommand `argv` runs when it is Terraform's or OpenTofu's, with its index among the
+/// arguments: the first argument that isn't an option (`apply` in `terraform -chdir=m apply`).
+pub(crate) fn terraform_subcommand(argv: &Argv) -> Option<(usize, String)> {
+    if !crate::process::TERRAFORM_PROGRAMS.contains(&argv.program().as_str()) {
+        return None;
+    }
+    argv.args().iter().map(ToString::to_string).enumerate().find(|(_, w)| !w.starts_with('-'))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
