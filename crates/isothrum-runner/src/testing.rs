@@ -5,8 +5,9 @@
 //! as written, for specs Isoloom's own tests use: web-portal is the run-manifest design's spec
 //! (`isoloom-targets`' `tests/targets/run_manifest.rs`), web-vm the Linux Vagrant one
 //! (`vagrant_manifest.rs`), solo-web Isoloom's example. An `-access` variant adds
-//! `user: { access: true, networks: { lab: 99 } }` (with `os: debian@12` for Vagrant, which
-//! writes no access VM without one); the AWS one gives solo-web `inputs: [DEMO_SECRET]` and `web`
+//! `user: { access: true, os: debian@12, networks: { lab: 99 } }` (Isoloom refuses an access
+//! machine with no `os` on every target but `external`, unless its image table gives one); the
+//! AWS one gives solo-web `inputs: [DEMO_SECRET]` and `web`
 //! the file `/srv/secret.txt` from it. To take them again, generate each from Isoloom's checkout
 //! and copy `.isoloom/<target>/run.json` over its fixture; the docker, docker-vm and proxmox ones
 //! are then the same as `isoloom-manifest`'s fixtures.
