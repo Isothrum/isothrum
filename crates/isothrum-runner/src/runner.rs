@@ -159,7 +159,8 @@ impl Runner {
     /// # Errors
     ///
     /// Fails with `tool_missing` when `ssh-keygen` isn't installed, `tool_failed` or `timeout`
-    /// when it can't make the key, and `io` when the runner's `ssh/` folder can't be created.
+    /// when it can't make the key, and `io` when the runner's `ssh/` folder can't be created or
+    /// its public key can't be read.
     pub async fn ssh_public_key(&self) -> Result<String> {
         crate::ssh::ensure_key(self.config.processes.as_ref(), &self.config.home).await
     }

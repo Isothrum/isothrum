@@ -45,15 +45,23 @@ pub(crate) fn key_path(home: &Path) -> PathBuf {
 }
 
 /// The public half of the runner's key, one line, when it exists.
-pub(crate) fn public_key(home: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(key_path(home).with_extension("pub")).ok()?;
-    Some(text.trim().to_owned()).filter(|k| !k.is_empty())
+///
+/// # Errors
+///
+/// [`Error::Io`] when the file is there but can't be read.
+pub(crate) fn public_key(home: &Path) -> Result<Option<String>> {
+    let path = key_path(home).with_extension("pub");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text.trim().to_owned()).filter(|k| !k.is_empty())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::io(path, "read")(e)),
+    }
 }
 
 /// Makes the runner's key when it has none (`ssh-keygen`, no passphrase), and returns its public
 /// half.
 pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Result<String> {
-    if let Some(key) = public_key(home) {
+    if let Some(key) = public_key(home)? {
         return Ok(key);
     }
     let dir = home.join("ssh");
@@ -72,7 +80,7 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
     if !out.succeeded() {
         return Err(failed(crate::executor::why_failed(&out)));
     }
-    public_key(home).ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
+    public_key(home)?.ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
 }
 
 /// Whether a run of `manifest` needs the runner's key: it reaches a machine over SSH, or names
@@ -305,6 +313,20 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    /// Regression: a public key that couldn't be read was no key, and `ssh-keygen` was run over
+    /// the existing one, failing on its overwrite prompt.
+    #[tokio::test]
+    async fn a_public_key_that_cant_be_read_is_an_error_and_no_new_key_is_made() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(key_path(home.path()).with_extension("pub")).unwrap();
+        let fake = std::sync::Arc::new(crate::process::fake::FakeProcesses::new(|_| crate::process::fake::Reply::ok("")));
+        let err = ensure_key(fake.as_ref(), home.path()).await.unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+        assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
+        assert!(fake.calls().is_empty(), "no ssh-keygen: {:?}", fake.lines());
+        assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
+    }
 
     #[test]
     fn a_machines_login_is_its_address_as_its_user_else_the_runs_else_root() {
