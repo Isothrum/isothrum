@@ -471,6 +471,8 @@ change.
 - **A Terraform run's status shows each machine's published ports**, as a Compose or Vagrant
   run's does; they were always empty. An entry of the state's `published` output that doesn't
   read as `<machine>/<port>` at `<address>:<port>` is still left out, and now traced.
+- **An elevated session that fails to start says why, as every failed tool does**: with its exit
+  code, and its output when its error output is empty (it said nothing then).
 
 ### Added
 

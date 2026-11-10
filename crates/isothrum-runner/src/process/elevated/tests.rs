@@ -207,6 +207,23 @@ async fn a_declined_prompt_fails_every_call_plainly() {
     assert_eq!(err.to_string(), "elevation: the Windows permission prompt was declined");
 }
 
+/// Regression: a launch that failed saying nothing on its error output failed with no reason at
+/// all; it says why as every failed tool does ([`crate::Captured::reason`]).
+#[tokio::test]
+async fn a_launch_that_fails_says_why_as_every_failed_tool_does() {
+    let quiet = Reply {
+        stdout: vec!["Start-Process: the broker script is blocked".into()],
+        code: 5,
+        ..Reply::default()
+    };
+    let (_home, _fake, e) = session("", quiet);
+    let (exit, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["up"])).await;
+    assert_eq!(
+        exit.unwrap_err().to_string(),
+        "elevation: the elevated session didn't start: Start-Process: the broker script is blocked (exited with code 5)"
+    );
+}
+
 #[tokio::test]
 async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_refused() {
     let (_home, _fake, e) = session("", Reply::ok(""));

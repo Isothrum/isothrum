@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use self::log::LogReader;
-use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, capture};
+use super::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, capture};
 use crate::BoxFuture;
 
 /// How often the session folder is read.
@@ -135,7 +135,7 @@ impl Elevated {
         let start = ProcessSpec::new("powershell", ["-NoProfile".to_owned(), "-NonInteractive".into(), "-Command".into(), launcher]);
         match capture(self.inner.as_ref(), &start).await {
             Ok(out) if out.succeeded() => {}
-            Ok(out) => return Err(declined(&out.stderr.join("\n"))),
+            Ok(out) => return Err(declined(&out)),
             Err(e) => return Err(e.to_string()),
         }
         if wait_for(&dir.join("ready"), PROMPT_TIMEOUT).await {
@@ -352,11 +352,12 @@ fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, Strin
 }
 
 /// What a failed elevation's error says: declining the prompt is said plainly.
-fn declined(stderr: &str) -> String {
-    if stderr.contains("canceled by the user") || stderr.contains("cancelled by the user") {
+fn declined(out: &Captured) -> String {
+    let cancelled = |l: &String| l.contains("canceled by the user") || l.contains("cancelled by the user");
+    if out.stderr.iter().any(cancelled) {
         "the Windows permission prompt was declined".into()
     } else {
-        format!("the elevated session didn't start: {}", stderr.trim())
+        format!("the elevated session didn't start: {}", out.reason())
     }
 }
 
