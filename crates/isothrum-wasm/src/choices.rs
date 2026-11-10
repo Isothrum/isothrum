@@ -20,7 +20,7 @@ pub struct Choices {
 #[must_use]
 pub(crate) fn choices() -> Choices {
     Choices {
-        os: isoloom_spec::os::FAMILIES
+        os: isoloom_spec::os::DISTROS
             .iter()
             .flat_map(|f| f.versions.iter().map(move |(v, _)| format!("{}@{v}", f.name)))
             .collect(),
