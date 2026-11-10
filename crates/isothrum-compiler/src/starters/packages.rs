@@ -1,6 +1,8 @@
 //! What a well-known port installs on each Linux family, and the lines that make it answer on the
 //! project's networks and start where an init system runs it.
 
+use isoloom_spec::os::{Installer, Os};
+
 /// How an OS installs packages and runs services.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Family {
@@ -15,13 +17,15 @@ pub(super) enum Family {
 }
 
 impl Family {
-    /// The family of an Isoloom OS family (`debian`, `rocky`, ...).
-    pub(super) fn of(os_family: &str) -> Family {
-        match os_family {
-            "rocky" | "alma" | "fedora" => Family::Dnf,
-            "centos" => Family::Yum,
-            "alpine" => Family::Apk,
-            _ => Family::Apt,
+    /// How `os` installs packages, as Isoloom's [`Installer`] says (CentOS 7's dnf family with
+    /// `yum`, which it has instead). `None` for Windows, which a shell script installs nothing on.
+    pub(super) fn of(os: Os) -> Option<Family> {
+        match os.installer {
+            Installer::Apt => Some(Family::Apt),
+            Installer::Dnf if os.family == "centos" => Some(Family::Yum),
+            Installer::Dnf => Some(Family::Dnf),
+            Installer::Apk => Some(Family::Apk),
+            Installer::Windows => None,
         }
     }
 }
@@ -150,4 +154,29 @@ pub(super) fn start(wanted: &[&Package], family: Family) -> String {
         .collect();
     let units = units.concat();
     format!("# Start the services where an init system runs them (a VM; a container's build has none).\nif {guard}; then\n{units}fi\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(family: &'static str, installer: Installer) -> Os {
+        Os {
+            family,
+            version: "1",
+            name: family,
+            installer,
+        }
+    }
+
+    /// Regression: the family was guessed from the distribution's name, so one Isoloom adds got
+    /// `apt-get` whatever it installs with.
+    #[test]
+    fn the_family_is_the_installer_isoloom_records() {
+        assert_eq!(Family::of(os("newlinux", Installer::Dnf)), Some(Family::Dnf));
+        assert_eq!(Family::of(os("newlinux", Installer::Apk)), Some(Family::Apk));
+        assert_eq!(Family::of(os("centos", Installer::Dnf)), Some(Family::Yum));
+        assert_eq!(Family::of(os("debian", Installer::Apt)), Some(Family::Apt));
+        assert_eq!(Family::of(os("windows", Installer::Windows)), None);
+    }
 }

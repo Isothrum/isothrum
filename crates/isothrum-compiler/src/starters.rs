@@ -109,9 +109,9 @@ fn cidr_of<'s>(spec: &'s Spec, net: &str) -> Option<&'s str> {
 
 /// A Linux step's script: what it is, then the install, the configuration and the start.
 fn shell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
-    let family = Family::of(os.os().family);
+    let family = Family::of(os.os());
     let ports = ports(m);
-    let wanted = wanted(&ports, family);
+    let wanted = family.map(|f| wanted(&ports, f)).unwrap_or_default();
     let mut lines = header(spec, name, m, os);
     lines.insert(0, "#!/bin/sh".to_owned());
     if !ports.is_empty() {
@@ -120,18 +120,19 @@ fn shell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
     }
     lines.push("set -eu".to_owned());
     lines.push(String::new());
-    if wanted.is_empty() {
-        lines.push("# Nothing to install for this machine's ports yet: add your own steps here.".to_owned());
-    } else {
-        lines.push(install(&wanted, family));
-        for p in wanted.iter().filter(|p| !p.configure.is_empty()) {
-            lines.push(format!(
-                "\n# Port {}: listen on the project's networks, not only on localhost.\n{}",
-                p.port, p.configure
-            ));
+    match family.filter(|_| !wanted.is_empty()) {
+        None => lines.push("# Nothing to install for this machine's ports yet: add your own steps here.".to_owned()),
+        Some(family) => {
+            lines.push(install(&wanted, family));
+            for p in wanted.iter().filter(|p| !p.configure.is_empty()) {
+                lines.push(format!(
+                    "\n# Port {}: listen on the project's networks, not only on localhost.\n{}",
+                    p.port, p.configure
+                ));
+            }
+            lines.push(String::new());
+            lines.push(start(&wanted, family));
         }
-        lines.push(String::new());
-        lines.push(start(&wanted, family));
     }
     let unknown: Vec<String> = ports
         .iter()

@@ -451,6 +451,9 @@ change.
 - **A VLAN drawn with a `tc` is refused (`Error::VlanTc`).** The compiler dropped it without a
   word: Isoloom's VLANs have no `tc`, and the switch's LAN they nest under was written without
   one. A plain LAN and a cable keep theirs.
+- **A starter script installs with the package manager Isoloom records for its OS.** The
+  compiler guessed it from the distribution's name, so a distribution Isoloom adds got `apt-get`
+  whatever it installs with, and a shell step on Windows got `apt-get` lines too (now none).
 
 ### Added
 
