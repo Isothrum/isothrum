@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use super::CloudName;
 use crate::Res;
+use isothrum_runner::isoloom_manifest::Cloud;
 
 /// What the environment gives a real run on a cloud.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -22,17 +22,12 @@ pub(crate) struct Account {
 
 /// The account `var` (the environment) opens on `cloud`; `exists` tells whether a file is there,
 /// `home` is the user's folder (the CLIs' own sign-ins). Else what is missing, each said once.
-pub(crate) fn account(
-    cloud: CloudName,
-    var: &dyn Fn(&str) -> Option<String>,
-    exists: &dyn Fn(&Path) -> bool,
-    home: Option<&Path>,
-) -> Result<Account, Vec<String>> {
+pub(crate) fn account(cloud: Cloud, var: &dyn Fn(&str) -> Option<String>, exists: &dyn Fn(&Path) -> bool, home: Option<&Path>) -> Result<Account, Vec<String>> {
     let mut a = Account::default();
     let set = |names: &[&str]| names.iter().filter(|n| var(n).is_some()).map(|n| (*n).to_owned()).collect::<Vec<_>>();
     let in_home = |rel: &str| home.is_some_and(|h| exists(&h.join(rel)));
     match cloud {
-        CloudName::Aws => {
+        Cloud::Aws => {
             a.secrets = set(&["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]);
             let keys = var("AWS_ACCESS_KEY_ID").is_some() && var("AWS_SECRET_ACCESS_KEY").is_some();
             let profile = var("AWS_PROFILE");
@@ -45,14 +40,14 @@ pub(crate) fn account(
                 a.params.push(("region".into(), region));
             }
         }
-        CloudName::Azure => {
+        Cloud::Azure => {
             let subscription = var("ARM_SUBSCRIPTION_ID")
                 .ok_or_else(|| vec!["ARM_SUBSCRIPTION_ID (and `az login`, or ARM_CLIENT_ID, ARM_CLIENT_SECRET and ARM_TENANT_ID)".to_owned()])?;
             // The module's own variable: the account a destroy goes back to.
             a.params.push(("subscription_id".into(), subscription));
             a.secrets = set(&["ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_TENANT_ID"]);
         }
-        CloudName::Gcp => {
+        Cloud::Gcp => {
             let mut missing = Vec::new();
             match var("GOOGLE_PROJECT") {
                 Some(p) => {
@@ -69,9 +64,9 @@ pub(crate) fn account(
                 return Err(missing);
             }
         }
-        CloudName::Digitalocean => a.secrets = token(&set, "DIGITALOCEAN_TOKEN")?,
-        CloudName::Linode => a.secrets = token(&set, "LINODE_TOKEN")?,
-        CloudName::Oci => {
+        Cloud::Digitalocean => a.secrets = token(&set, "DIGITALOCEAN_TOKEN")?,
+        Cloud::Linode => a.secrets = token(&set, "LINODE_TOKEN")?,
+        Cloud::Oci => {
             let mut missing = Vec::new();
             if !in_home(".oci/config") {
                 missing.push("~/.oci/config (`oci setup config`)".to_owned());
@@ -145,7 +140,7 @@ mod tests {
     #[test]
     fn aws_takes_keys_or_a_profile_and_its_region() {
         let keys = account(
-            CloudName::Aws,
+            Cloud::Aws,
             &env(&[("AWS_ACCESS_KEY_ID", "AKIA"), ("AWS_SECRET_ACCESS_KEY", "s"), ("AWS_REGION", "eu-west-3")]),
             &none,
             None,
@@ -154,20 +149,20 @@ mod tests {
         assert_eq!(keys.secrets, ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]);
         assert_eq!(keys.params, [("region".to_owned(), "eu-west-3".to_owned())]);
         assert_eq!(keys.place, ["--region", "eu-west-3"]);
-        let profile = account(CloudName::Aws, &env(&[("AWS_PROFILE", "demo")]), &none, None).unwrap();
+        let profile = account(Cloud::Aws, &env(&[("AWS_PROFILE", "demo")]), &none, None).unwrap();
         assert_eq!(profile.params, [("AWS_PROFILE".to_owned(), "demo".to_owned())]);
-        let nothing = account(CloudName::Aws, &env(&[("AWS_ACCESS_KEY_ID", "AKIA")]), &none, None).unwrap_err();
+        let nothing = account(Cloud::Aws, &env(&[("AWS_ACCESS_KEY_ID", "AKIA")]), &none, None).unwrap_err();
         assert_eq!(nothing, ["AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_PROFILE"]);
     }
 
     #[test]
     fn every_cloud_says_what_it_misses() {
         for (cloud, says) in [
-            (CloudName::Azure, "ARM_SUBSCRIPTION_ID"),
-            (CloudName::Gcp, "GOOGLE_PROJECT"),
-            (CloudName::Digitalocean, "DIGITALOCEAN_TOKEN"),
-            (CloudName::Linode, "LINODE_TOKEN"),
-            (CloudName::Oci, "~/.oci/config"),
+            (Cloud::Azure, "ARM_SUBSCRIPTION_ID"),
+            (Cloud::Gcp, "GOOGLE_PROJECT"),
+            (Cloud::Digitalocean, "DIGITALOCEAN_TOKEN"),
+            (Cloud::Linode, "LINODE_TOKEN"),
+            (Cloud::Oci, "~/.oci/config"),
         ] {
             let missing = account(cloud, &env(&[]), &none, Some(Path::new("/home/u"))).unwrap_err();
             assert!(missing.iter().any(|m| m.contains(says)), "{cloud:?}: {missing:?}");
@@ -177,16 +172,10 @@ mod tests {
     #[test]
     fn google_cloud_signs_in_with_a_token_or_the_clis_own_credentials() {
         let adc = |p: &Path| p == Path::new("/home/u/.config/gcloud/application_default_credentials.json");
-        let a = account(CloudName::Gcp, &env(&[("GOOGLE_PROJECT", "demo-1")]), &adc, Some(Path::new("/home/u"))).unwrap();
+        let a = account(Cloud::Gcp, &env(&[("GOOGLE_PROJECT", "demo-1")]), &adc, Some(Path::new("/home/u"))).unwrap();
         assert_eq!(a.params, [("project".to_owned(), "demo-1".to_owned())]);
         assert_eq!(a.place, ["--project", "demo-1"]);
-        let token = account(
-            CloudName::Gcp,
-            &env(&[("GOOGLE_PROJECT", "p"), ("GOOGLE_OAUTH_ACCESS_TOKEN", "t")]),
-            &none,
-            None,
-        )
-        .unwrap();
+        let token = account(Cloud::Gcp, &env(&[("GOOGLE_PROJECT", "p"), ("GOOGLE_OAUTH_ACCESS_TOKEN", "t")]), &none, None).unwrap();
         assert_eq!(token.secrets, ["GOOGLE_OAUTH_ACCESS_TOKEN"]);
     }
 
@@ -194,7 +183,7 @@ mod tests {
     fn oracle_cloud_needs_its_config_and_a_compartment() {
         let config = |p: &Path| p == Path::new("/home/u/.oci/config");
         let a = account(
-            CloudName::Oci,
+            Cloud::Oci,
             &env(&[("OCI_COMPARTMENT_ID", "ocid1.compartment")]),
             &config,
             Some(Path::new("/home/u")),
@@ -219,14 +208,14 @@ mod tests {
     fn oracle_clouds_profile_is_the_modules_config_file_profile() {
         let config = |p: &Path| p == Path::new("/home/u/.oci/config");
         let vars = env(&[("OCI_COMPARTMENT_ID", "c"), ("OCI_CLI_PROFILE", "DEMO")]);
-        let a = account(CloudName::Oci, &vars, &config, Some(Path::new("/home/u"))).unwrap();
+        let a = account(Cloud::Oci, &vars, &config, Some(Path::new("/home/u"))).unwrap();
         assert!(a.params.contains(&("config_file_profile".to_owned(), "DEMO".to_owned())), "{a:?}");
     }
 
     #[test]
     fn azures_account_is_the_modules_subscription() {
         let vars = env(&[("ARM_SUBSCRIPTION_ID", "sub-1"), ("ARM_CLIENT_ID", "app")]);
-        let a = account(CloudName::Azure, &vars, &none, None).unwrap();
+        let a = account(Cloud::Azure, &vars, &none, None).unwrap();
         assert_eq!(a.params, [("subscription_id".to_owned(), "sub-1".to_owned())]);
         assert_eq!(a.secrets, ["ARM_CLIENT_ID"]);
     }

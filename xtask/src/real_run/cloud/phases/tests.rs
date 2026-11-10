@@ -2,12 +2,12 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 use super::*;
-use crate::real_run::cloud::{CloudName, CloudTarget};
+use isothrum_runner::isoloom_manifest::{Cloud, Target};
 
-fn args(cloud: CloudName) -> CloudArgs {
+fn args(cloud: Cloud) -> CloudArgs {
     CloudArgs {
         cloud,
-        target: CloudTarget::CloudVm,
+        target: Target::CloudVm,
         budget_minutes: 45,
         lifetime_minutes: 60,
         host: None,
@@ -35,7 +35,7 @@ fn plan() -> Vec<Phase> {
         &["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"],
     );
     let (run_dir, home) = (PathBuf::from("/r/solo-web"), PathBuf::from("/r/home"));
-    phases(&args(CloudName::Aws), &aws(), &declared, "203.0.113.7/32", (&run_dir, &home)).unwrap()
+    phases(&args(Cloud::Aws), &aws(), &declared, "203.0.113.7/32", (&run_dir, &home)).unwrap()
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn a_module_without_a_size_param_keeps_its_own_sizes() {
         params: vec![("subscription_id".into(), "sub-1".into())],
         ..Account::default()
     };
-    let p = phases(&args(CloudName::Azure), &account, &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap();
+    let p = phases(&args(Cloud::Azure), &account, &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap();
     let up = p[0].args.join(" ");
     assert!(
         up.contains("--param subscription_id=sub-1") && up.contains("--param allowed_cidr=1.2.3.4/32"),
@@ -87,7 +87,7 @@ fn a_module_without_a_size_param_keeps_its_own_sizes() {
 fn a_param_the_manifest_requires_and_the_account_lacks_refuses_the_run() {
     let declared = declared(&[("allowed_cidr", true), ("compartment_id", true)], &[]);
     let (run_dir, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
-    let err = phases(&args(CloudName::Oci), &Account::default(), &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap_err();
+    let err = phases(&args(Cloud::Oci), &Account::default(), &declared, "1.2.3.4/32", (&run_dir, &home)).unwrap_err();
     assert!(err.to_string().contains("needs `compartment_id`"), "{err}");
 }
 

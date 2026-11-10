@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use isothrum_runner::wire_name;
+
 use super::{Account, CloudArgs, NAME};
 use crate::Res;
 
@@ -90,15 +92,19 @@ pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &st
         SIZES
             .iter()
             .filter(|s| params.iter().any(|p| p == *s))
-            .map(|s| ((*s).to_owned(), a.cloud.smallest().to_owned())),
+            .map(|s| ((*s).to_owned(), super::smallest(a.cloud).to_owned())),
     );
     given.extend(account.params.iter().filter(|(k, _)| params.contains(k)).cloned());
     if let Some(missing) = required(&manifest).into_iter().find(|r| !given.iter().any(|(k, _)| k == r)) {
-        return Err(format!("the {} manifest needs `{missing}`, which this run doesn't know how to give", a.cloud.id()).into());
+        return Err(format!(
+            "the {} manifest needs `{missing}`, which this run doesn't know how to give",
+            wire_name(&a.cloud)
+        )
+        .into());
     }
     let secrets: Vec<&String> = account.secrets.iter().filter(|s| slots.contains(s)).collect();
     let common = |step: &str| -> Vec<String> {
-        let target = format!("{}/{}", a.target.id(), a.cloud.id());
+        let target = format!("{}/{}", wire_name(&a.target), wire_name(&a.cloud));
         let run_dir = run_dir.display().to_string();
         let home = home.display().to_string();
         [step, &run_dir, "--target", &target, "--name", NAME, "--home", &home, "--json"]
@@ -112,7 +118,7 @@ pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &st
     let mut up = with_secrets(common("up"));
     up.extend(["--lifetime".to_owned(), a.lifetime_minutes.to_string()]);
     up.extend(given.iter().flat_map(|(k, v)| ["--param".to_owned(), format!("{k}={v}")]));
-    let mut reap: Vec<String> = vec!["reap".into(), a.cloud.id(), "--home".into(), home.display().to_string(), "--json".into()];
+    let mut reap: Vec<String> = vec!["reap".into(), wire_name(&a.cloud), "--home".into(), home.display().to_string(), "--json".into()];
     reap.extend(account.place.iter().cloned());
     Ok(vec![
         Phase { step: Step::Up, args: up },

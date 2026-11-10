@@ -18,60 +18,39 @@ use std::time::{Duration, Instant};
 pub(crate) use account::{Account, account};
 pub(crate) use phases::{Ran, Runs, execute, phases};
 
+use clap::builder::{PossibleValuesParser, TypedValueParser};
+use isothrum_runner::isoloom_manifest::{Cloud, Target};
+use isothrum_runner::wire_name;
+
 use crate::{Res, process, repo};
 
-/// A cloud.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum CloudName {
-    /// Amazon Web Services.
-    Aws,
-    /// Microsoft Azure.
-    Azure,
-    /// Google Cloud.
-    Gcp,
-    /// DigitalOcean.
-    Digitalocean,
-    /// Akamai Linode.
-    Linode,
-    /// Oracle Cloud Infrastructure.
-    Oci,
+/// The targets a real run on a cloud runs, in the order the help lists them.
+const TARGETS: [Target; 2] = [Target::CloudVm, Target::CloudDocker];
+
+/// Every cloud Isoloom's manifests name, in the order the help lists them (a test holds it to
+/// Isoloom's: a cloud added there fails it until it is here, and [`smallest`] until it has a size).
+const CLOUDS: [Cloud; 6] = [Cloud::Aws, Cloud::Azure, Cloud::Gcp, Cloud::Digitalocean, Cloud::Linode, Cloud::Oci];
+
+/// A cloud, by the name Isoloom's manifests give it (`digitalocean`), as the runner's command
+/// line takes it.
+fn cloud_parser() -> impl TypedValueParser<Value = Cloud> {
+    PossibleValuesParser::new(CLOUDS.map(|c| wire_name(&c))).try_map(|name| serde_json::from_value::<Cloud>(serde_json::Value::String(name)))
 }
 
-impl CloudName {
-    /// As Isoloom's folders and the runner's command line name it (`digitalocean`).
-    pub(crate) fn id(self) -> String {
-        clap::ValueEnum::to_possible_value(&self).map(|v| v.get_name().to_owned()).unwrap_or_default()
-    }
-
-    /// Its smallest machine size, as the modules' size variables take it.
-    pub(crate) fn smallest(self) -> &'static str {
-        match self {
-            CloudName::Aws => "t3.micro",
-            CloudName::Azure => "Standard_B1s",
-            CloudName::Gcp => "e2-micro",
-            CloudName::Digitalocean => "s-1vcpu-1gb",
-            CloudName::Linode => "g6-nanode-1",
-            CloudName::Oci => "VM.Standard.E2.1.Micro",
-        }
-    }
+/// A cloud target, by Isoloom's name (`cloud-vm`).
+fn target_parser() -> impl TypedValueParser<Value = Target> {
+    PossibleValuesParser::new(TARGETS.map(|t| wire_name(&t))).try_map(|name| serde_json::from_value::<Target>(serde_json::Value::String(name)))
 }
 
-/// The cloud target run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum CloudTarget {
-    /// One cloud VM per machine.
-    CloudVm,
-    /// Docker Compose on one cloud VM.
-    CloudDocker,
-}
-
-impl CloudTarget {
-    /// As Isoloom names it.
-    pub(crate) fn id(self) -> &'static str {
-        match self {
-            CloudTarget::CloudVm => "cloud-vm",
-            CloudTarget::CloudDocker => "cloud-docker",
-        }
+/// `cloud`'s smallest machine size, as the modules' size variables take it.
+pub(crate) fn smallest(cloud: Cloud) -> &'static str {
+    match cloud {
+        Cloud::Aws => "t3.micro",
+        Cloud::Azure => "Standard_B1s",
+        Cloud::Gcp => "e2-micro",
+        Cloud::Digitalocean => "s-1vcpu-1gb",
+        Cloud::Linode => "g6-nanode-1",
+        Cloud::Oci => "VM.Standard.E2.1.Micro",
     }
 }
 
@@ -79,11 +58,11 @@ impl CloudTarget {
 #[derive(Debug, clap::Args)]
 pub(crate) struct CloudArgs {
     /// The cloud whose account the environment's credentials open.
-    #[arg(value_enum)]
-    pub(crate) cloud: CloudName,
+    #[arg(value_parser = cloud_parser())]
+    pub(crate) cloud: Cloud,
     /// The target.
-    #[arg(long, value_enum, default_value_t = CloudTarget::CloudVm)]
-    pub(crate) target: CloudTarget,
+    #[arg(long, value_parser = target_parser(), default_value = "cloud-vm")]
+    pub(crate) target: Target,
     /// How long up, status and check may take together, in minutes: after it nothing more
     /// starts but the destroy.
     #[arg(long, default_value_t = 45)]
@@ -110,11 +89,13 @@ pub(crate) fn run(a: &CloudArgs, example: &str, isoloom: &Path) -> Res<()> {
     let home_dir = std::env::home_dir();
     let exists = |p: &Path| p.exists();
     let account = account(a.cloud, &var, &exists, home_dir.as_deref())
-        .map_err(|missing| format!("no {} credentials in the environment: {}", a.cloud.id(), missing.join("; ")))?;
+        .map_err(|missing| format!("no {} credentials in the environment: {}", wire_name(&a.cloud), missing.join("; ")))?;
     let root = repo::root();
-    let out = repo::target_dir(&root).join("real-run").join(format!("{}-{}", a.target.id(), a.cloud.id()));
-    let run_dir = super::generate_example(&root, isoloom, example, a.target.id(), &out)?;
-    let manifest = run_dir.join(".isoloom").join(a.target.id()).join(a.cloud.id()).join("run.json");
+    let out = repo::target_dir(&root)
+        .join("real-run")
+        .join(format!("{}-{}", wire_name(&a.target), wire_name(&a.cloud)));
+    let run_dir = super::generate_example(&root, isoloom, example, &wire_name(&a.target), &out)?;
+    let manifest = run_dir.join(".isoloom").join(wire_name(&a.target)).join(wire_name(&a.cloud)).join("run.json");
     let declared = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let cidr = match var("ALLOWED_CIDR") {
         Some(c) => c,
@@ -130,8 +111,8 @@ pub(crate) fn run(a: &CloudArgs, example: &str, isoloom: &Path) -> Res<()> {
     if outcome.iter().all(|(_, r)| *r == Ran::Ok) {
         println!(
             "real-run: passed. Record it in Isoloom:\n  cargo xtask tiers record {}/{} {} pass --note \"{}: up, status, check, down and reap through the Isothrum runner\"",
-            a.target.id(),
-            a.cloud.id(),
+            wire_name(&a.target),
+            wire_name(&a.cloud),
             a.host.as_deref().unwrap_or("<host>"),
             example
         );
