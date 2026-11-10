@@ -6,7 +6,7 @@
 
 use std::time::SystemTime;
 
-use isothrum_runner::{Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets};
+use isothrum_runner::{Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
 use serde_json::json;
 
 use crate::args::ReapArgs;
@@ -30,7 +30,7 @@ struct Swept {
 /// the connection.
 pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
-    let cloud = args.cloud.into();
+    let cloud = args.cloud;
     let connection = values::secrets(&args.secrets, var)?;
     let now = SystemTime::now();
     let expired: Vec<RunRecord> = runner.expired(now)?.into_iter().filter(|r| r.cloud == Some(cloud)).collect();
@@ -69,7 +69,7 @@ async fn destroy(runner: &Runner, record: &RunRecord, connection: &Secrets, even
 fn summary(args: &ReapArgs, swept: &Swept, orphans: &Orphans) -> serde_json::Value {
     let failed: Vec<serde_json::Value> = swept.failed.iter().map(|(run, why)| json!({ "run": run, "error": why })).collect();
     json!({
-        "cloud": args.cloud.id(),
+        "cloud": wire_name(&args.cloud),
         "destroyed": swept.destroyed,
         "pending": swept.pending,
         "failed": failed,
@@ -93,7 +93,7 @@ fn lines(args: &ReapArgs, swept: &Swept, orphans: &Orphans) -> Vec<String> {
     }
     out.extend(orphans.unread.iter().map(|why| format!("not checked: {why}")));
     if out.is_empty() {
-        out.push(format!("nothing to reap on {}", args.cloud.id()));
+        out.push(format!("nothing to reap on {}", wire_name(&args.cloud)));
     }
     out
 }

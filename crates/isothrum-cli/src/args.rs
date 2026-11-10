@@ -2,7 +2,10 @@
 
 use std::path::PathBuf;
 
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use isothrum_runner::isoloom_manifest::Cloud;
+use isothrum_runner::wire_name;
 
 /// Runs what Isoloom generates: the run manifest next to a target's files
 /// (`<run>/.isoloom/<target>/run.json`, or `<run>/.isoloom/<target>/<cloud>/run.json`).
@@ -145,50 +148,20 @@ pub(crate) enum Lifecycle {
     },
 }
 
-/// A cloud.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub(crate) enum CloudName {
-    /// Amazon Web Services.
-    Aws,
-    /// Microsoft Azure.
-    Azure,
-    /// Google Cloud.
-    Gcp,
-    /// DigitalOcean.
-    Digitalocean,
-    /// Akamai Linode.
-    Linode,
-    /// Oracle Cloud Infrastructure.
-    Oci,
-}
+/// Every cloud Isoloom's manifests name, in the order the help lists them.
+const CLOUDS: [Cloud; 6] = [Cloud::Aws, Cloud::Azure, Cloud::Gcp, Cloud::Digitalocean, Cloud::Linode, Cloud::Oci];
 
-impl CloudName {
-    /// As the command line writes it (`digitalocean`).
-    pub(crate) fn id(self) -> String {
-        self.to_possible_value().map(|v| v.get_name().to_owned()).unwrap_or_default()
-    }
-}
-
-impl From<CloudName> for isothrum_runner::isoloom_manifest::Cloud {
-    fn from(c: CloudName) -> Self {
-        use isothrum_runner::isoloom_manifest::Cloud;
-        match c {
-            CloudName::Aws => Cloud::Aws,
-            CloudName::Azure => Cloud::Azure,
-            CloudName::Gcp => Cloud::Gcp,
-            CloudName::Digitalocean => Cloud::Digitalocean,
-            CloudName::Linode => Cloud::Linode,
-            CloudName::Oci => Cloud::Oci,
-        }
-    }
+/// A cloud, by the name Isoloom's manifests give it (`digitalocean`).
+fn cloud_parser() -> impl TypedValueParser<Value = Cloud> {
+    PossibleValuesParser::new(CLOUDS.map(|c| wire_name(&c))).try_map(|name| serde_json::from_value::<Cloud>(serde_json::Value::String(name)))
 }
 
 /// What `reap` sweeps.
 #[derive(Debug, Args)]
 pub(crate) struct ReapArgs {
     /// The cloud.
-    #[arg(value_enum)]
-    pub(crate) cloud: CloudName,
+    #[arg(value_parser = cloud_parser())]
+    pub(crate) cloud: Cloud,
     /// Say what would be destroyed, destroying nothing.
     #[arg(long)]
     pub(crate) dry_run: bool,
@@ -273,6 +246,19 @@ mod tests {
     #[test]
     fn the_grammar_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn a_cloud_is_named_as_isoloom_writes_it() {
+        for cloud in CLOUDS {
+            let asked = Cli::parse_from(["isothrum", "reap", &wire_name(&cloud)]);
+            assert!(
+                matches!(on_runner(asked.command), RunnerCommand::Reap(ReapArgs { cloud: c, .. }) if c == cloud),
+                "{cloud:?}"
+            );
+        }
+        let unknown = Cli::try_parse_from(["isothrum", "reap", "Aws"]).unwrap_err().to_string();
+        assert!(unknown.contains("[possible values: aws, azure, gcp, digitalocean, linode, oci]"), "{unknown}");
     }
 
     #[test]
