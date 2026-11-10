@@ -145,13 +145,8 @@ impl AnyDriver {
             Identity::Vagrant(identity) => AnyDriver::Vagrant(vagrant::Vagrant::new(identity.clone())),
             Identity::Terraform(identity) => AnyDriver::Terraform(terraform::Terraform::new(identity.clone())),
         };
-        let deliveries = manifest
-            .params
-            .iter()
-            .flat_map(|p| p.deliver.iter())
-            .chain(manifest.secrets.iter().flat_map(|s| s.deliver.iter()));
         let terraform = matches!(driver, AnyDriver::Terraform(_));
-        for delivery in deliveries {
+        for delivery in crate::executor::every_delivery(manifest) {
             let ok = match delivery {
                 Delivery::Env { .. } | Delivery::StateFile { .. } | Delivery::Guest { .. } => true,
                 Delivery::TfVar { .. } => terraform,
