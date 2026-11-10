@@ -268,7 +268,8 @@ struct Detection<'a> {
     plugin_version: Option<&'a str>,
     /// Why `vagrant plugin list` didn't answer, when it didn't.
     plugins_unknown: Option<&'a str>,
-    /// Whether this account may not manage Hyper-V (Hyper-V only; the caller's injected answer).
+    /// Whether this account may not manage Hyper-V (Hyper-V only), as
+    /// `isothrum_runner::may_manage_hyperv` answers.
     needs_admin: bool,
 }
 
