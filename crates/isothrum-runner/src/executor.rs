@@ -46,9 +46,9 @@ pub(crate) struct Cx<'a> {
     /// Starts the tools: the runner's, or an elevated session's for an operation on Hyper-V.
     pub(crate) processes: std::sync::Arc<dyn crate::process::ProcessRunner>,
     /// What the steps' lines say of leftovers from an earlier run.
-    pub(crate) stale: Stale,
+    pub(crate) stale: LineWatch,
     /// What the steps' lines say of resources already gone, while a `down` watches for them.
-    pub(crate) gone: Watched,
+    pub(crate) gone: LineWatch,
     /// The login every SSH of the run goes through first, when it has one.
     pub(crate) ssh_jump: Option<String>,
     /// When the run stops itself (seconds since the Unix epoch), for a manifest with an `expiry`.
@@ -60,51 +60,39 @@ pub(crate) struct Cx<'a> {
     pub(crate) set_up: std::collections::BTreeSet<String>,
 }
 
-/// The manifest's `recovery.stale_markers`, watched over every line an argv or `ssh.run` step
-/// prints (a driver action's own calls aren't watched), whatever its case (Vagrant prints
-/// VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the manifest writes it in lower case; and the
-/// line may be any of the step's, not one of the last it printed).
+/// Texts watched for in every line an argv or `ssh.run` step prints (a driver action's own calls
+/// aren't watched): any line of the step's, not only one of the last it printed. Two watch the
+/// steps: the manifest's `recovery.stale_markers`, whatever their case
+/// ([`LineWatch::any_case`]: Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the
+/// manifest writes it in lower case), and, exactly as written, what a destroy prints for a
+/// resource already gone ([`run_down_steps`]).
 #[derive(Debug, Default)]
-pub(crate) struct Stale {
-    markers: Vec<String>,
-    seen: Mutex<Option<String>>,
-}
-
-impl Stale {
-    /// A watch over `markers`.
-    pub(crate) fn new(markers: &[String]) -> Stale {
-        Stale {
-            markers: markers.iter().map(|m| m.to_lowercase()).filter(|m| !m.is_empty()).collect(),
-            seen: Mutex::new(None),
-        }
-    }
-
-    /// Notes `line` when it holds a marker.
-    fn notice(&self, line: &str) {
-        let lower = line.to_lowercase();
-        if let Some(m) = self.markers.iter().find(|m| lower.contains(m.as_str())) {
-            *self.seen.lock().unwrap_or_else(PoisonError::into_inner) = Some(m.clone());
-        }
-    }
-
-    /// The marker seen since the last call, if any.
-    pub(crate) fn take(&self) -> Option<String> {
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).take()
-    }
-}
-
-/// Texts watched for in every line an argv or `ssh.run` step prints, exactly as written: what a
-/// destroy prints for a resource already gone ([`run_down_steps`]).
-#[derive(Debug, Default)]
-pub(crate) struct Watched {
+pub(crate) struct LineWatch {
+    /// Whether a text is seen whatever its case (the texts are then kept in lower case).
+    any_case: bool,
     texts: Mutex<BTreeSet<String>>,
     seen: Mutex<BTreeSet<String>>,
 }
 
-impl Watched {
+impl LineWatch {
+    /// A watch over `texts`, seen whatever their case.
+    pub(crate) fn any_case(texts: &[String]) -> LineWatch {
+        let watch = LineWatch {
+            any_case: true,
+            ..LineWatch::default()
+        };
+        watch.watch(texts.iter().cloned());
+        watch
+    }
+
     /// Watches for `texts` from now on, in place of what it watched for, and forgets what it saw.
     pub(crate) fn watch(&self, texts: impl IntoIterator<Item = String>) {
-        *self.texts.lock().unwrap_or_else(PoisonError::into_inner) = texts.into_iter().filter(|t| !t.is_empty()).collect();
+        let texts = texts.into_iter().filter(|t| !t.is_empty());
+        *self.texts.lock().unwrap_or_else(PoisonError::into_inner) = if self.any_case {
+            texts.map(|t| t.to_lowercase()).collect()
+        } else {
+            texts.collect()
+        };
         self.seen.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 
@@ -114,14 +102,20 @@ impl Watched {
         if texts.is_empty() {
             return;
         }
+        let line = if self.any_case { line.to_lowercase() } else { line.to_owned() };
         let found = texts.iter().filter(|t| line.contains(t.as_str())).cloned();
         self.seen.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
     }
 
-    /// The texts seen since it was told what to watch for, and nothing watched any more.
+    /// The texts seen since the last take, or since it was told what to watch for.
     pub(crate) fn take(&self) -> BTreeSet<String> {
-        self.texts.lock().unwrap_or_else(PoisonError::into_inner).clear();
         std::mem::take(&mut *self.seen.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// [`LineWatch::take`], and nothing watched any more.
+    pub(crate) fn end(&self) -> BTreeSet<String> {
+        self.texts.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.take()
     }
 }
 
@@ -166,7 +160,7 @@ pub(crate) async fn run_down_steps(cx: &mut Cx<'_>) -> Result<Ran> {
     for _ in 0..GONE_ROUNDS {
         cx.gone.watch(cx.run.driver.gone(cx)?.into_iter().map(|g| g.text));
         let done = run_steps(cx, DOWN, down).await;
-        let seen = cx.gone.take();
+        let seen = cx.gone.end();
         let failed = match &done {
             Err(Error::ToolFailed { step, .. }) if !seen.is_empty() => down.iter().find(|s| s.id.as_str() == step),
             _ => None,
@@ -303,21 +297,23 @@ mod tests {
     fn a_stale_marker_is_seen_in_any_line_whatever_its_case() {
         // Regression: lower-case markers matched against VirtualBox's `VERR_ALREADY_EXISTS`,
         // and only in the error's last lines, missed it.
-        let stale = Stale::new(&["verr_already_exists".into(), "is locked".into()]);
+        let stale = LineWatch::any_case(&["VERR_already_exists".into(), "is locked".into()]);
         stale.notice("    web: Progress state: VBOX_E_FILE_ERROR");
-        assert_eq!(stale.take(), None);
+        assert_eq!(stale.take(), BTreeSet::new());
         stale.notice("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)");
         stale.notice("ok");
-        assert_eq!(stale.take().as_deref(), Some("verr_already_exists"));
-        assert_eq!(stale.take(), None, "taken once");
-        let none = Stale::new(&[]);
+        assert_eq!(stale.take().into_iter().collect::<Vec<_>>(), ["verr_already_exists"]);
+        assert_eq!(stale.take(), BTreeSet::new(), "taken once");
+        stale.notice("the machine is locked");
+        assert_eq!(stale.take().len(), 1, "still watched after a take");
+        let none = LineWatch::any_case(&[]);
         none.notice("anything");
-        assert_eq!(none.take(), None);
+        assert_eq!(none.take(), BTreeSet::new());
     }
 
     #[test]
     fn a_watched_text_is_seen_exactly_as_written_until_taken() {
-        let watched = Watched::default();
+        let watched = LineWatch::default();
         watched.notice("no such IPSet 'iso1n0'");
         assert_eq!(watched.take(), BTreeSet::new(), "nothing watched yet");
         watched.watch(["no such IPSet 'iso1n0'".to_owned(), "no such IPSet 'iso1n1'".to_owned(), String::new()]);
@@ -327,8 +323,8 @@ mod tests {
         assert_eq!(watched.take(), BTreeSet::new(), "another case, another set: not the text");
         watched.watch(["no such IPSet 'iso1n0'".to_owned()]);
         watched.notice("Error: error getting IPSet content: received an HTTP 500 response - Reason: no such IPSet 'iso1n0'");
-        assert_eq!(watched.take().into_iter().collect::<Vec<_>>(), ["no such IPSet 'iso1n0'"]);
+        assert_eq!(watched.end().into_iter().collect::<Vec<_>>(), ["no such IPSet 'iso1n0'"]);
         watched.notice("no such IPSet 'iso1n0'");
-        assert_eq!(watched.take(), BTreeSet::new(), "taking it ends the watch");
+        assert_eq!(watched.take(), BTreeSet::new(), "ending it ends the watch");
     }
 }

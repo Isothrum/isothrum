@@ -198,7 +198,7 @@ impl Running<'_> {
     }
 
     /// The start steps; a failure after a step printed one of `recovery.stale_markers` (any line
-    /// of an argv or `ssh.run` step's, see [`crate::executor::Stale`]) runs the recovery steps
+    /// of an argv or `ssh.run` step's, see [`crate::executor::LineWatch`]) runs the recovery steps
     /// and starts again, up to `recovery.retries` times. A genuine failure never retries.
     pub(super) async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
         let up = self.manifest().lifecycle.up.as_slice();
@@ -214,7 +214,7 @@ impl Running<'_> {
         loop {
             cx.stale.take();
             match crate::executor::run_up_steps(cx, up).await {
-                Err(e) if left > 0 && cx.stale.take().is_some() => {
+                Err(e) if left > 0 && !cx.stale.take().is_empty() => {
                     left -= 1;
                     cx.events
                         .warning(WarningCode::Recovering, &format!("clearing stale state, then starting again: {e}"));

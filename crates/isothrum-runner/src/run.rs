@@ -30,7 +30,7 @@ use crate::driver::AnyDriver;
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::events::Emitter;
-use crate::executor::{Cx, Stale};
+use crate::executor::{Cx, LineWatch};
 use crate::manifest::LoadedManifest;
 use crate::name::RunName;
 use crate::options::RunOptions;
@@ -235,7 +235,12 @@ impl<'r> Running<'r> {
             vars.set_run(RunVar::Provider, p.clone());
         }
         vars.set_params(params);
-        let stale = self.manifest().recovery.as_ref().map(|r| Stale::new(&r.stale_markers)).unwrap_or_default();
+        let stale = self
+            .manifest()
+            .recovery
+            .as_ref()
+            .map(|r| LineWatch::any_case(&r.stale_markers))
+            .unwrap_or_default();
         Ok(Cx {
             run: self,
             vars,
@@ -243,7 +248,7 @@ impl<'r> Running<'r> {
             events,
             scope: self.scope(provider),
             stale,
-            gone: crate::executor::Watched::default(),
+            gone: LineWatch::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
             ssh_jump: None,
             expires_at: None,
