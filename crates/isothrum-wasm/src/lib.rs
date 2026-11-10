@@ -1,13 +1,14 @@
-//! The editor's engine, compiled to WebAssembly: a topology (the editor's JSON) becomes an
-//! `isoloom.yml` in Isoloom's format, the files every Isoloom target generates from it, and one
-//! zip to download. Nothing leaves the browser: Isoloom itself produces the Docker, Vagrant and
-//! Terraform files. The same build runs in a server's JavaScript runtime too.
+//! A topology editor's engine, compiled to WebAssembly: a topology (the JSON of an
+//! [`isothrum_compiler::Topology`] a caller hands it) becomes an `isoloom.yml` in Isoloom's
+//! format, the files every Isoloom target generates from it, and one zip to download. Nothing
+//! leaves the browser: Isoloom itself produces the Docker, Vagrant and Terraform files. The same
+//! build runs in a server's JavaScript runtime too.
 //!
 //! The functions JavaScript calls are the `#[wasm_bindgen]` ones ([`plan_json`], [`bundle`],
-//! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists, which the
-//! editor's OS, appliance and protocol fields offer). The JSON they hand out is a [`Plan`], [`File`]s and [`Choices`]. They are
-//! for `wasm32-unknown-unknown`: their errors are JavaScript `Error`s, which exist only there, so
-//! built for another target an export that fails panics.
+//! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists, which a
+//! caller's OS, appliance and protocol fields offer). The JSON they hand out is a [`Plan`],
+//! [`File`]s and [`Choices`]. They are for `wasm32-unknown-unknown`: their errors are JavaScript
+//! `Error`s, which exist only there, so built for another target an export that fails panics.
 //!
 //! ```
 //! let topology = r#"{
@@ -25,7 +26,7 @@
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 //!
-//! The modules: `plan` (what the editor shows), `bundle` (the zips to download), `files` (the
+//! The modules: `plan` (what a caller shows), `bundle` (the zips to download), `files` (the
 //! files handed out, the project's own among them), `choices` (Isoloom's lists), `js` (the JavaScript
 //! functions) and `error`.
 

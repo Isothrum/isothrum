@@ -42,7 +42,7 @@ pub fn own_files_json(topology_json: &str) -> Result<String, JsError> {
     json(&own_files(topology_json).map_err(|e| JsError::new(&e.to_string()))?)
 }
 
-/// JSON for the editor: a [`Plan`](crate::Plan), one that says why it has nothing when the
+/// JSON for the caller: a [`Plan`](crate::Plan), one that says why it has nothing when the
 /// topology gives none.
 ///
 /// # Errors
@@ -54,7 +54,7 @@ pub fn plan_json(topology_json: &str) -> Result<String, JsError> {
     json(&plan(topology_json))
 }
 
-/// JSON for the editor: Isoloom's lists ([`Choices`](crate::Choices)), what its OS, appliance and
+/// JSON for the caller: Isoloom's lists ([`Choices`](crate::Choices)), what its OS, appliance and
 /// protocol fields offer.
 ///
 /// # Errors

@@ -14,7 +14,7 @@ before it):
 1. `isothrum-compiler` — a drawn topology becomes an Isoloom spec.
 2. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
 3. `isothrum-machine` — which Vagrant providers this computer can drive.
-4. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for the browser editor.
+4. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for a topology editor in the browser.
 5. `isothrum-cli` — the `isothrum` command-line runner.
 
 Not published (`publish = false`, inherited from `[workspace.package]`):

@@ -1,11 +1,11 @@
 //! What a drawing may say that Isoloom checks against lists of its own (the OSes, the network
-//! appliances, the port protocols), read from Isoloom itself, so the editor offers exactly those.
+//! appliances, the port protocols), read from Isoloom itself, so a caller offers exactly those.
 
 use isoloom_spec::Appliance;
 use isoloom_spec::syntax::PortProtocol;
 use serde::Serialize;
 
-/// Isoloom's lists, as the editor writes their values.
+/// Isoloom's lists, as a topology writes their values.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Choices {
     /// Every OS, `<family>@<version>` (`debian@12`).

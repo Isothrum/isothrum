@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-compiler"
-description = "Isothrum's compiler: a network drawn in the editor becomes an Isoloom spec."
+description = "Isothrum's compiler: a network drawn in a topology editor becomes an Isoloom spec."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

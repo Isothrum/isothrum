@@ -1,5 +1,5 @@
 //! Why the engine can't give a plan or a download: one enum for the crate. Its message is what the
-//! editor shows (a `JsError`'s `message`, or a plan's `error`), so a variant with a cause says it
+//! caller shows (a `JsError`'s `message`, or a plan's `error`), so a variant with a cause says it
 //! too.
 
 /// The crate's result.
@@ -8,7 +8,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// Why a topology gives no plan or no download.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
-    /// The topology isn't the editor's JSON.
+    /// The topology isn't a [`Topology`](isothrum_compiler::Topology)'s JSON.
     #[error("the topology is malformed: {0}")]
     Malformed(#[source] serde_json::Error),
     /// The drawing doesn't compile.

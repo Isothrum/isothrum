@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-wasm"
-description = "The editor's engine in WebAssembly: a drawn network becomes an Isoloom spec, every target's files and the downloads."
+description = "Isothrum's compiler and Isoloom's targets in WebAssembly, for a topology editor: a drawn network becomes an Isoloom spec, every target's files and the downloads."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

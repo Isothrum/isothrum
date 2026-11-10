@@ -1,4 +1,4 @@
-//! The plan the editor shows: the spec, its problems, the files every target generates, and
+//! The plan a caller shows: the spec, its problems, the files every target generates, and
 //! each machine's addresses.
 
 use indexmap::IndexMap;
@@ -10,14 +10,14 @@ use serde::Serialize;
 
 use crate::{Error, File, Result};
 
-/// What the engine makes of a topology, as the editor reads it (JSON).
+/// What the engine makes of a topology, as the caller reads it (JSON).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Plan {
     /// `false` when the topology can't be compiled; `error` says why.
     pub ok: bool,
     /// Why the topology can't be compiled.
     pub error: Option<String>,
-    /// The spec the editor shows and the user keeps.
+    /// The spec the caller shows and the user keeps.
     pub isoloom_yml: Option<String>,
     /// What Isoloom finds wrong with the spec, in the words of `isoloom validate` (code, field,
     /// line, reason and fix).
@@ -26,7 +26,7 @@ pub struct Plan {
     pub files: Vec<File>,
     /// Targets the spec allows but that generate nothing, each with the reason.
     pub skipped: Vec<String>,
-    /// Each machine's addresses, for the canvas: machine → [(network, IPv4)].
+    /// Each machine's addresses, for the caller to show: machine → [(network, IPv4)].
     pub addresses: IndexMap<String, Vec<(String, String)>>,
 }
 
@@ -45,7 +45,7 @@ impl Plan {
     }
 }
 
-/// Turns a topology (the JSON the editor produces) into the spec and everything generated from it.
+/// Turns a topology (the JSON a topology editor produces) into the spec and everything generated from it.
 #[must_use]
 pub(crate) fn plan(topology_json: &str) -> Plan {
     match compiled(topology_json) {

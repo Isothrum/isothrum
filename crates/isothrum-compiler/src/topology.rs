@@ -1,4 +1,4 @@
-//! The drawing the editor sends: machines (the topology's nodes), the LANs drawn around them, and
+//! The drawing a topology editor sends: machines (the topology's nodes), the LANs drawn around them, and
 //! the cables between their ports. Read once into types that hold only what Isoloom can take: an
 //! OS Isoloom knows, a port's protocol, an appliance kind.
 

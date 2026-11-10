@@ -1,6 +1,6 @@
-//! `wasm`: the editor's engine built for the browser, which downloads it. `wasm-pack` builds
+//! `wasm`: `isothrum-wasm` built for the browser, which downloads it. `wasm-pack` builds
 //! `crates/isothrum-wasm` into `web/pkg/` with Cargo's release profile set for size (opt-level
-//! `z`, LTO, one codegen unit: Isoloom's targets bring every backend, and the editor's zip needs
+//! `z`, LTO, one codegen unit: Isoloom's targets bring every backend, and a download's zip needs
 //! them all), only for this build. With `--copy-to <dir>`, the two files a page serves (the
 //! JavaScript glue and the WebAssembly) are copied into that folder too.
 

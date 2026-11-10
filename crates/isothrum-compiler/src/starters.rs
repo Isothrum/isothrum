@@ -1,6 +1,6 @@
 //! Starter set-up scripts, so a downloaded project with provisioning steps runs as is.
 //!
-//! The editor lists a machine's provisioning steps (`provision/db.sh`), but nobody writes the
+//! A topology lists a machine's provisioning steps (`provision/db.sh`), but nobody writes the
 //! files. Each shell step gets a script that installs what the machine's ports call for and makes
 //! it listen on the network (PostgreSQL, MariaDB and Redis listen on localhost by default, so the
 //! project's checks couldn't reach them). The steps are portable, so a script only installs and

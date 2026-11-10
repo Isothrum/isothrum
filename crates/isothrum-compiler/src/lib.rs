@@ -1,4 +1,4 @@
-//! Isothrum's compiler: a project as drawn in the editor (a [`Topology`]: machines, the LANs drawn
+//! Isothrum's compiler: a project as drawn in a topology editor (a [`Topology`]: machines, the LANs drawn
 //! around them, and the cables between their ports) becomes an Isoloom spec, in the format Isoloom
 //! reads (`isoloom.yml`, version 1).
 //!
@@ -7,7 +7,7 @@
 //!   appliance (`app.appliance`). A VM node is its OS (`os`), set up by its provisioning steps
 //!   (`app.steps`), or the OS alone: each target decides how to deliver it.
 //! - **Ports** are named (`ssh`, `http`, `port-8000`, `dns-udp`), each with its `protocol`.
-//! - **Networks.** A LAN (an area drawn on the canvas, a VLAN in practice) is an Isoloom network
+//! - **Networks.** A LAN (an area drawn around machines, a VLAN in practice) is an Isoloom network
 //!   with its own block; each machine on it gets an address there, the next free one unless it
 //!   asks for one. A cable between two machines is its own point-to-point network (a /29 cut from
 //!   `10.200.0.0/16`, the two ends on its `.2` and `.3`). A switch's VLANs nest
