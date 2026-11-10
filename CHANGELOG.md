@@ -37,6 +37,11 @@ change.
 
 ### Fixed
 
+- **A UTM controller still up is no longer taken for one that is off.** The controller's halt and
+  its wake before the checks waited only while Vagrant read it `running`, but UTM calls a running
+  VM `started`: a failed halt counted as done, and a controller still powering itself off was
+  booted at once, racing its own poweroff. They now read the state as status does, and keep
+  waiting while it is anything but off or absent.
 - **A Vagrant run no longer fails because another process read its VMs at the wrong moment.**
   Vagrant lets one process at a time act on a machine and refuses any other at once
   (`MachineActionLockedError`); on Hyper-V even reading a VM's state is such an action. A

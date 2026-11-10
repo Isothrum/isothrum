@@ -9,12 +9,13 @@ use std::time::Duration;
 
 use isoloom_manifest::{Provider, SnakeName, Step, Template};
 
-use super::{READ_LIMIT, Vagrant, lock};
+use super::{READ_LIMIT, Vagrant, lock, status};
 use crate::Result;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::executor::{Cx, Echo, call, call_failed, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
+use crate::status::MachineState;
 
 /// How long the clean-up destroy of a record on another provider may go without progress (as
 /// every tool call's limit counts) before the record is dropped anyway (a wedged hypervisor must
@@ -242,12 +243,20 @@ fn controller(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) ->
     Ok(cx.vars.with_arg(with, step.id.as_str(), "machine")?.unwrap_or_else(|| CONTROLLER.to_owned()))
 }
 
-/// Whether Vagrant reads `machine` as running.
+/// Whether Vagrant reads `machine` as running, or on its way there or down: any state but off
+/// or absent ([`up`]).
 async fn running(v: &Vagrant, cx: &Cx<'_>, id: &str, machine: &str) -> Result<bool> {
     let spec = v.vagrant(cx, id, &["status", machine, "--machine-readable"])?;
     let read = lock::call_unlocked(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !read.succeeded() {
         return Err(call_failed(cx, id, &spec, &read));
     }
-    Ok(super::status::parse(&read.stdout.join("\n")).states.get(machine).map(String::as_str) == Some("running"))
+    Ok(super::status::parse(&read.stdout.join("\n")).states.get(machine).map(String::as_str).is_some_and(up))
+}
+
+/// Whether a VM in state `label` is up: running (UTM's `started` too, [`status::machine_state`]),
+/// or in a state of its own no provider lists (one on its way up or down), which keeps a wait
+/// going; only one stopped or absent is not.
+fn up(label: &str) -> bool {
+    !matches!(status::machine_state(label), MachineState::Stopped | MachineState::Absent)
 }

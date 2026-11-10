@@ -670,18 +670,36 @@ async fn a_controller_halts_with_its_lines_in_the_log() {
     assert!(halted, "{:?}", events.events());
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_controller_no_halt_stops_is_a_warning_after_up() {
+/// The start's events when `vagrant halt <controller>` fails and leaves it in `state`.
+async fn up_with_a_halt_that_leaves(state: &'static str) -> String {
     let f = fixture(crate::runner::this_host());
-    f.engine().halt_fails = Some("running");
+    f.engine().halt_fails = Some(state);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
-    let said = serde_json::to_string(&events.events()).unwrap();
-    assert!(
-        said.contains("step_tolerated") && said.contains("`vagrant halt isoloom-controller` failed: SSH connection was refused!"),
-        "{said}"
-    );
+    serde_json::to_string(&events.events()).unwrap()
+}
+
+/// Whether `said`, a start's events, warn that the controller's halt failed.
+fn halt_failed(said: &str) -> bool {
+    said.contains("step_tolerated") && said.contains("`vagrant halt isoloom-controller` failed: SSH connection was refused!")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_controller_no_halt_stops_is_a_warning_after_up() {
+    let said = up_with_a_halt_that_leaves("running").await;
+    assert!(halt_failed(&said), "{said}");
+}
+
+/// Regression: the controller's halt was waited out only while it read `running`, so a UTM
+/// controller (UTM's running state is `started`) still up after a failed halt counted as halted.
+/// A state no provider lists (one on its way down) is waited out too.
+#[tokio::test(start_paused = true)]
+async fn a_controller_still_started_on_utm_or_on_its_way_down_is_no_halt() {
+    for state in ["started", "shutting_down"] {
+        let said = up_with_a_halt_that_leaves(state).await;
+        assert!(halt_failed(&said), "{state}: {said}");
+    }
 }
 
 /// Regression: on Hyper-V, reading a VM's state takes its Vagrant lock, and a `vagrant status`
@@ -761,13 +779,30 @@ fn boots_controller(calls: &[String]) -> Option<usize> {
     calls.iter().rposition(|l| l == "vagrant up isoloom-controller --no-provision")
 }
 
+/// Asserts `calls` asked the controller whether it halts `times` times, and booted it only after.
+fn asked_then_booted(calls: &[String], times: usize) {
+    let probes = calls.iter().filter(|l| l.contains("test -e /run/isoloom-halting")).count();
+    assert_eq!(probes, times, "{calls:#?}");
+    let last_probe = calls.iter().rposition(|l| l.contains("isoloom-halting")).unwrap();
+    assert!(boots_controller(calls).is_some_and(|boot| last_probe < boot), "{calls:#?}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_controller_still_halting_is_waited_for_before_it_boots() {
     let calls = checks_with_a_running_controller(|e| e.halting = 3).await;
-    let probes = calls.iter().filter(|l| l.contains("test -e /run/isoloom-halting")).count();
-    assert_eq!(probes, 3, "{calls:#?}");
-    let last_probe = calls.iter().rposition(|l| l.contains("isoloom-halting")).unwrap();
-    assert!(boots_controller(&calls).is_some_and(|boot| last_probe < boot), "{calls:#?}");
+    asked_then_booted(&calls, 3);
+}
+
+/// Regression: a UTM controller (UTM's running state is `started`) read as off, so one still
+/// powering itself off was booted at once, racing its own poweroff.
+#[tokio::test(start_paused = true)]
+async fn a_controller_still_halting_on_utm_is_waited_for_before_it_boots() {
+    let calls = checks_with_a_running_controller(|e| {
+        e.states.insert(CONTROLLER.into(), "started".into());
+        e.halting = 3;
+    })
+    .await;
+    asked_then_booted(&calls, 3);
 }
 
 /// The race a vm run's checks lost: the controller's poweroff had begun, its SSH already closed,
