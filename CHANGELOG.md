@@ -291,6 +291,43 @@ change.
   output now shows them (`waiting: <condition>: <detail>`). A `tcp` condition emitted an empty
   `waiting` event every 2 s; it says once what it waits for.
 
+- **A mistyped `--param` on an existing run is refused.** `down`, `park`, `check`, `update` and
+  the other operations on a run that exists dropped a param the manifest doesn't take and passed
+  a value outside its `values` unchecked. They now check what is given as a start does (an
+  unknown name, a value outside `values`, a param the runner sets), then replay the recorded
+  params.
+
+- **A Terraform preflight says what is wrong with the module it checks.** With a
+  `terraform.copy_module` step, a `with.from` that couldn't be filled, a folder outside the
+  project or one that couldn't be read all read as "the Terraform module … has no `.tf` file:
+  generate the run's files again", naming the generated module beside the manifest. The fill
+  error, `<step>.with.from: … isn't a folder inside the run's project` or the I/O error is
+  reported now, and a module without a Terraform file is named where it is.
+
+- **The setup machine's boot and halt take the step's limit on the run's provider.** Vagrant's
+  `wake_controller` and `park_controller` read the step's `timeout_s` only, never its
+  `provider_timeout_s`, so a longer limit for ESXi never reached them.
+
+- **A `down` forgets the run's pinned SSH host keys whatever the driver.** Only a Terraform
+  run's `down` removed `known_hosts` and `ssh_config` from the run's state folder, so a Compose or
+  Vagrant run that reaches a machine over SSH refused its recreated machine's new host key at the
+  same address.
+
+- **Adopting a Terraform state never leaves it in both folders.** Any failed rename fell back to
+  a copy and a removal, so a state whose folder couldn't be written was copied into the run and
+  stayed where it was. The copy is now the fallback across file systems only, and a copy whose
+  source can't be removed is removed itself.
+
+- **An `ESXI_HOSTPORT` that isn't a port is a `param_invalid` error.** It became 22, and the
+  macOS relays pointed at the wrong port.
+
+- **Errors that read as something else are said.** A folder entry that couldn't be read (the
+  module copy, the runs' list, the run folders the CLI finds) was skipped; an elevated answer that
+  wasn't an exit code read as a program killed by a signal; a public SSH key that couldn't be
+  read was made again by `ssh-keygen`, which failed on its overwrite prompt. Each is now an error
+  naming its cause. A VM address that `status` can't read (on ESXi) and a guest `host` that can't
+  be filled are still left out, and traced with why.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
