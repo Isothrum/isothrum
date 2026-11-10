@@ -210,6 +210,11 @@ change.
   cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
   cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
 
+- **A guest delivery cut short leaves no secret on disk.** The values for a machine wait in an
+  owner-only `guest-<machine>.in` in the run's state folder while SSH is retried (up to 15
+  minutes); an operation cut short then (a cancel, Ctrl-C) skipped its removal, and the file
+  stayed. It is now removed however the delivery ends.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

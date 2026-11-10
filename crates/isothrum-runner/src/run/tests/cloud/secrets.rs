@@ -60,6 +60,21 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     );
 }
 
+/// An operation cut short while it delivers (its future dropped: a cancel, Ctrl-C) leaves no
+/// input file holding the values in the run's state folder.
+#[tokio::test(start_paused = true)]
+async fn a_delivery_cut_short_leaves_no_input_behind() {
+    let a = account_of(SOLO_WEB_AWS, 0);
+    a.cloud.unreachable.store(u32::MAX, Ordering::SeqCst);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let cut = tokio::time::timeout(std::time::Duration::from_secs(60), run.up(&with_secret("eu-west-3"), &Recorder::new())).await;
+    assert!(cut.is_err(), "still delivering");
+    let tried = a.fake.last("/var/lib/isoloom/secrets").unwrap();
+    let input = tried.stdin.unwrap();
+    assert_eq!(input.file_name().and_then(|n| n.to_str()), Some("guest-web.in"));
+    assert!(!input.exists(), "the values went with the operation");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_delivery_reaches_its_machine_at_a_sensitive_address_output() {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();

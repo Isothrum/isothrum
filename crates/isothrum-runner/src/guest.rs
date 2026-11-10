@@ -10,12 +10,13 @@
 //!   jump.
 //! - **How:** one SSH session per machine runs [`RECEIVE`] as root; its standard input holds one
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
-//!   folder removed right after (a removal that fails, fails the step). A value is never on a
-//!   command line nor in an event.
+//!   folder removed right after (a removal that fails, fails the step), or as soon as the
+//!   operation is cut short. A value is never on a command line nor in an event.
 //! - **Retries:** while SSH can't connect (exit 255: a machine still booting), every
 //!   [`RETRY`], for [`PATIENCE`]; any other failure fails the step.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use isoloom_manifest::{Delivery, SecretSlot};
@@ -104,12 +105,11 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
     cx.events
         .stepped(&id, Some(&note), async {
             let dir = cx.run.runner.store.run_dir(cx.run.name())?;
-            let input = dir.join(format!("{id}.in"));
-            crate::store::write_private(&input, lines.as_bytes()).map_err(Error::io(&input, "written"))?;
-            let done = tries(cx, &id, login, &input).await;
+            let input = Input::write(dir.join(format!("{id}.in")), lines)?;
+            let done = tries(cx, &id, login, input.path()).await;
             // The file holds the values: one left behind fails the delivery, unless it failed
             // already (that error stands; the next delivery writes the file again).
-            let removed = std::fs::remove_file(&input).map_err(Error::io(&input, "removed"));
+            let removed = input.remove();
             if let (Err(_), Err(e)) = (&done, &removed) {
                 tracing::error!(error = %e, "a failed delivery's input file was left in the run's state folder");
             }
@@ -118,7 +118,46 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
         .await
 }
 
-async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &std::path::Path) -> Result<()> {
+/// The owner-only file a delivery's values wait in, in the run's state folder. It goes when the
+/// delivery ends, however it ends: [`Input::remove`] once delivered or failed, and on drop when
+/// the operation is cut short mid-delivery (its future dropped).
+struct Input {
+    /// Where it is.
+    path: PathBuf,
+    /// Whether it is still to be removed.
+    held: bool,
+}
+
+impl Input {
+    /// `lines` written owner-only at `path`.
+    fn write(path: PathBuf, lines: &str) -> Result<Input> {
+        crate::store::write_private(&path, lines.as_bytes()).map_err(Error::io(&path, "written"))?;
+        Ok(Input { path, held: true })
+    }
+
+    /// Where it is.
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Removes it; one that can't be removed is an error naming it.
+    fn remove(mut self) -> Result<()> {
+        self.held = false;
+        std::fs::remove_file(&self.path).map_err(Error::io(&self.path, "removed"))
+    }
+}
+
+impl Drop for Input {
+    fn drop(&mut self) {
+        if self.held
+            && let Err(e) = std::fs::remove_file(&self.path)
+        {
+            tracing::error!(error = %e, path = %self.path.display(), "a cut-short delivery's input file was left in the run's state folder");
+        }
+    }
+}
+
+async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     loop {
         let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(RECEIVE)), Vec::new())?;

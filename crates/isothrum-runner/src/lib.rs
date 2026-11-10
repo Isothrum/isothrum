@@ -71,7 +71,7 @@
 //! `/var/lib/isoloom/secrets/.delivered`, which the machine's set-up waits for; the values travel
 //! base64-encoded on its standard input, retried while SSH can't connect (up to 15 minutes),
 //! from an owner-only `guest-<machine>.in` in the run's state folder that is removed once
-//! delivered (a removal that fails, fails the delivery).
+//! delivered (a removal that fails, fails the delivery) or once the operation is cut short.
 //!
 //! # Concurrency
 //!

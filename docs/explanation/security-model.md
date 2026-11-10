@@ -50,11 +50,13 @@ The manifest declares *slots* (secrets, inputs, connection credentials). Their v
   variables and `TF_CLI_CONFIG_FILE` by name, the files they name mounted read-only.
 - **are masked.** Every sensitive value is replaced by `***` in events, log lines, error messages
   and results; a sensitive output shows as `***` in `status` too.
-- **are not stored**, with two exceptions, both owner-only files in the run's state folder: a
-  `state_file` delivery (written at `up`, kept for the destroy, removed by a successful `down`)
-  and a `guest` delivery's input file (removed once delivered; a removal that fails fails the
-  step). The tools themselves may keep values: Terraform state can hold any value a resource
-  received.
+- **are not stored**, with three exceptions, all owner-only files in the run's state folder: a
+  `state_file` delivery (written at `up`, kept for the destroy, removed by a successful `down`),
+  a `guest` delivery's input file (removed once delivered, or when the operation is cut short; a
+  removal that fails fails the step), and an elevated Hyper-V session's `env-<n>.json`, a
+  request's variables (deleted by the broker before it starts the program; the session's folder
+  goes when the session ends). The tools themselves may keep values: Terraform state can hold any
+  value a resource received.
 
 Terraform doesn't inherit the shell's cloud settings: `AWS_*`, `ARM_*`, `AZURE_*`, `GOOGLE_*`,
 `CLOUDSDK_*`, `GCLOUD_*`, `DIGITALOCEAN_*`, `LINODE_*`, `OCI_*`, `TF_VAR_*` and `TF_CLI_ARGS*`
