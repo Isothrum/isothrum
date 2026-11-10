@@ -142,7 +142,7 @@ impl Running<'_> {
         let Some(mut record) = store.record(self.name())? else {
             return Ok(state);
         };
-        let moving = matches!(record.state, RunState::Starting | RunState::Stopping | RunState::Parking | RunState::Resuming);
+        let moving = record.state.is_moving();
         match (state, code) {
             (Some(state), _) => record.state = state,
             (None, Some(_)) if moving => record.state = RunState::Failed,

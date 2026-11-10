@@ -243,7 +243,7 @@ pub(crate) async fn traced<T>(f: impl Future<Output = T>) -> (T, String) {
 
 /// Every variant of the unit enum `T`, read back from the names its JSON schema lists (serde's
 /// own): a list nobody keeps, so a variant added is in it.
-fn every_variant<T: schemars::JsonSchema + serde::de::DeserializeOwned>() -> Vec<T> {
+pub(crate) fn every_variant<T: schemars::JsonSchema + serde::de::DeserializeOwned>() -> Vec<T> {
     fn names(schema: &serde_json::Value, out: &mut Vec<String>) {
         match schema {
             serde_json::Value::Object(fields) => {

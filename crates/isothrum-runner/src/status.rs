@@ -172,8 +172,7 @@ pub struct Started {
 /// The state of a run whose machines are `machines`, given its record. Ready when every member
 /// machine runs; parked when its record says so and none runs; absent when nothing is there.
 pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
-    let present = machines.iter().any(|m| m.state != MachineState::Absent);
-    if !present {
+    if !any_present(machines) {
         return RunState::Absent;
     }
     let members: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Member).collect();
@@ -191,6 +190,11 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
     } else {
         RunState::Failed
     }
+}
+
+/// Whether anything of the run is there: a machine of `machines` that isn't absent.
+pub(crate) fn any_present(machines: &[MachineStatus]) -> bool {
+    machines.iter().any(|m| m.state != MachineState::Absent)
 }
 
 /// Whether any member machine of `machines` runs.

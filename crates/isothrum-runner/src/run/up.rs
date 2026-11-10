@@ -16,7 +16,7 @@ use crate::options::{Occupied, RunOptions};
 use crate::params::{params_for_existing, params_for_start};
 use crate::secrets::check_secrets;
 use crate::state::{Op, RunState};
-use crate::status::{MachineState, OutputValue, Started, any_member_running};
+use crate::status::{OutputValue, Started, any_member_running, any_present};
 use crate::store::RunRecord;
 use crate::{clock, outputs, ready, tools};
 
@@ -137,7 +137,7 @@ impl Running<'_> {
     }
 
     fn slot(&self, observed: &Observed, record: &RunRecord, occupied: Occupied) -> Result<Slot> {
-        let exists = observed.machines.iter().any(|m| m.state != MachineState::Absent);
+        let exists = any_present(&observed.machines);
         let parked = record.state == RunState::Parked;
         let running = any_member_running(&observed.machines);
         let already = || Err(Error::AlreadyRunning { run: self.name().to_string() });

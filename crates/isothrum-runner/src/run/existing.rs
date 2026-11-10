@@ -13,7 +13,7 @@ use crate::executor::{Cx, run_steps};
 use crate::options::RunOptions;
 use crate::params::params_for_existing;
 use crate::state::{Op, Park, RunState};
-use crate::status::{MachineState, Started};
+use crate::status::Started;
 use crate::store::RunRecord;
 use crate::{ready, tools};
 
@@ -189,6 +189,6 @@ impl Running<'_> {
 
     /// Whether anything of the run is there.
     async fn exists(&self, cx: &mut Cx<'_>) -> Result<bool> {
-        Ok(self.observe(cx).await?.machines.iter().any(|m| m.state != MachineState::Absent))
+        Ok(crate::status::any_present(&self.observe(cx).await?.machines))
     }
 }

@@ -33,6 +33,20 @@ pub enum Op {
 }
 
 impl Op {
+    /// Every operation, in the order they are declared.
+    pub(crate) const ALL: [Op; 10] = [
+        Op::Up,
+        Op::Down,
+        Op::Park,
+        Op::Resume,
+        Op::Check,
+        Op::Provision,
+        Op::Attach,
+        Op::Detach,
+        Op::Update,
+        Op::Retire,
+    ];
+
     /// The operation as written in events (`up`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -93,6 +107,12 @@ pub enum RunState {
 }
 
 impl RunState {
+    /// Whether the run is in the middle of an operation that changes it: a state some operation
+    /// holds while it runs ([`Op::during`]).
+    pub(crate) fn is_moving(self) -> bool {
+        Op::ALL.iter().any(|op| op.during() == Some(self))
+    }
+
     /// The state as written in events (`ready`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -153,5 +173,12 @@ mod tests {
         crate::testing::assert_named_as_serde(Op::as_str);
         crate::testing::assert_named_as_serde(RunState::as_str);
         crate::testing::assert_named_as_serde(Park::as_str);
+    }
+
+    #[test]
+    fn every_op_is_listed_and_the_moving_states_are_those_an_op_holds() {
+        assert_eq!(crate::testing::every_variant::<Op>(), Op::ALL);
+        let moving: Vec<RunState> = crate::testing::every_variant::<RunState>().into_iter().filter(|s| s.is_moving()).collect();
+        assert_eq!(moving, [RunState::Starting, RunState::Parking, RunState::Resuming, RunState::Stopping]);
     }
 }
