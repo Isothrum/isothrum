@@ -94,10 +94,7 @@ pub enum Planned {
 /// it is in, planned on `host` with the run's `provider` and `values`.
 #[must_use]
 pub fn plan(manifest: &Manifest, host: HostOs, provider: Option<&str>, values: &Values) -> Vec<(String, Planned)> {
-    let scope = Scope {
-        host,
-        provider: provider.map(str::to_owned),
-    };
+    let scope = Scope::new(host, provider.map(str::to_owned));
     lists(manifest)
         .into_iter()
         .flat_map(|(list, steps)| steps.into_iter().map(move |step| (list, step)))

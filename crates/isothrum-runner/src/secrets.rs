@@ -117,10 +117,7 @@ mod tests {
     }
 
     fn scope() -> Scope {
-        Scope {
-            host: isoloom_manifest::HostOs::Linux,
-            provider: None,
-        }
+        Scope::new(isoloom_manifest::HostOs::Linux, None)
     }
 
     #[test]

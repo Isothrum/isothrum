@@ -68,11 +68,10 @@ impl Vagrant {
 
     /// Whether the provider of `scope` takes its management commands elevated (Hyper-V).
     pub(crate) fn elevates(&self, scope: &crate::scope::Scope) -> bool {
-        let asked = scope.provider.as_deref();
         self.identity
             .providers
             .iter()
-            .any(|p| Some(wire_name(&p.id).as_str()) == asked && p.elevation == isoloom_manifest::Elevation::Hyperv)
+            .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
     }
 
     /// The run's provider among the manifest's.
@@ -81,14 +80,10 @@ impl Vagrant {
             provider: String::new(),
             reason: "a Vagrant run needs a provider: pass one of the manifest's (`virtualbox`, `libvirt`, …)".into(),
         })?;
-        self.identity
-            .providers
-            .iter()
-            .find(|p| wire_name(&p.id) == asked)
-            .ok_or_else(|| Error::Provider {
-                provider: asked.to_owned(),
-                reason: "isn't one of this run's providers".into(),
-            })
+        self.identity.providers.iter().find(|p| cx.scope.runs_on(p.id)).ok_or_else(|| Error::Provider {
+            provider: asked.to_owned(),
+            reason: "isn't one of this run's providers".into(),
+        })
     }
 
     /// `vagrant <args>` for the step `id`, in the manifest's folder, with the state folder, what

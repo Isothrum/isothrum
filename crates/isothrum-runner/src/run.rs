@@ -255,7 +255,7 @@ impl<'r> Running<'r> {
         let config = &self.runner.config;
         let vagrant = self.manifest().driver == isoloom_manifest::Driver::Vagrant;
         let params = cx.vars.params();
-        let Some((host, port)) = crate::relay::esxi_host(config.host == isoloom_manifest::HostOs::Macos, vagrant, cx.scope.provider.as_deref(), params)? else {
+        let Some((host, port)) = crate::relay::esxi_host(&cx.scope, vagrant, params)? else {
             return Ok(());
         };
         let no_proxy = config.host_env.get("no_proxy").or_else(|| config.host_env.get("NO_PROXY"));
@@ -279,10 +279,7 @@ impl<'r> Running<'r> {
 
     /// This host, with `provider`.
     pub(crate) fn scope(&self, provider: Option<String>) -> Scope {
-        Scope {
-            host: self.runner.config.host,
-            provider,
-        }
+        Scope::new(self.runner.config.host, provider)
     }
 
     /// Reads what the engine gives back (published ports, outputs) and binds it, so a template

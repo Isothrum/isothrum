@@ -82,10 +82,7 @@ mod tests {
     use crate::testing::docker_manifest;
 
     fn scope() -> Scope {
-        Scope {
-            host: HostOs::Linux,
-            provider: None,
-        }
+        Scope::new(HostOs::Linux, None)
     }
 
     fn given(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {

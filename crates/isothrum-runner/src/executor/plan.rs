@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use isoloom_manifest::{Argv, HostArgv, HostOs, Step};
 
-use crate::encoding::wire_name;
 use crate::scope::Scope;
 use crate::vars::Vars;
 use crate::{Error, Result};
@@ -58,11 +57,7 @@ pub(crate) fn limit(step: &Step, scope: &Scope) -> Duration {
 
 /// [`limit`], `fallback` when the manifest gives the step none: an action's own default.
 pub(crate) fn limit_or(step: &Step, scope: &Scope, fallback: Duration) -> Duration {
-    let on_provider = step
-        .provider_timeout_s
-        .iter()
-        .find(|(p, _)| scope.provider.as_deref() == Some(wire_name(*p).as_str()))
-        .map(|(_, limit)| *limit);
+    let on_provider = scope.known_provider().and_then(|p| step.provider_timeout_s.get(&p).copied());
     on_provider
         .or(step.timeout_s)
         .map_or(fallback, |limit| Duration::from_secs(u64::from(limit.get())))
@@ -106,10 +101,7 @@ mod tests {
     }
 
     fn scope(host: HostOs, provider: Option<&str>) -> Scope {
-        Scope {
-            host,
-            provider: provider.map(str::to_owned),
-        }
+        Scope::new(host, provider.map(str::to_owned))
     }
 
     #[test]
