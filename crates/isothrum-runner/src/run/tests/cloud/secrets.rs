@@ -75,6 +75,22 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     );
 }
 
+/// Regression: a delivery whose machine never answered over SSH failed with `tool_failed` and
+/// ssh's complaint, where an `ssh.run` step whose host never answers fails with `unreachable`.
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_never_answers_its_delivery_fails_it_as_unreachable() {
+    let a = account_of(SOLO_WEB_AWS, 0);
+    a.cloud.unreachable.store(u32::MAX, Ordering::SeqCst);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Unreachable, "{err}");
+    let text = err.to_string();
+    assert!(
+        text.contains("guest-web") && text.contains(&format!("admin@{PUBLIC}")) && text.contains("900s") && text.contains("Connection refused"),
+        "{text}"
+    );
+}
+
 /// A delivery to a machine whose address no output gives can't happen: the manifest promised an
 /// `address_<machine>` output it doesn't have (`manifest_invalid`), and nothing is sent.
 #[tokio::test(start_paused = true)]
@@ -141,16 +157,6 @@ async fn a_machine_still_booting_gets_its_secrets_once_ssh_answers() {
     run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1);
     assert_eq!(a.fake.calls().iter().filter(|c| c.line().contains("/var/lib/isoloom/secrets")).count(), 4);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_machine_that_never_answers_fails_the_delivery_after_its_patience() {
-    let a = account_of(SOLO_WEB_AWS, 0);
-    a.cloud.unreachable.store(u32::MAX, Ordering::SeqCst);
-    let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::ToolFailed);
-    assert!(err.to_string().contains("guest-web") && err.to_string().contains("Connection refused"), "{err}");
 }
 
 #[tokio::test(start_paused = true)]

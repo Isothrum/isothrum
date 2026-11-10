@@ -13,8 +13,8 @@
 //!   folder removed right after (a removal that fails, fails the step), or as soon as the
 //!   operation is cut short. A value is never on a command line nor in an event.
 //! - **Retries:** while SSH can't connect (exit 255, nothing printed: a machine still booting),
-//!   every [`ssh::RETRY`], for [`PATIENCE`] ([`ssh::Retrying`]); any other failure fails the
-//!   step.
+//!   every [`ssh::RETRY`], for [`PATIENCE`] ([`ssh::Retrying`]), then the step fails with
+//!   `unreachable`; any other failure fails the step at once.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -160,19 +160,23 @@ impl Drop for Input {
 }
 
 /// Pipes `input` into [`receive`], run as root at `login` for the step `id`: tried again while SSH
-/// can't connect, for [`PATIENCE`]; any other failure, or SSH still not connecting then, fails the
-/// step with why.
+/// can't connect, for [`PATIENCE`] ([`ssh::Retrying`], as an `ssh.run` step's); SSH still
+/// not connecting then fails the step with `unreachable`, any other failure with why.
 async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", crate::console::sh_quote(&receive())), Vec::new())?;
     spec.stdin = Some(input.to_path_buf());
-    let mut retrying = ssh::Retrying::until(deadline);
+    let wait = ssh::Wait {
+        limit: PATIENCE,
+        login: login.target.clone(),
+    };
+    let mut retrying = ssh::Retrying::new(&wait);
     let out = loop {
         let out = call(cx, id, &spec, TRY_LIMIT, Echo::Quiet).await?;
-        if !retrying.again(ssh::unreachable(out.exit, !out.stdout.is_empty()), || {}).await {
+        if !retrying.again(ssh::Try::unreachable(&out), || {}).await {
             break out;
         }
     };
+    let out = retrying.answered(cx, id, out)?;
     stdout_of(cx, id, None, &out).map(drop)
 }
 

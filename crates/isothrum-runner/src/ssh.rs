@@ -268,19 +268,28 @@ pub(crate) fn unreachable(exit: Exit, printed: bool) -> bool {
     exit.code == Some(UNREACHABLE) && !printed
 }
 
-/// Tries of a run of `ssh` until its host answers or a deadline passes: a host still booting.
+/// Tries of a run of `ssh` until its host answers or a wait is spent: a host still booting. The
+/// one rule for every run of `ssh` that waits (an `ssh.run` step's `wait_s`, the guest delivery):
+/// tried again while ssh can't connect ([`Retrying::again`]), then `unreachable` if it still
+/// can't ([`Retrying::answered`]).
 #[derive(Debug)]
-pub(crate) struct Retrying {
+pub(crate) struct Retrying<'w> {
+    /// The login and how long it waits.
+    wait: &'w Wait,
     /// When the tries stop.
     deadline: tokio::time::Instant,
     /// Whether a retry was made yet.
     retried: bool,
 }
 
-impl Retrying {
-    /// Tries until `deadline`.
-    pub(crate) fn until(deadline: tokio::time::Instant) -> Retrying {
-        Retrying { deadline, retried: false }
+impl<'w> Retrying<'w> {
+    /// Tries for `wait`'s limit, from now.
+    pub(crate) fn new(wait: &'w Wait) -> Retrying<'w> {
+        Retrying {
+            wait,
+            deadline: tokio::time::Instant::now() + wait.limit,
+            retried: false,
+        }
     }
 
     /// Whether to try again after a try that ssh couldn't connect for (`unreachable`, as
@@ -297,10 +306,46 @@ impl Retrying {
         tokio::time::sleep(RETRY).await;
         true
     }
+
+    /// `last`, the try [`Retrying::again`] stopped at, as `step`'s outcome.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unreachable`] when ssh still couldn't connect for it.
+    pub(crate) fn answered<T: Try>(&self, cx: &Cx<'_>, step: &str, last: T) -> Result<T> {
+        if last.unreachable() {
+            return Err(Error::Unreachable {
+                step: step.to_owned(),
+                login: self.wait.login.clone(),
+                after_s: self.wait.limit.as_secs(),
+                reason: cx.events.mask(last.said().trim()),
+            });
+        }
+        Ok(last)
+    }
 }
 
 /// The most an `ssh.run`'s `wait_s` may give: half an hour.
 const WAIT_MAX: u64 = 1800;
+
+/// A run of `ssh`, as [`Retrying`] reads it: whether ssh itself couldn't connect for it
+/// ([`unreachable()`]), and what ssh said on standard error.
+pub(crate) trait Try {
+    /// Whether ssh couldn't connect.
+    fn unreachable(&self) -> bool;
+    /// What it said on standard error.
+    fn said(&self) -> String;
+}
+
+impl Try for crate::process::Captured {
+    fn unreachable(&self) -> bool {
+        unreachable(self.exit, !self.stdout.is_empty())
+    }
+
+    fn said(&self) -> String {
+        self.stderr.join(" ")
+    }
+}
 
 /// How long an `ssh.run` waits for its host to answer, and the login it tries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,14 +404,20 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_unreachable_host_is_tried_again_every_retry_until_the_deadline() {
         let start = tokio::time::Instant::now();
-        let mut retrying = Retrying::until(start + RETRY * 2);
+        let wait = |limit| Wait {
+            limit,
+            login: "root@web".to_owned(),
+        };
+        let two = wait(RETRY * 2);
+        let mut retrying = Retrying::new(&two);
         let mut said = 0;
         assert!(retrying.again(true, || said += 1).await);
         assert!(retrying.again(true, || said += 1).await);
         assert_eq!(start.elapsed(), RETRY * 2, "each retry after RETRY");
         assert!(!retrying.again(true, || said += 1).await, "not past the deadline");
         assert_eq!(said, 1, "said once, before the first retry");
-        let mut connected = Retrying::until(start + RETRY * 10);
+        let ten = wait(RETRY * 10);
+        let mut connected = Retrying::new(&ten);
         assert!(
             !connected.again(false, || panic!("nothing to say")).await,
             "a try that connected is the outcome"

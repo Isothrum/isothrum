@@ -346,7 +346,8 @@ pub enum Error {
         /// How many runs hold a slot there.
         held: usize,
     },
-    /// A machine a step goes to over SSH never answered within the step's `wait_s`.
+    /// A machine a step goes to over SSH never answered within the step's `wait_s` (a guest
+    /// delivery's: 15 minutes).
     #[error("step `{step}`: {login} didn't answer over SSH within {after_s}s: {reason}")]
     Unreachable {
         /// The step.
