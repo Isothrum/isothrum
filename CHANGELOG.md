@@ -239,6 +239,11 @@ change.
   VLANs under the network of that name, which a cable then took over: the VLANs vanished from the
   spec. It is now refused as a LAN of that name is (`Error::ReservedName`).
 
+- **A Windows starter opens each port on its transport.** The PowerShell starter took a port's
+  number alone: a UDP port got a TCP firewall rule, a number drawn for TCP and UDP got the same
+  rule twice, and a machine with only 443 was told IIS was for port 80. Each rule now has its
+  port's transport (`project-53-udp`), and IIS's line names the web ports drawn.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

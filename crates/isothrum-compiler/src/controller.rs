@@ -19,19 +19,12 @@ impl From<&ControllerPlaybook> for ProvisionDoc {
     }
 }
 
-/// A controller playbook's starter: it sets up its own machine, over WinRM.
-pub(crate) fn starter(machine: &str) -> String {
-    format!(
-        "# Starter playbook for `{machine}`, run from Isoloom's controller over WinRM, written by Isothrum: edit it to build your project.\n- hosts: {machine}\n  tasks:\n    - name: The machine answers\n      ansible.windows.win_ping:\n"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_controller_playbook_is_a_provision_step_and_its_starter_sets_up_its_machine() {
+    fn a_controller_playbook_is_a_provision_step() {
         let p = ControllerPlaybook {
             path: "provision/dc01.yml".into(),
             machine: "dc01".into(),
@@ -42,9 +35,5 @@ mod tests {
                 ansible: "provision/dc01.yml".into()
             }
         );
-        let starter = starter("dc01");
-        assert!(starter.contains("\n- hosts: dc01\n"), "{starter}");
-        assert!(starter.contains("ansible.windows.win_ping:"), "{starter}");
-        assert!(!starter.contains("become"), "WinRM has no sudo: {starter}");
     }
 }

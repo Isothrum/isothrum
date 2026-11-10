@@ -16,7 +16,7 @@ use isoloom_spec::syntax::{Machine, Octets, OsRef, Step};
 use isoloom_spec::validate::Cidr;
 
 use crate::ProjectFile;
-use crate::controller::{self, ControllerPlaybook};
+use crate::controller::ControllerPlaybook;
 use packages::{Family, PACKAGES, install, start, wanted};
 
 /// Adds to `files` one starter per provisioning step, the machines' own then the controller's:
@@ -30,14 +30,14 @@ pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller
             let (path, contents) = match step {
                 Step::Run { script, .. } if is_ps1(script.as_str()) => (script.as_str(), powershell(spec, name, m, os)),
                 Step::Run { script, .. } => (script.as_str(), shell(spec, name, m, os)),
-                Step::Playbook(file) => (file.as_str(), playbook(name)),
+                Step::Playbook(file) => (file.as_str(), playbook(name, PlaybookOn::Machine)),
                 _ => continue,
             };
             add(files, path, contents);
         }
     }
     for p in controller {
-        add(files, &p.path, controller::starter(&p.machine));
+        add(files, &p.path, playbook(&p.machine, PlaybookOn::Controller));
     }
 }
 
@@ -57,9 +57,28 @@ fn is_ps1(path: &str) -> bool {
     std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("ps1"))
 }
 
-/// The machine's ports, by number.
+/// The machine's ports, by number, each once (a TCP and a UDP port may share one).
 fn ports(m: &Machine) -> Vec<u16> {
-    m.ports.values().filter_map(|p| p.port).map(std::num::NonZeroU16::get).collect()
+    let mut out: Vec<u16> = Vec::new();
+    for (port, _) in transports(m) {
+        if !out.contains(&port) {
+            out.push(port);
+        }
+    }
+    out
+}
+
+/// The machine's ports, by number and transport (`TCP`, `UDP`), each once.
+fn transports(m: &Machine) -> Vec<(u16, &'static str)> {
+    let mut out: Vec<(u16, &'static str)> = Vec::new();
+    for p in m.ports.values() {
+        let Some(port) = p.port else { continue };
+        let found = (port.get(), if p.protocol.is_tcp() { "TCP" } else { "UDP" });
+        if !out.contains(&found) {
+            out.push(found);
+        }
+    }
+    out
 }
 
 /// The machine's addresses, as `10.10.1.12 (lan)`.
@@ -140,20 +159,30 @@ fn header(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> Vec<String> {
     lines
 }
 
-/// A Windows step's script: IIS for a web port, a firewall rule for each other port.
+/// The TCP ports IIS answers on, once installed (443 once a certificate is bound).
+const WEB_PORTS: [u16; 2] = [80, 443];
+
+/// A Windows step's script: IIS for its web ports, a firewall rule for each other port, on its
+/// own transport.
 fn powershell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
     let mut lines = header(spec, name, m, os);
     lines.push("$ErrorActionPreference = 'Stop'".to_owned());
     lines.push(String::new());
-    let ports = ports(m);
-    if ports.contains(&80) || ports.contains(&443) {
-        lines.push("# A web server (IIS) for port 80.".to_owned());
+    let ports = transports(m);
+    let is_web = |(port, transport): &(u16, &str)| *transport == "TCP" && WEB_PORTS.contains(port);
+    let web: Vec<String> = ports.iter().filter(|p| is_web(p)).map(|(port, _)| port.to_string()).collect();
+    if !web.is_empty() {
+        lines.push(format!("# A web server (IIS) for port {}.", web.join(" and ")));
         lines.push("Install-WindowsFeature -Name Web-Server -IncludeManagementTools".to_owned());
     }
-    for p in ports.iter().filter(|p| **p != 80 && **p != 443) {
-        lines.push(format!("# To do: install what answers on port {p}, then open it:"));
+    if web.iter().any(|p| p == "443") {
+        lines.push("# Port 443: IIS answers HTTPS once a certificate is bound to its site.".to_owned());
+    }
+    for (p, transport) in ports.iter().filter(|p| !is_web(p)) {
+        let lower = transport.to_lowercase();
+        lines.push(format!("# To do: install what answers on port {p}/{lower}, then open it:"));
         lines.push(format!(
-            "New-NetFirewallRule -DisplayName 'project-{p}' -Direction Inbound -Protocol TCP -LocalPort {p} -Action Allow"
+            "New-NetFirewallRule -DisplayName 'project-{p}-{lower}' -Direction Inbound -Protocol {transport} -LocalPort {p} -Action Allow"
         ));
     }
     if ports.is_empty() {
@@ -162,10 +191,23 @@ fn powershell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
     text(&lines)
 }
 
-/// An Ansible step's playbook.
-fn playbook(name: &str) -> String {
+/// Where an Ansible step's playbook runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaybookOn {
+    /// On its machine, as root (`hosts: all`, `become`).
+    Machine,
+    /// From Isoloom's controller, over WinRM (`hosts: <machine>`; WinRM has no `become`).
+    Controller,
+}
+
+/// The starter playbook that sets up `machine`, run `on` its machine or from the controller.
+fn playbook(machine: &str, on: PlaybookOn) -> String {
+    let (from, hosts, become_, ping) = match on {
+        PlaybookOn::Machine => ("", "all", "  become: true\n", "ansible.builtin.ping"),
+        PlaybookOn::Controller => (", run from Isoloom's controller over WinRM", machine, "", "ansible.windows.win_ping"),
+    };
     format!(
-        "# Starter playbook for `{name}`, written by Isothrum: edit it to build your project.\n- hosts: all\n  become: true\n  tasks:\n    - name: The machine answers\n      ansible.builtin.ping:\n"
+        "# Starter playbook for `{machine}`{from}, written by Isothrum: edit it to build your project.\n- hosts: {hosts}\n{become_}  tasks:\n    - name: The machine answers\n      {ping}:\n"
     )
 }
 

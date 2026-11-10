@@ -77,16 +77,53 @@ fn windows_and_ansible_get_their_own_templates() {
     assert!(win.contains("$ErrorActionPreference = 'Stop'\n"), "{win}");
     assert!(win.contains("Install-WindowsFeature -Name Web-Server"), "{win}");
     assert!(
-        win.contains("New-NetFirewallRule -DisplayName 'project-8443' -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow"),
+        win.contains("New-NetFirewallRule -DisplayName 'project-8443-tcp' -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow"),
         "{win}"
     );
-    assert!(!win.contains("project-80'"), "IIS opens its own port: {win}");
+    assert!(win.contains("# A web server (IIS) for port 80.\n"), "{win}");
+    assert!(!win.contains("project-80-"), "IIS opens its own port: {win}");
     let web = &files[1].contents;
     assert!(
         web.starts_with("# Starter playbook for `web`") && web.contains("- hosts: all\n  become: true\n"),
         "{web}"
     );
     assert!(web.contains("ansible.builtin.ping"), "{web}");
+}
+
+/// A Windows starter opens each port on its own transport, once, and says which web ports IIS
+/// is for.
+#[test]
+fn a_windows_starter_opens_each_port_on_its_transport() {
+    let win = &starters_of(&project(
+        "  win:\n    os: windows-server@2022\n    networks: { lan: 10 }\n    ports:\n      https: { port: 443, protocol: https }\n      dns: { port: 53, protocol: udp }\n      dns-tcp: 53\n      syslog: { port: 514, protocol: udp }\n    app: { steps: [{ run: provision/win.ps1 }] }\n",
+    ))[0]
+        .contents;
+    assert!(win.contains("# A web server (IIS) for port 443.\n"), "only the web port drawn: {win}");
+    assert!(
+        win.contains("# Port 443: IIS answers HTTPS once a certificate is bound to its site.\n"),
+        "{win}"
+    );
+    let rules: Vec<&str> = win.lines().filter(|l| l.starts_with("New-NetFirewallRule")).collect();
+    assert_eq!(
+        rules,
+        [
+            "New-NetFirewallRule -DisplayName 'project-53-udp' -Direction Inbound -Protocol UDP -LocalPort 53 -Action Allow",
+            "New-NetFirewallRule -DisplayName 'project-53-tcp' -Direction Inbound -Protocol TCP -LocalPort 53 -Action Allow",
+            "New-NetFirewallRule -DisplayName 'project-514-udp' -Direction Inbound -Protocol UDP -LocalPort 514 -Action Allow",
+        ]
+    );
+}
+
+#[test]
+fn a_controller_playbook_sets_up_its_machine_over_winrm() {
+    let starter = playbook("dc01", PlaybookOn::Controller);
+    assert!(
+        starter.starts_with("# Starter playbook for `dc01`, run from Isoloom's controller over WinRM, written by Isothrum"),
+        "{starter}"
+    );
+    assert!(starter.contains("\n- hosts: dc01\n  tasks:\n"), "{starter}");
+    assert!(starter.contains("ansible.windows.win_ping:"), "{starter}");
+    assert!(!starter.contains("become"), "WinRM has no sudo: {starter}");
 }
 
 #[test]
