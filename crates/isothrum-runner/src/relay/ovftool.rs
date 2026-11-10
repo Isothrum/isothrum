@@ -49,7 +49,7 @@ pub(super) fn text(value: OsString, what: &str) -> io::Result<String> {
 /// A folder under `home` holding the wrapper as `ovftool` (written when missing or changed), to
 /// put first on `PATH`.
 pub(super) fn wrapper_dir(home: &Path) -> std::io::Result<PathBuf> {
-    let dir = home.join("relay");
+    let dir = super::dir(home);
     crate::store::private_dir(&dir)?;
     let f = dir.join("ovftool");
     if std::fs::read_to_string(&f).ok().as_deref() != Some(WRAPPER) {

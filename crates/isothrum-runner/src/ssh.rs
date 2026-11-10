@@ -39,9 +39,14 @@ const KEYGEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 /// The id a failure to make the key reads as.
 const KEY_STEP: &str = "ssh-key";
 
+/// The runner's SSH folder under `home`: its key, which a tool run from an image mounts.
+pub(crate) fn dir(home: &Path) -> PathBuf {
+    home.join("ssh")
+}
+
 /// The runner's private key: `<home>/ssh/id_ed25519`.
 pub(crate) fn key_path(home: &Path) -> PathBuf {
-    home.join("ssh").join(KEY_FILE)
+    dir(home).join(KEY_FILE)
 }
 
 /// The public half of the runner's key, one line, when it exists.
@@ -61,7 +66,7 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
     if let Some(key) = public_key(home)? {
         return Ok(key);
     }
-    let dir = home.join("ssh");
+    let dir = dir(home);
     crate::store::private_dir(&dir).map_err(Error::io(&dir, "created"))?;
     let path = key_path(home);
     let spec = ProcessSpec::new(

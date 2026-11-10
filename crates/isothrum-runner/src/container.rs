@@ -48,7 +48,7 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
     let mounts = mounts(&[
         run_root(cx.run.dir()),
         &state,
-        &home.join("ssh"),
+        &crate::ssh::dir(home),
         &crate::driver::plugin_cache(&cx.run.runner.config),
     ]);
     let network = HostNetwork::read(&cx.run.runner.config.host_env);

@@ -14,7 +14,7 @@ mod http_proxy;
 mod ovftool;
 
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -172,6 +172,11 @@ pub(crate) fn esxi_host<'a>(
         })?,
     };
     Ok(Some((host, port)))
+}
+
+/// The runner's relay folder under `home`: the ovftool wrapper.
+pub(crate) fn dir(home: &Path) -> PathBuf {
+    home.join("relay")
 }
 
 /// The relays to ESXi host `host` (its SSH on `ssh_port`, its HTTPS, WinRM to its guests), and
