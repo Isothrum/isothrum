@@ -77,12 +77,20 @@ pub(super) fn uses_engine(program: &str) -> bool {
 /// Whether the inherited engine overrides go: only when the user picked a context of their own
 /// (`currentContext` in the CLI config, not `default`). Without one, an inherited `DOCKER_HOST` is
 /// how the user reaches their engine (rootless Docker sets it), and stripping it pointed the CLI
-/// at the root daemon.
+/// at the root daemon. A config that isn't JSON says no context, and is traced.
 pub(super) fn strips_engine_overrides(cli_config: Option<&str>) -> bool {
-    cli_config
-        .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
-        .and_then(|v| v.get("currentContext").and_then(|c| c.as_str()).map(|c| !c.is_empty() && c != "default"))
-        .unwrap_or(false)
+    let Some(config) = cli_config else { return false };
+    let config: serde_json::Value = match serde_json::from_str(config) {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!(error = %e, "the Docker CLI's config isn't JSON: DOCKER_HOST and DOCKER_CONTEXT are kept for docker");
+            return false;
+        }
+    };
+    config
+        .get("currentContext")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| !c.is_empty() && c != "default")
 }
 
 #[cfg(test)]

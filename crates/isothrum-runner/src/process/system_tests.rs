@@ -250,3 +250,27 @@ fn a_docker_config_that_isnt_utf8_is_still_the_one_read() {
     let read = SystemProcesses::for_host(|v| (v == "DOCKER_CONFIG").then(|| elsewhere.clone()), Some(home.path()));
     assert!(!read.strip_engine_overrides, "the home's config isn't the one DOCKER_CONFIG names");
 }
+
+/// A Docker CLI config that is there but can't be read, or isn't JSON, read as "no context
+/// picked" without a word: the inherited `DOCKER_HOST` stayed, and nothing said why.
+#[tokio::test]
+async fn a_docker_cli_config_that_cant_be_read_or_isnt_json_is_traced() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    let docker_config = dir.path().as_os_str().to_owned();
+    let read = || SystemProcesses::for_host(|v| (v == "DOCKER_CONFIG").then(|| docker_config.clone()), None);
+    let (none, quiet) = crate::testing::traced(async { read() }).await;
+    assert!(!none.strip_engine_overrides && quiet.is_empty(), "none there is fine: {quiet}");
+    std::fs::create_dir(&config).unwrap();
+    let (unreadable, traced) = crate::testing::traced(async { read() }).await;
+    assert!(!unreadable.strip_engine_overrides);
+    assert!(
+        traced.contains("WARN") && traced.contains("config couldn't be read") && traced.contains("config.json"),
+        "{traced}"
+    );
+    std::fs::remove_dir(&config).unwrap();
+    std::fs::write(&config, r#"{"currentContext": "colima""#).unwrap();
+    let (cut_short, not_json) = crate::testing::traced(async { read() }).await;
+    assert!(!cut_short.strip_engine_overrides);
+    assert!(not_json.contains("WARN") && not_json.contains("config isn't JSON"), "{not_json}");
+}

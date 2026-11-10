@@ -37,6 +37,9 @@ change.
 
 ### Fixed
 
+- **A Docker CLI config that can't be read, or isn't JSON, is traced.** It read as "no context
+  picked" without a word, so the inherited `DOCKER_HOST` and `DOCKER_CONTEXT` stayed with nothing
+  saying why. Only a config that isn't there is now taken for none, as everywhere else.
 - **A Vagrant start with no free host port left for an ephemeral port fails, as Compose's does.**
   It left the port out in silence, so the VM forwarded it at its `preferred` number, which a resume
   needn't get again; the QEMU helper VM's SSH forward fell back to 50022 the same way. Both

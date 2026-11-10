@@ -36,6 +36,20 @@ impl Default for SystemProcesses {
     }
 }
 
+/// The Docker CLI's config at `path`: none when there is none, and when it can't be read, which is
+/// traced (whether the user picked a context is then unknown, so the inherited engine variables
+/// stay).
+fn read_cli_config(path: &Path) -> Option<String> {
+    crate::store::if_there(std::fs::read_to_string(path)).unwrap_or_else(|e| {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "the Docker CLI's config couldn't be read: DOCKER_HOST and DOCKER_CONTEXT are kept for docker"
+        );
+        None
+    })
+}
+
 impl SystemProcesses {
     /// Real processes, the Docker CLI's config read from `$DOCKER_CONFIG/config.json`, else
     /// `<home>/.docker/config.json` (`var` reads the environment, `home` is the user's): it says
@@ -43,7 +57,7 @@ impl SystemProcesses {
     /// is a path like any other.
     fn for_host(var: impl Fn(&str) -> Option<std::ffi::OsString>, home: Option<&Path>) -> SystemProcesses {
         let dir = var("DOCKER_CONFIG").map(std::path::PathBuf::from).or_else(|| home.map(|h| h.join(".docker")));
-        let config = dir.and_then(|d| std::fs::read_to_string(d.join("config.json")).ok());
+        let config = dir.and_then(|d| read_cli_config(&d.join("config.json")));
         SystemProcesses {
             strip_engine_overrides: shim::strips_engine_overrides(config.as_deref()),
             stopping: Arc::new(Stopping::new(GRACE)),
