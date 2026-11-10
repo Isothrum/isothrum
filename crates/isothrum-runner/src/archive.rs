@@ -54,13 +54,13 @@ pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName,
 
 /// Writes the archive of the project at `root` to `out`, with the Isoloom outputs `outputs`.
 fn write(root: &Path, outputs: &[String], out: &Path) -> io::Result<()> {
-    let project = match std::fs::read_to_string(root.join(IGNORE_FILE)) {
+    let ignore_text = match std::fs::read_to_string(root.join(IGNORE_FILE)) {
         Ok(text) => text,
         Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
     let outputs: Vec<&str> = outputs.iter().map(String::as_str).collect();
-    let entries = entries(root, &Filter::new(&project, &outputs))?;
+    let entries = entries(root, &Filter::new(&ignore_text, &outputs))?;
     let part = out.with_file_name(format!("{ARCHIVE}.part"));
     let written = (|| {
         let file: File = crate::store::create_private(&part)?;
@@ -104,11 +104,11 @@ struct Filter {
 }
 
 impl Filter {
-    /// The filter of a project whose `.isoloomignore` reads `project` (empty without one), with
-    /// the Isoloom outputs `outputs`.
-    fn new(project: &str, outputs: &[&str]) -> Filter {
+    /// The filter of a project whose `.isoloomignore` reads `ignore_text` (empty without one),
+    /// with the Isoloom outputs `outputs`.
+    fn new(ignore_text: &str, outputs: &[&str]) -> Filter {
         Filter {
-            copy: Rules::for_copy(project, outputs),
+            copy: Rules::for_copy(ignore_text, outputs),
             never: Rules::parse(&never_copied().collect::<Vec<_>>().join("\n")),
         }
     }
@@ -136,9 +136,8 @@ fn entries(root: &Path, filter: &Filter) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     let mut pending: Vec<String> = vec![String::new()];
     while let Some(dir) = pending.pop() {
-        let mut names: Vec<String> = std::fs::read_dir(root.join(&dir))?
-            .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
-            .collect::<io::Result<_>>()?;
+        let here = root.join(&dir);
+        let mut names: Vec<String> = std::fs::read_dir(&here)?.map(|e| utf8_name(&here, e?.file_name())).collect::<io::Result<_>>()?;
         names.sort();
         let mut folders = Vec::new();
         for name in names {
@@ -156,6 +155,15 @@ fn entries(root: &Path, filter: &Filter) -> io::Result<Vec<String>> {
         pending.extend(folders.into_iter().rev());
     }
     Ok(out)
+}
+
+/// The name of an entry of `folder`, refused when it isn't UTF-8: the ignore rules read names as
+/// text, and a name made readable would name a path that isn't there.
+fn utf8_name(folder: &Path, name: std::ffi::OsString) -> io::Result<String> {
+    name.into_string().map_err(|name| {
+        let path = folder.join(name);
+        io::Error::new(io::ErrorKind::InvalidData, format!("{} has a name that isn't UTF-8", path.display()))
+    })
 }
 
 /// Removes the run's archive once the run is down: nothing is left to copy it to.
