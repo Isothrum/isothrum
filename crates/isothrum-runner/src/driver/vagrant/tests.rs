@@ -43,6 +43,8 @@ struct Engine {
     halt_fails: Option<&'static str>,
     /// The controller powers itself off before `vagrant halt` (ESXi refuses that halt).
     esxi_off_before_halt: bool,
+    /// How long `vagrant halt <controller>` takes.
+    halt_delay: std::time::Duration,
     /// The VMs a regenerated Vagrantfile defines beyond the fixture's, which `vagrant up` brings up.
     added: Vec<String>,
 }
@@ -250,7 +252,7 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
                 return Reply::fail(1, "SSH connection was refused! This usually happens if the VM failed to\nboot properly.");
             }
             e.states.insert((*vm).to_owned(), "poweroff".into());
-            Reply::ok(&format!("==> {vm}: Attempting graceful shutdown of VM..."))
+            Reply::ok(&format!("==> {vm}: Attempting graceful shutdown of VM...")).after(e.halt_delay)
         }
         // Every VM, or those named (Isoloom suspends the environment's own, not the controller).
         [verb @ ("halt" | "suspend"), vms @ ..] => {
@@ -566,6 +568,31 @@ async fn on_esxi_a_controller_already_off_is_halted_without_an_error_in_the_log(
         "no wait for a controller ESXi says is off: {:?}",
         f.fake.lines()
     );
+}
+
+/// Regression: the controller's halt took the step's `timeout_s`, never its limit on the run's
+/// provider, so a slow ESXi halt was cut short at the generic limit.
+#[tokio::test(start_paused = true)]
+async fn the_controllers_halt_takes_the_steps_limit_on_the_runs_provider() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
+    for step in m["lifecycle"]["up"].as_array_mut().unwrap() {
+        if step["id"] == "park-controller" {
+            step["timeout_s"] = 10.into();
+            step["provider_timeout_s"] = serde_json::json!({"vmware_esxi": 600});
+        }
+    }
+    let f = fixture_from(HostOs::Linux, &m.to_string());
+    {
+        let mut e = f.engine();
+        e.plugins.push("vagrant-vmware-esxi".into());
+        e.halt_delay = std::time::Duration::from_secs(60);
+    }
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    run.up(&on_esxi(esxi_secrets()), &events).await.unwrap();
+    let said = serde_json::to_string(&events.events()).unwrap();
+    assert!(!said.contains("step_tolerated"), "{said}");
+    assert_eq!(f.state(CONTROLLER), "poweroff");
 }
 
 #[tokio::test]

@@ -2,6 +2,8 @@
 //! provider, and a command step's program and arguments for this host, its placeholders filled
 //! from the operation's values. Nothing here runs a tool: the executor runs what it plans.
 
+use std::time::Duration;
+
 use isoloom_manifest::{Argv, HostArgv, HostOs, Step};
 
 use crate::encoding::wire_name;
@@ -46,17 +48,24 @@ pub(crate) fn command(argv: &HostArgv, host: HostOs, vars: &Vars, at: &str) -> R
 }
 
 /// How long a step the manifest gives no time limit may run: every external call has a limit.
-const DEFAULT_TIMEOUT_S: u64 = 3600;
+const DEFAULT_LIMIT: Duration = Duration::from_secs(3600);
 
-/// How long `step` may run in `scope`, in seconds: its own limit on the run's provider when it
-/// has one there (`provider_timeout_s`), else its `timeout_s`, else an hour.
-pub(crate) fn limit_s(step: &Step, scope: &Scope) -> u64 {
+/// How long `step` may run in `scope`: its own limit on the run's provider when it has one there
+/// (`provider_timeout_s`), else its `timeout_s`, else an hour.
+pub(crate) fn limit(step: &Step, scope: &Scope) -> Duration {
+    limit_or(step, scope, DEFAULT_LIMIT)
+}
+
+/// [`limit`], `fallback` when the manifest gives the step none: an action's own default.
+pub(crate) fn limit_or(step: &Step, scope: &Scope, fallback: Duration) -> Duration {
     let on_provider = step
         .provider_timeout_s
         .iter()
         .find(|(p, _)| scope.provider.as_deref() == Some(wire_name(*p).as_str()))
         .map(|(_, limit)| *limit);
-    on_provider.or(step.timeout_s).map_or(DEFAULT_TIMEOUT_S, |limit| u64::from(limit.get()))
+    on_provider
+        .or(step.timeout_s)
+        .map_or(fallback, |limit| Duration::from_secs(u64::from(limit.get())))
 }
 
 /// Every argv of `argv`, whatever the host: the one argv, or each host's and the default.
@@ -106,11 +115,12 @@ mod tests {
     #[test]
     fn a_providers_own_time_limit_is_picked_by_the_runs_scope() {
         let status = step(r#"{"id": "status", "argv": ["vagrant", "status"], "timeout_s": 25, "provider_timeout_s": {"vmware_esxi": 120}}"#);
-        assert_eq!(limit_s(&status, &scope(HostOs::Macos, Some("vmware_esxi"))), 120);
-        assert_eq!(limit_s(&status, &scope(HostOs::Macos, Some("virtualbox"))), 25);
-        assert_eq!(limit_s(&status, &scope(HostOs::Macos, None)), 25);
+        let secs = |step: &Step, provider: Option<&str>| limit(step, &scope(HostOs::Macos, provider)).as_secs();
+        assert_eq!(secs(&status, Some("vmware_esxi")), 120);
+        assert_eq!(secs(&status, Some("virtualbox")), 25);
+        assert_eq!(secs(&status, None), 25);
         let bare = step(r#"{"id": "s", "argv": ["vagrant", "status"]}"#);
-        assert_eq!(limit_s(&bare, &scope(HostOs::Macos, Some("vmware_esxi"))), DEFAULT_TIMEOUT_S);
+        assert_eq!(limit(&bare, &scope(HostOs::Macos, Some("vmware_esxi"))), DEFAULT_LIMIT);
     }
 
     #[test]

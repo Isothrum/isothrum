@@ -236,7 +236,7 @@ pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String
 /// `run` given up once it shows no progress for `step`'s time limit in `scope`, or at the
 /// ceiling ([`within`]); `progress` is fed by its line handler.
 async fn timed<T>(step: &Step, scope: &Scope, progress: &Progress, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
-    within(step.id.as_str(), Duration::from_secs(plan::limit_s(step, scope)), progress, run).await
+    within(step.id.as_str(), plan::limit(step, scope), progress, run).await
 }
 
 /// A tool that couldn't run to its end, as step `step`'s failure.

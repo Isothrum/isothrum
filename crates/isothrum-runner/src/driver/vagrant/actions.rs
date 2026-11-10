@@ -13,7 +13,7 @@ use super::{READ_LIMIT, Vagrant};
 use crate::Result;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
-use crate::executor::{Cx, Echo, call, call_ok};
+use crate::executor::{Cx, Echo, call, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
 
 /// How long the clean-up destroy of a record on another provider may go without progress (as
@@ -169,7 +169,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
         }
         tokio::time::sleep(Duration::from_secs(2).min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
     }
-    let limit = step.timeout_s.map_or(BOOT_LIMIT, |s| Duration::from_secs(u64::from(s.get())));
+    let limit = plan::limit_or(step, &cx.scope, BOOT_LIMIT);
     let up = v.vagrant(cx, id, &["up", &machine, "--no-provision"])?;
     call_ok(cx, id, &up, limit, Echo::Shown).await.map(drop)
 }
@@ -196,7 +196,7 @@ const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the c
 pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
     let machine = controller(cx, with)?;
-    let limit = step.timeout_s.map_or(HALT_LIMIT, |s| Duration::from_secs(u64::from(s.get())));
+    let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
     let halt = call(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
     if !halted && already_off(&halt) {
