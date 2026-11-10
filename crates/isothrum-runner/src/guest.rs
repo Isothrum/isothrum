@@ -12,8 +12,9 @@
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
 //!   folder removed right after (a removal that fails, fails the step), or as soon as the
 //!   operation is cut short. A value is never on a command line nor in an event.
-//! - **Retries:** while SSH can't connect (exit 255: a machine still booting), every
-//!   [`RETRY`], for [`PATIENCE`]; any other failure fails the step.
+//! - **Retries:** while SSH can't connect (exit 255, nothing printed: a machine still booting),
+//!   every [`ssh::RETRY`], for [`PATIENCE`] ([`ssh::Retrying`]); any other failure fails the
+//!   step.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
 use crate::error::Error;
-use crate::executor::{Cx, Echo, call};
+use crate::executor::{Cx, Echo, call, stdout_of};
 use crate::secrets::SecretValue;
 use crate::ssh::{self, Login};
 
@@ -36,12 +37,8 @@ printf %s \"$v\" | base64 -d > \"$d/$n.new\"; mv -f \"$d/$n.new\" \"$d/$n\"; don
 
 /// How long SSH may fail to connect before the delivery fails.
 const PATIENCE: Duration = Duration::from_secs(900);
-/// How long between two tries.
-const RETRY: Duration = Duration::from_secs(5);
 /// How long one try may go without progress (as every tool call's limit counts).
 const TRY_LIMIT: Duration = Duration::from_secs(120);
-/// SSH's own exit code when it couldn't connect (the command never ran).
-const SSH_UNREACHABLE: i32 = 255;
 
 /// Delivers to each machine the slots whose guest delivery waits for step `after` (`None`: for the
 /// end of `up`'s steps).
@@ -107,7 +104,7 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
         .stepped(&id, Some(&note), async {
             let dir = cx.run.runner.store.run_dir(cx.run.name())?;
             let input = Input::write(dir.join(format!("{id}.in")), lines)?;
-            let done = tries(cx, &id, login, input.path()).await;
+            let done = deliver_retrying(cx, &id, login, input.path()).await;
             // The file holds the values: one left behind fails the delivery, unless it failed
             // already (that error stands; the next delivery writes the file again).
             let removed = input.remove();
@@ -158,23 +155,21 @@ impl Drop for Input {
     }
 }
 
-async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
+/// Pipes `input` into [`RECEIVE`], run as root at `login` for the step `id`: tried again while SSH
+/// can't connect, for [`PATIENCE`]; any other failure, or SSH still not connecting then, fails the
+/// step with why.
+async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    loop {
-        let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(RECEIVE)), Vec::new())?;
-        spec.stdin = Some(input.to_path_buf());
+    let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(RECEIVE)), Vec::new())?;
+    spec.stdin = Some(input.to_path_buf());
+    let mut retrying = ssh::Retrying::until(deadline);
+    let out = loop {
         let out = call(cx, id, &spec, TRY_LIMIT, Echo::Quiet).await?;
-        match out.exit.code {
-            Some(0) => return Ok(()),
-            Some(SSH_UNREACHABLE) if tokio::time::Instant::now() < deadline => tokio::time::sleep(RETRY).await,
-            _ => {
-                return Err(Error::ToolFailed {
-                    step: id.to_owned(),
-                    reason: cx.events.mask(&out.reason()),
-                });
-            }
+        if !retrying.again(ssh::unreachable(out.exit, !out.stdout.is_empty()), || {}).await {
+            break out;
         }
-    }
+    };
+    stdout_of(cx, id, None, &out).map(drop)
 }
 
 #[cfg(test)]
