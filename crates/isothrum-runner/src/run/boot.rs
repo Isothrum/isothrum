@@ -12,11 +12,10 @@
 use std::collections::BTreeMap;
 
 use isoloom_manifest::{Machine, Manifest, Native};
-use tracing::Instrument;
 
 use super::Running;
 use crate::Result;
-use crate::driver::{AnyDriver, Observed};
+use crate::driver::Observed;
 use crate::executor::Cx;
 use crate::status::MachineState;
 
@@ -26,14 +25,10 @@ impl Running<'_> {
     /// failure stops the rest. Only a Vagrant run's VMs carry a boot digest: another driver's run
     /// has nothing to restart.
     pub(super) async fn reload_changed(&self, cx: &Cx<'_>, recorded: &BTreeMap<String, String>, observed: &Observed) -> Result<()> {
-        let AnyDriver::Vagrant(vagrant) = &self.driver else {
-            return Ok(());
-        };
         for vm in changed_at_boot(self.manifest(), recorded, observed) {
             let id = format!("reload-{}", vm.name);
             let note = format!("Restarting {} to apply its new settings…", vm.name);
-            let span = tracing::debug_span!("driver", driver = "vagrant", op = %cx.events.op(), machine = %vm.name);
-            cx.events.stepped(&id, Some(&note), vagrant.reload(cx, vm, &id).instrument(span)).await?;
+            cx.events.stepped(&id, Some(&note), self.driver.restart(cx, vm, &id)).await?;
         }
         Ok(())
     }

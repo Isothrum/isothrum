@@ -130,6 +130,11 @@ impl Driver for Terraform {
         FORGOTTEN.iter().try_for_each(|f| remove(&state_dir.join(f)))
     }
 
+    /// Nothing: a module's machine carries no boot digest; the update's apply changes it.
+    fn restart(&self, _cx: &Cx<'_>, _machine: &Machine, _id: &str) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
     /// Refused: the module makes every machine it has at `up`, none is brought up later.
     fn attach(&self, _cx: &Cx<'_>, _machine: &Machine, _image: Option<&str>, _network: Option<&str>) -> impl Future<Output = Result<()>> {
         std::future::ready(Err(on_demand("hot-adding")))

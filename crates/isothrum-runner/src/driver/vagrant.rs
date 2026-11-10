@@ -115,15 +115,6 @@ impl Vagrant {
         Ok(spec)
     }
 
-    /// `machine`'s VM restarted as step `id` (`vagrant reload <define> --no-provision`), so it
-    /// boots with what the Vagrantfile now says: its synced folders, networks, forwarded ports,
-    /// size and provider settings, which Vagrant applies only at boot. Its provisioners are left
-    /// to the steps that follow.
-    pub(crate) async fn reload(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
-        let spec = self.vagrant(cx, id, &["reload", define_of(machine, "restarting")?, "--no-provision"])?;
-        call_ok(cx, id, &spec, RELOAD_TIMEOUT, Echo::Shown).await.map(drop)
-    }
-
     /// The address of each running VM that publishes a port, or that Compose runs in, by define
     /// name, as `vagrant ssh-config` gives it (ESXi forwards no port: the user reaches the VM
     /// itself). A VM whose address can't be read is left out, and its ports with it.
@@ -227,6 +218,14 @@ impl Driver for Vagrant {
     fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {
         // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder.
         Ok(())
+    }
+
+    /// `vagrant reload <define> --no-provision`: the VM boots with what the Vagrantfile now says,
+    /// its synced folders, networks, forwarded ports, size and provider settings, which Vagrant
+    /// applies only at boot. Its provisioners are left to the steps that follow.
+    async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
+        let spec = self.vagrant(cx, id, &["reload", define_of(machine, "restarting")?, "--no-provision"])?;
+        call_ok(cx, id, &spec, RELOAD_TIMEOUT, Echo::Shown).await.map(drop)
     }
 
     /// Hot-adds the access machine, a VM the initial `up` left defined but `autostart: false`:

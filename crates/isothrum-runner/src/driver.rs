@@ -73,6 +73,10 @@ pub(crate) trait Driver {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
     /// Clears the run's state after a successful `down` (Compose: no pins left).
     fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
+    /// Restarts `machine`, running, as step `id`, so it boots with the settings its engine
+    /// applies only at boot (an update, when its boot digest changed: [`Native::Vagrant`]'s
+    /// `boot_digest`). Nothing for a driver whose machines carry no boot digest.
+    async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()>;
     /// Hot-adds `machine`, an on-demand access machine the initial `up` left down, into the
     /// running run: brought up with the picked `image`, else its baked default, and joined to the
     /// network whose native name is `network` when one is given. Refused where the driver can't.
@@ -218,6 +222,15 @@ impl AnyDriver {
             AnyDriver::Compose(d) => d.after_down(cx),
             AnyDriver::Vagrant(d) => d.after_down(cx),
             AnyDriver::Terraform(d) => d.after_down(cx),
+        }
+    }
+
+    pub(crate) async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = %cx.events.op(), machine = %machine.name);
+        match self {
+            AnyDriver::Compose(d) => d.restart(cx, machine, id).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.restart(cx, machine, id).instrument(span).await,
+            AnyDriver::Terraform(d) => d.restart(cx, machine, id).instrument(span).await,
         }
     }
 

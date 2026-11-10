@@ -141,6 +141,11 @@ impl Driver for Compose {
         Ok(())
     }
 
+    /// Nothing: a service carries no boot digest; `up`'s steps recreate a changed one.
+    fn restart(&self, _cx: &Cx<'_>, _machine: &Machine, _id: &str) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
     /// Hot-adds the access service through its Compose `access` profile
     /// ([`Compose::attach_profile`]).
     async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
