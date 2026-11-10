@@ -1,5 +1,6 @@
 //! The way into a machine as the embedder runs it: [`ShellCommand`], the command that opens a
-//! console there, and the one line a POSIX shell runs it from.
+//! console there, and the one line a POSIX shell runs it from, its words quoted as a POSIX shell
+//! reads them back ([`sh_quote`], which every script the runner writes for a shell uses).
 
 use std::path::PathBuf;
 
@@ -64,13 +65,31 @@ fn sh_word(word: &str) -> String {
     if !word.is_empty() && word.chars().all(plain) {
         word.to_owned()
     } else {
-        crate::ssh::sh_quote(word)
+        sh_quote(word)
     }
+}
+
+/// `s` single-quoted for a POSIX shell (`'` written `'\''`): a local terminal's line, a remote
+/// shell's command, a script's argument.
+pub(crate) fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
+
+    proptest! {
+        #[test]
+        fn a_quoted_word_reads_back_as_itself(s in ".{0,40}") {
+            // `'…'` with each `'` as `'\''`: undo it the way sh reads it.
+            let q = sh_quote(&s);
+            let inner = q.strip_prefix('\'').and_then(|q| q.strip_suffix('\'')).unwrap();
+            prop_assert_eq!(inner.replace(r"'\''", "'"), s);
+        }
+    }
 
     /// The line a shell is given splits back into the command: its folder, its variables, and
     /// each argument whole, whatever it holds.

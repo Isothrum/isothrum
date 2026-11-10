@@ -86,8 +86,8 @@ pub(crate) struct Wait {
 /// The remote command of one read: the file's first line, a mark, the log's tail; it succeeds
 /// whatever is missing, so only an SSH failure fails it.
 fn read_command(path: &str, log: Option<&str>) -> String {
-    let tail = log.map_or(String::new(), |l| format!("tail -n {LOG_TAIL} {} 2>/dev/null; ", ssh::sh_quote(l)));
-    format!("head -n 1 {} 2>/dev/null; echo {LOG_MARK}; {tail}true", ssh::sh_quote(path))
+    let tail = log.map_or(String::new(), |l| format!("tail -n {LOG_TAIL} {} 2>/dev/null; ", crate::console::sh_quote(l)));
+    format!("head -n 1 {} 2>/dev/null; echo {LOG_MARK}; {tail}true", crate::console::sh_quote(path))
 }
 
 /// A read's output as the file's first line and the log's non-empty lines.

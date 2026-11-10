@@ -340,11 +340,6 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
     }))
 }
 
-/// `s` single-quoted for the remote shell (`'` written `'\''`).
-pub(crate) fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -493,14 +488,6 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn a_quoted_word_reads_back_as_itself(s in ".{0,40}") {
-            // `'…'` with each `'` as `'\''`: undo it the way sh reads it.
-            let q = sh_quote(&s);
-            let inner = q.strip_prefix('\'').and_then(|q| q.strip_suffix('\'')).unwrap();
-            prop_assert_eq!(inner.replace(r"'\''", "'"), s);
-        }
-
         #[test]
         fn a_plain_login_never_starts_an_option(user in "[a-z][a-z0-9_]{0,8}", host in "[a-z0-9.-]{1,20}") {
             let l = Login::new(&user, &host, None, "");

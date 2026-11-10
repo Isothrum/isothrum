@@ -18,10 +18,10 @@ use isoloom_manifest::{Guest, Machine};
 
 use crate::Result;
 use crate::console::ShellCommand;
+use crate::console::sh_quote;
 use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_LIMIT, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
-use crate::ssh::sh_quote;
 use crate::status::{MachineState, MachineStatus};
 use crate::vars::PortKey;
 

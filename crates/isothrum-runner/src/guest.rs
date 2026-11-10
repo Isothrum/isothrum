@@ -165,7 +165,7 @@ impl Drop for Input {
 /// step with why.
 async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(&receive())), Vec::new())?;
+    let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", crate::console::sh_quote(&receive())), Vec::new())?;
     spec.stdin = Some(input.to_path_buf());
     let mut retrying = ssh::Retrying::until(deadline);
     let out = loop {
