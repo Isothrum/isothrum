@@ -109,7 +109,7 @@ mod tests {
         assert!(unformatted.is_empty(), "{unformatted:?}");
         assert_eq!(
             (outputs[0].name.as_str(), outputs[0].value.as_deref()),
-            ("web_portal", Some("http://127.0.0.1:41873/"))
+            ("web__portal", Some("http://127.0.0.1:41873/"))
         );
         bind(&mut vars, &outputs);
         assert_eq!(message(&m, &vars, &outputs).unwrap(), "The portal answers at http://localhost:41873/.\n");
@@ -123,6 +123,6 @@ mod tests {
         let read = read(&m, &vars, &BTreeMap::new(), &BTreeSet::new());
         assert_eq!((read.values[0].value.as_deref(), read.values[1].value.as_deref()), (None, Some("***")));
         let said: Vec<String> = read.unformatted.iter().map(ToString::to_string).collect();
-        assert_eq!(said, ["outputs.web_portal.format: `${outputs.token}` has no value in this operation"]);
+        assert_eq!(said, ["outputs.web__portal.format: `${outputs.token}` has no value in this operation"]);
     }
 }

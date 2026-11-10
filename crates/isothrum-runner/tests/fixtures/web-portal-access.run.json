@@ -112,7 +112,7 @@
    "default": "",
    "machines": [
     "web",
-    "web-init-1"
+    "isoloom-init-web-1"
    ],
    "deliver": [
     {
@@ -120,7 +120,7 @@
      "var": "DEMO_SECRET",
      "steps": [
       "up",
-      "job-web-init-1"
+      "job-isoloom-init-web-1"
      ]
     }
    ]
@@ -155,12 +155,12 @@
    ]
   },
   {
-   "name": "db-routes",
+   "name": "isoloom-routes-db",
    "role": "infra",
    "of": "db",
    "addresses": {},
    "native": {
-    "service": "db-routes"
+    "service": "isoloom-routes-db"
    }
   },
   {
@@ -199,21 +199,21 @@
    ]
   },
   {
-   "name": "web-routes",
+   "name": "isoloom-routes-web",
    "role": "infra",
    "of": "web",
    "addresses": {},
    "native": {
-    "service": "web-routes"
+    "service": "isoloom-routes-web"
    }
   },
   {
-   "name": "web-init-1",
+   "name": "isoloom-init-web-1",
    "role": "job",
    "of": "web",
    "addresses": {},
    "native": {
-    "service": "web-init-1"
+    "service": "isoloom-init-web-1"
    }
   },
   {
@@ -300,15 +300,15 @@
      "--wait-timeout",
      "600",
      "db",
-     "db-routes",
+     "isoloom-routes-db",
      "web",
-     "web-routes",
+     "isoloom-routes-web",
      "isoloom-probe-amd64"
     ],
     "timeout_s": 1800
    },
    {
-    "id": "job-web-init-1",
+    "id": "job-isoloom-init-web-1",
     "note": "Running web's set-up script\u2026",
     "argv": [
      "docker",
@@ -322,8 +322,8 @@
      "up",
      "--no-deps",
      "--exit-code-from",
-     "web-init-1",
-     "web-init-1"
+     "isoloom-init-web-1",
+     "isoloom-init-web-1"
     ],
     "timeout_s": 600
    }
@@ -442,13 +442,13 @@
   },
   {
    "kind": "step_ok",
-   "step": "job-web-init-1",
-   "means": "web's set-up script (web-init-1) exited 0"
+   "step": "job-isoloom-init-web-1",
+   "means": "web's set-up script (isoloom-init-web-1) exited 0"
   }
  ],
  "outputs": [
   {
-   "name": "web_portal",
+   "name": "web__portal",
    "description": "web's portal (port 80).",
    "role": "entry",
    "sensitive": false,

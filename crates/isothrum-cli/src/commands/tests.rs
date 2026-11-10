@@ -166,7 +166,7 @@ async fn a_sensitive_output_shows_as_masked_in_the_status_json_and_text() {
 
     assert_eq!(s.run(&["status"]).await.unwrap(), Verdict::Pass);
     let said = s.out.take();
-    assert!(said.contains("\nweb_portal: ***\n") && !said.contains("127.0.0.1:41873"), "{said}");
+    assert!(said.contains("\nweb__portal: ***\n") && !said.contains("127.0.0.1:41873"), "{said}");
 }
 
 #[tokio::test]

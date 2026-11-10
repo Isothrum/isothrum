@@ -189,7 +189,7 @@ async fn a_cloud_run_records_its_cloud_and_expiry_and_gives_terraform_its_place_
     assert_eq!(apply.env("AWS_PROFILE"), Some("demo"));
     assert_eq!(apply.env("AWS_SECRET_ACCESS_KEY"), Some("s3cr3t-key"));
     assert!(!apply.line().contains("s3cr3t"), "never on a command line");
-    let entry = started.outputs.iter().find(|o| o.name == "web_web").unwrap();
+    let entry = started.outputs.iter().find(|o| o.name == "web__web").unwrap();
     assert_eq!(entry.value.as_deref(), Some("http://198.51.100.10:8080/"));
     assert_eq!(started.record.state, RunState::Ready);
 }

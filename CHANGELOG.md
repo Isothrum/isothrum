@@ -111,10 +111,10 @@ change.
 
 - **A run's own access machine reaches the run through its router.** On Compose, `attach` started
   the access service alone (`--no-deps`), without the service that sets its routes (Isoloom's
-  `<machine>-routes`, in its network namespace): an access machine on its own network reached
-  nothing behind the router. Attach and detach now take the services in the machine's namespace
-  (`network_mode: service:<machine>`, read from `docker compose config`) with it, and attach waits
-  for them (`--wait`).
+  `isoloom-routes-<machine>`, in its network namespace): an access machine on its own network
+  reached nothing behind the router. Attach and detach now take the services in the machine's
+  namespace (`network_mode: service:<machine>`, read from `docker compose config`) with it, and
+  attach waits for them (`--wait`).
 - **`attach` joins the chosen network by the name the run gave it, and says when it can't.** On
   Compose it guessed the network as `<project>_<network>` and swallowed every failure to join
   it, so an attach reported (and its event claimed) a network its machine wasn't on. The network

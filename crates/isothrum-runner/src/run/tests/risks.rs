@@ -173,6 +173,6 @@ async fn an_output_whose_format_cant_be_filled_is_said_at_up() {
         .collect();
     assert_eq!(
         warned,
-        ["an output has no value: outputs.web_portal.format: `${outputs.token}` has no value in this operation"]
+        ["an output has no value: outputs.web__portal.format: `${outputs.token}` has no value in this operation"]
     );
 }

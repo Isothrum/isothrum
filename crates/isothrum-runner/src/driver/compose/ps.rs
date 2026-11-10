@@ -170,14 +170,14 @@ mod tests {
     fn machines_come_from_the_manifest_and_ports_from_ps() {
         let ps = r#"[{"Service":"web","State":"running","Health":"healthy","Publishers":[{"URL":"127.0.0.1","PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"},{"URL":"::1","PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"}]},
             {"Service":"db","State":"running","Health":"unhealthy","Publishers":null},
-            {"Service":"web-init-1","State":"exited","ExitCode":0},
+            {"Service":"isoloom-init-web-1","State":"exited","ExitCode":0},
             {"Service":"isoloom-check","State":"running","Labels":"com.docker.compose.oneoff=True"},
             {"Service":"stranger","State":"running"}]"#;
         let (machines, published) = machines(&docker_manifest(), &read(ps));
         let state = |n: &str| machines.iter().find(|m| m.name == n).unwrap().state.clone();
         assert_eq!(state("web"), MachineState::Running);
         assert_eq!(state("db"), MachineState::Unhealthy);
-        assert_eq!(state("web-init-1"), MachineState::Exited(0));
+        assert_eq!(state("isoloom-init-web-1"), MachineState::Exited(0));
         assert_eq!(state("isoloom-check"), MachineState::Absent, "a one-off isn't the machine");
         assert!(machines.iter().all(|m| m.name != "stranger"));
         assert_eq!(published, BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));

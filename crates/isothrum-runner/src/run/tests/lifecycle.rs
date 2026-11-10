@@ -25,7 +25,7 @@ async fn a_run_comes_up_with_its_entry_and_message_then_goes() {
     assert!(matches!(k.last(), Some(EventKind::Result { ok: true, .. })));
     assert!(
         k.iter()
-            .any(|e| matches!(e, EventKind::Output { name, value: Some(v), .. } if name == "web_portal" && v.ends_with(":41873/")))
+            .any(|e| matches!(e, EventKind::Output { name, value: Some(v), .. } if name == "web__portal" && v.ends_with(":41873/")))
     );
     assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().state, RunState::Ready);
 
@@ -48,7 +48,7 @@ async fn the_flag_reaches_only_the_steps_that_create_things_and_never_an_event()
     run.up(&opts(), &events).await.unwrap();
     for call in f.fake.calls() {
         let has = call.env("DEMO_SECRET").is_some();
-        let creates = call.line().contains(" up --detach ") || call.line().contains("--exit-code-from web-init-1");
+        let creates = call.line().contains(" up --detach ") || call.line().contains("--exit-code-from isoloom-init-web-1");
         assert_eq!(has, creates, "{}", call.line());
     }
     let text = serde_json::to_string(&events.events()).unwrap();
@@ -252,7 +252,7 @@ async fn a_failed_start_leaves_the_run_failed_with_the_steps_error() {
     let err = lab2.up(&opts(), &events).await.unwrap_err();
     assert_eq!(err.to_string(), "step `up` failed: Error: pull access denied (exited with code 1)");
     assert!(kinds(&events).contains(&EventKind::Step {
-        step: "job-web-init-1".into(),
+        step: "job-isoloom-init-web-1".into(),
         state: StepState::Skipped,
         note: None
     }));
@@ -288,18 +288,18 @@ async fn a_lab_without_provision_steps_isnt_provisioned_again() {
 }
 
 /// The fixture regenerated with a service added (`extra`, started with the others) and one taken
-/// out (`db-routes`).
+/// out (`isoloom-routes-db`).
 fn regenerated() -> String {
     let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
     let machines = m["machines"].as_array_mut().unwrap();
     let mut extra = machines[0].clone();
-    machines.retain(|x| x["name"] != "db-routes");
+    machines.retain(|x| x["name"] != "isoloom-routes-db");
     extra["name"] = "extra".into();
     extra["native"]["service"] = "extra".into();
     machines.push(extra);
     let up = m["lifecycle"]["up"].as_array_mut().unwrap().iter_mut().find(|s| s["id"] == "up").unwrap();
     let argv = up["argv"].as_array_mut().unwrap();
-    argv.retain(|a| a != "db-routes");
+    argv.retain(|a| a != "isoloom-routes-db");
     argv.push("extra".into());
     m.to_string()
 }
@@ -312,9 +312,9 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    run.retire("db-routes", &RunOptions::new(), &Recorder::new()).await.unwrap();
+    run.retire("isoloom-routes-db", &RunOptions::new(), &Recorder::new()).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service taken out is removed");
-    assert!(rm.line().ends_with(" rm -sf db-routes"), "{}", rm.line());
+    assert!(rm.line().ends_with(" rm -sf isoloom-routes-db"), "{}", rm.line());
 
     std::fs::write(&f.manifest, regenerated()).unwrap();
     let before = f.fake.calls().len();
@@ -323,7 +323,11 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     assert_eq!(updated.record.state, RunState::Ready);
     assert!(events.events().iter().all(|e| e.op == Some(Op::Update)));
     let start = f.fake.last(" up --detach ").unwrap();
-    assert!(start.line().ends_with(" db web web-routes isoloom-probe-amd64 extra"), "{}", start.line());
+    assert!(
+        start.line().ends_with(" db web isoloom-routes-web isoloom-probe-amd64 extra"),
+        "{}",
+        start.line()
+    );
     let during: Vec<String> = f.fake.calls()[before..].iter().map(Call::line).collect();
     assert!(during.iter().all(|l| !l.contains(" rm ")), "{during:?}");
 }

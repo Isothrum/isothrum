@@ -137,7 +137,7 @@ async fn a_proxmox_run_applies_with_the_runners_state_slot_and_key_then_reads_th
     let read = s.fake.last("head -n 1").unwrap();
     assert!(read.args.windows(2).any(|w| w == ["-J", &format!("isoloom@{ROUTER}")]), "{read:?}");
     assert!(read.args.contains(&"isoloom@10.80.0.10".to_owned()), "{read:?}");
-    let entry = started.outputs.iter().find(|o| o.name == "web_web").unwrap();
+    let entry = started.outputs.iter().find(|o| o.name == "web__web").unwrap();
     assert_eq!(entry.value.as_deref(), Some("http://10.10.10.7:8080/"));
     assert_eq!(started.record.slot, Some(1));
     assert_eq!(started.record.state, RunState::Ready);

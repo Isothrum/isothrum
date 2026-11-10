@@ -197,7 +197,7 @@ fn ps(containers: Containers, all: bool, port: Option<u16>) -> String {
     let publishers = port.map_or_else(String::new, |p| {
         format!(r#"{{"URL":"127.0.0.1","PublishedPort":{p},"TargetPort":80,"Protocol":"tcp"}}"#)
     });
-    let mut lines: Vec<String> = ["web", "db", "web-routes", "db-routes", "isoloom-probe-amd64"]
+    let mut lines: Vec<String> = ["web", "db", "isoloom-routes-web", "isoloom-routes-db", "isoloom-probe-amd64"]
         .iter()
         .map(|s| {
             format!(
@@ -207,7 +207,7 @@ fn ps(containers: Containers, all: bool, port: Option<u16>) -> String {
         })
         .collect();
     if all {
-        lines.push(r#"{"Service":"web-init-1","State":"exited","ExitCode":0}"#.into());
+        lines.push(r#"{"Service":"isoloom-init-web-1","State":"exited","ExitCode":0}"#.into());
     }
     if !running && !all {
         return String::new();

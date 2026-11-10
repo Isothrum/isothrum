@@ -37,7 +37,7 @@ message, its addresses filled in:
 
 ```text
 ready: step_ok up
-web_web: http://127.0.0.1:64336/
+web__web: http://127.0.0.1:64336/
 The page answers at http://127.0.0.1:64336/ (and at
 http://web/ from inside). The cache at 10.60.0.20:6379 holds the
 greeting seeded at start; nothing here reaches the internet.

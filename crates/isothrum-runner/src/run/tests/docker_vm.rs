@@ -41,7 +41,7 @@ struct Engine {
 /// `docker compose ps --all --format json` of the started run, one object a line.
 const PS: &str = r#"{"Service":"web","State":"running","Health":"healthy","Publishers":[{"PublishedPort":8080,"TargetPort":80,"Protocol":"tcp"}],"Labels":""}
 {"Service":"db","State":"running","Health":"healthy","Publishers":null,"Labels":""}
-{"Service":"web-init-1","State":"exited","ExitCode":0,"Publishers":[],"Labels":""}"#;
+{"Service":"isoloom-init-web-1","State":"exited","ExitCode":0,"Publishers":[],"Labels":""}"#;
 
 /// What Compose in the VM answers to `command`, `env` the session's.
 fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
@@ -143,18 +143,18 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
     let run = l.runner.open(&l.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     let up = l.fake.last("vagrant up").unwrap();
-    assert!(up.line().ends_with("--provision-with nat-route,docker,accept-env,project"), "{}", up.line());
+    assert!(up.line().ends_with("--provision-with nat-route,project,docker,accept-env"), "{}", up.line());
     // The secret reached Compose in the VM through the session, named by Vagrant's forward_env.
     let start = l.fake.calls().into_iter().find(|c| c.line().contains(" up --detach ")).unwrap();
     assert_eq!(start.env("DEMO_SECRET"), Some(SECRET));
     assert!(!start.line().contains(SECRET));
     assert_eq!(l.engine.lock().unwrap().secret.as_deref(), Some(SECRET));
-    let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
+    let page = started.outputs.iter().find(|o| o.name == "web__portal").unwrap();
     assert_eq!(page.value.as_deref(), Some("http://127.0.0.1:8080/"));
     let status = run.status().await.unwrap();
     let state = |name: &str| status.machines.iter().find(|m| m.name == name).unwrap().state.clone();
     assert_eq!(
-        (state(HOST), state("web"), state("web-init-1")),
+        (state(HOST), state("web"), state("isoloom-init-web-1")),
         (MachineState::Running, MachineState::Running, MachineState::Exited(0))
     );
 }

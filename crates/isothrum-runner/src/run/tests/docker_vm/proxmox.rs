@@ -95,7 +95,7 @@ async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to
     let start = ssh.iter().find(|c| c.line().contains(" up --detach ")).unwrap();
     assert!(start.args.windows(2).any(|w| w == ["-o", "SendEnv=DEMO_SECRET"]));
     assert_eq!(start.env("TF_VAR_proxmox_password"), None);
-    let page = started.outputs.iter().find(|o| o.name == "web_portal").unwrap();
+    let page = started.outputs.iter().find(|o| o.name == "web__portal").unwrap();
     assert_eq!(page.value.as_deref(), Some(format!("http://{VM_IP}:8080/").as_str()));
     assert!(
         run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.is_err(),

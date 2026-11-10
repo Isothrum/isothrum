@@ -78,7 +78,7 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
 /// The run's Docker, its config putting a routes service in the access service's namespace.
 fn routed_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if call.line().contains("--profile access config --format json") {
-        return Reply::ok(r#"{"services":{"user":{},"user-routes":{"network_mode":"service:user"},"web":{}}}"#);
+        return Reply::ok(r#"{"services":{"user":{},"isoloom-routes-user":{"network_mode":"service:user"},"web":{}}}"#);
     }
     answer(engine, call)
 }
@@ -89,11 +89,11 @@ fn routed_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 async fn the_access_machines_routes_come_and_go_with_it() {
     let f = fixture_answering(WEB_PORTAL_ACCESS, routed_answer);
     let up = attach_plain(&f).await;
-    assert!(up.line().ends_with("up -d --wait --no-deps user user-routes"), "{}", up.line());
+    assert!(up.line().ends_with("up -d --wait --no-deps user isoloom-routes-user"), "{}", up.line());
     let run = f.runner.open(&f.manifest, None).unwrap();
     detach(&run, None, &Recorder::new()).await.unwrap();
     let rm = f.fake.last("--profile access rm").unwrap();
-    assert!(rm.line().ends_with("rm -sf user user-routes"), "{}", rm.line());
+    assert!(rm.line().ends_with("rm -sf user isoloom-routes-user"), "{}", rm.line());
 }
 
 /// The run up without its access machine, then the machine attached with no image: its `up`
@@ -266,7 +266,7 @@ async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     let events = Recorder::new();
     run.retire("user", &RunOptions::new(), &events).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service is removed");
-    assert!(rm.line().contains(" --profile access rm -sf user user-routes"), "{}", rm.line());
+    assert!(rm.line().contains(" --profile access rm -sf user isoloom-routes-user"), "{}", rm.line());
     assert!(events.events().iter().all(|e| e.op == Some(crate::state::Op::Retire)));
     let Some(EventKind::Result { ok: true, data }) = kinds(&events).pop() else {
         panic!("{:?}", kinds(&events))

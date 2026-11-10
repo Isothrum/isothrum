@@ -320,9 +320,8 @@ mod namespace_tests {
 
     #[test]
     fn a_service_in_another_ones_namespace_is_part_of_it() {
-        let config =
-            r#"{"services":{"user":{"image":"debian"},"user-routes":{"network_mode":"service:user"},"web":{},"web-routes":{"network_mode":"service:web"}}}"#;
-        assert_eq!(sharing_namespace(config, "user").unwrap(), ["user-routes"]);
+        let config = r#"{"services":{"user":{"image":"debian"},"isoloom-routes-user":{"network_mode":"service:user"},"web":{},"isoloom-routes-web":{"network_mode":"service:web"}}}"#;
+        assert_eq!(sharing_namespace(config, "user").unwrap(), ["isoloom-routes-user"]);
         assert_eq!(sharing_namespace(config, "nobody").unwrap(), Vec::<String>::new());
     }
 
