@@ -56,7 +56,7 @@ async fn a_published_host_is_the_address_the_manifest_publishes_on() {
     let condition = serde_json::json!({ "kind": "tcp", "address": "${host.web}", "port": "${published.web.portal}", "timeout_s": 10 });
     m["ready"].as_array_mut().unwrap().push(condition);
     let manifest = m.to_string();
-    for (address, host) in [("192.0.2.7", "192.0.2.7"), ("0.0.0.0", "127.0.0.1")] {
+    for (address, host) in [("192.0.2.7", "192.0.2.7"), ("0.0.0.0", "127.0.0.1"), ("[0:0:0:0:0:0:0:0]", "127.0.0.1")] {
         let f = fixture_with(&manifest);
         f.ports.answer(host, 41873);
         let run = f.runner.open(&f.manifest, None).unwrap();

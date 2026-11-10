@@ -331,7 +331,8 @@ const LOOPBACK: &str = "127.0.0.1";
 
 /// Where `machine`'s ports published on this computer answer (`${host.<machine>}`): the address
 /// its published ports listen on (the first one's `publish.address`, filled), the loopback for one
-/// on every interface (`0.0.0.0`, `::`) or none said.
+/// on every interface (an unspecified address, `0.0.0.0` or `::` however it is written) or none
+/// said.
 ///
 /// # Errors
 ///
@@ -347,9 +348,12 @@ pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
         return Ok(LOOPBACK.to_owned());
     };
     let address = cx.vars.render(address, &format!("machines[{at}].ports[{j}].publish.address"))?;
-    Ok(match address.trim() {
-        "" | "0.0.0.0" | "::" | "[::]" => LOOPBACK.to_owned(),
-        bound => bound.to_owned(),
+    let bound = address.trim();
+    let every_interface = crate::relay::bare_host(bound).parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_unspecified());
+    Ok(if bound.is_empty() || every_interface {
+        LOOPBACK.to_owned()
+    } else {
+        bound.to_owned()
     })
 }
 
