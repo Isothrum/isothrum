@@ -17,7 +17,16 @@ authority: `jq '.tools' .isoloom/<target>/run.json` shows it.
 | VirtualBox, VMware Desktop, Parallels, libvirt, QEMU | any that answers | Vagrant, with that provider | each one's own command (`VBoxManage --version`, `vmrun list`, ...) |
 | Terraform | 1.6.0 | `proxmox`, `docker-vm/proxmox` | `terraform version` |
 | Terraform | 1.11.0 | `cloud-vm/*`, `cloud-docker/*` (and Isoloom's other cloud targets) | `terraform version` |
-| OpenSSH client | any that answers | targets reached over SSH | `ssh -V` |
+| OpenSSH client | any that answers; 7.6 or later works (below) | targets reached over SSH | `ssh -V` |
+
+The manifests probe `ssh` for an answer only, but the configuration the runner writes for each
+run's SSH needs OpenSSH 7.6 or later (`StrictHostKeyChecking accept-new`; `-J` jump hosts came
+in 7.3). Its paths (the runner's key and the run's `known_hosts`, under the home) are written
+between double quotes, which every release reads, Windows 10's 8.1 and RHEL 8's 8.0 included;
+on Windows they are written with `/`. A home whose path holds `"`, `${`, a control character
+or, outside Windows, `\` can't be written there for every release: an SSH call fails with `io`,
+naming the file. A home whose path holds `%` needs OpenSSH 8.4 or later, which reads `%%` in
+`UserKnownHostsFile` as `%`.
 
 On macOS, the Proxmox targets run Terraform from the image `hashicorp/terraform:1.16.7`, pinned by
 digest, instead of a host binary (macOS's Local Network Privacy keeps third-party binaries off the

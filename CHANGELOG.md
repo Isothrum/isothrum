@@ -228,6 +228,13 @@ change.
   counts as one the runner can't read (`EventLog::unreadable`), and each event is written in one
   write, its line break included.
 
+- **The run's SSH configuration reads the same to every OpenSSH.** It escaped a path's spaces
+  with backslashes, which OpenSSH reads as escapes only from 8.7: Windows 10's 8.1, RHEL 8's 8.0
+  and Ubuntu 20.04's 8.2 split a key under a home whose path has a space (`C:\Users\First Last`).
+  Each path is now written between double quotes (with `/` on Windows, so a network home's `\\`
+  stays whole); a home whose path no release reads as written fails the SSH call with `io`. The
+  refused login's message names `:`, which a login takes.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

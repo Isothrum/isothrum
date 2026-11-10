@@ -92,30 +92,29 @@ pub(crate) fn needed(manifest: &isoloom_manifest::Manifest) -> bool {
 
 /// The run's SSH configuration: the key and the run's `known_hosts` for every host, a new host's
 /// key accepted once and pinned, no prompt, and a host that stops answering given up in under a
-/// minute.
-fn config(key: &Path, known_hosts: &Path) -> String {
-    format!(
+/// minute. `None` when a path is one no OpenSSH config can hold ([`config_path`]).
+fn config(key: &Path, known_hosts: &Path) -> Option<String> {
+    let path = |p: &Path| config_path(&p.to_string_lossy(), cfg!(windows));
+    Some(format!(
         "# Written by the Isothrum runner for this run.\nHost *\n  IdentityFile {}\n  IdentitiesOnly yes\n  UserKnownHostsFile {}\n  StrictHostKeyChecking accept-new\n  BatchMode yes\n  ConnectTimeout 10\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  LogLevel ERROR\n",
-        config_path(&key.to_string_lossy()),
-        config_path(&known_hosts.to_string_lossy()),
-    )
+        path(key)?,
+        path(known_hosts)?,
+    ))
 }
 
-/// A path as an ssh config file reads it: its spaces, quotes and backslashes escaped, and `%`
-/// (a token there) doubled.
-fn config_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for c in path.chars() {
-        match c {
-            '\\' | '"' | '\'' | ' ' => {
-                out.push('\\');
-                out.push(c);
-            }
-            '%' => out.push_str("%%"),
-            _ => out.push(c),
-        }
+/// A path as every OpenSSH reads it in its config, the parser before 8.7 (Windows 10's, RHEL 8's,
+/// Ubuntu 20.04's) as the one after: between double quotes, which both take as one value whatever
+/// it holds but `"`, and with `%` doubled (a token there). On Windows its `\` are written `/`,
+/// which Windows' OpenSSH reads as `\`: the parser from 8.7 reads `\\` inside quotes as one `\`,
+/// so a network path (`\\server\share`) would lose its first. `None` for a path no parser reads
+/// as written: one holding `"` or a control character, `${` (an environment variable from 8.4),
+/// or, but on Windows, `\` (an escape from 8.7).
+fn config_path(path: &str, windows: bool) -> Option<String> {
+    let path = if windows { path.replace('\\', "/") } else { path.to_owned() };
+    if path.contains(['"', '\\']) || path.contains("${") || path.chars().any(char::is_control) {
+        return None;
     }
-    out
+    Some(format!("\"{}\"", path.replace('%', "%%")))
 }
 
 /// Whether `login` is a plain `[user@]host` (letters, digits, `.`, `-`, `_`, `:` and one `@`):
@@ -149,7 +148,7 @@ impl Login {
         match std::iter::once(&target).chain(&jumps).find(|l| !plain_login(l)) {
             Some(bad) => Err(Error::Malformed {
                 at: format!("the SSH login `{bad}`"),
-                reason: "a login takes letters, digits, `.`, `-`, `_` and one `@` only".to_owned(),
+                reason: "a login takes letters, digits, `.`, `-`, `_`, `:` and one `@` only".to_owned(),
             }),
             None => Ok(Login { target, jumps }),
         }
@@ -178,7 +177,10 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
     let home = &cx.run.runner.config.home;
     let state = cx.run.runner.store.run_dir(cx.run.name())?;
     let path = state.join(CONFIG_FILE);
-    let text = config(&key_path(home), &state.join("known_hosts"));
+    let text = config(&key_path(home), &state.join("known_hosts")).ok_or_else(|| {
+        let why = "the runner's home is at a path SSH's config can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
+        Error::io(&path, "written")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
+    })?;
     write_private(&path, text.as_bytes()).map_err(Error::io(&path, "written"))?;
     let mut sent: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
     sent.sort();
@@ -350,12 +352,45 @@ mod tests {
 
     #[test]
     fn the_config_carries_the_key_and_the_runs_known_hosts_to_every_host() {
-        let c = config(Path::new("/home/a b/.isothrum/ssh/id_ed25519"), Path::new("/r/known_hosts"));
+        let c = config(Path::new("/home/a b/.isothrum/ssh/id_ed25519"), Path::new("/r/known_hosts")).unwrap();
         assert!(c.contains("Host *\n"), "{c}");
-        assert!(c.contains("IdentityFile /home/a\\ b/.isothrum/ssh/id_ed25519\n"), "{c}");
-        assert!(c.contains("UserKnownHostsFile /r/known_hosts\n"), "{c}");
+        assert!(c.contains("IdentityFile \"/home/a b/.isothrum/ssh/id_ed25519\"\n"), "{c}");
+        assert!(c.contains("UserKnownHostsFile \"/r/known_hosts\"\n"), "{c}");
         assert!(c.contains("StrictHostKeyChecking accept-new\n") && c.contains("BatchMode yes\n"), "{c}");
-        assert_eq!(config_path("C:\\Users\\x %1"), "C:\\\\Users\\\\x\\ %%1");
+    }
+
+    /// Quoted, a path reads the same to OpenSSH before 8.7 (no escapes) and after (`\` escapes).
+    #[test]
+    fn a_path_is_quoted_for_every_openssh_and_its_tokens_doubled() {
+        assert_eq!(config_path("/home/a b/x 50%", false).as_deref(), Some("\"/home/a b/x 50%%\""));
+        assert_eq!(config_path("it's", false).as_deref(), Some("\"it's\""));
+        assert_eq!(
+            config_path("C:\\Users\\a b\\.isothrum\\ssh\\id_ed25519", true).as_deref(),
+            Some("\"C:/Users/a b/.isothrum/ssh/id_ed25519\"")
+        );
+        assert_eq!(
+            config_path("\\\\server\\share\\h", true).as_deref(),
+            Some("\"//server/share/h\""),
+            "a network path"
+        );
+    }
+
+    #[test]
+    fn a_path_no_openssh_reads_as_written_is_refused() {
+        for path in ["/a\"b", "/a\\b", "/a/${HOME}", "/a\nb"] {
+            assert_eq!(config_path(path, false), None, "{path:?}");
+        }
+        assert_eq!(config_path("C:\\a\"b", true), None);
+    }
+
+    #[test]
+    fn a_login_refused_says_what_a_login_takes() {
+        let refused = Login::new("u", "h;x", None, "").unwrap_err().to_string();
+        assert!(
+            refused.ends_with("a login takes letters, digits, `.`, `-`, `_`, `:` and one `@` only"),
+            "{refused}"
+        );
+        assert!(Login::new("u", "fd00::10", None, "").is_ok(), "`:` is one of them");
     }
 
     proptest! {
