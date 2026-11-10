@@ -44,19 +44,6 @@ fn applicable(provider: Provider) -> bool {
     }
 }
 
-/// The Vagrant plugin the provider needs, if it is not built in.
-fn plugin(provider: Provider) -> Option<&'static str> {
-    match provider {
-        Provider::Virtualbox | Provider::Hyperv => None,
-        Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
-        Provider::Parallels => Some("vagrant-parallels"),
-        Provider::Libvirt => Some("vagrant-libvirt"),
-        Provider::Qemu => Some("vagrant-qemu"),
-        Provider::Utm => Some("vagrant_utm"),
-        Provider::VmwareEsxi => Some("vagrant-vmware-esxi"),
-    }
-}
-
 /// The oldest version of the provider's plugin that works: `vagrant_utm` before 0.2.0 reads
 /// a VM's forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started`
 /// state.
@@ -239,7 +226,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
         } else {
             None
         };
-        let plugin = plugin(provider);
+        let plugin = provider.plugin();
         let installed = plugin.and_then(|needed| plugins.iter().find(|(i, _)| i == needed));
         let plugin_installed = plugin.is_none() || installed.is_some();
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
