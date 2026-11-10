@@ -142,9 +142,11 @@ pub(crate) struct Login {
 }
 
 impl Login {
-    /// `user@host`, through `jump` (the run's) then `via` (comma-separated, empty entries
-    /// skipped). Refused when a part isn't a plain login.
+    /// `user@host` (`root@host` with no user: every login the runner makes falls back so), through
+    /// `jump` (the run's) then `via` (comma-separated, empty entries skipped). Refused when a part
+    /// isn't a plain login.
     pub(crate) fn new(user: &str, host: &str, jump: Option<&str>, via: &str) -> Result<Login> {
+        let user = if user.is_empty() { "root" } else { user };
         let target = format!("{user}@{host}");
         let jumps: Vec<String> = jump
             .into_iter()
@@ -233,7 +235,7 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
 /// The login of an `ssh.run` at `host`, its other `with` arguments read by `arg`: its `user`
 /// (root otherwise), through the run's jump then its `via`.
 pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<String>) -> Result<Login> {
-    Login::new(&user_or_root(arg("user")?), host, cx.ssh_jump.as_deref(), &arg("via")?)
+    Login::new(&arg("user")?, host, cx.ssh_jump.as_deref(), &arg("via")?)
 }
 
 /// The output holding `machine`'s address: `address_<machine>`, `-` written `_`.
@@ -249,13 +251,8 @@ pub(crate) fn machine_login(output: impl Fn(&str) -> Option<String>, machine: &s
         return Ok(None);
     };
     let key = machine.replace('-', "_");
-    let user = user_or_root(output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default());
+    let user = output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default();
     Login::new(&user, &host, jump, "").map(Some)
-}
-
-/// The user an SSH login takes: `user`, else `root` (every login the runner makes falls back so).
-pub(crate) fn user_or_root(user: String) -> String {
-    Some(user).filter(|u| !u.is_empty()).unwrap_or_else(|| "root".into())
 }
 
 /// ssh's own exit code when it couldn't connect (a command that ran may exit 255 too: it printed
@@ -435,6 +432,14 @@ mod tests {
                 "sudo -E docker compose up"
             ]
         );
+    }
+
+    /// Regression: a `ready_file` condition whose `user` filled empty logged in as `@host`, which
+    /// ssh takes as this computer's user; the fallback was applied by the callers, not by `Login`.
+    #[test]
+    fn a_login_with_no_user_is_root() {
+        assert_eq!(Login::new("", "10.0.0.9", None, "").unwrap().target, "root@10.0.0.9");
+        assert_eq!(Login::new("admin", "10.0.0.9", None, "").unwrap().target, "admin@10.0.0.9");
     }
 
     #[test]
