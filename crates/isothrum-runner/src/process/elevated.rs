@@ -238,11 +238,7 @@ impl Drop for Cancel<'_> {
 
 /// `file`'s text, `None` while it isn't there.
 fn read_if_there(file: &Path) -> std::io::Result<Option<String>> {
-    match std::fs::read_to_string(file) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
+    crate::store::if_there(std::fs::read_to_string(file))
 }
 
 /// Why the session in `dir` ended, once it has: the reason its broker gave (in `ended`, written

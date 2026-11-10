@@ -51,11 +51,8 @@ pub(crate) fn key_path(home: &Path) -> PathBuf {
 /// [`Error::Io`] when the file is there but can't be read.
 pub(crate) fn public_key(home: &Path) -> Result<Option<String>> {
     let path = key_path(home).with_extension("pub");
-    match std::fs::read_to_string(&path) {
-        Ok(text) => Ok(Some(text.trim().to_owned()).filter(|k| !k.is_empty())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::io(path, "read")(e)),
-    }
+    let text = crate::store::if_there(std::fs::read_to_string(&path)).map_err(Error::io(&path, "read"))?;
+    Ok(text.map(|t| t.trim().to_owned()).filter(|k| !k.is_empty()))
 }
 
 /// Makes the runner's key when it has none (`ssh-keygen`, no passphrase), and returns its public

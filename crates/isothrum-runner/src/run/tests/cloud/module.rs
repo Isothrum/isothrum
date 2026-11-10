@@ -30,6 +30,14 @@ fn with_own_module() -> (Account, PathBuf) {
     (a, module)
 }
 
+/// The start of `a`'s run, refused as `manifest_invalid` before anything runs: its error.
+async fn refused_start(a: &Account) -> crate::Error {
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    err
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_labs_own_module_is_copied_into_the_run_and_destroyed_as_applied() {
     let (a, module) = with_own_module();
@@ -63,9 +71,7 @@ async fn a_new_start_takes_the_module_as_it_is_now() {
 async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     let (a, module) = with_own_module();
     std::fs::remove_dir_all(&module).unwrap();
-    let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    let err = refused_start(&a).await;
     assert_eq!(
         err.to_string(),
         "copy-module.with.from: `../../../terraform` isn't a folder inside the run's project"
@@ -81,8 +87,7 @@ async fn a_module_without_a_terraform_file_is_named_where_it_is() {
     for file in ["main.tf", "old.tf"] {
         std::fs::remove_file(module.join(file)).unwrap();
     }
-    let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
+    let err = refused_start(&a).await;
     let checked = std::fs::canonicalize(&module).unwrap();
     assert!(err.to_string().starts_with(&format!("the Terraform module {}:", checked.display())), "{err}");
 }
@@ -111,9 +116,7 @@ async fn a_copy_with_a_when_it_doesnt_know_is_a_malformed_manifest() {
     let module = a.folder.target_dir().join("../../../terraform");
     std::fs::create_dir_all(&module).unwrap();
     std::fs::write(module.join("main.tf"), "").unwrap();
-    let run = a.runner.open(&a.folder.manifest, None).unwrap();
-    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    let err = refused_start(&a).await;
     assert_eq!(err.to_string(), "copy-module.with.when: `always`: only `missing` is a `when`");
     assert!(a.fake.last("terraform apply").is_none(), "nothing applied");
 }

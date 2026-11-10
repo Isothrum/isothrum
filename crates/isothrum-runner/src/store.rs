@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use isoloom_manifest::{Cloud, Driver, Target};
 use serde::{Deserialize, Serialize};
 
-pub(crate) use fs::{create_private, private_dir, remove_path, write_private};
+pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
 pub(crate) use lock::{RunLocks, SlotsLock};
 
 use crate::Result;
@@ -262,11 +262,10 @@ fn read_lines(path: &Path) -> Result<Vec<Vec<u8>>> {
 ///
 /// It exists but can't be read, or doesn't hold a `T` (`InvalidData`).
 pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(path, "read")(e.into())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::io(path, "read")(e)),
-    }
+    let Some(bytes) = if_there(std::fs::read(path)).map_err(Error::io(path, "read"))? else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(path, "read")(e.into()))
 }
 
 #[cfg(test)]

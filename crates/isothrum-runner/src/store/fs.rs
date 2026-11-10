@@ -73,6 +73,16 @@ pub(crate) fn create_private(path: &Path) -> io::Result<File> {
     open(path, std::fs::OpenOptions::new().write(true).create(true).truncate(true))
 }
 
+/// What a read gave, `None` when there was nothing to read (`NotFound`); any other failure is
+/// the error.
+pub(crate) fn if_there<T>(read: io::Result<T>) -> io::Result<Option<T>> {
+    match read {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Removes `path`, a file or a folder with all it holds; nothing there is fine. A symbolic link
 /// (a Windows junction too) is removed itself, never followed.
 pub(crate) fn remove_path(path: &Path) -> io::Result<()> {
