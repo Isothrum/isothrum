@@ -6,6 +6,8 @@
 //!   record.json     the run's record (atomic, owner-only)
 //!   lock            the OS lock: one operation per run across processes
 //!   events.jsonl    the last operations' events, so a reattached UI can replay them
+//!   seen.json       the run's machines as the runner last read them, for a status while an
+//!                   operation holds the run
 //!   …               what the manifest keeps in `${run.state_dir}` (Compose's pinned ports)
 //! ```
 //!
@@ -31,6 +33,7 @@ use crate::error::{Error, ErrorCode};
 use crate::events::EventLog;
 use crate::name::RunName;
 use crate::state::{Op, RunState};
+use crate::status::MachineStatus;
 
 /// The record format's version.
 const RECORD_VERSION: u32 = 0;
@@ -40,6 +43,9 @@ const RECORD_FILE: &str = "record.json";
 
 /// A run's event log, in its folder.
 const EVENTS_FILE: &str = "events.jsonl";
+
+/// What the runner last saw of a run, in its folder.
+const SEEN_FILE: &str = "seen.json";
 
 /// How many event lines a run's log keeps before an operation trims it to half.
 pub(crate) const EVENTS_KEPT: usize = 4000;
@@ -140,6 +146,19 @@ impl RunRecord {
     }
 }
 
+/// What the runner last saw of a run when it read it (a status, an operation's own reads): its
+/// machines, and where their ports answer. Never an output's value, which may be secret. What a
+/// status shows while an operation holds the run, whose tools it then doesn't ask.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Seen {
+    /// Every machine of the manifest, as read.
+    pub(crate) machines: Vec<MachineStatus>,
+    /// The host port each published machine port got: its machine, its port's name, the port.
+    pub(crate) published: Vec<(String, String, u16)>,
+    /// Where each machine's published ports answer.
+    pub(crate) hosts: BTreeMap<String, String>,
+}
+
 /// The runner's state folder.
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
@@ -186,6 +205,24 @@ impl Store {
     /// Run `name`'s lock file.
     pub(crate) fn lock_path(&self, name: &RunName) -> PathBuf {
         self.runs.join(name.as_str()).join("lock")
+    }
+
+    /// Whether an operation holds run `name` now, in this process or another ([`lock::held`]).
+    pub(crate) fn held(&self, name: &RunName) -> Result<bool> {
+        let path = self.lock_path(name);
+        lock::held(&path).map_err(Error::io(&path, "read"))
+    }
+
+    /// What the runner last saw of run `name`, when it ever read it.
+    pub(crate) fn seen(&self, name: &RunName) -> Result<Option<Seen>> {
+        read_json(&self.runs.join(name.as_str()).join(SEEN_FILE))
+    }
+
+    /// Keeps `seen` as what the runner last saw of run `name`, whole.
+    pub(crate) fn keep_seen(&self, name: &RunName, seen: &Seen) -> Result<()> {
+        let path = self.run_dir(name)?.join(SEEN_FILE);
+        let text = serde_json::to_vec_pretty(seen).map_err(|e| Error::io(&path, "written")(e.into()))?;
+        write_private(&path, &text).map_err(Error::io(&path, "written"))
     }
 
     /// Run `name`'s record, when it has one.

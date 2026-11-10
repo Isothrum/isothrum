@@ -65,6 +65,15 @@ carries every outcome, one event per line. `isothrum attach
 [`crates/isothrum-runner/schema/status.schema.json`](../../crates/isothrum-runner/schema/status.schema.json)
 (`isothrum_runner::status_schema()`).
 
+While an operation holds the run (in this process or another), `status` doesn't ask the run's
+tools, which that operation is acting with: Vagrant refuses to read a VM's state for as long as a
+`vagrant up` boots and provisions it. `live` is then `false`, `state` is the operation's moving
+state (`starting` through an `up`), or the record's state before the operation records one and
+for an operation that leaves the run as it was (`ready` while an `update` runs), and `machines`
+are as the runner last read them (`seen.json` in the run's folder,
+[State layout](state.md)). With no operation in flight, `live` is `true` and everything is read
+now.
+
 ## Reading the stream
 
 Read one line at a time and dispatch on `event`. Ignore event kinds and fields you don't know,

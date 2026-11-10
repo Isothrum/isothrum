@@ -37,6 +37,18 @@ change.
 
 ### Fixed
 
+- **A status read while the run's own operation runs reports it, rather than failing.** Vagrant
+  holds each VM's lock for the whole of a `vagrant up`, provisioning included, and refuses a
+  `vagrant status` meanwhile (`MachineActionLockedError`); the read was tried again for a minute
+  only, so an app polling a VM run's status while its start provisioned the VMs, or while an
+  attach provisioned the access VM (minutes), got a failed read, on VirtualBox as on QEMU and
+  Hyper-V. While any operation holds the run (`up`, `update`, `attach`, `detach`, `provision`,
+  `park`, `resume`, ...), in this process or another (its OS lock is held), `status` now doesn't
+  ask the tools: it reports the operation's state (`starting`), or the record's (`ready` while an
+  `update` or an `attach` runs), with the machines as the runner last read them, and the new
+  `live` field `false`. The runner keeps what it last read of a run in its folder (`seen.json`).
+  With no operation in flight, a read refused for another process's lock is still tried again
+  for a minute.
 - **A progress meter a tool redraws in place shows as it moves.** A tool's output was cut into
   lines at `\n` only, so a tool redrawing its line after a carriage return (`ovftool`'s `Disk
   progress: 8%` while Vagrant uploads a box to ESXi, which prints no `\n` until it is done) gave

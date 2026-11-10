@@ -54,10 +54,15 @@ struct Engine {
     /// How many `vagrant halt <controller>` calls another Vagrant process's machine lock still
     /// refuses.
     locked_halts: u32,
+    /// How long `vagrant up --provider` takes (booting and provisioning the VMs), holding their
+    /// locks all along, as Vagrant does: a `vagrant status` meanwhile is refused.
+    up_takes: std::time::Duration,
+    /// Until when the `vagrant up` under way holds the VMs' locks.
+    up_holds_until: Option<tokio::time::Instant>,
 }
 
 struct Fixture {
-    _folder: RunFolder,
+    folder: RunFolder,
     manifest: PathBuf,
     fake: Arc<FakeProcesses>,
     engine: Arc<Mutex<Engine>>,
@@ -75,7 +80,7 @@ fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, host)).unwrap();
     Fixture {
         manifest: folder.manifest.clone(),
-        _folder: folder,
+        folder,
         fake,
         engine,
         runner,
@@ -210,7 +215,14 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 /// Vagrant's refusal of `args` while another process holds a machine's lock, as long as the
 /// engine says it still does.
 fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
+    let up_holds = e.up_holds_until.is_some_and(|until| tokio::time::Instant::now() < until);
     match args {
+        // The run's own `vagrant up` provisions `web`: Vagrant refuses to read its state.
+        ["status", ..] if up_holds => Some(Reply {
+            stdout: locked_status("web"),
+            code: 1,
+            ..Reply::default()
+        }),
         ["status", ..] if e.locked_reads > 0 => {
             e.locked_reads -= 1;
             Some(Reply {
@@ -290,7 +302,8 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
                 record(&dotfile, vm, provider);
             }
             e.provider = Some((*provider).to_owned());
-            Reply::ok(&format!("{out}\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")))
+            e.up_holds_until = Some(tokio::time::Instant::now() + e.up_takes);
+            Reply::ok(&format!("{out}\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret"))).after(e.up_takes)
         }
         ["up", "--no-provision", "--provider", _, vms @ ..] | ["up", vms @ .., "--no-provision"] => {
             for vm in vms {
@@ -751,6 +764,94 @@ async fn a_lock_held_past_the_patience_still_fails_the_read() {
     assert!(err.to_string().contains("MachineActionLockedError"), "{err}");
     let reads = f.fake.lines().iter().filter(|l| l.starts_with("vagrant status")).count();
     assert!((2..=31).contains(&reads), "{reads} reads");
+}
+
+/// Regression: a status read while the run's own start provisioned its VMs (minutes, a
+/// `vagrant up` holding each VM's lock all along) was refused by Vagrant
+/// (`MachineActionLockedError`), tried again for a minute, then failed: the app polling the run's
+/// status from another process than the start's showed the run as unreadable. While an operation
+/// holds the run, status doesn't ask Vagrant: the run is starting, its machines as last read.
+#[tokio::test(start_paused = true)]
+async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().up_takes = std::time::Duration::from_secs(600);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    // The embedder's app, polling the run from another process than the start's.
+    let app = Runner::new(runner_config(
+        f.folder.home.path(),
+        processes(&f.fake),
+        Arc::new(FakePorts::new([])),
+        crate::runner::this_host(),
+    ))
+    .unwrap();
+    let watched = app.open(&f.manifest, None).unwrap();
+    let statuses = async {
+        // Two minutes into the start's `vagrant up`.
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        (watched.status().await, run.status().await)
+    };
+    let (opts, events) = (opts(), Recorder::new());
+    let (up, (elsewhere, here)) = tokio::join!(run.up(&opts, &events), statuses);
+    up.unwrap();
+    for (who, status) in [("another process", elsewhere), ("this runner", here)] {
+        let status = status.unwrap_or_else(|e| panic!("{who}: {e}"));
+        assert_eq!((status.state, status.live), (RunState::Starting, false), "{who}");
+        // As the start read them before it brought them up.
+        assert!(
+            status.machines.iter().all(|m| m.state == crate::MachineState::Absent),
+            "{who}: {:?}",
+            status.machines
+        );
+        assert_eq!(status.machines.len(), 2, "{who}");
+    }
+    // Once the start is done, status reads Vagrant again.
+    let after = watched.status().await.unwrap();
+    assert_eq!((after.state, after.live), (RunState::Ready, true));
+}
+
+/// An update keeps the run ready while it runs: a status meanwhile says so, with the machines as
+/// last read (running), not Vagrant's refusal while the update's `vagrant up` holds the VMs.
+#[tokio::test(start_paused = true)]
+async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_read() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert!(run.status().await.unwrap().live);
+    std::fs::write(&f.manifest, with_vm_added("extra")).unwrap();
+    {
+        let mut e = f.engine();
+        e.added.push("extra".into());
+        e.up_takes = std::time::Duration::from_secs(600);
+    }
+    let regenerated = f.runner.open(&f.manifest, None).unwrap();
+    let status = async {
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        regenerated.status().await
+    };
+    let (opts, events) = (opts(), Recorder::new());
+    let (updated, status) = tokio::join!(regenerated.update(&opts, &events), status);
+    updated.unwrap();
+    let status = status.unwrap();
+    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.state, crate::MachineState::Running);
+    assert!(
+        status.outputs.iter().any(|o| o.value.is_some()),
+        "its outputs from what was read: {:?}",
+        status.outputs
+    );
+}
+
+/// With no operation holding the run, a lock another Vagrant process holds past
+/// [`super::lock::PATIENCE`] still fails the status read, after a bounded wait.
+#[tokio::test(start_paused = true)]
+async fn a_status_read_locked_out_past_the_patience_with_no_operation_still_fails() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine().locked_reads = u32::MAX;
+    let err = run.status().await.unwrap_err();
+    assert!(err.to_string().contains("MachineActionLockedError"), "{err}");
 }
 
 /// The controller's halt refused for another Vagrant process's lock did nothing: it is tried again

@@ -3,8 +3,8 @@
 //! `user` define. A run that declares none has nothing to attach. No real tool ever runs.
 
 use super::*;
-use crate::ErrorCode;
 use crate::testing::{WEB_PORTAL_ACCESS, WEB_VM_ACCESS, attach, detach};
+use crate::{ErrorCode, MachineState, RunState};
 
 /// The run's Docker, the access service's container `c0ffee` once it is up; `connect` answers
 /// its join to a network.
@@ -208,6 +208,86 @@ async fn vagrant_attach_boots_the_access_vm_with_the_picked_box() {
     let err = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert_eq!(fake.calls().iter().filter(|c| c.line().contains("up user")).count(), ups);
+}
+
+/// A Vagrant run with an access VM: whether the lab's VMs run, whether the access VM does, and
+/// until when an attach's `vagrant up user` holds the access VM's lock.
+#[derive(Debug, Default)]
+struct Provisioning {
+    lab_up: bool,
+    user_up: bool,
+    user_held_until: Option<tokio::time::Instant>,
+}
+
+/// How long an attach's `vagrant up user` takes, provisioning the access VM.
+const ATTACH_TAKES: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The fake Vagrant's answer to `call`: Vagrant refuses `vagrant status` while an attach's `vagrant
+/// up user` provisions the access VM, as it does on any provider.
+fn provisioning(engine: &Mutex<Provisioning>, call: &Call) -> Reply {
+    let line = call.line();
+    let mut e = engine.lock().unwrap();
+    let held = e.user_held_until.is_some_and(|t| tokio::time::Instant::now() < t);
+    if line.contains("status") && held {
+        let said = "An action 'read_state' was attempted on the machine 'user'%!(VAGRANT_COMMA)\\nbut another process is \
+                    already executing an action on the machine.";
+        return Reply {
+            stdout: vec![format!("1,,error-exit,Vagrant::Errors::MachineActionLockedError,{said}")],
+            code: 1,
+            ..Reply::default()
+        };
+    }
+    let state = |up: bool| if up { "running" } else { "not_created" };
+    if line.contains("status") {
+        let (lab, user) = (state(e.lab_up), state(e.user_up));
+        return Reply::ok(&format!("1,web,state,{lab}\n1,isoloom-controller,state,{lab}\n1,user,state,{user}"));
+    }
+    if line.contains("up --provider") {
+        (e.lab_up, e.user_up) = (true, true);
+    }
+    if line.contains("up user") {
+        (e.user_up, e.user_held_until) = (true, Some(tokio::time::Instant::now() + ATTACH_TAKES));
+        return Reply::ok("==> user: Running provisioner: shell...").after(ATTACH_TAKES);
+    }
+    Reply::ok("")
+}
+
+/// Regression: a status read while the run's attach provisioned its access VM (minutes: a
+/// `vagrant up user` installing the box's tools, holding the VM's lock all along) was refused by
+/// Vagrant (`MachineActionLockedError`) and failed once its minute of retries ran out. While the
+/// attach holds the run, status doesn't ask Vagrant: the run is ready, its machines as last read.
+#[tokio::test(start_paused = true)]
+async fn a_status_while_an_attach_provisions_the_access_vm_reports_the_run_as_last_read() {
+    let (engine, fake) = crate::testing::modelled(provisioning);
+    let folder = RunFolder::new("vagrant", WEB_VM_ACCESS);
+    // The embedder's worker, which attaches, and its app, polling the run from another process.
+    let [runner, app] = [vec![41000], vec![]].map(|free: Vec<u16>| {
+        let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(free));
+        Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap()
+    });
+    let run = runner.open(&folder.manifest, None).unwrap();
+    run.up(&crate::testing::virtualbox_options("token"), &Recorder::new()).await.unwrap();
+    // The access VM down again (detached, say), the lab running.
+    engine.lock().unwrap().user_up = false;
+    assert!(run.status().await.unwrap().live);
+    let watched = app.open(&folder.manifest, None).unwrap();
+    let reads = async {
+        // Six and a half minutes into the attach's provisioning.
+        tokio::time::sleep(std::time::Duration::from_secs(390)).await;
+        (watched.status().await, run.status().await)
+    };
+    let events = Recorder::new();
+    let (attached, (elsewhere, here)) = tokio::join!(attach(&run, None, None, None, &events), reads);
+    attached.unwrap();
+    for (who, read) in [("another process", elsewhere), ("this runner", here)] {
+        let status = read.unwrap_or_else(|e| panic!("{who}: {e}"));
+        assert_eq!((status.state, status.live), (RunState::Ready, false), "{who}");
+        let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+        assert_eq!(web.state, MachineState::Running, "{who}: as last read");
+    }
+    let after = watched.status().await.unwrap();
+    assert!(after.live);
+    assert_eq!(after.machines.iter().find(|m| m.name == "user").unwrap().state, MachineState::Running);
 }
 
 /// A console into any machine of a Compose run: `docker compose exec` of its service, bash where

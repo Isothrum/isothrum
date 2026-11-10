@@ -5,8 +5,13 @@
   "type": "object",
   "properties": {
     "state": {
-      "description": "Where it stands.",
+      "description": "Where it stands. While an operation holds the run: the moving state it is in (`starting`\nthrough an `up`), else, before it records one or for an operation that leaves the run as\nit was meanwhile (an `update`: `ready`), the state the run's record holds.",
       "$ref": "#/$defs/RunState"
+    },
+    "live": {
+      "description": "Whether the machines and outputs were read from the engine now. False while an operation\nholds the run (in this process or another), whose tools a read would contend with (Vagrant\nrefuses to read a VM's state while a `vagrant up` provisions it): they are then as the\nrunner last read them (none before it ever did), and the outputs the engine itself gives\nare left out.",
+      "type": "boolean",
+      "default": true
     },
     "provider": {
       "description": "The Vagrant provider it uses, when it has one.",

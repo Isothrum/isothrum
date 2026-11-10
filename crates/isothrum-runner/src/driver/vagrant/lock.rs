@@ -4,7 +4,9 @@
 //! process merely reading the run's VMs (a `vagrant global-status --prune`, which reads every
 //! VM Vagrant knows, or a `vagrant status` in a terminal) made the run's own status read fail,
 //! and the start with it. The run's reads and the controller's halt, which a refused call left
-//! undone, are tried again while that lock is all that stopped them, for a while.
+//! undone, are tried again while that lock is all that stopped them, for a while. The run's own
+//! operation holds them far longer (a `vagrant up` provisioning the VMs): a status meanwhile
+//! doesn't read at all ([`Running::status`](crate::Running::status)).
 
 use std::future::Future;
 use std::time::Duration;

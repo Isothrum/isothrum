@@ -49,6 +49,31 @@ pub(crate) struct Observed {
     pub(crate) sensitive: std::collections::BTreeSet<String>,
 }
 
+impl Observed {
+    /// What of it the runner keeps as what it last saw: everything but the engine's outputs.
+    pub(crate) fn seen(&self) -> crate::store::Seen {
+        crate::store::Seen {
+            machines: self.machines.clone(),
+            published: self
+                .published
+                .iter()
+                .map(|((machine, port), host)| (machine.clone(), port.clone(), *host))
+                .collect(),
+            hosts: self.hosts.clone(),
+        }
+    }
+
+    /// What the runner last saw, as an observation with no engine output.
+    pub(crate) fn from_seen(seen: crate::store::Seen) -> Observed {
+        Observed {
+            machines: seen.machines,
+            published: seen.published.into_iter().map(|(machine, port, host)| ((machine, port), host)).collect(),
+            hosts: seen.hosts,
+            ..Observed::default()
+        }
+    }
+}
+
 /// A driver. Internal and statically dispatched (`async fn`, not object safe by design).
 pub(crate) trait Driver {
     /// Refuses a start this driver can see won't work, before anything is created (Vagrant: a

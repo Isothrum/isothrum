@@ -39,7 +39,6 @@ use crate::params::params_for_existing;
 use crate::runner::Runner;
 use crate::scope::Scope;
 use crate::secrets::Secrets;
-use crate::state::Op;
 use crate::status::{self, Status};
 
 /// A run: a manifest under a name, on a runner.
@@ -152,7 +151,11 @@ impl<'r> Running<'r> {
         Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref())
     }
 
-    /// The run as it stands: read-only, never locked, and never an event.
+    /// The run as it stands: never locked, and never an event. While an operation holds the run
+    /// (this runner's, or another process's), the engine isn't asked: that operation acts on the
+    /// run with the same tools, which may refuse a read until it is done (Vagrant locks each VM
+    /// for the whole of a `vagrant up`, provisioning included). The status is then the
+    /// operation's state, with the machines as last read ([`Status::live`] false).
     ///
     /// # Errors
     ///
@@ -162,12 +165,13 @@ impl<'r> Running<'r> {
         let events = self.silent();
         let (record, mut cx) = self.quiet(&events)?;
         let provider = cx.scope.provider.clone();
-        self.driver.prepare(&cx)?;
-        self.relay(&mut cx).await?;
-        let mut observed = self.observe(&mut cx).await?;
-        let state = match self.runner.op_of(&self.name).and_then(Op::during) {
-            Some(during) => during,
-            None => status::derive_state(&observed.machines, record.as_ref()),
+        let (state, mut observed, live) = if let Some(state) = self.while_held(record.as_ref())? {
+            (state, self.last_seen(), false)
+        } else {
+            self.driver.prepare(&cx)?;
+            self.relay(&mut cx).await?;
+            let observed = self.observe(&mut cx).await?;
+            (status::derive_state(&observed.machines, record.as_ref()), observed, true)
         };
         let machines = std::mem::take(&mut observed.machines);
         let outputs = self.bind_observed(&mut cx, observed).values;
@@ -176,12 +180,37 @@ impl<'r> Running<'r> {
             .flatten();
         Ok(Status {
             state,
+            live,
             provider,
             machines,
             networks: self.networks(&cx),
             outputs,
             message,
         })
+    }
+
+    /// Where the run stands while an operation holds it, if one does: the moving state of this
+    /// runner's operation on it (`starting` from the first instant of an `up`), else what its
+    /// record says (another process's operation records its moving state once it begins acting;
+    /// an update leaves the run `ready`).
+    fn while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {
+        let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
+        if let Some(op) = self.runner.op_of(&self.name) {
+            return Ok(Some(op.during().unwrap_or(recorded)));
+        }
+        Ok(self.runner.store.held(&self.name)?.then_some(recorded))
+    }
+
+    /// The run as the runner last read it ([`crate::store::Seen`]); nothing before it ever did,
+    /// or when what it kept can't be read (traced).
+    fn last_seen(&self) -> crate::driver::Observed {
+        match self.runner.store.seen(&self.name) {
+            Ok(seen) => crate::driver::Observed::from_seen(seen.unwrap_or_default()),
+            Err(e) => {
+                tracing::warn!(error = %e, "what the runner last saw of the run can't be read: no machine is shown");
+                crate::driver::Observed::default()
+            }
+        }
     }
 
     /// What `params`, `secrets` and `events` give this run's steps.
@@ -292,10 +321,14 @@ impl<'r> Running<'r> {
 
     /// The run as its engine reports it: the driver's machines, then, when the run's containers
     /// run inside one of its VMs (`docker-vm`'s guest), those containers as read in the VM.
+    /// What it read is kept as what the runner last saw of the run ([`crate::store::Seen`]).
     pub(crate) async fn observe(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
         let mut observed = self.driver.observe(cx).await?;
         if let Some(guest) = &self.manifest().guest {
             crate::in_vm::observe(cx, guest, &mut observed).await;
+        }
+        if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
+            tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
         }
         Ok(observed)
     }

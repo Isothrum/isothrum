@@ -137,8 +137,17 @@ impl OutputValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Status {
-    /// Where it stands.
+    /// Where it stands. While an operation holds the run: the moving state it is in (`starting`
+    /// through an `up`), else, before it records one or for an operation that leaves the run as
+    /// it was meanwhile (an `update`: `ready`), the state the run's record holds.
     pub state: RunState,
+    /// Whether the machines and outputs were read from the engine now. False while an operation
+    /// holds the run (in this process or another), whose tools a read would contend with (Vagrant
+    /// refuses to read a VM's state while a `vagrant up` provisions it): they are then as the
+    /// runner last read them (none before it ever did), and the outputs the engine itself gives
+    /// are left out.
+    #[serde(default = "read_now")]
+    pub live: bool,
     /// The Vagrant provider it uses, when it has one.
     pub provider: Option<String>,
     /// Every machine of the manifest.
@@ -149,6 +158,11 @@ pub struct Status {
     pub outputs: Vec<OutputValue>,
     /// The run's message, filled, once the run is ready.
     pub message: Option<String>,
+}
+
+/// A status from before [`Status::live`] was read from the engine.
+fn read_now() -> bool {
+    true
 }
 
 /// The JSON Schema of a run's status (`isothrum status --json`).

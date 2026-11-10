@@ -47,9 +47,15 @@ pub(crate) fn human(kind: &EventKind) -> Option<String> {
     })
 }
 
-/// A run's status as text: its state, then a line per machine, its outputs and message.
+/// A run's status as text: its state, then a line per machine, its outputs and message. While an
+/// operation holds the run, its first line says the machines are as last read.
 pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
-    let mut lines = vec![format!("{name}: {}", status.state.as_str())];
+    let held = if status.live {
+        ""
+    } else {
+        " (an operation is in progress: machines as last read)"
+    };
+    let mut lines = vec![format!("{name}: {}{held}", status.state.as_str())];
     for m in &status.machines {
         if m.state == MachineState::Absent && status.machines.iter().any(|o| o.state != MachineState::Absent) {
             continue;
@@ -101,6 +107,21 @@ mod tests {
             detail: "refused".into(),
         };
         assert_eq!(human(&check).as_deref(), Some("check db:3306 (from web): FAIL: refused"));
+    }
+
+    #[test]
+    fn a_status_read_while_an_operation_holds_the_run_says_its_machines_are_as_last_read() {
+        let status = |live: bool| -> Status {
+            serde_json::from_value(serde_json::json!({
+                "state": "starting", "live": live, "provider": null, "machines": [], "networks": [], "outputs": [], "message": null
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            status_text("demo", &status(false))[0],
+            "demo: starting (an operation is in progress: machines as last read)"
+        );
+        assert_eq!(status_text("demo", &status(true))[0], "demo: starting");
     }
 
     /// A wait that says what it waits for is shown as it goes, not only once it ends.
