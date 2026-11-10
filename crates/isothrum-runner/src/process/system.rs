@@ -1,23 +1,33 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
-//! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows.
+//! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
+//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]).
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
+use super::stopping::{GRACE, Stopping};
 use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, lines, shim};
 use crate::BoxFuture;
 
 /// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
 /// (`$DOCKER_CONFIG/config.json`, else `~/.docker/config.json`) to learn whether the user picked
 /// an engine context of their own.
+///
+/// A tool cut short (its operation's future dropped: a cancel, a step's timeout) is asked to stop
+/// on Unix (SIGINT to its process group, so Terraform saves its state) and ended once it has
+/// exited, or 30 seconds later; on Windows it is ended at once. Its clones share the tools
+/// stopping: a process about to exit waits for them with [`SystemProcesses::stopped`].
 #[derive(Debug, Clone)]
 pub struct SystemProcesses {
     /// Drop `DOCKER_HOST` and `DOCKER_CONTEXT` for `docker` (the user picked a context).
     strip_engine_overrides: bool,
+    /// The tools cut short that are still stopping.
+    stopping: Arc<Stopping>,
 }
 
 impl Default for SystemProcesses {
@@ -35,7 +45,25 @@ impl SystemProcesses {
         let config = dir.and_then(|d| std::fs::read_to_string(d.join("config.json")).ok());
         SystemProcesses {
             strip_engine_overrides: shim::strips_engine_overrides(config.as_deref()),
+            stopping: Arc::new(Stopping::new(GRACE)),
         }
+    }
+
+    /// Whether a tool cut short is still stopping.
+    #[must_use]
+    pub fn is_stopping(&self) -> bool {
+        self.stopping.any()
+    }
+
+    /// Once every tool cut short has ended: at the latest 30 seconds after the last was cut short.
+    /// At once when none is stopping.
+    pub async fn stopped(&self) {
+        self.stopping.stopped().await;
+    }
+
+    /// Ends every tool cut short that is still stopping, at once (a second Ctrl-C).
+    pub fn end_stopping(&self) {
+        self.stopping.end_now();
     }
 
     async fn run_to_end(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
@@ -54,7 +82,7 @@ impl SystemProcesses {
         tracing::debug!(program = %spec.program, args = ?spec.args, "starting a process");
         let mut cmd = self.command(spec).map_err(io)?;
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
-        let mut tree = Tree(Some(child));
+        let mut tree = Tree(Some(child), Arc::clone(&self.stopping));
         let status = match tree.0.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
             None => return Err(io(std::io::Error::other("the process went away"))),
@@ -105,18 +133,14 @@ impl ProcessRunner for SystemProcesses {
     }
 }
 
-/// A spawned tool's tree, ended when dropped before the tool exited (a timeout, a cancellation).
-struct Tree(Option<Box<dyn ChildWrapper>>);
+/// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
+/// cancellation).
+struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>);
 
 impl Drop for Tree {
     fn drop(&mut self) {
-        if let Some(child) = self.0.as_mut() {
-            // SIGKILL to the process group, or the job object terminated: nothing it started
-            // outlives it. Already gone is fine.
-            tracing::debug!(pid = ?child.id(), "ending a process tree cut short");
-            if let Err(e) = child.start_kill() {
-                tracing::debug!(error = %e, "the process tree had already ended");
-            }
+        if let Some(child) = self.0.take() {
+            self.1.stop(child);
         }
     }
 }

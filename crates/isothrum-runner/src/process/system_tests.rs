@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use super::*;
 use crate::process::capture;
+#[cfg(unix)]
+use crate::process::stopping::Stopping;
 
 fn spec(program: &str, args: &[&str]) -> ProcessSpec {
     ProcessSpec::new(program, args.iter().copied())
@@ -60,6 +62,79 @@ async fn a_tool_cancelled_takes_what_it_started_with_it() {
     assert!(tokio::time::timeout(limit, capture(&runner, &job)).await.is_err(), "cancelled while it ran");
     let pid = std::fs::read_to_string(&file).unwrap().trim().to_owned();
     assert!(gone(&pid).await, "the tool's child {pid} was left running");
+}
+
+/// A `sh` job that writes its pid to `pid`, then loops until stopped; `on_int` is its SIGINT trap
+/// (`''` to ignore it).
+#[cfg(unix)]
+fn looping(pid: &std::path::Path, on_int: &str) -> ProcessSpec {
+    let script = format!("trap {on_int} INT; echo $$ > '{}'; while :; do sleep 0.1; done", pid.display());
+    spec("sh", &["-c", &script])
+}
+
+/// The pid `file` holds, once the job wrote it.
+#[cfg(unix)]
+fn pid_in(file: &std::path::Path) -> String {
+    std::fs::read_to_string(file).unwrap().trim().to_owned()
+}
+
+/// A tool cut short is asked to stop (SIGINT to its group), as Terraform needs to save its state,
+/// and the processes wait for it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tool_cut_short_is_asked_to_stop_before_it_is_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let (pid, said) = (dir.path().join("pid"), dir.path().join("said"));
+    let job = looping(&pid, &format!("\"echo stopped > '{}'; exit 0\"", said.display()));
+    let runner = SystemProcesses::default();
+    assert!(tokio::time::timeout(Duration::from_secs(2), capture(&runner, &job)).await.is_err(), "cut short");
+    tokio::time::timeout(Duration::from_secs(10), runner.stopped())
+        .await
+        .expect("it stopped on its own");
+    assert!(!runner.is_stopping());
+    assert_eq!(std::fs::read_to_string(&said).unwrap().trim(), "stopped", "its interrupt handler ran");
+    assert!(gone(&pid_in(&pid)).await);
+}
+
+/// A tool that doesn't stop when asked is ended once its grace is over.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tool_that_ignores_the_request_is_ended_after_its_grace() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid = dir.path().join("pid");
+    let runner = SystemProcesses {
+        stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
+        ..SystemProcesses::default()
+    };
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), capture(&runner, &looping(&pid, "''")))
+            .await
+            .is_err()
+    );
+    assert!(runner.is_stopping(), "given its grace");
+    tokio::time::timeout(Duration::from_secs(10), runner.stopped())
+        .await
+        .expect("ended after its grace");
+    assert!(gone(&pid_in(&pid)).await);
+}
+
+/// A second Ctrl-C: the tools still stopping are ended at once.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_tools_still_stopping_can_be_ended_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid = dir.path().join("pid");
+    let runner = SystemProcesses::default();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), capture(&runner, &looping(&pid, "''")))
+            .await
+            .is_err()
+    );
+    runner.end_stopping();
+    tokio::time::timeout(Duration::from_secs(5), runner.stopped())
+        .await
+        .expect("ended well before its 30 s");
+    assert!(gone(&pid_in(&pid)).await);
 }
 
 #[cfg(unix)]

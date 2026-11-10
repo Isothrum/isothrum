@@ -21,9 +21,12 @@ Bring an environment up in a pipeline, test against it, and always tear it down.
    its settings as `--param`.
 5. **Read the outcome from the exit code and the events.** `--json` prints one event per line on
    standard output, a usage error included; the exit codes are in
-   [Exit codes](../reference/exit-codes.md). A cancelled job's SIGINT or SIGTERM stops the tools
-   the operation started and exits 130 or 143, so the teardown step that follows finds no tool
-   still running. For more detail, `ISOTHRUM_LOG=debug` traces the runner on standard error
+   [Exit codes](../reference/exit-codes.md). A cancelled job's SIGINT or SIGTERM asks the tools
+   the operation started to stop (SIGINT to each, so Terraform finishes what it has in flight
+   and saves its state), waits for them, ends any still running 30 seconds later (or at a second
+   signal), and exits 130 or 143, so the teardown step that follows finds no tool still running.
+   Give the job's cancellation that long before it kills `isothrum`. On Windows the tools are
+   ended at once. For more detail, `ISOTHRUM_LOG=debug` traces the runner on standard error
    (`ISOTHRUM_LOG_FORMAT=json` for a log collector).
 
 If two pipelines can run at once against the same place (a server, a cloud account), give each run

@@ -76,7 +76,8 @@ pub enum ErrorCode {
     /// The run's seal failed: it is up, but not sealed, so not ready.
     NotSealed,
     /// The operation was cut short before it ended (its future dropped: an embedder's cancel, the
-    /// command line's Ctrl-C or SIGTERM); the tools it started were stopped with it.
+    /// command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended
+    /// once they have, or 30 seconds later.
     Cancelled,
     /// The embedder was asked for something that makes no sense (the command line: a run folder
     /// with no manifest, a value missing or malformed), so no operation started.

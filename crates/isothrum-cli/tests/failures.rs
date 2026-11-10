@@ -82,13 +82,17 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
 }
 
 /// A tiny `docker` for `web-portal`: every call answers at once, except the start, which writes
-/// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs (as `sleep`) until it is stopped.
+/// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs until it is stopped. On SIGINT it
+/// runs `$ISOTHRUM_TEST_ON_INT` (default: exit; empty: SIGINT is ignored).
 #[cfg(unix)]
 const FAKE_DOCKER: &str = r#"#!/bin/sh
 case " $* " in
   *" compose version "*) echo 2.29.0 ;;
   *" config --format json "*) echo '{"services":{"web":{},"db":{}}}' ;;
-  *" up --detach "*) echo $$ > "$ISOTHRUM_TEST_PIDFILE"; echo starting; exec sleep 300 ;;
+  *" up --detach "*)
+    trap "${ISOTHRUM_TEST_ON_INT-exit 130}" INT
+    echo $$ > "$ISOTHRUM_TEST_PIDFILE"; echo starting
+    while :; do sleep 0.1; done ;;
 esac
 exit 0
 "#;
@@ -118,14 +122,44 @@ fn wait_until(ready: impl Fn() -> bool) -> bool {
 #[cfg(unix)]
 #[test]
 fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
-    sent_while_up("-INT").unwrap().assert_cancelled(130);
+    let up = Up::start(None).unwrap();
+    up.signal("-INT").unwrap();
+    up.ended().unwrap().assert_cancelled(130);
 }
 
 #[cfg(unix)]
 #[test]
 fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
     // A CI runner cancelling its job sends SIGTERM.
-    sent_while_up("-TERM").unwrap().assert_cancelled(143);
+    let up = Up::start(None).unwrap();
+    up.signal("-TERM").unwrap();
+    up.ended().unwrap().assert_cancelled(143);
+}
+
+/// A tool is asked to stop (SIGINT, as Terraform needs to save its state), and the command
+/// exits only once it did.
+#[cfg(unix)]
+#[test]
+fn a_cancelled_command_waits_for_its_tools_to_stop() {
+    let up = Up::start(Some(r#"sleep 1; echo stopped > "$ISOTHRUM_TEST_STOPPED"; exit 0"#)).unwrap();
+    up.signal("-INT").unwrap();
+    let ended = up.ended().unwrap();
+    ended.assert_cancelled(130);
+    assert_eq!(ended.on_int_wrote.trim(), "stopped", "{}", ended.stderr);
+    assert!(ended.stderr.contains("Waiting for the tools to stop"), "{}", ended.stderr);
+}
+
+/// A second signal ends the tools still stopping at once, rather than after their 30 s.
+#[cfg(unix)]
+#[test]
+fn a_second_signal_ends_the_tools_at_once() {
+    let up = Up::start(Some("")).unwrap();
+    let started = std::time::Instant::now();
+    up.signal("-INT").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    up.signal("-INT").unwrap();
+    up.ended().unwrap().assert_cancelled(130);
+    assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
 }
 
 /// What a command sent a signal showed.
@@ -139,6 +173,8 @@ struct Signalled {
     event: Value,
     /// Whether the tool it started was gone after it.
     tool_stopped: bool,
+    /// What the tool's SIGINT handler wrote by the time the command ended.
+    on_int_wrote: String,
 }
 
 #[cfg(unix)]
@@ -153,47 +189,84 @@ impl Signalled {
     }
 }
 
-/// `isothrum up --json` on a tool that runs until it is stopped, sent `signal` (as `kill` names
-/// it) once the tool runs.
+/// `isothrum up --json` on a tool that runs until it is stopped, once the tool runs.
 #[cfg(unix)]
-fn sent_while_up(signal: &str) -> Outcome<Signalled> {
-    use std::os::unix::fs::PermissionsExt;
+struct Up {
+    /// The command.
+    child: std::process::Child,
+    /// The tool's process id.
+    tool: String,
+    /// Where the tool's SIGINT handler may write.
+    stopped: std::path::PathBuf,
+    /// The home, the run's folder and the fake tool's, kept while the command runs.
+    _dirs: [tempfile::TempDir; 3],
+}
 
-    let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
-    let dir = run_dir.path().join(".isoloom/docker");
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json"))?;
-    let docker = bin.path().join("docker");
-    std::fs::write(&docker, FAKE_DOCKER)?;
-    std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))?;
-    let pidfile = bin.path().join("docker.pid");
-    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+#[cfg(unix)]
+impl Up {
+    /// Starts it, the tool running `on_int` on SIGINT (`None`: it exits).
+    fn start(on_int: Option<&str>) -> Outcome<Up> {
+        use std::os::unix::fs::PermissionsExt;
 
-    let child = Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
-        .arg(home.path())
-        .arg(run_dir.path())
-        .env("PATH", path)
-        .env("DEMO_SECRET", "token-x")
-        .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    if !wait_until(|| std::fs::read_to_string(&pidfile).is_ok_and(|p| !p.trim().is_empty())) {
-        return Err("the start never began".into());
+        let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
+        let dir = run_dir.path().join(".isoloom/docker");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json"))?;
+        let docker = bin.path().join("docker");
+        std::fs::write(&docker, FAKE_DOCKER)?;
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))?;
+        let (pidfile, stopped) = (bin.path().join("docker.pid"), bin.path().join("stopped"));
+        let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
+        cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
+            .arg(home.path())
+            .arg(run_dir.path())
+            .env("PATH", path)
+            .env("DEMO_SECRET", "token-x")
+            .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
+            .env("ISOTHRUM_TEST_STOPPED", &stopped)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        if let Some(on_int) = on_int {
+            cmd.env("ISOTHRUM_TEST_ON_INT", on_int);
+        }
+        let child = cmd.spawn()?;
+        if !wait_until(|| std::fs::read_to_string(&pidfile).is_ok_and(|p| !p.trim().is_empty())) {
+            return Err("the start never began".into());
+        }
+        let tool = std::fs::read_to_string(&pidfile)?.trim().to_owned();
+        if !alive(&tool) {
+            return Err(format!("the tool {tool} wasn't running").into());
+        }
+        Ok(Up {
+            child,
+            tool,
+            stopped,
+            _dirs: [home, run_dir, bin],
+        })
     }
-    let tool = std::fs::read_to_string(&pidfile)?.trim().to_owned();
-    if !alive(&tool) {
-        return Err(format!("the tool {tool} wasn't running").into());
+
+    /// Sends the command `signal`, as `kill` names it.
+    fn signal(&self, signal: &str) -> Outcome<()> {
+        if Command::new("kill").args([signal, &self.child.id().to_string()]).status()?.success() {
+            Ok(())
+        } else {
+            Err(format!("kill {signal} failed").into())
+        }
     }
-    if !Command::new("kill").args([signal, &child.id().to_string()]).status()?.success() {
-        return Err(format!("kill {signal} failed").into());
+
+    /// What the command showed once it ended.
+    fn ended(self) -> Outcome<Signalled> {
+        let out = self.child.wait_with_output()?;
+        let on_int_wrote = std::fs::read_to_string(&self.stopped).unwrap_or_default();
+        let tool = self.tool;
+        Ok(Signalled {
+            code: out.status.code(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            event: last_event(&out)?,
+            tool_stopped: wait_until(|| !alive(&tool)),
+            on_int_wrote,
+        })
     }
-    let out = child.wait_with_output()?;
-    Ok(Signalled {
-        code: out.status.code(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        event: last_event(&out)?,
-        tool_stopped: wait_until(|| !alive(&tool)),
-    })
 }

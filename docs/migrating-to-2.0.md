@@ -24,7 +24,7 @@ one there. [Policies](policies.md#run-manifest-versions) has which Isothrum read
 | `--ssh-jump` on any command | `--ssh-jump` on `up` only. It is recorded when the run starts; later operations go the same way. Elsewhere it did nothing. |
 | `isothrum park` took no run options | `park` takes `--param`, `--secret-from-env`, `--host-label` and `--provider`, as `down` does. A run recorded under another `--host-label` is now refused (`running_elsewhere`). |
 | `attach` on a run with no access machine stood up an ad-hoc box | It fails with `unsupported`. Declare an access machine in the spec, or add a machine with `update`. |
-| Killed by SIGINT or SIGTERM | Exits 130 or 143 after stopping the tools it started; the operation ends with an `error` event, code `cancelled`. |
+| Killed by SIGINT or SIGTERM | Asks the tools it started to stop (SIGINT; on Windows they are ended at once), ends what is still running 30 s later or at a second signal, then exits 130 or 143; the operation ends with an `error` event, code `cancelled`. |
 | A usage error with `--json` was text on standard error | It is an `error` event (code `usage`) on standard output. |
 | `isothrum reap` passed when it couldn't query the cloud | It fails. |
 
@@ -66,6 +66,13 @@ and `--secret-from-env`.
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |
 | `RunnerConfig::with_processes`, `with_ports`, `with_clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's. |
 | `AccessPick`, `AttachReport` built with struct literals | Both are `#[non_exhaustive]`. |
+
+A tool an operation cut short (its future dropped, a step's timeout) is now asked to stop
+(SIGINT to its process group, on Unix) and ended once it has exited or 30 seconds later, on a
+thread of its own; 1.x sent SIGKILL at once. A process that exits right after cutting an
+operation short (an app closing, a command line) awaits `SystemProcesses::stopped` on the
+`SystemProcesses` it gave `RunnerConfig::processes` first (`end_stopping` ends them at once), or
+the tools still stopping outlive it.
 
 Removed, with no replacement because nothing used them: the `Hooks` port (`Hooks`, `HookError`,
 `RunView`, `Runner::add_hooks`); `RunRecord::manifest_sha256` and `LoadedManifest::sha256`;

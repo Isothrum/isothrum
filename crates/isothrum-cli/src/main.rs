@@ -23,9 +23,10 @@ mod text;
 mod values;
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::Parser;
-use isothrum_runner::{EventKind, Runner, RunnerConfig};
+use isothrum_runner::{EventKind, Runner, RunnerConfig, SystemProcesses};
 
 use crate::args::Cli;
 use crate::error::{Error, Result};
@@ -46,10 +47,12 @@ async fn main() -> ExitCode {
         term.err(&format!("warning: ISOTHRUM_LOG={filter}: {e}"));
     }
     let trail = Trail::default();
+    let processes = SystemProcesses::default();
     let outcome = tokio::select! {
-        outcome = start(&cli, &term, &trail, &var) => outcome,
+        outcome = start(&cli, &processes, &term, &trail, &var) => outcome,
         signal = cancelled(&term) => Err(Error::Cancelled(signal)),
     };
+    tools_stopped(&processes, &term).await;
     let outcome = outcome.and_then(|verdict| term.finish().map(|()| verdict));
     if let Err(e) = &outcome {
         report(e, &cli, &term, &trail);
@@ -57,13 +60,33 @@ async fn main() -> ExitCode {
     exit::code(&outcome)
 }
 
-/// Runs `cli` on the runner this host and environment call for, built when the command needs one.
-async fn start(cli: &Cli, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
+/// Runs `cli` on the runner this host and environment call for, built when the command needs one,
+/// its tools started by `processes`.
+async fn start(cli: &Cli, processes: &SystemProcesses, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let runner = || -> Result<Runner> {
         let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), std::env::home_dir())?;
-        Ok(Runner::new(RunnerConfig::new(home))?)
+        let mut config = RunnerConfig::new(home);
+        config.processes = Arc::new(processes.clone());
+        Ok(Runner::new(config)?)
     };
     commands::run(cli, runner, term, trail, var).await
+}
+
+/// Once the tools the command cut short (a signal, a step's timeout) have stopped: each was asked
+/// to, and is ended 30 seconds later at the latest. Another signal ends them at once. The command
+/// exits only then, so it leaves none running.
+async fn tools_stopped(processes: &SystemProcesses, term: &Term) {
+    if !processes.is_stopping() {
+        return;
+    }
+    term.err("Waiting for the tools to stop (Ctrl-C again to end them now)…");
+    tokio::select! {
+        () = processes.stopped() => {}
+        Ok(_) = cancel::requested() => {
+            processes.end_stopping();
+            processes.stopped().await;
+        }
+    }
 }
 
 /// The signal that cancels the command. One whose handler can't be installed is said, and the

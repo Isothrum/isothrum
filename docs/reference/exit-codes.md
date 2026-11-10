@@ -9,7 +9,7 @@
 | 0 | The command reached its goal: the run is up (or parked, down, …), every check passed. |
 | 1 | It didn't: an operation failed (its `error` event says why, with its code), a check failed, or the runner refused (a run that is busy, a manifest it can't read). |
 | 2 | A usage error: an unknown option, a value missing or malformed, a run folder with no manifest (the `error` event's code is `usage`). |
-| 130 | SIGINT (Ctrl-C) cancelled it: the tools it started were stopped, and the operation ended with an `error` event, code `cancelled` (on Windows: Ctrl-C). |
+| 130 | SIGINT (Ctrl-C) cancelled it: the tools it started were asked to stop (SIGINT) and ended once they had, 30 s later or on a second signal (at once on Windows), and the operation ended with an `error` event, code `cancelled` (on Windows: Ctrl-C). |
 | 143 | SIGTERM cancelled it (a CI runner cancelling its job), as for 130 (on Windows: Ctrl-Break, the console closed, a log-off or a shutdown). |
 
 ## Error codes
@@ -46,5 +46,5 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `adopt_refused` | A deployment can't be taken over as a run. | The message says why the deployment can't be taken over; start the run with `up` instead. |
 | `unreachable` | A machine a step goes to over SSH never answered. | Check the machine booted and its network (SSH, `--ssh-jump`), then retry. |
 | `not_sealed` | The run's seal failed: it is up, but not sealed, so not ready. | `down` the run, which isn't ready, then `up` again. |
-| `cancelled` | The operation was cut short before it ended (its future dropped: an embedder's cancel, the command line's Ctrl-C or SIGTERM); the tools it started were stopped with it. | Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left. |
+| `cancelled` | The operation was cut short before it ended (its future dropped: an embedder's cancel, the command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended once they have, or 30 seconds later ([`crate::SystemProcesses`]). | Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left. |
 | `usage` | The embedder was asked for something that makes no sense (the command line: a run folder with no manifest, a value missing or malformed), so no operation started. | Fix the command line: `isothrum <command> --help`. |

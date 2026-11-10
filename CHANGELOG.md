@@ -41,8 +41,15 @@ change.
   process group (a job object on Windows), so SIGINT and SIGTERM reached only `isothrum`, and
   Terraform or Vagrant kept running. `isothrum` now races its command against SIGINT and SIGTERM
   (Ctrl-C, Ctrl-Break, the console closed, a log-off or a shutdown on Windows): the operation is
-  dropped, which ends each tool's process tree, and the command exits 130 (SIGINT) or 143
-  (SIGTERM).
+  dropped, which stops each tool's process tree, and the command exits 130 (SIGINT) or 143
+  (SIGTERM) once they have stopped.
+- **A tool cut short is asked to stop before it is ended.** A cancel, Ctrl-C or a step's timeout
+  sent SIGKILL to the tool's process group, so a Terraform cut short lost the state it had not
+  saved yet. On Unix the group now gets SIGINT (Terraform, Vagrant and Compose stop cleanly on
+  it), and SIGKILL once the tool has exited or 30 seconds later. `isothrum` waits for them
+  before it exits ("Waiting for the tools to stop"); a second signal ends them at once. An
+  embedder waits with the new `SystemProcesses::stopped` (`is_stopping`, `end_stopping`). On
+  Windows a tool, headless, is still ended at once.
 - **An operation cut short says so.** Dropping an operation's future (an embedder's cancel, the
   command line's Ctrl-C) ended its events mid-stream and left the run `starting` (or `stopping`,
   …), so the next `up` said it was already running. Its events now end with an `error` whose code

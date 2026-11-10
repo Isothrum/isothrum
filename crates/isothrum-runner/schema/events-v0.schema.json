@@ -699,7 +699,7 @@
           "const": "not_sealed"
         },
         {
-          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were stopped with it.",
+          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended\nonce they have, or 30 seconds later.",
           "type": "string",
           "const": "cancelled"
         },

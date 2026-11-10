@@ -1,6 +1,7 @@
 //! Running the tools a manifest names: the [`ProcessRunner`] port. [`SystemProcesses`] starts
 //! real processes (never through a shell, headless on Windows, each tool in a process group or
-//! job object so a timeout or a cancellation ends the whole tree it started); the `fake` feature's
+//! job object so a timeout or a cancellation ends the whole tree it started, after asking it to
+//! stop on Unix); the `fake` feature's
 //! `fake::FakeProcesses` answers from a test's script instead.
 
 mod elevated;
@@ -8,6 +9,7 @@ mod elevated;
 pub mod fake;
 mod lines;
 mod shim;
+mod stopping;
 mod system;
 mod tail;
 

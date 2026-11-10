@@ -28,7 +28,8 @@ pub(crate) const CODES: [(u8, &str); 5] = [
     ),
     (
         130,
-        "SIGINT (Ctrl-C) cancelled it: the tools it started were stopped, and the operation \
+        "SIGINT (Ctrl-C) cancelled it: the tools it started were asked to stop (SIGINT) and ended \
+         once they had, 30 s later or on a second signal (at once on Windows), and the operation \
          ended with an `error` event, code `cancelled` (on Windows: Ctrl-C).",
     ),
     (
