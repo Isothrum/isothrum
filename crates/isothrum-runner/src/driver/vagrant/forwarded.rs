@@ -5,14 +5,14 @@
 //! (their forwards are this run's own) each host port it will forward must be free over its
 //! protocol, and not reserved by another run of this runner starting meanwhile.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use isoloom_manifest::{Machine, Manifest, Port, Protocol, Provider, PublishMode, Step};
 
 use super::status;
 use crate::Result;
+use crate::driver::port_pick::PortPick;
 use crate::executor::Cx;
-use crate::net::HeldPort;
 use crate::status::MachineState;
 
 /// The key a chosen host port is held under: `"<machine>/<port>"`.
@@ -44,16 +44,16 @@ pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
         return chosen;
     }
     let fixed = cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED);
-    let mut held: Vec<HeldPort> = Vec::new();
-    let mut taken: BTreeSet<(u16, Protocol)> = BTreeSet::new();
+    let mut pick = PortPick::new(cx);
     for m in &cx.run.manifest().machines {
         for p in &m.ports {
             if !ephemeral(p) {
                 continue;
             }
             let protocol = p.kind.transport();
-            let picked = fixed.then(|| fixed_pick(cx, p, protocol, &mut taken)).flatten();
-            if let Some(port) = picked.or_else(|| free_pick(cx, protocol, &mut taken, &mut held)) {
+            let preferred = p.publish.as_ref().and_then(|x| x.preferred).filter(|_| fixed);
+            let picked = preferred.and_then(|n| pick.fixed(n.get(), protocol));
+            if let Some(port) = picked.or_else(|| pick.free(protocol)) {
                 chosen.insert(key(m, p), port);
             }
         }
@@ -64,31 +64,11 @@ pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     // port gets one; only QEMU needs it (every other provider manages its own SSH access).
     if cx.scope.runs_on(Provider::Qemu)
         && let Some(ssh) = ssh_key(cx.run.manifest())
-        && let Some(port) = free_pick(cx, Protocol::Tcp, &mut taken, &mut held)
+        && let Some(port) = pick.free(Protocol::Tcp)
     {
         chosen.insert(ssh, port);
     }
-    drop(held);
     chosen
-}
-
-/// `publish.preferred` when it is free to reserve for this run and not already picked.
-fn fixed_pick(cx: &Cx<'_>, p: &Port, protocol: Protocol, taken: &mut BTreeSet<(u16, Protocol)>) -> Option<u16> {
-    let preferred = p.publish.as_ref()?.preferred?.get();
-    let free = !taken.contains(&(preferred, protocol)) && cx.run.runner.reserve(cx.run.name(), preferred, protocol);
-    free.then(|| {
-        taken.insert((preferred, protocol));
-        preferred
-    })
-}
-
-/// A free loopback port, reserved for this run and held until the whole pick is done.
-fn free_pick(cx: &Cx<'_>, protocol: Protocol, taken: &mut BTreeSet<(u16, Protocol)>, held: &mut Vec<HeldPort>) -> Option<u16> {
-    let port = cx.run.runner.pick_reserved(cx.run.name(), protocol)?;
-    let number = port.port;
-    taken.insert((number, protocol));
-    held.push(port);
-    Some(number)
 }
 
 /// The host ports this run forwards from this computer: each fixed port at its number, each

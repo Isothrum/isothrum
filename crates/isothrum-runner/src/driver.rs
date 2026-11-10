@@ -4,6 +4,7 @@
 //! another driver's), how it reads status, and its run-state upkeep.
 
 mod compose;
+mod port_pick;
 pub(crate) mod shells;
 pub(crate) mod terraform;
 mod vagrant;
