@@ -26,7 +26,7 @@ pub struct ShellCommand {
     pub cwd: PathBuf,
     /// Variables to run it with, besides the embedder's own (a Vagrant run's state folder,
     /// `VAGRANT_DOTFILE_PATH`, without which Vagrant doesn't find the VM; its forwarded ports).
-    /// Empty for a Compose service and an SSH login.
+    /// Empty for a Compose service on this computer and for an SSH login.
     pub env: Vec<(String, String)>,
 }
 

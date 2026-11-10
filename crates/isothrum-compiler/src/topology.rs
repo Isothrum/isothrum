@@ -29,7 +29,8 @@ pub struct Topology {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lan {
-    /// An IPv4 block inside 10.0.0.0/8, /24 to /29 (Isoloom's rule), e.g. `10.10.1.0/24`.
+    /// A private IPv4 block (10/8, 172.16/12, 192.168/16), /24 to /29 (Isoloom's rule), e.g.
+    /// `10.10.1.0/24`.
     pub cidr: String,
     /// Whether machines on it may reach the internet (Isoloom's default: yes).
     #[serde(default = "yes")]

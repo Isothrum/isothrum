@@ -157,7 +157,8 @@ pub struct Captured {
     pub exit: Exit,
     /// Its standard output, one line each.
     pub stdout: Vec<String>,
-    /// Its last standard error lines (a Ruby backtrace's frames left out).
+    /// Its last standard error lines (a Ruby backtrace's frames and known-harmless warnings left
+    /// out).
     pub stderr: Vec<String>,
 }
 
