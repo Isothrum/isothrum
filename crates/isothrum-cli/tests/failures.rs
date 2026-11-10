@@ -279,7 +279,7 @@ fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
     let mut home = dir.path().as_os_str().to_owned().into_vec();
-    home.extend_from_slice(b"/caf\xe9");
+    home.extend_from_slice(b"/bad\xff");
     let user = dir.path().join("user");
     std::fs::create_dir(&user).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))

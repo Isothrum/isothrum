@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn a_home_variable_that_isnt_utf8_is_still_the_home() {
         use std::os::unix::ffi::OsStringExt;
-        let raw = std::ffi::OsString::from_vec(b"/runs/caf\xe9".to_vec());
+        let raw = std::ffi::OsString::from_vec(b"/runs/bad\xff".to_vec());
         assert_eq!(home(None, Some(raw.clone()), Some("/u".into())).unwrap(), PathBuf::from(raw));
     }
 }

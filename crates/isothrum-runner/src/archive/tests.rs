@@ -230,11 +230,11 @@ fn a_missing_project_is_an_error_and_leaves_no_partial_archive() {
 #[test]
 fn a_name_that_isnt_utf8_is_refused_by_name() {
     use std::os::unix::ffi::OsStringExt;
-    let name = std::ffi::OsString::from_vec(b"caf\xe9.txt".to_vec());
+    let name = std::ffi::OsString::from_vec(b"bad\xff.txt".to_vec());
     let err = utf8_name(Path::new("/p/docs"), name).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     assert!(
-        err.to_string().ends_with("has a name that isn't UTF-8") && err.to_string().starts_with("/p/docs/caf"),
+        err.to_string().ends_with("has a name that isn't UTF-8") && err.to_string().starts_with("/p/docs/bad"),
         "{err}"
     );
     assert_eq!(utf8_name(Path::new("/p"), "café.txt".into()).unwrap(), "café.txt");
