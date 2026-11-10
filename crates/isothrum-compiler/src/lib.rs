@@ -10,7 +10,7 @@
 //! - **Networks.** A LAN (an area drawn around machines, a VLAN in practice) is an Isoloom network
 //!   with its own block; each machine on it gets an address there, the next free one unless it
 //!   asks for one. A cable between two machines is its own point-to-point network (a /29 cut from
-//!   `10.200.0.0/16`, the two ends on its `.2` and `.3`). A switch's VLANs nest
+//!   `10.200.0.0/16`, the two ends on its second and third host addresses). A switch's VLANs nest
 //!   under a network named after the switch.
 //! - **Routing.** An automatic router lets the networks it joins reach each other (`reach`, both
 //!   ways); a Cisco router is its LANs' gateway.

@@ -109,7 +109,7 @@ fn form(arg: &clap::Arg) -> String {
 /// The exit codes, then every error code with its cause and remedy.
 fn exit_codes_page() -> String {
     let mut out = format!("{GENERATED}\n\n# Exit codes and error codes\n\n## Exit codes\n\n| Code | When |\n| ---- | ---- |\n");
-    for (code, when) in crate::exit::CODES {
+    for (code, when) in EXIT_CODES {
         writeln!(out, "| {code} | {when} |").unwrap();
     }
     out.push_str(
@@ -145,6 +145,33 @@ fn error_codes() -> Vec<(ErrorCode, String)> {
         })
         .collect()
 }
+
+/// Every exit code, with when the command gives it: what the exit-code reference says
+/// (`exit`'s tests give each from `exit::code`).
+const EXIT_CODES: [(u8, &str); 5] = [
+    (0, "The command reached its goal: the run is up (or parked, down, …), every check passed."),
+    (
+        1,
+        "It didn't: an operation failed (its `error` event says why, with its code), a check \
+         failed, or the runner refused (a run that is busy, a manifest it can't read).",
+    ),
+    (
+        2,
+        "A usage error: an unknown option, a value missing or malformed, a run folder with no \
+         manifest (the `error` event's code is `usage`).",
+    ),
+    (
+        130,
+        "SIGINT (Ctrl-C) cancelled it: the tools it started were asked to stop (SIGINT) and ended \
+         once they had, 30 s later or on a second signal (at once on Windows), and the operation \
+         ended with an `error` event, code `cancelled` (on Windows: Ctrl-C).",
+    ),
+    (
+        143,
+        "SIGTERM cancelled it (a CI runner cancelling its job), as for 130 (on Windows: \
+         Ctrl-Break, the console closed, a log-off or a shutdown).",
+    ),
+];
 
 /// What to do about `code`.
 fn remedy(code: ErrorCode) -> Option<&'static str> {
@@ -192,6 +219,22 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
 #[test]
 fn the_committed_cli_reference_is_current() {
     check_or_write("cli.md", &cli_page());
+}
+
+#[test]
+fn the_exit_codes_reference_lists_every_code_the_command_line_gives() {
+    use crate::cancel::Signal;
+    use crate::error::Error;
+    use crate::exit::{Verdict, code};
+    let given = [
+        code(&Ok(Verdict::Pass)),
+        code(&Ok(Verdict::Fail)),
+        code(&Err(Error::Usage("no manifest".into()))),
+        code(&Err(Error::Cancelled(Signal::Interrupt))),
+        code(&Err(Error::Cancelled(Signal::Terminate))),
+    ];
+    let listed: Vec<std::process::ExitCode> = EXIT_CODES.iter().map(|(c, _)| std::process::ExitCode::from(*c)).collect();
+    assert_eq!(given.to_vec(), listed);
 }
 
 #[test]

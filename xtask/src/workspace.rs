@@ -4,8 +4,8 @@
 //! - **one-way dependencies**: the libraries (the compiler and the runner) depend on no
 //!   other crate of the repository and on no UI; the WASM build depends on the compiler alone
 //!   (never the runner: Tokio's processes aren't WASM); the machine-setup domain builds on the
-//!   runner, and the app (the command line) depends on the libraries and the domain, never the
-//!   reverse; nothing depends on the xtask;
+//!   runner, and the app (the command line) may depend on the libraries and the domain (it uses
+//!   the libraries), never the reverse; nothing depends on the xtask;
 //! - **workspace hygiene**: every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 

@@ -1,5 +1,6 @@
 //! Cables: each one between two machines' ports is a point-to-point network of its own, a /29
-//! cut from `10.200.0.0/16`, the two ends on its `.2` and `.3` (its `.1` left free).
+//! cut from `10.200.0.0/16`, the two ends on its second and third host addresses (its first left
+//! free): `.2` and `.3` for the first cable, `.10` and `.11` for the next.
 
 use std::net::Ipv4Addr;
 

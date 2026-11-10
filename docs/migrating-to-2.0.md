@@ -113,9 +113,9 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
   `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` are gone: `reason` says
   what is missing or too old.
 - `Serialize` and `Deserialize` on `ProviderStatus` are gone (`Provider`, Isoloom's, keeps them).
-- Gone with no user: the self-tests, the system report, `Dirs`, `Error`, `Result`, the `exec`
-  module, the download record (`storage::*`), `Provider::ALL`, `Provider::is_remote` and the
-  provider helpers.
+- Gone with no user: the self-tests, the system report, `Dirs`, `Error`, `Result`, the download
+  record (`storage::*`), `Provider::ALL`, `Provider::is_remote` and the
+  provider helpers. The `exec` module is internal now (no longer `pub`).
 
 ## `isothrum-compiler`
 
