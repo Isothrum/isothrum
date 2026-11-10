@@ -462,6 +462,9 @@ change.
 - **A `down` forgets what the runner last saw of the run (`seen.json`).** A status while the
   next start held the run showed the gone run's machines, as running, until that start's first
   read.
+- **A run manifest that isn't UTF-8 is `manifest_invalid`, naming the byte.** Bytes that
+  weren't UTF-8 inside a JSON string read as U+FFFD, so a path or a template of the contract
+  changed without a word.
 
 ### Added
 
