@@ -10,11 +10,13 @@ use serde_json::Value;
 use crate::process::ProcessSpec;
 
 /// The key-value tag holding a resource's expiry.
-pub(crate) const EXPIRES_KEY: &str = "isoloom-expires-at";
+const EXPIRES_KEY: &str = "isoloom-expires-at";
 /// The key-value tag holding a resource's environment.
-pub(crate) const INSTANCE_KEY: &str = "isoloom-instance";
+const INSTANCE_KEY: &str = "isoloom-instance";
 /// The word tag's prefix holding a resource's expiry (DigitalOcean, Linode).
-pub(crate) const EXPIRES_WORD: &str = "isoloom-expires-";
+const EXPIRES_WORD: &str = "isoloom-expires-";
+/// What every word tag of Isoloom's starts with: an instance word is one that isn't the expiry's.
+const WORD_PREFIX: &str = "isoloom-";
 
 /// A resource a cloud holds with Isoloom's tags.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -52,19 +54,16 @@ impl Place {
 /// The read-only queries listing `cloud`'s tagged resources in `place`: one per AWS region, one
 /// otherwise.
 pub(crate) fn queries(cloud: Cloud, place: &Place) -> Vec<ProcessSpec> {
+    let cli = cloud_cli(cloud);
+    let query = |args: Vec<String>| ProcessSpec::new(cli, args);
+    let owned = |args: &[&str]| args.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();
     match cloud {
         Cloud::Aws => {
-            let base = [
-                "resourcegroupstaggingapi",
-                "get-resources",
-                "--tag-filters",
-                "Key=isoloom-expires-at",
-                "--output",
-                "json",
-            ];
+            let filter = format!("Key={EXPIRES_KEY}");
+            let base = owned(&["resourcegroupstaggingapi", "get-resources", "--tag-filters", &filter, "--output", "json"]);
             let one = |region: Option<&str>| {
                 let tail = region.map(|r| vec!["--region".to_owned(), r.to_owned()]).unwrap_or_default();
-                ProcessSpec::new("aws", base.iter().map(|s| (*s).to_owned()).chain(tail))
+                query(base.iter().cloned().chain(tail).collect())
             };
             if place.regions.is_empty() {
                 vec![one(None)]
@@ -72,30 +71,29 @@ pub(crate) fn queries(cloud: Cloud, place: &Place) -> Vec<ProcessSpec> {
                 place.regions.iter().map(|r| one(Some(r))).collect()
             }
         }
-        Cloud::Azure => vec![ProcessSpec::new("az", ["resource", "list", "--tag", EXPIRES_KEY, "--output", "json"])],
+        Cloud::Azure => vec![query(owned(&["resource", "list", "--tag", EXPIRES_KEY, "--output", "json"]))],
         Cloud::Gcp => {
-            let mut args: Vec<String> = ["compute", "instances", "list", "--filter=labels.isoloom-expires-at:*", "--format=json"]
-                .map(str::to_owned)
-                .to_vec();
+            let filter = format!("--filter=labels.{EXPIRES_KEY}:*");
+            let mut args = owned(&["compute", "instances", "list", &filter, "--format=json"]);
             if let Some(p) = &place.project {
                 args.push(format!("--project={p}"));
             }
-            vec![ProcessSpec::new("gcloud", args)]
+            vec![query(args)]
         }
-        Cloud::Digitalocean => vec![ProcessSpec::new("doctl", ["compute", "droplet", "list", "--output", "json"])],
-        Cloud::Linode => vec![ProcessSpec::new("linode-cli", ["linodes", "list", "--json"])],
-        Cloud::Oci => vec![ProcessSpec::new(
-            "oci",
-            [
+        Cloud::Digitalocean => vec![query(owned(&["compute", "droplet", "list", "--output", "json"]))],
+        Cloud::Linode => vec![query(owned(&["linodes", "list", "--json"]))],
+        Cloud::Oci => {
+            let search = format!("query all resources where (freeformTags.key = '{EXPIRES_KEY}')");
+            vec![query(owned(&[
                 "search",
                 "resource",
                 "structured-search",
                 "--query-text",
-                "query all resources where (freeformTags.key = 'isoloom-expires-at')",
+                &search,
                 "--output",
                 "json",
-            ],
-        )],
+            ]))]
+        }
     }
 }
 
@@ -124,7 +122,7 @@ pub(crate) fn parse(cloud: Cloud, json: &str) -> Result<Vec<Tagged>, String> {
 }
 
 /// The command line `cloud`'s query runs.
-pub(crate) fn cloud_cli(cloud: Cloud) -> &'static str {
+pub(super) fn cloud_cli(cloud: Cloud) -> &'static str {
     match cloud {
         Cloud::Aws => "aws",
         Cloud::Azure => "az",
@@ -198,7 +196,7 @@ fn words(r: &Value, id: &str, kind: &str) -> Option<Tagged> {
         id: text(r.get(id))?,
         kind: kind.to_owned(),
         expires_at: expires.parse().ok(),
-        instance: tags.iter().find(|t| t.starts_with("isoloom-") && !t.starts_with(EXPIRES_WORD)).cloned(),
+        instance: tags.iter().find(|t| is_instance_word(t)).cloned(),
     })
 }
 
@@ -217,12 +215,7 @@ pub(crate) fn instances_in_state(state: &Value, out: &mut std::collections::BTre
         Value::Array(a) => {
             let words: Vec<&str> = a.iter().filter_map(Value::as_str).collect();
             if words.iter().any(|w| w.starts_with(EXPIRES_WORD)) {
-                out.extend(
-                    words
-                        .iter()
-                        .filter(|w| w.starts_with("isoloom-") && !w.starts_with(EXPIRES_WORD))
-                        .map(|w| (*w).to_owned()),
-                );
+                out.extend(words.iter().filter(|w| is_instance_word(w)).map(|w| (*w).to_owned()));
             }
             for v in a {
                 instances_in_state(v, out);
@@ -230,4 +223,9 @@ pub(crate) fn instances_in_state(state: &Value, out: &mut std::collections::BTre
         }
         _ => {}
     }
+}
+
+/// Whether word tag `word` names an environment: Isoloom's, and not the expiry's.
+fn is_instance_word(word: &str) -> bool {
+    word.starts_with(WORD_PREFIX) && !word.starts_with(EXPIRES_WORD)
 }
