@@ -99,14 +99,9 @@ impl Running<'_> {
             self.observe_running(&mut cx).await?;
             self.driver.attach(&cx, target, image, native.as_deref()).await?;
             let report = report(target, network, image);
-            // The whole report: `isothrum attach --json` says where it is with this event alone.
-            let data = json!({
-                "machine": report.machine,
-                "native": report.native,
-                "network": report.network,
-                "address": report.address,
-                "image": report.image,
-            });
+            // The whole report: `isothrum attach --json` says where it is with this event alone
+            // (its fields are strings: writing it as JSON can't fail).
+            let data = serde_json::to_value(&report).unwrap_or_default();
             Ok(Done {
                 value: report,
                 ok: true,
