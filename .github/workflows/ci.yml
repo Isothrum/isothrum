@@ -2,7 +2,8 @@ name: CI
 
 # Every push to main and every pull request: formatting, clippy and the tests on Linux, macOS and
 # Windows, the API docs, the quality ratchet, the supply chain (cargo-deny, unused dependencies),
-# spelling, SemVer against the last release, the declared minimum Rust and the WebAssembly build.
+# spelling, SemVer against the last release, the declared minimum Rust, the fuzz targets' lints and
+# the WebAssembly build.
 # The release gate (gate.yml) runs a subset of these again on the tag.
 on:
   push:
@@ -159,6 +160,21 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo +1.90 check --workspace --all-targets --locked
+
+  fuzz:
+    name: Fuzz targets (format and lints)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # fuzz/ is a workspace of its own, which the jobs above don't build: its format and lints
+      # on the pinned toolchain, so a change to the APIs its targets call shows here.
+      - run: cargo run -p xtask --locked -- fuzz --check
 
   wasm:
     name: WebAssembly

@@ -56,8 +56,8 @@ cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask
 
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
 local `#[expect(lint, reason = "...")]`, never an `#[allow]`. CI also runs the tests on Linux,
-macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`) and builds the
-WebAssembly package.
+macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`), checks the fuzz
+targets' format and lints (`cargo run -p xtask -- fuzz --check`) and builds the WebAssembly package.
 
 Other tasks are `cargo run -p xtask -- <task>`, the same on every OS: `schema` (regenerate the
 event and status schemas after changing them), `wasm`, `msrv`, `features`, `fuzz`, `mutants`.
