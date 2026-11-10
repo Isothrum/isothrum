@@ -3,6 +3,7 @@
 //! so a missing tool or a stopped engine fails before anything is created.
 
 use std::num::NonZeroU32;
+use std::sync::LazyLock;
 
 use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool, Version};
 
@@ -13,6 +14,20 @@ use crate::tool_output::version_in;
 
 /// The step id the probes report under.
 const STEP: &str = "tools";
+
+/// [`STEP`] and the container engine's program, as Isoloom's types, parsed once for the process:
+/// literals a test holds to Isoloom's rules, so the error each keeps can't happen.
+static CONSTANTS: LazyLock<std::result::Result<(StepId, Program), String>> = LazyLock::new(|| {
+    Ok((
+        StepId::parse(STEP).map_err(|e| e.to_string())?,
+        Program::parse("docker").map_err(|e| e.to_string())?,
+    ))
+});
+
+/// The probes' step id and the container engine's program ([`CONSTANTS`]).
+fn constants() -> Result<(StepId, Program)> {
+    CONSTANTS.clone().map_err(|what| Error::Unsupported { what })
+}
 
 /// How long a probe may take.
 const PROBE_TIMEOUT_S: u32 = 25;
@@ -39,11 +54,11 @@ fn used(cx: &Cx<'_>, tool: &Tool) -> bool {
 }
 
 async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
-    let id = StepId::parse(STEP).map_err(|e| Error::Unsupported { what: e.to_string() })?;
+    let (id, docker) = constants()?;
     if let Some(image) = tool.container.as_ref().filter(|_| tool.container_hosts.contains(&cx.scope.host)) {
         // The tool runs from its pinned image here: the engine that runs it must answer, and
         // the image is the version the manifest pins.
-        return engine(cx, id, image.as_str()).await;
+        return engine(cx, id, docker, image.as_str()).await;
     }
     let mut step = Step::argv(id, tool.probe.clone());
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
@@ -75,12 +90,9 @@ fn found_version(out: &str) -> Option<Version> {
         })
 }
 
-/// The container engine answers, for a tool run from `image`.
-async fn engine(cx: &Cx<'_>, id: StepId, image: &str) -> Result<()> {
-    let probe = HostArgv::Every(Argv::new(
-        Program::parse("docker").map_err(|e| Error::Unsupported { what: e.to_string() })?,
-        ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into(),
-    ));
+/// The container engine, `docker`, answers, for a tool run from `image`.
+async fn engine(cx: &Cx<'_>, id: StepId, docker: Program, image: &str) -> Result<()> {
+    let probe = HostArgv::Every(Argv::new(docker, ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into()));
     let mut step = Step::argv(id, probe);
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
     capture_step(cx, STEP, &step).await.map(drop).map_err(|e| {
@@ -109,6 +121,12 @@ fn named(e: Error, tool: &str, failed: impl FnOnce(String) -> String) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_probes_constants_are_ones_isoloom_takes() {
+        let (id, docker) = constants().unwrap();
+        assert_eq!((id.as_str(), docker.as_str()), (STEP, "docker"));
+    }
 
     #[test]
     fn a_tools_version_is_read_and_ordered_as_isoloom_orders_versions() {
