@@ -448,9 +448,10 @@ change.
 
 ### Added
 
-- **`isothrum_runner::capture` and `Captured`**: run a tool through a `ProcessRunner` and keep
-  what it printed, with `Captured::reason` (why it failed, as every failed tool's error says it)
-  and `Captured::output`; and `Display` on `Exit` (`exited with code 1`, `exited with a signal`).
+- **`Captured::reason` and `Captured::output`** on `isothrum_runner::Captured`, what
+  `isothrum_runner::capture` keeps of a tool it runs (both were in `process`, now at the crate
+  root): why it failed, as every failed tool's error says it, and what it printed; and `Display`
+  on `Exit` (`exited with code 1`, `exited with a signal`).
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
   macOS (arm64, x86_64) and Windows (x86_64) on GitHub releases, each archive with the licences of
@@ -657,11 +658,12 @@ change.
   `Provider::id` is gone: a provider's id is `isothrum_runner::wire_name(&provider)`, the one
   helper that names a manifest value as the manifest writes it.
 
-- **Breaking:** **The process port has one path, the crate root**: `Exit`, `ProcessError` and `OnLine` join
-  `ProcessRunner`, `ProcessSpec` and `SystemProcesses` there, and the `process` module is
-  internal. The `fake` feature's test doubles are `isothrum_runner::fake::{FakeProcesses, Reply,
-  Call}` (were `process::fake::…`), and `Call` is `ProcessSpec` (a type alias): a call is
-  recorded as the spec it ran, its fields and `line()` and `env(name)` as before.
+- **Breaking:** **The process port has one path, the crate root**: `Exit`, `ProcessError`, `OnLine`,
+  `capture` and `Captured` join `ProcessRunner`, `ProcessSpec` and `SystemProcesses` there, and
+  the `process` module is internal. The `fake` feature's test doubles are
+  `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (were `process::fake::…`), and `Call` is
+  `ProcessSpec` (a type alias): a call is recorded as the spec it ran, its fields and `line()` and
+  `env(name)` as before.
 - **Breaking:** **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
   `AccessPick::default()` with its `with_*` methods.
 - **`isothrum-machine`'s reasons speak to no particular program**: no "then re-check" or "run
@@ -719,8 +721,7 @@ change.
 - **Breaking:** **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
 - **Breaking:** **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
-- **Breaking:** **`Runner::in_flight`, `process::capture` and `process::Captured`** are internal now: no
-  embedder read them.
+- **Breaking:** **`Runner::in_flight`** is internal now: no embedder read it.
 - **Breaking:** **`isothrum-wasm`'s Rust functions are internal**: `plan`, `bundle_bytes`,
   `bundle_target_bytes`, `own_files` and `choices`, with `Error` and `Result`. Only the
   `#[wasm_bindgen]` exports called them; those stay, as do `Plan`, `File` and `Choices`, the

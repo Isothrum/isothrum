@@ -70,7 +70,7 @@ and `--secret-from-env`.
 | `ProcessError::Refused { arg }` | `ProcessError::Refused { why }` |
 | `Event::run: String`, `Event::op: Op` | `Option<String>`, `Option<Op>` |
 | `Runner::events(name) -> Vec<Event>` | `-> EventLog`: its `events`, and `unreadable`, the log's lines it couldn't read (a 1.x `hook_failed` warning). |
-| `isothrum_runner::process::{Exit, ProcessError, OnLine, ...}` | At the crate root: `isothrum_runner::{Exit, ProcessError, OnLine, ProcessRunner, ProcessSpec, SystemProcesses}`. |
+| `isothrum_runner::process::{Exit, ProcessError, OnLine, capture, Captured, ...}` | At the crate root: `isothrum_runner::{Exit, ProcessError, OnLine, ProcessRunner, ProcessSpec, SystemProcesses, capture, Captured}`. |
 | `process::fake::{FakeProcesses, Reply, Call}` | `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (feature `fake`); `Call` is `ProcessSpec`. |
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |
 | `RunnerConfig::with_processes`, `with_ports`, `with_clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's. |
@@ -86,7 +86,7 @@ the tools still stopping outlive it.
 
 Removed, with no replacement because nothing used them: the `Hooks` port (`Hooks`, `HookError`,
 `RunView`, `Runner::add_hooks`); `RunRecord::manifest_sha256` and `LoadedManifest::sha256`;
-`Runner::in_flight`; `process::capture` and `Captured`; `LoopbackPorts` and `HeldPort`
+`Runner::in_flight`; `LoopbackPorts` and `HeldPort`
 (`HostPorts` is sealed, and its `in_use`, `pick_free` and `reachable` are the runner's own);
 `Running::outputs` (read `status().outputs`);
 `Running::path`; `JsonLines` (an `Events` sink is a closure); `FixedClock`; the `Clock` port and
