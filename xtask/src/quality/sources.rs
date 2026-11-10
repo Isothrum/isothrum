@@ -1,5 +1,5 @@
 //! What the sources themselves say: the workspace's crates (from `cargo metadata`), the files
-//! over the size limit, and the exceptions (`#[expect]`).
+//! over the size limit, and the exceptions (`#[expect]`, under a `cfg_attr` too).
 
 use std::path::{Path, PathBuf};
 
@@ -87,12 +87,168 @@ pub(crate) fn code_lines(src: &str) -> usize {
     count
 }
 
-/// How many `#[expect(` and `#![expect(` attributes `src` holds.
+/// How many lint exceptions `src` holds: each `expect` attribute, on its own (`#[expect(…)]`,
+/// `#![expect(…)]`) or under a condition (`#[cfg_attr(…, expect(…))]`), wherever it stands (an
+/// item, a statement, a parameter). What comments and literals say isn't one.
 fn expectations(src: &str) -> usize {
-    src.lines()
-        .map(str::trim_start)
-        .filter(|l| l.starts_with("#[expect(") || l.starts_with("#![expect("))
-        .count()
+    let code = code_only(src);
+    let mut count = 0;
+    let mut rest = code.as_str();
+    while let Some(at) = rest.find('#') {
+        rest = rest.get(at + 1..).unwrap_or_default();
+        let attribute = rest.strip_prefix('!').unwrap_or(rest).trim_start();
+        if let Some(inner) = attribute.strip_prefix('[') {
+            count += expects_in(until_closed(inner));
+        }
+    }
+    count
+}
+
+/// How many `expect`s the attribute `meta` is: one when it is `expect(…)`, those of each of its
+/// attributes when it is `cfg_attr(condition, …)`, else none.
+fn expects_in(meta: &str) -> usize {
+    let meta = meta.trim_start();
+    let name_len = meta.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':')).unwrap_or(meta.len());
+    let (name, rest) = meta.split_at(name_len);
+    let Some(args) = rest.trim_start().strip_prefix('(').map(until_closed) else {
+        return 0;
+    };
+    match name {
+        "expect" => 1,
+        "cfg_attr" => top_level(args).into_iter().skip(1).map(expects_in).sum(),
+        _ => 0,
+    }
+}
+
+/// `text` up to the bracket that closes the one just before it: `(`, `[` and `{` nest.
+fn until_closed(text: &str) -> &str {
+    let mut depth = 0usize;
+    for (at, c) in text.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth == 0 => return text.get(..at).unwrap_or(text),
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    text
+}
+
+/// `args` split at its commas outside brackets.
+fn top_level(args: &str) -> Vec<&str> {
+    let (mut parts, mut depth, mut start) = (Vec::new(), 0usize, 0);
+    for (at, c) in args.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(args.get(start..at).unwrap_or_default());
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(args.get(start..).unwrap_or_default());
+    parts
+}
+
+/// `src` with its comments and its string and character literals blanked out (each character
+/// a space, its line breaks kept): only code is left to read attributes from.
+fn code_only(src: &str) -> String {
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while let Some(&c) = chars.get(i) {
+        let skip = match (c, chars.get(i + 1).copied()) {
+            ('/', Some('/')) => chars.iter().skip(i).take_while(|ch| **ch != '\n').count(),
+            ('/', Some('*')) => block_comment(&chars, i),
+            ('"', _) => quoted(&chars, i, '"'),
+            ('r' | 'b', _) if !continues_word(&chars, i) => raw_or_byte(&chars, i),
+            ('\'', _) => char_literal(&chars, i),
+            _ => 0,
+        };
+        if skip == 0 {
+            out.push(c);
+            i += 1;
+        } else {
+            out.extend(chars.iter().skip(i).take(skip).map(|ch| if *ch == '\n' { '\n' } else { ' ' }));
+            i += skip;
+        }
+    }
+    out
+}
+
+/// Whether the character at `i` continues an identifier (so an `r` or a `b` there is no prefix).
+fn continues_word(chars: &[char], i: usize) -> bool {
+    i.checked_sub(1).and_then(|p| chars.get(p)).is_some_and(|c| c.is_alphanumeric() || *c == '_')
+}
+
+/// The length of the block comment at `i` (they nest).
+fn block_comment(chars: &[char], i: usize) -> usize {
+    let (mut depth, mut j) = (0usize, i);
+    while j < chars.len() {
+        match (chars.get(j), chars.get(j + 1)) {
+            (Some('/'), Some('*')) => {
+                depth += 1;
+                j += 2;
+            }
+            (Some('*'), Some('/')) => {
+                depth -= 1;
+                j += 2;
+                if depth == 0 {
+                    return j - i;
+                }
+            }
+            _ => j += 1,
+        }
+    }
+    j - i
+}
+
+/// The length of the literal at `i` that `quote` closes, `\` escaping the next character.
+fn quoted(chars: &[char], i: usize, quote: char) -> usize {
+    let mut j = i + 1;
+    while let Some(&c) = chars.get(j) {
+        j += if c == '\\' { 2 } else { 1 };
+        if c == quote {
+            return j - i;
+        }
+    }
+    j - i
+}
+
+/// The length of the raw string (`r"…"`, `r#"…"#`, `br"…"`), byte string (`b"…"`) or byte
+/// (`b'…'`) at `i`; none when there is none.
+fn raw_or_byte(chars: &[char], i: usize) -> usize {
+    let after_b = if chars.get(i) == Some(&'b') { i + 1 } else { i };
+    match chars.get(after_b) {
+        Some('"') => return quoted(chars, after_b, '"') + after_b - i,
+        Some('\'') if after_b > i => return quoted(chars, after_b, '\'') + after_b - i,
+        Some('r') if after_b > i || chars.get(i) == Some(&'r') => {}
+        _ => return 0,
+    }
+    let start = if chars.get(after_b) == Some(&'r') { after_b + 1 } else { after_b };
+    let hashes = chars.iter().skip(start).take_while(|c| **c == '#').count();
+    if chars.get(start + hashes) != Some(&'"') {
+        return 0;
+    }
+    let mut j = start + hashes + 1;
+    while j < chars.len() {
+        if chars.get(j) == Some(&'"') && (1..=hashes).all(|k| chars.get(j + k) == Some(&'#')) {
+            return j + hashes + 1 - i;
+        }
+        j += 1;
+    }
+    j - i
+}
+
+/// The length of the character literal at `i`; none for a lifetime (`'a`).
+fn char_literal(chars: &[char], i: usize) -> usize {
+    match (chars.get(i + 1), chars.get(i + 2)) {
+        (Some('\\'), _) => quoted(chars, i, '\''),
+        (Some(_), Some('\'')) => 3,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
@@ -108,5 +264,30 @@ mod tests {
     #[test]
     fn an_expectation_counts_once() {
         assert_eq!(expectations("#[expect(clippy::x, reason = \"y\")]\nfn a() {}\n    #![expect(dead_code)]\n"), 2);
+    }
+
+    /// Regression: only an attribute starting its line with `expect` was counted, so one under a
+    /// `cfg_attr`, or on a parameter, slipped past the ratchet.
+    #[test]
+    fn an_expectation_under_a_condition_or_on_a_parameter_counts() {
+        let conditioned = "fn f(\n    #[cfg_attr(not(windows), expect(unused_variables, reason = \"x\"))] p: u8,\n) {}\n";
+        assert_eq!(expectations(conditioned), 1);
+        assert_eq!(expectations("fn f(#[expect(unused)] p: u8, q: u8) {}\n"), 1);
+        let nested = "#[cfg_attr(test, cfg_attr(unix, expect(dead_code)), expect(unused))]\nfn f() {}\n";
+        assert_eq!(expectations(nested), 2);
+        assert_eq!(expectations("#[cfg_attr(test, derive(Debug))]\n#[cfg(expect)]\nstruct S;\n"), 0);
+    }
+
+    #[test]
+    fn what_comments_and_literals_say_is_no_expectation() {
+        let said = concat!(
+            "// #[expect(a)]\n/* #[expect(b)] /* #[expect(c)] */ */\n/// `#[expect(d)]`\n",
+            "const A: &str = \"#[expect(e)] \\\" #[expect(f)]\";\n",
+            "const B: &str = r#\"#[expect(g)] \" #[expect(h)]\"#;\n",
+            "const C: &[u8] = b\"#[expect(i)]\";\n",
+            "const D: char = '#'; fn f<'a>(x: &'a str) {}\n",
+            "#[expect(counted)]\nfn g() {}\n",
+        );
+        assert_eq!(expectations(said), 1);
     }
 }

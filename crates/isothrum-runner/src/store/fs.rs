@@ -13,18 +13,20 @@ const FILE_MODE: u32 = 0o600;
 #[cfg(unix)]
 const DIR_MODE: u32 = 0o700;
 
-/// Creates the runner's home (with its missing parents) and, on Windows, makes it owner-only
-/// with a DACL everything under it inherits (`acl`), unless it is inside the user's `profile`.
-/// On Unix each folder under it is made 0700 as it is created ([`private_dir`]), so the home
-/// itself, which may be a folder the user picked, keeps its mode.
-pub(crate) fn private_home(
-    home: &Path,
-    #[cfg_attr(not(windows), expect(unused_variables, reason = "only a Windows home takes an ACL"))] profile: Option<&Path>,
-) -> io::Result<()> {
+/// Creates the runner's home (with its missing parents) and makes it owner-only with a DACL
+/// everything under it inherits (`acl`), unless it is inside the user's `profile`.
+#[cfg(windows)]
+pub(crate) fn private_home(home: &Path, profile: Option<&Path>) -> io::Result<()> {
     std::fs::create_dir_all(home)?;
-    #[cfg(windows)]
-    super::acl::owner_only(home, profile)?;
-    Ok(())
+    super::acl::owner_only(home, profile)
+}
+
+/// Creates the runner's home (with its missing parents). Each folder under it is made 0700 as it
+/// is created ([`private_dir`]), so the home itself, which may be a folder the user picked, keeps
+/// its mode; the user's profile, which only a Windows home looks at, has no part.
+#[cfg(not(windows))]
+pub(crate) fn private_home(home: &Path, _profile: Option<&Path>) -> io::Result<()> {
+    std::fs::create_dir_all(home)
 }
 
 /// Creates `dir` (with its missing parents) and makes it owner-only.
