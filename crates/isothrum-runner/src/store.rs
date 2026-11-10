@@ -47,6 +47,9 @@ const EVENTS_FILE: &str = "events.jsonl";
 /// What the runner last saw of a run, in its folder.
 const SEEN_FILE: &str = "seen.json";
 
+/// A run's OS lock file, in its folder.
+const LOCK_FILE: &str = "lock";
+
 /// How many event lines a run's log keeps before an operation trims it to half.
 pub(crate) const EVENTS_KEPT: usize = 4000;
 
@@ -204,7 +207,7 @@ impl Store {
 
     /// Run `name`'s lock file.
     pub(crate) fn lock_path(&self, name: &RunName) -> PathBuf {
-        self.runs.join(name.as_str()).join("lock")
+        self.runs.join(name.as_str()).join(LOCK_FILE)
     }
 
     /// Whether an operation holds run `name` now, in this process or another ([`lock::held`]).
@@ -226,9 +229,7 @@ impl Store {
     /// Keeps `seen` as what the runner last saw of run `name`, whole.
     pub(crate) fn keep_seen(&self, name: &RunName, seen: &Seen) -> Result<()> {
         self.run_dir(name)?;
-        let path = self.seen_path(name);
-        let text = serde_json::to_vec_pretty(seen).map_err(|e| Error::io(&path, "written")(e.into()))?;
-        write_private(&path, &text).map_err(Error::io(&path, "written"))
+        write_json(&self.seen_path(name), seen)
     }
 
     /// Forgets what the runner last saw of run `name` (a run gone: the next start is a new run).
@@ -245,9 +246,7 @@ impl Store {
     /// Writes `record` whole.
     pub(crate) fn save(&self, record: &RunRecord) -> Result<()> {
         self.run_dir(&record.name)?;
-        let path = self.record_path(&record.name);
-        let text = serde_json::to_vec_pretty(record).map_err(|e| Error::io(&path, "written")(e.into()))?;
-        write_private(&path, &text).map_err(Error::io(&path, "written"))
+        write_json(&self.record_path(&record.name), record)
     }
 
     /// Every run's record, by name.
@@ -332,6 +331,12 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<O
         return Ok(None);
     };
     serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(path, "read")(e.into()))
+}
+
+/// Writes `value` as the JSON file at `path`, whole and owner-only: [`read_json`]'s counterpart.
+fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    let text = serde_json::to_vec_pretty(value).map_err(|e| Error::io(path, "written")(e.into()))?;
+    write_private(path, &text).map_err(Error::io(path, "written"))
 }
 
 #[cfg(test)]
