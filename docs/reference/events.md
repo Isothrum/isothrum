@@ -52,6 +52,9 @@ carries every outcome, one event per line. `isothrum attach
   embedder dropping it) ends with an `error` whose code is `cancelled`.
 - A secret's value never appears: it is masked as `***` before the event is built.
 - `log` lines are decoded lossily (invalid UTF-8 is replaced).
+- A `log` line ends at `\n`, `\r\n` or a lone `\r`. A line ended by a lone `\r` is one a tool
+  redraws in place (a progress meter): it is a `log` event only when its text changed, and at
+  most once a second for each stream.
 - `code` values are stable strings (see [Policies](../policies.md#what-is-stable)). The command
   line's exit codes are in [Exit codes](exit-codes.md); the warning codes are
   the schema's `WarningCode`.

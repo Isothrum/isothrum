@@ -37,6 +37,13 @@ change.
 
 ### Fixed
 
+- **A progress meter a tool redraws in place shows as it moves.** A tool's output was cut into
+  lines at `\n` only, so a tool redrawing its line after a carriage return (`ovftool`'s `Disk
+  progress: 8%` while Vagrant uploads a box to ESXi, which prints no `\n` until it is done) gave
+  no `log` event, and no progress to its step's time limit, for as long as it ran. A lone `\r` now
+  ends a line too (`\r\n` is still one line break). A redrawn line is a `log` event only when its
+  text changed and at most once a second, so a fast meter doesn't fill the event log; a line
+  ended by `\n` always is.
 - **A run is free as soon as the operation that held it returns.** Its lock was freed only by
   closing the lock file, while a tool another operation started meanwhile still had the file's
   handle until it ran (on Unix, a spawned process gets every open handle until its `exec`). So the
