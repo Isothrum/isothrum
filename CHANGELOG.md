@@ -37,6 +37,11 @@ change.
 
 ### Fixed
 
+- **A Vagrant start with no free host port left for an ephemeral port fails, as Compose's does.**
+  It left the port out in silence, so the VM forwarded it at its `preferred` number, which a resume
+  needn't get again; the QEMU helper VM's SSH forward fell back to 50022 the same way. Both
+  drivers now pick by one rule (the `preferred` number with `ISOLOOM_PUBLISH_FIXED` when no other
+  run reserved it, else a free loopback port) and fail with `tool_failed` naming the port.
 - **A failed tool says why in one wording everywhere.** An argv or `ssh.run` step that failed
   with nothing on its standard error said only "exited with code 1", while a driver's own call
   quoted its last output lines (a login refused on stdout, as Debian on AWS does); a ready file's

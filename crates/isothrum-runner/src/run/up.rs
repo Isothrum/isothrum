@@ -68,7 +68,7 @@ impl Running<'_> {
             Slot::Leftovers => self.clear(&mut cx, &record, opts).await?,
             Slot::Free => {}
         }
-        self.record_start(&mut record, &cx, opts);
+        self.record_start(&mut record, &cx, opts)?;
         // The slot is picked and recorded (the run `starting`) under the home's lock: a start
         // in another process waits, then sees it taken.
         let slots = self.hold_slots().await?;
@@ -83,12 +83,13 @@ impl Running<'_> {
     }
 
     /// What a fresh start of `cx`'s run with `opts` keeps in its `record`: the host ports it
-    /// pins, the manifest it runs from, its params, cloud, place, provider and start time.
-    fn record_start(&self, record: &mut RunRecord, cx: &Cx<'_>, opts: &RunOptions) {
+    /// pins, the manifest it runs from, its params, cloud, place, provider and start time. Fails
+    /// when no free host port is left to pin one to.
+    fn record_start(&self, record: &mut RunRecord, cx: &Cx<'_>, opts: &RunOptions) -> Result<()> {
         // A driver that forwards host ports it picks itself (Vagrant, locally) pins them now, into
         // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`
         // binds them into `cx` for the start's own forwards and status.
-        record.vm_host_ports = self.driver.forward_ports(cx);
+        record.vm_host_ports = self.driver.forward_ports(cx)?;
         // Every VM the start boots, boots with the Vagrantfile of this manifest.
         self.runs_from_this(record);
         record.params = cx.vars.params().clone();
@@ -96,6 +97,7 @@ impl Running<'_> {
         record.host_label.clone_from(&opts.host_label);
         record.provider.clone_from(&opts.provider);
         record.started_at = Some(clock::rfc3339(self.runner.config.clock.now()));
+        Ok(())
     }
 
     /// `up`'s steps ([`Running::start`]), then what follows them at `up` and `update`: the

@@ -1,19 +1,24 @@
 //! One fresh start's pick of the host ports it pins, shared by the drivers that publish on this
-//! computer (Compose, Vagrant): a port's `preferred` number when `ISOLOOM_PUBLISH_FIXED` asks for
-//! it, else a free loopback port. Each pick is reserved in the runner until the start ends, so
-//! another run of this runner starting meanwhile can't take it, and each free port's socket is
-//! held until the whole pick is done, so the OS doesn't hand one out twice.
+//! computer (Compose, Vagrant), one rule for both ([`PortPick::pin`]): a port's `preferred` number
+//! when `ISOLOOM_PUBLISH_FIXED` asks for it and no other run of this runner reserved it, else a
+//! free loopback port; with none left, the start fails. Each pick is reserved in the runner until
+//! the start ends, so another run of this runner starting meanwhile can't take it, and each free
+//! port's socket is held until the whole pick is done, so the OS doesn't hand one out twice.
 
 use std::collections::BTreeSet;
 
 use isoloom_manifest::Protocol;
 
+use crate::Result;
+use crate::error::Error;
 use crate::executor::Cx;
 use crate::net::HeldPort;
 
 /// The ports picked so far, with the sockets holding the free ones.
 pub(super) struct PortPick<'c, 'a> {
     cx: &'c Cx<'a>,
+    /// Whether the run's `ISOLOOM_PUBLISH_FIXED` param asks for each port's `preferred` number.
+    fixed: bool,
     held: Vec<HeldPort>,
     taken: BTreeSet<(u16, Protocol)>,
 }
@@ -23,14 +28,32 @@ impl<'c, 'a> PortPick<'c, 'a> {
     pub(super) fn new(cx: &'c Cx<'a>) -> PortPick<'c, 'a> {
         PortPick {
             cx,
+            fixed: cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED),
             held: Vec::new(),
             taken: BTreeSet::new(),
         }
     }
 
-    /// `preferred` over `protocol`, when this pick hasn't taken it and it is free to reserve for
-    /// this run.
-    pub(super) fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
+    /// The host port to pin `what` (a published port, as the error names it) to over `protocol`:
+    /// its `preferred` number when `ISOLOOM_PUBLISH_FIXED` asks for it and it isn't reserved by
+    /// another run (whether the host has it bound is the free-port check's to say), else a free
+    /// loopback port.
+    ///
+    /// # Errors
+    ///
+    /// `tool_failed` for `step` when no free host port is left: the run would otherwise start on
+    /// ports nobody pinned, and a resume would get new addresses.
+    pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<u16>, protocol: Protocol) -> Result<u16> {
+        let preferred = preferred.filter(|_| self.fixed).and_then(|n| self.fixed(n, protocol));
+        preferred.or_else(|| self.free(protocol)).ok_or_else(|| Error::ToolFailed {
+            step: step.to_owned(),
+            reason: format!("no free host port over {} is left to pin {what} to", crate::encoding::wire_name(&protocol)),
+        })
+    }
+
+    /// `preferred` over `protocol`, when this pick hasn't taken it and no other run reserved it:
+    /// reserved for this run.
+    fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
         let free = !self.taken.contains(&(preferred, protocol)) && self.cx.run.runner.reserve(self.cx.run.name(), preferred, protocol);
         free.then(|| {
             self.taken.insert((preferred, protocol));
@@ -40,7 +63,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
 
     /// A free loopback port over `protocol`, reserved for this run and held until the pick is
     /// dropped.
-    pub(super) fn free(&mut self, protocol: Protocol) -> Option<u16> {
+    fn free(&mut self, protocol: Protocol) -> Option<u16> {
         let port = self.cx.run.runner.pick_reserved(self.cx.run.name(), protocol)?;
         let number = port.port;
         self.taken.insert((number, protocol));
