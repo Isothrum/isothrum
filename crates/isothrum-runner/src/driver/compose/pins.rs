@@ -4,7 +4,7 @@
 
 use super::config::{self, ConfigPort};
 use crate::Result;
-use crate::driver::port_pick::PortPick;
+use crate::driver::port_pick::{self, PortPick};
 use crate::executor::Cx;
 
 /// The pinned-ports override for `config` (`docker compose config --format json`) that `step`
@@ -23,6 +23,5 @@ pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<Strin
 /// The manifest's `preferred` number for the machine port `p` publishes.
 fn preferred(cx: &Cx<'_>, p: &ConfigPort) -> Option<u16> {
     let machine = cx.run.manifest().machines.iter().find(|m| crate::driver::native_name(m) == p.service)?;
-    let port = machine.ports.iter().find(|q| q.port.get() == p.target && q.kind.transport() == p.protocol)?;
-    port.publish.as_ref()?.preferred.map(std::num::NonZeroU16::get)
+    port_pick::preferred(super::machine_port(machine, p.target, p.protocol)?)
 }

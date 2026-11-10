@@ -12,7 +12,7 @@ use isoloom_manifest::{Machine, Manifest, Port, Protocol, Provider, PublishMode,
 
 use super::status;
 use crate::Result;
-use crate::driver::port_pick::PortPick;
+use crate::driver::port_pick::{self, PortPick};
 use crate::executor::Cx;
 use crate::status::MachineState;
 
@@ -55,9 +55,8 @@ pub(in crate::driver) fn pick(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
     let mut pick = PortPick::new(cx);
     for m in &cx.run.manifest().machines {
         for p in m.ports.iter().filter(|p| ephemeral(p)) {
-            let preferred = p.publish.as_ref().and_then(|x| x.preferred).map(std::num::NonZeroU16::get);
             let what = format!("machine `{}`'s port `{}`", m.name, p.name);
-            chosen.insert(key(m, p), pick.pin(PICK_STEP, &what, preferred, p.kind.transport())?);
+            chosen.insert(key(m, p), pick.pin(PICK_STEP, &what, port_pick::preferred(p), p.kind.transport())?);
         }
     }
     // The helper VM's own SSH forward on QEMU: vagrant-qemu forwards guest 22 to one fixed host
@@ -78,9 +77,10 @@ pub(in crate::driver) fn pick(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
 /// pinned for it among `forwards`, else its `preferred` number, else its own, whatever its mode.
 /// `None` when `p` isn't published.
 pub(super) fn host_port(m: &Machine, p: &Port, forwards: &BTreeMap<String, u16>) -> Option<u16> {
-    let publish = p.publish.as_ref()?;
-    let preferred = || publish.preferred.map(std::num::NonZeroU16::get);
-    Some(forwards.get(&key(m, p)).copied().or_else(preferred).unwrap_or_else(|| p.port.get()))
+    let pinned = || forwards.get(&key(m, p)).copied();
+    p.publish
+        .as_ref()
+        .map(|_| pinned().or_else(|| port_pick::preferred(p)).unwrap_or_else(|| p.port.get()))
 }
 
 /// The host ports this run forwards from this computer: each published port's ([`host_port`]).

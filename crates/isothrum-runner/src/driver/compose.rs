@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Step, access};
+use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access};
 
 use super::{Driver, GuestUse, Observed};
 use crate::Result;
@@ -89,6 +89,11 @@ impl Compose {
 pub(super) async fn docker(cx: &Cx<'_>, step: &Step, args: Vec<String>, env: &[(String, String)]) -> Result<String> {
     let spec = docker_spec(cx, args, env.to_vec());
     call_ok(cx, step.id.as_str(), &spec, CALL_LIMIT, Echo::Quiet).await
+}
+
+/// Machine `m`'s port that Compose publishes as container port `port` over `protocol`.
+fn machine_port(m: &Machine, port: u16, protocol: Protocol) -> Option<&Port> {
+    m.ports.iter().find(|q| q.port.get() == port && q.kind.transport() == protocol)
 }
 
 impl Driver for Compose {

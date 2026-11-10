@@ -7,12 +7,17 @@
 
 use std::collections::BTreeSet;
 
-use isoloom_manifest::Protocol;
+use isoloom_manifest::{Port, Protocol};
 
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::net::HeldPort;
+
+/// The host port `p`'s publish asks for (`preferred`), when it is published and names one.
+pub(super) fn preferred(p: &Port) -> Option<u16> {
+    p.publish.as_ref()?.preferred.map(std::num::NonZeroU16::get)
+}
 
 /// The ports picked so far, with the sockets holding the free ones.
 pub(super) struct PortPick<'c, 'a> {

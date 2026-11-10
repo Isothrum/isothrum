@@ -124,7 +124,7 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
         let ports = entry.map(PsEntry::published).unwrap_or_default();
         // Each by its name in the manifest (`${published.<machine>.<name>}`).
         for p in &ports {
-            if let Some(port) = m.ports.iter().find(|q| q.port.get() == p.port && q.kind.transport() == p.protocol) {
+            if let Some(port) = super::machine_port(m, p.port, p.protocol) {
                 published.insert((m.name.to_string(), port.name.to_string()), p.host_port);
             }
         }
