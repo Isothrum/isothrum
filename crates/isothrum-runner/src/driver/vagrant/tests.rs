@@ -45,6 +45,8 @@ struct Engine {
     esxi_off_before_halt: bool,
     /// How long `vagrant halt <controller>` takes.
     halt_delay: std::time::Duration,
+    /// `vagrant ssh-config` fails whatever the VM's state.
+    ssh_config_fails: bool,
     /// The VMs a regenerated Vagrantfile defines beyond the fixture's, which `vagrant up` brings up.
     added: Vec<String>,
 }
@@ -182,7 +184,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
         }
         ("vagrant", ["ssh", ..]) => Reply::fail(1, ""),
         // ESXi's guests answer at their own address: what their VMware Tools report.
-        ("vagrant", ["ssh-config", vm]) if e.states.get(*vm).is_some_and(|s| s == "running") => {
+        ("vagrant", ["ssh-config", vm]) if !e.ssh_config_fails && e.states.get(*vm).is_some_and(|s| s == "running") => {
             Reply::ok(&format!("Host {vm}\n  HostName 172.16.1.5{}\n  User vagrant\n  Port 22\n", vm.len() % 10))
         }
         ("vagrant", ["ssh-config", ..]) => Reply::fail(
@@ -753,6 +755,24 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
     assert!(
         !f.fake.lines().iter().any(|l| l == "vagrant ssh-config isoloom-controller"),
         "the controller publishes nothing"
+    );
+}
+
+/// Regression: on ESXi, a VM whose address couldn't be read vanished from `status` with its
+/// ports, and nothing said why.
+#[tokio::test]
+async fn on_esxi_an_address_that_cant_be_read_is_left_out_and_traced() {
+    let f = fixture(HostOs::Linux);
+    f.engine().plugins.push("vagrant-vmware-esxi".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
+    f.engine().ssh_config_fails = true;
+    let (status, traced) = crate::testing::traced(run.status()).await;
+    let web = status.unwrap().machines.into_iter().find(|m| m.name == "web").unwrap();
+    assert!(web.published.is_empty(), "left out: {web:?}");
+    assert!(
+        traced.contains("WARN") && traced.contains("address couldn't be read") && traced.contains("web"),
+        "{traced}"
     );
 }
 

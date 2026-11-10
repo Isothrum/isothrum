@@ -119,7 +119,8 @@ impl Vagrant {
 
     /// The address of each running VM that publishes a port, or that Compose runs in, by define
     /// name, as `vagrant ssh-config` gives it (ESXi forwards no port: the user reaches the VM
-    /// itself). A VM whose address can't be read is left out, and its ports with it.
+    /// itself). A VM whose address can't be read is left out, and its ports with it; why is
+    /// traced.
     async fn guest_addresses(&self, cx: &Cx<'_>, read: &status::Reading) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         let manifest = cx.run.manifest();
@@ -128,13 +129,14 @@ impl Vagrant {
             if read.states.get(define).map(|s| status::machine_state(s)) != Some(crate::status::MachineState::Running) {
                 continue;
             }
-            let Ok(spec) = self.vagrant(cx, "status", &["ssh-config", define]) else {
-                continue;
+            let asked = match self.vagrant(cx, "status", &["ssh-config", define]) {
+                Ok(spec) => call_ok(cx, "status", &spec, READ_LIMIT, Echo::Quiet).await,
+                Err(e) => Err(e),
             };
-            if let Ok(text) = call_ok(cx, "status", &spec, READ_LIMIT, Echo::Quiet).await
-                && let Some(host) = status::host_name(&text)
-            {
-                out.insert(define.to_owned(), host);
+            match asked.map(|text| status::host_name(&text)) {
+                Ok(Some(host)) => drop(out.insert(define.to_owned(), host)),
+                Ok(None) => tracing::warn!(define, "`vagrant ssh-config` named no host: the VM's address and ports are left out"),
+                Err(e) => tracing::warn!(define, error = %e, "the VM's address couldn't be read: it and its ports are left out"),
             }
         }
         out
