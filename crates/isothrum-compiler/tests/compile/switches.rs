@@ -127,3 +127,30 @@ fn a_switch_can_not_share_a_lans_name() -> Outcome {
     );
     Ok(())
 }
+
+/// Regression: a VLAN's `tc` was dropped without a word (Isoloom's VLANs have none); it is
+/// refused, naming the VLAN, while a plain LAN keeps its own.
+#[test]
+fn a_vlan_with_conditions_is_refused() -> Outcome {
+    let mut topo = two_lans()?;
+    topo.networks.insert(
+        "vlan10".into(),
+        Lan {
+            switch: Some("sw1".into()),
+            vlan: Some(10),
+            tc: serde_json::from_str(r#"{ "delay": "20ms" }"#)?,
+            ..lan("10.10.10.0/24")
+        },
+    );
+    join(&mut topo, "server", "vlan10", None)?;
+    let e = compile(&topo).unwrap_err();
+    assert!(matches!(&e, Error::VlanTc { lan } if lan == "vlan10"), "{e}");
+    assert_eq!(
+        e.to_string(),
+        "VLAN `vlan10` has a `tc`, which Isoloom gives only a whole LAN or a cable; remove it"
+    );
+    topo.networks["vlan10"].tc = None;
+    topo.networks["office"].tc = serde_json::from_str(r#"{ "delay": "20ms" }"#)?;
+    accepted(&topo)?;
+    Ok(())
+}

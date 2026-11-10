@@ -40,7 +40,7 @@ impl Compiled {
 /// something Isoloom's format doesn't hold: a bug.
 pub fn compile(topo: &Topology) -> Result<Compiled> {
     cables::check_count(topo)?;
-    vlans::check_switch_names(topo)?;
+    vlans::check(topo)?;
     let mut draft = Draft::default();
     machines::add(topo, &mut draft)?;
     lans::address(topo, &mut draft)?;

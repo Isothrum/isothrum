@@ -448,6 +448,9 @@ change.
 - **A parked run with a member up and failing its healthcheck reads `failed`, not `parked`.**
   The status counted only a healthy machine as running, while `check` and `provision` count an
   unhealthy one too and act on the run as running.
+- **A VLAN drawn with a `tc` is refused (`Error::VlanTc`).** The compiler dropped it without a
+  word: Isoloom's VLANs have no `tc`, and the switch's LAN they nest under was written without
+  one. A plain LAN and a cable keep theirs.
 
 ### Added
 

@@ -45,7 +45,8 @@ pub struct Lan {
     /// Isoloom's `switch` on the LAN its VLANs nest under.
     #[serde(default)]
     pub device: Option<String>,
-    /// How the LAN behaves (a slow or lossy link): Isoloom's `tc`.
+    /// How the LAN behaves (a slow or lossy link): Isoloom's `tc`. A VLAN has none
+    /// ([`Error::VlanTc`](crate::Error::VlanTc)): Isoloom shapes a whole LAN, not one VLAN.
     #[serde(default)]
     pub tc: Option<Tc>,
 }

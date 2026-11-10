@@ -98,6 +98,12 @@ pub enum Error {
         /// The switch.
         switch: String,
     },
+    /// A VLAN has a `tc`: Isoloom shapes a LAN's or a cable's traffic, never one VLAN's.
+    #[error("VLAN `{lan}` has a `tc`, which Isoloom gives only a whole LAN or a cable; remove it")]
+    VlanTc {
+        /// The VLAN's LAN.
+        lan: String,
+    },
     /// A port name the compiler made breaks Isoloom's rule (a bug: the names are generated).
     #[error("the name of port {port} of `{node}`: {source}")]
     PortName {

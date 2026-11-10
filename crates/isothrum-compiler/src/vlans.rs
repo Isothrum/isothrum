@@ -29,9 +29,13 @@ fn vlan_of(lan: &Lan) -> Option<(&str, u16)> {
     Some((lan.switch.as_deref()?, lan.vlan?))
 }
 
-/// Refuses a switch named like a plain LAN or like a cable's network: its VLANs nest under a
-/// network of the switch's name.
-pub(crate) fn check_switch_names(topo: &Topology) -> Result<()> {
+/// Refuses what a switch's VLANs can't say in the spec: a switch named like a plain LAN or like
+/// a cable's network (its VLANs nest under a network of the switch's name), and a VLAN with a
+/// `tc` (Isoloom's VLANs have none).
+pub(crate) fn check(topo: &Topology) -> Result<()> {
+    if let Some((name, _)) = topo.networks.iter().find(|(_, l)| vlan_of(l).is_some() && l.tc.is_some()) {
+        return Err(Error::VlanTc { lan: name.clone() });
+    }
     let plain = |name: &String| topo.networks.get(name).is_some_and(|l| vlan_of(l).is_none());
     for switch in topo.networks.values().filter_map(|l| l.switch.as_ref()) {
         if is_link_network(switch) {
