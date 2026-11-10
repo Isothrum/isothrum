@@ -445,6 +445,9 @@ change.
   read the provider given to the operation, while the steps ran on the one the run recorded: a
   run on ESXi updated without `--provider` skipped the host's password, and failed in the tool
   instead of with `secret_missing`.
+- **A parked run with a member up and failing its healthcheck reads `failed`, not `parked`.**
+  The status counted only a healthy machine as running, while `check` and `provision` count an
+  unhealthy one too and act on the run as running.
 
 ### Added
 

@@ -184,16 +184,17 @@ pub struct Started {
 }
 
 /// The state of a run whose machines are `machines`, given its record. Ready when every member
-/// machine runs; parked when its record says so and none runs; absent when nothing is there.
+/// machine runs healthy; parked when its record says so and none runs ([`any_member_running`]:
+/// one up with a failing healthcheck runs); absent when nothing is there.
 pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
     if !any_present(machines) {
         return RunState::Absent;
     }
-    let members: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Member).collect();
-    let running = |m: &&MachineStatus| m.state == MachineState::Running;
-    if record.is_some_and(|r| r.state == RunState::Parked) && !members.iter().any(running) {
+    if record.is_some_and(|r| r.state == RunState::Parked) && !any_member_running(machines) {
         return RunState::Parked;
     }
+    let members: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Member).collect();
+    let running = |m: &&MachineStatus| m.state == MachineState::Running;
     // A start that failed after its machines came up (a Terraform apply whose router never
     // reported its address, a set-up step that failed) left them running: the run isn't ready.
     if record.is_some_and(|r| r.state == RunState::Failed) {
@@ -276,5 +277,10 @@ mod tests {
         let stopped = vec![machine(Role::Member, MachineState::Exited(0))];
         assert_eq!(derive_state(&stopped, Some(&record)), RunState::Parked);
         assert!(!any_member_running(&stopped));
+        // Regression: a member up with a failing healthcheck runs, as `check` and `provision`
+        // see it, so the run isn't parked (nor ready).
+        let unhealthy = vec![machine(Role::Member, MachineState::Unhealthy)];
+        assert!(any_member_running(&unhealthy));
+        assert_eq!(derive_state(&unhealthy, Some(&record)), RunState::Failed);
     }
 }
