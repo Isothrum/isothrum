@@ -195,8 +195,23 @@ async fn a_tcp_condition_holds_once_its_port_answers() {
     let manifest = m.to_string();
     let silent = fixture_with(&manifest);
     let unanswered = silent.runner.open(&silent.manifest, None).unwrap();
-    let err = unanswered.up(&opts(), &Recorder::new()).await.unwrap_err();
+    let silent_events = Recorder::new();
+    let err = unanswered.up(&opts(), &silent_events).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NotReady, "{err}");
+
+    // Waiting is said once, with what it waits for, not every try.
+    let waited: Vec<String> = kinds(&silent_events)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::Ready {
+                state: crate::ReadyState::Waiting,
+                detail,
+                ..
+            } => Some(detail),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(waited, ["no answer yet; trying every 2s for 10s"]);
 
     let f = fixture_with(&manifest);
     f.ports.answer("127.0.0.1", 41873);

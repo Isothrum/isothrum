@@ -31,6 +31,11 @@ pub(crate) fn human(kind: &EventKind) -> Option<String> {
             state: ReadyState::Failed,
             detail,
         } => format!("not ready: {condition}: {detail}"),
+        EventKind::Ready {
+            condition,
+            state: ReadyState::Waiting,
+            detail,
+        } if !detail.is_empty() => format!("waiting: {condition}: {detail}"),
         EventKind::Output { name, value: Some(value), .. } => format!("{name}: {value}"),
         EventKind::Check { name, from, ok, detail, .. } => {
             let verdict = if *ok { "PASS".to_owned() } else { format!("FAIL: {detail}") };
@@ -96,5 +101,20 @@ mod tests {
             detail: "refused".into(),
         };
         assert_eq!(human(&check).as_deref(), Some("check db:3306 (from web): FAIL: refused"));
+    }
+
+    /// A wait that says what it waits for is shown as it goes, not only once it ends.
+    #[test]
+    fn a_person_sees_a_wait_that_says_why() {
+        let waiting = |detail: &str| EventKind::Ready {
+            condition: "ready_file 203.0.113.7".into(),
+            state: ReadyState::Waiting,
+            detail: detail.into(),
+        };
+        assert_eq!(
+            human(&waiting("running: docker compose up")).as_deref(),
+            Some("waiting: ready_file 203.0.113.7: running: docker compose up")
+        );
+        assert_eq!(human(&waiting("")), None, "nothing to say");
     }
 }

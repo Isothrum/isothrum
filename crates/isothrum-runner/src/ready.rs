@@ -141,6 +141,7 @@ async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result
         reason: format!("`{port}` isn't a port"),
     })?;
     let deadline = tokio::time::Instant::now() + within;
+    let mut said_waiting = false;
     loop {
         let tried = tokio::time::Instant::now();
         let left = deadline.saturating_duration_since(tried);
@@ -153,7 +154,11 @@ async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result
             cx.events.ready(&condition, ReadyState::Failed, &detail);
             return Err(Error::NotReady { condition, detail });
         }
-        cx.events.ready(&condition, ReadyState::Waiting, "");
+        if !said_waiting {
+            let detail = format!("no answer yet; trying every {}s for {}s", TCP_RETRY.as_secs(), within.as_secs());
+            cx.events.ready(&condition, ReadyState::Waiting, &detail);
+            said_waiting = true;
+        }
         // A refusal comes at once: wait out the rest of the interval before trying again.
         tokio::time::sleep_until((tried + TCP_RETRY).min(deadline)).await;
     }

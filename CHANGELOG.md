@@ -259,6 +259,11 @@ change.
   `result` event's `data` (masked as every event is); `reap` ends with a `result` event, no
   `run` nor `op`, whose `data` is the sweep.
 
+- **A wait shows in text as it goes.** The `ready` events that say what a wait is waiting for
+  (a `ready_file`'s "running: …", "no answer over SSH yet: …") reached `--json` only; the text
+  output now shows them (`waiting: <condition>: <detail>`). A `tcp` condition emitted an empty
+  `waiting` event every 2 s; it says once what it waits for.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
