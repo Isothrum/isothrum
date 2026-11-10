@@ -107,8 +107,7 @@ fn cidr_of<'s>(spec: &'s Spec, net: &str) -> Option<&'s str> {
     if let Some(n) = spec.networks.get(net) {
         return Some(&n.cidr);
     }
-    let (lan, vlan) = net.split_once(".vlan")?;
-    let id: u16 = vlan.parse().ok()?;
+    let (lan, id) = crate::vlans::parse_ref(net)?;
     spec.networks.get(lan)?.vlans.get(&id).map(|v| v.cidr.as_str())
 }
 

@@ -8,10 +8,20 @@ use crate::document::{NetworkDoc, ReachDoc, VlanDoc};
 use crate::draft::Draft;
 use crate::{Error, Lan, Result, Topology};
 
+/// What joins a switch's LAN to the VLAN id in a VLAN's name in the spec.
+const VLAN_SEPARATOR: &str = ".vlan";
+
 /// The name a VLAN LAN has in the spec: `<switch>.vlan<id>` (`None` for a plain LAN).
 pub(crate) fn vlan_ref(lan: &Lan) -> Option<String> {
     let (switch, id) = vlan_of(lan)?;
-    Some(format!("{switch}.vlan{id}"))
+    Some(format!("{switch}{VLAN_SEPARATOR}{id}"))
+}
+
+/// The switch's LAN and the VLAN id a spec's VLAN name (`sw1.vlan10`) names: [`vlan_ref`]
+/// read back. `None` for a name that isn't one.
+pub(crate) fn parse_ref(name: &str) -> Option<(&str, u16)> {
+    let (lan, id) = name.split_once(VLAN_SEPARATOR)?;
+    Some((lan, id.parse().ok()?))
 }
 
 /// The switch and VLAN id of a VLAN LAN.
@@ -191,5 +201,8 @@ mod tests {
         assert_eq!(vlan_ref(&lan(Some("sw1"), Some(10))).as_deref(), Some("sw1.vlan10"));
         assert_eq!(vlan_ref(&lan(Some("sw1"), None)), None);
         assert_eq!(vlan_ref(&lan(None, Some(10))), None);
+        assert_eq!(parse_ref("sw1.vlan10"), Some(("sw1", 10)));
+        assert_eq!(parse_ref("sw1"), None);
+        assert_eq!(parse_ref("sw1.vlanx"), None);
     }
 }
