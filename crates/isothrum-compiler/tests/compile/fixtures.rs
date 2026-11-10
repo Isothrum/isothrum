@@ -62,7 +62,7 @@ fn the_windows_drawing_compiles_to_a_spec_isoloom_runs() -> Outcome {
 #[test]
 fn every_provisioning_step_gets_its_starter() -> Outcome {
     let compiled = compile(&fixture("windows-domain")?)?;
-    let paths: Vec<&str> = compiled.files().iter().map(|f| f.path.as_str()).collect();
+    let paths: Vec<String> = compiled.into_parts().2.into_iter().map(|f| f.path).collect();
     assert_eq!(paths, ["provision/dc01.ps1", "provision/intranet.sh", "provision/intranet.yml"]);
     Ok(())
 }

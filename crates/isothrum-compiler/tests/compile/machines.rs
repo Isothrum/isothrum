@@ -2,7 +2,7 @@
 
 use isoloom_spec::syntax::Recipe;
 
-use crate::testing::{Outcome, accepted, container, spec, three_node, vm, yaml};
+use crate::testing::{Outcome, accepted, container, files, spec, three_node, vm, yaml};
 
 #[test]
 fn a_container_is_an_app_from_its_image_and_a_vm_its_os_and_steps() -> Outcome {
@@ -81,7 +81,10 @@ fn a_windows_vm_runs_its_powershell_steps_and_the_controller_its_playbooks() -> 
         yaml(&c)
     );
     assert!(yaml(&c).ends_with("provision:\n- ansible: provision/domain.yml\n"), "{}", yaml(&c));
-    let starter = c.files().iter().find(|f| f.path == "provision/domain.yml").ok_or("the playbook's starter")?;
+    let starter = files(&c)
+        .into_iter()
+        .find(|f| f.path == "provision/domain.yml")
+        .ok_or("the playbook's starter")?;
     assert!(starter.contents.contains("- hosts: server\n"), "{}", starter.contents);
     Ok(())
 }

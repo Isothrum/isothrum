@@ -759,8 +759,8 @@ change.
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud run is Terraform's, not
   a Vagrant provider's).
 - **Breaking:** **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
-- **Breaking:** **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
-  project's files.
+- **Breaking:** **`Compiled::yaml`, `Compiled::spec` and `Compiled::files`.**
+  `Compiled::into_parts` gives the spec's text, with the spec and the project's files.
 - **Breaking:** **`Runner::in_flight`** is internal now: no embedder read it.
 - **Breaking:** **`isothrum-wasm`'s Rust functions are internal**: `plan`, `bundle_bytes`,
   `bundle_target_bytes`, `own_files` and `choices`, with `Error` and `Result`. Only the

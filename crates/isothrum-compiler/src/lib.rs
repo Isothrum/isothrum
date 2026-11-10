@@ -22,9 +22,9 @@
 //! A Windows machine's own steps are PowerShell scripts: the Ansible playbooks drawn on one run
 //! from Isoloom's controller (`provision:`), as Isoloom's own Windows examples do.
 //!
-//! The project's own files come with the spec ([`Compiled::files`], as [`ProjectFile`]s): the appliances'
-//! configurations, and a starter for each provisioning step to edit, so a downloaded project runs as
-//! is.
+//! The project's own files come with the spec ([`Compiled::into_parts`], as [`ProjectFile`]s): the
+//! appliances' configurations, and a starter for each provisioning step to edit, so a downloaded
+//! project runs as is.
 //!
 //! The modules follow [`compile`]: the drawing as read (`topology`); its `machines` and their
 //! `ports`; the playbooks Isoloom's `controller` runs; the `lans` and their addresses, the

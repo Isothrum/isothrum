@@ -2,7 +2,7 @@
 
 use isothrum_compiler::{Compiled, Error, Lan, ProjectFile, Result, Topology, compile};
 
-use crate::testing::{Outcome, accepted, cable, ep, join, lan, octet, spec, two_lans, yaml};
+use crate::testing::{Outcome, accepted, cable, ep, files, join, lan, octet, spec, two_lans, yaml};
 
 /// A switch running a Cisco OS, as the editor sends it: a node of its own with no networks,
 /// named as the `device` of its VLANs; machines on its ports join the VLANs.
@@ -28,7 +28,7 @@ fn a_cisco_switch_switches_its_vlans() -> Outcome {
     assert_eq!(spec(&c).machines["pc1"].networks.keys().collect::<Vec<_>>(), ["sw1.vlan10"]);
     assert!(yaml(&c).contains("appliance: cisco-iol-l2\n      config: configs/sw1.cfg"), "{}", yaml(&c));
     assert_eq!(
-        c.files(),
+        files(&c),
         [ProjectFile {
             path: "configs/sw1.cfg".into(),
             contents: "spanning-tree mode rapid-pvst\n".into(),

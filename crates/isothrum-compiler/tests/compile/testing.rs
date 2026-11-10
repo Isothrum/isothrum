@@ -116,6 +116,11 @@ pub(crate) fn spec(c: &Compiled) -> isoloom_spec::Spec {
     c.clone().into_parts().1
 }
 
+/// The project's own files.
+pub(crate) fn files(c: &Compiled) -> Vec<isothrum_compiler::ProjectFile> {
+    c.clone().into_parts().2
+}
+
 /// The compiled spec, which Isoloom reads and finds nothing wrong with (`isoloom validate`).
 pub(crate) fn accepted(topo: &Topology) -> Outcome<Compiled> {
     let compiled = compile(topo)?;

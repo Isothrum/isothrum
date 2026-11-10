@@ -119,8 +119,8 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
 
 ## `isothrum-compiler`
 
-`Compiled::yaml` and `Compiled::spec` are gone: `Compiled::into_parts()` returns the spec's text,
-the spec and the project's files.
+`Compiled::yaml`, `Compiled::spec` and `Compiled::files` are gone: `Compiled::into_parts()`
+returns the spec's text, the spec and the project's files.
 
 `Error::ReservedLanName` is `Error::ReservedName`: a switch named `link-…` is refused too.
 

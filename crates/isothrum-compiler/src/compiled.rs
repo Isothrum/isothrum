@@ -16,15 +16,9 @@ pub struct Compiled {
 }
 
 impl Compiled {
-    /// The project's own files, next to `isoloom.yml` where its paths point: the appliances'
-    /// configurations, then a starter for each provisioning step (each path once, inside the
-    /// project).
-    #[must_use]
-    pub fn files(&self) -> &[ProjectFile] {
-        &self.files
-    }
-
-    /// The spec's text (ready to write to `isoloom.yml`), the spec and the project's own files.
+    /// The spec's text (ready to write to `isoloom.yml`), the spec and the project's own files,
+    /// next to `isoloom.yml` where its paths point: the appliances' configurations, then a starter
+    /// for each provisioning step (each path once, inside the project).
     #[must_use]
     pub fn into_parts(self) -> (String, Spec, Vec<ProjectFile>) {
         (self.yaml, self.spec, self.files)
