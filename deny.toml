@@ -40,6 +40,9 @@ allow = [
   "Zlib",
 ]
 confidence-threshold = 0.9
+# libFuzzer's own licence, in the fuzz crate only (`fuzz/`, checked by `xtask fuzz --check`): a
+# development tool that is never shipped.
+exceptions = [{ crate = "libfuzzer-sys", allow = ["NCSA"] }]
 
 [licenses.private]
 # The workspace's own crates are Apache-2.0 (the workspace `license`) and `publish = false`.

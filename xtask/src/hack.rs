@@ -6,10 +6,10 @@
 //! - `features`: every combination of every crate's features checked (`cargo hack check
 //!   --feature-powerset`), so features stay additive and no combination breaks the build.
 //!
-//! A checkout Isoloom's `dev-link` points at the local Isoloom resolves into a lockfile of its own
-//! (`resolver.lockfile-path`), which the older Cargo of the minimum toolchain doesn't know yet: it
-//! resolves the linked crates into the committed `Cargo.lock` instead. `msrv` puts the committed
-//! lockfile back afterwards, so the check never leaves it changed.
+//! A checkout patched to a local Isoloom (a `[patch.crates-io]` in a git-ignored
+//! `.cargo/config.toml`, or the workspace repository's) resolves the patched crates into the
+//! committed `Cargo.lock`, and the minimum toolchain's older Cargo may write it in another format.
+//! `msrv` puts the committed lockfile back afterwards, so the check never leaves it changed.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -24,7 +24,7 @@ pub(crate) fn msrv() -> Res<ExitCode> {
     let checked = hack(&root, &["check", "--rust-version", "--workspace"]);
     if std::fs::read(&lock)? != committed {
         std::fs::write(&lock, committed)?;
-        println!("msrv: Cargo.lock put back as committed (the minimum toolchain's Cargo resolved the dev-link into it)");
+        println!("msrv: Cargo.lock put back as committed (the minimum toolchain's Cargo rewrote it)");
     }
     checked
 }

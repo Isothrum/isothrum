@@ -2,8 +2,8 @@ name: CI
 
 # Every push to main and every pull request: formatting, clippy and the tests on Linux, macOS and
 # Windows, the API docs, the quality ratchet, the supply chain (cargo-deny, unused dependencies),
-# spelling, SemVer against the last release, the declared minimum Rust, the fuzz targets' lints and
-# the WebAssembly build.
+# spelling, SemVer against the last release, the declared minimum Rust, the fuzz crate's lints and
+# supply chain, and the WebAssembly build.
 # The release gate (gate.yml) runs a subset of these again on the tag.
 on:
   push:
@@ -172,8 +172,12 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # fuzz/ is a workspace of its own, which the jobs above don't build: its format and lints
-      # on the pinned toolchain, so a change to the APIs its targets call shows here.
+      # fuzz/ is a workspace of its own, which the jobs above don't build: its format, lints and
+      # cargo-deny over its own lockfile on the pinned toolchain, so a change to the APIs its
+      # targets call, or an advisory against a crate only it locks, shows here.
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
       - run: cargo run -p xtask --locked -- fuzz --check
 
   wasm:

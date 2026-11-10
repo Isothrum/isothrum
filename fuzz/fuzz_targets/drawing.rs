@@ -11,10 +11,12 @@ fuzz_target!(|data: &[u8]| {
     let Ok(topology) = serde_json::from_slice::<Topology>(data) else { return };
     match compile(&topology) {
         Ok(compiled) => {
-            let files = compiled.files();
+            let (_, _, files) = compiled.into_parts();
             for (i, file) in files.iter().enumerate() {
+                // Isoloom's rule for a path inside the project (`isoloom-spec`'s `validate/files.rs`):
+                // not absolute, and no `..` segment (`a..b.sh` stays inside).
                 assert!(
-                    !file.path.starts_with('/') && !file.path.contains(".."),
+                    !file.path.starts_with('/') && !file.path.split('/').any(|segment| segment == ".."),
                     "a file outside the project: {}",
                     file.path
                 );

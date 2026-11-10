@@ -18,8 +18,9 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
 }
 
 /// `isoloom-manifest`'s fixtures folder: its manifest's folder as Cargo resolves it for this
-/// crate (the pinned git checkout, or the local Isoloom a dev-link points at). The workspace may
-/// hold another copy (another crate pinned to another Isoloom commit): the runner's own is read.
+/// crate (the crates.io release `Cargo.lock` locks, or the local Isoloom a `[patch.crates-io]`
+/// points at). The workspace may hold another copy (another crate on another Isoloom version):
+/// the runner's own is read.
 fn fixtures() -> Outcome<PathBuf> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let out = Command::new(cargo)

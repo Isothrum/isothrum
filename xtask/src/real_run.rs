@@ -60,8 +60,8 @@ pub(crate) fn run(a: &Args) -> Res<()> {
 /// Builds Isoloom's command line from its own folder, into this checkout's build folder; its path.
 fn build_isoloom(root: &Path, isoloom: &Path) -> Res<PathBuf> {
     let target = repo::target_dir(root).join("xtask-isoloom");
-    // From Isoloom's own folder: Cargo reads the configuration of the folder it runs in, and this
-    // repository's (a dev-link) points the resolution at a lockfile of its own.
+    // From Isoloom's own folder: Cargo reads the configuration of the folder it runs in and of
+    // those above it, and this repository's may patch the Isoloom crates for this workspace.
     let mut build = process::cargo(isoloom);
     build
         .args(["build", "-p", "isoloom", "--manifest-path"])

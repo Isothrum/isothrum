@@ -4,16 +4,17 @@
 //!
 //! A target that crashes (a panic, a failed assertion, an input that takes over 10 seconds) fails
 //! the run; libFuzzer leaves the input under `fuzz/artifacts/<target>/`. Each crash becomes a
-//! regression test in the crate it belongs to, then the fix. Isoloom's `cargo xtask check-all
-//! --deep` runs every target for the default time.
+//! regression test in the crate it belongs to, then the fix. The workspace repository's
+//! `cargo xtask check-all --deep` runs every target for the default time.
 //!
-//! `--check` builds nothing with nightly: it checks the fuzz crate's format and lints on the
-//! pinned toolchain instead, so a change to the APIs it calls shows in `check-all`.
+//! `--check` builds nothing with nightly: it checks the fuzz crate on the pinned toolchain
+//! instead (its format, its lints, and `cargo deny` over its own lockfile), so a change to the APIs
+//! its targets call, or an advisory against a crate only it locks, fails a gate. CI and
+//! CONTRIBUTING's gate list run it.
 //!
-//! The fuzz crate is a workspace of its own, and Cargo runs in its folder, so it reads the
-//! configuration there: a checkout Isoloom's `dev-link` links has one in `fuzz/.cargo/` too, with
-//! a lockfile of its own. One whose root is linked and whose fuzz crate isn't is refused, since
-//! Cargo would resolve the fuzz crate into the root's linked lockfile.
+//! The fuzz crate is a workspace of its own, and Cargo runs in its folder: it reads the
+//! `.cargo/config.toml` of that folder and of each one above it, so a `[patch.crates-io]` at the
+//! root (or the workspace repository's, above it) applies to it too.
 //!
 //! Needs `cargo install --locked cargo-fuzz` and `rustup toolchain install nightly --profile
 //! minimal`. The builds go to `<target dir>/fuzz`.
@@ -22,9 +23,6 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use crate::{Res, process, repo};
-
-/// The first line of the configuration Isoloom's `dev-link` writes.
-const DEV_LINK_MARKER: &str = "# Written by isoloom `cargo xtask dev-link`.";
 
 /// The arguments of `fuzz`.
 #[derive(Debug, clap::Args)]
@@ -50,7 +48,6 @@ struct Target {
 pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     let root = repo::root();
     let fuzz = root.join("fuzz");
-    refuse_half_link(&root, &fuzz)?;
     if a.check {
         return check(&root, &fuzz);
     }
@@ -74,15 +71,6 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     Ok(process::exit_code(failed.is_empty()))
 }
 
-/// Fails when the root is dev-linked and the fuzz crate isn't (see the module's docs).
-fn refuse_half_link(root: &Path, fuzz: &Path) -> Res<()> {
-    let linked = |dir: &Path| std::fs::read_to_string(dir.join(".cargo").join("config.toml")).is_ok_and(|t| t.lines().any(|l| l == DEV_LINK_MARKER));
-    if linked(root) && !linked(fuzz) {
-        return Err("this checkout is dev-linked but fuzz/ isn't: run Isoloom's `cargo xtask dev-link link` for it again".into());
-    }
-    Ok(())
-}
-
 /// Runs one target for `secs` seconds; whether it found nothing.
 fn fuzz_one(root: &Path, t: &Target, secs: u32) -> Res<bool> {
     let fuzz = root.join("fuzz");
@@ -99,13 +87,19 @@ fn fuzz_one(root: &Path, t: &Target, secs: u32) -> Res<bool> {
     process::passed(&mut cmd).map_err(|e| format!("{e} (cargo install --locked cargo-fuzz; rustup toolchain install nightly)").into())
 }
 
-/// Checks the fuzz crate's format and lints on the pinned toolchain.
+/// Checks the fuzz crate's format, lints and supply chain on the pinned toolchain.
 fn check(root: &Path, fuzz: &Path) -> Res<ExitCode> {
     let formatted = process::passed(process::cargo(fuzz).args(["fmt", "--check"]))?;
     let mut clippy = process::cargo(fuzz);
     clippy.args(["clippy", "--all-targets", "--target-dir"]).arg(repo::target_dir(root));
     clippy.args(["--", "-D", "warnings"]);
-    Ok(process::exit_code(process::passed(&mut clippy)? && formatted))
+    let linted = process::passed(&mut clippy)?;
+    // The fuzz crate's own lockfile, which the root's check doesn't see, held to the root's
+    // deny.toml (cargo-deny looks for it in the folders above too).
+    let mut deny = process::cargo(fuzz);
+    deny.args(["deny", "check"]);
+    let supplied = process::passed(&mut deny)?;
+    Ok(process::exit_code(formatted && linted && supplied))
 }
 
 /// The targets `fuzz/Cargo.toml` declares (its `[[bin]]`s), with their seed folders.
@@ -152,19 +146,6 @@ mod tests {
                 }
             ]
         );
-    }
-
-    #[test]
-    fn a_linked_root_with_an_unlinked_fuzz_crate_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let (root, fuzz) = (dir.path(), dir.path().join("fuzz"));
-        std::fs::create_dir_all(root.join(".cargo")).unwrap();
-        std::fs::create_dir_all(fuzz.join(".cargo")).unwrap();
-        assert!(refuse_half_link(root, &fuzz).is_ok(), "nothing linked");
-        std::fs::write(root.join(".cargo/config.toml"), format!("{DEV_LINK_MARKER}\n")).unwrap();
-        assert!(refuse_half_link(root, &fuzz).is_err());
-        std::fs::write(fuzz.join(".cargo/config.toml"), format!("{DEV_LINK_MARKER}\n")).unwrap();
-        assert!(refuse_half_link(root, &fuzz).is_ok(), "both linked");
     }
 
     #[test]

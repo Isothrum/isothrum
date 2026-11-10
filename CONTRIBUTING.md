@@ -33,7 +33,8 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
    # ... and the Isoloom crates those depend on
    ```
 
-   A patched build rewrites `Cargo.lock` for the local crates: don't commit those changes.
+   A patched build rewrites `Cargo.lock` and `fuzz/Cargo.lock` for the local crates: don't commit
+   those changes.
 
 Optional tools the gates use: `cargo install cargo-nextest cargo-machete cargo-deny
 cargo-semver-checks typos-cli`, and `wasm-pack` for the WebAssembly build.
@@ -52,13 +53,14 @@ cargo run -p xtask -- quality          # the clean-code ratchet (quality-baselin
 cargo deny check
 cargo machete
 typos
+cargo run -p xtask -- fuzz --check     # the fuzz crate (fuzz/, a workspace of its own): format, lints, cargo-deny
 cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask
 ```
 
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
 local `#[expect(lint, reason = "...")]`, never an `#[allow]`. CI also runs the tests on Linux,
-macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`), checks the fuzz
-targets' format and lints (`cargo run -p xtask -- fuzz --check`) and builds the WebAssembly package.
+macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`) and builds the
+WebAssembly package.
 
 Other tasks are `cargo run -p xtask -- <task>`, the same on every OS: `schema` (regenerate the
 event and status schemas after changing them), `wasm`, `msrv`, `features`, `fuzz`, `mutants`.

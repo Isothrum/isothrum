@@ -1,4 +1,4 @@
-# typos (a gate of Isoloom's `cargo xtask check-all --repos isothrum`): words that are right here
+# typos (a gate here, and of the workspace repository's `cargo xtask check-all`): words that are right here
 # although they look like misspellings.
 
 [default.extend-words]
