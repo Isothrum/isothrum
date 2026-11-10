@@ -21,7 +21,7 @@ use crate::store::RunRecord;
 use crate::{clock, outputs, ready, tools};
 
 /// What `up` finds where it would start the run.
-enum Slot {
+enum Occupancy {
     /// Nothing of the run exists.
     Free,
     /// Something is left (a failed start, stopped machines): removed before the start.
@@ -63,10 +63,10 @@ impl Running<'_> {
         self.driver.prepare(&cx)?;
         tools::probe(&cx).await?;
         let observed = self.observe(&mut cx).await?;
-        match self.slot(&observed, &record, opts.occupied)? {
-            Slot::Parked => return self.resume_parked(opts, events).await,
-            Slot::Leftovers => self.clear(&mut cx, &record, opts).await?,
-            Slot::Free => {}
+        match self.occupancy(&observed, &record, opts.occupied)? {
+            Occupancy::Parked => return self.resume_parked(opts, events).await,
+            Occupancy::Leftovers => self.clear(&mut cx, &record, opts).await?,
+            Occupancy::Free => {}
         }
         self.record_start(&mut record, &cx, opts)?;
         // The slot is picked and recorded (the run `starting`) under the home's lock: a start
@@ -138,20 +138,22 @@ impl Running<'_> {
         }
     }
 
-    fn slot(&self, observed: &Observed, record: &RunRecord, occupied: Occupied) -> Result<Slot> {
+    /// What `up` finds of the run (`observed`, `record`) where it would start it, and what
+    /// `occupied` makes of it; refused while it runs.
+    fn occupancy(&self, observed: &Observed, record: &RunRecord, occupied: Occupied) -> Result<Occupancy> {
         let exists = any_present(&observed.machines);
         let parked = record.state == RunState::Parked;
         let running = any_member_running(&observed.machines);
         let already = || Err(Error::AlreadyRunning { run: self.name().to_string() });
         match occupied {
-            _ if !exists => Ok(Slot::Free),
-            Occupied::Replace => Ok(Slot::Leftovers),
+            _ if !exists => Ok(Occupancy::Free),
+            Occupied::Replace => Ok(Occupancy::Leftovers),
             // A start that failed with its machines up: what it left goes, then a fresh start.
-            _ if record.state == RunState::Failed => Ok(Slot::Leftovers),
+            _ if record.state == RunState::Failed => Ok(Occupancy::Leftovers),
             _ if running && !parked => already(),
-            Occupied::ResumeParked if parked => Ok(Slot::Parked),
+            Occupied::ResumeParked if parked => Ok(Occupancy::Parked),
             Occupied::Refuse if parked => already(),
-            _ => Ok(Slot::Leftovers),
+            _ => Ok(Occupancy::Leftovers),
         }
     }
 
