@@ -92,7 +92,7 @@ pub(crate) enum RunnerCommand {
     Events(TargetArgs),
     /// Destroy a cloud's runs past their expiry (each with the params it was applied with), then
     /// list what the cloud still holds past its expiry that no run records. Exit 1 when a destroy
-    /// failed or something is left.
+    /// failed, something is left or the cloud couldn't be searched in full.
     Reap(ReapArgs),
     /// Print the runner's SSH public key (made when it has none): authorize it where a run's SSH
     /// goes through (a Proxmox node, with `--ssh-jump`).

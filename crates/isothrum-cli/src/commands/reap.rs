@@ -2,7 +2,8 @@
 //! the params it was applied with and the connection given here (`--secret-from-env`); then
 //! what the cloud still holds tagged past its expiry that no run covers, listed for a person to
 //! remove. A failed destroy doesn't stop the others; the command fails when one failed, when
-//! something is left, or when a query of the cloud couldn't run (nothing says it's clean).
+//! something is left, or when the cloud couldn't be searched or a query of it couldn't run
+//! (nothing says it's clean).
 
 use std::time::SystemTime;
 
@@ -13,6 +14,7 @@ use crate::args::ReapArgs;
 use crate::commands::Out;
 use crate::error::Result;
 use crate::exit::Verdict;
+use crate::term::failure;
 use crate::values;
 
 /// What the sweep did with the expired runs.
@@ -46,15 +48,24 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &d
             Err(e) => swept.failed.push((name, e.to_string())),
         }
     }
-    let orphans = runner.orphans(cloud, &Place::new(args.regions.clone(), args.project.clone()), now).await?;
-    let clean = swept.failed.is_empty() && orphans.resources.is_empty() && orphans.unread.is_empty();
+    let orphans = runner.orphans(cloud, &Place::new(args.regions.clone(), args.project.clone()), now).await;
+    let searched = orphans.as_ref().ok();
+    let clean = swept.failed.is_empty() && searched.is_some_and(|o| o.resources.is_empty() && o.unread.is_empty());
+    // The sweep is no one run's operation: its events have no `run` nor `op`, and a search that
+    // failed is said after the sweep, not as the last destroyed run's.
     if json {
-        // The sweep is no one run's operation: its `result` has no `run` nor `op`.
-        let data = summary(args, &swept, &orphans);
+        let data = summary(args, &swept, searched);
         term.json(&Event::new(1, None, None, EventKind::Result { ok: clean, data }));
     } else {
-        for line in lines(args, &swept, &orphans) {
+        for line in lines(args, &swept, searched) {
             term.out(&line);
+        }
+    }
+    if let Err(e) = &orphans {
+        if json {
+            term.json(&Event::new(2, None, None, failure(e.code(), e.to_string())));
+        } else {
+            term.err(&format!("error: {e}"));
         }
     }
     Ok(Verdict::of(clean))
@@ -66,25 +77,29 @@ async fn destroy(runner: &Runner, record: &RunRecord, connection: &Secrets, even
     run.down(&RunOptions::new(), events).await
 }
 
-/// The sweep as one JSON object: the data of the `result` that closes `reap --json`.
-fn summary(args: &ReapArgs, swept: &Swept, orphans: &Orphans) -> serde_json::Value {
+/// The sweep as one JSON object: the data of the `result` that closes `reap --json`. `orphans`
+/// and `unread` are null when the cloud couldn't be searched (`orphans` is `None`).
+fn summary(args: &ReapArgs, swept: &Swept, orphans: Option<&Orphans>) -> serde_json::Value {
     let failed: Vec<serde_json::Value> = swept.failed.iter().map(|(run, why)| json!({ "run": run, "error": why })).collect();
     json!({
         "cloud": wire_name(&args.cloud),
         "destroyed": swept.destroyed,
         "pending": swept.pending,
         "failed": failed,
-        "orphans": orphans.resources,
-        "unread": orphans.unread,
+        "orphans": orphans.map(|o| &o.resources),
+        "unread": orphans.map(|o| &o.unread),
     })
 }
 
-/// The sweep as a person reads it.
-fn lines(args: &ReapArgs, swept: &Swept, orphans: &Orphans) -> Vec<String> {
+/// The sweep as a person reads it; `orphans`, when the cloud was searched.
+fn lines(args: &ReapArgs, swept: &Swept, orphans: Option<&Orphans>) -> Vec<String> {
     let mut out = Vec::new();
     out.extend(swept.destroyed.iter().map(|r| format!("destroyed {r}")));
     out.extend(swept.pending.iter().map(|r| format!("would destroy {r} (--dry-run)")));
     out.extend(swept.failed.iter().map(|(r, why)| format!("failed {r}: {why}")));
+    let Some(orphans) = orphans else {
+        return out;
+    };
     for o in &orphans.resources {
         let env = o.instance.as_deref().unwrap_or("unknown");
         out.push(format!(

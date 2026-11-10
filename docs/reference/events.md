@@ -26,7 +26,9 @@ Every event an operation emits has `run` and `op`. They are absent only from an 
 outside an operation: with `--json`, a failure before any operation began (code `usage`, for
 instance) is an `error` event too, and `isothrum reap --json` ends with a `result` whose `data`
 is the sweep (`cloud`, `destroyed`, `pending`, `failed`, `orphans`, `unread`), after the events of
-each run it destroyed; so one stream carries every outcome, one event per line. `isothrum attach
+each run it destroyed; when the cloud couldn't be searched (a recorded run's state unreadable),
+`orphans` and `unread` are null and an `error` without `run` nor `op` follows it. So one stream
+carries every outcome, one event per line. `isothrum attach
 --json` says where the machine is in its `result`'s `data` (`machine`, `native`, `network`,
 `address`, `image`).
 

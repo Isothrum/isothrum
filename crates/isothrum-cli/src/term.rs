@@ -6,7 +6,7 @@
 use std::io::{ErrorKind, Write};
 use std::sync::{Mutex, PoisonError};
 
-use isothrum_runner::{Event, EventKind, Events, Op};
+use isothrum_runner::{ErrorCode, Event, EventKind, Events, Op};
 
 use crate::error::{Error, Result};
 use crate::text::human;
@@ -71,6 +71,16 @@ impl Term {
             Some(e) => Err(Error::Output(e)),
             None => Ok(()),
         }
+    }
+}
+
+/// The kind of an `error` event the command line writes itself (no step failed, no timeout).
+pub(crate) fn failure(code: ErrorCode, message: String) -> EventKind {
+    EventKind::Error {
+        code,
+        message,
+        step: None,
+        timeout: None,
     }
 }
 

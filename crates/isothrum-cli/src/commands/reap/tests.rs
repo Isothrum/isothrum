@@ -49,6 +49,20 @@ fn answer(home: &Path, call: &Call) -> Reply {
     }
 }
 
+/// [`answer`], but `terraform destroy` leaves the home a run record that isn't JSON, so the search
+/// that follows the sweep fails (`io`); it succeeds when `destroyed`.
+fn destroy_breaking_a_record(home: &Path, call: &Call, destroyed: bool) -> Reply {
+    if call.line().starts_with("terraform destroy") {
+        let other = home.join("runs/other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("record.json"), "not json").unwrap();
+        if !destroyed {
+            return Reply::fail(1, "Error: destroy failed");
+        }
+    }
+    answer(home, call)
+}
+
 struct Setup {
     _home: tempfile::TempDir,
     run: tempfile::TempDir,
@@ -56,9 +70,15 @@ struct Setup {
     fake: Arc<FakeProcesses>,
     term: Term,
     out: Buf,
+    err: Buf,
 }
 
 fn setup() -> Setup {
+    setup_answering(answer)
+}
+
+/// [`setup`], the tools answered by `answer`.
+fn setup_answering(answer: fn(&Path, &Call) -> Reply) -> Setup {
     let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let dir = run.path().join(".isoloom/cloud-vm/aws");
     std::fs::create_dir_all(&dir).unwrap();
@@ -72,8 +92,8 @@ fn setup() -> Setup {
     let processes: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
     config.processes = processes;
     config.ports = Arc::new(FakePorts::new([]));
-    let out = Buf::default();
-    let term = Term::new(Box::new(out.clone()), Box::new(Buf::default()));
+    let (out, err) = (Buf::default(), Buf::default());
+    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
     Setup {
         _home: home,
         runner: Runner::new(config).unwrap(),
@@ -81,6 +101,7 @@ fn setup() -> Setup {
         fake,
         term,
         out,
+        err,
     }
 }
 
@@ -159,4 +180,47 @@ async fn another_clouds_runs_are_left_alone() {
         said.contains("not checked: `linode-cli linodes list --json`"),
         "an answer it can't read: {said}"
     );
+}
+
+#[tokio::test]
+async fn a_search_that_fails_after_a_failed_destroy_still_says_the_sweep() {
+    // Regression: the search's `io` was returned, and the command line took the failed destroy's
+    // `error` for having said it: nothing was printed, not even the sweep.
+    let s = setup_answering(|home, call| destroy_breaking_a_record(home, call, false));
+    s.expired_run().await;
+    let verdict = s.run(&["reap", "aws"]).await;
+    assert_eq!(verdict, Verdict::Fail);
+    let (said, errors) = (s.out.take(), s.err.take());
+    assert!(said.starts_with("failed solo-web: "), "{said}");
+    assert!(!said.contains("nothing to reap"), "the cloud wasn't searched: {said}");
+    let last = errors.lines().last().unwrap();
+    assert!(
+        last.starts_with("error: ") && last.ends_with("record.json couldn't be read: expected ident at line 1 column 2"),
+        "{errors}"
+    );
+}
+
+#[tokio::test]
+async fn a_search_that_fails_after_a_destroy_is_no_runs_error() {
+    // Regression: the search's `error` event carried the destroyed run's `run` and `op`.
+    let s = setup_answering(|home, call| destroy_breaking_a_record(home, call, true));
+    s.expired_run().await;
+    let verdict = s.run(&["reap", "aws", "--json"]).await;
+    assert_eq!(verdict, Verdict::Fail);
+    let said = s.out.take();
+    let events: Vec<serde_json::Value> = said.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let [.., result, error] = events.as_slice() else {
+        panic!("a result, then an error: {said}");
+    };
+    assert_eq!((result["event"].as_str(), result["ok"].as_bool()), (Some("result"), Some(false)), "{result}");
+    assert_eq!(result["data"]["destroyed"], serde_json::json!(["solo-web"]));
+    assert!(
+        result["data"]["orphans"].is_null() && result["data"]["unread"].is_null(),
+        "not searched: {result}"
+    );
+    assert_eq!(
+        (error["event"].as_str(), error["code"].as_str(), error["seq"].as_u64()),
+        (Some("error"), Some("io"), Some(2))
+    );
+    assert!(error.get("run").is_none() && error.get("op").is_none(), "no one run's operation: {error}");
 }

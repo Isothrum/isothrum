@@ -226,7 +226,7 @@ isothrum events [OPTIONS] [PATH]
 
 ## `isothrum reap`
 
-Destroy a cloud's runs past their expiry (each with the params it was applied with), then list what the cloud still holds past its expiry that no run records. Exit 1 when a destroy failed or something is left.
+Destroy a cloud's runs past their expiry (each with the params it was applied with), then list what the cloud still holds past its expiry that no run records. Exit 1 when a destroy failed, something is left or the cloud couldn't be searched in full.
 
 ```text
 isothrum reap [OPTIONS] <CLOUD>

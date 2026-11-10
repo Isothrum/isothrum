@@ -26,12 +26,12 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::Parser;
-use isothrum_runner::{EventKind, Runner, RunnerConfig, SystemProcesses};
+use isothrum_runner::{Runner, RunnerConfig, SystemProcesses};
 
 use crate::args::Cli;
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
-use crate::term::{Term, Trail};
+use crate::term::{Term, Trail, failure};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -112,12 +112,7 @@ fn report(e: &Error, cli: &Cli, term: &Term, trail: &Trail) {
         term.err(&format!("error: {e}"));
         return;
     }
-    let kind = EventKind::Error {
-        code: e.code(),
-        message: e.to_string(),
-        step: None,
-        timeout: None,
-    };
+    let kind = failure(e.code(), e.to_string());
     let run = commands::run_named(&cli.command).map(str::to_owned);
     let event = trail.next(run, commands::op_of(&cli.command), kind);
     term.json(&event);
@@ -131,12 +126,7 @@ fn refused(e: &clap::Error, term: &Term) -> ExitCode {
     if !json || !e.use_stderr() {
         e.exit()
     }
-    let kind = EventKind::Error {
-        code: isothrum_runner::ErrorCode::Usage,
-        message: e.render().to_string().trim_end().to_owned(),
-        step: None,
-        timeout: None,
-    };
+    let kind = failure(isothrum_runner::ErrorCode::Usage, e.render().to_string().trim_end().to_owned());
     term.json(&Trail::default().next(None, None, kind));
     ExitCode::from(exit::USAGE)
 }

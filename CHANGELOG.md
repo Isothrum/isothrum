@@ -148,6 +148,12 @@ change.
 - **`isothrum reap` no longer passes when it couldn't query the cloud.** A query of what the
   cloud holds that couldn't run or be read was listed (`not checked: …`) but the command passed,
   as for a clean sweep; it now fails.
+- **`isothrum reap` says the sweep when the cloud can't be searched after it.** When the search
+  for leftovers failed (a recorded run's record or Terraform state unreadable, `io`) after the
+  destroys, the command printed nothing of the sweep; and the failure was taken for said when the
+  last destroy had failed (nothing printed at all), or stamped with the destroyed run's `run` and
+  `op`. It now prints the sweep (with `--json`, its `result`, `orphans` and `unread` null), then
+  the failure (an `error` event without `run` nor `op`), and exits 1.
 - **A guest delivery's input file that can't be removed fails the delivery.** The values a
   `guest` delivery sends pass through an owner-only `guest-<machine>.in` in the run's state
   folder; a failure to remove it once delivered was only traced, leaving the values there. It now
