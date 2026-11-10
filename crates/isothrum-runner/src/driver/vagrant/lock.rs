@@ -65,30 +65,59 @@ pub(super) fn refused(out: &Captured) -> bool {
     !out.succeeded() && out.stdout.iter().chain(&out.stderr).any(|line| LOCKED.iter().any(|said| line.contains(said)))
 }
 
-/// Whether `vagrant <args>`, refused for another process's lock, may run again, `acted` when the
-/// refused try announced an action on a machine ([`ACTING`]). A read, and a command that
-/// converges, always: a second `destroy`, `halt` or `suspend` acts only on what the first left;
-/// a second `up` boots only what isn't running and provisions only a VM whose provisioning hadn't
-/// begun (Vagrant's sentinel, written as it begins: a provisioner set to run always runs at every
-/// `up` anyway), unless it is told to provision (`--provision`, `--provision-with`). Any other
-/// command it knows (`provision`, `reload`, `resume`, a forced `up`) only when the refused try
-/// did nothing yet, else a machine would be provisioned or restarted twice; any command it
-/// doesn't know (a script over `ssh`), never.
-fn again(args: &[String], acted: bool) -> bool {
+/// What a `vagrant` command does when it is run a second time: the one reading of its verb, for
+/// whether a refused try may run again ([`again`]) and for what is said of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verb {
+    /// `status`: reads, acts on no machine (tried again without a word).
+    Read,
+    /// `destroy`, `halt`, `suspend`, and an `up` not told to provision: a second run acts only on
+    /// what the first left. A second `up` boots only what isn't running and provisions only a VM
+    /// whose provisioning hadn't begun (Vagrant's sentinel, written as it begins: a provisioner
+    /// set to run always runs at every `up` anyway).
+    Converges,
+    /// `provision`, `reload`, `resume`, and an `up` told to provision (`--provision`,
+    /// `--provision-with`): a second run provisions or restarts a machine the first already did.
+    Repeats,
+}
+
+/// What `vagrant <args>` does when run twice; `None` for a command the retry doesn't know (a
+/// script over `ssh`), which is never run again.
+fn verb(args: &[String]) -> Option<Verb> {
     let provisions = args
         .iter()
         .any(|a| a == "--provision" || a == "--provision-with" || a.starts_with("--provision-with="));
     match args.first().map(String::as_str) {
-        Some("status" | "destroy" | "halt" | "suspend") => true,
-        Some("up") if !provisions => true,
-        Some("up" | "provision" | "reload" | "resume") => !acted,
-        _ => false,
+        Some("status") => Some(Verb::Read),
+        Some("destroy" | "halt" | "suspend") => Some(Verb::Converges),
+        Some("up") if !provisions => Some(Verb::Converges),
+        Some("up" | "provision" | "reload" | "resume") => Some(Verb::Repeats),
+        _ => None,
     }
 }
 
-/// Whether `lines` hold an action Vagrant announced on a machine ([`ACTING`]).
-fn acted<'a>(mut lines: impl Iterator<Item = &'a String>) -> bool {
-    lines.any(|line| line.starts_with(ACTING))
+/// Whether `vagrant <args>`, refused for another process's lock, may run again, `acted` when the
+/// refused try announced an action on a machine ([`announces`]): a read and a command that
+/// converges always; one that repeats only when the refused try did nothing yet, else a machine
+/// would be provisioned or restarted twice; a command the retry doesn't know, never.
+fn again(args: &[String], acted: bool) -> bool {
+    match verb(args) {
+        Some(Verb::Read | Verb::Converges) => true,
+        Some(Verb::Repeats) => !acted,
+        None => false,
+    }
+}
+
+/// Whether `line`, one a Vagrant call printed on either stream, announces an action on a machine
+/// ([`ACTING`]).
+fn announces(line: &str) -> bool {
+    line.starts_with(ACTING)
+}
+
+/// Whether `out`, a refused try, announced an action on a machine on either stream (the one rule
+/// [`run_step`] applies to every line it watches).
+fn acted(out: &Captured) -> bool {
+    out.stdout.iter().chain(&out.stderr).any(|line| announces(line))
 }
 
 /// When a call refused for a lock stops being tried again: [`PATIENCE`] after its first refusal.
@@ -138,13 +167,13 @@ pub(super) async fn read_status(cx: &Cx<'_>) -> Result<String> {
 /// [`call`], tried again while another process's lock is all that refused it and [`again`]
 /// allows it, said in a warning unless it is a read (`vagrant status`).
 pub(super) async fn call_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<Captured> {
-    let reads = spec.args.first().is_some_and(|verb| verb == "status");
+    let reads = verb(&spec.args) == Some(Verb::Read);
     let retrying = || {
         if !reads {
             warn_retrying(cx, id);
         }
     };
-    let safe = |out: &Captured| again(&spec.args, acted(out.stdout.iter()));
+    let safe = |out: &Captured| again(&spec.args, acted(out));
     waiting(id, safe, retrying, || call(cx, id, spec, limit, echo)).await
 }
 
@@ -170,7 +199,7 @@ pub(crate) async fn run_step(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut
         let mut announced = false;
         let ended = {
             let mut watch = |line: &str| {
-                announced |= line.starts_with(ACTING);
+                announced |= announces(line);
                 observe(line);
             };
             once(cx, list, step, &mut watch, Hold::No).await?
@@ -260,13 +289,20 @@ mod tests {
         for never in ["ssh web -c true", "ssh-config web", "plugin list"] {
             assert!(!again(&args(never), false), "{never}");
         }
-        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert!(acted(
-            lines(&["Bringing machine 'web' up with 'libvirt' provider...", "==> web: Removing domain..."]).iter()
-        ));
-        assert!(!acted(
-            lines(&["Bringing machine 'web' up with 'libvirt' provider...", "    web: SSH address: 1.2.3.4:22"]).iter()
-        ));
+        assert_eq!(verb(&args("status --machine-readable")), Some(Verb::Read));
+        assert_eq!(verb(&args("up web")), Some(Verb::Converges));
+        assert_eq!(verb(&args("up web --provision")), Some(Verb::Repeats));
+        assert_eq!(verb(&args("ssh web -c true")), None);
+    }
+
+    /// A refused try's action line counts on either stream: a driver's own call (`call_retrying`)
+    /// reads the lines as the manifest's steps (`run_step`) watch them.
+    #[test]
+    fn an_action_announced_on_either_stream_counts_as_acted() {
+        let booting = "Bringing machine 'web' up with 'libvirt' provider...";
+        assert!(acted(&ended(1, &[booting, "==> web: Removing domain..."], &[])));
+        assert!(acted(&ended(1, &[booting], &["==> web: Removing domain..."])), "on standard error too");
+        assert!(!acted(&ended(1, &[booting, "    web: SSH address: 1.2.3.4:22"], &[])));
     }
 
     /// Regression: Vagrant's machine index lock, which every read of a machine's state takes
