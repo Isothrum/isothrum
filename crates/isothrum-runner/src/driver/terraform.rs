@@ -77,12 +77,14 @@ pub(crate) fn plugin_cache(config: &RunnerConfig) -> PathBuf {
 
 impl Driver for Terraform {
     fn preflight(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        let checked = self.checked_module(cx).and_then(|module| match copy_module::has_terraform_files(&module)? {
-            true => Ok(()),
-            false => Err(Error::Malformed {
+        let checked = self.checked_module(cx).and_then(|module| {
+            if copy_module::has_terraform_files(&module)? {
+                return Ok(());
+            }
+            Err(Error::Malformed {
                 at: format!("the Terraform module {}", module.display()),
                 reason: "it has no `.tf` file: generate the run's files again".to_owned(),
-            }),
+            })
         });
         std::future::ready(checked)
     }
