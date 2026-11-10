@@ -38,7 +38,7 @@ printf %s \"$v\" | base64 -d > \"$d/$n.new\"; mv -f \"$d/$n.new\" \"$d/$n\"; don
 const PATIENCE: Duration = Duration::from_secs(900);
 /// How long between two tries.
 const RETRY: Duration = Duration::from_secs(5);
-/// How long one try may take.
+/// How long one try may go without progress (as every tool call's limit counts).
 const TRY_LIMIT: Duration = Duration::from_secs(120);
 /// SSH's own exit code when it couldn't connect (the command never ran).
 const SSH_UNREACHABLE: i32 = 255;

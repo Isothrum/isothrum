@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Provider, Step};
 
-use super::READ_TIMEOUT;
+use super::READ_LIMIT;
 use super::actions::{vboxmanage, vm_names};
 use crate::Result;
 use crate::events::WarningCode;
@@ -29,7 +29,7 @@ pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
 
 /// Runs `spec`, its failure only noted: each removal is best effort ("nothing there" is fine).
 async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<String>> {
-    let out = call(cx, step.id.as_str(), spec, READ_TIMEOUT, Echo::Quiet).await?;
+    let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
     Ok(out.succeeded().then(|| out.stdout.join("\n")))
 }
 

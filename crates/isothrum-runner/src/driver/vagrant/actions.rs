@@ -9,16 +9,17 @@ use std::time::Duration;
 
 use isoloom_manifest::{Provider, SnakeName, Step, Template};
 
-use super::{READ_TIMEOUT, Vagrant};
+use super::{READ_LIMIT, Vagrant};
 use crate::Result;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::executor::{Cx, Echo, call, call_ok};
 use crate::process::{Captured, ProcessSpec};
 
-/// How long the clean-up destroy of a record on another provider may take before the record is
-/// dropped anyway (a wedged hypervisor must not hang a start).
-const RECONCILE_DESTROY: Duration = Duration::from_secs(180);
+/// How long the clean-up destroy of a record on another provider may go without progress (as
+/// every tool call's limit counts) before the record is dropped anyway (a wedged hypervisor must
+/// not hang a start).
+const RECONCILE_DESTROY_LIMIT: Duration = Duration::from_secs(180);
 
 /// The controller's define name.
 const CONTROLLER: &str = "isoloom-controller";
@@ -34,15 +35,15 @@ const HALT_POLLS: u32 = 60;
 /// waking it fails.
 const WAKE_PATIENCE: Duration = Duration::from_secs(180);
 
-/// How long one ask of the controller whether it is halting may take: no answer in time is no
-/// answer, asked again.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long one ask of the controller whether it is halting may go without progress (as every
+/// tool call's limit counts): no answer in time is no answer, asked again.
+const PROBE_LIMIT: Duration = Duration::from_secs(20);
 
-/// How long the controller's boot may take, when its step sets no limit.
-const BOOT_TIMEOUT: Duration = Duration::from_secs(1800);
+/// How long the controller's boot may go without progress, when its step sets no limit.
+const BOOT_LIMIT: Duration = Duration::from_secs(1800);
 
-/// How long the controller's halt may take, when its step sets no limit.
-const HALT_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long the controller's halt may go without progress, when its step sets no limit.
+const HALT_LIMIT: Duration = Duration::from_secs(300);
 
 /// The providers Vagrant recorded a created machine under in `dotfile`
 /// (`machines/<name>/<provider>/id`; a provider folder without its `id` is no machine: a destroy
@@ -64,7 +65,7 @@ pub(super) fn recorded_providers(dotfile: &Path) -> Vec<String> {
 }
 
 /// `vagrant.reconcile_provider`: a run recorded under another provider (the run last ran on
-/// VirtualBox, now on libvirt) is destroyed, within [`RECONCILE_DESTROY`] and best effort, and
+/// VirtualBox, now on libvirt) is destroyed, given [`RECONCILE_DESTROY_LIMIT`] and best effort, and
 /// its record dropped, so `vagrant up` doesn't refuse "a machine with a different provider".
 pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let dotfile = v.dotfile(cx)?;
@@ -76,7 +77,7 @@ pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) ->
     cx.events
         .warning(WarningCode::OtherProvider, "this run last ran on another provider: clearing that run first");
     let destroy = v.vagrant(cx, id, &["destroy", "--force"])?;
-    if let Err(e) = call(cx, id, &destroy, RECONCILE_DESTROY, Echo::Shown).await {
+    if let Err(e) = call(cx, id, &destroy, RECONCILE_DESTROY_LIMIT, Echo::Shown).await {
         cx.events.warning(WarningCode::StepTolerated, &e.to_string());
     }
     remove_dir(&dotfile)
@@ -119,7 +120,7 @@ pub(super) fn vboxmanage(args: &[&str]) -> ProcessSpec {
 pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()> {
     let id = step.id.as_str();
     for name in vm_names(cx, Provider::Virtualbox) {
-        let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_TIMEOUT, Echo::Quiet).await?;
+        let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_LIMIT, Echo::Quiet).await?;
         if !info.succeeded() || !aborted_saved(&info.stdout) {
             continue;
         }
@@ -127,7 +128,7 @@ pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()
             WarningCode::SavedStateDiscarded,
             &format!("{name}: its saved state was cut off; it boots fresh"),
         );
-        call_ok(cx, id, &vboxmanage(&["discardstate", &name]), READ_TIMEOUT, Echo::Quiet).await?;
+        call_ok(cx, id, &vboxmanage(&["discardstate", &name]), READ_LIMIT, Echo::Quiet).await?;
     }
     Ok(())
 }
@@ -141,7 +142,7 @@ pub(super) fn aborted_saved(lines: &[String]) -> bool {
 /// checks. One still powering itself off after its play is waited for first, two seconds
 /// between reads, booting it then would race its own poweroff: it says so (it holds
 /// [`HALTING`]), or no longer answers over SSH on its way down (each ask given
-/// [`PROBE_TIMEOUT`]). Only one that answers it isn't halting is left running as it is; one
+/// [`PROBE_LIMIT`]). Only one that answers it isn't halting is left running as it is; one
 /// still running and not saying so after [`WAKE_PATIENCE`] fails the step.
 pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
@@ -160,7 +161,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
             });
         }
         let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &halting_probe()])?;
-        match call(cx, id, &probe, PROBE_TIMEOUT.min(left), Echo::Quiet).await {
+        match call(cx, id, &probe, PROBE_LIMIT.min(left), Echo::Quiet).await {
             // Running, and not on its way down: nothing to wait for.
             Ok(said) if said.succeeded() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) => return Ok(()),
             Ok(_) | Err(Error::Timeout { .. }) => {}
@@ -168,7 +169,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
         }
         tokio::time::sleep(Duration::from_secs(2).min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
     }
-    let limit = step.timeout_s.map_or(BOOT_TIMEOUT, |s| Duration::from_secs(u64::from(s.get())));
+    let limit = step.timeout_s.map_or(BOOT_LIMIT, |s| Duration::from_secs(u64::from(s.get())));
     let up = v.vagrant(cx, id, &["up", &machine, "--no-provision"])?;
     call_ok(cx, id, &up, limit, Echo::Shown).await.map(drop)
 }
@@ -195,7 +196,7 @@ const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the c
 pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
     let machine = controller(cx, with)?;
-    let limit = step.timeout_s.map_or(HALT_TIMEOUT, |s| Duration::from_secs(u64::from(s.get())));
+    let limit = step.timeout_s.map_or(HALT_LIMIT, |s| Duration::from_secs(u64::from(s.get())));
     let halt = call(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
     if !halted && already_off(&halt) {
@@ -246,6 +247,6 @@ fn controller(cx: &Cx<'_>, with: &BTreeMap<SnakeName, Template>) -> Result<Strin
 /// Whether Vagrant reads `machine` as running.
 async fn running(v: &Vagrant, cx: &Cx<'_>, id: &str, machine: &str) -> Result<bool> {
     let spec = v.vagrant(cx, id, &["status", machine, "--machine-readable"])?;
-    let status = call_ok(cx, id, &spec, READ_TIMEOUT, Echo::Quiet).await?;
+    let status = call_ok(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
     Ok(super::status::parse(&status).states.get(machine).map(String::as_str) == Some("running"))
 }

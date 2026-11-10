@@ -34,11 +34,13 @@ pub(crate) fn read_ps(manifest: &isoloom_manifest::Manifest, out: &str) -> Optio
 /// What an empty pinned-ports file holds: Compose reads it as no override.
 const NO_PINS: &str = "services: {}\n";
 
-/// How long one of an action's own Docker calls may take.
-const CALL_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long one of an action's own Docker calls may go without progress (as every tool call's
+/// limit counts).
+const CALL_LIMIT: Duration = Duration::from_secs(120);
 
-/// How long hot-adding the access machine may take: its image may still need pulling.
-const ATTACH_TIMEOUT: Duration = Duration::from_secs(900);
+/// How long hot-adding the access machine may go without progress: its image may still need
+/// pulling.
+const ATTACH_LIMIT: Duration = Duration::from_secs(900);
 
 /// The `compose` driver of one manifest.
 #[derive(Debug, Clone)]
@@ -86,7 +88,7 @@ impl Compose {
 /// Runs `docker <args>` in the manifest's folder for `step`, returning its standard output.
 pub(super) async fn docker(cx: &Cx<'_>, step: &Step, args: Vec<String>, env: &[(String, String)]) -> Result<String> {
     let spec = docker_spec(cx, args, env.to_vec());
-    call_ok(cx, step.id.as_str(), &spec, CALL_TIMEOUT, Echo::Quiet).await
+    call_ok(cx, step.id.as_str(), &spec, CALL_LIMIT, Echo::Quiet).await
 }
 
 impl Driver for Compose {
@@ -205,7 +207,7 @@ impl Compose {
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
         // Its image may still need pulling, so this gets the long boot budget, not a call's.
-        call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, args, env), ATTACH_TIMEOUT, Echo::Shown).await?;
+        call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, args, env), ATTACH_LIMIT, Echo::Shown).await?;
         if let Some(network) = network {
             self.connect_network(cx, native, network).await?;
         }
@@ -220,7 +222,7 @@ impl Compose {
         rest.extend(["rm", "-sf"]);
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
-        call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Shown).await?;
+        call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Shown).await?;
         Ok(())
     }
 
@@ -232,7 +234,7 @@ impl Compose {
         let mut rest = profiled(profile);
         rest.extend(["config", "--format", "json"]);
         let args = self.compose_args(cx, &rest)?;
-        let config = call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await?;
+        let config = call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
         let sidecars =
             config::sharing_namespace(&config, native).ok_or_else(|| config::unreadable(op.as_str(), "the services in the machine's namespace are"))?;
         let mut services = vec![native.to_owned()];
@@ -246,13 +248,13 @@ impl Compose {
     async fn connect_network(&self, cx: &Cx<'_>, native: &str, network: &str) -> Result<()> {
         let step = Op::Attach.as_str();
         let id_args = self.compose_args(cx, &["ps", "-q", native])?;
-        let out = call_ok(cx, step, &docker_spec(cx, id_args, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await?;
+        let out = call_ok(cx, step, &docker_spec(cx, id_args, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
         let container = out.lines().map(str::trim).find(|s| !s.is_empty()).ok_or_else(|| Error::ToolFailed {
             step: step.to_owned(),
             reason: format!("`{native}` has no container to join to network `{network}`"),
         })?;
         let connect = ["network", "connect", network, container].map(String::from).to_vec();
-        match call_ok(cx, step, &docker_spec(cx, connect, Vec::new()), CALL_TIMEOUT, Echo::Quiet).await {
+        match call_ok(cx, step, &docker_spec(cx, connect, Vec::new()), CALL_LIMIT, Echo::Quiet).await {
             Err(Error::ToolFailed { reason, .. }) if reason.contains(ALREADY_CONNECTED) => Ok(()),
             done => done.map(drop),
         }

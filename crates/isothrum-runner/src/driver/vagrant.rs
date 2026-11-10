@@ -29,14 +29,16 @@ use crate::status::{MachineStatus, PublishedPort};
 /// The variable Vagrant reads its state folder from.
 const DOTFILE_VAR: &str = "VAGRANT_DOTFILE_PATH";
 
-/// How long one of an action's quick reads may take (`VBoxManage`, `vagrant status`).
-const READ_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long one of an action's quick reads (`VBoxManage`, `vagrant status`) may go without
+/// progress (as every tool call's limit counts).
+const READ_LIMIT: Duration = Duration::from_secs(120);
 
-/// How long hot-adding the access machine may take: booting its VM, and maybe fetching its box.
-const ATTACH_TIMEOUT: Duration = Duration::from_secs(1800);
+/// How long hot-adding the access machine may go without progress: booting its VM, and maybe
+/// fetching its box.
+const ATTACH_LIMIT: Duration = Duration::from_secs(1800);
 
-/// How long restarting a running VM may take: shutting it down, then booting it.
-const RELOAD_TIMEOUT: Duration = Duration::from_secs(1800);
+/// How long restarting a running VM may go without progress: shutting it down, then booting it.
+const RELOAD_LIMIT: Duration = Duration::from_secs(1800);
 
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
@@ -129,7 +131,7 @@ impl Vagrant {
             let Ok(spec) = self.vagrant(cx, "status", &["ssh-config", define]) else {
                 continue;
             };
-            if let Ok(text) = call_ok(cx, "status", &spec, READ_TIMEOUT, Echo::Quiet).await
+            if let Ok(text) = call_ok(cx, "status", &spec, READ_LIMIT, Echo::Quiet).await
                 && let Some(host) = status::host_name(&text)
             {
                 out.insert(define.to_owned(), host);
@@ -141,7 +143,7 @@ impl Vagrant {
     /// The plugins `vagrant plugin list --machine-readable` names.
     async fn plugins(&self, cx: &Cx<'_>) -> Result<Vec<String>> {
         let spec = self.vagrant(cx, PLUGINS, &["plugin", "list", "--machine-readable"])?;
-        let out = call_ok(cx, PLUGINS, &spec, READ_TIMEOUT, Echo::Quiet).await?;
+        let out = call_ok(cx, PLUGINS, &spec, READ_LIMIT, Echo::Quiet).await?;
         Ok(status::plugins(&out))
     }
 }
@@ -225,7 +227,7 @@ impl Driver for Vagrant {
     /// applies only at boot. Its provisioners are left to the steps that follow.
     async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
         let spec = self.vagrant(cx, id, &["reload", define_of(machine, "restarting")?, "--no-provision"])?;
-        call_ok(cx, id, &spec, RELOAD_TIMEOUT, Echo::Shown).await.map(drop)
+        call_ok(cx, id, &spec, RELOAD_LIMIT, Echo::Shown).await.map(drop)
     }
 
     /// Hot-adds the access machine, a VM the initial `up` left defined but `autostart: false`:
@@ -252,7 +254,7 @@ impl Driver for Vagrant {
         if let Some(box_name) = image {
             spec.env.push((access::BOX_ENV.to_owned(), box_name.to_owned()));
         }
-        call_ok(cx, Op::Attach.as_str(), &spec, ATTACH_TIMEOUT, Echo::Shown).await.map(drop)
+        call_ok(cx, Op::Attach.as_str(), &spec, ATTACH_LIMIT, Echo::Shown).await.map(drop)
     }
 
     /// A VM of the run destroyed alone (`vagrant destroy -f <define>`): the access machine's at a
@@ -261,7 +263,7 @@ impl Driver for Vagrant {
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let op = cx.events.op().as_str();
         let spec = self.vagrant(cx, op, &["destroy", "-f", define_of(machine, "taking out")?])?;
-        call_ok(cx, op, &spec, super::REMOVE_TIMEOUT, Echo::Shown).await.map(drop)
+        call_ok(cx, op, &spec, super::REMOVE_LIMIT, Echo::Shown).await.map(drop)
     }
 
     /// `vagrant ssh` into the machine's VM.

@@ -38,9 +38,9 @@ pub(crate) const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
 /// container whatever project and file started it.
 pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 
-/// How long taking one machine out of a running run may take: a VM destroyed, a service in the
-/// run's VM removed with its namespace.
-pub(crate) const REMOVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+/// How long taking one machine out of a running run may go without progress (as every tool
+/// call's limit counts): a VM destroyed, a service in the run's VM removed with its namespace.
+pub(crate) const REMOVE_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// What the engine says about a run.
 #[derive(Debug, Clone, Default)]

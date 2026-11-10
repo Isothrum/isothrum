@@ -18,7 +18,7 @@ use isoloom_manifest::{Guest, Machine, Native};
 
 use crate::Result;
 use crate::console::ShellCommand;
-use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_TIMEOUT, console_in_run, shells};
+use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_LIMIT, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
 use crate::ssh::sh_quote;
@@ -134,7 +134,7 @@ pub(crate) fn console(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &
 /// namespace ([`remove_service`]); nothing of the VM goes.
 pub(crate) async fn retire(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str) -> Result<()> {
     let spec = driver.in_guest(cx, vm_of(cx, guest)?, &remove_service(service), GuestUse::Step)?;
-    call_ok(cx, cx.events.op().as_str(), &spec, REMOVE_TIMEOUT, Echo::Shown).await.map(drop)
+    call_ok(cx, cx.events.op().as_str(), &spec, REMOVE_LIMIT, Echo::Shown).await.map(drop)
 }
 
 /// The VM `guest` names, among the manifest's machines.

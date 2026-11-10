@@ -15,8 +15,8 @@ use crate::ssh::{self, Login};
 /// How long a host may stay unreachable when the manifest says nothing.
 const UNREACHABLE_DEFAULT: Duration = Duration::from_secs(600);
 
-/// One read (the file's first line, the log's tail) gives up after this long, so the deadlines
-/// hold whatever SSH does.
+/// How long one read (the file's first line, the log's tail) may go without progress (as every
+/// tool call's limit counts) before it gives up, so an SSH that hangs can't hold the deadlines up.
 const READ_LIMIT: Duration = Duration::from_secs(60);
 
 /// How many lines of the bootstrap's log explain a failure.
