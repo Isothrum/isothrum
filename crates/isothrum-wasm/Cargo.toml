@@ -11,7 +11,7 @@ documentation = "https://docs.rs/isothrum-wasm"
 readme = "README.md"
 keywords = ["isothrum", "isoloom", "wasm", "network", "topology"]
 categories = ["wasm", "network-programming"]
-exclude = ["tests/", "rustfmt.toml"]
+exclude = ["tests/"]
 publish = true
 
 [lib]

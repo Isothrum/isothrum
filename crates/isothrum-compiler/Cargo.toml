@@ -11,7 +11,7 @@ documentation = "https://docs.rs/isothrum-compiler"
 readme = "README.md"
 keywords = ["isothrum", "isoloom", "network", "topology", "compiler"]
 categories = ["compilers", "network-programming"]
-exclude = ["tests/", "rustfmt.toml"]
+exclude = ["tests/"]
 publish = true
 
 [dependencies]

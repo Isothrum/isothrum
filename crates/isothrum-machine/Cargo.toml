@@ -13,7 +13,6 @@ documentation = "https://docs.rs/isothrum-machine"
 readme = "README.md"
 keywords = ["isothrum", "vagrant", "hypervisor", "virtualization"]
 categories = ["virtualization", "development-tools"]
-exclude = ["rustfmt.toml"]
 publish = true
 
 [lints]

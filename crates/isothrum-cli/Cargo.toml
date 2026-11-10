@@ -11,7 +11,7 @@ documentation = "https://github.com/Isothrum/isothrum/blob/main/docs/README.md"
 readme = "README.md"
 keywords = ["isothrum", "cli", "runner", "infrastructure", "environment"]
 categories = ["command-line-utilities", "virtualization"]
-exclude = ["tests/", "rustfmt.toml"]
+exclude = ["tests/"]
 publish = true
 
 [[bin]]

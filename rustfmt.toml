@@ -1,0 +1,2 @@
+# Isoloom's width, for every crate here (the fuzz targets' included), written to its standard.
+max_width = 160
