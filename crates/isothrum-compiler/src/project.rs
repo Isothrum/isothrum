@@ -4,7 +4,7 @@
 
 use crate::{Kind, Topology};
 
-/// A file of the project's project, next to `isoloom.yml` where its paths point: an appliance's
+/// One of the project's own files, next to `isoloom.yml` where its paths point: an appliance's
 /// configuration, a starter set-up script.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectFile {
