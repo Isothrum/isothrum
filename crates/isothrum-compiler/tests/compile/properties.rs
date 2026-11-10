@@ -5,6 +5,7 @@
 use std::num::NonZeroU16;
 
 use indexmap::IndexMap;
+use isoloom_spec::appliance::is_switch;
 use isoloom_spec::net::Cidr;
 use isoloom_spec::syntax::{OsRef, PortProtocol};
 use isoloom_spec::{Appliance, Tc};
@@ -238,7 +239,7 @@ fn settle_gateways(topo: &mut Topology) {
     let routed: Vec<String> = topo
         .nodes
         .values()
-        .filter(|n| matches!(n.kind, Kind::Container { appliance: Some(a), .. } if a != Appliance::CiscoIolL2))
+        .filter(|n| matches!(n.kind, Kind::Container { appliance: Some(a), .. } if !is_switch(a)))
         .flat_map(|n| n.networks.keys().cloned())
         .collect();
     for (name, lan) in &mut topo.networks {

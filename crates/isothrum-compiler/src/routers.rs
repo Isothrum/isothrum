@@ -1,7 +1,7 @@
 //! Routing: an automatic router lets every pair of its networks reach each other, both ways; a
 //! Cisco router on a LAN is that LAN's gateway.
 
-use isoloom_spec::Appliance;
+use isoloom_spec::appliance::is_switch;
 
 use crate::document::ReachDoc;
 use crate::draft::Draft;
@@ -45,19 +45,15 @@ pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) {
     }
 }
 
-/// A Cisco router appliance: IOL, IOSv, CSR 1000v, Catalyst 8000v or Dynamips.
+/// A Cisco router appliance: one Isoloom doesn't call a switch ([`is_switch`]).
 fn is_cisco_router(kind: &Kind) -> bool {
-    matches!(
-        kind,
-        Kind::Container {
-            appliance: Some(Appliance::CiscoIol | Appliance::CiscoVios | Appliance::CiscoCsr1000v | Appliance::CiscoC8000v | Appliance::CiscoDynamips),
-            ..
-        }
-    )
+    matches!(kind, Kind::Container { appliance: Some(a), .. } if !is_switch(*a))
 }
 
 #[cfg(test)]
 mod tests {
+    use isoloom_spec::Appliance;
+
     use super::*;
 
     fn container(appliance: Option<Appliance>) -> Kind {
@@ -81,6 +77,7 @@ mod tests {
             assert!(is_cisco_router(&container(Some(router))), "{router:?}");
         }
         assert!(!is_cisco_router(&container(Some(Appliance::CiscoIolL2))));
+        assert!(!is_cisco_router(&container(Some(Appliance::CiscoViosL2))));
         assert!(!is_cisco_router(&container(None)));
         assert!(!is_cisco_router(&Kind::Router {}));
     }
