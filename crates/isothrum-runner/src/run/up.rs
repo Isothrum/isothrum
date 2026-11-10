@@ -163,9 +163,9 @@ impl Running<'_> {
         cx.events
             .warning(WarningCode::LeftoversRemoved, "removing what an earlier run left before starting");
         let fresh = cx.vars.params().clone();
-        if record.started_at.is_some() {
+        if let Some(replayed) = record.replayed_params() {
             cx.vars
-                .set_params(params_for_existing(self.manifest(), Some(&record.params), &opts.params, &cx.scope)?);
+                .set_params(params_for_existing(self.manifest(), Some(replayed), &opts.params, &cx.scope)?);
         }
         let cleared = crate::executor::run_down_steps(cx).await.map(drop);
         cx.vars.set_params(fresh);

@@ -127,7 +127,7 @@ impl<'r> Running<'r> {
         let provider = record.as_ref().and_then(|r| r.provider.clone());
         let params = params_for_existing(
             self.manifest(),
-            record.as_ref().map(|r| &r.params),
+            record.as_ref().and_then(crate::store::RunRecord::replayed_params),
             &BTreeMap::new(),
             &self.scope(provider.clone()),
         )?;

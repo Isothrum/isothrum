@@ -125,6 +125,12 @@ pub struct RunRecord {
 }
 
 impl RunRecord {
+    /// The params a later operation replays: those of the run's start, once it was started
+    /// (`started_at`); none for a run never started, whose record holds no start's.
+    pub(crate) fn replayed_params(&self) -> Option<&BTreeMap<String, String>> {
+        self.started_at.is_some().then_some(&self.params)
+    }
+
     /// A record of a run never started yet.
     pub(crate) fn fresh(name: RunName, manifest: PathBuf, target: Target, driver: Driver) -> RunRecord {
         RunRecord {
