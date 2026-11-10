@@ -13,7 +13,7 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
                            newest 2000, by the operation holding the run's lock
       seen.json            the run's machines as the runner last read them, and where their
                            ports answer (never an output's value): what `status` shows while
-                           an operation holds the run
+                           an operation holds the run; removed by a `down`
       ...                  the run's state folder (${run.state_dir}): what the manifest keeps there
   slots.lock               the OS lock a start holds while it picks its slot (${run.slot})
   ssh/

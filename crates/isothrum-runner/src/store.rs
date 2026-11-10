@@ -7,7 +7,7 @@
 //!   lock            the OS lock: one operation per run across processes
 //!   events.jsonl    the last operations' events, so a reattached UI can replay them
 //!   seen.json       the run's machines as the runner last read them, for a status while an
-//!                   operation holds the run
+//!                   operation holds the run; removed by a down
 //!   …               what the manifest keeps in `${run.state_dir}` (Compose's pinned ports)
 //! ```
 //!
@@ -213,16 +213,28 @@ impl Store {
         lock::held(&path).map_err(Error::io(&path, "read"))
     }
 
+    /// Run `name`'s [`Seen`] file (its folder not made).
+    fn seen_path(&self, name: &RunName) -> PathBuf {
+        self.runs.join(name.as_str()).join(SEEN_FILE)
+    }
+
     /// What the runner last saw of run `name`, when it ever read it.
     pub(crate) fn seen(&self, name: &RunName) -> Result<Option<Seen>> {
-        read_json(&self.runs.join(name.as_str()).join(SEEN_FILE))
+        read_json(&self.seen_path(name))
     }
 
     /// Keeps `seen` as what the runner last saw of run `name`, whole.
     pub(crate) fn keep_seen(&self, name: &RunName, seen: &Seen) -> Result<()> {
-        let path = self.run_dir(name)?.join(SEEN_FILE);
+        self.run_dir(name)?;
+        let path = self.seen_path(name);
         let text = serde_json::to_vec_pretty(seen).map_err(|e| Error::io(&path, "written")(e.into()))?;
         write_private(&path, &text).map_err(Error::io(&path, "written"))
+    }
+
+    /// Forgets what the runner last saw of run `name` (a run gone: the next start is a new run).
+    pub(crate) fn forget_seen(&self, name: &RunName) -> Result<()> {
+        let path = self.seen_path(name);
+        remove_path(&path).map_err(Error::io(&path, "removed"))
     }
 
     /// Run `name`'s record, when it has one.

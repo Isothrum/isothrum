@@ -34,6 +34,8 @@ impl Running<'_> {
             crate::ssh::forget(&cx)?;
             self.forget_seal()?;
             crate::archive::forget(&cx)?;
+            // A status while the next start holds the run shows no machine of this one.
+            self.runner.store.forget_seen(self.name())?;
             Ok(Done {
                 value: (),
                 ok: true,

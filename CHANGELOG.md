@@ -459,6 +459,9 @@ change.
   `ISOLOOM_PUBLISH_ADDRESS`) was never read: a run published on a LAN address was reported, and
   its `tcp` ready conditions tried, at the loopback, where nothing listened. It is now that
   address, filled; one on every interface (`0.0.0.0`, `::`) answers at the loopback.
+- **A `down` forgets what the runner last saw of the run (`seen.json`).** A status while the
+  next start held the run showed the gone run's machines, as running, until that start's first
+  read.
 
 ### Added
 
