@@ -36,7 +36,7 @@ pub(crate) struct Targets {
 impl Targets {
     pub(crate) fn new(esxi_host: &str) -> Targets {
         Targets {
-            esxi_host: esxi_host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase(),
+            esxi_host: super::bare_host(esxi_host).to_ascii_lowercase(),
             port: WINRM_PORT,
         }
     }
@@ -53,7 +53,7 @@ impl Targets {
         if port.parse::<u16>() != Ok(self.port) {
             return false;
         }
-        let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+        let host = super::bare_host(host).to_ascii_lowercase();
         host == self.esxi_host || host.parse::<std::net::IpAddr>().is_ok_and(on_local_network)
     }
 }
@@ -260,7 +260,7 @@ impl Peer {
 fn origin(target: &str) -> std::io::Result<(super::FromLan, super::ToLan, tokio::process::Child)> {
     let (host, port) = target.rsplit_once(':').ok_or_else(|| std::io::Error::other("no port"))?;
     let port = port.parse().map_err(|_| std::io::Error::other("not a port"))?;
-    super::connect(host.trim_start_matches('[').trim_end_matches(']'), port)
+    super::connect(super::bare_host(host), port)
 }
 
 async fn proxy_connection(inbound: TcpStream, targets: &Targets) -> std::io::Result<()> {

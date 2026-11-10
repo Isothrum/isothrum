@@ -45,9 +45,14 @@ pub(crate) struct Relayed {
     _relays: Vec<Relay>,
 }
 
+/// `host` without the brackets an IPv6 address is written in beside a port (`[fd00::1]`).
+pub(crate) fn bare_host(host: &str) -> &str {
+    host.trim_start_matches('[').trim_end_matches(']')
+}
+
 /// `localhost`, or a loopback or unspecified address.
 fn is_this_machine(host: &str) -> bool {
-    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    let bare = bare_host(host);
     bare.eq_ignore_ascii_case("localhost") || bare.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
 }
 
