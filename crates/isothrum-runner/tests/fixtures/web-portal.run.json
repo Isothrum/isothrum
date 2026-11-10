@@ -137,7 +137,7 @@
   "machines": [
     {
       "name": "db",
-      "role": "target",
+      "role": "member",
       "arch": "amd64",
       "addresses": {
         "lab": "10.30.0.20"
@@ -165,7 +165,7 @@
     },
     {
       "name": "web",
-      "role": "target",
+      "role": "member",
       "arch": "amd64",
       "resources": {
         "cpus": 1,

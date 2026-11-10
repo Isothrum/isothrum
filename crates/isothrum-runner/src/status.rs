@@ -176,9 +176,9 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
     if !present {
         return RunState::Absent;
     }
-    let targets: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Target).collect();
+    let members: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Member).collect();
     let running = |m: &&MachineStatus| m.state == MachineState::Running;
-    if record.is_some_and(|r| r.state == RunState::Parked) && !targets.iter().any(running) {
+    if record.is_some_and(|r| r.state == RunState::Parked) && !members.iter().any(running) {
         return RunState::Parked;
     }
     // A start that failed after its machines came up (a Terraform apply whose router never
@@ -186,7 +186,7 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
     if record.is_some_and(|r| r.state == RunState::Failed) {
         return RunState::Failed;
     }
-    if !targets.is_empty() && targets.iter().all(running) {
+    if !members.is_empty() && members.iter().all(running) {
         RunState::Ready
     } else {
         RunState::Failed
@@ -197,7 +197,7 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
 pub(crate) fn any_target_running(machines: &[MachineStatus]) -> bool {
     machines
         .iter()
-        .any(|m| m.role == Role::Target && matches!(m.state, MachineState::Running | MachineState::Unhealthy))
+        .any(|m| m.role == Role::Member && matches!(m.state, MachineState::Running | MachineState::Unhealthy))
 }
 
 /// The manifest's networks, their native names filled by `native`.
@@ -232,18 +232,18 @@ mod tests {
     fn a_run_is_ready_when_every_target_runs() {
         use MachineState::{Absent, Exited, Running, Stopped};
         let all = |ms: Vec<MachineStatus>| derive_state(&ms, None);
-        assert_eq!(all(vec![machine(Role::Target, Absent), machine(Role::Job, Absent)]), RunState::Absent);
+        assert_eq!(all(vec![machine(Role::Member, Absent), machine(Role::Job, Absent)]), RunState::Absent);
         assert_eq!(
             all(vec![
-                machine(Role::Target, Running),
+                machine(Role::Member, Running),
                 machine(Role::Job, Exited(0)),
                 machine(Role::Infra, Running)
             ]),
             RunState::Ready
         );
-        assert_eq!(all(vec![machine(Role::Target, Running), machine(Role::Target, Exited(1))]), RunState::Failed);
-        assert_eq!(all(vec![machine(Role::Target, Stopped)]), RunState::Failed);
-        assert_eq!(all(vec![machine(Role::Target, MachineState::Unhealthy)]), RunState::Failed);
+        assert_eq!(all(vec![machine(Role::Member, Running), machine(Role::Member, Exited(1))]), RunState::Failed);
+        assert_eq!(all(vec![machine(Role::Member, Stopped)]), RunState::Failed);
+        assert_eq!(all(vec![machine(Role::Member, MachineState::Unhealthy)]), RunState::Failed);
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
             isoloom_manifest::Driver::Compose,
         );
         record.state = RunState::Parked;
-        let stopped = vec![machine(Role::Target, MachineState::Exited(0))];
+        let stopped = vec![machine(Role::Member, MachineState::Exited(0))];
         assert_eq!(derive_state(&stopped, Some(&record)), RunState::Parked);
         assert!(!any_target_running(&stopped));
     }

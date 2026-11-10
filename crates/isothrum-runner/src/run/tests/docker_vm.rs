@@ -341,7 +341,7 @@ async fn retiring_a_service_in_the_vm_removes_it_there() {
 }
 
 /// The VM's boot digest in the fixture.
-const BOOTED: &str = "sha256:71edc375270830a2a92e5908973881c36f83f39dcca42eb93bf74a5485e493b2";
+const BOOTED: &str = "sha256:874bf11f6519e0d85efdd4682b591067b457f3fb34c02f4fa771f71a64dc753d";
 
 /// The steps `events` show, with their states.
 fn steps(events: &Recorder) -> Vec<(String, StepState)> {

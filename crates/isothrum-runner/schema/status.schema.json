@@ -139,9 +139,9 @@
       "description": "What a machine is to the run.",
       "oneOf": [
         {
-          "description": "Part of the lab.",
+          "description": "One of the lab's own machines: a member of the environment the spec describes.",
           "type": "string",
-          "const": "target"
+          "const": "member"
         },
         {
           "description": "A one-shot that must exit 0 (an `init:` script).",

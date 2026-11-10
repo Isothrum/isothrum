@@ -117,7 +117,7 @@ async fn machines_running(cx: &mut Cx<'_>, names: &[&str]) -> Result<()> {
     let down: Vec<String> = observed
         .machines
         .iter()
-        .filter(|m| names.contains(&m.name.as_str()) || (names.is_empty() && m.role == Role::Target))
+        .filter(|m| names.contains(&m.name.as_str()) || (names.is_empty() && m.role == Role::Member))
         .filter(|m| m.state != MachineState::Running)
         .map(|m| m.name.clone())
         .collect();

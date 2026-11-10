@@ -146,7 +146,7 @@ impl Running<'_> {
             if let Some(m) = machine {
                 // Only a target machine is provisioned: another (the run's router, its checks)
                 // is as unknown here as a name the run doesn't have.
-                if self.machine_named(m)?.role != isoloom_manifest::Role::Target {
+                if self.machine_named(m)?.role != isoloom_manifest::Role::Member {
                     return Err(Error::MachineUnknown {
                         run: self.name().to_string(),
                         machine: m.to_owned(),
