@@ -46,6 +46,7 @@ fn address_one(topo: &Topology, draft: &mut Draft, name: &str, lan: &Lan) -> Res
         .networks
         .insert(name.into(), NetworkDoc::new(lan.cidr.clone(), lan.internet, lan.tc.clone()));
     let taken = asked_addresses(topo, draft, name)?;
+    check_inside(name, lan, block, &taken)?;
     for (octet, node) in &taken {
         draft.attach(node, name, *octet);
     }
@@ -86,6 +87,21 @@ fn asked_addresses(topo: &Topology, draft: &Draft, lan: &str) -> Result<IndexMap
         }
     }
     Ok(taken)
+}
+
+/// Refuses an address asked for on `lan` that Isoloom gives no machine there ([`Cidr::host`]):
+/// outside its block, or one it keeps (the network's own, the gateway, the two last usable ones,
+/// the broadcast). A /24's octets below .10 are a machine's to ask for.
+fn check_inside(name: &str, lan: &Lan, block: Cidr, taken: &IndexMap<u8, String>) -> Result<()> {
+    match taken.iter().find(|(octet, _)| block.host(**octet).is_none()) {
+        Some((octet, node)) => Err(Error::AddressOutside {
+            lan: name.into(),
+            node: node.clone(),
+            octet: *octet,
+            cidr: lan.cidr.clone(),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// Refuses a node on a LAN the project doesn't have.

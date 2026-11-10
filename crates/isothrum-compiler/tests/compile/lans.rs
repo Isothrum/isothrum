@@ -91,6 +91,40 @@ fn two_machines_asking_for_one_address_are_refused() -> Outcome {
 }
 
 #[test]
+fn an_address_isoloom_gives_no_machine_is_refused() -> Outcome {
+    // Regression: an asked-for address was taken as it was, and Isoloom refused the spec.
+    let mut topo = two_lans()?;
+    topo.nodes["router"].networks.shift_remove("office");
+    topo.networks["office"].cidr = "10.10.1.8/29".into();
+    // Outside the block, its network, its gateway, its controller, its router, its broadcast.
+    for asked in [0, 1, 200, 255, 8, 9, 13, 14, 15] {
+        join(&mut topo, "client", "office", Some(asked))?;
+        let e = compile(&topo).unwrap_err();
+        assert!(
+            matches!(&e, Error::AddressOutside { lan, node, octet, cidr } if lan == "office" && node == "client" && *octet == asked && cidr == "10.10.1.8/29"),
+            ".{asked}: {e}"
+        );
+    }
+    assert_eq!(
+        compile(&topo).unwrap_err().to_string(),
+        "on LAN `office` (10.10.1.8/29), `client` asks for .15, which no machine can take there"
+    );
+    for asked in [10, 12] {
+        join(&mut topo, "client", "office", Some(asked))?;
+        assert_eq!(octet(&accepted(&topo)?, "client", "office")?, asked);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_machine_may_ask_for_an_address_below_the_first_a_24_gives() -> Outcome {
+    let mut topo = two_lans()?;
+    join(&mut topo, "client", "office", Some(2))?;
+    assert_eq!(octet(&accepted(&topo)?, "client", "office")?, 2);
+    Ok(())
+}
+
+#[test]
 fn a_lan_named_like_a_cable_is_refused() -> Outcome {
     let mut topo = two_lans()?;
     topo.networks.insert("link-0".into(), lan("10.10.9.0/24"));

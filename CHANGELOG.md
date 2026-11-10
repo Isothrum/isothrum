@@ -216,6 +216,11 @@ change.
   A block Isoloom gives machines no address on (not a network's own address, larger than a /24 or
   smaller than a /29) is now the compiler's `BadCidr`, which says so; it was written into a spec
   Isoloom then refused.
+- **The compiler refuses an address no machine can take on its LAN.** A machine's asked-for
+  address was written into the spec as it was, so `.200` (or the gateway's `.9`, the router's
+  `.14`, …) on `10.10.1.8/29` compiled, and Isoloom refused the spec. It is now the compiler's new
+  `Error::AddressOutside`, naming the LAN, the machine, the address and the block. A /24's
+  addresses below `.10`, which the compiler gives no machine itself, can still be asked for.
 
 - **A cloud target's manifest is found from the run's folder.** Isoloom writes one manifest per
   cloud (`.isoloom/cloud-vm/aws/run.json`), but the command line looked only for

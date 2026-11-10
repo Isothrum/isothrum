@@ -71,6 +71,19 @@ pub enum Error {
         /// The other one.
         second: String,
     },
+    /// A node asks for an address Isoloom gives no machine on a LAN: outside its block, or one it
+    /// keeps (the network's own, the gateway, the two last usable ones, the broadcast).
+    #[error("on LAN `{lan}` ({cidr}), `{node}` asks for .{octet}, which no machine can take there")]
+    AddressOutside {
+        /// The LAN.
+        lan: String,
+        /// The node.
+        node: String,
+        /// The address's last octet.
+        octet: u8,
+        /// The LAN's block.
+        cidr: String,
+    },
     /// A LAN has more machines than free addresses.
     #[error("LAN `{lan}` ({cidr}) has no free address left; use a larger block")]
     LanFull {
