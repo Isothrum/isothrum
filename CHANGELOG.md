@@ -248,6 +248,11 @@ change.
   hypervisor's probe (VirtualBox's liveness check takes up to 8 s) even when told Vagrant isn't
   installed, though each provider then said only that; it now answers at once.
 
+- **A containerised Terraform gets the network settings the runner read.** It was handed the
+  proxy, CA bundle and `TF_CLI_CONFIG_FILE` variables by name, chosen from the environment read
+  when the runner was configured, but `docker run -e NAME` took their values from the process's
+  environment of the moment; `docker` is now given those values.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

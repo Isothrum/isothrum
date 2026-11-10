@@ -57,10 +57,12 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
 
 /// What a container needs of this host's network settings: the variables it gets by name, and
 /// the files they name, mounted read-only.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Default, PartialEq, Eq)]
 struct HostNetwork {
-    /// The variables set here: the proxies, the CA bundles, `TF_CLI_CONFIG_FILE`.
-    names: Vec<String>,
+    /// The variables set here, as the runner read them: the proxies, the CA bundles,
+    /// `TF_CLI_CONFIG_FILE`. `docker` is given their values, so `-e NAME` hands on these, not
+    /// whatever the process's environment holds by the time it runs.
+    vars: Vec<(String, String)>,
     /// The CA bundles and the CLI configuration they name, those that are files.
     files: Vec<PathBuf>,
 }
@@ -69,18 +71,15 @@ impl HostNetwork {
     /// The settings `env` (the runner's environment) holds.
     fn read(env: &HostEnv) -> HostNetwork {
         let set = |name: &&str| env.get(name).filter(|v| !v.is_empty());
-        let names = crate::network_env::NETWORK_VARS
+        let vars = crate::network_env::NETWORK_VARS
             .iter()
             .chain([&TF_CLI_CONFIG_FILE])
-            .filter(|n| set(n).is_some());
+            .filter_map(|n| Some(((*n).to_owned(), set(n)?.to_owned())));
         let files = crate::network_env::CA_BUNDLE_VARS.iter().chain([&TF_CLI_CONFIG_FILE]).filter_map(set);
         let mut files: Vec<PathBuf> = files.map(PathBuf::from).filter(|f| f.is_file()).collect();
         files.sort();
         files.dedup();
-        HostNetwork {
-            names: names.map(|n| (*n).to_owned()).collect(),
-            files,
-        }
+        HostNetwork { vars: vars.collect(), files }
     }
 }
 
@@ -125,10 +124,10 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
     // That is accepted: access to the daemon is root on this host already, which reads the
     // runner's own environment and state files as well. A `-var-file` mount would hide it from
     // `docker inspect` only.
-    for (name, _) in &spec.env {
-        args.extend(["-e".into(), name.clone()]);
-    }
-    for name in network.names.iter().filter(|n| !spec.env.iter().any(|(k, _)| k == *n)) {
+    let mut env = spec.env;
+    let host_own: Vec<(String, String)> = network.vars.iter().filter(|(n, _)| !env.iter().any(|(k, _)| k == n)).cloned().collect();
+    env.extend(host_own);
+    for (name, _) in &env {
         args.extend(["-e".into(), name.clone()]);
     }
     args.push(image.to_owned());
@@ -137,7 +136,7 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
         program: "docker".into(),
         args,
         cwd: spec.cwd,
-        env: spec.env,
+        env,
         stdin: spec.stdin,
     }
 }
@@ -213,10 +212,8 @@ mod tests {
             ("HTTP_PROXY", String::new()),
         ];
         let network = HostNetwork::read(&HostEnv::of(env));
-        assert_eq!(
-            network.names,
-            ["HTTPS_PROXY", "no_proxy", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "TF_CLI_CONFIG_FILE"]
-        );
+        let names: Vec<&str> = network.vars.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["HTTPS_PROXY", "no_proxy", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "TF_CLI_CONFIG_FILE"]);
         assert_eq!(network.files, [bundle.clone(), cli_config.clone()], "only files that exist");
 
         let mut spec = ProcessSpec::new("terraform", ["init"]);
@@ -232,5 +229,11 @@ mod tests {
             line.contains("-e no_proxy -e SSL_CERT_FILE") && !line.contains("proxy.corp"),
             "by name only: {line}"
         );
+        // `docker` reads each value from its own environment: the one the runner read, not the
+        // process's of the moment, and the step's own where it sets one.
+        let value = |name: &str| run.env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        assert_eq!(value("no_proxy"), Some(".corp,10.0.0.0/8"));
+        assert_eq!(value("HTTPS_PROXY"), Some("http://step:8080"));
+        assert_eq!(run.env.iter().filter(|(k, _)| k == "HTTPS_PROXY").count(), 1);
     }
 }
