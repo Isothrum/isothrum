@@ -27,7 +27,7 @@ pub(crate) async fn run(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn
     let mut said = false;
     loop {
         let mut ended = once(cx, list, step, observe, Hold::UntilOutput).await?;
-        let unreachable = ended.exit.code == Some(SSH_FAILED) && !ended.printed;
+        let unreachable = ended.last.exit.code == Some(SSH_FAILED) && !ended.printed;
         if !unreachable {
             ended.show_held(cx, step, observe);
             return ended.result(cx, step);
@@ -37,7 +37,7 @@ pub(crate) async fn run(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn
                 step: step.id.to_string(),
                 login: wait.login.clone(),
                 after_s: wait.limit.as_secs(),
-                reason: cx.events.mask(ended.tail.join(" ").trim()),
+                reason: cx.events.mask(ended.last.stderr.join(" ").trim()),
             });
         }
         if !said {

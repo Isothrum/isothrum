@@ -2,8 +2,7 @@
 //! [`ProcessRunner`], which puts each tool in its own process group (or Windows job object) so a
 //! dropped future ends the whole tree it started.
 
-use isothrum_runner::{Exit, ProcessError};
-use isothrum_runner::{ProcessRunner, ProcessSpec, Stream};
+use isothrum_runner::{Captured, ProcessError, ProcessRunner, ProcessSpec, capture};
 
 /// Runs `program args` and returns everything it printed to standard output, whatever its exit
 /// code: a probe reads the output of a tool that may well exit non-zero.
@@ -12,42 +11,22 @@ use isothrum_runner::{ProcessRunner, ProcessSpec, Stream};
 ///
 /// [`ProcessError`] when the tool is not installed or the OS refuses to start it.
 pub(crate) async fn read(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, ProcessError> {
-    read_with_exit(runner, program, args).await.map(|(out, _, _)| out)
+    run(runner, program, args).await.map(|out| out.stdout.join("\n"))
 }
 
 /// Runs `program args` and returns its standard output when it exits 0.
 ///
 /// # Errors
 ///
-/// Why it didn't answer, in a few words: it couldn't be started, or it failed (its last error
-/// line, else its exit code).
+/// Why it didn't answer: it couldn't be started, or it failed (the runner's one wording of a
+/// failed tool, [`Captured::reason`]).
 pub(crate) async fn read_ok(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, String> {
-    let (out, last_error, exit) = read_with_exit(runner, program, args).await.map_err(|e| e.to_string())?;
-    match exit.code {
-        Some(0) => Ok(out),
-        code => Err(last_error.unwrap_or_else(|| match code {
-            Some(code) => format!("it exited with {code}"),
-            None => "it was killed".to_owned(),
-        })),
-    }
+    run(runner, program, args).await.map_err(|e| e.to_string())?.output()
 }
 
-/// What `program args` printed to standard output, its last non-empty error line, and its exit.
-async fn read_with_exit(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<(String, Option<String>, Exit), ProcessError> {
-    let spec = ProcessSpec::new(program, args.iter().copied());
-    let mut out = String::new();
-    let mut last_error = None;
-    let exit = runner
-        .run(&spec, &mut |stream, line| {
-            if stream == Stream::Stdout {
-                out.push_str(line);
-                out.push('\n');
-            } else if !line.trim().is_empty() {
-                last_error = Some(line.trim().to_owned());
-            }
-        })
-        .await?;
-    Ok((out, last_error, exit))
+/// How `program args` ended, with what it printed.
+async fn run(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<Captured, ProcessError> {
+    capture(runner, &ProcessSpec::new(program, args.iter().copied())).await
 }
 
 #[cfg(test)]
@@ -64,6 +43,21 @@ mod tests {
 
         let failing = FakeProcesses::rules(&[("tool two", Reply::fail(2, "the reason"))]);
         assert!(read(&failing, "tool", &["two"]).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_failed_read_says_why_as_the_runner_does() {
+        let said = FakeProcesses::rules(&[("tool", Reply::fail(1, "no such plugin"))]);
+        assert_eq!(read_ok(&said, "tool", &[]).await, Err("no such plugin (exited with code 1)".to_owned()));
+        let mut on_stdout = Reply::ok("refused: log in as admin");
+        on_stdout.code = 2;
+        let on_stdout = FakeProcesses::rules(&[("tool", on_stdout)]);
+        assert_eq!(
+            read_ok(&on_stdout, "tool", &[]).await,
+            Err("refused: log in as admin (exited with code 2)".to_owned())
+        );
+        let silent = FakeProcesses::rules(&[("tool", Reply::fail(3, ""))]);
+        assert_eq!(read_ok(&silent, "tool", &[]).await, Err("exited with code 3".to_owned()));
     }
 
     #[tokio::test]

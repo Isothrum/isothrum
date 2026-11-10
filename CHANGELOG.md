@@ -37,6 +37,12 @@ change.
 
 ### Fixed
 
+- **A failed tool says why in one wording everywhere.** An argv or `ssh.run` step that failed
+  with nothing on its standard error said only "exited with code 1", while a driver's own call
+  quoted its last output lines (a login refused on stdout, as Debian on AWS does); a ready file's
+  failed read quoted one line, and `isothrum-machine` said "it exited with 1". Each now says its
+  last error lines, else its last output lines, then how it ended (`(exited with code 1)`,
+  `exited with a signal`): `isothrum_runner::Captured::reason`, which `isothrum-machine` uses too.
 - **A cloud resource whose expiry tag isn't a time is said by `reap`, not passed over.** Every
   resource a cloud's query returns carries Isoloom's expiry tag; one whose value didn't parse (empty,
   a date, a typo) was left out of both the orphans and `unread`, so the one resource the sweep
@@ -394,6 +400,10 @@ change.
   be filled are still left out, and traced with why.
 
 ### Added
+
+- **`isothrum_runner::capture` and `Captured`**: run a tool through a `ProcessRunner` and keep
+  what it printed, with `Captured::reason` (why it failed, as every failed tool's error says it)
+  and `Captured::output`; and `Display` on `Exit` (`exited with code 1`, `exited with a signal`).
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),
   macOS (arm64, x86_64) and Windows (x86_64) on GitHub releases, each archive with the licences of

@@ -213,16 +213,9 @@ async fn a_park_of_a_run_that_isnt_there_is_refused() {
 #[tokio::test]
 async fn a_failed_start_leaves_the_run_failed_with_the_steps_error() {
     let f = fixture();
-    let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
-    let fail = Arc::new(FakeProcesses::rules(&[
-        (" config --format json", Reply::ok(r#"{"services":{}}"#)),
-        (" up --detach ", Reply::fail(1, "Error: pull access denied")),
-    ]));
-    let mut config = f.runner.config.clone();
-    config.processes = fail;
-    let runner = Runner::new(config).unwrap();
-    let lab2 = runner.open(run.path(), None).unwrap();
+    let runner = whose_up_answers(&f, Reply::fail(1, "Error: pull access denied"));
+    let lab2 = runner.open(&f.manifest, None).unwrap();
     let err = lab2.up(&opts(), &events).await.unwrap_err();
     assert_eq!(err.to_string(), "step `up` failed: Error: pull access denied (exited with code 1)");
     assert!(kinds(&events).contains(&EventKind::Step {

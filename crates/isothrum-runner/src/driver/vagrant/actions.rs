@@ -237,9 +237,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
     }
     Err(Error::ToolFailed {
         step: id.to_owned(),
-        reason: cx
-            .events
-            .mask(&format!("`vagrant halt {machine}` failed: {}", crate::executor::why_failed(&halt))),
+        reason: cx.events.mask(&format!("`vagrant halt {machine}` failed: {}", halt.reason())),
     })
 }
 

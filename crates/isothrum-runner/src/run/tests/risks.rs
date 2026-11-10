@@ -194,3 +194,19 @@ async fn a_network_native_name_that_cant_be_filled_is_traced() {
     );
     assert!(traced.contains("outputs.web__portal"), "with the render error: {traced}");
 }
+
+/// A step's failure says why as a driver's own call's does: with nothing on its standard error,
+/// its last output lines (a login refused on stdout).
+#[tokio::test]
+async fn a_failed_step_with_a_silent_stderr_says_its_last_output_lines() {
+    let f = fixture();
+    let mut refused = Reply::ok("Please login as the user \"admin\" rather than the user \"root\".");
+    refused.code = 1;
+    let runner = whose_up_answers(&f, refused);
+    let run = runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "step `up` failed: Please login as the user \"admin\" rather than the user \"root\". (exited with code 1)"
+    );
+}

@@ -10,7 +10,6 @@ use crate::Result;
 use crate::error::Error;
 use crate::events::ReadyState;
 use crate::executor::{Cx, Echo, call};
-use crate::process::Captured;
 use crate::ssh::{self, Login};
 
 /// How long a host may stay unreachable when the manifest says nothing.
@@ -113,7 +112,7 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
             }
             Err(e @ Error::ToolMissing { .. }) => return Err(e),
             read => {
-                let why = cx.events.mask(&read.map_or_else(|e| e.to_string(), |out| read_failure(&out)));
+                let why = cx.events.mask(&read.map_or_else(|e| e.to_string(), |out| out.reason()));
                 if failed.as_deref() != Some(why.as_str()) {
                     cx.events.ready(&w.condition, ReadyState::Waiting, &format!("no answer over SSH yet: {why}"));
                 }
@@ -128,16 +127,6 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
             return Err(not_ready(cx, w.condition.clone(), out_of_time(w, &last, failed.as_deref())));
         }
         tokio::time::sleep(w.every).await;
-    }
-}
-
-/// Why a read that ran failed: ssh's last error line (else its output's), with its exit status.
-fn read_failure(out: &Captured) -> String {
-    let said = |lines: &[String]| lines.iter().rev().find(|l| !l.trim().is_empty()).map(|l| l.trim().to_owned());
-    let status = out.exit.code.map_or_else(|| "a signal".to_owned(), |c| format!("code {c}"));
-    match said(&out.stderr).or_else(|| said(&out.stdout)) {
-        Some(line) => format!("{line} (exited with {status})"),
-        None => format!("exited with {status}"),
     }
 }
 
@@ -226,20 +215,6 @@ mod tests {
             out_of_time(&w, &Progress::Booting, Some("Connection reset (exited with code 255)")),
             "not done within 900s (last step: booting); its last read over SSH failed: Connection reset (exited with code 255)"
         );
-    }
-
-    #[test]
-    fn a_failed_read_is_its_last_error_line_and_exit_status() {
-        let out = |stderr: &[&str], code| Captured {
-            exit: crate::process::Exit::new(code),
-            stdout: Vec::new(),
-            stderr: stderr.iter().map(|l| (*l).to_owned()).collect(),
-        };
-        assert_eq!(
-            read_failure(&out(&["Warning: x", "Permission denied (publickey).", ""], Some(255))),
-            "Permission denied (publickey). (exited with code 255)"
-        );
-        assert_eq!(read_failure(&out(&[], None)), "exited with a signal");
     }
 
     proptest! {

@@ -170,7 +170,7 @@ async fn tries(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()>
             _ => {
                 return Err(Error::ToolFailed {
                     step: id.to_owned(),
-                    reason: cx.events.mask(&crate::executor::why_failed(&out)),
+                    reason: cx.events.mask(&out.reason()),
                 });
             }
         }

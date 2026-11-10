@@ -75,7 +75,7 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
     let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, &progress, progress.capture(processes, &spec)).await?;
     let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
     if !out.succeeded() {
-        return Err(failed(crate::executor::why_failed(&out)));
+        return Err(failed(out.reason()));
     }
     public_key(home)?.ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
 }

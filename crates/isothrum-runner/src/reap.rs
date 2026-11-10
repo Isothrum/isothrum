@@ -130,11 +130,7 @@ async fn query(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> std::result
             crate::Error::Timeout { timed_out, .. } => timed_out.to_string(),
             other => other.to_string(),
         })?;
-    if out.succeeded() {
-        Ok(out.stdout.join("\n"))
-    } else {
-        Err(format!("failed: {}", crate::executor::why_failed(&out)))
-    }
+    out.output().map_err(|why| format!("failed: {why}"))
 }
 
 #[cfg(test)]

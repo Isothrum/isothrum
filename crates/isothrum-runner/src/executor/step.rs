@@ -2,6 +2,7 @@
 //! events (masked), stopped with everything it started once it shows no progress for its time
 //! limit ([`super::progress`]).
 
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use isoloom_manifest::{Action, Run, Step};
@@ -13,7 +14,7 @@ use super::{Cx, plan};
 use crate::Result;
 use crate::error::Error;
 use crate::events::Stream;
-use crate::process::{Captured, Exit, ProcessError, ProcessSpec, Tail, capture_echoing};
+use crate::process::{Captured, ProcessError, ProcessSpec, STDOUT_REASON_LINES, Tail, capture_echoing};
 use crate::scope::Scope;
 
 /// Runs argv step `step` of list `list`; `observe` sees each line too (a check runner's results).
@@ -39,25 +40,25 @@ pub(crate) enum Hold {
 /// How one run of a step ended.
 #[derive(Debug)]
 pub(crate) struct Ended {
-    /// Its exit.
-    pub(crate) exit: Exit,
+    /// Its exit, its last error lines, and its last [`STDOUT_REASON_LINES`] output lines (its
+    /// lines were shown as they came: these are what its failure says).
+    pub(crate) last: Captured,
     /// Whether its command printed anything on its standard output.
     pub(crate) printed: bool,
     /// Its verdict line, when the step's verdict found one.
     lead: Option<String>,
-    /// Its last error lines.
-    pub(crate) tail: Vec<String>,
     /// The error lines held back (with [`Hold::UntilOutput`]), not shown yet.
     held: Vec<String>,
 }
 
 impl Ended {
-    /// The step's outcome: its failure with the verdict, else its last error lines.
+    /// The step's outcome: its failure with the verdict, else why it failed
+    /// ([`Captured::reason`]).
     pub(crate) fn result(self, cx: &Cx<'_>, step: &Step) -> Result<()> {
-        if self.exit.success() {
+        if self.last.succeeded() {
             return Ok(());
         }
-        let reason = self.lead.unwrap_or_else(|| failure_text(&self.tail, self.exit));
+        let reason = self.lead.unwrap_or_else(|| self.last.reason());
         Err(Error::ToolFailed {
             step: step.id.to_string(),
             reason: cx.events.mask(&reason),
@@ -85,11 +86,17 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
         None => None,
     };
     let (mut tail, mut lead, mut printed, mut kept_back) = (Tail::default(), None, false, Vec::new());
+    let mut last_out = VecDeque::with_capacity(STDOUT_REASON_LINES);
     let progress = Progress::new();
     let mut on_line = |stream: Stream, line: &str| {
         progress.saw(line);
         if stream == Stream::Stderr {
             tail.push(line);
+        } else {
+            if last_out.len() == STDOUT_REASON_LINES {
+                last_out.pop_front();
+            }
+            last_out.push_back(line.to_owned());
         }
         if hold == Hold::UntilOutput && !printed && stream == Stream::Stderr {
             kept_back.push(line.to_owned());
@@ -112,10 +119,13 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
         .await
         .map_err(|e| masked(cx, e))?;
     Ok(Ended {
-        exit,
+        last: Captured {
+            exit,
+            stdout: last_out.into(),
+            stderr: tail.into_lines(),
+        },
         printed,
         lead,
-        tail: tail.into_lines(),
         held: kept_back,
     })
 }
@@ -159,32 +169,30 @@ fn masked(cx: &Cx<'_>, e: Error) -> Error {
 /// [`call`], failing unless it exits 0: its standard output.
 pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
     let out = call(cx, id, spec, limit, echo).await?;
-    call_stdout(cx, id, spec, &out)
+    stdout_of(cx, id, Some(spec), &out)
 }
 
-/// The standard output of `spec`, the step `id`'s own call, that ended as `out`: a failure
-/// unless it exited 0 ([`call_failed`]).
-pub(crate) fn call_stdout(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Result<String> {
-    if out.succeeded() {
-        return Ok(out.stdout.join("\n"));
-    }
-    Err(call_failed(cx, id, spec, out))
-}
-
-/// The error of `spec`, the step `id`'s own call, that ended as `out`, a failure.
-fn call_failed(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Error {
-    let reason = format!("`{}` failed: {}", spec.line(), why_failed(out));
-    Error::ToolFailed {
-        step: id.to_owned(),
-        reason: cx.events.mask(&reason),
-    }
+/// The standard output of a tool run for the step `id` that ended as `out`; unless it exited 0,
+/// the step's failure, saying why ([`Captured::reason`]), led by the call's command line when it
+/// was one of a driver's own calls (`call`), not the step itself.
+pub(crate) fn stdout_of(cx: &Cx<'_>, id: &str, call: Option<&ProcessSpec>, out: &Captured) -> Result<String> {
+    out.output().map_err(|why| {
+        let reason = match call {
+            Some(spec) => format!("`{}` failed: {why}", spec.line()),
+            None => why,
+        };
+        Error::ToolFailed {
+            step: id.to_owned(),
+            reason: cx.events.mask(&reason),
+        }
+    })
 }
 
 /// Runs argv step `step` without events, returning its standard output: a read-only probe
 /// (`lifecycle.status`).
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
     let out = capture_output(cx, list, step).await?;
-    step_stdout(cx, step, &out)
+    stdout_of(cx, step.id.as_str(), None, &out)
 }
 
 /// Runs argv step `step` without events: how it ended, a failure included (the caller's to
@@ -194,18 +202,6 @@ pub(crate) async fn capture_output(cx: &Cx<'_>, list: &str, step: &Step) -> Resu
     let progress = Progress::new();
     let run = progress.capture(cx.processes.as_ref(), &spec);
     timed(step, &cx.scope, &progress, run).await.map_err(|e| masked(cx, e))
-}
-
-/// The standard output of step `step`, which ended as `out`; its failure, unless it exited 0.
-pub(crate) fn step_stdout(cx: &Cx<'_>, step: &Step, out: &Captured) -> Result<String> {
-    if !out.succeeded() {
-        let reason = why_failed(out);
-        return Err(Error::ToolFailed {
-            step: step.id.to_string(),
-            reason: cx.events.mask(&reason),
-        });
-    }
-    Ok(out.stdout.join("\n"))
 }
 
 /// The process for argv step `step`: its argv for this host, filled; its folder, environment and
@@ -296,72 +292,9 @@ pub(super) fn cut(text: &str, max: usize) -> String {
     format!("{}...", text.get(..end).unwrap_or_default())
 }
 
-/// How many of its last output lines stand in for a failed tool's silent standard error.
-const STDOUT_REASON_LINES: usize = 5;
-
-/// Why `out` failed: its last error lines, else its last output lines (a tool, or a cloud image
-/// refusing a login, may print its refusal there), with how it ended.
-pub(crate) fn why_failed(out: &Captured) -> String {
-    let quiet = out.stderr.iter().all(|l| l.trim().is_empty());
-    let said = if quiet {
-        out.stdout.get(out.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
-    } else {
-        &out.stderr[..]
-    };
-    failure_text(said, out.exit)
-}
-
-/// What a failed tool's error says: its last stderr lines, else its exit status.
-fn failure_text(tail: &[String], exit: Exit) -> String {
-    let status = exit.code.map_or_else(|| "a signal".to_owned(), |c| format!("code {c}"));
-    let cause = tail.join("\n");
-    if cause.trim().is_empty() {
-        format!("exited with {status}")
-    } else {
-        format!("{} (exited with {status})", cause.trim())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
-        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
-        Captured {
-            exit: Exit::new(code),
-            stdout: lines(stdout),
-            stderr: lines(stderr),
-        }
-    }
-
-    #[test]
-    fn a_failure_says_why_from_stderr_else_the_end_of_stdout() {
-        assert_eq!(why_failed(&ended(Some(1), &["denied"], &["noise"])), "denied (exited with code 1)");
-        // Debian on AWS refuses root on stdout, with nothing on stderr.
-        let refused = ended(Some(1), &["", " "], &["Please login as the user \"admin\" rather than the user \"root\"."]);
-        assert_eq!(
-            why_failed(&refused),
-            "Please login as the user \"admin\" rather than the user \"root\". (exited with code 1)"
-        );
-        let long: Vec<String> = (1..=9).map(|n| format!("line {n}")).collect();
-        let long: Vec<&str> = long.iter().map(String::as_str).collect();
-        assert_eq!(
-            why_failed(&ended(Some(2), &[], &long)),
-            "line 5\nline 6\nline 7\nline 8\nline 9 (exited with code 2)"
-        );
-        assert_eq!(why_failed(&ended(None, &[], &[])), "exited with a signal");
-    }
-
-    #[test]
-    fn a_silent_failure_reports_its_exit_status() {
-        assert_eq!(failure_text(&[], Exit { code: Some(1) }), "exited with code 1");
-        assert_eq!(failure_text(&[" ".into()], Exit { code: None }), "exited with a signal");
-        assert_eq!(
-            failure_text(&["no space left".into()], Exit { code: Some(2) }),
-            "no space left (exited with code 2)"
-        );
-    }
 
     #[test]
     fn a_verdict_keeps_the_fatal_line_without_vagrants_prefix_and_short() {

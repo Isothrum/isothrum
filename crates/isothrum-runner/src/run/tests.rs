@@ -143,6 +143,16 @@ fn kinds(events: &Recorder) -> Vec<EventKind> {
     events.events().into_iter().map(|e: Event| e.kind).collect()
 }
 
+/// A runner on `f`'s home whose Compose `up` answers `up`.
+fn whose_up_answers(f: &Fixture, up: Reply) -> Runner {
+    let mut config = f.runner.config.clone();
+    config.processes = Arc::new(FakeProcesses::rules(&[
+        (" config --format json", Reply::ok(r#"{"services":{}}"#)),
+        (" up --detach ", up),
+    ]));
+    Runner::new(config).unwrap()
+}
+
 /// The fake engine's answer to `call`.
 fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let line = call.line();

@@ -426,7 +426,7 @@ mod tests {
         let qemu = statuses.iter().find(|s| s.provider == Provider::Qemu).unwrap();
         assert_eq!(
             qemu.reason.as_deref(),
-            Some("Vagrant couldn't say which plugins it has (`vagrant plugin list`: Vagrant failed to initialize at a very early stage)")
+            Some("Vagrant couldn't say which plugins it has (`vagrant plugin list`: Vagrant failed to initialize at a very early stage (exited with code 1))")
         );
         // A provider built into Vagrant needs no plugin: what Vagrant lists doesn't matter to it.
         let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);

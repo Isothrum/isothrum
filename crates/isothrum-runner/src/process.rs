@@ -85,6 +85,16 @@ impl Exit {
     }
 }
 
+/// How it ended, as a failure's reason says it: `exited with code 1`, `exited with a signal`.
+impl std::fmt::Display for Exit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.code {
+            Some(code) => write!(f, "exited with code {code}"),
+            None => f.write_str("exited with a signal"),
+        }
+    }
+}
+
 /// Why a process couldn't run to its end.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -136,27 +146,63 @@ fn command_line(program: &str, args: &[String]) -> String {
     std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
 }
 
+/// How many of its last output lines stand in for a failed tool's silent standard error.
+pub(crate) const STDOUT_REASON_LINES: usize = 5;
+
 /// What a process printed, kept: its standard output, and its last standard error lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Captured {
+#[non_exhaustive]
+pub struct Captured {
     /// How it ended.
-    pub(crate) exit: Exit,
+    pub exit: Exit,
     /// Its standard output, one line each.
-    pub(crate) stdout: Vec<String>,
+    pub stdout: Vec<String>,
     /// Its last standard error lines (a Ruby backtrace's frames left out).
-    pub(crate) stderr: Vec<String>,
+    pub stderr: Vec<String>,
 }
 
 impl Captured {
     /// Whether it exited 0.
-    pub(crate) fn succeeded(&self) -> bool {
+    #[must_use]
+    pub fn succeeded(&self) -> bool {
         self.exit.success()
+    }
+
+    /// Why it failed, the one wording every failed tool's error uses: its last error lines, else
+    /// its last output lines (a tool, or a cloud image refusing a login, may print its refusal
+    /// there), with how it ended (`denied (exited with code 1)`, `exited with a signal`).
+    #[must_use]
+    pub fn reason(&self) -> String {
+        let quiet = self.stderr.iter().all(|l| l.trim().is_empty());
+        let said = if quiet {
+            self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
+        } else {
+            &self.stderr[..]
+        };
+        let cause = said.join("\n");
+        if cause.trim().is_empty() {
+            self.exit.to_string()
+        } else {
+            format!("{} ({})", cause.trim(), self.exit)
+        }
+    }
+
+    /// Its standard output when it exited 0, else why it failed ([`Captured::reason`]).
+    ///
+    /// # Errors
+    ///
+    /// It didn't exit 0: the error is its reason.
+    pub fn output(&self) -> Result<String, String> {
+        if self.succeeded() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
     }
 }
 
-/// Runs `spec`, keeping what it prints; fails when the process can't start (missing, refused, an
-/// I/O error).
-pub(crate) async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
+/// Runs `spec`, keeping what it prints.
+///
+/// # Errors
+///
+/// The process can't start (missing, refused, an I/O error).
+pub async fn capture(runner: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
     capture_echoing(runner, spec, &mut |_, _| {}).await
 }
 
@@ -182,6 +228,46 @@ pub(crate) async fn capture_echoing(runner: &dyn ProcessRunner, spec: &ProcessSp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reason(out: &Captured) -> String {
+        out.reason()
+    }
+
+    fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
+        Captured {
+            exit: Exit::new(code),
+            stdout: lines(stdout),
+            stderr: lines(stderr),
+        }
+    }
+
+    #[test]
+    fn a_failure_says_why_from_stderr_else_the_end_of_stdout() {
+        assert_eq!(reason(&ended(Some(1), &["denied"], &["noise"])), "denied (exited with code 1)");
+        // Debian on AWS refuses root on stdout, with nothing on stderr.
+        let refused = ended(Some(1), &["", " "], &["Please login as the user \"admin\" rather than the user \"root\"."]);
+        assert_eq!(
+            reason(&refused),
+            "Please login as the user \"admin\" rather than the user \"root\". (exited with code 1)"
+        );
+        let long: Vec<String> = (1..=9).map(|n| format!("line {n}")).collect();
+        let long: Vec<&str> = long.iter().map(String::as_str).collect();
+        assert_eq!(
+            reason(&ended(Some(2), &[], &long)),
+            "line 5\nline 6\nline 7\nline 8\nline 9 (exited with code 2)"
+        );
+        assert_eq!(reason(&ended(None, &[], &[])), "exited with a signal");
+    }
+
+    #[test]
+    fn a_silent_failure_reports_its_exit_status() {
+        assert_eq!(reason(&ended(Some(1), &[], &[])), "exited with code 1");
+        assert_eq!(reason(&ended(None, &[" "], &[])), "exited with a signal");
+        assert_eq!(reason(&ended(Some(2), &["no space left"], &[])), "no space left (exited with code 2)");
+        assert_eq!(ended(Some(0), &["warning"], &["a", "b"]).output(), Ok("a\nb".to_owned()));
+        assert_eq!(ended(Some(3), &["bad"], &["a"]).output(), Err("bad (exited with code 3)".to_owned()));
+    }
 
     #[test]
     fn a_spec_reads_as_its_command_line() {
