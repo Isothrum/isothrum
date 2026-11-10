@@ -109,8 +109,14 @@ fn step_ok(cx: &Cx<'_>, ran: &Ran, step: &str, means: Option<&str>) -> Result<()
         Some(means) => format!("the step didn't succeed, so not: {means}"),
         None => "the step didn't succeed".to_owned(),
     };
+    Err(not_ready(cx, condition, detail))
+}
+
+/// Condition `condition` failed with `detail`: said in its `ready` event, then the error, which
+/// says the same.
+fn not_ready(cx: &Cx<'_>, condition: String, detail: String) -> Error {
     cx.events.ready(&condition, ReadyState::Failed, &detail);
-    Err(Error::NotReady { condition, detail })
+    Error::NotReady { condition, detail }
 }
 
 async fn machines_running(cx: &mut Cx<'_>, names: &[&str]) -> Result<()> {
@@ -128,12 +134,7 @@ async fn machines_running(cx: &mut Cx<'_>, names: &[&str]) -> Result<()> {
         cx.events.ready(condition, ReadyState::Ok, "");
         return Ok(());
     }
-    let detail = format!("not running: {}", down.join(", "));
-    cx.events.ready(condition, ReadyState::Failed, &detail);
-    Err(Error::NotReady {
-        condition: condition.into(),
-        detail,
-    })
+    Err(not_ready(cx, condition.into(), format!("not running: {}", down.join(", "))))
 }
 
 async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result<()> {
@@ -152,9 +153,7 @@ async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
-            let detail = format!("no answer within {}s", within.as_secs());
-            cx.events.ready(&condition, ReadyState::Failed, &detail);
-            return Err(Error::NotReady { condition, detail });
+            return Err(not_ready(cx, condition, format!("no answer within {}s", within.as_secs())));
         }
         if !said_waiting {
             let detail = format!("no answer yet; trying every {}s for {}s", TCP_RETRY.as_secs(), within.as_secs());

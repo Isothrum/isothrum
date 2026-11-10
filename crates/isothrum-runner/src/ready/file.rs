@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use super::not_ready;
 use crate::Result;
 use crate::error::Error;
 use crate::events::ReadyState;
@@ -118,13 +119,13 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
                 }
                 if !reached && started.elapsed() >= unreachable {
                     let detail = format!("{} didn't answer over SSH within {}s: {why}", w.login.target, unreachable.as_secs());
-                    return Err(not_ready(cx, w, detail));
+                    return Err(not_ready(cx, w.condition.clone(), detail));
                 }
                 failed = Some(why);
             }
         }
         if started.elapsed() >= w.within {
-            return Err(not_ready(cx, w, out_of_time(w, &last, failed.as_deref())));
+            return Err(not_ready(cx, w.condition.clone(), out_of_time(w, &last, failed.as_deref())));
         }
         tokio::time::sleep(w.every).await;
     }
@@ -167,22 +168,13 @@ fn settle(cx: &Cx<'_>, w: &Wait, now: Progress, tail: &[String], last: &mut Prog
             if !tail.is_empty() {
                 detail = format!("{detail}\n{}", tail.join("\n"));
             }
-            return Some(Err(not_ready(cx, w, cx.events.mask(&detail))));
+            return Some(Err(not_ready(cx, w.condition.clone(), cx.events.mask(&detail))));
         }
         Progress::Running(step) if *last != now => cx.events.ready(&w.condition, ReadyState::Waiting, &format!("running: {step}")),
         _ => {}
     }
     *last = now;
     None
-}
-
-/// The condition failed with `detail`: its event, and the error.
-fn not_ready(cx: &Cx<'_>, w: &Wait, detail: String) -> Error {
-    cx.events.ready(&w.condition, ReadyState::Failed, &detail);
-    Error::NotReady {
-        condition: w.condition.clone(),
-        detail,
-    }
 }
 
 #[cfg(test)]
