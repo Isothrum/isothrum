@@ -186,7 +186,7 @@ impl Elevated {
                 log_reader.finish(on_line);
                 guard.armed = false;
                 answered(dir, n).map_err(io)?;
-                return Ok(Exit::new(code.trim().parse().ok()));
+                return exit_code(&code).map(|c| Exit::new(Some(c))).map_err(io);
             }
             if let Some(reason) = ended(dir).map_err(io)? {
                 // Nothing is left to cancel: the later calls fail with why.
@@ -298,6 +298,15 @@ fn refusal(spec: &ProcessSpec) -> Option<String> {
     spec.stdin
         .as_ref()
         .map(|stdin| format!("an elevated call can't be given a standard input ({})", stdin.display()))
+}
+
+/// The exit code an `exit-<n>` file holds: the broker always writes a number, so anything else
+/// is a broken answer, never a program ended by a signal.
+fn exit_code(text: &str) -> std::io::Result<i32> {
+    text.trim().parse().map_err(|_| {
+        let why = format!("the elevated broker answered `{}`, not an exit code", text.trim().escape_debug());
+        std::io::Error::new(std::io::ErrorKind::InvalidData, why)
+    })
 }
 
 /// Whether `whoami /groups /fo csv /nh` lists a group that may manage Hyper-V.

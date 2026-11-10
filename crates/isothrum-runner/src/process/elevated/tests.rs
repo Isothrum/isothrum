@@ -316,6 +316,18 @@ async fn an_answer_that_cant_be_read_fails_the_request() {
     broker.await.unwrap();
 }
 
+/// Regression: an `exit-<n>` that didn't hold a number read as a program killed by a signal.
+#[tokio::test]
+async fn an_answer_that_isnt_an_exit_code_fails_the_request() {
+    let (_home, _fake, e) = session("", Reply::ok(""));
+    let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
+        std::fs::write(dir.join("exit-1"), "oops\r\n").unwrap();
+    }));
+    let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
+    assert_eq!(err.to_string(), "`vagrant`: the elevated broker answered `oops`, not an exit code");
+    broker.await.unwrap();
+}
+
 #[tokio::test]
 async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
     let home = tempfile::tempdir().unwrap();
