@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 
-use isoloom_manifest::{Manifest, Part, Placeholder, RunVar};
+use isoloom_manifest::{Manifest, RunVar};
 
 use crate::Result;
 use crate::error::Error;
@@ -21,10 +21,7 @@ const LAST: u8 = 99;
 
 /// Whether a run of `manifest` needs a slot: a template names `${run.slot}`.
 pub(crate) fn needed(manifest: &Manifest) -> bool {
-    manifest
-        .templates()
-        .iter()
-        .any(|(_, t)| t.parts().iter().any(|p| matches!(p, Part::Placeholder(Placeholder::Run(RunVar::Slot)))))
+    crate::manifest::names_run_var(manifest, |v| v == RunVar::Slot)
 }
 
 /// The slots `records` hold on `place`, `me` aside: those of runs not gone (`absent`).

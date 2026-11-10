@@ -86,12 +86,8 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
 /// Whether a run of `manifest` needs the runner's key: it reaches a machine over SSH, or names
 /// the key.
 pub(crate) fn needed(manifest: &isoloom_manifest::Manifest) -> bool {
-    use isoloom_manifest::{Action, Condition, Part, Placeholder, Run, RunVar};
-    let names_key = manifest.templates().iter().any(|(_, t)| {
-        t.parts()
-            .iter()
-            .any(|p| matches!(p, Part::Placeholder(Placeholder::Run(RunVar::SshKey | RunVar::SshPublicKey))))
-    });
+    use isoloom_manifest::{Action, Condition, Run, RunVar};
+    let names_key = crate::manifest::names_run_var(manifest, |v| matches!(v, RunVar::SshKey | RunVar::SshPublicKey));
     let ssh_step = manifest
         .step_lists()
         .iter()

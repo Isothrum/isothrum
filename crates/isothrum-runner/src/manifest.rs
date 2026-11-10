@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use isoloom_manifest::Manifest;
+use isoloom_manifest::{Manifest, Part, Placeholder, RunVar};
 
 use crate::Result;
 use crate::error::Error;
@@ -33,6 +33,14 @@ pub fn load_manifest(path: &Path) -> Result<LoadedManifest> {
     let manifest = isoloom_manifest::parse(&text).map_err(|source| Error::Manifest { path: path.clone(), source })?;
     let dir = path.parent().map_or_else(|| path.clone(), Path::to_path_buf);
     Ok(LoadedManifest { manifest, path, dir })
+}
+
+/// Whether a template of `manifest` names a `${run.<var>}` that `wanted` takes.
+pub(crate) fn names_run_var(manifest: &Manifest, wanted: impl Fn(RunVar) -> bool) -> bool {
+    manifest
+        .templates()
+        .iter()
+        .any(|(_, t)| t.parts().iter().any(|p| matches!(p, Part::Placeholder(Placeholder::Run(v)) if wanted(*v))))
 }
 
 #[cfg(test)]
