@@ -37,6 +37,22 @@ change.
 
 ### Fixed
 
+- **An update delivers nothing again to a machine that runs unhealthy.** An update took only a
+  machine reported `running` for one set up before it; the Terraform driver reports every machine
+  `unhealthy` when one resource is tainted, so the update then delivered the guests' secrets to
+  every machine again, its defaults overwriting what the launch gave. The one rule for "it runs"
+  (running or unhealthy) now decides, as it does for the run's state.
+- **A secret slot for another provider isn't written into a machine.** Its guest delivery took
+  the slot's default without asking the run's provider, where the `env` and Terraform deliveries
+  did; the delivery still runs (the machine's set-up waits for it), with no value for the slot.
+- **A `ready_file` condition whose `user` fills empty logs in as root**, as every other login the
+  runner makes does with no user, rather than as this computer's user (`@host`).
+- **A port published on an unspecified address answers at the loopback however the address is
+  written** (`0:0:0:0:0:0:0:0`, `[::0]`), not only as `0.0.0.0`, `::` or `[::]`.
+- **A Compose config the runner can't read fails its step with why**: not JSON (and serde's
+  error), no `services` object, a port with no target or an unknown protocol, and whose.
+- **A VirtualBox VM whose `showvminfo` fails before a start is skipped with why in a trace**,
+  not in silence.
 - **A Vagrant run's own commands are tried again when another Vagrant process's lock refused
   them.** Vagrant refuses a command at once when another process holds a machine's action lock
   (`MachineActionLockedError`) or its index lock (`MachineLocked`, taken at every read of the
@@ -327,7 +343,7 @@ change.
 - **The compiler addresses a LAN whose block doesn't start its last octet.** It took a block's
   usable addresses from its size alone (.2 on, .10 on a /24), so a machine on `10.10.1.8/29` or
   `10.10.1.128/25` got `.2`, outside the block, and Isoloom refused the spec. The addresses are now
-  Isoloom's own (`Cidr::host`): `.10` to `.12` on `10.10.1.8/29`, `.130` on `10.10.1.128/25`.
+  Isoloom's own (`NetworkBlock::host`): `.10` to `.12` on `10.10.1.8/29`, `.130` on `10.10.1.128/25`.
   A block Isoloom gives machines no address on (not a network's own address, larger than a /24 or
   smaller than a /29) is now the compiler's `BadCidr`, which says so; it was written into a spec
   Isoloom then refused.
@@ -550,24 +566,23 @@ change.
 - `ProcessSpec::env(name)`: the value a process is given for a variable.
 - `AccessPick::{with_machine, with_network, with_image}`: an `AccessPick` is built from
   `AccessPick::default()` with them.
-- `Running::console_command(machine)`: the command that opens a console into any machine of the
-  run, a pure query that reads the run's record as status does (a Vagrant run's console gets the
-  host ports its start pinned). On a Terraform run: `ssh -t` to the machine's address as
+- `Running::console_command(machine, user)`: the command that opens a console into any machine
+  of the run, a pure query that reads the run's record as status does (a Vagrant run's console
+  gets the host ports its start pinned). On a Terraform run: `ssh -t` to the machine's address as
   its user (`ssh_user_<machine>`, else `ssh_user`, else root), through the run's SSH settings.
   On Compose: `docker compose exec` of the service. On Vagrant: `vagrant ssh` of the define. A
   Compose service inside the run's VM (`docker-vm`, `cloud-docker`, Proxmox) goes into that VM,
   then into the service's container. A Terraform machine's console and a Compose service's
   start bash where the machine has it, else sh; a Vagrant VM's is `vagrant ssh`'s, the VM's
-  login shell.
-- **A console as a named account**: `Running::console_command(machine, user)` with
-  `Some(user)`, and `isothrum console --user <user> <machine>`, open the console as that account
-  of the machine, in its home, rather than as the one the way in logs in as (a container's own
-  user, Vagrant's `vagrant`, a module's SSH user). A container is entered with `exec --user` and a
-  login shell (a Compose service in the run's VM too, through the VM); a VM, Vagrant's or a
-  module's, with a `sudo -i` login as the account from its usual login (that login's own shell
-  when it is the account already). The machine must have the account, and on a VM its login must
-  be allowed to `sudo`, as a Vagrant box's and a cloud image's are. A name no Unix account has,
-  and any account on a Windows machine, is refused (`unsupported`). `None` opens it as before.
+  login shell. **As a named account**: with `Some(user)` (`isothrum console --user <user>
+  <machine>`), the console opens as that account of the machine, in its home, rather than as the
+  one the way in logs in as (a container's own user, Vagrant's `vagrant`, a module's SSH user). A
+  container is entered with `exec --user` and a login shell (a Compose service in the run's VM
+  too, through the VM); a VM, Vagrant's or a module's, with a `sudo -i` login as the account from
+  its usual login (that login's own shell when it is the account already). The machine must have
+  the account, and on a VM its login must be allowed to `sudo`, as a Vagrant box's and a cloud
+  image's are. A name no Unix account has, and any account on a Windows machine, is refused
+  (`unsupported`). `None` opens it as the way in's login.
 - `Running::retire(machine, opts, events)` (and `isothrum retire`): takes a machine out of the
   running run ahead of its removal from the manifest, or its move out of the default start, and
   the update after: what that update wouldn't remove itself. A Vagrant VM is destroyed alone
@@ -734,6 +749,8 @@ change.
   `env(name)` as before.
 - **Breaking:** **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
   `AccessPick::default()` with its `with_*` methods.
+- **Breaking:** **`ShellCommand` is `#[non_exhaustive]`**: build one with `ShellCommand::new(program,
+  args, cwd)` and `with_env`; its fields stay readable.
 - **`isothrum-machine`'s reasons speak to no particular program**: no "then re-check" or "run
   this program as administrator" ("run elevated").
 - **Breaking:** **`ProcessError::Refused` carries `why`** in place of `arg`: besides an argument a wrapper
@@ -798,8 +815,6 @@ change.
   questions (`in_use`, `pick_free`, `reachable`) the runner's own.** No embedder implemented
   `HostPorts`, asked it anything or named the loopback's: `RunnerConfig::new` installs it, and a
   test sets `RunnerConfig::ports` to the `fake` feature's `FakePorts`.
-- **Breaking:** **`ShellCommand` is `#[non_exhaustive]`**: build one with `ShellCommand::new(program,
-  args, cwd)` and `with_env`; its fields stay readable.
 - **Breaking:** **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
   and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
 - **Breaking:** **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),

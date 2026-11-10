@@ -24,13 +24,19 @@ Not published (`publish = false`, inherited from `[workspace.package]`):
 
 ## Cross-repo dependency on Isoloom
 
-`isothrum-compiler`, `isothrum-wasm`, `isothrum-runner` and `isothrum-machine` depend on the
-Isoloom crates (`isoloom-spec`, `isoloom-targets`, `isoloom-plan`, `isoloom-manifest`) by
-version, from crates.io (`[workspace.dependencies]`): the compiler on `isoloom-spec`, the wasm
-crate on `isoloom-spec`, `isoloom-targets` and `isoloom-plan`, the runner and `isothrum-machine`
-on `isoloom-manifest`. For local development against an Isoloom checkout, a git-ignored
-`.cargo/config.toml` patches them to its paths (`[patch.crates-io]`); the committed manifests
-never name a path or a git source.
+Every published crate depends on Isoloom crates (`isoloom-spec`, `isoloom-targets`,
+`isoloom-plan`, `isoloom-manifest`) by version, from crates.io (`[workspace.dependencies]`), as
+each `Cargo.toml` has them:
+
+| Crate | Isoloom crates |
+|---|---|
+| `isothrum-runner`, `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
+| `isothrum-compiler` | `isoloom-spec`, `isoloom-manifest` (`isoloom-targets` for its tests only) |
+| `isothrum-wasm` | `isoloom-spec`, `isoloom-manifest`, `isoloom-plan`, `isoloom-targets` |
+
+For local development against an Isoloom checkout, a git-ignored `.cargo/config.toml` patches
+them to its paths (`[patch.crates-io]`); the committed manifests never name a path or a git
+source.
 
 **Therefore the Isoloom crates must be on crates.io at the requested version before Isothrum is
 published.** Release Isoloom first, then Isothrum.

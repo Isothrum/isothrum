@@ -1,14 +1,24 @@
-//! The runner's state, one folder per run under the embedder's home:
+//! The runner's state, one folder per run under the embedder's home (the reference, with what
+//! each target keeps in a run's folder: `docs/reference/state.md`):
 //!
 //! ```text
-//! <home>/slots.lock    the OS lock a start holds while it picks its slot (`${run.slot}`)
+//! <home>/slots.lock          the OS lock a start holds while it picks its slot (`${run.slot}`)
+//! <home>/ssh/                the runner's SSH key, `id_ed25519` and `.pub`, made on first use
+//! <home>/terraform-plugins/  the Terraform provider cache every run of this home shares
+//! <home>/relay/              on macOS, the wrappers that send a tool through a loopback relay
 //! <home>/runs/<run name>/
-//!   record.json     the run's record (atomic, owner-only)
-//!   lock            the OS lock: one operation per run across processes
-//!   events.jsonl    the last operations' events, so a reattached UI can replay them
-//!   seen.json       the run's machines as the runner last read them, for a status while an
-//!                   operation holds the run; removed by a down
-//!   …               what the manifest keeps in `${run.state_dir}` (Compose's pinned ports)
+//!   record.json         the run's record (atomic, owner-only)
+//!   lock                the OS lock: one operation per run across processes
+//!   events.jsonl        the last operations' events, so a reattached UI can replay them
+//!   seen.json           the run's machines as the runner last read them, for a status while
+//!                       an operation holds the run; removed by a down
+//!   ssh_config          the run's SSH settings, with its `known_hosts`, for a run reached over
+//!                       SSH
+//!   guest-<machine>.in  a guest delivery's values, only while it is delivered
+//!   elevated/<token>/   an elevated session's folder (Hyper-V): each request's `env-<n>.json`,
+//!                       its variables, until the broker starts the program
+//!   …                   what the manifest keeps in `${run.state_dir}`: Compose's pinned ports,
+//!                       Vagrant's state, Terraform's state and module copy
 //! ```
 //!
 //! The run's folder holds only the run and its generated files, so replacing it never strands a
