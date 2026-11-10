@@ -89,18 +89,19 @@ pub(crate) fn compiled(topology_json: &str) -> Result<(Topology, Compiled)> {
 
 /// Every machine's IPv4 addresses, as Isoloom gives them ([`isoloom_plan::addressing::address`]),
 /// on the networks whose block reads (Isoloom's problems say what is wrong with another).
-/// Networks go by the editor's names: a VLAN that became `sw1-vlan10` is the editor's `vlan10`
-/// again.
+/// Networks go by the topology's names: the network a VLAN becomes once lowered (Isoloom names
+/// it, and records the LAN and VLAN id it came from) goes by the key the topology gave that VLAN.
 fn addresses(spec: &model::Spec, topo: &Topology) -> IndexMap<String, Vec<(String, String)>> {
-    let editor_name: IndexMap<String, &String> = topo
-        .networks
-        .iter()
-        // The network a VLAN becomes once lowered: `sw1` + 10 -> `sw1-vlan10`.
-        .filter_map(|(name, lan)| Some((format!("{}-vlan{}", lan.switch.as_ref()?, lan.vlan?), name)))
-        .collect();
+    let topology_name = |net: &String| -> Option<&String> {
+        let (lan, id) = spec.networks.get(net)?.vlan.as_ref()?;
+        topo.networks
+            .iter()
+            .find(|(_, l)| l.switch.as_ref() == Some(lan) && l.vlan == Some(*id))
+            .map(|(name, _)| name)
+    };
     let address = |net: &String, octet: u8| {
         Cidr::parse(&spec.networks.get(net)?.cidr)?;
-        let shown = editor_name.get(net).map_or_else(|| net.clone(), |n| (*n).clone());
+        let shown = topology_name(net).unwrap_or(net).clone();
         Some((shown, isoloom_plan::addressing::address(spec, net, octet).to_string()))
     };
     spec.machines
