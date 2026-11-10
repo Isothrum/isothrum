@@ -62,15 +62,22 @@ pub(crate) fn allocate(topo: &Topology, draft: &mut Draft) -> Result<()> {
     Ok(())
 }
 
-/// Refuses a cable to an unknown node, on a port already cabled, or from a node to itself.
+/// Refuses a cable to an unknown node, from a node to itself (one of its ports to itself
+/// included), or on a port already cabled.
 fn check<'a>(topo: &Topology, i: usize, link: &'a Link, used_ports: &mut Vec<(&'a str, &'a str)>) -> Result<()> {
+    if let Some(end) = [&link.a, &link.b].into_iter().find(|end| !topo.nodes.contains_key(&end.node)) {
+        return Err(Error::UnknownNode {
+            link: i,
+            node: end.node.clone(),
+        });
+    }
+    if link.a.node == link.b.node {
+        return Err(Error::SelfLink {
+            link: i,
+            node: link.a.node.clone(),
+        });
+    }
     for end in [&link.a, &link.b] {
-        if !topo.nodes.contains_key(&end.node) {
-            return Err(Error::UnknownNode {
-                link: i,
-                node: end.node.clone(),
-            });
-        }
         if used_ports.contains(&(end.node.as_str(), end.port.as_str())) {
             return Err(Error::PortInUse {
                 node: end.node.clone(),
@@ -78,12 +85,6 @@ fn check<'a>(topo: &Topology, i: usize, link: &'a Link, used_ports: &mut Vec<(&'
             });
         }
         used_ports.push((end.node.as_str(), end.port.as_str()));
-    }
-    if link.a.node == link.b.node {
-        return Err(Error::SelfLink {
-            link: i,
-            node: link.a.node.clone(),
-        });
     }
     Ok(())
 }

@@ -51,6 +51,9 @@ fn a_node_can_not_be_cabled_to_itself() -> Outcome {
     let e = compile(&topo).unwrap_err();
     assert!(matches!(&e, Error::SelfLink { link: 0, node } if node == "router"), "{e}");
     assert_eq!(e.to_string(), "link 0 cables `router` to itself");
+    topo.links = vec![cable(ep("router", "eth0"), ep("router", "eth0"))];
+    let one_port = compile(&topo).unwrap_err();
+    assert!(matches!(&one_port, Error::SelfLink { link: 0, .. }), "a port cabled to itself: {one_port}");
     Ok(())
 }
 
