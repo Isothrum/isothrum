@@ -164,7 +164,7 @@ pub use options::{Occupied, RunOptions};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
-pub use process::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses};
+pub use process::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, may_manage_hyperv};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{Runner, RunnerConfig};

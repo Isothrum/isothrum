@@ -101,6 +101,9 @@ minutes from now, a `dotenv` state file and a WinRM guest delivery.
 
 The crate keeps only provider detection: `providers::{detect, Provider, ProviderStatus}`.
 
+- `providers::detect` takes no `may_manage_hyperv`: it asks `whoami /groups` through the process
+  runner it is given, as the runner does before it elevates. Drop the argument; the check on its
+  own is `isothrum_runner::may_manage_hyperv(tools)`.
 - Import `Provider` and `ProviderStatus` from `providers` (the crate root no longer re-exports
   them). `Provider` is Isoloom's `isoloom_manifest::Provider`; a provider's id is
   `isothrum_runner::wire_name(&provider)` (was `Provider::id`).

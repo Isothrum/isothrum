@@ -41,6 +41,7 @@ domain to add the account.
 
 ## Detect it from your own program
 
-`isothrum-machine`'s `providers::detect(tools, vagrant_installed, may_manage_hyperv)` takes your
-own answer to "may this account manage Hyper-V" and, given `Some(false)`, reports Hyper-V with the
-reason and the way out above.
+`isothrum-machine`'s `providers::detect(tools, vagrant_installed)` asks `whoami /groups` (through
+`tools`) whether this account may manage Hyper-V, as the runner does before it elevates, and when
+it may not, reports Hyper-V with the reason and the way out above. The check on its own is
+`isothrum_runner::may_manage_hyperv(tools)`.

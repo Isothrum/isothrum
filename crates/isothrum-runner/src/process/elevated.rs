@@ -117,18 +117,11 @@ impl Elevated {
         }
     }
 
-    /// Decides the session: direct when the account may manage Hyper-V, else the broker started.
-    /// A `whoami` that can't say is traced, and the broker started.
+    /// Decides the session: direct when the account may manage Hyper-V, else the broker started
+    /// (a `whoami` that can't say is traced by [`may_manage_hyperv`]).
     async fn open(&self) -> Session {
-        let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
-        match capture(self.inner.as_ref(), &whoami).await {
-            Ok(out) if out.succeeded() && may_manage(&out.stdout.join("\n")) => return Session::Direct,
-            Ok(out) if out.succeeded() => {}
-            Ok(out) => tracing::warn!(
-                stderr = %out.stderr.join("\n"),
-                "`whoami /groups` failed: whether this account may manage Hyper-V is unknown, so it elevates"
-            ),
-            Err(e) => tracing::warn!(error = %e, "`whoami /groups` didn't run: whether this account may manage Hyper-V is unknown, so it elevates"),
+        if may_manage_hyperv(self.inner.as_ref()).await == Some(true) {
+            return Session::Direct;
         }
         self.start_broker().await.unwrap_or_else(Session::Failed)
     }
@@ -303,6 +296,25 @@ fn exit_code(text: &str) -> std::io::Result<i32> {
         let why = format!("the elevated broker answered `{}`, not an exit code", text.trim().escape_debug());
         std::io::Error::new(std::io::ErrorKind::InvalidData, why)
     })
+}
+
+/// Whether this account may manage Hyper-V, as Vagrant's Hyper-V provider requires for every
+/// command on its machines (`vagrant status` included): its token is elevated, or it is a member of
+/// "Hyper-V Administrators". Read from `whoami /groups`, run through `processes` (no `unsafe`).
+/// `None` when `whoami` can't say (it didn't run, or failed), which is traced.
+pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> Option<bool> {
+    let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
+    match capture(processes, &whoami).await {
+        Ok(out) if out.succeeded() => Some(may_manage(&out.stdout.join("\n"))),
+        Ok(out) => {
+            tracing::warn!(stderr = %out.stderr.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "`whoami /groups` didn't run: whether this account may manage Hyper-V is unknown");
+            None
+        }
+    }
 }
 
 /// Whether `whoami /groups /fo csv /nh` lists a group that may manage Hyper-V.

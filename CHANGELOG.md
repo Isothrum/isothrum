@@ -489,6 +489,12 @@ change.
 
 ### Changed
 
+- **Breaking, for embedders:** **`isothrum-machine`'s `providers::detect` works out whether the
+  account may manage Hyper-V itself**, with the runner's `whoami /groups` check through the process
+  runner it is given, now public as `isothrum_runner::may_manage_hyperv`. Its `may_manage_hyperv`
+  parameter is gone: the reason it existed (the check needing `unsafe` Win32) was wrong, and an
+  embedder that passed `None` never got the administrator reason.
+
 - **`Runner::adopt` is documented as the general feature it is: adopting an existing Terraform
   deployment as a run.** A deployment applied from a run manifest's module outside the runner
   (by hand, by another tool, from a home that is gone), its local state in a folder of its own,

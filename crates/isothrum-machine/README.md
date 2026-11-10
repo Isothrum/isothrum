@@ -4,11 +4,11 @@ Detects which Vagrant providers (hypervisors) this computer can drive, among tho
 manifests name (VirtualBox, VMware Desktop, Hyper-V, Parallels, libvirt, QEMU, UTM, VMware ESXi)
 that apply to its operating system. For each one it says whether it is usable here and, when it
 isn't, why: Vagrant or the hypervisor not installed, a plugin missing or too old, VirtualBox's
-service not answering, or Hyper-V needing an administrator (when the caller says the account may
-not manage it).
+service not answering, or Hyper-V needing an administrator (when `whoami /groups` says this
+account may not manage it).
 
 Every tool it runs (`vagrant plugin list`, `VBoxManage`, `vmrun`, ...) goes through
-`isothrum-runner`'s `ProcessRunner`, so tests can script them; a few facts are read from the
+`isothrum-runner`'s `ProcessRunner` (`whoami` included), so tests can script them; a few facts are read from the
 filesystem instead (UTM's app bundle, Hyper-V's service, `/dev/kvm`). The crate has no `unsafe`
 code.
 
@@ -28,9 +28,8 @@ use isothrum_runner::SystemProcesses;
 #[tokio::main]
 async fn main() {
     let tools = SystemProcesses::default();
-    // `true`: Vagrant is installed (the caller checks). `None`: no answer of our own to "may this
-    // account manage Hyper-V", so no administrator reason is added.
-    for status in providers::detect(&tools, true, None).await {
+    // `true`: Vagrant is installed (the caller checks).
+    for status in providers::detect(&tools, true).await {
         match &status.reason {
             None => println!("{}: usable", isothrum_runner::wire_name(&status.provider)),
             Some(why) => println!("{}: {why}", isothrum_runner::wire_name(&status.provider)),

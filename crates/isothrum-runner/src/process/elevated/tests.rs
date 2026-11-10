@@ -348,6 +348,23 @@ fn a_session_token_is_random_hex() {
     assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) && a != b, "{a} {b}");
 }
 
+#[tokio::test]
+async fn whether_the_account_may_manage_hyperv_is_whoamis_answer_or_unknown() {
+    let elevated = FakeProcesses::rules(&[(
+        "whoami /groups /fo csv /nh",
+        Reply::ok("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\","),
+    )]);
+    assert_eq!(may_manage_hyperv(&elevated).await, Some(true));
+    let member = FakeProcesses::rules(&[("whoami", Reply::ok("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\","))]);
+    assert_eq!(may_manage_hyperv(&member).await, Some(true));
+    let neither = FakeProcesses::rules(&[("whoami", Reply::ok("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\","))]);
+    assert_eq!(may_manage_hyperv(&neither).await, Some(false));
+    let failing = FakeProcesses::rules(&[("whoami", Reply::fail(1, "ERROR: access denied"))]);
+    let (answer, traced) = crate::testing::traced(may_manage_hyperv(&failing)).await;
+    assert_eq!(answer, None, "a failed whoami is no answer, not a no");
+    assert!(traced.contains("`whoami /groups` failed") && traced.contains("access denied"), "{traced}");
+}
+
 #[test]
 fn the_groups_that_may_manage_hyperv_are_read_by_sid() {
     assert!(may_manage("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\","));

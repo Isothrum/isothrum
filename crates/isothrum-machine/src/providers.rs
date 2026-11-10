@@ -2,11 +2,10 @@
 //! Vagrant abstracts the hypervisor; we detect what is installed here and let `vagrant up
 //! --provider` do the rest.
 //!
-//! The Windows "may this account manage Hyper-V" refinement needs `unsafe` Win32 (a token and SID
-//! check) that this crate forbids, so [`detect`] never computes it: a caller supplies the answer
-//! as `may_manage_hyperv: Option<bool>`. An embedder without such a check passes `None`,
-//! which adds no admin reason; one with it passes `Some(its own unsafe check)`, and a
-//! `Some(false)` folds the "needs administrator" reason into Hyper-V's status.
+//! Whether this account may manage Hyper-V is the runner's own check
+//! ([`isothrum_runner::may_manage_hyperv`], `whoami /groups` through the same [`ProcessRunner`]),
+//! the one it decides an elevated session by: when the account may not, Hyper-V's status says it
+//! needs an administrator.
 
 use std::path::Path;
 use std::time::Duration;
@@ -186,18 +185,15 @@ const NO_VAGRANT: &str = "Vagrant is not installed";
 const VBOX_PROBE: Duration = Duration::from_secs(8);
 
 /// Why Hyper-V can't be used by this account yet, and the two ways out. Folded into Hyper-V's
-/// status when the caller's `may_manage_hyperv` is `Some(false)`.
+/// status when the account may not manage it ([`needs_admin`]).
 const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
 add this account to that group and sign out of Windows and back in, or run elevated";
 
 /// The readiness of every provider that applies to this computer's OS and CPU, usable or not:
-/// `None` when it is ready, else why not (its hypervisor, its plugin...). Without Vagrant
-/// (`vagrant_installed`, the caller's to know) each says so, and nothing is probed.
-///
-/// `may_manage_hyperv` is the one fact this crate cannot work out without `unsafe` (see the module
-/// docs): `Some(false)` folds the "needs administrator" reason into Hyper-V, `Some(true)` and
-/// `None` add nothing. An embedder without a token/SID check passes `None`.
-pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_manage_hyperv: Option<bool>) -> Vec<ProviderStatus> {
+/// `None` when it is ready, else why not (its hypervisor, its plugin, Hyper-V needing an
+/// administrator...). Without Vagrant (`vagrant_installed`, the caller's to know) each says so,
+/// and nothing is probed.
+pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
     if !vagrant_installed {
         return ALL
             .into_iter()
@@ -231,9 +227,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
         let plugin_installed = plugin.is_none() || installed.is_some();
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
-        // Vagrant's Hyper-V provider refuses every command (status reads included) from an account
-        // that may not manage Hyper-V: said here with the way out, not as a raw error mid-boot.
-        let needs_admin = provider == Provider::Hyperv && hypervisor == Some(true) && may_manage_hyperv == Some(false);
+        let needs_admin = needs_admin(provider, hypervisor, runner).await;
         let detection = Detection {
             hypervisor,
             hypervisor_version: hypervisor_version.as_deref(),
@@ -248,6 +242,14 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
         statuses.push(ProviderStatus { provider, reason });
     }
     statuses
+}
+
+/// Whether `provider` is an installed Hyper-V (`hypervisor`) that this account may not manage.
+/// Vagrant's Hyper-V provider refuses every command (status reads included) from such an
+/// account: said here with the way out, not as a raw error mid-boot. When the runner's check
+/// can't say, no reason is added.
+async fn needs_admin(provider: Provider, hypervisor: Option<bool>, runner: &dyn ProcessRunner) -> bool {
+    provider == Provider::Hyperv && hypervisor == Some(true) && isothrum_runner::may_manage_hyperv(runner).await == Some(false)
 }
 
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so
@@ -405,11 +407,11 @@ mod tests {
                 Reply::ok("1,,plugin-name,vagrant-qemu\n1,vagrant-qemu,plugin-version,0.6.3%!(VAGRANT_COMMA) global"),
             ),
         ]);
-        let qemu = detect(&with, true, None).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
+        let qemu = detect(&with, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
         assert!(qemu.reason.is_none(), "{qemu:?}");
 
         let without = FakeProcesses::rules(&[("qemu-system", Reply::ok("QEMU 10.0")), ("vagrant plugin list", Reply::ok(""))]);
-        let no_plugin = detect(&without, true, None).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
+        let no_plugin = detect(&without, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
         assert_eq!(no_plugin.reason.as_deref(), Some("Vagrant plugin `vagrant-qemu` is not installed"),);
     }
 
@@ -420,7 +422,7 @@ mod tests {
             ("VBoxManage", Reply::ok("7.1.4")),
             ("vagrant plugin list", Reply::fail(1, "Vagrant failed to initialize at a very early stage")),
         ]);
-        let statuses = detect(&broken, true, None).await;
+        let statuses = detect(&broken, true).await;
         let qemu = statuses.iter().find(|s| s.provider == Provider::Qemu).unwrap();
         assert_eq!(
             qemu.reason.as_deref(),
@@ -434,7 +436,7 @@ mod tests {
     #[tokio::test]
     async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
         let tools = FakeProcesses::rules(&[]);
-        let statuses = detect(&tools, false, None).await;
+        let statuses = detect(&tools, false).await;
         assert_eq!(statuses.len(), ALL.iter().filter(|p| applicable(**p)).count());
         assert!(statuses.iter().all(|s| s.reason.as_deref() == Some(NO_VAGRANT)), "{statuses:?}");
         assert_eq!(tools.calls(), [], "no probe runs without Vagrant");
@@ -474,10 +476,24 @@ mod tests {
         assert_eq!(call.args, ["read", "/Applications/UTM.app/Contents/Info.plist", "CFBundleShortVersionString"]);
     }
 
+    #[tokio::test]
+    async fn an_installed_hyperv_needs_admin_only_when_whoami_says_the_account_may_not_manage_it() {
+        let groups = |sid: &str| format!("\"Label\",\"Label\",\"{sid}\",");
+        let not_allowed = FakeProcesses::rules(&[("whoami /groups", Reply::ok(&groups("S-1-16-8192")))]);
+        let allowed = FakeProcesses::rules(&[("whoami /groups", Reply::ok(&groups("S-1-5-32-578")))]);
+        let unknown = FakeProcesses::rules(&[("whoami", Reply::missing())]);
+        assert!(needs_admin(Provider::Hyperv, Some(true), &not_allowed).await);
+        assert!(!needs_admin(Provider::Hyperv, Some(true), &allowed).await);
+        assert!(!needs_admin(Provider::Hyperv, Some(true), &unknown).await, "no answer adds no reason");
+        assert!(!needs_admin(Provider::Hyperv, Some(false), &not_allowed).await, "not installed says so instead");
+        assert!(!needs_admin(Provider::Virtualbox, Some(true), &not_allowed).await);
+        assert_eq!(not_allowed.calls().len(), 1, "whoami is asked for an installed Hyper-V only");
+    }
+
     #[test]
-    fn hyperv_needs_admin_only_when_the_caller_says_the_account_cannot_manage_it() {
-        // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so the injected
-        // `needs_admin` is tested through `unavailable_reason` directly.
+    fn hyperv_needs_admin_folds_into_its_reason() {
+        // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so `needs_admin` is
+        // tested on its own (above) and through `unavailable_reason` here.
         let hyperv = |needs_admin| Detection {
             hypervisor: Some(true),
             hypervisor_version: None,
