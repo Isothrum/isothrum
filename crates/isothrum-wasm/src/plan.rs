@@ -92,16 +92,13 @@ pub(crate) fn compiled(topology_json: &str) -> Result<(Topology, Compiled)> {
 /// Networks go by the topology's names: the network a VLAN becomes once lowered (Isoloom names
 /// it, and records the LAN and VLAN id it came from) goes by the key the topology gave that VLAN.
 fn addresses(spec: &model::Spec, topo: &Topology) -> IndexMap<String, Vec<(String, String)>> {
-    let topology_name = |net: &String| -> Option<&String> {
+    let topology_name = |net: &String| -> Option<&str> {
         let (lan, id) = spec.networks.get(net)?.vlan.as_ref()?;
-        topo.networks
-            .iter()
-            .find(|(_, l)| l.switch.as_ref() == Some(lan) && l.vlan == Some(*id))
-            .map(|(name, _)| name)
+        topo.vlan_lan(lan, *id)
     };
     let address = |net: &String, octet: u8| {
         Cidr::parse(&spec.networks.get(net)?.cidr)?;
-        let shown = topology_name(net).unwrap_or(net).clone();
+        let shown = topology_name(net).unwrap_or(net).to_owned();
         Some((shown, isoloom_plan::addressing::address(spec, net, octet).to_string()))
     };
     spec.machines

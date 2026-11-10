@@ -580,6 +580,8 @@ change.
   `isothrum-machine` now reads `vagrant plugin list --machine-readable`, not the human list.
 - **`isothrum_runner::every_name`** (feature `fake`): every name a unit enum is written as, from
   its JSON Schema, for a test that keeps a list of its own in step with a type of Isoloom's.
+- **`Topology::vlan_lan`** (`isothrum-compiler`): the topology's key for a switch's VLAN, what a
+  network the spec nests under the switch's LAN came from.
 
 ### Changed
 
