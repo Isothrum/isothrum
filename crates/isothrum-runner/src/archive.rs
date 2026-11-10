@@ -54,11 +54,7 @@ pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName,
 
 /// Writes the archive of the project at `root` to `out`, with the Isoloom outputs `outputs`.
 fn write(root: &Path, outputs: &[String], out: &Path) -> io::Result<()> {
-    let ignore_text = match std::fs::read_to_string(root.join(IGNORE_FILE)) {
-        Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
-    };
+    let ignore_text = crate::store::if_there(std::fs::read_to_string(root.join(IGNORE_FILE)))?.unwrap_or_default();
     let outputs: Vec<&str> = outputs.iter().map(String::as_str).collect();
     let entries = entries(root, &Filter::new(&ignore_text, &outputs))?;
     let part = out.with_file_name(format!("{ARCHIVE}.part"));
@@ -169,10 +165,7 @@ fn utf8_name(folder: &Path, name: std::ffi::OsString) -> io::Result<String> {
 /// Removes the run's archive once the run is down: nothing is left to copy it to.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     let path: PathBuf = cx.run.runner.store.run_dir(cx.run.name())?.join(ARCHIVE);
-    match std::fs::remove_file(&path) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(Error::io(&path, "removed")(e)),
-        _ => Ok(()),
-    }
+    crate::store::if_there(std::fs::remove_file(&path)).map(drop).map_err(Error::io(&path, "removed"))
 }
 
 #[cfg(test)]

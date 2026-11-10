@@ -62,10 +62,7 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     for d in super::every_delivery(cx.run.manifest()) {
         if let Delivery::StateFile { path, .. } = d {
             let target = dir.join(path.as_str());
-            match std::fs::remove_file(&target) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Error::io(&target, "removed")(e)),
-                _ => {}
-            }
+            crate::store::if_there(std::fs::remove_file(&target)).map_err(Error::io(&target, "removed"))?;
         }
     }
     Ok(())

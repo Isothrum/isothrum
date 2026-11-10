@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Error;
 use crate::executor::Cx;
+use crate::store::if_there;
 
 /// The copy, in the run's state folder.
 pub(super) const COPY: &str = "module";
@@ -51,11 +52,7 @@ pub(super) fn inside_project(dir: &Path, step: &str, from: &str) -> crate::Resul
         at: format!("{step}.with.from"),
         reason: format!("`{from}` isn't a folder inside the run's project"),
     };
-    let resolve = |path: PathBuf| match std::fs::canonicalize(&path) {
-        Ok(resolved) => Ok(Some(resolved)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::io(path, "resolved")(e)),
-    };
+    let resolve = |path: PathBuf| if_there(std::fs::canonicalize(&path)).map_err(Error::io(path, "resolved"));
     let project = resolve(crate::container::run_root(dir).to_path_buf())?.ok_or_else(outside)?;
     let source = resolve(dir.join(from))?.ok_or_else(outside)?;
     if source.starts_with(&project) && source.is_dir() {
@@ -67,10 +64,8 @@ pub(super) fn inside_project(dir: &Path, step: &str, from: &str) -> crate::Resul
 
 /// Whether `dir` holds a Terraform file; a folder that isn't there holds none.
 pub(super) fn has_terraform_files(dir: &Path) -> crate::Result<bool> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(Error::io(dir, "read")(e)),
+    let Some(entries) = if_there(std::fs::read_dir(dir)).map_err(Error::io(dir, "read"))? else {
+        return Ok(false);
     };
     for entry in entries {
         if is_terraform_file(&entry.map_err(Error::io(dir, "read"))?.path()) {

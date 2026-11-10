@@ -86,9 +86,8 @@ pub(crate) fn if_there<T>(read: io::Result<T>) -> io::Result<Option<T>> {
 /// Removes `path`, a file or a folder with all it holds; nothing there is fine. A symbolic link
 /// (a Windows junction too) is removed itself, never followed.
 pub(crate) fn remove_path(path: &Path) -> io::Result<()> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        other => other?,
+    let Some(meta) = if_there(std::fs::symlink_metadata(path))? else {
+        return Ok(());
     };
     let done = if meta.file_type().is_symlink() {
         // A link to a folder is a folder entry on Windows: removed as one there.
@@ -98,10 +97,7 @@ pub(crate) fn remove_path(path: &Path) -> io::Result<()> {
     } else {
         std::fs::remove_file(path)
     };
-    match done {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        other => other,
-    }
+    if_there(done).map(drop)
 }
 
 /// Opens (creating when missing) `path` for writing without truncating it, owner-only: a lock file.

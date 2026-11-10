@@ -241,10 +241,8 @@ impl Store {
 /// `path`'s lines, as bytes: a log cut short (a full disk, a killed process) can end mid-character,
 /// and that line is one like any other. None when the file doesn't exist.
 fn read_lines(path: &Path) -> Result<Vec<Vec<u8>>> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(Error::io(path, "read")(e)),
+    let Some(bytes) = if_there(std::fs::read(path)).map_err(Error::io(path, "read"))? else {
+        return Ok(Vec::new());
     };
     let body = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
     if body.is_empty() {

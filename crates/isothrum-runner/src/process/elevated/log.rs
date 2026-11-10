@@ -17,10 +17,8 @@ pub(super) struct LogReader {
 impl LogReader {
     /// Hands `on_line` every whole line `log` gained since the last read.
     pub(super) fn read(&mut self, log: &Path, on_line: OnLine<'_>) -> std::io::Result<()> {
-        let mut f = match std::fs::File::open(log) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e),
+        let Some(mut f) = crate::store::if_there(std::fs::File::open(log))? else {
+            return Ok(());
         };
         std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(self.offset))?;
         let mut bytes = Vec::new();
