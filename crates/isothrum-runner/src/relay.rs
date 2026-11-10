@@ -156,15 +156,29 @@ where
 /// Whether a run needs the relays: on macOS, Vagrant on an ESXi host (`provider`), whose address
 /// (`params`' `ESXI_HOSTNAME`) isn't this machine. The host and its SSH port (`ESXI_HOSTPORT`,
 /// else 22), when it does.
+///
+/// # Errors
+///
+/// [`crate::Error::Param`] when the run needs the relays and `ESXI_HOSTPORT` isn't a port.
 pub(crate) fn esxi_host<'a>(
     macos: bool,
     vagrant: bool,
     provider: Option<&str>,
     params: &'a std::collections::BTreeMap<String, String>,
-) -> Option<(&'a str, u16)> {
-    let host = params.get(HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h))?;
-    let port = params.get(HOSTPORT).and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_SSH_PORT);
-    (macos && vagrant && provider == Some(crate::encoding::wire_name(&isoloom_manifest::Provider::VmwareEsxi).as_str())).then_some((host, port))
+) -> crate::Result<Option<(&'a str, u16)>> {
+    let esxi = provider == Some(crate::encoding::wire_name(&isoloom_manifest::Provider::VmwareEsxi).as_str());
+    let host = params.get(HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h));
+    let Some(host) = host.filter(|_| macos && vagrant && esxi) else {
+        return Ok(None);
+    };
+    let port = match params.get(HOSTPORT) {
+        None => DEFAULT_SSH_PORT,
+        Some(port) => port.parse().map_err(|_| crate::Error::Param {
+            name: HOSTPORT.to_owned(),
+            reason: format!("`{port}` isn't a port"),
+        })?,
+    };
+    Ok(Some((host, port)))
 }
 
 /// The relays to ESXi host `host` (its SSH on `ssh_port`, its HTTPS, WinRM to its guests), and
@@ -272,20 +286,31 @@ mod tests {
     #[test]
     fn only_vagrant_on_an_esxi_host_from_macos_is_relayed() {
         let p = params("10.0.0.5");
-        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &p), Some(("10.0.0.5", 22)));
+        let host = |macos, vagrant, provider, params| esxi_host(macos, vagrant, provider, params).unwrap();
+        assert_eq!(host(true, true, Some("vmware_esxi"), &p), Some(("10.0.0.5", 22)));
         let mut on_2222 = p.clone();
         on_2222.insert(HOSTPORT.to_owned(), "2222".to_owned());
-        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &on_2222), Some(("10.0.0.5", 2222)));
-        assert_eq!(esxi_host(false, true, Some("vmware_esxi"), &p), None, "not on Linux or Windows");
-        assert_eq!(esxi_host(true, false, Some("vmware_esxi"), &p), None, "not Terraform");
-        assert_eq!(esxi_host(true, true, Some("virtualbox"), &p), None);
-        assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &BTreeMap::new()), None);
+        assert_eq!(host(true, true, Some("vmware_esxi"), &on_2222), Some(("10.0.0.5", 2222)));
+        assert_eq!(host(false, true, Some("vmware_esxi"), &p), None, "not on Linux or Windows");
+        assert_eq!(host(true, false, Some("vmware_esxi"), &p), None, "not Terraform");
+        assert_eq!(host(true, true, Some("virtualbox"), &p), None);
+        assert_eq!(host(true, true, Some("vmware_esxi"), &BTreeMap::new()), None);
+    }
+
+    /// Regression: a port that didn't parse was 22, and the relays pointed at the wrong port.
+    #[test]
+    fn an_ssh_port_that_isnt_a_port_is_a_param_error() {
+        let mut p = params("10.0.0.5");
+        p.insert(HOSTPORT.to_owned(), "22a".to_owned());
+        let err = esxi_host(true, true, Some("vmware_esxi"), &p).unwrap_err();
+        assert_eq!(err.to_string(), "param `ESXI_HOSTPORT`: `22a` isn't a port");
+        assert_eq!(esxi_host(true, true, Some("virtualbox"), &p).unwrap(), None, "unread when no relay is needed");
     }
 
     #[test]
     fn a_host_on_this_machine_is_never_relayed() {
         for host in ["127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]", "0.0.0.0", ""] {
-            assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &params(host)), None, "{host}");
+            assert_eq!(esxi_host(true, true, Some("vmware_esxi"), &params(host)).unwrap(), None, "{host}");
         }
         assert!(!is_this_machine("10.0.0.5") && !is_this_machine("esxi.lan") && !is_this_machine("[fd00::5]"));
     }
