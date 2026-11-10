@@ -37,7 +37,8 @@ and `--secret-from-env`.
   Every event of an operation still has both.
 - The warning code `hook_failed` is gone.
 - New error codes: `cancelled`, `usage`, `machine_ambiguous`, `network_unknown`. New warning
-  codes: `output_unformatted`, `record_not_saved`, `already_gone`.
+  codes: `output_unformatted`, `record_not_saved`, `already_gone`, `cleanup_failed` (a clean-up the
+  runner does on its own failed; `step_tolerated` is now a tolerated manifest step's only).
 - `elevation_declined` is renamed `elevation_failed` (`ErrorCode::ElevationFailed`): it also
   covers an elevated session that didn't start or ended early.
 - Codes that were `unsupported` and now say what is wrong: an `attach` that names none of the
@@ -74,6 +75,7 @@ and `--secret-from-env`.
 | `process::fake::{FakeProcesses, Reply, Call}` | `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (feature `fake`); `Call` is `ProcessSpec`. |
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |
 | `RunnerConfig::with_processes`, `with_ports`, `with_clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's. |
+| `Captured::exit: Option<Exit>`, `Captured: Default` | `Captured::exit: Exit` (a process that ran always has one); `Captured` no longer implements `Default`. |
 | `RunnerConfig::path: Option<String>` | `Option<OsString>`: a `PATH` that isn't UTF-8 is kept. |
 | `AccessPick`, `AttachReport` built with struct literals | Both are `#[non_exhaustive]`. |
 
@@ -111,8 +113,8 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
 - `Provider::Proxmox` and the cloud providers (`Aws`, `Azure`, `Gcp`, `DigitalOcean`, `Linode`,
   `Oci`, `Provider::is_cloud`) are gone: those are Terraform targets, not Vagrant providers.
 - `ProviderStatus::available` is gone: read `reason.is_none()`. Its `remote`, `hypervisor`,
-  `plugin`, `plugin_installed`, `hypervisor_version` and `plugin_version` are gone: `reason` says
-  what is missing or too old.
+  `plugin` and `plugin_installed` are gone: `reason` says what is missing or
+  too old.
 - `Serialize` and `Deserialize` on `ProviderStatus` are gone (`Provider`, Isoloom's, keeps them).
 - Gone with no user: the self-tests, the system report, `Dirs`, `Error`, `Result`, the download
   record (`storage::*`), `Provider::ALL`, `Provider::is_remote` and the
