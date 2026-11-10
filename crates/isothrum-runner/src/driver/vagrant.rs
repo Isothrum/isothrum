@@ -3,10 +3,12 @@
 //! with `VAGRANT_DOTFILE_PATH` at the manifest's `identity.vagrant.dotfile` (the run's state
 //! folder), so a replaced run folder never loses track of its VMs. Its actions run the native
 //! commands each one names; its status is `lifecycle.status` (`vagrant status --machine-readable`)
-//! matched to the manifest's machines by their define names.
+//! matched to the manifest's machines by their define names, read again while another Vagrant
+//! process holding a machine's lock refuses it ([`lock`]).
 
 mod actions;
 pub(super) mod forwarded;
+mod lock;
 mod orphans;
 mod status;
 
@@ -201,7 +203,7 @@ impl Driver for Vagrant {
     }
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
-        let out = super::status_report(cx).await?;
+        let out = lock::status(cx).await?;
         let read = status::parse(&out);
         let guests = if cx.scope.runs_on(Provider::VmwareEsxi) {
             Some(self.guest_addresses(cx, &read).await)

@@ -162,22 +162,38 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
     if out.succeeded() {
         return Ok(out.stdout.join("\n"));
     }
-    let reason = format!("`{}` failed: {}", spec.line(), why_failed(&out));
-    Err(Error::ToolFailed {
+    Err(call_failed(cx, id, spec, &out))
+}
+
+/// The error of `spec`, the step `id`'s own call, that ended as `out`, a failure.
+pub(crate) fn call_failed(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Error {
+    let reason = format!("`{}` failed: {}", spec.line(), why_failed(out));
+    Error::ToolFailed {
         step: id.to_owned(),
         reason: cx.events.mask(&reason),
-    })
+    }
 }
 
 /// Runs argv step `step` without events, returning its standard output: a read-only probe
 /// (`lifecycle.status`).
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
+    let out = capture_output(cx, list, step).await?;
+    step_stdout(cx, step, &out)
+}
+
+/// Runs argv step `step` without events: how it ended, a failure included (the caller's to
+/// judge). A missing tool and a timeout are errors.
+pub(crate) async fn capture_output(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Captured> {
     let spec = spec_for(cx, list, step)?;
     let progress = Progress::new();
     let run = progress.capture(cx.processes.as_ref(), &spec);
-    let out = timed(step, &cx.scope, &progress, run).await.map_err(|e| masked(cx, e))?;
+    timed(step, &cx.scope, &progress, run).await.map_err(|e| masked(cx, e))
+}
+
+/// The standard output of step `step`, which ended as `out`; its failure, unless it exited 0.
+pub(crate) fn step_stdout(cx: &Cx<'_>, step: &Step, out: &Captured) -> Result<String> {
     if !out.succeeded() {
-        let reason = why_failed(&out);
+        let reason = why_failed(out);
         return Err(Error::ToolFailed {
             step: step.id.to_string(),
             reason: cx.events.mask(&reason),

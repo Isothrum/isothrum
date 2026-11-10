@@ -49,6 +49,11 @@ struct Engine {
     ssh_config_fails: bool,
     /// The VMs a regenerated Vagrantfile defines beyond the fixture's, which `vagrant up` brings up.
     added: Vec<String>,
+    /// How many `vagrant status` calls another Vagrant process's machine lock still refuses.
+    locked_reads: u32,
+    /// How many `vagrant halt <controller>` calls another Vagrant process's machine lock still
+    /// refuses.
+    locked_halts: u32,
 }
 
 struct Fixture {
@@ -146,6 +151,11 @@ fn record(dotfile: &Path, vm: &str, provider: &str) {
 fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
     let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
+    if call.program == "vagrant"
+        && let Some(refused) = locked_out(&mut e, &args)
+    {
+        return refused;
+    }
     match (call.program.as_str(), args.as_slice()) {
         ("vagrant", ["--version"]) => Reply::ok(&format!("Vagrant {}", e.version.as_deref().unwrap_or("2.4.9"))),
         ("VBoxManage", ["--version"]) => Reply::ok("7.2.20r175154"),
@@ -195,6 +205,49 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
         ("VBoxManage", rest) => vboxmanage(&mut e, rest),
         _ => Reply::ok(""),
     }
+}
+
+/// Vagrant's refusal of `args` while another process holds a machine's lock, as long as the
+/// engine says it still does.
+fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
+    match args {
+        ["status", ..] if e.locked_reads > 0 => {
+            e.locked_reads -= 1;
+            Some(Reply {
+                stdout: locked_status("web"),
+                code: 1,
+                ..Reply::default()
+            })
+        }
+        ["halt", CONTROLLER] if e.locked_halts > 0 => {
+            e.locked_halts -= 1;
+            Some(Reply::fail(1, &locked_halt(CONTROLLER)))
+        }
+        _ => None,
+    }
+}
+
+/// What `vagrant status --machine-readable` prints on Hyper-V when another Vagrant process
+/// holds `vm`'s lock (seen on karen while `vagrant global-status --prune` read the run's VMs).
+fn locked_status(vm: &str) -> Vec<String> {
+    let said = format!(
+        "An action 'read_state' was attempted on the machine '{vm}'%!(VAGRANT_COMMA)\\nbut another process is already executing \
+         an action on the machine.\\nVagrant locks each machine for access by only one process at a time."
+    );
+    vec![
+        "1794307172,isoloom-controller,action,read_state,start".to_owned(),
+        "1794307174,isoloom-controller,action,read_state,end".to_owned(),
+        format!("1794307174,,ui,error,{said}"),
+        format!("1794307174,,error-exit,Vagrant::Errors::MachineActionLockedError,{said}"),
+    ]
+}
+
+/// What `vagrant halt <vm>` prints when another Vagrant process holds `vm`'s lock.
+fn locked_halt(vm: &str) -> String {
+    format!(
+        "An action 'read_state' was attempted on the machine '{vm}',\nbut another process is already executing an action on the machine.\n\
+         Vagrant locks each machine for access by only one process at a time."
+    )
 }
 
 /// One VM booted alone on the run's provider (`vagrant up <vm> --provider=<p>`) and destroyed
@@ -520,16 +573,22 @@ async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
     assert!(discard < calls.iter().position(|l| l.starts_with("vagrant up --provider")).unwrap());
 }
 
-#[tokio::test]
-async fn a_controller_powering_itself_off_after_up_is_waited_for_not_warned_about() {
-    // Seen on libvirt: the halt after `up` races the controller's own poweroff and fails over SSH.
+/// A start once `set` made the engine so: it succeeds, with no step tolerated.
+async fn starts_without_a_tolerated_step(set: impl FnOnce(&mut Engine)) -> Fixture {
     let f = fixture(crate::runner::this_host());
-    f.engine().halt_fails = Some("shutoff");
+    set(&mut f.engine());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
     let said = serde_json::to_string(&events.events()).unwrap();
     assert!(!said.contains("step_tolerated"), "{said}");
+    f
+}
+
+#[tokio::test]
+async fn a_controller_powering_itself_off_after_up_is_waited_for_not_warned_about() {
+    // Seen on libvirt: the halt after `up` races the controller's own poweroff and fails over SSH.
+    let f = starts_without_a_tolerated_step(|e| e.halt_fails = Some("shutoff")).await;
     assert_eq!(f.state(CONTROLLER), "shutoff");
 }
 
@@ -622,6 +681,48 @@ async fn a_controller_no_halt_stops_is_a_warning_after_up() {
     assert!(
         said.contains("step_tolerated") && said.contains("`vagrant halt isoloom-controller` failed: SSH connection was refused!"),
         "{said}"
+    );
+}
+
+/// Regression: on Hyper-V, reading a VM's state takes its Vagrant lock, and a `vagrant status`
+/// that came while another process read the run's VMs (the launcher's `vagrant global-status
+/// --prune`) was refused at once (`MachineActionLockedError`), failing the start. The read is
+/// tried again until the lock is free.
+#[tokio::test(start_paused = true)]
+async fn a_status_read_another_vagrant_process_locked_out_is_read_again() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().locked_reads = 3;
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.engine().locked_reads, 0);
+    let status = run.status().await.unwrap();
+    assert_eq!(status.state, RunState::Ready);
+}
+
+/// A lock held past [`super::lock::PATIENCE`] is no passing read: the start fails with Vagrant's
+/// own error, having asked a bounded number of times.
+#[tokio::test(start_paused = true)]
+async fn a_lock_held_past_the_patience_still_fails_the_read() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().locked_reads = u32::MAX;
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert!(err.to_string().contains("MachineActionLockedError"), "{err}");
+    let reads = f.fake.lines().iter().filter(|l| l.starts_with("vagrant status")).count();
+    assert!((2..=31).contains(&reads), "{reads} reads");
+}
+
+/// The controller's halt refused for another Vagrant process's lock did nothing: it is tried again
+/// rather than waited out as a controller powering itself off.
+#[tokio::test(start_paused = true)]
+async fn a_controller_halt_another_vagrant_process_locked_out_is_tried_again() {
+    let f = starts_without_a_tolerated_step(|e| e.locked_halts = 2).await;
+    assert_eq!(f.state(CONTROLLER), "poweroff");
+    assert_eq!(
+        f.vagrant().iter().filter(|l| *l == "vagrant halt isoloom-controller").count(),
+        3,
+        "{:?}",
+        f.vagrant()
     );
 }
 

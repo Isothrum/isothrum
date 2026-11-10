@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use isoloom_manifest::{Provider, SnakeName, Step, Template};
 
-use super::{READ_LIMIT, Vagrant};
+use super::{READ_LIMIT, Vagrant, lock};
 use crate::Result;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
-use crate::executor::{Cx, Echo, call, call_ok, plan};
+use crate::executor::{Cx, Echo, call, call_failed, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
 
 /// How long the clean-up destroy of a record on another provider may go without progress (as
@@ -191,13 +191,14 @@ const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the c
 /// it powers itself off at the end of its play, and a `vagrant halt` racing that fails: on ESXi,
 /// which refuses to shut down a VM already off, that is done at once; elsewhere (libvirt can no
 /// longer reach it over SSH) a failed halt is waited for, up to [`HALT_POLLS`] times two
-/// seconds, and counts as done once the controller is off. The halt's lines reach the log once
-/// it is over, so ESXi's refusal never shows as an error.
+/// seconds, and counts as done once the controller is off. A halt another Vagrant process's lock
+/// refused is tried again first ([`lock`]). The halt's lines reach the log once it is over, so
+/// ESXi's refusal never shows as an error.
 pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
     let machine = controller(cx, step, with)?;
     let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
-    let halt = call(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
+    let halt = lock::call_unlocked(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
     if !halted && already_off(&halt) {
         cx.events.log(id, Stream::Stdout, &format!("{machine} was already off."));
@@ -244,6 +245,9 @@ fn controller(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) ->
 /// Whether Vagrant reads `machine` as running.
 async fn running(v: &Vagrant, cx: &Cx<'_>, id: &str, machine: &str) -> Result<bool> {
     let spec = v.vagrant(cx, id, &["status", machine, "--machine-readable"])?;
-    let status = call_ok(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
-    Ok(super::status::parse(&status).states.get(machine).map(String::as_str) == Some("running"))
+    let read = lock::call_unlocked(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
+    if !read.succeeded() {
+        return Err(call_failed(cx, id, &spec, &read));
+    }
+    Ok(super::status::parse(&read.stdout.join("\n")).states.get(machine).map(String::as_str) == Some("running"))
 }

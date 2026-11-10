@@ -101,7 +101,7 @@ fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
 
 /// Runs the action for step `step`.
 pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
-    let read = status::parse(&crate::driver::status_report(cx).await?);
+    let read = status::parse(&super::lock::status(cx).await?);
     if read.states.values().any(|s| status::machine_state(s) != MachineState::Absent) {
         tracing::debug!(step = %step.id, "the run's VMs exist: their forwards are its own");
         return Ok(());

@@ -37,6 +37,13 @@ change.
 
 ### Fixed
 
+- **A Vagrant run no longer fails because another process read its VMs at the wrong moment.**
+  Vagrant lets one process at a time act on a machine and refuses any other at once
+  (`MachineActionLockedError`); on Hyper-V even reading a VM's state is such an action. A
+  `vagrant global-status --prune` elsewhere (which reads every VM Vagrant knows) or a
+  `vagrant status` in a terminal could therefore make the run's own status read fail, and a start
+  with it. The run's status reads and the controller's halt are tried again, two seconds apart,
+  while that lock is all that refused them, for up to a minute.
 - **`project.archive` no longer puts a Terraform state or Isoloom's other outputs in the guest's
   copy.** The archive left out only `.git`, `.vagrant`, `.terraform` and the top's
   `.isoloom-project*`, plus what `.isoloomignore` listed, so a `*.tfstate` (the secrets Terraform
