@@ -249,7 +249,7 @@ fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its
     config.path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
     let runner = Runner::new(config).unwrap();
     let run = runner.open(&folder.manifest, None).unwrap();
-    let handed: Vec<(String, String)> = run.elevated_env().collect();
+    let handed = run.elevated_env();
     assert_eq!(
         handed,
         [

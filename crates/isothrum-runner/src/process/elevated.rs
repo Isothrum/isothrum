@@ -84,15 +84,16 @@ impl std::fmt::Debug for Elevated {
 }
 
 impl Elevated {
-    /// A session under `root` (the run's state), its calls otherwise through `inner`; `own` is this
-    /// process's environment, whose `PATH`, Vagrant and network variables the broker gets.
-    pub(crate) fn new(inner: Arc<dyn ProcessRunner>, root: PathBuf, own: impl IntoIterator<Item = (String, String)>) -> Elevated {
+    /// A session under `root` (the run's state), its calls otherwise through `inner`; the broker,
+    /// which inherits no environment, gets `forwarded` with each request
+    /// ([`HostEnv::for_elevation`](crate::host_env::HostEnv::for_elevation)).
+    pub(crate) fn new(inner: Arc<dyn ProcessRunner>, root: PathBuf, forwarded: Vec<(String, String)>) -> Elevated {
         Elevated {
             inner,
             root,
             session: Mutex::new(Session::Unchecked),
             next: AtomicU64::new(1),
-            forwarded: forwarded(own),
+            forwarded,
         }
     }
 
@@ -302,29 +303,6 @@ fn refusal(spec: &ProcessSpec) -> Option<String> {
 /// Whether `whoami /groups /fo csv /nh` lists a group that may manage Hyper-V.
 fn may_manage(groups: &str) -> bool {
     groups.lines().any(|l| MAY_MANAGE.iter().any(|sid| l.contains(&format!("\"{sid}\""))))
-}
-
-/// The variables of `own` an elevated process needs: `PATH` (the tools found here are found
-/// there), every `VAGRANT_*`, `VAGRANT_HOME` pinned to this account's boxes, whoever approved,
-/// and the proxies and CA bundles (a box download goes out the way this account's does).
-fn forwarded(own: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut profile = None;
-    for (k, v) in own {
-        let upper = k.to_ascii_uppercase();
-        if upper == "USERPROFILE" {
-            profile = Some(v.clone());
-        }
-        if upper == "PATH" || upper.starts_with("VAGRANT_") || crate::network_env::is_network_var(&k) {
-            out.push((k, v));
-        }
-    }
-    if !out.iter().any(|(k, _)| k.eq_ignore_ascii_case("VAGRANT_HOME"))
-        && let Some(p) = profile
-    {
-        out.push(("VAGRANT_HOME".into(), format!("{}\\.vagrant.d", p.trim_end_matches(['\\', '/']))));
-    }
-    out
 }
 
 /// Request `n`'s file: the program, its arguments and folder, under the session's `token`. No

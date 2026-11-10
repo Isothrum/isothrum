@@ -36,6 +36,24 @@ impl HostEnv {
     pub(crate) fn vars(&self) -> impl Iterator<Item = (String, String)> + '_ {
         self.0.iter().cloned()
     }
+
+    /// What an elevated Hyper-V session's broker, which inherits nothing, is handed: the Vagrant
+    /// and network variables (a box download goes out the way this account's does), `path` as
+    /// `PATH` (the tools found here are found there), and `VAGRANT_HOME` pinned to this account's
+    /// boxes, whoever approved the prompt, when none is set.
+    pub(crate) fn for_elevation(&self, path: Option<&str>) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .vars()
+            .filter(|(k, _)| k.to_ascii_uppercase().starts_with("VAGRANT_") || is_network_var(k))
+            .collect();
+        out.extend(path.map(|p| ("PATH".to_owned(), p.to_owned())));
+        if self.get("VAGRANT_HOME").is_none()
+            && let Some(profile) = self.get("USERPROFILE")
+        {
+            out.push(("VAGRANT_HOME".into(), format!("{}\\.vagrant.d", profile.trim_end_matches(['\\', '/']))));
+        }
+        out
+    }
 }
 
 /// Names only: the values may hold a proxy's credentials.
@@ -73,6 +91,28 @@ mod tests {
         assert_eq!(env.get("AWS_SECRET_ACCESS_KEY"), None);
         let shown = format!("{env:?}");
         assert!(shown.contains("HTTPS_PROXY") && !shown.contains("pw@"), "{shown}");
+    }
+
+    #[test]
+    fn an_elevated_session_gets_the_path_vagrants_and_the_networks_variables() {
+        let env = HostEnv::of([
+            ("HTTPS_PROXY", "http://proxy.corp:3128"),
+            ("TF_CLI_CONFIG_FILE", "C:\\terraformrc"),
+            ("USERPROFILE", "C:\\Users\\ada\\"),
+            ("VAGRANT_LOG", "info"),
+        ]);
+        assert_eq!(
+            env.for_elevation(Some("C:\\HashiCorp\\Vagrant\\bin")),
+            [
+                ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
+                ("VAGRANT_LOG".to_owned(), "info".to_owned()),
+                ("PATH".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
+                ("VAGRANT_HOME".to_owned(), "C:\\Users\\ada\\.vagrant.d".to_owned()),
+            ],
+            "Terraform's and the profile's own aren't Vagrant's"
+        );
+        let own_home = HostEnv::of([("VAGRANT_HOME", "D:\\boxes"), ("USERPROFILE", "C:\\Users\\ada")]);
+        assert_eq!(own_home.for_elevation(None), [("VAGRANT_HOME".to_owned(), "D:\\boxes".to_owned())]);
     }
 
     #[test]

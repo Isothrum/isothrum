@@ -234,11 +234,11 @@ impl<'r> Running<'r> {
         Ok(cx)
     }
 
-    /// What an elevated session is handed of the runner's environment: the variables it hands on,
-    /// and its `PATH`.
-    pub(crate) fn elevated_env(&self) -> impl Iterator<Item = (String, String)> + '_ {
+    /// What an elevated session is handed of the environment the runner read when it was
+    /// configured ([`RunnerConfig::host_env`](crate::RunnerConfig) and its `PATH`).
+    pub(crate) fn elevated_env(&self) -> Vec<(String, String)> {
         let config = &self.runner.config;
-        config.host_env.vars().chain(config.path.clone().map(|p| ("PATH".to_owned(), p)))
+        config.host_env.for_elevation(config.path.as_deref())
     }
 
     /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet

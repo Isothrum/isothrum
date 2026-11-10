@@ -68,15 +68,15 @@ fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakePr
         ("powershell", start),
         ("vagrant status", Reply::ok("direct")),
     ]));
-    let own = [
-        ("Path".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
-        ("USERPROFILE".to_owned(), "C:\\Users\\ada".to_owned()),
-        ("API_TOKEN".to_owned(), "x".to_owned()),
-        ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
-        ("no_proxy".to_owned(), ".corp".to_owned()),
-        ("SSL_CERT_FILE".to_owned(), "C:\\certs\\corp.pem".to_owned()),
-    ];
-    let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), own);
+    let own = crate::host_env::HostEnv::of([
+        ("USERPROFILE", "C:\\Users\\ada"),
+        ("API_TOKEN", "x"),
+        ("HTTPS_PROXY", "http://proxy.corp:3128"),
+        ("no_proxy", ".corp"),
+        ("SSL_CERT_FILE", "C:\\certs\\corp.pem"),
+    ]);
+    let forwarded = own.for_elevation(Some("C:\\HashiCorp\\Vagrant\\bin"));
+    let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), forwarded);
     (home, fake, e)
 }
 
@@ -111,7 +111,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     assert_eq!(lines[..2], ["vagrant up".to_owned(), "==> dc01: Booting VM...".to_owned()]);
     let env = &lines[2];
     assert!(
-        env.contains("Path=C:\\HashiCorp\\Vagrant\\bin") && env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
+        env.contains("PATH=C:\\HashiCorp\\Vagrant\\bin") && env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
         "{env}"
     );
     assert!(env.contains("DEMO_SECRET=token-x") && !env.contains("API_TOKEN"), "only what it needs: {env}");
@@ -320,7 +320,7 @@ async fn an_answer_that_cant_be_read_fails_the_request() {
 async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
     let home = tempfile::tempdir().unwrap();
     let fake = Arc::new(FakeProcesses::rules(&[("whoami", Reply::missing()), ("powershell", Reply::ok(""))]));
-    let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), []);
+    let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), Vec::new());
     let broker = tokio::spawn(broker(e.root.clone(), "ran", 0));
     let ((exit, _), traced) = crate::testing::traced(lines_of(&e, &ProcessSpec::new("vagrant", ["status"]))).await;
     assert!(exit.unwrap().success());
@@ -369,7 +369,11 @@ impl ProcessRunner for NotAdmin {
 #[ignore = "starts an elevated PowerShell: a UAC prompt where UAC is on"]
 async fn a_real_broker_runs_a_command_elevated_and_reads_back_its_exit() {
     let home = tempfile::tempdir().unwrap();
-    let e = Elevated::new(Arc::new(NotAdmin(crate::process::SystemProcesses::default())), home.path().join("elevated"), []);
+    let e = Elevated::new(
+        Arc::new(NotAdmin(crate::process::SystemProcesses::default())),
+        home.path().join("elevated"),
+        Vec::new(),
+    );
     let script = "echo hello & whoami /groups /fo csv /nh | findstr S-1-16-12288 & exit 3";
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("cmd", ["/c", script])).await;
     assert_eq!(exit.unwrap().code, Some(3), "{lines:?}");
