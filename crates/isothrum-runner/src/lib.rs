@@ -105,6 +105,7 @@ mod checks;
 mod clock;
 mod console;
 mod container;
+mod contract;
 mod driver;
 mod encoding;
 mod error;

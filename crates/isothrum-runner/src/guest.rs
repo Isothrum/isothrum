@@ -8,7 +8,7 @@
 //! - **Where:** the machine's address is the output `address_<machine>` (its `-` written `_`),
 //!   its login the output `ssh_user_<machine>`, else `ssh_user`, else `root`; through the run's SSH
 //!   jump.
-//! - **How:** one SSH session per machine runs [`RECEIVE`] as root; its standard input holds one
+//! - **How:** one SSH session per machine runs [`receive`] as root; its standard input holds one
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
 //!   folder removed right after (a removal that fails, fails the step), or as soon as the
 //!   operation is cut short. A value is never on a command line nor in an event.
@@ -23,17 +23,22 @@ use std::time::Duration;
 use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
+use crate::contract::{DELIVERED, SECRETS_DIR};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call, stdout_of};
 use crate::secrets::SecretValue;
 use crate::ssh::{self, Login};
 
 /// What runs as root on the machine: each `<name> <base64>` line of its input kept owner-only
-/// under `/var/lib/isoloom/secrets/<name>` (a name of letters, digits, `_` and `-` only), then the
-/// mark the set-up waits for.
-pub(crate) const RECEIVE: &str = "set -e; umask 077; d=/var/lib/isoloom/secrets; mkdir -p \"$d\"; chmod 700 \"$d\"; \
+/// under [`SECRETS_DIR`]`/<name>` (a name of letters, digits, `_` and `-` only), then the mark the
+/// set-up waits for ([`DELIVERED`]).
+fn receive() -> String {
+    format!(
+        "set -e; umask 077; d={SECRETS_DIR}; mkdir -p \"$d\"; chmod 700 \"$d\"; \
 while read -r n v; do case \"$n\" in ''|*[!A-Za-z0-9_-]*) echo \"isothrum: a secret's name is refused\" >&2; exit 2;; esac; \
-printf %s \"$v\" | base64 -d > \"$d/$n.new\"; mv -f \"$d/$n.new\" \"$d/$n\"; done; touch \"$d/.delivered\"";
+printf %s \"$v\" | base64 -d > \"$d/$n.new\"; mv -f \"$d/$n.new\" \"$d/$n\"; done; touch {DELIVERED}"
+    )
+}
 
 /// How long SSH may fail to connect before the delivery fails.
 const PATIENCE: Duration = Duration::from_secs(900);
@@ -95,7 +100,7 @@ fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str
     out
 }
 
-/// One machine's delivery: `lines` piped into [`RECEIVE`] at `login`, retried while SSH can't
+/// One machine's delivery: `lines` piped into [`receive`] at `login`, retried while SSH can't
 /// connect.
 async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> Result<()> {
     let id = format!("guest-{machine}");
@@ -155,12 +160,12 @@ impl Drop for Input {
     }
 }
 
-/// Pipes `input` into [`RECEIVE`], run as root at `login` for the step `id`: tried again while SSH
+/// Pipes `input` into [`receive`], run as root at `login` for the step `id`: tried again while SSH
 /// can't connect, for [`PATIENCE`]; any other failure, or SSH still not connecting then, fails the
 /// step with why.
 async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(RECEIVE)), Vec::new())?;
+    let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", ssh::sh_quote(&receive())), Vec::new())?;
     spec.stdin = Some(input.to_path_buf());
     let mut retrying = ssh::Retrying::until(deadline);
     let out = loop {

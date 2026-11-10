@@ -26,15 +26,6 @@ use crate::process::ProcessSpec;
 use crate::status::MachineStatus;
 use crate::vars::PortKey;
 
-/// The env var naming the host ports a run forwards from this computer, as a JSON object
-/// `{"<machine>/<port>": <host port>}`. A driver that chooses its own host ports (Vagrant,
-/// locally) sets it on a fresh start; the Vagrantfile reads it, defaulting each to the port's
-/// `publish` number.
-pub(crate) const HOSTPORTS: &str = "ISOLOOM_HOSTPORTS";
-
-/// The param asking each published port for its own `preferred` number instead of a free one.
-pub(crate) const PUBLISH_FIXED: &str = "ISOLOOM_PUBLISH_FIXED";
-
 /// The label Compose puts on each container naming its service, which finds a service's
 /// container whatever project and file started it.
 pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";

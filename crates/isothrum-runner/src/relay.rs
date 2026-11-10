@@ -21,14 +21,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use self::http_proxy::{Targets, start_http_proxy};
-
-/// The params naming the ESXi host and its SSH port, in the Vagrantfiles Isoloom writes.
-const HOSTNAME: &str = "ESXI_HOSTNAME";
-const HOSTPORT: &str = "ESXI_HOSTPORT";
-/// The host's SSH port when `ESXI_HOSTPORT` doesn't say one.
-const DEFAULT_SSH_PORT: u16 = 22;
-/// What Vagrant's SSH to the guests goes through.
-const PROXY_COMMAND: &str = "ISOLOOM_SSH_PROXY_COMMAND";
+use crate::contract::{ESXI_DEFAULT_SSH_PORT, ESXI_HOSTNAME, ESXI_HOSTPORT, SSH_PROXY_COMMAND};
 
 /// A loopback port forwarding to one LAN endpoint while it lives.
 #[derive(Debug)]
@@ -167,14 +160,14 @@ pub(crate) fn esxi_host<'a>(
     params: &'a std::collections::BTreeMap<String, String>,
 ) -> crate::Result<Option<(&'a str, u16)>> {
     let relayed = vagrant && scope.host == isoloom_manifest::HostOs::Macos && scope.runs_on(isoloom_manifest::Provider::VmwareEsxi);
-    let host = params.get(HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h));
+    let host = params.get(ESXI_HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h));
     let Some(host) = host.filter(|_| relayed) else {
         return Ok(None);
     };
-    let port = match params.get(HOSTPORT) {
-        None => DEFAULT_SSH_PORT,
+    let port = match params.get(ESXI_HOSTPORT) {
+        None => ESXI_DEFAULT_SSH_PORT,
         Some(port) => port.parse().map_err(|_| crate::Error::Param {
-            name: HOSTPORT.to_owned(),
+            name: ESXI_HOSTPORT.to_owned(),
             reason: format!("`{port}` isn't a port"),
         })?,
     };
@@ -189,9 +182,9 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
     let ssh = start(host.to_owned(), ssh_port).await?;
     let https = start(host.to_owned(), 443).await?;
     let mut env = vec![
-        (HOSTNAME.to_owned(), "127.0.0.1".to_owned()),
-        (HOSTPORT.to_owned(), ssh.port.to_string()),
-        (PROXY_COMMAND.to_owned(), "/usr/bin/nc %h %p".to_owned()),
+        (ESXI_HOSTNAME.to_owned(), "127.0.0.1".to_owned()),
+        (ESXI_HOSTPORT.to_owned(), ssh.port.to_string()),
+        (SSH_PROXY_COMMAND.to_owned(), "/usr/bin/nc %h %p".to_owned()),
     ];
     // Windows guests: Vagrant's WinRM (plain HTTP to the guest) through the proxy. The one
     // override that is required: WinRM reaches a guest only through `http_proxy`, and only this
@@ -290,7 +283,7 @@ mod tests {
     }
 
     fn params(host: &str) -> BTreeMap<String, String> {
-        BTreeMap::from([(HOSTNAME.to_owned(), host.to_owned())])
+        BTreeMap::from([(ESXI_HOSTNAME.to_owned(), host.to_owned())])
     }
 
     #[test]
@@ -299,7 +292,7 @@ mod tests {
         let host = |macos: bool, vagrant, provider: &str, params| esxi_host(&on(macos, provider), vagrant, params).unwrap();
         assert_eq!(host(true, true, "vmware_esxi", &p), Some(("10.0.0.5", 22)));
         let mut on_2222 = p.clone();
-        on_2222.insert(HOSTPORT.to_owned(), "2222".to_owned());
+        on_2222.insert(ESXI_HOSTPORT.to_owned(), "2222".to_owned());
         assert_eq!(host(true, true, "vmware_esxi", &on_2222), Some(("10.0.0.5", 2222)));
         assert_eq!(host(false, true, "vmware_esxi", &p), None, "not on Linux or Windows");
         assert_eq!(host(true, false, "vmware_esxi", &p), None, "not Terraform");
@@ -311,7 +304,7 @@ mod tests {
     #[test]
     fn an_ssh_port_that_isnt_a_port_is_a_param_error() {
         let mut p = params("10.0.0.5");
-        p.insert(HOSTPORT.to_owned(), "22a".to_owned());
+        p.insert(ESXI_HOSTPORT.to_owned(), "22a".to_owned());
         let err = esxi_host(&on(true, "vmware_esxi"), true, &p).unwrap_err();
         assert_eq!(err.to_string(), "param `ESXI_HOSTPORT`: `22a` isn't a port");
         assert_eq!(esxi_host(&on(true, "virtualbox"), true, &p).unwrap(), None, "unread when no relay is needed");
@@ -332,9 +325,9 @@ mod tests {
             .await
             .unwrap();
         let get = |k: &str| r.env.iter().rev().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        assert_eq!(get(HOSTNAME).as_deref(), Some("127.0.0.1"));
-        assert_ne!(get(HOSTPORT).as_deref(), Some("22"));
-        assert_eq!(get(PROXY_COMMAND).as_deref(), Some("/usr/bin/nc %h %p"));
+        assert_eq!(get(ESXI_HOSTNAME).as_deref(), Some("127.0.0.1"));
+        assert_ne!(get(ESXI_HOSTPORT).as_deref(), Some("22"));
+        assert_eq!(get(SSH_PROXY_COMMAND).as_deref(), Some("/usr/bin/nc %h %p"));
         assert!(get("http_proxy").is_some_and(|p| p.starts_with("http://127.0.0.1:")));
         assert_eq!(
             get("no_proxy").as_deref(),

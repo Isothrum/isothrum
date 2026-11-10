@@ -28,7 +28,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     pub(super) fn new(cx: &'c Cx<'a>) -> PortPick<'c, 'a> {
         PortPick {
             cx,
-            fixed: cx.vars.params().contains_key(crate::driver::PUBLISH_FIXED),
+            fixed: cx.vars.params().contains_key(crate::contract::PUBLISH_FIXED),
             held: Vec::new(),
             taken: BTreeSet::new(),
         }

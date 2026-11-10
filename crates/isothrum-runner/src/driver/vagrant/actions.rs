@@ -11,6 +11,7 @@ use isoloom_manifest::{Provider, SnakeName, Step, Template};
 
 use super::{READ_LIMIT, Vagrant, lock, status};
 use crate::Result;
+use crate::contract::{CONTROLLER, HALTING};
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::executor::{Cx, Echo, call, call_ok, plan};
@@ -22,12 +23,6 @@ use crate::store::if_there;
 /// every tool call's limit counts) before the record is dropped anyway (a wedged hypervisor must
 /// not hang a start).
 const RECONCILE_DESTROY_LIMIT: Duration = Duration::from_secs(180);
-
-/// The controller's define name.
-const CONTROLLER: &str = "isoloom-controller";
-
-/// What the controller holds while it powers itself off after its play.
-const HALTING: &str = "/run/isoloom-halting";
 
 /// How many times, two seconds apart, a controller whose halt failed is read before the halt
 /// counts as failed.
