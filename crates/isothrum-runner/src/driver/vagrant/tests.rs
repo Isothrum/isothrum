@@ -30,6 +30,8 @@ struct Engine {
     ups: Vec<(String, bool)>,
     /// VirtualBox's VMs, by name, with their state.
     vbox: BTreeMap<String, String>,
+    /// Parallels' VMs, by name; `None`: `prlctl list` fails.
+    parallels: Option<std::collections::BTreeSet<String>>,
     /// How many times the controller still says it halts.
     halting: u32,
     /// How many times SSH to the controller still fails on its way down (then it is off).
@@ -208,6 +210,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
         ),
         ("vagrant", rest) => vagrant(&mut e, call, rest),
         ("VBoxManage", rest) => vboxmanage(&mut e, rest),
+        ("prlctl", rest) => prlctl(&mut e, rest),
         _ => Reply::ok(""),
     }
 }
@@ -340,6 +343,20 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
         }
         ["provision", CONTROLLER, "--provision-with", "checks"] => {
             Reply::ok("    isoloom-controller: isoloom-check: PASS http://web/\n    isoloom-controller: isoloom-check: END 1 passed, 0 failed")
+        }
+        _ => Reply::ok(""),
+    }
+}
+
+fn prlctl(e: &mut Engine, args: &[&str]) -> Reply {
+    match args {
+        ["list", "-a", "--no-header", "-o", "name"] => match &e.parallels {
+            Some(vms) => Reply::ok(&vms.iter().cloned().collect::<Vec<_>>().join("\n")),
+            None => Reply::fail(1, "Failed to get the list of VMs: the Parallels service isn't running"),
+        },
+        ["delete", name] => {
+            e.parallels.as_mut().map(|vms| vms.remove(*name));
+            Reply::ok("")
         }
         _ => Reply::ok(""),
     }
@@ -517,6 +534,37 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-web-vm - web --delete"));
     assert_eq!(calls.iter().filter(|l| l.starts_with("vagrant up --provider")).count(), 2);
     assert!(f.engine().vbox.is_empty(), "the orphan is gone");
+}
+
+/// A run on Parallels whose `down` finds its VM still registered: `prlctl` stops and deletes it
+/// by its exact name, and leaves the others.
+#[tokio::test]
+async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
+    let f = fixture(HostOs::Macos);
+    f.engine().plugins.push("vagrant-parallels".into());
+    f.engine().parallels = Some(["web-vm - web", "web-vm-web", "mine"].map(String::from).into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+    run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    let calls = f.fake.lines();
+    assert!(calls.contains(&"prlctl stop web-vm - web --kill".to_owned()), "{calls:#?}");
+    assert_eq!(f.engine().parallels.clone().unwrap(), ["mine", "web-vm-web"].map(String::from).into());
+}
+
+/// Regression: a `prlctl list` that failed skipped the clean-up without a word.
+#[tokio::test]
+async fn a_hypervisor_listing_that_fails_is_traced_and_removes_nothing() {
+    let f = fixture(HostOs::Macos);
+    f.engine().plugins.push("vagrant-parallels".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+    let (down, traced) = crate::testing::traced(run.down(&RunOptions::new(), &Recorder::new())).await;
+    down.unwrap();
+    assert!(!f.fake.lines().iter().any(|l| l.starts_with("prlctl delete")));
+    assert!(
+        traced.contains("WARN") && traced.contains("couldn't be read") && traced.contains("the Parallels service isn't running"),
+        "{traced}"
+    );
 }
 
 #[tokio::test]

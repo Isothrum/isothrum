@@ -15,6 +15,7 @@ use crate::Result;
 use crate::events::WarningCode;
 use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
+use crate::store::if_there;
 
 /// Removes the run's orphaned VMs on its provider.
 pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
@@ -27,10 +28,23 @@ pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
     }
 }
 
-/// Runs `spec`, its failure only noted: each removal is best effort ("nothing there" is fine).
-async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<String>> {
+/// Runs `spec`, its failure only traced: each removal is best effort ("nothing there" is fine).
+async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<()> {
     let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
-    Ok(out.succeeded().then(|| out.stdout.join("\n")))
+    if let Err(reason) = out.output() {
+        tracing::debug!(call = spec.line(), reason, "a removal of an orphan failed (nothing there, or it can't be)");
+    }
+    Ok(())
+}
+
+/// What `spec`, a listing of the hypervisor's VMs or settings, prints; `None` when it fails,
+/// with a warning: no orphan it would have found is removed.
+async fn listed(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<String>> {
+    let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
+    Ok(out
+        .output()
+        .inspect_err(|reason| tracing::warn!(call = spec.line(), reason, "the hypervisor couldn't be read: no orphan it lists is removed"))
+        .ok())
 }
 
 /// VirtualBox: each registered VM of ours powered off and deleted (a saved one's state discarded
@@ -41,8 +55,8 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
     if wanted.is_empty() {
         return Ok(());
     }
-    if let Some(listed) = attempt(cx, step, &vboxmanage(&["list", "vms"])).await? {
-        for (name, uuid) in parse_vms(&listed).into_iter().filter(|(n, _)| wanted.contains(n)) {
+    if let Some(vms) = listed(cx, step, &vboxmanage(&["list", "vms"])).await? {
+        for (name, uuid) in parse_vms(&vms).into_iter().filter(|(n, _)| wanted.contains(n)) {
             cx.events
                 .warning(WarningCode::OrphanRemoved, &format!("removing a VM an earlier run left: {name}"));
             attempt(cx, step, &vboxmanage(&["discardstate", &uuid])).await?;
@@ -50,16 +64,21 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
             attempt(cx, step, &vboxmanage(&["unregistervm", &uuid, "--delete"])).await?;
         }
     }
-    let properties = attempt(cx, step, &vboxmanage(&["list", "systemproperties"])).await?;
-    if let Some(base) = properties.as_deref().and_then(machine_folder) {
-        for folder in leftover_folders(&base, &wanted) {
-            cx.events.warning(
-                WarningCode::OrphanRemoved,
-                &format!("removing a VM folder an earlier run left: {}", folder.display()),
-            );
-            if let Err(e) = crate::store::remove_path(&folder) {
-                cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", folder.display()));
-            }
+    let properties = listed(cx, step, &vboxmanage(&["list", "systemproperties"])).await?;
+    let Some(base) = properties.as_deref().and_then(machine_folder) else {
+        return Ok(());
+    };
+    let folders = leftover_folders(&base, &wanted).unwrap_or_else(|e| {
+        cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", base.display()));
+        Vec::new()
+    });
+    for folder in folders {
+        cx.events.warning(
+            WarningCode::OrphanRemoved,
+            &format!("removing a VM folder an earlier run left: {}", folder.display()),
+        );
+        if let Err(e) = crate::store::remove_path(&folder) {
+            cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", folder.display()));
         }
     }
     Ok(())
@@ -69,10 +88,10 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
 async fn parallels(cx: &Cx<'_>, step: &Step) -> Result<()> {
     let wanted: BTreeSet<String> = vm_names(cx, Provider::Parallels).into_iter().collect();
     let prlctl = |args: &[&str]| ProcessSpec::new("prlctl", args.iter().copied());
-    let Some(listed) = attempt(cx, step, &prlctl(&["list", "-a", "--no-header", "-o", "name"])).await? else {
+    let Some(vms) = listed(cx, step, &prlctl(&["list", "-a", "--no-header", "-o", "name"])).await? else {
         return Ok(());
     };
-    for name in listed.lines().map(str::trim).filter(|n| wanted.contains(*n)) {
+    for name in vms.lines().map(str::trim).filter(|n| wanted.contains(*n)) {
         cx.events
             .warning(WarningCode::OrphanRemoved, &format!("removing a VM an earlier run left: {name}"));
         attempt(cx, step, &prlctl(&["stop", name, "--kill"])).await?;
@@ -108,20 +127,27 @@ pub(super) fn folder_candidates(name: &str) -> [String; 2] {
     [name.to_owned(), name.replace('\u{00b7}', "-")]
 }
 
-/// The entries under `base` named exactly like one of `wanted`'s folders.
-pub(super) fn leftover_folders(base: &Path, wanted: &BTreeSet<String>) -> Vec<PathBuf> {
+/// The entries under `base` named exactly like one of `wanted`'s folders (none when `base` isn't
+/// there).
+///
+/// # Errors
+///
+/// `base`, or an entry of it, can't be read.
+pub(super) fn leftover_folders(base: &Path, wanted: &BTreeSet<String>) -> std::io::Result<Vec<PathBuf>> {
     let names: BTreeSet<String> = wanted.iter().flat_map(|n| folder_candidates(n)).collect();
-    let Ok(entries) = std::fs::read_dir(base) else {
-        return Vec::new();
+    let Some(entries) = if_there(std::fs::read_dir(base))? else {
+        return Ok(Vec::new());
     };
-    let mut out: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir() || t.is_symlink()))
-        .filter(|e| names.contains(e.file_name().to_string_lossy().as_ref()))
-        .map(|e| e.path())
-        .collect();
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if (kind.is_dir() || kind.is_symlink()) && names.contains(entry.file_name().to_string_lossy().as_ref()) {
+            out.push(entry.path());
+        }
+    }
     out.sort();
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -165,8 +191,10 @@ mod tests {
         }
         std::fs::write(base.path().join("minilab · dc01"), "a file, not a folder").unwrap();
         let wanted = BTreeSet::from(["minilab · dc01".to_owned()]);
-        assert_eq!(leftover_folders(base.path(), &wanted), [base.path().join("minilab - dc01")]);
-        assert_eq!(leftover_folders(&base.path().join("nope"), &wanted), Vec::<PathBuf>::new());
+        assert_eq!(leftover_folders(base.path(), &wanted).unwrap(), [base.path().join("minilab - dc01")]);
+        assert_eq!(leftover_folders(&base.path().join("nope"), &wanted).unwrap(), Vec::<PathBuf>::new());
+        // Regression: a machine folder that couldn't be read read as one with nothing left.
+        assert!(leftover_folders(&base.path().join("minilab · dc01"), &wanted).is_err(), "a file isn't a folder");
     }
 
     #[cfg(unix)]
@@ -177,7 +205,7 @@ mod tests {
         std::fs::write(elsewhere.path().join("keep.txt"), "x").unwrap();
         std::os::unix::fs::symlink(elsewhere.path(), base.path().join("minilab - dc01")).unwrap();
         let wanted = BTreeSet::from(["minilab · dc01".to_owned()]);
-        for f in leftover_folders(base.path(), &wanted) {
+        for f in leftover_folders(base.path(), &wanted).unwrap() {
             crate::store::remove_path(&f).unwrap();
         }
         assert!(elsewhere.path().join("keep.txt").is_file());

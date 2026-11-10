@@ -473,6 +473,9 @@ change.
   read as `<machine>/<port>` at `<address>:<port>` is still left out, and now traced.
 - **An elevated session that fails to start says why, as every failed tool does**: with its exit
   code, and its output when its error output is empty (it said nothing then).
+- **A Vagrant `down` says why it removed no orphaned VM.** A hypervisor listing that failed
+  (`VBoxManage list vms`, `prlctl list`) skipped the clean-up in silence; it is traced with why.
+  A VirtualBox machine folder that can't be read is a warning, not a folder with nothing left.
 
 ### Added
 
