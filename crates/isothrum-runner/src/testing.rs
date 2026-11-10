@@ -215,31 +215,46 @@ pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake:
     assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
 }
 
-/// What `f` traces while it runs (every level, as text), with what it gives.
+/// What `f` traces while it runs (every level, as text), with what it gives. One global test
+/// subscriber writes each event to the buffer of the thread that is capturing, if any: a
+/// subscriber set per test (`set_default`) races `tracing`'s global interest cache with the
+/// tests running beside it, and a test then sometimes captured nothing at all. `f` runs on this
+/// thread (a test's own current-thread runtime), so what it traces lands here.
 pub(crate) async fn traced<T>(f: impl Future<Output = T>) -> (T, String) {
-    #[derive(Clone, Default)]
-    struct Lines(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for Lines {
+    use std::cell::RefCell;
+    use std::sync::OnceLock;
+
+    thread_local! {
+        static CAPTURE: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    }
+    /// Writes to this thread's capture, or nowhere.
+    struct ThisThread;
+    impl std::io::Write for ThisThread {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
+            CAPTURE.with(|c| {
+                if let Some(buf) = c.borrow_mut().as_mut() {
+                    buf.extend_from_slice(bytes);
+                }
+            });
             Ok(bytes.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
     }
-    let lines = Lines::default();
-    let writer = lines.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_writer(move || writer.clone())
-        .finish();
-    let given = {
-        let _traced = tracing::subscriber::set_default(subscriber);
-        f.await
-    };
-    let text = String::from_utf8_lossy(&lines.0.lock().unwrap()).into_owned();
-    (given, text)
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(|| ThisThread)
+            .finish();
+        // Another test binary's subscriber can't be here: this is the only global one in tests.
+        tracing::subscriber::set_global_default(subscriber).expect("the test subscriber is set once");
+    });
+    CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+    let given = f.await;
+    let bytes = CAPTURE.with(|c| c.borrow_mut().take()).unwrap_or_default();
+    (given, String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Every variant of the unit enum `T`, read back from the names its JSON schema lists (serde's
@@ -292,4 +307,18 @@ fn every_variant_is_read_from_the_schema_in_order() {
     let codes = every_variant::<ErrorCode>();
     assert_eq!(codes.first(), Some(&ErrorCode::ManifestInvalid));
     assert!(codes.contains(&ErrorCode::NotSealed), "the last variant too: {codes:?}");
+}
+
+#[tokio::test]
+async fn a_capture_holds_its_own_threads_events_and_none_of_another_threads() {
+    // A callsite first hit on another thread, with nothing capturing there, still traces here.
+    let elsewhere = || std::thread::spawn(|| tracing::warn!(what = "elsewhere", "a trace")).join().unwrap();
+    elsewhere();
+    let ((), here) = traced(async {
+        tracing::warn!(what = "here", "a trace");
+        elsewhere();
+    })
+    .await;
+    assert!(here.contains("what=\"here\"") || here.contains("what=here"), "{here}");
+    assert!(!here.contains("elsewhere"), "another thread's trace isn't this capture's: {here}");
 }
