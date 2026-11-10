@@ -186,3 +186,37 @@ async fn an_absent_run_that_still_has_a_state_is_never_overwritten() {
     assert_eq!(std::fs::read_to_string(&state).unwrap(), "mine");
     assert_eq!(runner.store.record(&before.name).unwrap(), Some(before));
 }
+
+/// Regression: every failed rename fell back to a copy, so a state whose folder can't be written
+/// was copied into the run and stayed in the old folder too.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_state_that_cant_be_moved_stays_only_where_it_was() {
+    use std::os::unix::fs::PermissionsExt;
+    let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
+    let old = deployment(folder.home.path());
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let adopted = runner.adopt(&folder.manifest, adoption(&old)).await;
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(adopted.unwrap_err().code(), ErrorCode::Io);
+    let state = runner.store.run_dir(&RunName::new("app-solo-web").unwrap()).unwrap();
+    assert!(!state.join("terraform.tfstate").exists(), "no second copy in the run");
+    assert!(old.join("terraform.tfstate").is_file());
+}
+
+/// A copy whose source can't be removed is removed itself: the file stays in one place.
+#[cfg(unix)]
+#[test]
+fn a_copy_whose_source_cant_be_removed_goes_too() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (locked, to) = (dir.path().join("locked"), dir.path().join("copy"));
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(locked.join("terraform.tfstate"), "{}").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let moved = copy_then_remove(&locked.join("terraform.tfstate"), &to);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(moved.is_err());
+    assert!(!to.exists(), "the copy is removed");
+    assert!(locked.join("terraform.tfstate").is_file());
+}

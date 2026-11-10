@@ -192,13 +192,24 @@ fn move_files(from: &Path, to: &Path) -> Result<Vec<&'static str>> {
     Ok(moved)
 }
 
-/// Moves `from` to `to`: a rename, else (another file system) a copy then a removal.
+/// Moves `from` to `to`: a rename, else, only when they are on different file systems, a copy
+/// then a removal ([`copy_then_remove`]). Any other failure to rename is the error.
 fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    if std::fs::rename(from, to).is_ok() {
-        return Ok(());
+    match std::fs::rename(from, to) {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => copy_then_remove(from, to),
+        renamed => renamed,
     }
+}
+
+/// Copies `from` to `to`, then removes `from`; when `from` can't be removed, the copy goes too,
+/// so the file is never in both places.
+fn copy_then_remove(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::copy(from, to)?;
-    std::fs::remove_file(from)
+    std::fs::remove_file(from).inspect_err(|_| {
+        if let Err(e) = std::fs::remove_file(to) {
+            tracing::warn!(error = %e, file = %to.display(), "a copy of a taken-over state couldn't be removed");
+        }
+    })
 }
 
 /// Moves `names` back from `to` to `from`, as best it can (an error is already on its way).
