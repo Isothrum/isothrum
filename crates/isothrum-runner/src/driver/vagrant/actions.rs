@@ -124,12 +124,18 @@ pub(super) fn vboxmanage(args: &[&str]) -> ProcessSpec {
 /// `vagrant.discard_aborted_saved`: a VirtualBox VM whose saved state was cut off (a suspend
 /// killed midway, a host crash) is `aborted-saved`, and VirtualBox then refuses every change to it
 /// ("the machine is not mutable"): its saved state is discarded, so it boots fresh from its disk.
-/// A VM that doesn't exist is skipped.
+/// A VM whose state can't be read is skipped, with why in a trace: one that doesn't exist yet
+/// (the usual case at a first start), or VirtualBox not answering (its state is then left as it
+/// is: `vagrant up` says what is wrong with it).
 pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()> {
     let id = step.id.as_str();
     for name in vm_names(cx, Provider::Virtualbox) {
         let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_LIMIT, Echo::Quiet).await?;
-        if !info.succeeded() || !aborted_saved(&info.stdout) {
+        if !info.succeeded() {
+            tracing::debug!(vm = %name, reason = %info.reason(), "the VM's state couldn't be read: its saved state, if any, is left as it is");
+            continue;
+        }
+        if !aborted_saved(&info.stdout) {
             continue;
         }
         cx.events.warning(

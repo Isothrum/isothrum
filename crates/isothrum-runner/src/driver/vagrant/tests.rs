@@ -68,6 +68,8 @@ struct Engine {
     index_locked_reads: u32,
     /// The Vagrant commands, by their verb, another Vagrant process's machine lock still refuses.
     refusals: BTreeMap<&'static str, Refusal>,
+    /// VirtualBox answers no `showvminfo` (its service wedged).
+    vbox_wedged: bool,
 }
 
 /// A Vagrant command refused for another process's machine lock, `times` more times.
@@ -463,6 +465,7 @@ fn halt(e: &mut Engine, vm: &str) -> Reply {
 fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
     match args {
         ["showvminfo", name, "--machinereadable"] => match e.vbox.get(*name) {
+            _ if e.vbox_wedged => Reply::fail(1, VBOX_WEDGED),
             Some(state) => Reply::ok(&format!("name=\"{name}\"\nVMState=\"{state}\"")),
             None => Reply::fail(1, "Could not find a registered machine"),
         },
@@ -757,6 +760,25 @@ async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
     record(&kept, "web", "virtualbox");
     std::fs::write(kept.join("machines").join(".DS_Store"), "").unwrap();
     same.up(&opts().with_occupied(crate::Occupied::Replace), &Recorder::new()).await.unwrap();
+}
+
+/// What `VBoxManage` prints when VirtualBox's service doesn't answer.
+const VBOX_WEDGED: &str = "VBoxManage: error: Failed to create the VirtualBox object! (NS_ERROR_FAILURE)";
+
+/// A VM whose state VirtualBox can't tell is skipped with why in a trace, not in silence.
+#[tokio::test]
+async fn a_virtualbox_vm_whose_state_cant_be_read_is_skipped_and_traced() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
+    f.engine().vbox_wedged = true;
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let (started, traced) = crate::testing::traced(run.up(&opts(), &Recorder::new())).await;
+    started.unwrap();
+    assert!(
+        !f.fake.lines().iter().any(|l| l.starts_with("VBoxManage discardstate")),
+        "nothing read, nothing discarded"
+    );
+    assert!(traced.contains("web-vm - web") && traced.contains("NS_ERROR_FAILURE"), "{traced}");
 }
 
 #[tokio::test]
