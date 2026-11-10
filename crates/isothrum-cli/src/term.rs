@@ -135,6 +135,13 @@ impl Trail {
             None => Event::new(1, run, op, kind),
         }
     }
+
+    /// [`Trail::next`], kept as the last event: for a command that writes its own events.
+    pub(crate) fn follow(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+        let event = self.next(run, op, kind);
+        self.keep(&event);
+        event
+    }
 }
 
 /// An event sink that keeps the last event in a [`Trail`] before handing it on.

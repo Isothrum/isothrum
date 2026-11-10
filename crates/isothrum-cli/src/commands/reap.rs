@@ -7,14 +7,14 @@
 
 use std::time::SystemTime;
 
-use isothrum_runner::{Event, EventKind, Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
+use isothrum_runner::{EventKind, Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
 use serde_json::json;
 
 use crate::args::ReapArgs;
 use crate::commands::Out;
 use crate::error::Result;
 use crate::exit::Verdict;
-use crate::term::failure;
+use crate::term::{Trail, failure};
 use crate::values;
 
 /// What the sweep did with the expired runs.
@@ -51,11 +51,13 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &d
     let orphans = runner.orphans(cloud, &Place::new(args.regions.clone(), args.project.clone()), now).await;
     let searched = orphans.as_ref().ok();
     let clean = swept.failed.is_empty() && searched.is_some_and(|o| o.resources.is_empty() && o.unread.is_empty());
-    // The sweep is no one run's operation: its events have no `run` nor `op`, and a search that
-    // failed is said after the sweep, not as the last destroyed run's.
+    // The sweep is no one run's operation: its events have no `run` nor `op`, numbered on a trail
+    // of their own, and a search that failed is said after the sweep, not as the last destroyed
+    // run's.
+    let sweep = Trail::default();
     if json {
         let data = summary(args, &swept, searched);
-        term.json(&Event::new(1, None, None, EventKind::Result { ok: clean, data }));
+        term.json(&sweep.follow(None, None, EventKind::Result { ok: clean, data }));
     } else {
         for line in lines(args, &swept, searched) {
             term.out(&line);
@@ -63,7 +65,7 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &d
     }
     if let Err(e) = &orphans {
         if json {
-            term.json(&Event::new(2, None, None, failure(e.code(), e.to_string())));
+            term.json(&sweep.follow(None, None, failure(e.code(), e.to_string())));
         } else {
             term.err(&format!("error: {e}"));
         }
