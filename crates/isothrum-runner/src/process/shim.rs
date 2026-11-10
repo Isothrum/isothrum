@@ -26,8 +26,9 @@ const CMD_NOT_FOUND: i32 = 9009;
 /// The variables that redirect the Docker CLI to another engine than the current context.
 pub(super) const ENGINE_OVERRIDES: [&str; 2] = ["DOCKER_HOST", "DOCKER_CONTEXT"];
 
-/// The tools that never inherit the runner's cloud settings.
-const CLOUD_BLIND: [&str; 2] = ["terraform", "tofu"];
+/// Terraform's programs (OpenTofu's too): the tools that never inherit the runner's cloud
+/// settings.
+pub(crate) const TERRAFORM_PROGRAMS: [&str; 2] = ["terraform", "tofu"];
 
 /// The prefixes of the cloud settings they don't inherit: each cloud CLI's and Terraform
 /// provider's own, and Terraform's variables.
@@ -48,7 +49,7 @@ const CLOUD_SETTINGS: [&str; 11] = [
 /// The names among `inherited` (the runner's own variables) that `program` doesn't inherit: the
 /// cloud settings, for Terraform.
 pub(super) fn withheld(program: &str, inherited: impl Iterator<Item = String>) -> Vec<String> {
-    if !CLOUD_BLIND.contains(&program) {
+    if !TERRAFORM_PROGRAMS.contains(&program) {
         return Vec::new();
     }
     inherited.filter(|name| CLOUD_SETTINGS.iter().any(|p| name.starts_with(p))).collect()

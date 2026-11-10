@@ -251,7 +251,7 @@ fn applied(up: &[isoloom_manifest::Step], e: &Error) -> bool {
 fn argv_applies(argv: &isoloom_manifest::HostArgv) -> bool {
     let applies = |a: &isoloom_manifest::Argv| {
         let subcommand = a.args().iter().map(ToString::to_string).find(|w| !w.starts_with('-'));
-        ["terraform", "tofu"].contains(&a.program().as_str()) && subcommand.as_deref() == Some("apply")
+        crate::process::TERRAFORM_PROGRAMS.contains(&a.program().as_str()) && subcommand.as_deref() == Some("apply")
     };
     crate::executor::plan::every_argv(argv).any(applies)
 }
