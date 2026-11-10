@@ -1,5 +1,5 @@
 # The self-hosted runner label the runner-cert workflow uses (see the Isoloom repository's
-# docs/ci-real-hosts.md), so actionlint knows it.
+# docs/dev/ci-real-hosts.md), so actionlint knows it.
 self-hosted-runner:
   labels:
     - proxmox
