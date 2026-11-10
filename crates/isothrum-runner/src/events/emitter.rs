@@ -22,7 +22,7 @@ pub(crate) struct Emitter<'a> {
     seq: AtomicU64,
     clock: &'a dyn Clock,
     sink: &'a dyn Events,
-    log: Option<Mutex<File>>,
+    log: Mutex<Option<File>>,
     /// The values never shown, longest first (so a value holding another is masked whole).
     secrets: Mutex<Vec<String>>,
 }
@@ -36,7 +36,7 @@ impl<'a> Emitter<'a> {
             seq: AtomicU64::new(0),
             clock,
             sink,
-            log: None,
+            log: Mutex::new(None),
             secrets: Mutex::new(Vec::new()),
         }
     }
@@ -47,9 +47,22 @@ impl<'a> Emitter<'a> {
     }
 
     /// Also appends each event to `log` (the run's `events.jsonl`).
-    pub(crate) fn with_log(mut self, log: File) -> Emitter<'a> {
-        self.log = Some(Mutex::new(log));
+    pub(crate) fn with_log(self, log: File) -> Emitter<'a> {
+        *self.log.lock().unwrap_or_else(PoisonError::into_inner) = Some(log);
         self
+    }
+
+    /// Closes the run's log while `reopen` replaces it (an open handle would go on appending to
+    /// the file it replaced), then appends each event to the log `reopen` opens.
+    ///
+    /// # Errors
+    ///
+    /// `reopen`'s: the events are then no longer logged.
+    pub(crate) fn reopen_log(&self, reopen: impl FnOnce() -> crate::Result<File>) -> crate::Result<()> {
+        let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
+        *log = None;
+        *log = Some(reopen()?);
+        Ok(())
     }
 
     /// Masks `values` wherever they would appear.
@@ -82,12 +95,12 @@ impl<'a> Emitter<'a> {
             op: Some(self.op),
             kind: self.masked(kind),
         };
-        if let Some(log) = &self.log {
+        if let Some(log) = self.log.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
             // One write per event, its line break included, so a log cut short ends between two
             // events or inside one, never with an event and no line break after it.
             let written = serde_json::to_vec(&event).map_err(std::io::Error::from).and_then(|mut line| {
                 line.push(b'\n');
-                log.lock().unwrap_or_else(PoisonError::into_inner).write_all(&line)
+                log.write_all(&line)
             });
             // The log is a convenience for a UI that reattaches: losing a line never fails the run.
             if let Err(e) = written {

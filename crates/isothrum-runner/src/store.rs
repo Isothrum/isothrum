@@ -36,7 +36,7 @@ use crate::state::{Op, RunState};
 const RECORD_VERSION: u32 = 0;
 
 /// How many event lines a run's log keeps before an operation trims it to half.
-const EVENTS_KEPT: usize = 4000;
+pub(crate) const EVENTS_KEPT: usize = 4000;
 
 /// The last operation on a run and how it ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,8 +196,16 @@ impl Store {
         Ok(records)
     }
 
-    /// Run `name`'s event log, opened to append, trimmed to its newer half once it is long.
+    /// Run `name`'s event log, opened to append.
     pub(crate) fn event_log(&self, name: &RunName) -> Result<std::fs::File> {
+        let path = self.run_dir(name)?.join("events.jsonl");
+        fs::append_private(&path).map_err(Error::io(&path, "written"))
+    }
+
+    /// Trims run `name`'s event log to its newer half once it is long. The trimmed log replaces
+    /// the file, so only the holder of the run's lock trims it, with no handle of its own still
+    /// open on it: an operation appending to it would go on appending to the file it replaced.
+    pub(crate) fn trim_event_log(&self, name: &RunName) -> Result<()> {
         let path = self.run_dir(name)?.join("events.jsonl");
         let lines = read_lines(&path)?;
         if lines.len() > EVENTS_KEPT {
@@ -208,7 +216,7 @@ impl Store {
             }
             write_private(&path, &kept).map_err(Error::io(&path, "written"))?;
         }
-        fs::append_private(&path).map_err(Error::io(&path, "written"))
+        Ok(())
     }
 
     /// Run `name`'s logged events, oldest first, with how many of its lines aren't an event
@@ -302,7 +310,7 @@ mod tests {
             writeln!(log, "{{\"seq\":{seq}}}").unwrap();
         }
         drop(log);
-        drop(store.event_log(&name).unwrap());
+        store.trim_event_log(&name).unwrap();
         let lines = read_lines(&home.path().join("runs/r/events.jsonl")).unwrap();
         assert_eq!(lines.len(), EVENTS_KEPT / 2);
         assert_eq!(lines.last().unwrap(), format!("{{\"seq\":{EVENTS_KEPT}}}").as_bytes());
@@ -343,7 +351,7 @@ mod tests {
             writeln!(many, "{{\"seq\":{seq}}}").unwrap();
         }
         drop(many);
-        drop(store.event_log(&name).expect("a long log with such a line is trimmed"));
+        store.trim_event_log(&name).expect("a long log with such a line is trimmed");
         assert_eq!(read_lines(&home.path().join("runs/r/events.jsonl")).unwrap().len(), EVENTS_KEPT / 2);
     }
 

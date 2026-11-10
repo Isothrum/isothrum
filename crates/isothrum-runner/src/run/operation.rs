@@ -1,5 +1,5 @@
 //! What every operation does around its own work: its events numbered, masked and logged, the run
-//! locked (failing closed), the op marked in flight, the state moves emitted, the record updated,
+//! locked (failing closed) and its log trimmed, the op marked in flight, the state moves emitted, the record updated,
 //! and exactly one `result` or `error` at the end.
 
 use crate::Result;
@@ -75,6 +75,12 @@ impl Running<'_> {
     ) -> Result<Done<T>> {
         let store = &self.runner.store;
         let _lock = self.runner.locks.acquire(self.name(), &store.lock_path(self.name())).await?;
+        // Trim the run's log only now that the run is locked: trimmed before, it was replaced
+        // under the operation holding the lock, whose later events went to the file it replaced.
+        emitter.reopen_log(|| {
+            store.trim_event_log(self.name())?;
+            store.event_log(self.name())
+        })?;
         // Mark the op in flight and reserve its ports only now that the run is locked: entered
         // before the lock, a second op on the same run clobbered this entry, and this guard,
         // dropping after the lock was released, freed the second op's port reservations.

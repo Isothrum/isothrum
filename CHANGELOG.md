@@ -227,6 +227,13 @@ change.
   every later operation of the run with `io`, and `isothrum events` with it. Such a line now
   counts as one the runner can't read (`EventLog::unreadable`), and each event is written in one
   write, its line break included.
+- **A run's event log is trimmed only by the operation holding the run's lock.** Each operation
+  trimmed a long `events.jsonl` (over 4000 lines) before it locked the run, by writing the
+  newer half to a new file renamed over it: a second operation on a running run replaced the log
+  under the first, whose later events went to the file it replaced (on Windows the rename over
+  the first's open log could fail the second with `io` rather than `locked`). An operation now
+  opens the log to append before the lock, so a `locked` error is still logged, and trims it once
+  the run is locked.
 
 - **The run's SSH configuration reads the same to every OpenSSH.** It escaped a path's spaces
   with backslashes, which OpenSSH reads as escapes only from 8.7: Windows 10's 8.1, RHEL 8's 8.0
