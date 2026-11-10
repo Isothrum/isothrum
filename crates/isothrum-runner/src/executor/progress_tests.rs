@@ -25,7 +25,7 @@ async fn a_step_printing_new_lines_runs_past_its_limit() {
     // A slow pull still moving: a new line every minute for 40 minutes, under a 10-minute limit.
     let pull = Reply::ok(&lines(|n| format!("36b0bafd7f97 Downloading {n}MB/1.121GB"), 40)).paced(MINUTE);
     let (out, took) = run(pull, TEN_MINUTES).await;
-    assert!(out.unwrap().succeeded());
+    assert!(out.unwrap().success());
     assert_eq!(took, 40 * MINUTE);
 }
 
@@ -80,7 +80,7 @@ async fn a_silent_step_stops_at_its_limit_from_its_start() {
     assert_eq!(blank_took, TEN_MINUTES);
     // Quiet within its limit, it runs to its end.
     let (quiet, _) = run(Reply::ok("done").after(9 * MINUTE), TEN_MINUTES).await;
-    assert!(quiet.unwrap().succeeded());
+    assert!(quiet.unwrap().success());
 }
 
 #[tokio::test(start_paused = true)]

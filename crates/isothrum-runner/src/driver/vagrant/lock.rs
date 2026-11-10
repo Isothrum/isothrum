@@ -62,7 +62,7 @@ const ACTING: &str = "==> ";
 /// Whether `out`, a failed Vagrant call, was refused because another process held a machine's
 /// lock.
 pub(super) fn refused(out: &Captured) -> bool {
-    !out.succeeded() && out.stdout.iter().chain(&out.stderr).any(|line| LOCKED.iter().any(|said| line.contains(said)))
+    !out.success() && out.stdout.iter().chain(&out.stderr).any(|line| LOCKED.iter().any(|said| line.contains(said)))
 }
 
 /// What a `vagrant` command does when it is run a second time: the one reading of its verb, for

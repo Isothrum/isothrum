@@ -163,9 +163,9 @@ pub struct Captured {
 }
 
 impl Captured {
-    /// Whether it exited 0.
+    /// Whether it exited 0 ([`Exit::success`]).
     #[must_use]
-    pub fn succeeded(&self) -> bool {
+    pub fn success(&self) -> bool {
         self.exit.success()
     }
 
@@ -198,7 +198,7 @@ impl Captured {
     ///
     /// It didn't exit 0: the error is its reason.
     pub fn output(&self) -> Result<String, String> {
-        if self.succeeded() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
+        if self.success() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
     }
 }
 

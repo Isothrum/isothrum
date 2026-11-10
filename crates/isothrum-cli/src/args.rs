@@ -45,7 +45,7 @@ pub(crate) enum RunnerCommand {
     #[command(flatten)]
     Lifecycle(Lifecycle),
     /// Show the run: its state, machines, outputs and message.
-    Status(TargetArgs),
+    Status(RunArgs),
     /// Run the run's checks (exit 1 when one fails).
     Check(OpArgs),
     /// Run the set-up again on the running machines (a VM run's provisioners).
@@ -91,10 +91,10 @@ pub(crate) enum RunnerCommand {
         #[arg(long)]
         user: Option<String>,
         #[command(flatten)]
-        run: TargetArgs,
+        run: RunArgs,
     },
     /// Print the run's recorded events, oldest first.
-    Events(TargetArgs),
+    Events(RunArgs),
     /// Destroy a cloud's runs past their expiry (each with the params it was applied with), then
     /// list what the cloud still holds past its expiry that no run records. Exit 1 when a destroy
     /// failed, something is left or the cloud couldn't be searched in full.
@@ -193,7 +193,7 @@ pub(crate) enum Mode {
 
 /// Which run.
 #[derive(Debug, Args)]
-pub(crate) struct TargetArgs {
+pub(crate) struct RunArgs {
     /// The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a
     /// run.json.
     #[arg(default_value = ".")]
@@ -212,7 +212,7 @@ pub(crate) struct TargetArgs {
 #[derive(Debug, Args)]
 pub(crate) struct OpArgs {
     #[command(flatten)]
-    pub(crate) run: TargetArgs,
+    pub(crate) run: RunArgs,
     /// A param's value (repeatable).
     #[arg(long = "param", value_name = "NAME=VALUE")]
     pub(crate) params: Vec<String>,

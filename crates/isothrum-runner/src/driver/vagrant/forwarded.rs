@@ -1,6 +1,6 @@
 //! `vagrant.check_forwarded_ports`: a VM forwards each published port from this computer, at its
 //! own `publish` number when it is `fixed`, or at the one the runner picks (and pins for the VM's
-//! life) when it is `ephemeral` ([`pick`]; at its `publish` number for a run that recorded no pick:
+//! life) when it is `ephemeral` ([`pin`]; at its `publish` number for a run that recorded no pick:
 //! [`host_port`]). Two runs forwarding one fixed number collide, and Vagrant says so only once the
 //! VM was imported, so unless the run's VMs exist (their forwards are this run's own) each host
 //! port it will forward must be free over its protocol, and not reserved by another run of this
@@ -47,7 +47,7 @@ const PICK_STEP: &str = "host-ports";
 /// # Errors
 ///
 /// `tool_failed` ([`PICK_STEP`]) when no free host port is left for one: as Compose's pick does.
-pub(in crate::driver) fn pick(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
     let mut chosen = BTreeMap::new();
     if cx.scope.runs_on(Provider::VmwareEsxi) {
         return Ok(chosen);
@@ -85,7 +85,7 @@ pub(super) fn host_port(m: &Machine, p: &Port, forwards: &BTreeMap<String, u16>)
 
 /// The host ports this run forwards from this computer: each published port's ([`host_port`]).
 fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
-    let forwards = cx.vars.forwards();
+    let forwards = cx.vars.vm_pins();
     let mut ports = Vec::new();
     for m in &cx.run.manifest().machines {
         for p in &m.ports {

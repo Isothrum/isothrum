@@ -56,7 +56,7 @@ impl Ended {
     /// The step's outcome: its failure with the verdict, else why it failed
     /// ([`Captured::reason`]).
     pub(crate) fn result(self, cx: &Cx<'_>, step: &Step) -> Result<()> {
-        if self.last.succeeded() {
+        if self.last.success() {
             return Ok(());
         }
         let reason = self.lead.unwrap_or_else(|| self.last.reason());

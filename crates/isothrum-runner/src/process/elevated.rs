@@ -134,7 +134,7 @@ impl Elevated {
         let launcher = script::launcher(&script::broker(&dir, &token, std::process::id()));
         let start = ProcessSpec::new("powershell", ["-NoProfile".to_owned(), "-NonInteractive".into(), "-Command".into(), launcher]);
         match capture(self.inner.as_ref(), &start).await {
-            Ok(out) if out.succeeded() => {}
+            Ok(out) if out.success() => {}
             Ok(out) => return Err(declined(&out)),
             Err(e) => return Err(e.to_string()),
         }
@@ -305,7 +305,7 @@ fn exit_code(text: &str) -> std::io::Result<i32> {
 pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> Option<bool> {
     let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
     match capture(processes, &whoami).await {
-        Ok(out) if out.succeeded() => Some(may_manage(&out.stdout.join("\n"))),
+        Ok(out) if out.success() => Some(may_manage(&out.stdout.join("\n"))),
         Ok(out) => {
             tracing::warn!(stderr = %out.stderr.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
             None

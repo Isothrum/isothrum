@@ -13,7 +13,9 @@ use crate::{Error, File, Result};
 /// What the engine makes of a topology, as the caller reads it (JSON).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Plan {
-    /// `false` when the topology can't be compiled; `error` says why.
+    /// Whether the topology compiled (`false`: `error` says why). `true` says nothing of Isoloom's
+    /// verdict on the spec: read `problems` too, which hold what it finds wrong (and no file is
+    /// generated then). Named so in the JSON the topology editors read.
     pub ok: bool,
     /// Why the topology can't be compiled.
     pub error: Option<String>,

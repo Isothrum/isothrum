@@ -202,9 +202,9 @@ impl AnyDriver {
     /// # Errors
     ///
     /// `tool_failed` when no free host port is left for one.
-    pub(crate) fn forward_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+    pub(crate) fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
         match self {
-            AnyDriver::Vagrant(_) => vagrant::forwarded::pick(cx),
+            AnyDriver::Vagrant(_) => vagrant::forwarded::pin(cx),
             AnyDriver::Compose(_) | AnyDriver::Terraform(_) => Ok(BTreeMap::new()),
         }
     }

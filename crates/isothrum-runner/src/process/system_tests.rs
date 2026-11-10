@@ -145,7 +145,7 @@ async fn output_that_isnt_utf8_is_read_lossily_and_the_tool_runs_on() {
     let out = capture(&SystemProcesses::default(), &spec("sh", &["-c", script])).await.unwrap();
     assert_eq!(out.stdout, ["Cr\u{fffd}ation", "done"]);
     assert_eq!(out.stderr, ["err \u{fffd}"]);
-    assert!(out.succeeded());
+    assert!(out.success());
 }
 
 #[cfg(unix)]

@@ -178,7 +178,7 @@ impl Driver for Vagrant {
         let mut env = vec![(DOTFILE_VAR.to_owned(), self.dotfile(cx)?.display().to_string())];
         // The host ports a fresh start pinned (kept in the run's record): as a JSON object the
         // Vagrantfile reads for its forwards, defaulting each to the port's own `publish` number.
-        let forwards = cx.vars.forwards();
+        let forwards = cx.vars.vm_pins();
         if !forwards.is_empty() {
             let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), (*port).into())).collect();
             env.push((isoloom_manifest::contract::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
@@ -204,7 +204,7 @@ impl Driver for Vagrant {
         let read = status::parse(&out);
         let at_vm = cx.scope.runs_on(Provider::VmwareEsxi);
         let hosts = if at_vm { self.guest_addresses(cx, &read).await } else { local_hosts(cx)? };
-        Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.forwards()))
+        Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
     }
 
     fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {

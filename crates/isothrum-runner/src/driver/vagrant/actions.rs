@@ -133,7 +133,7 @@ pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()
     let id = step.id.as_str();
     for name in vm_names(cx, Provider::Virtualbox) {
         let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_LIMIT, Echo::Quiet).await?;
-        if !info.succeeded() {
+        if !info.success() {
             tracing::debug!(vm = %name, reason = %info.reason(), "the VM's state couldn't be read: its saved state, if any, is left as it is");
             continue;
         }
@@ -179,7 +179,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
         let probe = v.vagrant(cx, id, &["ssh", &machine, "-c", &halting_probe()])?;
         match call(cx, id, &probe, PROBE_LIMIT.min(left), Echo::Quiet).await {
             // Running, and not on its way down: nothing to wait for.
-            Ok(said) if said.succeeded() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) => return Ok(()),
+            Ok(said) if said.success() && said.stdout.iter().any(|l| l.trim() == STAYS_UP) => return Ok(()),
             Ok(_) | Err(Error::Timeout { .. }) => {}
             Err(e) => return Err(e),
         }
@@ -215,7 +215,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
     let machine = controller(cx, list, step)?;
     let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
     let halt = lock::call_retrying(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
-    let halted = halt.succeeded();
+    let halted = halt.success();
     if !halted && already_off(&halt) {
         cx.events.log(id, Stream::Stdout, &format!("{machine} was already off."));
         return Ok(());

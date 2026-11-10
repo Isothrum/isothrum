@@ -89,7 +89,7 @@ impl Running<'_> {
         // A driver that forwards host ports it picks itself (Vagrant, locally) pins them now, into
         // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`
         // binds them into `cx` for the start's own forwards and status.
-        record.vm_host_ports = self.driver.forward_ports(cx)?;
+        record.vm_host_ports = self.driver.pin_vm_ports(cx)?;
         // Every VM the start boots, boots with the Vagrantfile of this manifest.
         self.runs_from_this(record);
         record.params = cx.vars.params().clone();

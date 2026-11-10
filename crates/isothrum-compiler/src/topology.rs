@@ -74,8 +74,9 @@ pub struct Node {
     pub networks: IndexMap<String, Option<u8>>,
 }
 
-/// A port a machine answers on, and what it speaks: `tcp` (the default), `udp`, or TCP speaking
+/// A port a machine answers on (`services` in the editor's JSON), and what it speaks: `tcp` (the default), `udp`, or TCP speaking
 /// `http`, `https` or `tls` (Isoloom's port `protocol`).
+#[doc(alias = "port")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Service {
@@ -107,7 +108,8 @@ pub enum Kind {
         config: Option<String>,
     },
     /// A machine of an OS, set up by its provisioning steps: Isoloom's `os` plus `app.steps`
-    /// (each target decides whether it is a VM or a container built from the OS's image).
+    /// (each target decides whether it is a VM or a container built from the OS's image; `vm` is
+    /// the editor's JSON name for it).
     Vm {
         /// The OS, `<family>@<version>` (`debian@12`).
         os: OsRef,
@@ -121,7 +123,9 @@ pub enum Kind {
     Router {},
 }
 
-/// A cable between two ports. A port carries at most one cable.
+/// A cable between two ports (`links` in the editor's JSON, whose names these types keep). A port
+/// carries at most one cable.
+#[doc(alias = "cable")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Link {

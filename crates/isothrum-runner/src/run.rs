@@ -125,10 +125,10 @@ impl<'r> Running<'r> {
         &self.loaded.dir
     }
 
-    /// A quiet context of the run, with `events` and what its start kept (its record bound: its
+    /// A silent context of the run, with `events` and what its start kept (its record bound: its
     /// SSH jump, its slot, its forwards; its provider; its params replayed, a fresh run's
     /// defaults otherwise), so a way in is the run's: for the read-only queries. No lock.
-    fn quiet<'a>(&'a self, events: &'a Emitter<'a>) -> Result<(Option<crate::store::RunRecord>, Cx<'a>)> {
+    fn silent_cx<'a>(&'a self, events: &'a Emitter<'a>) -> Result<(Option<crate::store::RunRecord>, Cx<'a>)> {
         let record = self.runner.store.record(&self.name)?;
         let provider = record.as_ref().and_then(|r| r.provider.clone());
         let params = params_for_existing(
@@ -144,11 +144,11 @@ impl<'r> Running<'r> {
         Ok((record, cx))
     }
 
-    /// Runs `f` on a quiet context of the run ([`Running::quiet`]), emitting nothing, its state
+    /// Runs `f` on a silent context of the run ([`Running::silent_cx`]), emitting nothing, its state
     /// folder not made: for the queries that run no step.
     pub(crate) fn query<T>(&self, f: impl FnOnce(&Cx<'_>) -> Result<T>) -> Result<T> {
         let events = self.silent();
-        let (_, cx) = self.quiet(&events)?;
+        let (_, cx) = self.silent_cx(&events)?;
         f(&cx)
     }
 
@@ -171,7 +171,7 @@ impl<'r> Running<'r> {
     /// run's record can't be read.
     pub async fn status(&self) -> Result<Status> {
         let events = self.silent();
-        let (record, mut cx) = self.quiet(&events)?;
+        let (record, mut cx) = self.silent_cx(&events)?;
         let provider = cx.scope.provider.clone();
         let (state, mut observed, live) = if let Some(state) = self.while_held(record.as_ref())? {
             (state, self.last_seen(), false)
@@ -320,7 +320,7 @@ impl<'r> Running<'r> {
         cx.expires_at = record.expires_at;
         // The host ports a fresh start pinned: a resume forwards the same ones, and status reads
         // them back (the Vagrant driver reports its forwards from here, not the manifest's number).
-        cx.vars.set_forwards(record.vm_host_ports.clone());
+        cx.vars.set_vm_pins(record.vm_host_ports.clone());
     }
 
     /// This host, with `provider`.

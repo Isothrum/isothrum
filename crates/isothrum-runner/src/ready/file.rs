@@ -112,7 +112,7 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
     let (mut reached, mut last, mut failed) = (false, Progress::Booting, None::<String>);
     loop {
         match call(cx, &w.condition, &spec, READ_LIMIT, Echo::Quiet).await {
-            Ok(out) if out.succeeded() => {
+            Ok(out) if out.success() => {
                 (reached, failed) = (true, None);
                 let (line, tail) = split(&out.stdout);
                 if let Some(done) = settle(cx, w, progress(w.grammar, &line), &tail, &mut last) {
