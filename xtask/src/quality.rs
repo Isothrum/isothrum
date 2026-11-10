@@ -3,11 +3,13 @@
 //! count that goes up fails; one that goes down is written down with `--update`, which never
 //! raises one.
 //!
-//! What is counted, per crate:
+//! What is counted, per crate (the fuzz crate, `fuzz/`, a workspace of its own, included):
 //! - every warning `cargo clippy --workspace --all-targets` gives (`clippy/<lint>`,
-//!   `rustc/<lint>`): the lints the workspace's `[lints]` table holds at warn, because their
-//!   count isn't zero yet (the others are at deny, and fail the build);
-//! - source files over 400 lines of code (`file/over-400-loc`);
+//!   `rustc/<lint>`): a lint the workspace's `[lints]` table would hold at warn. Every one is at
+//!   deny today, and fails the build, so this counts none; it is there for a lint that can't be
+//!   at deny yet. (The fuzz crate's lints, also at deny, are `xtask fuzz --check`'s.)
+//! - source files over 400 lines of code (`file/over-400-loc`), unit tests' files and fuzz
+//!   targets included;
 //! - blocks of code found twice (`dup/clone`, jscpd over the Rust sources);
 //! - dependencies nothing uses (`machete/unused`) and the ones machete is told to ignore
 //!   (`machete/ignored`);

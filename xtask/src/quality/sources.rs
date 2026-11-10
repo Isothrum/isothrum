@@ -10,7 +10,15 @@ use crate::{Res, repo};
 /// Lines of code a source file may have.
 const MAX_CODE_LINES: usize = 400;
 
-/// The workspace's crates, from `cargo metadata`.
+/// The fuzz crate: a workspace of its own (`fuzz/`), outside `cargo metadata`'s, held to the same
+/// rules.
+pub(crate) const FUZZ: (&str, &str) = ("isothrum-fuzz", "fuzz");
+
+/// The folders of a crate whose files the size rule counts: its library and binaries, and the
+/// fuzz crate's targets.
+const SOURCE_DIRS: [&str; 2] = ["src", "fuzz_targets"];
+
+/// The workspace's crates, from `cargo metadata`, and the fuzz crate.
 pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
     let metadata = repo::metadata(root)?;
     let base = repo::slashed(Path::new(metadata.get("workspace_root").and_then(serde_json::Value::as_str).unwrap_or("")));
@@ -23,18 +31,23 @@ pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
             let dir = manifest.strip_suffix("/Cargo.toml")?.strip_prefix(&base)?.trim_start_matches('/').to_owned();
             Some(Crate { name, dir })
         })
+        .chain([Crate {
+            name: FUZZ.0.to_owned(),
+            dir: FUZZ.1.to_owned(),
+        }])
         .collect())
 }
 
-/// Counts the files over the size limit (a crate's `src`, its `tests.rs` files aside) and the
-/// `#[expect]` exceptions (anywhere in the crate).
+/// Counts the files over the size limit (in a crate's [`SOURCE_DIRS`], its unit tests' files
+/// included) and the `#[expect]` exceptions (anywhere in the crate).
 pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res<()> {
     for c in crates {
         let dir = path_in(root, &c.dir);
-        for file in rust_files(&dir.join("src"))? {
-            let text = std::fs::read_to_string(&file)?;
-            if file.file_name().is_some_and(|n| n != "tests.rs") && code_lines(&text) > MAX_CODE_LINES {
-                add(counts, "file/over-400-loc", &c.name);
+        for sources in SOURCE_DIRS.iter().map(|s| dir.join(s)).filter(|d| d.is_dir()) {
+            for file in rust_files(&sources)? {
+                if code_lines(&std::fs::read_to_string(&file)?) > MAX_CODE_LINES {
+                    add(counts, "file/over-400-loc", &c.name);
+                }
             }
         }
         for file in rust_files(&dir)? {

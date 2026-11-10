@@ -1,6 +1,6 @@
-//! The duplicate-code check: jscpd over the Rust sources (every crate and the xtask), each block
-//! found twice (at least 50 tokens over 5 lines) counted in the crate of its first copy. It runs
-//! a pinned jscpd through `npx`, so it needs Node.
+//! The duplicate-code check: jscpd over the Rust sources (every crate, the fuzz crate's targets and
+//! the xtask), each block found twice (at least 50 tokens over 5 lines) counted in the crate of its
+//! first copy. It runs a pinned jscpd through `npx`, so it needs Node.
 
 use std::path::Path;
 use std::process::Command;
@@ -19,7 +19,7 @@ pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res
     let npx = process::program("npx", &std::env::var_os("PATH").unwrap_or_default());
     let mut cmd = Command::new(npx);
     cmd.args(["--yes", JSCPD, "--silent", "--absolute", "-f", "rust", "-r", "json", "-o"]).arg(&out);
-    cmd.args(["crates", "xtask/src"]).current_dir(root);
+    cmd.args(["crates", "fuzz/fuzz_targets", "xtask/src"]).current_dir(root);
     let ran = process::quiet(&mut cmd).map_err(|e| format!("jscpd (through npx, which needs Node): {e}"));
     let report = ran.and_then(|()| std::fs::read_to_string(out.join("jscpd-report.json")).map_err(|e| e.to_string()));
     // The report folder goes; one left behind in the temporary folder is harmless.

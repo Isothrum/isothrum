@@ -37,7 +37,8 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
    those changes.
 
 Optional tools the gates use: `cargo install cargo-nextest cargo-machete cargo-deny
-cargo-semver-checks typos-cli`, and `wasm-pack` for the WebAssembly build.
+cargo-semver-checks typos-cli`, Node (the ratchet runs jscpd through `npx`), and `wasm-pack` for
+the WebAssembly build.
 
 ## Gates
 
