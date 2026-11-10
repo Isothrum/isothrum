@@ -48,6 +48,8 @@ struct Engine {
     unreadable_config: bool,
     /// Whether `docker compose ps` prints something that isn't its JSON while containers exist.
     unreadable_ps: bool,
+    /// Whether web's set-up job (`isoloom-init-web-1`) exits non-zero.
+    failing_job: bool,
 }
 
 /// A test's runner and its fakes.
@@ -162,6 +164,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if line.contains(" up --detach ") {
         e.containers = Containers::Up;
         return Reply::ok(&format!(" Container web  Started\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")));
+    }
+    if e.failing_job && line.contains("--exit-code-from isoloom-init-web-1") {
+        return Reply::fail(1, "set-up failed");
     }
     if line.starts_with("docker network ls ") {
         return Reply::ok(&e.networks.join("\n"));

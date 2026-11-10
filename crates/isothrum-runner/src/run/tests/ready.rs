@@ -57,3 +57,37 @@ async fn a_tcp_condition_on_no_port_is_manifest_invalid() {
     assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
     assert_eq!(err.to_string(), "ready.tcp.port: `http` isn't a port");
 }
+
+/// Regression: a failed `step_ok` said what the step's success means in its `ready` event, and
+/// "the step didn't succeed" in its error: one failure said two ways.
+#[tokio::test(start_paused = true)]
+async fn a_failed_step_ok_says_the_same_in_its_event_and_its_error() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    for step in m["lifecycle"]["up"].as_array_mut().unwrap() {
+        if step["id"] == "job-isoloom-init-web-1" {
+            step["failure"] = "tolerate".into();
+        }
+    }
+    let f = fixture_with(&m.to_string());
+    f.engine.lock().unwrap().failing_job = true;
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    let err = run.up(&opts(), &events).await.unwrap_err();
+    let crate::Error::NotReady { condition, detail } = &err else {
+        panic!("{err}")
+    };
+    assert_eq!(condition, "step_ok job-isoloom-init-web-1");
+    let said = kinds(&events).into_iter().find_map(|k| match k {
+        EventKind::Ready {
+            condition: c,
+            state: crate::ReadyState::Failed,
+            detail: d,
+        } if c == *condition => Some(d),
+        _ => None,
+    });
+    assert_eq!(said.as_deref(), Some(detail.as_str()));
+    assert!(
+        detail.starts_with("the step didn't succeed") && detail.contains("isoloom-init-web-1) exited 0"),
+        "{detail}"
+    );
+}

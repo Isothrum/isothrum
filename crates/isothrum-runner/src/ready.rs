@@ -97,18 +97,20 @@ fn ready_file(cx: &Cx<'_>, asked: &ReadyFile<'_>) -> Result<file::Wait> {
     })
 }
 
+/// Whether step `step` of the start succeeded (`ran`): its success said with what it `means`, its
+/// failure said the same way in its `ready` event and its error.
 fn step_ok(cx: &Cx<'_>, ran: &Ran, step: &str, means: Option<&str>) -> Result<()> {
     let condition = format!("step_ok {step}");
-    let detail = means.unwrap_or_default();
     if ran.ok.contains(step) {
-        cx.events.ready(&condition, ReadyState::Ok, detail);
+        cx.events.ready(&condition, ReadyState::Ok, means.unwrap_or_default());
         return Ok(());
     }
-    cx.events.ready(&condition, ReadyState::Failed, detail);
-    Err(Error::NotReady {
-        condition,
-        detail: "the step didn't succeed".into(),
-    })
+    let detail = match means {
+        Some(means) => format!("the step didn't succeed, so not: {means}"),
+        None => "the step didn't succeed".to_owned(),
+    };
+    cx.events.ready(&condition, ReadyState::Failed, &detail);
+    Err(Error::NotReady { condition, detail })
 }
 
 async fn machines_running(cx: &mut Cx<'_>, names: &[&str]) -> Result<()> {
