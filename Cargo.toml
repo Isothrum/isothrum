@@ -23,6 +23,7 @@ publish = false
 isoloom-spec = "1.0.9"
 isoloom-targets = "1.0.9"
 isoloom-manifest = "1.0.9"
+isoloom-plan = "1.0.9"
 isothrum-compiler = { path = "crates/isothrum-compiler", version = "1.0.5" }
 isothrum-runner = { path = "crates/isothrum-runner", version = "1.0.5" }
 indexmap = { version = "2", features = ["serde"] }

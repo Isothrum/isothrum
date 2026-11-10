@@ -97,22 +97,26 @@ fn rename_refs(draft: &mut Draft, renamed: &IndexMap<&String, String>) {
     }
 }
 
-/// The mask of a prefix of `len` bits (at most 32).
+/// The mask of a prefix of `len` bits (at most 32); Isoloom's [`Cidr`] keeps its own private.
 fn mask(len: u8) -> u32 {
     u32::MAX.checked_shl(32 - u32::from(len.min(32))).unwrap_or(0)
 }
 
 /// The smallest IPv4 block holding every one of `cidrs` (at most a /8).
 fn covering<'a>(cidrs: impl Iterator<Item = &'a str>) -> String {
-    let blocks: Vec<(u32, u8)> = cidrs.filter_map(crate::lans::block).collect();
-    let Some(&(first, _)) = blocks.first() else {
+    let blocks: Vec<Cidr> = cidrs.filter_map(Cidr::parse).collect();
+    let Some(first) = blocks.first() else {
         return String::new();
     };
-    let mut len = blocks.iter().map(|(_, l)| *l).min().unwrap_or(24);
-    while len > 8 && !blocks.iter().all(|(b, _)| b & mask(len) == first & mask(len)) {
+    let mut len = blocks.iter().map(|b| b.len).min().unwrap_or(24);
+    let around = |prefix: u8| Cidr {
+        base: first.base & mask(prefix),
+        len: prefix,
+    };
+    while len > 8 && !blocks.iter().all(|b| around(len).contains(*b)) {
         len -= 1;
     }
-    Cidr { base: first & mask(len), len }.to_string()
+    around(len).to_string()
 }
 
 #[cfg(test)]

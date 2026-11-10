@@ -6,6 +6,7 @@ use std::num::NonZeroU16;
 
 use indexmap::IndexMap;
 use isoloom_spec::syntax::{OsRef, PortProtocol};
+use isoloom_spec::validate::Cidr;
 use isoloom_spec::{Appliance, Tc};
 use isothrum_compiler::{Endpoint, Error, Kind, Lan, Link, Node, Service, Topology, compile};
 use proptest::prelude::*;
@@ -110,7 +111,7 @@ fn drawing() -> impl Strategy<Value = Topology> {
     (
         1usize..4,
         0usize..3,
-        prop::collection::vec((any::<bool>(), prop::option::of(tc())), 5),
+        prop::collection::vec((any::<bool>(), prop::option::of(tc()), any::<Index>()), 5),
         prop::collection::vec(machine(), 1..7),
         prop::option::of(any::<Index>()),
         any::<bool>(),
@@ -134,12 +135,19 @@ fn drawing() -> impl Strategy<Value = Topology> {
         })
 }
 
-/// `plain` LANs in 10.<n>.0.0/24, and `vlans` VLANs of switch `sw1` in 10.100.<id>.0/24.
-fn lan_blocks(plain: usize, vlans: usize, looks: &[(bool, Option<Tc>)]) -> IndexMap<String, Lan> {
+/// Where a plain LAN's block sits in 10.<n>.0.0/24: the whole of it, or a smaller block not at
+/// the start of its last octet (whose machines' octets start past it). Each holds every machine
+/// a drawing has.
+const PLAIN_BLOCKS: &[&str] = &["0/24", "128/25", "64/26", "32/27", "16/28"];
+
+/// `plain` LANs in 10.<n>.0.0/24 (each block one of [`PLAIN_BLOCKS`]), and `vlans` VLANs of
+/// switch `sw1` in 10.100.<id>.0/24.
+fn lan_blocks(plain: usize, vlans: usize, looks: &[(bool, Option<Tc>, Index)]) -> IndexMap<String, Lan> {
     let mut lans = IndexMap::new();
-    for (i, (internet, tc)) in looks.iter().enumerate().take(plain + vlans) {
+    for (i, (internet, tc, block)) in looks.iter().enumerate().take(plain + vlans) {
         let (name, lan) = if i < plain {
-            (format!("lan{i}"), lan(&format!("10.{}.0.0/24", i + 1), *internet, tc.clone(), None))
+            let cidr = format!("10.{}.0.{}", i + 1, block.get(PLAIN_BLOCKS));
+            (format!("lan{i}"), lan(&cidr, *internet, tc.clone(), None))
         } else {
             let id = u16::try_from(10 * (i - plain + 1)).unwrap_or(10);
             (format!("vlan{id}"), lan(&format!("10.100.{id}.0/24"), *internet, None, Some(id)))
@@ -169,13 +177,20 @@ fn node(kind: Kind, services: Vec<Service>, networks: IndexMap<String, Option<u8
     }
 }
 
-/// The machines, each on the LANs its indexes pick (a pinned address is unique per machine).
+/// The machines, each on the LANs its indexes pick (a pinned address is unique per machine, and
+/// pinned only on the LANs whose block has it).
 fn add_machines(topo: &mut Topology, machines: Vec<(Kind, Vec<Service>, Vec<Index>, bool)>, access: Option<Index>) {
     let lans: Vec<String> = topo.networks.keys().cloned().collect();
     let count = machines.len();
     for (i, (kind, services, joins, pinned)) in machines.into_iter().enumerate() {
         let octet = u8::try_from(100 + i).ok().filter(|_| pinned);
-        let networks = joins.iter().map(|j| (j.get(&lans).clone(), octet)).collect();
+        let networks = joins
+            .iter()
+            .map(|j| {
+                let lan = j.get(&lans);
+                (lan.clone(), octet.filter(|o| topo.networks.get(lan).is_some_and(|l| offers(l, *o))))
+            })
+            .collect();
         // An appliance's ports are its OS's own.
         let services = if matches!(kind, Kind::Container { appliance: Some(_), .. }) {
             vec![]
@@ -190,6 +205,11 @@ fn add_machines(topo: &mut Topology, machines: Vec<(Kind, Vec<Service>, Vec<Inde
     {
         n.access = true;
     }
+}
+
+/// Whether a machine may take `octet` on `lan`.
+fn offers(lan: &Lan, octet: u8) -> bool {
+    Cidr::parse(&lan.cidr).and_then(|block| block.host(octet)).is_some()
 }
 
 /// Cables between two different machines, each on a port of its own.

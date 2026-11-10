@@ -13,6 +13,7 @@ mod packages;
 
 use isoloom_spec::Spec;
 use isoloom_spec::syntax::{Machine, Octets, OsRef, Step};
+use isoloom_spec::validate::Cidr;
 
 use crate::ProjectFile;
 use crate::controller::{self, ControllerPlaybook};
@@ -70,8 +71,8 @@ fn addresses(spec: &Spec, m: &Machine) -> Vec<String> {
                 Octets::One(o) => *o,
                 Octets::Several(list) => *list.first()?,
             };
-            let base = cidr_of(spec, net)?.split('/').next()?.rsplit_once('.')?.0;
-            Some(format!("{base}.{octet} ({net})"))
+            let address = Cidr::parse(cidr_of(spec, net)?)?.host(octet)?;
+            Some(format!("{address} ({net})"))
         })
         .collect()
 }

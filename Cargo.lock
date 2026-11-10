@@ -806,6 +806,7 @@ name = "isothrum-wasm"
 version = "1.0.5"
 dependencies = [
  "indexmap",
+ "isoloom-plan",
  "isoloom-spec",
  "isoloom-targets",
  "isothrum-compiler",

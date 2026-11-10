@@ -196,6 +196,14 @@ change.
   emitted. The operation now ends with its own error, after a `record_not_saved` warning (new in
   the event schema) and its closing `state` event.
 
+- **The compiler addresses a LAN whose block doesn't start its last octet.** It took a block's
+  usable addresses from its size alone (.2 on, .10 on a /24), so a machine on `10.10.1.8/29` or
+  `10.10.1.128/25` got `.2`, outside the block, and Isoloom refused the spec. The addresses are now
+  Isoloom's own (`Cidr::host`): `.10` to `.12` on `10.10.1.8/29`, `.130` on `10.10.1.128/25`.
+  A block Isoloom gives machines no address on (not a network's own address, larger than a /24 or
+  smaller than a /29) is now the compiler's `BadCidr`, which says so; it was written into a spec
+  Isoloom then refused.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

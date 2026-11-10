@@ -43,6 +43,30 @@ fn a_small_lan_starts_low_and_fills_up() -> Outcome {
 }
 
 #[test]
+fn a_block_not_at_the_start_of_its_octet_gives_its_own_addresses() -> Outcome {
+    let mut topo = two_lans()?;
+    topo.nodes["router"].networks.shift_remove("office");
+    topo.networks["office"].cidr = "10.10.1.8/29".into();
+    topo.networks["servers"].cidr = "10.10.2.128/25".into();
+    join(&mut topo, "router", "office", None)?;
+    let c = accepted(&topo)?;
+    assert_eq!((octet(&c, "client", "office")?, octet(&c, "router", "office")?), (10, 11));
+    assert_eq!((octet(&c, "router", "servers")?, octet(&c, "server", "servers")?), (130, 131));
+    Ok(())
+}
+
+#[test]
+fn a_block_isoloom_gives_no_address_on_is_refused() -> Outcome {
+    for cidr in ["10.10.0.0/16", "10.10.1.0/30", "10.10.1.5/24"] {
+        let mut topo = two_lans()?;
+        topo.networks["office"].cidr = cidr.into();
+        let e = compile(&topo).unwrap_err();
+        assert!(matches!(&e, Error::BadCidr { lan, .. } if lan == "office"), "{cidr}: {e}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_node_on_a_lan_the_lab_has_not_is_refused() -> Outcome {
     let mut topo = two_lans()?;
     join(&mut topo, "client", "dmz", None)?;
@@ -82,7 +106,10 @@ fn a_lan_whose_block_is_not_one_is_refused() -> Outcome {
     topo.networks["office"].cidr = "office".into();
     let e = compile(&topo).unwrap_err();
     assert!(matches!(&e, Error::BadCidr { lan, cidr } if lan == "office" && cidr == "office"), "{e}");
-    assert_eq!(e.to_string(), "LAN `office`: `office` isn't a block like 10.10.1.0/24");
+    assert_eq!(
+        e.to_string(),
+        "LAN `office`: `office` isn't a block like 10.10.1.0/24 (the network's own address, a /24 to a /29)"
+    );
     Ok(())
 }
 

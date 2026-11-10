@@ -49,8 +49,9 @@ pub enum Error {
     /// A LAN's name is one the cables use (`link-<n>`).
     #[error("`{0}` is a name the cables use; call the LAN something else")]
     ReservedLanName(String),
-    /// A LAN's CIDR isn't `a.b.c.d/n`.
-    #[error("LAN `{lan}`: `{cidr}` isn't a block like 10.10.1.0/24")]
+    /// A LAN's CIDR isn't a block Isoloom gives machines addresses on: its network's own address
+    /// and a /24 to a /29.
+    #[error("LAN `{lan}`: `{cidr}` isn't a block like 10.10.1.0/24 (the network's own address, a /24 to a /29)")]
     BadCidr {
         /// The LAN.
         lan: String,
