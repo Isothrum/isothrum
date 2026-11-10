@@ -58,6 +58,18 @@ async fn a_runner_past_its_timeout_is_stopped_cleaned_up_and_its_checks_fail() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_runner_whose_end_line_lacks_its_counts_is_unfinished() {
+    // `isoloom-check/1`'s END line names both counts: one cut off before them isn't the runner's
+    // end, though every check it printed passed.
+    let f = fixture();
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).end_line = Some("isoloom-check: END 2 passed");
+    let (report, _) = started_and_checked(&f).await;
+    assert!(!report.ok);
+    assert!(report.results.len() == 7 && report.results.iter().all(|r| r.ok), "{report:?}");
+    assert_eq!(report.unfinished.len(), 3, "{report:?}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn checks_need_a_running_run() {
     let f = fixture();
     let run = f.runner.open(&f.manifest, None).unwrap();

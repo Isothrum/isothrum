@@ -1,9 +1,10 @@
 //! The run's checks: the manifest's `setup` steps, then each runner's step under its own timeout
 //! (Isoloom computes it from the checks' waits, so a long-waiting run isn't cut off at a
-//! fixed cap), its lines read with the `isoloom-check/1` grammar, then the
-//! `teardown`. A check its runner never reported fails; a runner with no `END` is unfinished.
+//! fixed cap), its lines read with the `isoloom-check/1` grammar ([`CheckLine::parse`]), then the
+//! `teardown`. A check its runner never reported fails; a runner with no `END` line (both counts
+//! in it) is unfinished.
 
-use isoloom_manifest::{Check, CheckRunner};
+use isoloom_manifest::{Check, CheckLine, CheckRunner};
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
@@ -40,32 +41,6 @@ pub struct CheckReport {
     pub unfinished: Vec<String>,
 }
 
-/// One line of a runner's output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Line {
-    Pass(String),
-    Fail(String, String),
-    /// The runner reached its end. Its counts aren't read: the report counts the results itself.
-    End,
-}
-
-/// Reads a runner's line, anywhere in it (tools prefix their output: `web-1  | isoloom-check: …`).
-///
-/// A copy of Isoloom's `isoloom-plan` reader (`checks/runner.rs`, `parse_line`), until the
-/// `isoloom-check/1` grammar's reader lives in the contract crate (`isoloom-manifest`, which
-/// documents the grammar) for both to use.
-pub(crate) fn parse_line(line: &str) -> Option<Line> {
-    let (_, rest) = line.split_once("isoloom-check: ")?;
-    if let Some(n) = rest.strip_prefix("PASS ") {
-        return Some(Line::Pass(n.trim_end().to_owned()));
-    }
-    if let Some(r) = rest.strip_prefix("FAIL ") {
-        let (name, why) = r.split_once(": ").unwrap_or((r, ""));
-        return Some(Line::Fail(name.to_owned(), why.trim_end().to_owned()));
-    }
-    rest.starts_with("END ").then_some(Line::End)
-}
-
 /// Runs the run's checks.
 pub(crate) async fn run(cx: &mut Cx<'_>) -> Result<CheckReport> {
     let checks = &cx.run.manifest().checks;
@@ -88,12 +63,13 @@ async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner, report: &mut CheckRep
     let id = runner.id.as_str();
     let before = report.results.len();
     let mut ended = false;
-    let mut record = |line: &str| match parse_line(line) {
-        Some(Line::Pass(name)) => push(cx, &mut report.results, result(runner, name, true, String::new())),
-        Some(Line::Fail(name, why)) => {
-            push(cx, &mut report.results, result(runner, name, false, why));
+    let mut record = |line: &str| match CheckLine::parse(line) {
+        Some(CheckLine::Pass { name }) => push(cx, &mut report.results, result(runner, name, true, String::new())),
+        Some(CheckLine::Fail { name, reason }) => {
+            push(cx, &mut report.results, result(runner, name, false, reason));
         }
-        Some(Line::End) => ended = true,
+        // Its counts aren't read: the report counts the results itself.
+        Some(CheckLine::End { .. }) => ended = true,
         None => {}
     };
     let ran = run_argv(cx, "checks.runners", &runner.step, &mut record).await;
@@ -141,46 +117,4 @@ fn result(runner: &CheckRunner, name: String, ok: bool, detail: String) -> Check
 /// A check its runner stopped before.
 fn unreported(runner: &CheckRunner, check: &Check) -> CheckResult {
     result(runner, check.name.clone(), false, "the runner stopped before this check".into())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runner_lines_are_read_anywhere_in_a_line() {
-        assert_eq!(parse_line("isoloom-check: PASS login works"), Some(Line::Pass("login works".into())));
-        assert_eq!(
-            parse_line("web-1  | isoloom-check: FAIL secret readable: 404"),
-            Some(Line::Fail("secret readable".into(), "404".into()))
-        );
-        assert_eq!(parse_line("isoloom-check: FAIL no reason"), Some(Line::Fail("no reason".into(), String::new())));
-        assert_eq!(parse_line("isoloom-check: END 3 passed, 1 failed"), Some(Line::End));
-        assert_eq!(parse_line("isoloom-check: ENDING"), None);
-        assert_eq!(parse_line("some other output"), None);
-    }
-}
-
-#[cfg(test)]
-mod proptests {
-    use proptest::prelude::*;
-
-    use super::*;
-
-    proptest! {
-        #[test]
-        fn any_line_is_read_without_panicking(line in "\\PC{0,120}") {
-            let _ = parse_line(&line);
-        }
-
-        #[test]
-        fn a_pass_reads_back_its_name_after_any_prefix(prefix in "[^i]{0,20}", name in "[a-zA-Z0-9][a-zA-Z0-9 /:._-]{0,40}[a-zA-Z0-9]") {
-            prop_assert_eq!(parse_line(&format!("{prefix}isoloom-check: PASS {name}")), Some(Line::Pass(name)));
-        }
-
-        #[test]
-        fn a_fail_reads_back_its_name_and_reason(name in "[a-z0-9 ._-]{1,30}", reason in "[a-zA-Z0-9 ]{0,30}[a-zA-Z0-9]") {
-            prop_assert_eq!(parse_line(&format!("isoloom-check: FAIL {name}: {reason}")), Some(Line::Fail(name, reason)));
-        }
-    }
 }

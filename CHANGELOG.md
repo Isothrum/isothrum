@@ -296,6 +296,12 @@ change.
   that already had a cable); it now fails with `Error::SelfLink`, as a cable between two ports of
   one node does.
 
+- **A check runner's `END` line ends it only with both counts.** Isothrum took any
+  `isoloom-check: END …` line as the runner's end, where Isoloom's reader of the protocol
+  (`isoloom-check/1`) takes `END <p> passed, <f> failed` only: a runner cut off before its counts
+  is now unfinished, as Isoloom reads it. Isothrum reads the lines with that reader,
+  `isoloom_manifest::CheckLine::parse`, instead of a copy of it.
+
 - **A failed `step_ok` ready condition says one thing.** Its `ready` event gave what the step's
   success means, its `not_ready` error "the step didn't succeed"; both now say "the step didn't
   succeed, so not: <what it means>".
