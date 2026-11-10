@@ -62,6 +62,27 @@ fn a_cisco_router_on_a_vlan_is_a_member_of_it() -> Outcome {
     Ok(())
 }
 
+/// Two Cisco routers on one LAN (a transit LAN between them): the first in the drawing's order is
+/// its gateway, the other a member at an ordinary address.
+#[test]
+fn of_two_cisco_routers_on_a_lan_the_first_is_its_gateway() -> Outcome {
+    let topo: Topology = serde_json::from_str(
+        r#"{
+          "name": "two-routers",
+          "nodes": {
+            "r1": { "kind": { "container": { "image": "vrnetlab/cisco_iol:17.12.01", "appliance": "cisco-iol" } }, "networks": { "transit": null } },
+            "r2": { "kind": { "container": { "image": "vrnetlab/cisco_iol:17.12.01", "appliance": "cisco-iol" } }, "networks": { "transit": null } }
+          },
+          "networks": { "transit": { "cidr": "10.10.1.0/24" } }
+        }"#,
+    )?;
+    let c = accepted(&topo)?;
+    assert_eq!(spec(&c).networks["transit"].gateway.as_deref(), Some("r1"));
+    assert_eq!(octet(&c, "r1", "transit")?, 1);
+    assert_ne!(octet(&c, "r2", "transit")?, 1);
+    Ok(())
+}
+
 /// A Dynamips router boots the IOS image the user adds: no image of its own.
 #[test]
 fn a_dynamips_router_boots_its_firmware() -> Outcome {

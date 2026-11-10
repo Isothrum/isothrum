@@ -88,7 +88,9 @@ pub(crate) fn compiled(topology_json: &str) -> Result<(Topology, Compiled)> {
 }
 
 /// Every machine's IPv4 addresses, as Isoloom gives them ([`isoloom_plan::addressing::address`]),
-/// on the networks whose block reads (Isoloom's problems say what is wrong with another).
+/// on the networks whose block reads: every one, as the compiler refuses a LAN whose block
+/// doesn't and makes the others' itself (the check only keeps Isoloom's addressing from being
+/// asked about one).
 /// Networks go by the topology's names: the network a VLAN becomes once lowered (Isoloom names
 /// it, and records the LAN and VLAN id it came from) goes by the key the topology gave that VLAN.
 fn addresses(spec: &model::Spec, topo: &Topology) -> IndexMap<String, Vec<(String, String)>> {

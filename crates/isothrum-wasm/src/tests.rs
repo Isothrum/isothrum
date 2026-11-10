@@ -114,6 +114,17 @@ fn an_address_no_machine_can_take_is_the_compilers_error() {
     );
 }
 
+/// A LAN whose block doesn't read is the compiler's error, so no plan has a network left out of
+/// `addresses` for its block.
+#[test]
+fn a_block_that_doesnt_read_is_the_compilers_error() {
+    let t = r#"{"name":"project","networks":{"lan":{"cidr":"10.10.1.0/33"}},"nodes":{
+        "a":{"kind":{"container":{"image":"alpine:3.20"}},"networks":{"lan":null}}}}"#;
+    let refused = plan(t);
+    assert!(!refused.ok && refused.addresses.is_empty(), "{refused:?}");
+    assert!(refused.error.unwrap().starts_with("LAN `lan`: `10.10.1.0/33` isn't a block"));
+}
+
 #[test]
 fn an_invalid_spec_is_reported_not_generated() {
     // A machine without a cable has no network: Isoloom's generators would panic on it.

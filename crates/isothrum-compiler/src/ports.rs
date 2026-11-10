@@ -80,11 +80,13 @@ pub(crate) fn named(node: &str, services: &[Service]) -> Result<IndexMap<PortNam
         }
         seen.push(s);
         let base = base_name(s);
-        // One of the first `len + 1` names is free: the machine's ports take at most `len`.
-        let free = (1..=ports.len() + 1)
-            .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
-            .find(|candidate| !ports.keys().any(|k| k.as_str() == candidate));
-        let name: PortName = free.unwrap_or_default().parse().map_err(|source| Error::PortName {
+        // The base name, else the first `<base>-<n>` no port of the machine has taken.
+        let (mut free, mut n) = (base.clone(), 1);
+        while ports.keys().any(|k| k.as_str() == free) {
+            n += 1;
+            free = format!("{base}-{n}");
+        }
+        let name: PortName = free.parse().map_err(|source| Error::PortName {
             node: node.to_owned(),
             port: s.port.get(),
             source,

@@ -136,7 +136,7 @@ fn covering<'a>(cidrs: impl Iterator<Item = &'a str>) -> String {
     let Some(first) = blocks.first() else {
         return String::new();
     };
-    let mut len = blocks.iter().map(|b| b.prefix()).min().unwrap_or(24);
+    let mut len = blocks.iter().map(|b| b.prefix()).fold(first.prefix(), u8::min);
     let around = |prefix: u8| Cidr::enclosing(first.address(), prefix);
     while len > 8 && !blocks.iter().all(|b| around(len).contains(*b)) {
         len -= 1;

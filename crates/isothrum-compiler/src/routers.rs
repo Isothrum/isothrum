@@ -26,8 +26,10 @@ pub(crate) fn add_reach_rules(draft: &mut Draft) {
 }
 
 /// A Cisco router on a LAN is that LAN's gateway (at its gateway address): the machines on it
-/// route through IOS, as behind a real router. Not on a VLAN: Isoloom's VLANs have no gateway,
-/// so there the router stays a member, at the address it already has.
+/// route through IOS, as behind a real router. With several on one LAN (two routers joined by
+/// it), the first in the drawing's order is; the others stay members, at the addresses they
+/// already have. Not on a VLAN: Isoloom's VLANs have no gateway, so there the router stays a
+/// member too.
 pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) {
     let plain_lan = |n: &str| topo.networks.get(n).is_some_and(|l| vlan_ref(l).is_none());
     for (lan, net) in draft.networks.iter_mut().filter(|(n, _)| plain_lan(n)) {
