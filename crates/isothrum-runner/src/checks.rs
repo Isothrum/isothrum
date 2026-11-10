@@ -1,7 +1,8 @@
 //! The run's checks: the manifest's `setup` steps, then each runner's step under its own timeout
 //! (Isoloom computes it from the checks' waits, so a long-waiting run isn't cut off at a
 //! fixed cap), its lines read with the `isoloom-check/1` grammar ([`CheckLine::parse`]), then the
-//! `teardown`. A check its runner never reported by name fails, whatever else it reported; a
+//! `teardown` (whose failure, after a setup that failed too, is a warning: the check ends with the
+//! setup's). A check its runner never reported by name fails, whatever else it reported; a
 //! runner with no `END` line (both counts in it) is unfinished.
 
 use std::collections::BTreeSet;
@@ -54,6 +55,10 @@ pub(crate) async fn run(cx: &mut Cx<'_>) -> Result<CheckReport> {
         }
     }
     let teardown = run_steps(cx, "checks.teardown", &checks.teardown).await;
+    if let (Err(_), Err(e)) = (&setup, &teardown) {
+        // The check ends with the setup's error: the teardown's is said, not dropped.
+        cx.events.warning(WarningCode::CheckCleanupFailed, &format!("checks.teardown: {e}"));
+    }
     setup?;
     teardown?;
     report.ok = !checks.runners.is_empty() && report.unfinished.is_empty() && report.results.iter().all(|r| r.ok);

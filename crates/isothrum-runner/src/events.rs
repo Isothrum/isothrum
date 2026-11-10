@@ -228,7 +228,8 @@ pub enum WarningCode {
     StepTolerated,
     /// A check runner failed or ran out of time: its checks that didn't report fail.
     CheckRunnerFailed,
-    /// The clean-up of a check runner that ran out of time failed.
+    /// A clean-up of the checks failed: a check runner's that ran out of time (`on_timeout`), or
+    /// the teardown after a setup that failed too (the check ends with the setup's error).
     CheckCleanupFailed,
     /// What an earlier run left is removed before a start.
     LeftoversRemoved,

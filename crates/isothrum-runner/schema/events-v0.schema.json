@@ -509,7 +509,7 @@
           "const": "check_runner_failed"
         },
         {
-          "description": "The clean-up of a check runner that ran out of time failed.",
+          "description": "A clean-up of the checks failed: a check runner's that ran out of time (`on_timeout`), or\nthe teardown after a setup that failed too (the check ends with the setup's error).",
           "type": "string",
           "const": "check_cleanup_failed"
         },

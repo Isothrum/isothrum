@@ -98,3 +98,57 @@ async fn checks_need_a_running_run() {
     let err = run.check(&RunOptions::default(), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NotRunning);
 }
+
+/// The fixture's manifest with a check `setup` and `teardown` step (`setup-checks` and
+/// `teardown-checks` in their lines), and its runners' `on_timeout` steps no longer tolerated.
+fn with_setup_and_teardown() -> String {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    let step = |id: &str| serde_json::json!({"id": id, "argv": ["docker", "compose", "--project-name", "${run.name}", "exec", "web", id]});
+    m["checks"]["setup"] = serde_json::json!([step("setup-checks")]);
+    m["checks"]["teardown"] = serde_json::json!([step("teardown-checks")]);
+    for runner in m["checks"]["runners"].as_array_mut().unwrap() {
+        for cleanup in runner["on_timeout"].as_array_mut().unwrap() {
+            cleanup.as_object_mut().unwrap().remove("failure");
+        }
+    }
+    m.to_string()
+}
+
+/// The warnings `events` hold with `code`.
+fn warned(events: &Recorder, code: crate::WarningCode) -> Vec<String> {
+    kinds(events)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::Warning { code: c, message } if c == code => Some(message),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression: with the setup and the teardown both failing, the check ended with the setup's
+/// error and the teardown's was dropped without a word.
+#[tokio::test(start_paused = true)]
+async fn a_teardown_that_fails_after_a_failed_setup_is_a_warning() {
+    let f = fixture_with(&with_setup_and_teardown());
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).failing = vec!["setup-checks", "teardown-checks"];
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let events = Recorder::new();
+    let err = run.check(&RunOptions::default(), &events).await.unwrap_err();
+    assert!(err.to_string().contains("setup-checks"), "the setup's error: {err}");
+    let said = warned(&events, crate::WarningCode::CheckCleanupFailed);
+    assert!(said.iter().any(|w| w.contains("teardown-checks failed")), "{said:?}");
+}
+
+/// A runner past its timeout whose `on_timeout` clean-up fails says so (`check_cleanup_failed`);
+/// its checks fail as any timed-out runner's do.
+#[tokio::test(start_paused = true)]
+async fn an_on_timeout_clean_up_that_fails_is_a_warning() {
+    let f = fixture_with(&with_setup_and_teardown());
+    f.check_takes("isoloom-check-db", Duration::from_secs(121));
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).failing = vec!["com.docker.compose.oneoff=True"];
+    let (report, events) = started_and_checked(&f).await;
+    assert_eq!(report.unfinished, ["isoloom-check-db"]);
+    let said = warned(&events, crate::WarningCode::CheckCleanupFailed);
+    assert!(said.len() == 1 && said[0].starts_with("isoloom-check-db: "), "{said:?}");
+}

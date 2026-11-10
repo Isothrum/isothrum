@@ -55,6 +55,8 @@ struct Engine {
     unreadable_ps: bool,
     /// Whether web's set-up job (`isoloom-init-web-1`) exits non-zero.
     failing_job: bool,
+    /// The calls that fail, by a text their line contains.
+    failing: Vec<&'static str>,
 }
 
 /// A test's runner and its fakes.
@@ -182,6 +184,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     }
     if e.failing_job && line.contains("--exit-code-from isoloom-init-web-1") {
         return Reply::fail(1, "set-up failed");
+    }
+    if let Some(text) = e.failing.iter().find(|t| line.contains(**t)) {
+        return Reply::fail(1, &format!("{text} failed"));
     }
     if line.starts_with("docker network ls ") {
         return Reply::ok(&e.networks.join("\n"));
