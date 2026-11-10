@@ -24,18 +24,22 @@ pub(crate) fn config_path(machine: &str) -> String {
     format!("configs/{machine}.cfg")
 }
 
+/// An appliance's own configuration as drawn, when it has one: a blank one is none, so no file is
+/// written for it and its spec names none.
+pub(crate) fn own_config(config: Option<&str>) -> Option<&str> {
+    config.filter(|c| !c.trim().is_empty())
+}
+
 /// The appliances' own configurations, as files of the project, each ending with a line break.
 pub(crate) fn config_files(topo: &Topology) -> Vec<ProjectFile> {
     topo.nodes
         .iter()
         .filter_map(|(name, n)| match &n.kind {
             Kind::Container {
-                appliance: Some(_),
-                config: Some(c),
-                ..
-            } if !c.trim().is_empty() => Some(ProjectFile {
+                appliance: Some(_), config, ..
+            } => own_config(config.as_deref()).map(|c| ProjectFile {
                 path: config_path(name),
-                contents: if c.ends_with('\n') { c.clone() } else { format!("{c}\n") },
+                contents: if c.ends_with('\n') { c.to_owned() } else { format!("{c}\n") },
             }),
             _ => None,
         })

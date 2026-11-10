@@ -12,7 +12,7 @@ use isoloom_spec::syntax::OsRef;
 use crate::controller::ControllerPlaybook;
 use crate::document::{AppDoc, MachineDoc, StepDoc};
 use crate::draft::Draft;
-use crate::project::{config_path, firmware_path};
+use crate::project::{config_path, firmware_path, own_config};
 use crate::{Kind, Node, Result, Topology, ports};
 
 /// What keeps an idle container running: it has no service of its own.
@@ -105,7 +105,7 @@ fn appliance(name: &str, image: &str, kind: Appliance, config: Option<&str>) -> 
     AppDoc {
         image: (!dynamips).then(|| image.to_owned()),
         appliance: Some(kind),
-        config: config.filter(|c| !c.trim().is_empty()).map(|_| config_path(name)),
+        config: own_config(config).map(|_| config_path(name)),
         firmware: dynamips.then(|| firmware_path(name)),
         steps: Vec::new(),
     }
