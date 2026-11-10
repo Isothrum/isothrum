@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::events::Stream;
 use crate::process::OnLine;
+use crate::process::lines::take_line;
 
 /// A growing log, read a line at a time from where the last read stopped.
 #[derive(Debug, Default)]
@@ -27,8 +28,8 @@ impl LogReader {
         self.offset += u64::try_from(read).unwrap_or(0);
         self.partial.extend(bytes);
         while let Some(end) = self.partial.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.partial.drain(..=end).collect();
-            on_line(Stream::Stdout, String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']));
+            let mut line: Vec<u8> = self.partial.drain(..=end).collect();
+            on_line(Stream::Stdout, &take_line(&mut line));
         }
         Ok(())
     }
@@ -36,10 +37,7 @@ impl LogReader {
     /// The last line, when the log didn't end with a line break.
     pub(super) fn finish(&mut self, on_line: OnLine<'_>) {
         if !self.partial.is_empty() {
-            on_line(
-                Stream::Stdout,
-                String::from_utf8_lossy(&std::mem::take(&mut self.partial)).trim_end_matches('\r'),
-            );
+            on_line(Stream::Stdout, &take_line(&mut self.partial));
         }
     }
 }

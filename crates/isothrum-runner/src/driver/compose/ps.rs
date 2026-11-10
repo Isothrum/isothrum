@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Manifest, Native, Protocol};
+use isoloom_manifest::{Manifest, Protocol};
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -110,10 +110,7 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
     let mut published = BTreeMap::new();
     let mut out = Vec::new();
     for m in &manifest.machines {
-        let service = match &m.native {
-            Some(Native::Compose { service }) => service.as_str(),
-            _ => m.name.as_str(),
-        };
+        let service = crate::driver::native_name(m);
         let entry = entries.iter().find(|e| e.service == service && !e.one_off());
         let ports = entry.map(PsEntry::published).unwrap_or_default();
         // Each by its name in the manifest (`${published.<machine>.<name>}`).

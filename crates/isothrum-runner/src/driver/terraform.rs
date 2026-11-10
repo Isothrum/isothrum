@@ -146,10 +146,8 @@ impl Driver for Terraform {
     fn retire(&self, _cx: &Cx<'_>, machine: &Machine) -> impl Future<Output = Result<()>> {
         std::future::ready(if machine.on_demand {
             Err(on_demand("taking out"))
-        } else if machine.native.is_some() {
-            Err(Error::Unsupported {
-                what: format!("taking out `{}`: a Compose service with no VM to run in", machine.name),
-            })
+        } else if super::is_compose_service(machine) {
+            Err(super::no_vm_for("taking out", machine))
         } else {
             Ok(())
         })

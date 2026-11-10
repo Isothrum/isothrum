@@ -18,10 +18,8 @@ use crate::ssh::{self, Login};
 /// The command that opens a console into `machine`, a VM the module makes; not running while
 /// the state gives it no address.
 pub(super) fn command(cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
-    if machine.native.is_some() {
-        return Err(Error::Unsupported {
-            what: format!("a console into `{}`: a Compose service with no VM to run in", machine.name),
-        });
+    if crate::driver::is_compose_service(machine) {
+        return Err(crate::driver::no_vm_for("a console into", machine));
     }
     let outputs = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.outputs;
     let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump.as_deref())?.ok_or_else(|| Error::NotRunning {

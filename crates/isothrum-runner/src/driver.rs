@@ -307,6 +307,19 @@ pub(crate) fn native_name(m: &Machine) -> &str {
     }
 }
 
+/// Whether `m` is a Compose service.
+pub(crate) fn is_compose_service(m: &Machine) -> bool {
+    matches!(m.native, Some(Native::Compose { .. }))
+}
+
+/// The refusal of `what` (`taking out`, `a console into`) on `machine`, a Compose service on a
+/// run with no VM for it to run in.
+pub(crate) fn no_vm_for(what: &str, machine: &Machine) -> Error {
+    Error::Unsupported {
+        what: format!("{what} `{}`: a Compose service with no VM to run in", machine.name),
+    }
+}
+
 fn delivery_kind(d: &Delivery) -> &'static str {
     match d {
         Delivery::Env { .. } => "env",

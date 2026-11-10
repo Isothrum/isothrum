@@ -85,7 +85,7 @@ impl<R: AsyncRead + Unpin> Reader<R> {
 
 /// The line read into `buf` (its `\n` or `\r\n` cut off, bytes that aren't UTF-8 replaced),
 /// leaving `buf` empty for the next one.
-pub(super) fn take_line(buf: &mut Vec<u8>) -> String {
+pub(in crate::process) fn take_line(buf: &mut Vec<u8>) -> String {
     let line = buf.strip_suffix(b"\n").unwrap_or(buf);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     let line = String::from_utf8_lossy(line).into_owned();

@@ -47,7 +47,7 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
     }
     let mut step = Step::argv(id, tool.probe.clone());
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    let out = capture_step(cx, "tools", &step)
+    let out = capture_step(cx, STEP, &step)
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
     let Some(min) = &tool.min_version else { return Ok(()) };
@@ -69,7 +69,7 @@ async fn engine(cx: &Cx<'_>, id: StepId, image: &str) -> Result<()> {
     ));
     let mut step = Step::argv(id, probe);
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    capture_step(cx, "tools", &step).await.map(drop).map_err(|e| {
+    capture_step(cx, STEP, &step).await.map(drop).map_err(|e| {
         named(e, "docker", |reason| {
             format!("Docker, which runs `{image}` on this host, doesn't answer: {reason}")
         })

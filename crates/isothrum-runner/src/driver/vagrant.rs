@@ -286,9 +286,7 @@ impl Driver for Vagrant {
 fn define_of<'m>(machine: &'m Machine, what: &str) -> Result<&'m str> {
     match &machine.native {
         Some(Native::Vagrant { vagrant, .. }) => Ok(vagrant.as_str()),
-        Some(Native::Compose { .. }) => Err(Error::Unsupported {
-            what: format!("{what} `{}`: a Compose service with no VM to run in", machine.name),
-        }),
+        Some(Native::Compose { .. }) => Err(super::no_vm_for(what, machine)),
         None => Err(Error::Unsupported {
             what: format!("{what} `{}`: the run doesn't say how it runs", machine.name),
         }),

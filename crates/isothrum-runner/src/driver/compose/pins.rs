@@ -5,8 +5,6 @@
 //! `ISOLOOM_PUBLISH_FIXED` param set, a port takes its manifest's `preferred` number instead, once
 //! per number and protocol.
 
-use isoloom_manifest::Native;
-
 use super::config::{self, ConfigPort};
 use crate::Result;
 use crate::driver::port_pick::PortPick;
@@ -39,10 +37,7 @@ pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<Strin
 
 /// The manifest's `preferred` number for the machine port `p` publishes.
 fn preferred(cx: &Cx<'_>, p: &ConfigPort) -> Option<u16> {
-    let machine = cx.run.manifest().machines.iter().find(|m| match &m.native {
-        Some(Native::Compose { service }) => service.as_str() == p.service,
-        _ => m.name.as_str() == p.service,
-    })?;
+    let machine = cx.run.manifest().machines.iter().find(|m| crate::driver::native_name(m) == p.service)?;
     let port = machine.ports.iter().find(|q| q.port.get() == p.target && q.kind.transport() == p.protocol)?;
     port.publish.as_ref()?.preferred.map(std::num::NonZeroU16::get)
 }

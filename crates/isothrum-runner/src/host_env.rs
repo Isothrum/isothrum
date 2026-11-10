@@ -42,10 +42,7 @@ impl HostEnv {
     /// `PATH` (the tools found here are found there), and `VAGRANT_HOME` pinned to this account's
     /// boxes, whoever approved the prompt, when none is set.
     pub(crate) fn for_elevation(&self, path: Option<&str>) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = self
-            .vars()
-            .filter(|(k, _)| k.to_ascii_uppercase().starts_with("VAGRANT_") || is_network_var(k))
-            .collect();
+        let mut out: Vec<(String, String)> = self.vars().filter(|(k, _)| is_vagrant_var(k) || is_network_var(k)).collect();
         out.extend(path.map(|p| ("PATH".to_owned(), p.to_owned())));
         if self.get("VAGRANT_HOME").is_none()
             && let Some(profile) = self.get("USERPROFILE")
@@ -67,7 +64,13 @@ impl std::fmt::Debug for HostEnv {
 /// Vagrant variable, or the user's profile folder (Windows).
 fn handed_on(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    is_network_var(name) || upper == TF_CLI_CONFIG_FILE || upper.starts_with("VAGRANT_") || upper == "USERPROFILE"
+    is_network_var(name) || upper == TF_CLI_CONFIG_FILE || is_vagrant_var(name) || upper == "USERPROFILE"
+}
+
+/// Whether `name` is one of Vagrant's own variables (`VAGRANT_HOME`, `VAGRANT_LOG`…), whatever
+/// its case.
+fn is_vagrant_var(name: &str) -> bool {
+    name.to_ascii_uppercase().starts_with("VAGRANT_")
 }
 
 #[cfg(test)]
