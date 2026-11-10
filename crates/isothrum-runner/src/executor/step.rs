@@ -237,18 +237,24 @@ pub(crate) fn stdin_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<st
     Ok(Some(cx.run.dir().join(filled)))
 }
 
-/// Step `step`'s environment: its own variables, filled, then the params and secrets delivered
-/// to it.
+/// Step `step`'s environment: the driver's, its own variables filled, then what it is delivered
+/// ([`with_delivered`]).
 pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String, String)>> {
     let at = plan::at(list, step);
     let mut env = cx.run.driver.env(cx)?;
     for (name, value) in &step.env {
         env.push((name.to_string(), cx.vars.render(value, &at)?));
     }
-    env.extend(step_env(cx, step.id.as_str()));
-    // The relays win: they point the tools at loopback ports in place of the LAN host.
+    Ok(with_delivered(cx, step.id.as_str(), env))
+}
+
+/// `env` (the driver's variables, a step's own), then the params and secrets delivered to step
+/// `id`, then the relays': what a tool of the step runs with, a later variable winning (the
+/// relays point the tools at loopback ports in place of the LAN host).
+pub(crate) fn with_delivered(cx: &Cx<'_>, id: &str, mut env: Vec<(String, String)>) -> Vec<(String, String)> {
+    env.extend(step_env(cx, id));
     env.extend(cx.relayed.iter().flat_map(|r| r.env.iter().cloned()));
-    Ok(env)
+    env
 }
 
 /// `run` given up once it shows no progress for `step`'s time limit in `scope`, or at the

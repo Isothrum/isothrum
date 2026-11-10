@@ -23,7 +23,7 @@ use crate::Result;
 use crate::console::ShellCommand;
 use crate::encoding::wire_name;
 use crate::error::Error;
-use crate::executor::{Cx, Echo, call_ok, step_env};
+use crate::executor::{Cx, Echo, call_ok, with_delivered};
 use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::status::{MachineStatus, PublishedPort};
@@ -89,10 +89,8 @@ impl Vagrant {
     /// the manifest delivers to that step (the ESXi host, a provider's params) and the relays'
     /// settings.
     fn vagrant(&self, cx: &Cx<'_>, id: &str, args: &[&str]) -> Result<ProcessSpec> {
-        let mut env = self.env(cx)?;
-        env.extend(step_env(cx, id));
         // An ESXi host behind the macOS relays: Vagrant talks to it through them.
-        env.extend(cx.relayed.iter().flat_map(|r| r.env.iter().cloned()));
+        let env = with_delivered(cx, id, self.env(cx)?);
         Ok(ProcessSpec {
             program: "vagrant".into(),
             args: args.iter().map(|a| (*a).to_owned()).collect(),

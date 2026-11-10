@@ -11,7 +11,7 @@ mod reconnect;
 pub(crate) mod state_files;
 mod step;
 
-pub(crate) use delivery::{env_deliveries, every_delivery, step_env};
+pub(crate) use delivery::{env_deliveries, every_delivery};
 
 use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
@@ -20,7 +20,7 @@ use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
 pub(crate) use progress::{Progress, within};
-pub(crate) use step::{Echo, call, call_ok, capture_output, capture_step, env_of, run_argv, stdin_of, stdout_of};
+pub(crate) use step::{Echo, call, call_ok, capture_output, capture_step, env_of, run_argv, stdin_of, stdout_of, with_delivered};
 
 use crate::Result;
 use crate::error::Error;
