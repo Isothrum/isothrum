@@ -50,12 +50,12 @@ pub(crate) struct Phase {
 }
 
 /// How a phase went.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Ran {
     /// It succeeded.
     Ok,
-    /// It failed.
-    Failed,
+    /// It failed, and why.
+    Failed(String),
     /// It didn't start: the budget was spent.
     OverBudget,
     /// It didn't start: the start failed, so there was nothing to read or check.

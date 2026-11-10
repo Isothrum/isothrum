@@ -8,10 +8,9 @@ fn args(cloud: CloudName) -> CloudArgs {
     CloudArgs {
         cloud,
         target: CloudTarget::CloudVm,
-        example: "solo-web".into(),
         budget_minutes: 45,
         lifetime_minutes: 60,
-        host: "mac".into(),
+        host: None,
     }
 }
 
@@ -92,6 +91,11 @@ fn a_param_the_manifest_requires_and_the_account_lacks_refuses_the_run() {
     assert!(err.to_string().contains("needs `compartment_id`"), "{err}");
 }
 
+/// A phase that failed.
+fn failed() -> Ran {
+    Ran::Failed("exit status: 1".into())
+}
+
 /// A runner that answers each step from `outcomes` and notes what ran.
 struct Scripted {
     outcomes: Vec<(Step, Ran)>,
@@ -105,7 +109,7 @@ impl Runs for Scripted {
             .find(|s| args.first().map(String::as_str) == Some(s.name()))
             .unwrap();
         self.ran.push(step);
-        self.outcomes.iter().find(|(s, _)| *s == step).map_or(Ran::Ok, |(_, r)| *r)
+        self.outcomes.iter().find(|(s, _)| *s == step).map_or(Ran::Ok, |(_, r)| r.clone())
     }
 }
 
@@ -126,21 +130,21 @@ fn a_whole_cycle_runs_every_phase_in_order() {
 
 #[test]
 fn a_failed_start_is_still_destroyed() {
-    let mut s = scripted(&[(Step::Up, Ran::Failed)]);
+    let mut s = scripted(&[(Step::Up, failed())]);
     let out = execute(&plan(), Duration::from_secs(60), &mut s, &|| Duration::ZERO);
     assert_eq!(s.ran, [Step::Up, Step::Down, Step::Reap]);
     assert_eq!(
-        out.iter().map(|(_, r)| *r).collect::<Vec<_>>(),
-        [Ran::Failed, Ran::Skipped, Ran::Skipped, Ran::Ok, Ran::Ok]
+        out.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>(),
+        [failed(), Ran::Skipped, Ran::Skipped, Ran::Ok, Ran::Ok]
     );
 }
 
 #[test]
 fn a_failed_check_or_destroy_still_reaps() {
-    let mut s = scripted(&[(Step::Check, Ran::Failed), (Step::Down, Ran::Failed)]);
+    let mut s = scripted(&[(Step::Check, failed()), (Step::Down, failed())]);
     let out = execute(&plan(), Duration::from_secs(60), &mut s, &|| Duration::ZERO);
     assert_eq!(s.ran, [Step::Up, Step::Status, Step::Check, Step::Down, Step::Reap]);
-    assert!(out.iter().any(|(_, r)| *r == Ran::Failed));
+    assert!(out.iter().any(|(_, r)| *r == failed()));
 }
 
 #[test]
