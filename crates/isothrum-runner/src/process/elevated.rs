@@ -176,7 +176,7 @@ impl Elevated {
         };
         // The values first: the broker takes a request only once its `req` file is there.
         crate::store::write_private(&dir.join(format!("env-{n}.json")), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
-        crate::store::write_private(&dir.join(format!("req-{n}.json")), request(token, n, spec).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(format!("req-{n}.json")), request_file(token, n, spec).as_bytes()).map_err(io)?;
         let mut log_reader = LogReader::default();
         let (log, exit) = (dir.join(format!("out-{n}.log")), dir.join(format!("exit-{n}")));
         loop {
@@ -316,7 +316,7 @@ fn may_manage(groups: &str) -> bool {
 
 /// Request `n`'s file: the program, its arguments and folder, under the session's `token`. No
 /// value of any variable: those are in its [`env_file`].
-fn request(token: &str, n: u64, spec: &ProcessSpec) -> String {
+fn request_file(token: &str, n: u64, spec: &ProcessSpec) -> String {
     serde_json::json!({
         "session": token,
         "seq": n,

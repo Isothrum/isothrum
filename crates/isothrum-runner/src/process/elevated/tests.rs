@@ -139,7 +139,7 @@ fn a_request_file_holds_no_value_and_names_its_session_and_turn() {
     let mut spec = ProcessSpec::new("vagrant", ["up"]);
     spec.env = vec![("DEMO_SECRET".into(), "token-x".into())];
     let forwarded = [("HTTPS_PROXY".to_owned(), "http://user:pw@proxy:3128".to_owned())];
-    let req: serde_json::Value = serde_json::from_str(&request("t0k3n", 7, &spec)).unwrap();
+    let req: serde_json::Value = serde_json::from_str(&request_file("t0k3n", 7, &spec)).unwrap();
     assert_eq!((req["session"].as_str(), req["seq"].as_u64(), req.get("env")), (Some("t0k3n"), Some(7), None));
     assert!(!req.to_string().contains("token-x") && !req.to_string().contains("pw@"));
     let env: serde_json::Value = serde_json::from_str(&env_file("t0k3n", 7, &spec, &forwarded)).unwrap();
