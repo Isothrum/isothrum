@@ -134,13 +134,7 @@ fn not_inherited(name: &str, manifest: &toml::Table) -> Vec<String> {
 
 /// The workspace, as `cargo metadata --no-deps` describes it.
 fn metadata() -> Value {
-    let out = crate::process::cargo(&repo::root())
-        .args(["metadata", "--format-version", "1", "--no-deps", "--offline", "--manifest-path"])
-        .arg(repo::root().join("Cargo.toml"))
-        .output()
-        .expect("cargo metadata runs");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    serde_json::from_slice(&out.stdout).expect("cargo metadata prints JSON")
+    repo::metadata(&repo::root()).expect("cargo metadata runs and prints JSON")
 }
 
 fn read_toml(path: &std::path::Path) -> toml::Table {

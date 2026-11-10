@@ -13,6 +13,18 @@ pub(crate) fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
+/// The workspace at `root`, as `cargo metadata --no-deps` describes it.
+///
+/// # Errors
+///
+/// `cargo metadata` fails, or prints no JSON.
+pub(crate) fn metadata(root: &Path) -> crate::Res<serde_json::Value> {
+    let mut cmd = crate::process::cargo(root);
+    cmd.args(["metadata", "--format-version", "1", "--no-deps", "--offline", "--manifest-path"])
+        .arg(root.join("Cargo.toml"));
+    Ok(serde_json::from_str(&crate::process::output(&mut cmd)?)?)
+}
+
 /// A path as text with `/` separators, as the tools on every host read it.
 pub(crate) fn slashed(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")

@@ -5,17 +5,14 @@ use std::path::{Path, PathBuf};
 
 use super::{Counts, Crate, add};
 use crate::repo::path_in;
-use crate::{Res, process, repo};
+use crate::{Res, repo};
 
 /// Lines of code a source file may have.
 const MAX_CODE_LINES: usize = 400;
 
 /// The workspace's crates, from `cargo metadata`.
 pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
-    let mut cmd = process::cargo(root);
-    cmd.args(["metadata", "--format-version", "1", "--no-deps", "--offline", "--manifest-path"])
-        .arg(root.join("Cargo.toml"));
-    let metadata: serde_json::Value = serde_json::from_str(&process::output(&mut cmd)?)?;
+    let metadata = repo::metadata(root)?;
     let base = repo::slashed(Path::new(metadata.get("workspace_root").and_then(serde_json::Value::as_str).unwrap_or("")));
     let packages = metadata.get("packages").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     Ok(packages
