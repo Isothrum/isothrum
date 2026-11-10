@@ -62,7 +62,7 @@ and `--secret-from-env`.
 |---|---|
 | `Running::park(mode, events)` | `Running::park(mode, opts, events)` |
 | `Running::attach(...)`, `Running::detach(...)` | `attach(pick, opts, events)` with an `AccessPick` built from `AccessPick::default()` and its `with_*` methods; `detach(machine, opts, events)`. Pass `RunOptions::new()` for no options. |
-| `Running::shell_command` | `Running::console_command(machine)` |
+| `Running::shell_command` | `Running::console_command(machine, None)`, or `Some(user)` to open it as that account |
 | `ShellCommand::cwd: Option<PathBuf>` | `ShellCommand::cwd: PathBuf` |
 | `ShellCommand { program, args, cwd, env }` | `ShellCommand::new(program, args, cwd).with_env(env)`: it is `#[non_exhaustive]`. |
 | `Error::Timeout { after_s, .. }` | `Error::Timeout { timed_out: TimedOut, .. }` (`NoProgress` or `Ceiling`; `timed_out.after_s()`) |

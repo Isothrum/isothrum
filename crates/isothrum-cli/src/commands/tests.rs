@@ -203,6 +203,10 @@ async fn a_console_into_a_machine_is_printed_and_a_machine_is_retired() {
     assert!(rest.starts_with("docker compose --project-name web-portal "), "{console}");
     assert!(console.contains(" exec web sh -c 'if command -v bash"), "its script quoted whole: {console}");
     assert!(s.run(&["console", "nope"]).await.is_err(), "a machine the run doesn't have");
+    assert_eq!(s.run(&["console", "--user", "player", "web"]).await.unwrap(), Verdict::Pass);
+    let as_player = s.out.take();
+    assert!(as_player.contains(" exec --user player web sh -c 'cd 2>/dev/null; "), "{as_player}");
+    assert!(s.run(&["console", "--user", "a b", "web"]).await.is_err(), "a name no account has");
 
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     s.out.take();

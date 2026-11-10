@@ -1254,6 +1254,20 @@ async fn an_update_brings_a_vm_added_to_the_run_up() {
     assert_eq!(extra.state, crate::MachineState::Running);
 }
 
+/// A console as an account into a Windows VM is refused: its way in has no `sudo` to switch with.
+/// Its console as Vagrant logs in stays.
+#[tokio::test]
+async fn a_console_as_an_account_into_a_windows_machine_is_refused() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
+    m["machines"][0]["windows"] = serde_json::json!(true);
+    let f = fixture_from(crate::runner::this_host(), &m.to_string());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.console_command("web", Some("player")).unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
+    assert!(err.to_string().contains("which runs Windows"), "{err}");
+    assert_eq!(run.console_command("web", None).unwrap().args, ["ssh", "web"]);
+}
+
 /// A machine whose manifest doesn't say how it runs (no native name) has no console and isn't
 /// retired: refused, rather than a guess at its define.
 #[tokio::test]
@@ -1262,7 +1276,7 @@ async fn a_machine_with_no_native_name_has_no_console() {
     m["machines"][0].as_object_mut().unwrap().remove("native");
     let f = fixture_from(crate::runner::this_host(), &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.console_command("web").unwrap_err();
+    let err = run.console_command("web", None).unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("doesn't say how it runs"), "{err}");
     // Nor a retire: nothing would be destroyed, so it isn't reported done.

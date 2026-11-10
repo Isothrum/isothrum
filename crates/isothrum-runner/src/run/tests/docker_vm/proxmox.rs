@@ -151,7 +151,7 @@ async fn a_console_goes_through_the_runs_ssh_jump() {
     let s = proxmox();
     let run = s.runner.open(&s.folder.manifest, None).unwrap();
     run.up(&s.options.clone().with_ssh_jump("root@pve.lan"), &Recorder::new()).await.unwrap();
-    let console = run.console_command("web").unwrap();
+    let console = run.console_command("web", None).unwrap();
     assert!(console.args.windows(2).any(|w| w == ["-J", "root@pve.lan"]), "{:?}", console.args);
 }
 
@@ -162,7 +162,7 @@ async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() 
     let s = proxmox();
     let run = s.runner.open(&s.folder.manifest, None).unwrap();
     run.up(&s.options, &Recorder::new()).await.unwrap();
-    let console = run.console_command("web").unwrap();
+    let console = run.console_command("web", None).unwrap();
     assert_eq!(console.program, "ssh");
     assert_eq!(console.args[0], "-t");
     assert!(console.args.contains(&format!("isoloom@{VM_IP}")), "{:?}", console.args);
@@ -170,6 +170,12 @@ async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() 
         console.args.last().unwrap().contains("label=com.docker.compose.service=web"),
         "{:?}",
         console.args
+    );
+    let as_player = run.console_command("web", Some("player")).unwrap();
+    assert!(
+        as_player.args.last().unwrap().contains("docker exec -it --user player "),
+        "{:?}",
+        as_player.args
     );
 }
 

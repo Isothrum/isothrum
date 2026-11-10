@@ -173,9 +173,10 @@ impl Driver for Terraform {
         })
     }
 
-    /// The command that opens a console into `machine`: `ssh -t` to it ([`console::command`]).
-    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
-        console::command(cx, machine)
+    /// The command that opens a console into `machine`, as `user` when given: `ssh -t` to it
+    /// ([`console::command`]).
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
+        console::command(cx, machine, user)
     }
 
     /// `ssh` to the run's VM, as the guest's steps reach it ([`console::in_guest`]).

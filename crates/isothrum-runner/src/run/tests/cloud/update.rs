@@ -65,7 +65,7 @@ async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
-    let console = run.console_command("web").unwrap();
+    let console = run.console_command("web", None).unwrap();
     assert_eq!(console.program, "ssh");
     assert_eq!(console.args.first().map(String::as_str), Some("-t"));
     assert!(console.args.iter().any(|x| x == "admin@198.51.100.10"), "{:?}", console.args);
@@ -79,8 +79,25 @@ async fn a_console_reaches_any_machine_of_the_run_over_ssh() {
         console.args.last().map(String::as_str),
         Some("if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi")
     );
-    let unknown = run.console_command("nope").unwrap_err();
+    let unknown = run.console_command("nope", None).unwrap_err();
     assert_eq!(unknown.code(), crate::ErrorCode::MachineUnknown, "{unknown}");
+}
+
+/// A console as an account: the same `ssh -t` as the module's user, then a `sudo -i` login as
+/// the account (the module's user's shell when it is that account).
+#[tokio::test(start_paused = true)]
+async fn a_console_over_ssh_opens_as_the_account_asked() {
+    let a = account(0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    let console = run.console_command("web", Some("player")).unwrap();
+    assert_eq!(console.args.first().map(String::as_str), Some("-t"));
+    assert!(
+        console.args.iter().any(|x| x == "admin@198.51.100.10"),
+        "logs in as the module's user: {:?}",
+        console.args
+    );
+    assert_eq!(console.args.last(), Some(&crate::driver::shells::login_shell_as("player")));
 }
 
 /// A machine that was running keeps what it was given: an update (which carries no launch's
@@ -106,6 +123,6 @@ async fn a_console_into_a_machine_with_no_address_is_not_running() {
     run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     let state = a.runner.store.run_dir(run.name()).unwrap().join("terraform.tfstate");
     std::fs::write(&state, r#"{"outputs": {}, "resources": []}"#).unwrap();
-    let err = run.console_command("web").unwrap_err();
+    let err = run.console_command("web", None).unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::NotRunning, "{err}");
 }

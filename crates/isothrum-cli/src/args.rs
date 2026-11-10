@@ -85,6 +85,11 @@ pub(crate) enum RunnerCommand {
     Console {
         /// The machine, by its manifest name.
         machine: String,
+        /// The account to open it as, in its home, rather than the one the way in logs in as (a
+        /// container's own, Vagrant's `vagrant`, a module's SSH user): the machine must have it,
+        /// and on a VM that login must be allowed to `sudo`. Not on a Windows machine.
+        #[arg(long)]
+        user: Option<String>,
         #[command(flatten)]
         run: TargetArgs,
     },
@@ -337,7 +342,9 @@ mod tests {
     #[test]
     fn a_console_takes_its_machine_and_the_run_defaults_to_here() {
         let console = Cli::parse_from(["isothrum", "console", "web"]);
-        assert!(matches!(on_runner(console.command), RunnerCommand::Console { machine: m, run } if m == "web" && run.path.as_os_str() == "."));
+        assert!(matches!(on_runner(console.command), RunnerCommand::Console { machine: m, run, user: None } if m == "web" && run.path.as_os_str() == "."));
+        let as_user = Cli::parse_from(["isothrum", "console", "--user", "player", "web"]);
+        assert!(matches!(on_runner(as_user.command), RunnerCommand::Console { user: Some(u), .. } if u == "player"));
     }
 
     #[test]

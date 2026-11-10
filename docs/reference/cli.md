@@ -208,6 +208,7 @@ isothrum console [OPTIONS] <MACHINE> [PATH]
 ```
 
 - `<MACHINE>`: The machine, by its manifest name.
+- `--user <USER>`: The account to open it as, in its home, rather than the one the way in logs in as (a container's own, Vagrant's `vagrant`, a module's SSH user): the machine must have it, and on a VM that login must be allowed to `sudo`. Not on a Windows machine.
 - `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
 - `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)

@@ -147,10 +147,10 @@ fn standing(m: &MachineStatus, state: MachineState) -> MachineStatus {
     }
 }
 
-/// The command that opens a console into Compose service `service`, running in `guest`'s VM:
-/// into the VM, then into the service's container there ([`into_service`]).
-pub(crate) fn console(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str) -> Result<ShellCommand> {
-    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &into_service(service), GuestUse::Console)?;
+/// The command that opens a console into Compose service `service`, running in `guest`'s VM, as
+/// `user` when given: into the VM, then into the service's container there ([`into_service`]).
+pub(crate) fn console(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str, user: Option<&str>) -> Result<ShellCommand> {
+    let spec = driver.in_guest(cx, vm_of(cx, guest)?, &into_service(service, user), GuestUse::Console)?;
     Ok(console_in_run(cx, spec))
 }
 
@@ -174,12 +174,17 @@ fn vm_of<'m>(cx: &Cx<'m>, guest: &Guest) -> Result<&'m Machine> {
 }
 
 /// Run inside the VM: a shell in the container of Compose service `service` there, found by its
-/// Compose label (whatever project and file started it).
-fn into_service(service: &str) -> String {
+/// Compose label (whatever project and file started it); as `user` when given (`--user`, a login
+/// shell in its home).
+fn into_service(service: &str, user: Option<&str>) -> String {
     let filter = sh_quote(&format!("label={COMPOSE_SERVICE_LABEL}={service}"));
+    let (as_user, shell) = match user {
+        None => (String::new(), shells::CONTAINER_SHELL.to_owned()),
+        Some(user) => (format!("--user {user} "), shells::container_shell_as()),
+    };
     format!(
-        "sudo docker exec -it \"$(sudo docker ps -q --filter {filter} | head -n 1)\" sh -c {}",
-        sh_quote(shells::CONTAINER_SHELL)
+        "sudo docker exec -it {as_user}\"$(sudo docker ps -q --filter {filter} | head -n 1)\" sh -c {}",
+        sh_quote(&shell)
     )
 }
 
@@ -203,8 +208,17 @@ mod tests {
     #[test]
     fn a_service_in_a_vm_is_entered_by_its_compose_label() {
         assert_eq!(
-            into_service("user"),
+            into_service("user", None),
             "sudo docker exec -it \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=user' | head -n 1)\" sh -c 'if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'"
+        );
+    }
+
+    /// As an account: `docker exec --user`, then a login shell in its home.
+    #[test]
+    fn a_service_in_a_vm_is_entered_as_the_account_asked() {
+        assert_eq!(
+            into_service("user", Some("player")),
+            "sudo docker exec -it --user player \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=user' | head -n 1)\" sh -c 'cd 2>/dev/null; if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi'"
         );
     }
 

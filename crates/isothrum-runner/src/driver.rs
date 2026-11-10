@@ -102,11 +102,12 @@ pub(crate) trait Driver {
     /// makes, which the update's apply removes. A Compose service in the run's VM never reaches
     /// here: [`crate::in_vm::retire`] takes it.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()>;
-    /// The argv that opens an interactive console into `machine`, any machine of the run. A pure
-    /// query: no process runs here, the embedder runs what it returns in its own terminal.
-    /// Refused where the driver has no way in. A Compose service in the run's VM never reaches
-    /// here: [`crate::in_vm::console`] opens it.
-    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand>;
+    /// The argv that opens an interactive console into `machine`, any machine of the run, as
+    /// account `user` when given (a checked name, [`crate::console::check_user`]). A pure query:
+    /// no process runs here, the embedder runs what it returns in its own terminal. Refused where
+    /// the driver has no way in. A Compose service in the run's VM never reaches here:
+    /// [`crate::in_vm::console`] opens it.
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand>;
     /// The process that runs `script` inside `vm`, the VM the run's containers run in
     /// (`docker-vm`'s guest), through the VM's way in, as `use_` says. Refused by a driver whose
     /// runs have no such VM.
@@ -286,12 +287,12 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
+    pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
         let _span = tracing::debug_span!("driver", driver = self.name(), query = "console", machine = %machine.name).entered();
         match self {
-            AnyDriver::Compose(d) => d.console_command(cx, machine),
-            AnyDriver::Vagrant(d) => d.console_command(cx, machine),
-            AnyDriver::Terraform(d) => d.console_command(cx, machine),
+            AnyDriver::Compose(d) => d.console_command(cx, machine, user),
+            AnyDriver::Vagrant(d) => d.console_command(cx, machine, user),
+            AnyDriver::Terraform(d) => d.console_command(cx, machine, user),
         }
     }
 

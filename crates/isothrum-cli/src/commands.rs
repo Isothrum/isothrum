@@ -63,7 +63,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        RunnerCommand::Console { run, machine } => print_command(out, &open(runner, run)?.console_command(machine)?),
+        RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref())?),
         RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
         RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
         RunnerCommand::Key => {

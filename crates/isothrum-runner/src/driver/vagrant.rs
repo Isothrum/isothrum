@@ -254,9 +254,15 @@ impl Driver for Vagrant {
         call_ok(cx, op, &spec, super::REMOVE_LIMIT, Echo::Shown).await.map(drop)
     }
 
-    /// `vagrant ssh` into the machine's VM.
-    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
-        Ok(super::console_in_run(cx, self.console(cx, &["ssh", define_of(machine, "a console into")?])?))
+    /// `vagrant ssh` into the machine's VM; as `user`, `vagrant ssh <define> -c` a `sudo -i`
+    /// login as it ([`super::shells::login_shell_as`]: Vagrant gives `-c` a terminal).
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
+        let define = define_of(machine, "a console into")?;
+        let spec = match user {
+            None => self.console(cx, &["ssh", define])?,
+            Some(user) => self.console(cx, &["ssh", define, "-c", &super::shells::login_shell_as(user)])?,
+        };
+        Ok(super::console_in_run(cx, spec))
     }
 
     /// `vagrant ssh <define> -c <script>` (Vagrant gives `-c` a terminal by default): a console

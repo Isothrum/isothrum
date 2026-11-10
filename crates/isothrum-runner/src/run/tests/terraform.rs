@@ -411,7 +411,7 @@ async fn a_compose_service_with_no_vm_is_neither_retired_nor_entered() {
     let err = run.retire("web", &opts("pve-run"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("no VM to run in"), "{err}");
-    let console = run.console_command("web").unwrap_err();
+    let console = run.console_command("web", None).unwrap_err();
     assert_eq!(console.code(), ErrorCode::Unsupported, "{console}");
 }
 

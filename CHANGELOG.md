@@ -545,6 +545,15 @@ change.
   then into the service's container. A Terraform machine's console and a Compose service's
   start bash where the machine has it, else sh; a Vagrant VM's is `vagrant ssh`'s, the VM's
   login shell.
+- **A console as a named account**: `Running::console_command(machine, user)` with
+  `Some(user)`, and `isothrum console --user <user> <machine>`, open the console as that account
+  of the machine, in its home, rather than as the one the way in logs in as (a container's own
+  user, Vagrant's `vagrant`, a module's SSH user). A container is entered with `exec --user` and a
+  login shell (a Compose service in the run's VM too, through the VM); a VM, Vagrant's or a
+  module's, with a `sudo -i` login as the account from its usual login (that login's own shell
+  when it is the account already). The machine must have the account, and on a VM its login must
+  be allowed to `sudo`, as a Vagrant box's and a cloud image's are. A name no Unix account has,
+  and any account on a Windows machine, is refused (`unsupported`). `None` opens it as before.
 - `Running::retire(machine, opts, events)` (and `isothrum retire`): takes a machine out of the
   running run ahead of its removal from the manifest, or its move out of the default start, and
   the update after: what that update wouldn't remove itself. A Vagrant VM is destroyed alone

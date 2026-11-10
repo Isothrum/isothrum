@@ -296,14 +296,31 @@ async fn a_status_while_an_attach_provisions_the_access_vm_reports_the_run_as_la
 async fn a_console_opens_any_compose_service_by_name() {
     let f = fixture_with(WEB_PORTAL_ACCESS);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let cmd = run.console_command("web").unwrap();
+    let cmd = run.console_command("web", None).unwrap();
     assert_eq!(cmd.program, "docker");
     let line = cmd.args.join(" ");
     assert!(line.starts_with("compose --project-name"), "{line}");
     assert!(line.contains(" exec web sh -c "), "addresses the service, no container guessing: {line}");
     assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
     assert_eq!(cmd.cwd, f.manifest.parent().unwrap(), "runs in the run's folder");
-    assert_eq!(run.console_command("nope").unwrap_err().code(), ErrorCode::MachineUnknown);
+    assert_eq!(run.console_command("nope", None).unwrap_err().code(), ErrorCode::MachineUnknown);
+}
+
+/// A console as an account of a Compose service's container: `exec --user`, then a login shell
+/// in its home. A name no account has is refused before anything is built.
+#[tokio::test]
+async fn a_console_into_a_compose_service_opens_as_the_account_asked() {
+    let f = fixture_with(WEB_PORTAL_ACCESS);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let cmd = run.console_command("web", Some("player")).unwrap();
+    let line = cmd.args.join(" ");
+    assert!(line.contains(" exec --user player web sh -c "), "{line}");
+    assert!(line.ends_with(&crate::driver::shells::container_shell_as()), "{line}");
+    for refused in ["", "Player", "a b", "x;id", "-u", "1st", &"p".repeat(33)] {
+        let err = run.console_command("web", Some(refused)).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::Unsupported, "{refused:?}: {err}");
+        assert!(err.to_string().contains("names no account"), "{err}");
+    }
 }
 
 /// A console into a Vagrant machine is `vagrant ssh` of its define.
@@ -311,9 +328,12 @@ async fn a_console_opens_any_compose_service_by_name() {
 async fn a_console_opens_any_vagrant_define_by_name() {
     let (folder, _fake, runner) = vagrant_access(|_| Reply::ok(""));
     let run = runner.open(&folder.manifest, None).unwrap();
-    let cmd = run.console_command("web").unwrap();
+    let cmd = run.console_command("web", None).unwrap();
     assert_eq!(cmd.program, "vagrant");
     assert_eq!(cmd.args, vec!["ssh".to_owned(), "web".to_owned()]);
+    // As an account: a `sudo -i` login as it, from Vagrant's own (`-c` has a terminal).
+    let as_player = run.console_command("web", Some("player")).unwrap();
+    assert_eq!(as_player.args, ["ssh", "web", "-c", &crate::driver::shells::login_shell_as("player")]);
 }
 
 /// Retiring a Vagrant machine destroys its define, and only it, ahead of its removal from the

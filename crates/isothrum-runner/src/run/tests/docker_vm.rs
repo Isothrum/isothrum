@@ -291,12 +291,26 @@ async fn a_console_into_a_service_goes_through_the_vm_into_its_container() {
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let console = run.console_command("web").unwrap();
+    let console = run.console_command("web", None).unwrap();
     assert_eq!(console.program, "vagrant");
     assert_eq!(console.args[..3], ["ssh", "default", "-c"]);
     assert!(console.args[3].contains("label=com.docker.compose.service=web"), "{}", console.args[3]);
-    let vm = run.console_command(HOST).unwrap();
+    let vm = run.console_command(HOST, None).unwrap();
     assert_eq!(vm.args, ["ssh", "default"], "the VM itself: its define");
+}
+
+/// As an account: into the service's container with `--user`, into the VM itself with a `sudo -i`
+/// login.
+#[tokio::test(start_paused = true)]
+async fn a_console_into_the_vm_or_a_service_opens_as_the_account_asked() {
+    let l = local();
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let console = run.console_command("web", Some("player")).unwrap();
+    assert_eq!(console.args[..3], ["ssh", "default", "-c"]);
+    assert!(console.args[3].starts_with("sudo docker exec -it --user player "), "{}", console.args[3]);
+    let vm = run.console_command(HOST, Some("player")).unwrap();
+    assert_eq!(vm.args, ["ssh", "default", "-c", &crate::driver::shells::login_shell_as("player")]);
 }
 
 /// A console is handed to the embedder, which prints and runs it: it carries nothing the manifest
@@ -319,7 +333,7 @@ async fn a_console_into_the_vm_carries_no_step_delivery_and_a_retire_does() {
     opts.secrets.insert("LAB_TOKEN", SecretValue::new(TOKEN));
     opts.params.insert("RUN_REGION".into(), REGION.into());
     run.up(&opts, &Recorder::new()).await.unwrap();
-    let console = run.console_command("web").unwrap();
+    let console = run.console_command("web", None).unwrap();
     let words = format!("{:?} {:?}", console.args, console.env);
     assert!(!words.contains(TOKEN) && !words.contains(REGION), "{words}");
     run.retire("web", &opts, &Recorder::new()).await.unwrap();

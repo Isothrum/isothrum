@@ -199,10 +199,14 @@ impl Driver for Compose {
         self.remove(cx, cx.events.call_id(), profile, service_of(machine, "taking out")?).await
     }
 
-    /// `docker compose exec` into the machine's service, a shell there.
-    fn console_command(&self, cx: &Cx<'_>, machine: &Machine) -> Result<ShellCommand> {
+    /// `docker compose exec` into the machine's service, a shell there; as `user`, `exec --user`
+    /// and a login shell in its home.
+    fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
         let service = service_of(machine, "a console into")?;
-        let args = self.compose_args(cx, &["exec", service, "sh", "-c", super::shells::CONTAINER_SHELL])?;
+        let args = match user {
+            None => self.compose_args(cx, &["exec", service, "sh", "-c", super::shells::CONTAINER_SHELL])?,
+            Some(user) => self.compose_args(cx, &["exec", "--user", user, service, "sh", "-c", &super::shells::container_shell_as()])?,
+        };
         Ok(super::console_in_run(cx, ProcessSpec::new("docker", args)))
     }
 
