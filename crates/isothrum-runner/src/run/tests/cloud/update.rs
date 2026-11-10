@@ -112,6 +112,15 @@ async fn an_update_never_delivers_again_to_a_machine_already_set_up() {
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "delivered at up");
     run.update(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
     assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "web keeps its secret: nothing delivered again");
+    // Regression: a machine running but unhealthy (a tainted Terraform resource) was taken for
+    // one new to the run, and the update's default overwrote the launch's value.
+    let state = a.runner.store.run_dir(run.name()).unwrap().join("terraform.tfstate");
+    let tainted = std::fs::read_to_string(&state)
+        .unwrap()
+        .replace(r#"{"instances":[{}]}"#, r#"{"instances":[{"status":"tainted"}]}"#);
+    std::fs::write(&state, tainted).unwrap();
+    run.update(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    assert_eq!(a.cloud.delivered.lock().unwrap().len(), 1, "an unhealthy web runs: it keeps its secret too");
 }
 
 /// A console into a machine the state gives no address (no `address_<machine>` output): not

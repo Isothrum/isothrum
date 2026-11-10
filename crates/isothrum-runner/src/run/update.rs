@@ -24,7 +24,7 @@ use crate::events::{Emitter, Events};
 use crate::options::RunOptions;
 use crate::secrets::check_secrets;
 use crate::state::Op;
-use crate::status::{MachineState, Started};
+use crate::status::Started;
 use crate::tools;
 
 impl Running<'_> {
@@ -49,12 +49,7 @@ impl Running<'_> {
         tools::probe(&cx).await?;
         let observed = self.observe_running(&mut cx).await?;
         // What runs now keeps what it was given: only a machine new to the run gets its secrets.
-        cx.set_up = observed
-            .machines
-            .iter()
-            .filter(|m| m.state == MachineState::Running)
-            .map(|m| m.name.clone())
-            .collect();
+        cx.set_up = observed.machines.iter().filter(|m| m.state.runs()).map(|m| m.name.clone()).collect();
         self.reload_changed(&cx, &record.vm_boot_digests, &observed).await?;
         self.runs_from_this(&mut record);
         self.begin(&mut record, Op::Update)?;

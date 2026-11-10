@@ -31,6 +31,14 @@ pub enum MachineState {
     Unknown(String),
 }
 
+impl MachineState {
+    /// Whether the machine runs: up, whether or not it passes its health check (the one rule for
+    /// "it runs", however it is asked).
+    pub(crate) fn runs(&self) -> bool {
+        matches!(self, MachineState::Running | MachineState::Unhealthy)
+    }
+}
+
 impl std::fmt::Display for MachineState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -224,9 +232,7 @@ pub(crate) fn any_present(machines: &[MachineStatus]) -> bool {
 
 /// Whether any member machine of `machines` runs.
 pub(crate) fn any_member_running(machines: &[MachineStatus]) -> bool {
-    machines
-        .iter()
-        .any(|m| m.role == Role::Member && matches!(m.state, MachineState::Running | MachineState::Unhealthy))
+    machines.iter().any(|m| m.role == Role::Member && m.state.runs())
 }
 
 /// The manifest's networks, their native names filled by `native`.
