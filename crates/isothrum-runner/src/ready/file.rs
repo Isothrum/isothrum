@@ -5,6 +5,8 @@
 
 use std::time::Duration;
 
+use isoloom_manifest::ReadyGrammar;
+
 use super::not_ready;
 use crate::Result;
 use crate::error::Error;
@@ -38,8 +40,16 @@ pub(crate) enum Progress {
     Failed(String),
 }
 
+/// The ready file's first line, read with its `grammar`: every grammar is matched by name, so one
+/// Isoloom adds fails to compile here until the runner reads it, never read as another.
+pub(crate) fn progress(grammar: ReadyGrammar, line: &str) -> Progress {
+    match grammar {
+        ReadyGrammar::V1 => progress_v1(line),
+    }
+}
+
 /// The ready file's first line, read with `isoloom-ready/1`.
-pub(crate) fn progress(line: &str) -> Progress {
+fn progress_v1(line: &str) -> Progress {
     let line = line.trim();
     if line == "ready" {
         Progress::Ready
@@ -63,6 +73,8 @@ pub(crate) struct Wait {
     pub(crate) path: String,
     /// The bootstrap's log.
     pub(crate) log: Option<String>,
+    /// The grammar the file is written in.
+    pub(crate) grammar: ReadyGrammar,
     /// How long the bootstrap may take.
     pub(crate) within: Duration,
     /// How long the host may stay unreachable.
@@ -106,7 +118,7 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
             Ok(out) if out.succeeded() => {
                 (reached, failed) = (true, None);
                 let (line, tail) = split(&out.stdout);
-                if let Some(done) = settle(cx, w, progress(&line), &tail, &mut last) {
+                if let Some(done) = settle(cx, w, progress(w.grammar, &line), &tail, &mut last) {
                     return done;
                 }
             }
@@ -174,11 +186,17 @@ mod tests {
 
     #[test]
     fn the_first_line_says_how_far_the_bootstrap_got() {
-        assert_eq!(progress("ready\n"), Progress::Ready);
-        assert_eq!(progress("running: provision/web.sh"), Progress::Running("provision/web.sh".into()));
-        assert_eq!(progress("failed: waiting for cache "), Progress::Failed("waiting for cache".into()));
-        assert_eq!(progress(""), Progress::Booting, "no file yet");
-        assert_eq!(progress("ready now"), Progress::Booting);
+        assert_eq!(progress(ReadyGrammar::V1, "ready\n"), Progress::Ready);
+        assert_eq!(
+            progress(ReadyGrammar::V1, "running: provision/web.sh"),
+            Progress::Running("provision/web.sh".into())
+        );
+        assert_eq!(
+            progress(ReadyGrammar::V1, "failed: waiting for cache "),
+            Progress::Failed("waiting for cache".into())
+        );
+        assert_eq!(progress(ReadyGrammar::V1, ""), Progress::Booting, "no file yet");
+        assert_eq!(progress(ReadyGrammar::V1, "ready now"), Progress::Booting);
     }
 
     #[test]
@@ -205,6 +223,7 @@ mod tests {
             login: Login::new("isoloom", "10.0.0.9", None, "").unwrap(),
             path: "/var/lib/isoloom/ready".into(),
             log: None,
+            grammar: ReadyGrammar::V1,
             within: Duration::from_secs(900),
             unreachable: None,
             every: Duration::from_secs(5),
@@ -217,10 +236,21 @@ mod tests {
         );
     }
 
+    /// Every grammar Isoloom's schema lists is one the runner reads (a new one is a compile error
+    /// in `progress` first): none is read as another.
+    #[test]
+    fn every_grammar_isoloom_lists_is_read() {
+        let grammars = crate::testing::every_variant::<ReadyGrammar>();
+        assert_ne!(grammars, []);
+        for grammar in grammars {
+            assert_eq!(progress(grammar, "ready"), Progress::Ready, "{grammar:?}");
+        }
+    }
+
     proptest! {
         #[test]
         fn any_line_reads_as_some_progress(line in ".{0,60}") {
-            let p = progress(&line);
+            let p = progress(ReadyGrammar::V1, &line);
             if line.trim() == "ready" { prop_assert_eq!(p, Progress::Ready) }
         }
     }

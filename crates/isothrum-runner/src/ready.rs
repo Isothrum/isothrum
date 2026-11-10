@@ -7,7 +7,7 @@ mod file;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use isoloom_manifest::{Condition, Role, Template};
+use isoloom_manifest::{Condition, ReadyGrammar, Role, Template};
 
 use crate::Result;
 use crate::driver::Observed;
@@ -45,17 +45,18 @@ pub(crate) async fn check(cx: &mut Cx<'_>, ran: Option<&Ran>) -> Result<()> {
                 user,
                 path,
                 log,
+                grammar,
                 via,
                 timeout_s,
                 unreachable_timeout_s,
                 interval_s,
-                ..
             } => {
                 let asked = ReadyFile {
                     host,
                     user,
                     path,
                     log: log.as_ref(),
+                    grammar: *grammar,
                     via: via.as_ref(),
                     timeout_s: *timeout_s,
                     unreachable_timeout_s: *unreachable_timeout_s,
@@ -68,12 +69,14 @@ pub(crate) async fn check(cx: &mut Cx<'_>, ran: Option<&Ran>) -> Result<()> {
     Ok(())
 }
 
-/// A `ready_file` condition's fields, as the manifest gives them.
+/// A `ready_file` condition's fields, as the manifest gives them (every one: a field Isoloom adds
+/// fails to compile where the condition is read, until the runner reads it).
 struct ReadyFile<'m> {
     host: &'m Template,
     user: &'m Template,
     path: &'m Template,
     log: Option<&'m Template>,
+    grammar: ReadyGrammar,
     via: Option<&'m Template>,
     timeout_s: NonZeroU32,
     unreachable_timeout_s: Option<NonZeroU32>,
@@ -91,6 +94,7 @@ fn ready_file(cx: &Cx<'_>, asked: &ReadyFile<'_>) -> Result<file::Wait> {
         login: crate::ssh::Login::new(&render(asked.user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
         path: render(asked.path, "path")?,
         log: asked.log.map(|l| render(l, "log")).transpose()?,
+        grammar: asked.grammar,
         within: secs(asked.timeout_s),
         unreachable: asked.unreachable_timeout_s.map(secs),
         every: secs(asked.interval_s),
