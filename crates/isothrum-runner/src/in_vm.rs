@@ -42,26 +42,41 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
         .iter()
         .find(|m| m.name == guest.machine.as_str())
         .map_or(MachineState::Absent, |m| m.state.clone());
-    let host = match &guest.host {
+    let host = guest_host(cx, guest, observed);
+    let read = if vm == MachineState::Running {
+        read_containers(cx, guest).await
+    } else {
+        Inside::VmDown
+    };
+    overlay_containers(cx.run.manifest(), observed, &read, &vm);
+    if let Inside::Read(_, published) = read {
+        merge_published(observed, published, host.as_deref());
+    }
+}
+
+/// Where the VM's published ports answer: `guest.host` filled (a value it can't be filled with is
+/// traced, and gives none), else the driver's host for the VM.
+fn guest_host(cx: &Cx<'_>, guest: &Guest, observed: &Observed) -> Option<String> {
+    match &guest.host {
         Some(t) => cx
             .vars
             .render(t, "guest.host")
             .inspect_err(|e| tracing::warn!(error = %e, "the guest's host couldn't be filled: `${{host.<machine>}}` stays unset"))
             .ok(),
         None => observed.hosts.get(guest.machine.as_str()).cloned(),
-    };
-    let read = if vm == MachineState::Running {
-        read_containers(cx, guest).await
-    } else {
-        Inside::VmDown
-    };
-    let manifest = cx.run.manifest();
-    let (inside, published) = match &read {
-        Inside::Read(inside, published) => (inside.as_slice(), published.clone()),
-        Inside::Unreadable(_) | Inside::VmDown => (&[][..], BTreeMap::new()),
+    }
+}
+
+/// Each of `observed`'s containers that run in the VM (in `vm`'s state) as `read` says: as it was
+/// read, absent when the read didn't list it, unknown when it couldn't be read, and standing as
+/// the VM does while the VM doesn't run.
+fn overlay_containers(manifest: &isoloom_manifest::Manifest, observed: &mut Observed, read: &Inside, vm: &MachineState) {
+    let inside = match read {
+        Inside::Read(inside, _) => inside.as_slice(),
+        Inside::Unreadable(_) | Inside::VmDown => &[],
     };
     for m in observed.machines.iter_mut().filter(|m| is_container_in_vm(manifest, &m.name)) {
-        *m = match (&read, inside.iter().find(|x| x.name == m.name)) {
+        *m = match (read, inside.iter().find(|x| x.name == m.name)) {
             (Inside::Read(..), Some(x)) => x.clone(),
             (Inside::Read(..), None) => standing(m, MachineState::Absent),
             // The VM runs but its containers can't be read yet (SSH not answering), or what was
@@ -71,9 +86,14 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
             (Inside::VmDown, _) => standing(m, vm.clone()),
         };
     }
+}
+
+/// The host port each container's `published` port got, into `observed`, each such machine
+/// answering at `host` (the VM's) when there is one.
+fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, u16>, host: Option<&str>) {
     for ((machine, port), host_port) in published {
-        if let Some(host) = &host {
-            observed.hosts.insert(machine.clone(), host.clone());
+        if let Some(host) = host {
+            observed.hosts.insert(machine.clone(), host.to_owned());
         }
         observed.published.insert((machine, port), host_port);
     }
