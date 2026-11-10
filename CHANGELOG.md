@@ -37,6 +37,11 @@ change.
 
 ### Fixed
 
+- **The free-port check before a Vagrant start checks the ports the VM forwards.** It looked
+  only at a fixed port's `preferred` number and an ephemeral port's pinned one, while the VM
+  forwards an ephemeral port no free one was pinned for at its `preferred` number (as status
+  reports it): a taken one went unchecked, and Vagrant collided on it once the VM was imported.
+  The check and status now share one rule for a forwarded port's host port.
 - **An environment variable that isn't UTF-8 is no longer taken for one that isn't set.** A
   `--secret-from-env` variable was refused as "isn't set", an `ISOTHRUM_LOG` was ignored without a
   word, a `DOCKER_CONFIG` was passed over for `~/.docker`, and a `PATH` was dropped, so ovftool

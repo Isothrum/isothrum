@@ -347,23 +347,17 @@ fn host_for(guests: Option<&BTreeMap<String, String>>, define: &str) -> Option<S
 }
 
 /// The ports `m` publishes, by name, each with its host port: on a VM that answers at its own address
-/// (`at_vm`, ESXi), the port itself; locally, the runner's pick for it (`chosen`), else its
-/// `preferred` number (a fixed port), else the port itself. Gating on `publish` (not
-/// `preferred`) keeps an ephemeral port with no `publish:` number of its own, whose host port is
-/// the pick.
+/// (`at_vm`, ESXi), the port itself; locally, the one it is forwarded from, the runner's pick for
+/// it among `chosen` first ([`forwarded::host_port`]). An ephemeral port with no `publish:`
+/// number of its own is kept: its host port is the pick.
 fn published_ports(m: &Machine, at_vm: bool, chosen: &BTreeMap<String, u16>) -> Vec<(String, PublishedPort)> {
     m.ports
         .iter()
         .filter_map(|p| {
-            let publish = p.publish.as_ref()?;
             let host_port = if at_vm {
-                p.port.get()
+                p.publish.as_ref().map(|_| p.port.get())?
             } else {
-                chosen
-                    .get(&forwarded::key(m, p))
-                    .copied()
-                    .or_else(|| publish.preferred.map(std::num::NonZeroU16::get))
-                    .unwrap_or_else(|| p.port.get())
+                forwarded::host_port(m, p, chosen)?
             };
             let port = PublishedPort {
                 port: p.port.get(),

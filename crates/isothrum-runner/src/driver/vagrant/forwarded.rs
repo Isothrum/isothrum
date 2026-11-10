@@ -1,6 +1,7 @@
 //! `vagrant.check_forwarded_ports`: a VM forwards each published port
 //! from this computer, at its own `publish` number when it is `fixed`, or at a free one the runner
-//! picks (and pins for the VM's life) when it is `ephemeral`. Two runs forwarding one fixed number
+//! picks (and pins for the VM's life) when it is `ephemeral` (at its `publish` number when there
+//! was none to pick; [`host_port`]). Two runs forwarding one fixed number
 //! collide, and Vagrant says so only once the VM was imported, so unless the run's VMs exist
 //! (their forwards are this run's own) each host port it will forward must be free over its
 //! protocol, and not reserved by another run of this runner starting meanwhile.
@@ -71,21 +72,23 @@ pub(in crate::driver) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     chosen
 }
 
-/// The host ports this run forwards from this computer: each fixed port at its number, each
-/// ephemeral port at the one it was pinned to (absent before a fresh start pins them).
+/// The host port `m`'s published port `p` is forwarded from on this computer, as the
+/// Vagrantfile reads it (`ISOLOOM_HOSTPORTS`, else the port's publish number): the one the runner
+/// pinned for it among `forwards`, else its `preferred` number, else its own, whatever its mode.
+/// `None` when `p` isn't published.
+pub(super) fn host_port(m: &Machine, p: &Port, forwards: &BTreeMap<String, u16>) -> Option<u16> {
+    let publish = p.publish.as_ref()?;
+    let preferred = || publish.preferred.map(std::num::NonZeroU16::get);
+    Some(forwards.get(&key(m, p)).copied().or_else(preferred).unwrap_or_else(|| p.port.get()))
+}
+
+/// The host ports this run forwards from this computer: each published port's ([`host_port`]).
 fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
     let forwards = cx.vars.forwards();
     let mut ports = Vec::new();
     for m in &cx.run.manifest().machines {
         for p in &m.ports {
-            let Some(publish) = p.publish.as_ref() else {
-                continue;
-            };
-            let port = match publish.mode {
-                PublishMode::Fixed => publish.preferred.map(std::num::NonZeroU16::get),
-                PublishMode::Ephemeral => forwards.get(&key(m, p)).copied(),
-            };
-            if let Some(port) = port {
+            if let Some(port) = host_port(m, p, forwards) {
                 ports.push((port, p.kind.transport()));
             }
         }

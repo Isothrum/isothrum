@@ -194,6 +194,21 @@ async fn a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_mad
     assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
 }
 
+/// Regression: the free-port check skipped an ephemeral port no free host port was pinned for,
+/// which the VM forwards at its `preferred` number all the same (as status reports it): a taken
+/// one went unchecked, and Vagrant collided on it once the VM was imported.
+#[tokio::test(start_paused = true)]
+async fn an_ephemeral_port_with_no_pick_is_checked_where_it_is_forwarded() {
+    let ephemeral = DOCKER_VM.replace(r#""mode": "fixed""#, r#""mode": "ephemeral""#);
+    assert_ne!(ephemeral, DOCKER_VM, "the fixture's port is fixed");
+    let l = local_with(&ephemeral);
+    l.ports.take(8080, Protocol::Tcp);
+    let run = l.runner.open(&l.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::PortInUse, "{err}");
+    assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
+}
+
 /// The run up in its VM, then paused.
 async fn up_then_paused(l: &Running) -> crate::Running<'_> {
     let run = l.runner.open(&l.manifest, None).unwrap();
