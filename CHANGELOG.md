@@ -417,6 +417,10 @@ change.
   `CFBundleShortVersionString`), and reports UTM unavailable with the way out
   when either is too old: `vagrant_utm` before 0.2.0 (it reads a VM's forwarded ports through a
   script UTM refuses, and has no `started` state) or UTM before 4.6.5 (the plugin refuses it).
+- `isothrum_runner::version_in` (the version a tool prints) and
+  `isothrum_runner::vagrant_plugins` (each plugin of `vagrant plugin list --machine-readable`,
+  with its version): the one reading of each, which the runner and `isothrum-machine` share.
+  `isothrum-machine` now reads `vagrant plugin list --machine-readable`, not the human list.
 
 ### Changed
 

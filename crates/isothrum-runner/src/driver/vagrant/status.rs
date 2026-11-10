@@ -1,6 +1,6 @@
-//! What `vagrant status --machine-readable` and `vagrant plugin list --machine-readable` say.
-//! Lines are `timestamp,target,type,data…`; Vagrant writes a comma in a field as
-//! `%!(VAGRANT_COMMA)`, so a state is kept whole as printed.
+//! What `vagrant status --machine-readable` and `vagrant ssh-config` say. A state is kept whole
+//! as printed ([`crate::tool_output::vagrant_fields`]); the plugins are read by
+//! [`crate::vagrant_plugins`].
 
 use std::collections::BTreeMap;
 
@@ -13,31 +13,15 @@ pub(crate) struct Reading {
     pub(crate) states: BTreeMap<String, String>,
 }
 
-/// One machine-readable line: its target, type and data (the rest of the line).
-fn fields(line: &str) -> Option<(&str, &str, &str)> {
-    let mut parts = line.trim_end_matches('\r').splitn(4, ',');
-    let (_ts, target, kind, data) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
-    Some((target, kind, data))
-}
-
 /// `vagrant status --machine-readable`'s output, read.
 pub(crate) fn parse(out: &str) -> Reading {
     let mut read = Reading::default();
-    for (target, kind, data) in out.lines().filter_map(fields) {
+    for (target, kind, data) in out.lines().filter_map(crate::tool_output::vagrant_fields) {
         if kind == "state" && !target.is_empty() {
             read.states.insert(target.to_owned(), data.to_owned());
         }
     }
     read
-}
-
-/// The plugins `vagrant plugin list --machine-readable` names (`plugin-name` lines).
-pub(crate) fn plugins(out: &str) -> Vec<String> {
-    out.lines()
-        .filter_map(fields)
-        .filter(|(_, kind, data)| *kind == "plugin-name" && !data.is_empty())
-        .map(|(_, _, data)| data.to_owned())
-        .collect()
 }
 
 /// The address `vagrant ssh-config <vm>` gives its VM (`HostName`): on ESXi, the one its VMware
@@ -134,13 +118,6 @@ mod tests {
         }
         assert_eq!(machine_state("gurumeditation"), MachineState::Unknown("gurumeditation".into()));
     }
-
-    #[test]
-    fn plugins_are_read_by_name() {
-        let out = "1,,plugin-name,vagrant-libvirt\n1,vagrant-libvirt,plugin-version,0.12.2%!(VAGRANT_COMMA) global\n1,,plugin-name,vagrant-qemu\n";
-        assert_eq!(plugins(out), ["vagrant-libvirt", "vagrant-qemu"]);
-        assert_eq!(plugins(""), Vec::<String>::new());
-    }
 }
 
 #[cfg(test)]
@@ -168,7 +145,7 @@ mod proptests {
         #[test]
         fn any_output_is_read_without_panicking(text in "(?s).{0,400}") {
             let _ = parse(&text);
-            let _ = plugins(&text);
+            drop(crate::vagrant_plugins(&text));
         }
 
         #[test]

@@ -141,7 +141,7 @@ impl Vagrant {
     async fn plugins(&self, cx: &Cx<'_>) -> Result<Vec<String>> {
         let spec = self.vagrant(cx, PLUGINS, &["plugin", "list", "--machine-readable"])?;
         let out = call_ok(cx, PLUGINS, &spec, READ_LIMIT, Echo::Quiet).await?;
-        Ok(status::plugins(&out))
+        Ok(crate::vagrant_plugins(&out).into_iter().map(|(name, _)| name).collect())
     }
 }
 

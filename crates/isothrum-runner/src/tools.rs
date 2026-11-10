@@ -9,6 +9,7 @@ use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, capture_step};
+use crate::tool_output::version_in;
 
 /// The step id the probes report under.
 const STEP: &str = "tools";
@@ -91,17 +92,6 @@ fn named(e: Error, tool: &str, failed: impl FnOnce(String) -> String) -> Error {
     }
 }
 
-/// The first version in `text` (`v2.29.1`, `Docker Compose version 5.5.1`), as numbers.
-fn version_in(text: &str) -> Option<(u64, u64, u64)> {
-    text.split(|c: char| !(c.is_ascii_digit() || c == '.')).find_map(|word| {
-        let mut parts = word.split('.').filter(|p| !p.is_empty()).map(str::parse::<u64>);
-        let major = parts.next()?.ok()?;
-        let minor = parts.next()?.ok()?;
-        let patch = parts.next().and_then(Result::ok).unwrap_or(0);
-        Some((major, minor, patch))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,15 +125,5 @@ mod tests {
             |r| r,
         );
         assert!(matches!(other, Error::Timeout { timed_out, .. } if timed_out.after_s() == 25));
-    }
-
-    #[test]
-    fn versions_are_read_from_what_a_tool_prints() {
-        assert_eq!(version_in("5.5.1"), Some((5, 5, 1)));
-        assert_eq!(version_in("v2.29.1-desktop.1"), Some((2, 29, 1)));
-        assert_eq!(version_in("Docker Compose version 2.17"), Some((2, 17, 0)));
-        assert_eq!(version_in("29.8.1"), Some((29, 8, 1)));
-        assert_eq!(version_in("no version here"), None);
-        assert!(version_in("2.16.9") < version_in("2.17.0"));
     }
 }

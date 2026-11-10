@@ -139,6 +139,7 @@ mod status;
 mod store;
 #[cfg(test)]
 mod testing;
+mod tool_output;
 mod tools;
 mod vars;
 
@@ -171,3 +172,4 @@ pub use secrets::{SecretValue, Secrets};
 pub use state::{Op, Park, RunState};
 pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};
+pub use tool_output::{vagrant_plugins, version_in};

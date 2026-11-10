@@ -154,39 +154,13 @@ pub struct ProviderStatus {
     pub reason: Option<String>,
 }
 
-/// Each plugin of `vagrant plugin list` with its version, from lines like `vagrant-libvirt
-/// (0.12.2, global)`; `None` for a line that names no version (a wrapped or cut line).
-fn parse_plugin_versions(out: &str) -> Vec<(String, Option<String>)> {
-    out.lines()
-        .filter_map(|l| {
-            let mut words = l.split_whitespace();
-            let name = words.next().filter(|name| name.starts_with("vagrant-") || name.starts_with("vagrant_"))?;
-            let version = words
-                .next()
-                .map(|w| w.trim_matches(|c: char| matches!(c, '(' | ')' | ',')).to_owned())
-                .filter(|v| v.starts_with(|c: char| c.is_ascii_digit()));
-            Some((name.to_owned(), version))
-        })
-        .collect()
-}
-
-/// Whether version `found` is `min` or later: dot-separated numbers compared in turn, a missing
-/// one as 0 (`4.7` reads as `4.7.0`) and a part that doesn't start with a digit (`beta`) as 0.
+/// Whether version `found` is `min` or later ([`isothrum_runner::version_in`]); a version that
+/// can't be read holds nothing back.
 fn version_at_least(found: &str, min: &str) -> bool {
-    let numbers = |v: &str| -> Vec<u64> {
-        v.trim()
-            .split('.')
-            .map(|part| part.chars().take_while(char::is_ascii_digit).collect::<String>().parse().unwrap_or(0))
-            .collect()
-    };
-    let (found, min) = (numbers(found), numbers(min));
-    for i in 0..found.len().max(min.len()) {
-        let (a, b) = (found.get(i).copied().unwrap_or(0), min.get(i).copied().unwrap_or(0));
-        if a != b {
-            return a > b;
-        }
+    match (isothrum_runner::version_in(found), isothrum_runner::version_in(min)) {
+        (Some(found), Some(min)) => found >= min,
+        _ => true,
     }
-    true
 }
 
 /// The version `installed` of `provider`'s plugin when it is older than the one that works
@@ -210,12 +184,12 @@ async fn tool_present(runner: &dyn ProcessRunner, program: &str, args: &[&str]) 
     exec::read(runner, program, args).await.is_ok()
 }
 
-/// The Vagrant plugins installed, each with its version when it says one; why not when `vagrant
-/// plugin list` doesn't answer.
+/// The Vagrant plugins installed, each with its version when it says one
+/// ([`isothrum_runner::vagrant_plugins`]); why not when `vagrant plugin list` doesn't answer.
 async fn installed_plugins(runner: &dyn ProcessRunner) -> Result<Vec<(String, Option<String>)>, String> {
-    exec::read_ok(runner, "vagrant", &["plugin", "list"])
+    exec::read_ok(runner, "vagrant", &["plugin", "list", "--machine-readable"])
         .await
-        .map(|out| parse_plugin_versions(&out))
+        .map(|out| isothrum_runner::vagrant_plugins(&out))
 }
 
 /// Every provider's reason without Vagrant.
@@ -372,20 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn plugin_lines_carry_their_versions() {
-        let out = "vagrant-libvirt (0.12.2, global)\nvagrant_utm (0.2.0, global)\n  - Version Constraint: > 0\nvagrant-vmware-esxi\nvagrant-qemu (0.7.0)\n";
-        assert_eq!(
-            parse_plugin_versions(out),
-            [
-                ("vagrant-libvirt".to_owned(), Some("0.12.2".to_owned())),
-                ("vagrant_utm".to_owned(), Some("0.2.0".to_owned())),
-                ("vagrant-vmware-esxi".to_owned(), None),
-                ("vagrant-qemu".to_owned(), Some("0.7.0".to_owned())),
-            ]
-        );
-    }
-
-    #[test]
     fn versions_compare_by_their_numbers() {
         assert!(version_at_least("4.7.5", "4.6.5"));
         assert!(version_at_least("4.6.5", "4.6.5"));
@@ -393,6 +353,7 @@ mod tests {
         assert!(version_at_least("4.7", "4.6.5"), "a missing part is 0");
         assert!(!version_at_least("0.1.6", "0.2.0"));
         assert!(version_at_least("0.2.0-beta", "0.2.0"), "a part's suffix after its number is dropped");
+        assert!(version_at_least("unknown", "0.2.0"), "no version to judge");
     }
 
     #[test]
@@ -431,7 +392,10 @@ mod tests {
         // QEMU installed, its plugin present: available. A missing plugin makes it unavailable.
         let with = FakeProcesses::rules(&[
             ("qemu-system", Reply::ok("QEMU 10.0")),
-            ("vagrant plugin list", Reply::ok("vagrant-qemu (0.6.3, global)")),
+            (
+                "vagrant plugin list --machine-readable",
+                Reply::ok("1,,plugin-name,vagrant-qemu\n1,vagrant-qemu,plugin-version,0.6.3%!(VAGRANT_COMMA) global"),
+            ),
         ]);
         let qemu = detect(&with, true, None).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
         assert!(qemu.reason.is_none(), "{qemu:?}");
