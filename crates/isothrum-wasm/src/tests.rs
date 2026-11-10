@@ -188,6 +188,20 @@ fn a_vm_project_comes_with_its_provisioning_scripts() -> Outcome {
     assert!(names(bundle_target_bytes(vms, "vagrant")?)?.contains(&"provision/db.sh".to_owned()));
     // The client's steps build its container too: the Docker download has the script.
     assert!(names(bundle_target_bytes(PAIR, "docker")?)?.contains(&"provision/client.sh".to_owned()));
+    // Every target's download has every one of the project's own files, the ones only another
+    // target's files name included: which a target uses is Isoloom's to know.
+    let own: Vec<String> = own_files(PAIR)?.into_iter().map(|f| f.path).collect();
+    let (plan, _) = clean_plan(PAIR)?;
+    let targets: std::collections::BTreeSet<String> = plan
+        .files
+        .iter()
+        .filter_map(|f| Some(f.path.strip_prefix(".isoloom/")?.split_once('/')?.0.to_owned()))
+        .collect();
+    assert!(targets.len() > 1, "{targets:?}");
+    for target in &targets {
+        let got = names(bundle_target_bytes(PAIR, target)?)?;
+        assert!(own.iter().all(|o| got.contains(o)), "{target}: {got:?}");
+    }
     // An image runs no steps: a project of images downloads none.
     let images = r#"{"name":"imgs","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
         "a":{"kind":{"container":{"image":"alpine:3.20","idle":true}},"networks":{"lan":null}}}}"#;

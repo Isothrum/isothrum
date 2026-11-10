@@ -19,7 +19,9 @@ pub(crate) fn bundle_bytes(topology_json: &str) -> Result<Vec<u8>> {
 }
 
 /// One target's zip: `isoloom.yml` and only that target's folder (`docker`, `hybrid`,
-/// `cloud-docker/aws`...), with the project's own files that target's files use.
+/// `cloud-docker/aws`...), with every one of the project's own files: which ones a target's files
+/// use is Isoloom's to know, and a file left out would break the project where one kept that
+/// isn't run costs a few lines.
 ///
 /// # Errors
 ///
@@ -32,27 +34,17 @@ pub(crate) fn bundle_target_bytes(topology_json: &str, target_dir: &str) -> Resu
 fn bundle_filtered(topology_json: &str, target_dir: Option<&str>) -> Result<Vec<u8>> {
     let (topo, compiled) = compiled(topology_json)?;
     let (yaml, spec, own) = compiled.into_parts();
-    let mut own: Vec<File> = own.into_iter().map(File::from).collect();
+    let own: Vec<File> = own.into_iter().map(File::from).collect();
     let plan = planned(&topo, yaml.clone(), spec);
     if !plan.problems.is_empty() {
         return Err(Error::Problems(plan.problems));
     }
     let files = target_files(plan.files, target_dir)?;
-    // A one-target download only gets the project's own files its files use.
-    own.retain(|o| target_dir.is_none() || uses(&files, &o.path));
     let spec_file = File {
         path: isoloom_spec::SPEC_FILE.into(),
         contents: yaml,
     };
     zip_of(std::iter::once(&spec_file).chain(&own).chain(&files))
-}
-
-/// Whether `files` use the project's file at `path`: they name it by its path, or by its file
-/// name (Isoloom's controller runs a playbook from its own folder). Naming it is enough: a file
-/// kept that isn't run costs a few lines in the zip, one left out breaks the project.
-fn uses(files: &[File], path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    files.iter().any(|f| f.contents.contains(path) || f.contents.contains(name))
 }
 
 /// The generated files of the target in `target_dir` (`docker`, `cloud-docker/aws`…), or all.
@@ -74,25 +66,4 @@ fn zip_of<'a>(files: impl Iterator<Item = &'a File>) -> Result<Vec<u8>> {
         zip.write_all(f.contents.as_bytes())?;
     }
     Ok(zip.finish()?.into_inner())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn file(contents: &str) -> File {
-        File {
-            path: ".isoloom/vagrant/Vagrantfile".into(),
-            contents: contents.into(),
-        }
-    }
-
-    #[test]
-    fn a_project_file_is_used_when_named_by_its_path_or_its_name() {
-        let files = [file("COPY provision/db.sh /tmp/"), file("ansible-playbook -i inventory.ini dc01.yml")];
-        assert!(uses(&files, "provision/db.sh"));
-        assert!(uses(&files, "provision/dc01.yml"));
-        assert!(!uses(&files, "provision/web.sh"));
-        assert!(!uses(&[], "provision/db.sh"));
-    }
 }
