@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 /// Runs what Isoloom generates: the run manifest next to a target's files
-/// (`<run>/.isoloom/<target>/run.json`).
+/// (`<run>/.isoloom/<target>/run.json`, or `<run>/.isoloom/<target>/<cloud>/run.json`).
 #[derive(Debug, Parser)]
 #[command(name = "isothrum", version, about)]
 pub(crate) struct Cli {
@@ -216,10 +216,12 @@ pub(crate) enum Mode {
 /// Which run.
 #[derive(Debug, Args)]
 pub(crate) struct TargetArgs {
-    /// The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json.
+    /// The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a
+    /// run.json.
     #[arg(default_value = ".")]
     pub(crate) path: PathBuf,
-    /// The target whose manifest to run, when the run was generated for several.
+    /// The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated
+    /// for several.
     #[arg(long)]
     pub(crate) target: Option<String>,
     /// The name to run it under, so one manifest can run several times side by side (default:

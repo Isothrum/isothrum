@@ -6,7 +6,7 @@ the expired ones; you schedule the sweep.
 ## Give a run a lifetime
 
 ```sh
-isothrum up --lifetime 120     # minutes
+isothrum up --target cloud-vm/aws --lifetime 120     # minutes
 ```
 
 For a manifest with an `expiry` (Isoloom's cloud targets have one), `up` sets the run's expiry to

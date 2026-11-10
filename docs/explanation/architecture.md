@@ -5,7 +5,8 @@ split the work:
 
 - **Isoloom** reads one spec and writes the native files of each target (a Compose file, a
   Vagrantfile, a Terraform module, cloud-init, checks) and a **run manifest**,
-  `.isoloom/<target>/run.json`.
+  `.isoloom/<target>/run.json` (`.isoloom/<target>/<cloud>/run.json` for a cloud target, one per
+  cloud).
 - **Isothrum** reads the run manifest and nothing else of the generated files. It runs the steps
   the manifest lists, in order, with the tools the manifest names, and keeps the run's state.
 

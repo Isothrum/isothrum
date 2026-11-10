@@ -23,8 +23,8 @@ Start the run (a parked run is resumed; leftovers are removed first)
 isothrum up [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -42,8 +42,8 @@ Remove everything the run created.
 isothrum down [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -58,8 +58,8 @@ Stop the run, keeping what it created.
 isothrum park [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -75,8 +75,8 @@ Start a parked run again.
 isothrum resume [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -91,8 +91,8 @@ Bring a running run up to date with its manifest, regenerated since it started (
 isothrum update [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -110,8 +110,8 @@ isothrum retire [OPTIONS] <MACHINE> [PATH]
 ```
 
 - `<MACHINE>`: The machine, by its manifest name.
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -126,8 +126,8 @@ Show the run: its state, machines, outputs and message.
 isothrum status [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 
 ## `isothrum check`
@@ -138,8 +138,8 @@ Run the run's checks (exit 1 when one fails)
 isothrum check [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -154,8 +154,8 @@ Run the set-up again on the running machines (a VM run's provisioners)
 isothrum provision [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -171,8 +171,8 @@ Hot-add the run's on-demand access machine into the running run.
 isothrum attach [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -190,8 +190,8 @@ Hot-remove the on-demand access machine from the running run.
 isothrum detach [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
@@ -208,8 +208,8 @@ isothrum console [OPTIONS] <MACHINE> [PATH]
 ```
 
 - `<MACHINE>`: The machine, by its manifest name.
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 
 ## `isothrum events`
@@ -220,8 +220,8 @@ Print the run's recorded events, oldest first.
 isothrum events [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (its `.isoloom/<target>/run.json` is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run, when the run was generated for several.
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 
 ## `isothrum reap`

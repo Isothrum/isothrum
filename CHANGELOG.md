@@ -204,6 +204,12 @@ change.
   smaller than a /29) is now the compiler's `BadCidr`, which says so; it was written into a spec
   Isoloom then refused.
 
+- **A cloud target's manifest is found from the run's folder.** Isoloom writes one manifest per
+  cloud (`.isoloom/cloud-vm/aws/run.json`), but the command line looked only for
+  `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target
+  cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
+  cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

@@ -4,42 +4,32 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-/// The manifest to run: `run` itself when it is a file; else `run/.isoloom/<target>/run.json`,
-/// the target being the one asked for, or the only one generated.
+/// The manifest to run: `run` itself when it is a file; else the one Isoloom generated under
+/// `run/.isoloom/` for the target asked for, or the only one generated. A target is a folder of
+/// `.isoloom/` (`docker`) or, for a target that writes one manifest per cloud, one under it
+/// (`cloud-vm/aws`), and `--target cloud-vm` names the only cloud generated.
 pub(crate) fn manifest(run: &Path, target: Option<&str>) -> Result<PathBuf> {
     if run.is_file() {
         return Ok(run.to_path_buf());
     }
     let outputs = run.join(".isoloom");
-    if let Some(target) = target {
-        let path = outputs.join(target).join("run.json");
-        return if path.is_file() {
-            Ok(path)
-        } else {
-            Err(Error::Usage(format!(
-                "{} doesn't exist: run `isoloom generate --target {target}` first",
-                path.display()
-            )))
-        };
+    if let Some(path) = target.map(|t| outputs.join(t).join(MANIFEST)).filter(|p| p.is_file()) {
+        return Ok(path);
     }
-    // Only a missing folder means nothing was generated; any other failure is said as it is.
-    let mut found: Vec<PathBuf> = match std::fs::read_dir(&outputs) {
-        Ok(entries) => entries.flatten().map(|e| e.path().join("run.json")).filter(|p| p.is_file()).collect(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(source) => return Err(Error::Read { path: outputs, source }),
-    };
-    found.sort();
-    match found.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(Error::Usage(format!(
+    let found = generated(&outputs)?;
+    let found: Vec<&(String, PathBuf)> = found.iter().filter(|(name, _)| target.is_none_or(|t| is_under(name, t))).collect();
+    match (found.as_slice(), target) {
+        ([(_, one)], _) => Ok(one.clone()),
+        ([], Some(target)) => Err(Error::Usage(format!(
+            "{} doesn't exist: run `isoloom generate --target {target}` first",
+            outputs.join(target).join(MANIFEST).display()
+        ))),
+        ([], None) => Err(Error::Usage(format!(
             "no run manifest under {}: run `isoloom generate --target <target>` first",
             outputs.display()
         ))),
-        many => {
-            let names: Vec<String> = many
-                .iter()
-                .filter_map(|p| Some(p.parent()?.file_name()?.to_string_lossy().into_owned()))
-                .collect();
+        (many, _) => {
+            let names: Vec<&str> = many.iter().map(|(name, _)| name.as_str()).collect();
             Err(Error::Usage(format!(
                 "{} has manifests for {}: choose one with --target",
                 run.display(),
@@ -47,6 +37,55 @@ pub(crate) fn manifest(run: &Path, target: Option<&str>) -> Result<PathBuf> {
             )))
         }
     }
+}
+
+/// The file Isoloom writes a target's manifest to.
+const MANIFEST: &str = "run.json";
+
+/// Whether the target `name` (`cloud-vm/aws`) is `target` or one of its clouds.
+fn is_under(name: &str, target: &str) -> bool {
+    name == target || name.strip_prefix(target).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Every manifest generated under `outputs`, by target name, sorted: `<target>/run.json`, else
+/// each `<target>/<cloud>/run.json`. Only a missing `outputs` means nothing was generated; any
+/// other failure to list a folder is said as it is.
+fn generated(outputs: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let mut found = Vec::new();
+    for (target, folder) in folders(outputs)? {
+        let path = folder.join(MANIFEST);
+        if path.is_file() {
+            found.push((target, path));
+            continue;
+        }
+        for (cloud, sub) in folders(&folder)? {
+            let cloud_manifest = sub.join(MANIFEST);
+            if cloud_manifest.is_file() {
+                found.push((format!("{target}/{cloud}"), cloud_manifest));
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// The folders in `dir`, by name (none when `dir` doesn't exist).
+fn folders(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => {
+            return Err(Error::Read {
+                path: dir.to_path_buf(),
+                source,
+            });
+        }
+    };
+    Ok(entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .collect())
 }
 
 /// The runner's home: `--home`, else `$ISOTHRUM_HOME`, else `~/.isothrum`.
@@ -79,6 +118,27 @@ mod tests {
         );
         assert_eq!(manifest(run.path(), Some("docker")).unwrap(), docker);
         assert!(manifest(run.path(), Some("proxmox")).is_err());
+    }
+
+    /// A target that writes one manifest per cloud (`cloud-vm/aws`) is found by its cloud, by
+    /// the target when it has one cloud, or alone.
+    #[test]
+    fn a_cloud_manifest_is_found_one_folder_down() {
+        let run = tempfile::tempdir().unwrap();
+        let aws = run.path().join(".isoloom/cloud-vm/aws/run.json");
+        std::fs::create_dir_all(aws.parent().unwrap()).unwrap();
+        std::fs::write(&aws, "{}").unwrap();
+        assert_eq!(manifest(run.path(), None).unwrap(), aws);
+        assert_eq!(manifest(run.path(), Some("cloud-vm")).unwrap(), aws);
+        assert_eq!(manifest(run.path(), Some("cloud-vm/aws")).unwrap(), aws);
+        assert!(manifest(run.path(), Some("cloud")).is_err(), "a target is a whole folder name");
+
+        let gcp = run.path().join(".isoloom/cloud-vm/gcp/run.json");
+        std::fs::create_dir_all(gcp.parent().unwrap()).unwrap();
+        std::fs::write(&gcp, "{}").unwrap();
+        let several = manifest(run.path(), Some("cloud-vm")).unwrap_err().to_string();
+        assert!(several.contains("cloud-vm/aws, cloud-vm/gcp: choose one with --target"), "{several}");
+        assert_eq!(manifest(run.path(), Some("cloud-vm/gcp")).unwrap(), gcp);
     }
 
     /// A `.isoloom` that exists but can't be listed (here a file in its place) is said as it is,

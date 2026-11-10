@@ -82,7 +82,7 @@ jobs:
       # ... install isothrum as above, with ISOTHRUM_HOME=${GITHUB_WORKSPACE}/.isothrum-home ...
       # ... generate the files (.isoloom/) ...
       - run: |
-          isothrum up --name "ci-${GITHUB_RUN_ID}" \
+          isothrum up --target cloud-vm/aws --name "ci-${GITHUB_RUN_ID}" \
             --secret-from-env AWS_ACCESS_KEY_ID --secret-from-env AWS_SECRET_ACCESS_KEY \
             --param region=eu-west-3 \
             --param allowed_cidr="$(curl -fsS https://checkip.amazonaws.com)/32" \
@@ -114,7 +114,7 @@ jobs:
           name: isothrum-state
       - run: tar -xzf isothrum-state.tgz
       - run: |
-          isothrum down --name "ci-${GITHUB_RUN_ID}" \
+          isothrum down --target cloud-vm/aws --name "ci-${GITHUB_RUN_ID}" \
             --secret-from-env AWS_ACCESS_KEY_ID --secret-from-env AWS_SECRET_ACCESS_KEY
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -124,7 +124,8 @@ jobs:
 `down` replays the params the run was started with; secrets are never recorded, so it takes the
 credentials again. The example assumes the run's folder is the repository's root; `up` and `down`
 take another one as their argument. The slot and param names come from your manifest
-(`jq '.secrets, .params' .isoloom/<target>/run.json`).
+(`jq '.secrets, .params' .isoloom/cloud-vm/aws/run.json`). `--target cloud-vm/aws` picks the
+manifest Isoloom wrote for AWS (`.isoloom/cloud-vm/aws/run.json`), where it writes one per cloud.
 
 The archive holds the Terraform state and the runner's SSH private key: anyone who can download
 the artifact can reach the machines. Keep the retention short, and prefer a single job when the
