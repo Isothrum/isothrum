@@ -143,7 +143,7 @@ impl Driver for Compose {
             Action::ComposeRemoveStaleNetworks => actions::remove_stale_networks(self, cx, list, step).await,
             Action::ComposeRemoveContainers => actions::remove_containers(self, cx, list, step).await,
             Action::ComposeRemoveNetworks => actions::remove_networks(self, cx, step).await,
-            other => Err(super::foreign_action("Compose", step, other)),
+            other => Err(super::foreign_action(isoloom_manifest::Driver::Compose, step, other)),
         }
     }
 

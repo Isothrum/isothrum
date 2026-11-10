@@ -195,7 +195,7 @@ impl Driver for Vagrant {
             Action::VagrantWakeController => actions::wake_controller(self, cx, list, step).await,
             Action::VagrantParkController => actions::park_controller(self, cx, list, step).await,
             Action::VagrantCheckForwardedPorts => forwarded::check(cx, step).await,
-            other => Err(super::foreign_action("Vagrant", step, other)),
+            other => Err(super::foreign_action(isoloom_manifest::Driver::Vagrant, step, other)),
         }
     }
 

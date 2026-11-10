@@ -135,7 +135,7 @@ impl Driver for Terraform {
                 let (from, when) = (cx.vars.with_arg(with, &at, "from")?, cx.vars.with_arg(with, &at, "when")?);
                 copy_module::run(cx, &at, from.as_deref(), when.as_deref())
             }
-            other => Err(super::foreign_action("Terraform", step, other)),
+            other => Err(super::foreign_action(isoloom_manifest::Driver::Terraform, step, other)),
         });
         std::future::ready(done)
     }

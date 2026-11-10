@@ -156,13 +156,9 @@ impl AnyDriver {
         Ok(driver)
     }
 
-    /// The driver's name, for tracing.
+    /// The driver's name, as the manifest writes it, for tracing.
     fn name(&self) -> &'static str {
-        match self {
-            AnyDriver::Compose(_) => "compose",
-            AnyDriver::Vagrant(_) => "vagrant",
-            AnyDriver::Terraform(_) => "terraform",
-        }
+        isoloom_manifest::Driver::from(self).id()
     }
 
     pub(crate) async fn preflight(&self, cx: &Cx<'_>) -> Result<()> {
@@ -366,9 +362,19 @@ pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
 
 /// Refuses an action of another driver's (the manifest's actions are each one driver's): step
 /// `step` of a `driver` run.
-pub(crate) fn foreign_action(driver: &str, step: &Step, action: Action) -> Error {
+pub(crate) fn foreign_action(driver: isoloom_manifest::Driver, step: &Step, action: Action) -> Error {
     Error::Unsupported {
-        what: format!("step `{}`: the action `{}` on a {driver} run", step.id, wire_name(&action)),
+        what: format!("step `{}`: the action `{}` on a `{}` run", step.id, wire_name(&action), driver.id()),
+    }
+}
+
+impl From<&AnyDriver> for isoloom_manifest::Driver {
+    fn from(driver: &AnyDriver) -> isoloom_manifest::Driver {
+        match driver {
+            AnyDriver::Compose(_) => isoloom_manifest::Driver::Compose,
+            AnyDriver::Vagrant(_) => isoloom_manifest::Driver::Vagrant,
+            AnyDriver::Terraform(_) => isoloom_manifest::Driver::Terraform,
+        }
     }
 }
 
