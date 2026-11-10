@@ -115,9 +115,13 @@ async fn every_operation_ends_with_exactly_one_result_or_error_and_is_logged() {
 
 /// Fills run `name`'s log with one line more than it keeps, and returns the log's path.
 fn long_log(f: &Fixture, name: &crate::RunName) -> std::path::PathBuf {
+    use std::io::Write;
     let path = f.runner.store.run_dir(name).unwrap().join("events.jsonl");
-    let lines: String = (0..=crate::store::EVENTS_KEPT).map(|seq| format!("{{\"seq\":{seq}}}\n")).collect();
-    std::fs::write(&path, lines).unwrap();
+    let mut log = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+    for seq in 0..=crate::store::EVENTS_KEPT {
+        writeln!(log, "{{\"seq\":{seq}}}").unwrap();
+    }
+    log.flush().unwrap();
     path
 }
 
