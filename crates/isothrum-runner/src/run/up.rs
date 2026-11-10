@@ -209,7 +209,7 @@ impl Running<'_> {
         let mut applies = recovery.apply_retries.map_or(0, isoloom_manifest::Retries::get);
         loop {
             cx.stale.take();
-            match run_steps(cx, crate::executor::UP, up).await {
+            match crate::executor::run_up_steps(cx, up).await {
                 Err(e) if left > 0 && cx.stale.take().is_some() => {
                     left -= 1;
                     cx.events

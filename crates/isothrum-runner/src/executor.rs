@@ -97,7 +97,7 @@ pub(crate) struct Ran {
 }
 
 /// The start's list, as messages name it.
-pub(crate) const UP: &str = "lifecycle.up";
+const UP: &str = "lifecycle.up";
 
 /// Runs `steps` (the manifest's list `list`, for messages) in order. After a failure, `if_ok`
 /// steps are skipped and `always` steps still run; a `tolerate` step's failure is a warning.
@@ -105,6 +105,26 @@ pub(crate) const UP: &str = "lifecycle.up";
 /// value yet reads the driver's state first (a guest step to `${outputs.ip}` right after the
 /// `apply` that made the VM).
 pub(crate) async fn run_steps(cx: &mut Cx<'_>, list: &str, steps: &[Step]) -> Result<Ran> {
+    run_list(cx, list, steps, AfterStep::Nothing).await
+}
+
+/// The manifest's start steps (`lifecycle.up`), as [`run_steps`] runs a list, each guest
+/// delivery waiting for a step going once that step succeeded.
+pub(crate) async fn run_up_steps(cx: &mut Cx<'_>, steps: &[Step]) -> Result<Ran> {
+    run_list(cx, UP, steps, AfterStep::DeliverToGuests).await
+}
+
+/// What follows each step of a list that succeeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterStep {
+    /// Nothing.
+    Nothing,
+    /// The guest deliveries that wait for that step ([`crate::guest::deliver`]).
+    DeliverToGuests,
+}
+
+/// [`run_steps`], with `after` each step that succeeded.
+async fn run_list(cx: &mut Cx<'_>, list: &str, steps: &[Step], after: AfterStep) -> Result<Ran> {
     let mut ran = Ran::default();
     let mut failure: Option<Error> = None;
     for step in steps {
@@ -120,7 +140,7 @@ pub(crate) async fn run_steps(cx: &mut Cx<'_>, list: &str, steps: &[Step]) -> Re
         let span = tracing::info_span!("step", list, step = id);
         let done = match run_step(cx, list, step).instrument(span).await {
             // A guest delivery waiting for this start step goes once it succeeded.
-            Ok(()) if list == UP => crate::guest::deliver(cx, Some(id)).await,
+            Ok(()) if after == AfterStep::DeliverToGuests => crate::guest::deliver(cx, Some(id)).await,
             other => other,
         };
         match done {
