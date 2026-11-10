@@ -6,7 +6,8 @@ each host, the command that probes each one, and the minimum version it needs (`
 provider: a tool that doesn't answer fails with `tool_missing` (or `tool_failed`), one older than
 its minimum with `tool_too_old`, before anything is created.
 
-The minimums below are the ones Isoloom's current targets write. The manifest you generate is the
+The minimums below are the ones Isoloom's current targets write (a test reads them from what
+Isoloom generates, so this table changes when Isoloom's do). The manifest you generate is the
 authority: `jq '.tools' .isoloom/<target>/run.json` shows it.
 
 | Tool | Minimum | Used by | Probe |
@@ -15,8 +16,8 @@ authority: `jq '.tools' .isoloom/<target>/run.json` shows it.
 | Docker Compose | 2.17.0 | `docker` | `docker compose version --short` |
 | Vagrant | 2.4.0 | `vagrant`, `docker-vm` | `vagrant --version` |
 | VirtualBox, VMware Desktop, Parallels, libvirt, QEMU | any that answers | Vagrant, with that provider | each one's own command (`VBoxManage --version`, `vmrun list`, ...) |
-| Terraform | 1.6.0 | `proxmox`, `docker-vm/proxmox` | `terraform version` |
-| Terraform | 1.11.0 | `cloud-vm/*`, `cloud-docker/*` (and Isoloom's other cloud targets) | `terraform version` |
+| Terraform | 1.6.0 | `proxmox`, `esxi`, `docker-vm/proxmox`, `cloud-vm/*`, `cloud-docker/*` | `terraform version` |
+| VMware OVF Tool | any that answers | `esxi` | `ovftool --version` |
 | OpenSSH client | any that answers; 7.6 or later works (below) | targets reached over SSH | `ssh -V` |
 
 The manifests probe `ssh` for an answer only, but the configuration the runner writes for each

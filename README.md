@@ -45,7 +45,7 @@ The tools of the targets you run, at the versions the run manifest asks for
 - Docker with Compose 2.17.0 or later, for container targets;
 - Vagrant 2.4.0 or later and a hypervisor (VirtualBox, VMware, Hyper-V, Parallels, libvirt, QEMU,
   UTM), for VM targets;
-- Terraform 1.6.0 or later (1.11.0 for the cloud targets), for servers and clouds;
+- Terraform 1.6.0 or later, for servers and clouds;
 - an OpenSSH client, for targets reached over SSH.
 
 Isothrum checks each one before it starts anything. Isoloom generates the files; Isothrum doesn't
