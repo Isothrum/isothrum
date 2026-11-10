@@ -92,7 +92,7 @@ fn folders(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
 }
 
 /// The runner's home: `--home`, else `$ISOTHRUM_HOME`, else `~/.isothrum`.
-pub(crate) fn home(flag: Option<PathBuf>, env: Option<String>, user_home: Option<PathBuf>) -> Result<PathBuf> {
+pub(crate) fn home(flag: Option<PathBuf>, env: Option<std::ffi::OsString>, user_home: Option<PathBuf>) -> Result<PathBuf> {
     flag.or_else(|| env.filter(|h| !h.is_empty()).map(PathBuf::from))
         .or_else(|| user_home.map(|h| h.join(".isothrum")))
         .ok_or_else(|| Error::Usage("no home folder: give --home or set ISOTHRUM_HOME".into()))
@@ -159,7 +159,20 @@ mod tests {
     fn the_home_is_the_flag_else_the_variable_else_the_users() {
         assert_eq!(home(Some("/a".into()), Some("/b".into()), Some("/u".into())).unwrap(), PathBuf::from("/a"));
         assert_eq!(home(None, Some("/b".into()), Some("/u".into())).unwrap(), PathBuf::from("/b"));
-        assert_eq!(home(None, Some(String::new()), Some("/u".into())).unwrap(), PathBuf::from("/u/.isothrum"));
+        assert_eq!(
+            home(None, Some(std::ffi::OsString::new()), Some("/u".into())).unwrap(),
+            PathBuf::from("/u/.isothrum")
+        );
         assert!(home(None, None, None).is_err());
+    }
+
+    /// Regression: an `ISOTHRUM_HOME` that isn't UTF-8 was read as unset, and the runs went to
+    /// `~/.isothrum`; it is a path like `--home`'s.
+    #[cfg(unix)]
+    #[test]
+    fn a_home_variable_that_isnt_utf8_is_still_the_home() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(b"/runs/caf\xe9".to_vec());
+        assert_eq!(home(None, Some(raw.clone()), Some("/u".into())).unwrap(), PathBuf::from(raw));
     }
 }

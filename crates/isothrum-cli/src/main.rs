@@ -64,7 +64,7 @@ async fn main() -> ExitCode {
 /// its tools started by `processes`.
 async fn start(cli: &Cli, processes: &SystemProcesses, term: &Term, trail: &Trail, var: &dyn Fn(&str) -> Option<String>) -> Result<Verdict> {
     let runner = || -> Result<Runner> {
-        let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), std::env::home_dir())?;
+        let home = locate::home(cli.home.clone(), std::env::var_os("ISOTHRUM_HOME"), std::env::home_dir())?;
         let mut config = RunnerConfig::new(home);
         config.processes = Arc::new(processes.clone());
         Ok(Runner::new(config)?)

@@ -270,3 +270,23 @@ impl Up {
         })
     }
 }
+
+/// Regression: an `ISOTHRUM_HOME` that isn't UTF-8 was read as unset, and the runner went to
+/// `~/.isothrum`.
+#[cfg(unix)]
+#[test]
+fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    let mut home = dir.path().as_os_str().to_owned().into_vec();
+    home.extend_from_slice(b"/caf\xe9");
+    let user = dir.path().join("user");
+    std::fs::create_dir(&user).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .arg("key")
+        .env("ISOTHRUM_HOME", std::ffi::OsString::from_vec(home))
+        .env("HOME", &user)
+        .output()
+        .unwrap();
+    assert!(!user.join(".isothrum").exists(), "{}", String::from_utf8_lossy(&out.stderr));
+}
