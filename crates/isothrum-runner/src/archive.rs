@@ -2,13 +2,17 @@
 //! (`${run.state_dir}/project.tgz`), for a later step to pipe into a guest (`ssh.run`'s `stdin`).
 //! Built here (`tar`, `flate2`), so no host tool is needed and every host makes the same archive.
 //!
-//! What goes in is what the generated files copy: Isoloom's outputs included, version control and
-//! the tools' state left out at any depth (`.git`, `.vagrant`, `.terraform`), the archives of
-//! earlier copies left out at the top (`.isoloom-project*`), and what `.isoloomignore` lists left
-//! out, by the run manifest's own rules ([`isoloom_manifest::ignore`]). Paths are relative to the
-//! project (no top folder) with `/`; a symbolic link goes in as a link, never followed. A project
-//! can be large: the archive is written on Tokio's blocking pool, to a temporary file renamed over
-//! the last one, owner-only (a project may hold a run's keys).
+//! `with.root` is the project's folder (relative to the manifest's) and `with.outputs`, optional,
+//! the paths of Isoloom's outputs the guest reads (relative to the project, separated by spaces);
+//! both are templates. What goes in is what the generated files copy, by the run manifest's own
+//! rules ([`Rules::for_copy`]): what `.isoloomignore` lists left out, Isoloom's outputs left out
+//! but `outputs`, and, at any depth (in those outputs too), version control and the tools' state
+//! left out ([`never_copied`]: a Terraform state and its backups, which hold secrets in plain
+//! text, a Vagrant machine's folder, the runner's logins). Those come last in the rules, so
+//! nothing beneath a folder they match can come back: the walk never enters one. Paths are
+//! relative to the project (no top folder) with `/`; a symbolic link goes in as a link, never
+//! followed. A project can be large: the archive is written on Tokio's blocking pool, to a
+//! temporary file renamed over the last one, owner-only (a project may hold a run's keys).
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -17,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use isoloom_manifest::ignore::{FILE as IGNORE_FILE, Rules};
+use isoloom_manifest::ignore::{FILE as IGNORE_FILE, Rules, never_copied};
 use isoloom_manifest::{SnakeName, Step, Template};
 
 use crate::Result;
@@ -27,43 +31,42 @@ use crate::executor::Cx;
 /// The archive's name in the run's state folder.
 pub(crate) const ARCHIVE: &str = "project.tgz";
 
-/// Never copied, at any depth: version control and the tools' own state.
-const SKIP: [&str; 3] = [".git", ".vagrant", ".terraform"];
-
-/// The prefix of an earlier copy's archive, left at the project's top by a generated module.
-const EARLIER_ARCHIVE: &str = ".isoloom-project";
-
 /// Runs `project.archive` for step `step`: the project at `with.root` (relative to the manifest's
-/// folder) archived as the run's [`ARCHIVE`].
+/// folder) archived as the run's [`ARCHIVE`], with the outputs `with.outputs` names.
 pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
-    let at = format!("{}.with.root", step.id);
-    let root = match with.iter().find(|(k, _)| k.as_str() == "root") {
-        Some((_, t)) => cx.vars.render(t, &at)?,
-        None => {
-            return Err(Error::Malformed {
-                at,
-                reason: "a `project.archive` needs the folder to archive".to_owned(),
-            });
+    let arg = |key: &str| {
+        let at = format!("{}.with.{key}", step.id);
+        match with.iter().find(|(k, _)| k.as_str() == key) {
+            Some((_, t)) => cx.vars.render(t, &at).map(Some),
+            None => Ok(None),
         }
     };
+    let Some(root) = arg("root")? else {
+        return Err(Error::Malformed {
+            at: format!("{}.with.root", step.id),
+            reason: "a `project.archive` needs the folder to archive".to_owned(),
+        });
+    };
+    let outputs: Vec<String> = arg("outputs")?.unwrap_or_default().split_whitespace().map(str::to_owned).collect();
     let root = cx.run.dir().join(root);
     let out = cx.run.runner.store.run_dir(cx.run.name())?.join(ARCHIVE);
     let target = out.clone();
-    let written = tokio::task::spawn_blocking(move || write(&root, &target)).await;
+    let written = tokio::task::spawn_blocking(move || write(&root, &outputs, &target)).await;
     match written {
         Ok(done) => done.map_err(Error::io(&out, "written")),
         Err(e) => Err(Error::io(&out, "written")(io::Error::other(e.to_string()))),
     }
 }
 
-/// Writes the archive of the project at `root` to `out`.
-fn write(root: &Path, out: &Path) -> io::Result<()> {
-    let rules = match std::fs::read_to_string(root.join(IGNORE_FILE)) {
-        Ok(text) => Rules::parse(&text),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Rules::default(),
+/// Writes the archive of the project at `root` to `out`, with the Isoloom outputs `outputs`.
+fn write(root: &Path, outputs: &[String], out: &Path) -> io::Result<()> {
+    let project = match std::fs::read_to_string(root.join(IGNORE_FILE)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    let entries = entries(root, &rules)?;
+    let outputs: Vec<&str> = outputs.iter().map(String::as_str).collect();
+    let entries = entries(root, &Filter::new(&project, &outputs))?;
     let part = out.with_file_name(format!("{ARCHIVE}.part"));
     let written = (|| {
         let file: File = crate::store::create_private(&part)?;
@@ -96,23 +99,46 @@ struct Visit {
     descend: bool,
 }
 
-/// What happens to `rel` (from the project's root, with `/`), a folder when `folder`.
-fn visit(rel: &str, folder: bool, rules: &Rules) -> Visit {
-    let name = rel.rsplit('/').next().unwrap_or(rel);
-    let top = !rel.contains('/');
-    if SKIP.contains(&name) || (top && name.starts_with(EARLIER_ARCHIVE)) {
-        return Visit { add: false, descend: false };
+/// What the archive leaves out.
+#[derive(Debug, Clone)]
+struct Filter {
+    /// The copy's rules: the project's `.isoloomignore`, then Isoloom's.
+    copy: Rules,
+    /// What no copy takes ([`never_copied`]): the last of `copy`, so nothing beneath a folder
+    /// they match comes back.
+    never: Rules,
+}
+
+impl Filter {
+    /// The filter of a project whose `.isoloomignore` reads `project` (empty without one), with
+    /// the Isoloom outputs `outputs`.
+    fn new(project: &str, outputs: &[&str]) -> Filter {
+        Filter {
+            copy: Rules::for_copy(project, outputs),
+            never: Rules::parse(&never_copied().collect::<Vec<_>>().join("\n")),
+        }
     }
-    let ignored = if folder { rules.ignored(&format!("{rel}/")) } else { rules.ignored(rel) };
-    Visit {
-        add: !ignored,
-        descend: folder && (!ignored || rules.brings_back()),
+
+    /// What happens to `rel` (from the project's root, with `/`), a folder when `folder`.
+    fn visit(&self, rel: &str, folder: bool) -> Visit {
+        if folder && self.never.ignored(&format!("{rel}/")) {
+            return Visit { add: false, descend: false };
+        }
+        let ignored = if folder {
+            self.copy.ignored(&format!("{rel}/"))
+        } else {
+            self.copy.ignored(rel)
+        };
+        Visit {
+            add: !ignored,
+            descend: folder && (!ignored || self.copy.brings_back()),
+        }
     }
 }
 
 /// Every path of the project at `root` that goes in, parents first, each folder's entries in
 /// name order.
-fn entries(root: &Path, rules: &Rules) -> io::Result<Vec<String>> {
+fn entries(root: &Path, filter: &Filter) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     let mut pending: Vec<String> = vec![String::new()];
     while let Some(dir) = pending.pop() {
@@ -124,7 +150,7 @@ fn entries(root: &Path, rules: &Rules) -> io::Result<Vec<String>> {
         for name in names {
             let rel = if dir.is_empty() { name } else { format!("{dir}/{name}") };
             let folder = std::fs::symlink_metadata(root.join(&rel))?.is_dir();
-            let v = visit(&rel, folder, rules);
+            let v = filter.visit(&rel, folder);
             if v.add {
                 out.push(rel.clone());
             }

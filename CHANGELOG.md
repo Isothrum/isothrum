@@ -37,6 +37,15 @@ change.
 
 ### Fixed
 
+- **`project.archive` no longer puts a Terraform state or Isoloom's other outputs in the guest's
+  copy.** The archive left out only `.git`, `.vagrant`, `.terraform` and the top's
+  `.isoloom-project*`, plus what `.isoloomignore` listed, so a `*.tfstate` (the secrets Terraform
+  saw, in plain text), its backups and lock, crash logs, the runner's `.isoloom-reach/` logins and
+  every `.isoloom/` output went into the archive a step pipes into a guest. It now leaves out
+  exactly what the generated files' copies do (`isoloom_manifest::ignore::Rules::for_copy`):
+  Isoloom's outputs but those the step's new `with.outputs` names, and, at any depth, version
+  control and the tools' state, in those outputs too. The walk never enters a folder no copy
+  takes.
 - **Ctrl-C or a cancelled CI job no longer leaves the tools running.** Each tool runs in its own
   process group (a job object on Windows), so SIGINT and SIGTERM reached only `isothrum`, and
   Terraform or Vagrant kept running. `isothrum` now races its command against SIGINT and SIGTERM

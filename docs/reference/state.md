@@ -36,7 +36,7 @@ depends on the target. With Isoloom's current targets:
 | Vagrant | `vagrant/`, Vagrant's own state (`VAGRANT_DOTFILE_PATH`), and the host ports the run forwards (in the record). |
 | Terraform | `terraform.tfstate` and its backup, `.terraform/` (`TF_DATA_DIR`), a `state_file` delivery's variable file while the run exists, and `module/`, the copy of the run's own module a `terraform.copy_module` step makes. |
 | Any, over SSH | `ssh_config` and `known_hosts` for the run; `guest-<machine>.in`, a guest delivery's values, only while it is delivered. |
-| Any, with `project.archive` | `project.tgz`, the project as a gzipped tar for a later step to pipe into a guest. |
+| Any, with `project.archive` | `project.tgz`, the project as a gzipped tar for a later step to pipe into a guest: what the generated files' copies leave out stays out (`.isoloomignore`, Isoloom's outputs but those `with.outputs` names, version control and the tools' state such as a Terraform state). |
 | Hyper-V on Windows | `elevated/<token>/`, the elevated broker's session folder, one per operation. |
 
 **Terraform state is local**: it lives in the run's state folder under the home, not in a remote
