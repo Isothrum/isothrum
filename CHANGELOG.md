@@ -374,8 +374,9 @@ change.
 
 ### Changed
 
-- **Breaking:** a run manifest's lab machines have the role `member` (was `target`), as Isoloom
-  2.0 writes them; status and readiness count `member` machines.
+- **Breaking:** the machines of the environment a run manifest describes (not its router, jobs
+  or checks) have the role `member` (was `target`), as Isoloom 2.0 writes them; status and
+  readiness count `member` machines.
 
 - **No more "lab" on the public surface.** The command line's help (`attach`, `detach`,
   `retire`), the runner's rustdoc and the crates' keywords speak of runs; the real-run test reads

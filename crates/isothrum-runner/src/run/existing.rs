@@ -113,7 +113,7 @@ impl Running<'_> {
     ///
     /// # Errors
     ///
-    /// Fails with `not_running` when no target machine runs, and when a setup or teardown step
+    /// Fails with `not_running` when no member machine runs, and when a setup or teardown step
     /// fails. A failing check isn't an error: the report says it (`ok: false`).
     pub async fn check(&self, opts: &RunOptions, events: &dyn Events) -> Result<CheckReport> {
         self.operate(Op::Check, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
@@ -135,7 +135,7 @@ impl Running<'_> {
     /// # Errors
     ///
     /// Fails with `machine_unknown` for a machine the run doesn't have, `not_running` when no
-    /// target machine runs, `unsupported` when the manifest has no provision steps, and as
+    /// member machine runs, `unsupported` when the manifest has no provision steps, and as
     /// [`Running::up`] does for a step or the state.
     pub async fn provision(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.operate(Op::Provision, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
@@ -144,7 +144,7 @@ impl Running<'_> {
             })?;
             let (_, mut cx) = self.existing(connected, e).await?;
             if let Some(m) = machine {
-                // Only a target machine is provisioned: another (the run's router, its checks)
+                // Only a member machine is provisioned: another (the run's router, its checks)
                 // is as unknown here as a name the run doesn't have.
                 if self.machine_named(m)?.role != isoloom_manifest::Role::Member {
                     return Err(Error::MachineUnknown {

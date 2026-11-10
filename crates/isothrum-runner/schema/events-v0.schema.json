@@ -379,12 +379,12 @@
           "const": "starting"
         },
         {
-          "description": "Up, every target machine running.",
+          "description": "Up, every member machine running.",
           "type": "string",
           "const": "ready"
         },
         {
-          "description": "Something of it exists, but not every target machine runs (a failed start, a machine down).",
+          "description": "Something of it exists, but not every member machine runs (a failed start, a machine down).",
           "type": "string",
           "const": "failed"
         },

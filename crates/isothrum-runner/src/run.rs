@@ -302,10 +302,10 @@ impl<'r> Running<'r> {
         Ok(observed)
     }
 
-    /// [`Running::observe`], refused with `not_running` when no target machine runs.
+    /// [`Running::observe`], refused with `not_running` when no member machine runs.
     pub(crate) async fn observe_running(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
         let observed = self.observe(cx).await?;
-        if !status::any_target_running(&observed.machines) {
+        if !status::any_member_running(&observed.machines) {
             return Err(Error::NotRunning { run: self.name().to_string() });
         }
         Ok(observed)

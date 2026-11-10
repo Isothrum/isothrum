@@ -76,9 +76,9 @@ impl fmt::Display for Op {
 pub enum RunState {
     /// Being started.
     Starting,
-    /// Up, every target machine running.
+    /// Up, every member machine running.
     Ready,
-    /// Something of it exists, but not every target machine runs (a failed start, a machine down).
+    /// Something of it exists, but not every member machine runs (a failed start, a machine down).
     Failed,
     /// Being parked.
     Parking,

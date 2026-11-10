@@ -169,7 +169,7 @@ pub struct Started {
     pub message: Option<String>,
 }
 
-/// The state of a run whose machines are `machines`, given its record. Ready when every target
+/// The state of a run whose machines are `machines`, given its record. Ready when every member
 /// machine runs; parked when its record says so and none runs; absent when nothing is there.
 pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
     let present = machines.iter().any(|m| m.state != MachineState::Absent);
@@ -193,8 +193,8 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
     }
 }
 
-/// Whether any target machine of `machines` runs.
-pub(crate) fn any_target_running(machines: &[MachineStatus]) -> bool {
+/// Whether any member machine of `machines` runs.
+pub(crate) fn any_member_running(machines: &[MachineStatus]) -> bool {
     machines
         .iter()
         .any(|m| m.role == Role::Member && matches!(m.state, MachineState::Running | MachineState::Unhealthy))
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn a_run_is_ready_when_every_target_runs() {
+    fn a_run_is_ready_when_every_member_runs() {
         use MachineState::{Absent, Exited, Running, Stopped};
         let all = |ms: Vec<MachineStatus>| derive_state(&ms, None);
         assert_eq!(all(vec![machine(Role::Member, Absent), machine(Role::Job, Absent)]), RunState::Absent);
@@ -257,6 +257,6 @@ mod tests {
         record.state = RunState::Parked;
         let stopped = vec![machine(Role::Member, MachineState::Exited(0))];
         assert_eq!(derive_state(&stopped, Some(&record)), RunState::Parked);
-        assert!(!any_target_running(&stopped));
+        assert!(!any_member_running(&stopped));
     }
 }

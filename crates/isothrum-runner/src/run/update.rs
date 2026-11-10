@@ -34,7 +34,7 @@ impl Running<'_> {
     ///
     /// # Errors
     ///
-    /// Fails with `not_running` when no target machine runs, when a secret or tool is missing,
+    /// Fails with `not_running` when no member machine runs, when a secret or tool is missing,
     /// and as `up` does for a step, a ready condition or the run's state.
     pub async fn update(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
         self.operate(Op::Update, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
