@@ -90,29 +90,27 @@ fn a_bad_topology_says_why() {
 
 #[test]
 fn problems_are_isoloom_s_with_their_code_line_and_fix() {
-    // A machine asking for the gateway's address: Isoloom says where and why.
-    let t = r#"{"name":"project","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
-        "a":{"kind":{"container":{"image":"alpine:3.20"}},"networks":{"lan":1}}}}"#;
-    let gateway = plan(t);
-    assert!(gateway.ok);
-    assert!(
-        gateway
-            .problems
-            .iter()
-            .any(|p| p.starts_with("error[invalid-value] machines.a.networks.lan  (isoloom.yml:")),
-        "{:?}",
-        gateway.problems
-    );
+    // A rate with no unit: Isoloom says where and why.
     let rate = r#"{"name":"project","networks":{"lan":{"cidr":"10.10.1.0/24","tc":{"rate":"10"}}},"nodes":{
         "a":{"kind":{"container":{"image":"alpine:3.20"}},"networks":{"lan":null}}}}"#;
     let no_unit = plan(rate);
-    assert!(
-        no_unit
-            .problems
-            .iter()
-            .any(|p| p.contains("networks.lan.tc.rate") && p.contains("`10` isn't a rate")),
-        "a rate has a unit: {:?}",
-        no_unit.problems
+    assert!(no_unit.ok);
+    assert_eq!(
+        no_unit.problems,
+        ["error[invalid-value] networks.lan.tc.rate  (isoloom.yml:7:7)\n  `10` isn't a rate like 10mbit or 512kbit"],
+    );
+}
+
+#[test]
+fn an_address_no_machine_can_take_is_the_compilers_error() {
+    // The gateway's address: the compiler refuses it before Isoloom would.
+    let t = r#"{"name":"project","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
+        "a":{"kind":{"container":{"image":"alpine:3.20"}},"networks":{"lan":1}}}}"#;
+    let gateway = plan(t);
+    assert!(!gateway.ok && gateway.isoloom_yml.is_none());
+    assert_eq!(
+        gateway.error.as_deref(),
+        Some("on LAN `lan` (10.10.1.0/24), `a` asks for .1, which no machine can take there")
     );
 }
 
