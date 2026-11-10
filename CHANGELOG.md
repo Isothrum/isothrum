@@ -476,6 +476,8 @@ change.
 - **A Vagrant `down` says why it removed no orphaned VM.** A hypervisor listing that failed
   (`VBoxManage list vms`, `prlctl list`) skipped the clean-up in silence; it is traced with why.
   A VirtualBox machine folder that can't be read is a warning, not a folder with nothing left.
+- **A step whose file name holds `..` (`provision/a..b.sh`) gets its starter.** Only a `..`
+  segment leaves the project, as Isoloom reads it.
 
 ### Added
 

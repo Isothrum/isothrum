@@ -48,7 +48,8 @@ pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller
 fn add(files: &mut Vec<ProjectFile>, path: &str, contents: String) {
     let in_outputs = path.strip_prefix(OUTPUT_DIR).is_some_and(|rest| rest.starts_with('/'));
     let isoloom_s = isoloom_spec::SPEC_FILES.contains(&path) || in_outputs;
-    if !path.starts_with('/') && !path.contains("..") && !isoloom_s && !files.iter().any(|s| s.path == path) {
+    let leaves = path.starts_with('/') || path.split('/').any(|segment| segment == "..");
+    if !leaves && !isoloom_s && !files.iter().any(|s| s.path == path) {
         files.push(ProjectFile {
             path: path.to_owned(),
             contents,

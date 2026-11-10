@@ -219,3 +219,19 @@ fn no_starter_goes_where_isoloom_reads_or_writes() {
     add(&mut files, ".isoloomignore.sh", String::new());
     assert_eq!(files.len(), 1, "a name that only starts like the folder is the project's");
 }
+
+/// Regression: a path holding `..` anywhere was taken for one leaving the project, so
+/// `provision/a..b.sh`, a file Isoloom reads in it, got no starter.
+#[test]
+fn only_a_dot_dot_segment_leaves_the_project() {
+    for (path, kept) in [
+        ("provision/a..b.sh", true),
+        ("../x.sh", false),
+        ("provision/../../x.sh", false),
+        ("/x.sh", false),
+    ] {
+        let mut files = Vec::new();
+        add(&mut files, path, String::new());
+        assert_eq!(files.len() == 1, kept, "{path}");
+    }
+}
