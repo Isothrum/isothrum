@@ -146,7 +146,7 @@ pub struct Status {
     /// refuses to read a VM's state while a `vagrant up` provisions it): they are then as the
     /// runner last read them (none before it ever did), and the outputs the engine itself gives
     /// are left out.
-    #[serde(default = "read_now")]
+    #[serde(default = "live_when_absent")]
     pub live: bool,
     /// The Vagrant provider it uses, when it has one.
     pub provider: Option<String>,
@@ -154,14 +154,16 @@ pub struct Status {
     pub machines: Vec<MachineStatus>,
     /// The run's networks.
     pub networks: Vec<NetworkView>,
-    /// Its outputs, read live.
+    /// Its outputs, each filled from what was read. While not [`Status::live`], an output the
+    /// engine itself gives (a Terraform output) has only its default, if any.
     pub outputs: Vec<OutputValue>,
     /// The run's message, filled, once the run is ready.
     pub message: Option<String>,
 }
 
-/// A status from before [`Status::live`] was read from the engine.
-fn read_now() -> bool {
+/// [`Status::live`] in a status written before it existed: every status was read from the
+/// engine then.
+fn live_when_absent() -> bool {
     true
 }
 
@@ -263,6 +265,13 @@ mod tests {
         assert_eq!(all(vec![machine(Role::Member, Running), machine(Role::Member, Exited(1))]), RunState::Failed);
         assert_eq!(all(vec![machine(Role::Member, Stopped)]), RunState::Failed);
         assert_eq!(all(vec![machine(Role::Member, MachineState::Unhealthy)]), RunState::Failed);
+    }
+
+    #[test]
+    fn a_status_from_before_live_reads_as_live() {
+        let json = r#"{"state":"ready","provider":null,"machines":[],"networks":[],"outputs":[],"message":null}"#;
+        let status: Status = serde_json::from_str(json).unwrap();
+        assert!(status.live);
     }
 
     #[test]
