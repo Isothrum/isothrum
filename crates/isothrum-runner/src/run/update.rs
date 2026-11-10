@@ -43,8 +43,9 @@ impl Running<'_> {
     }
 
     async fn update_work(&self, opts: &RunOptions, events: &Emitter<'_>) -> Result<Done<Started>> {
-        check_secrets(self.manifest(), &opts.secrets, &self.scope(opts.provider.clone()))?;
         let (mut record, mut cx) = self.existing(opts, events).await?;
+        // The run's own provider, as recorded, decides which slots it needs, not the one given.
+        check_secrets(self.manifest(), &opts.secrets, &cx.scope)?;
         tools::probe(&cx).await?;
         let observed = self.observe_running(&mut cx).await?;
         // What runs now keeps what it was given: only a machine new to the run gets its secrets.

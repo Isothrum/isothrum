@@ -441,6 +441,10 @@ change.
   read was made again by `ssh-keygen`, which failed on its overwrite prompt. Each is now an error
   naming its cause. A VM address that `status` can't read (on ESXi) and a guest `host` that can't
   be filled are still left out, and traced with why.
+- **An `update` given no provider checks the secrets the run's own provider needs.** The check
+  read the provider given to the operation, while the steps ran on the one the run recorded: a
+  run on ESXi updated without `--provider` skipped the host's password, and failed in the tool
+  instead of with `secret_missing`.
 
 ### Added
 

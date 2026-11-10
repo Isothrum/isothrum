@@ -1141,6 +1141,24 @@ async fn a_connection_secret_given_to_the_run_reaches_every_operation() {
     assert_eq!(destroy.env("ESXI_PASSWORD"), Some("other"));
 }
 
+/// Regression: an update given no provider (a run keeps its own) checked the secrets on no
+/// provider, so a run recorded on ESXi updated without the host's password ran its steps and
+/// failed in the tool, not with `secret_missing`.
+#[tokio::test]
+async fn an_update_of_an_esxi_run_needs_the_hosts_password_with_no_provider_given() {
+    let f = fixture(HostOs::Linux);
+    f.engine().plugins.push("vagrant-vmware-esxi".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
+    let before = f.vagrant().len();
+    let mut secrets = Secrets::new();
+    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
+    let err = run.update(&RunOptions::new().with_secrets(secrets), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::SecretMissing, "{err}");
+    assert!(err.to_string().contains("ESXI_PASSWORD"), "{err}");
+    assert_eq!(f.vagrant().len(), before, "no step ran: {:?}", &f.vagrant()[before..]);
+}
+
 /// The fixture with a VM added (a copy of `web` under another define), as Isoloom regenerates a
 /// run with a machine added.
 fn with_vm_added(define: &str) -> String {
