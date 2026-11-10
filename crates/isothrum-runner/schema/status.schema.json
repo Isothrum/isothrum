@@ -139,7 +139,7 @@
       "description": "What a machine is to the run.",
       "oneOf": [
         {
-          "description": "One of the lab's own machines: a member of the environment the spec describes.",
+          "description": "One of the environment's own machines: one the spec describes.",
           "type": "string",
           "const": "member"
         },
