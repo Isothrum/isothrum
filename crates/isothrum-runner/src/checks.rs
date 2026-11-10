@@ -45,11 +45,15 @@ pub struct CheckReport {
 pub(crate) enum Line {
     Pass(String),
     Fail(String, String),
-    End(u32, u32),
+    /// The runner reached its end. Its counts aren't read: the report counts the results itself.
+    End,
 }
 
 /// Reads a runner's line, anywhere in it (tools prefix their output: `web-1  | isoloom-check: …`).
-/// Ported from Isoloom's `isoloom-plan` (`checks/runner.rs`, `parse_line`).
+///
+/// A copy of Isoloom's `isoloom-plan` reader (`checks/runner.rs`, `parse_line`), until the
+/// `isoloom-check/1` grammar's reader lives in the contract crate (`isoloom-manifest`, which
+/// documents the grammar) for both to use.
 pub(crate) fn parse_line(line: &str) -> Option<Line> {
     let (_, rest) = line.split_once("isoloom-check: ")?;
     if let Some(n) = rest.strip_prefix("PASS ") {
@@ -59,11 +63,7 @@ pub(crate) fn parse_line(line: &str) -> Option<Line> {
         let (name, why) = r.split_once(": ").unwrap_or((r, ""));
         return Some(Line::Fail(name.to_owned(), why.trim_end().to_owned()));
     }
-    if let Some(r) = rest.strip_prefix("END ") {
-        let mut nums = r.split_whitespace().filter_map(|w| w.parse::<u32>().ok());
-        return Some(Line::End(nums.next()?, nums.next()?));
-    }
-    None
+    rest.starts_with("END ").then_some(Line::End)
 }
 
 /// Runs the run's checks.
@@ -93,7 +93,7 @@ async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner, report: &mut CheckRep
         Some(Line::Fail(name, why)) => {
             push(cx, &mut report.results, result(runner, name, false, why));
         }
-        Some(Line::End(..)) => ended = true,
+        Some(Line::End) => ended = true,
         None => {}
     };
     let ran = run_argv(cx, "checks.runners", &runner.step, &mut record).await;
@@ -155,8 +155,8 @@ mod tests {
             Some(Line::Fail("secret readable".into(), "404".into()))
         );
         assert_eq!(parse_line("isoloom-check: FAIL no reason"), Some(Line::Fail("no reason".into(), String::new())));
-        assert_eq!(parse_line("isoloom-check: END 3 passed, 1 failed"), Some(Line::End(3, 1)));
-        assert_eq!(parse_line("isoloom-check: END soon"), None);
+        assert_eq!(parse_line("isoloom-check: END 3 passed, 1 failed"), Some(Line::End));
+        assert_eq!(parse_line("isoloom-check: ENDING"), None);
         assert_eq!(parse_line("some other output"), None);
     }
 }
