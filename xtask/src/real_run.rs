@@ -45,16 +45,23 @@ pub(crate) fn run(a: &Args) -> Res<()> {
     }
     let example = a.example.as_deref().unwrap_or(EXAMPLE);
     let out = repo::target_dir(&root).join("real-run");
-    let run_dir = out.join(example);
-    repo::remove(&run_dir)?;
-    repo::copy_dir(&isoloom.join("examples").join(example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
-    let bin = build_isoloom(&root, &isoloom)?;
-    process::run(Command::new(bin).args(["generate", "--target", "docker"]).current_dir(&run_dir))?;
+    let run_dir = generate_example(&root, &isoloom, example, "docker", &out)?;
     let mut test = process::cargo(&root);
     test.args(["test", "-p", "isothrum-cli", "--test", "real_run", "--", "--ignored", "--nocapture"])
         .env("ISOTHRUM_REAL_RUN_DIR", &run_dir)
         .env("ISOTHRUM_REAL_EVENTS", out.join(format!("{example}.events.jsonl")));
     process::run(&mut test)
+}
+
+/// Isoloom's `example` copied into `out` (whatever an earlier run left there removed first) and
+/// generated for `target` with the Isoloom checkout `isoloom`'s own command line: its folder.
+fn generate_example(root: &Path, isoloom: &Path, example: &str, target: &str, out: &Path) -> Res<PathBuf> {
+    let run_dir = out.join(example);
+    repo::remove(&run_dir)?;
+    repo::copy_dir(&isoloom.join("examples").join(example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
+    let bin = build_isoloom(root, isoloom)?;
+    process::run(Command::new(bin).args(["generate", "--target", target]).current_dir(&run_dir))?;
+    Ok(run_dir)
 }
 
 /// Builds Isoloom's command line from its own folder, into this checkout's build folder; its path.

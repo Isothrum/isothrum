@@ -113,11 +113,7 @@ pub(crate) fn run(a: &CloudArgs, example: &str, isoloom: &Path) -> Res<()> {
         .map_err(|missing| format!("no {} credentials in the environment: {}", a.cloud.id(), missing.join("; ")))?;
     let root = repo::root();
     let out = repo::target_dir(&root).join("real-run").join(format!("{}-{}", a.target.id(), a.cloud.id()));
-    let run_dir = out.join(example);
-    repo::remove(&run_dir)?;
-    repo::copy_dir(&isoloom.join("examples").join(example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
-    let isoloom_bin = super::build_isoloom(&root, isoloom)?;
-    process::run(Command::new(isoloom_bin).args(["generate", "--target", a.target.id()]).current_dir(&run_dir))?;
+    let run_dir = super::generate_example(&root, isoloom, example, a.target.id(), &out)?;
     let manifest = run_dir.join(".isoloom").join(a.target.id()).join(a.cloud.id()).join("run.json");
     let declared = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let cidr = match var("ALLOWED_CIDR") {
