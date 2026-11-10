@@ -218,6 +218,9 @@ async fn installed_plugins(runner: &dyn ProcessRunner) -> Result<Vec<(String, Op
         .map(|out| parse_plugin_versions(&out))
 }
 
+/// Every provider's reason without Vagrant.
+const NO_VAGRANT: &str = "Vagrant is not installed";
+
 /// How long the VirtualBox liveness probe may take before VirtualBox counts as wedged.
 const VBOX_PROBE: Duration = Duration::from_secs(8);
 
@@ -226,14 +229,25 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
 add this account to that group and sign out of Windows and back in, or run elevated";
 
-/// The readiness of every provider usable on this machine: its hypervisor, its plugin, and why it
-/// is not available. `vagrant_installed` is global, so it is a plain argument.
+/// The readiness of every provider that applies to this computer's OS and CPU, usable or not:
+/// `None` when it is ready, else why not (its hypervisor, its plugin...). Without Vagrant
+/// (`vagrant_installed`, the caller's to know) each says so, and nothing is probed.
 ///
 /// `may_manage_hyperv` is the one fact this crate cannot work out without `unsafe` (see the module
 /// docs): `Some(false)` folds the "needs administrator" reason into Hyper-V, `Some(true)` and
 /// `None` add nothing. An embedder without a token/SID check passes `None`.
 pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_manage_hyperv: Option<bool>) -> Vec<ProviderStatus> {
-    let plugins = if vagrant_installed { installed_plugins(runner).await } else { Ok(Vec::new()) };
+    if !vagrant_installed {
+        return ALL
+            .into_iter()
+            .filter(|p| applicable(*p))
+            .map(|provider| ProviderStatus {
+                provider,
+                reason: Some(NO_VAGRANT.to_owned()),
+            })
+            .collect();
+    }
+    let plugins = installed_plugins(runner).await;
     // Vagrant that can't list its plugins says nothing of them: one reason for every provider
     // that needs one, rather than each plugin "not installed".
     let (plugins, plugins_unknown) = match plugins {
@@ -253,7 +267,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
         };
         let plugin = plugin(provider);
         let installed = plugin.and_then(|needed| plugins.iter().find(|(i, _)| i == needed));
-        let plugin_installed = plugin.is_none() || (vagrant_installed && installed.is_some());
+        let plugin_installed = plugin.is_none() || installed.is_some();
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         // Vagrant's Hyper-V provider refuses every command (status reads included) from an account
@@ -269,7 +283,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool, may_man
             plugins_unknown: plugins_unknown.as_deref(),
             needs_admin,
         };
-        let reason = unavailable_reason(provider, vagrant_installed, detection);
+        let reason = unavailable_reason(provider, detection);
         statuses.push(ProviderStatus { provider, reason });
     }
     statuses
@@ -304,8 +318,9 @@ struct Detection<'a> {
     needs_admin: bool,
 }
 
-/// Why a provider can't be used here, `None` when it can: the first layer that is missing.
-fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: Detection<'_>) -> Option<String> {
+/// Why a provider can't be used here, Vagrant being installed; `None` when it can: the first
+/// layer that is missing.
+fn unavailable_reason(provider: Provider, detection: Detection<'_>) -> Option<String> {
     let Detection {
         hypervisor,
         hypervisor_version,
@@ -316,9 +331,7 @@ fn unavailable_reason(provider: Provider, vagrant_installed: bool, detection: De
         plugins_unknown,
         needs_admin,
     } = detection;
-    if !vagrant_installed {
-        Some("Vagrant is not installed".to_owned())
-    } else if unresponsive {
+    if unresponsive {
         Some("VirtualBox isn't responding (its background service is stuck): quit VirtualBox and any VM windows, or restart the computer".to_owned())
     } else if hypervisor == Some(false) && provider == Provider::Hyperv {
         Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it".to_owned())
@@ -379,7 +392,7 @@ mod tests {
         assert!(!version_at_least("4.5.1", "4.6.5"));
         assert!(version_at_least("4.7", "4.6.5"), "a missing part is 0");
         assert!(!version_at_least("0.1.6", "0.2.0"));
-        assert!(version_at_least("0.2.0-beta", "0.2.0"), "a suffix counts as 0");
+        assert!(version_at_least("0.2.0-beta", "0.2.0"), "a part's suffix after its number is dropped");
     }
 
     #[test]
@@ -396,17 +409,17 @@ mod tests {
         };
         assert_eq!(plugin_too_old(Provider::Utm, Some("0.1.6")), Some(("0.1.6", "0.2.0")));
         assert_eq!(
-            unavailable_reason(Provider::Utm, true, detection(Some("4.7.5"), Some("0.1.6"), true)).as_deref(),
+            unavailable_reason(Provider::Utm, detection(Some("4.7.5"), Some("0.1.6"), true)).as_deref(),
             Some("Vagrant plugin `vagrant_utm` 0.1.6 is too old: 0.2.0 or later is needed. Install it again to update it")
         );
         // A UTM the plugin refuses, said before the plugin (updating the plugin wouldn't help).
         assert_eq!(
-            unavailable_reason(Provider::Utm, true, detection(Some("4.5.1"), Some("0.1.6"), true)).as_deref(),
+            unavailable_reason(Provider::Utm, detection(Some("4.5.1"), Some("0.1.6"), true)).as_deref(),
             Some("UTM 4.5.1 is too old: 4.6.5 or later is needed. Update UTM")
         );
         // Recent enough, or no version to judge: nothing stands in the way.
-        assert_eq!(unavailable_reason(Provider::Utm, true, detection(Some("4.7.5"), Some("0.2.0"), true)), None);
-        assert_eq!(unavailable_reason(Provider::Utm, true, detection(None, None, true)), None);
+        assert_eq!(unavailable_reason(Provider::Utm, detection(Some("4.7.5"), Some("0.2.0"), true)), None);
+        assert_eq!(unavailable_reason(Provider::Utm, detection(None, None, true)), None);
         assert_eq!(plugin_too_old(Provider::Utm, None), None);
         // Other providers aren't held to a version.
         assert_eq!(plugin_too_old(Provider::Qemu, Some("0.1.0")), None);
@@ -446,6 +459,49 @@ mod tests {
         assert!(virtualbox.is_none_or(|s| s.reason.is_none()), "{virtualbox:?}");
     }
 
+    #[tokio::test]
+    async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
+        let tools = FakeProcesses::rules(&[]);
+        let statuses = detect(&tools, false, None).await;
+        assert_eq!(statuses.len(), ALL.iter().filter(|p| applicable(**p)).count());
+        assert!(statuses.iter().all(|s| s.reason.as_deref() == Some(NO_VAGRANT)), "{statuses:?}");
+        assert_eq!(tools.calls(), [], "no probe runs without Vagrant");
+    }
+
+    /// A tool that never answers.
+    struct Stuck;
+
+    impl ProcessRunner for Stuck {
+        fn run<'a>(
+            &'a self,
+            _spec: &'a isothrum_runner::ProcessSpec,
+            _on_line: isothrum_runner::OnLine<'a>,
+        ) -> isothrum_runner::BoxFuture<'a, Result<isothrum_runner::Exit, isothrum_runner::ProcessError>> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                Ok(isothrum_runner::Exit::new(Some(0)))
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_virtualbox_whose_service_never_answers_is_wedged() {
+        assert!(vbox_wedged(&Stuck).await);
+        let answering = FakeProcesses::rules(&[("VBoxManage list runningvms", Reply::ok(""))]);
+        assert!(!vbox_wedged(&answering).await);
+    }
+
+    #[tokio::test]
+    async fn only_utm_is_asked_its_version() {
+        let tools = FakeProcesses::rules(&[("defaults read", Reply::ok("4.7.5\n"))]);
+        assert_eq!(hypervisor_version(Provider::Utm, &tools).await.as_deref(), Some("4.7.5"));
+        assert_eq!(hypervisor_version(Provider::Qemu, &tools).await, None);
+        let silent = FakeProcesses::rules(&[("defaults read", Reply::ok(""))]);
+        assert_eq!(hypervisor_version(Provider::Utm, &silent).await, None, "no version said, none read");
+        let call = tools.calls().into_iter().next().unwrap();
+        assert_eq!(call.args, ["read", "/Applications/UTM.app/Contents/Info.plist", "CFBundleShortVersionString"]);
+    }
+
     #[test]
     fn hyperv_needs_admin_only_when_the_caller_says_the_account_cannot_manage_it() {
         // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so the injected
@@ -460,7 +516,7 @@ mod tests {
             plugins_unknown: None,
             needs_admin,
         };
-        assert_eq!(unavailable_reason(Provider::Hyperv, true, hyperv(true)).as_deref(), Some(HYPERV_NEEDS_ADMIN));
-        assert_eq!(unavailable_reason(Provider::Hyperv, true, hyperv(false)), None);
+        assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(true)).as_deref(), Some(HYPERV_NEEDS_ADMIN));
+        assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(false)), None);
     }
 }

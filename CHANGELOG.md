@@ -244,6 +244,10 @@ change.
   rule twice, and a machine with only 443 was told IIS was for port 80. Each rule now has its
   port's transport (`project-53-udp`), and IIS's line names the web ports drawn.
 
+- **Provider detection without Vagrant probes nothing.** `providers::detect` ran every
+  hypervisor's probe (VirtualBox's liveness check takes up to 8 s) even when told Vagrant isn't
+  installed, though each provider then said only that; it now answers at once.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

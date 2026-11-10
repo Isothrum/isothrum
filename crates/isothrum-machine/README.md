@@ -7,8 +7,10 @@ isn't, why: Vagrant or the hypervisor not installed, a plugin missing or too old
 service not answering, or Hyper-V needing an administrator (when the caller says the account may
 not manage it).
 
-Every probe runs through `isothrum-runner`'s `ProcessRunner`, so tests can script the tools, and the
-crate has no `unsafe` code.
+Every tool it runs (`vagrant plugin list`, `VBoxManage`, `vmrun`, ...) goes through
+`isothrum-runner`'s `ProcessRunner`, so tests can script them; a few facts are read from the
+filesystem instead (UTM's app bundle, Hyper-V's service, `/dev/kvm`). The crate has no `unsafe`
+code.
 
 ## Install
 
