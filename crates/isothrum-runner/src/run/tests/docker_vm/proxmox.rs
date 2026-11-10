@@ -104,6 +104,46 @@ async fn on_proxmox_terraform_makes_the_vm_and_everything_in_it_goes_over_ssh_to
     run.down(&server, &Recorder::new()).await.unwrap();
 }
 
+/// The project reaches the VM as the generated files copy it: the outputs the guest reads (the
+/// archive step's `with.outputs`: Compose's files and the configuration), none of Isoloom's
+/// others, and no Terraform state.
+#[tokio::test(start_paused = true)]
+async fn the_vm_gets_the_outputs_it_reads_and_no_terraform_state() {
+    let Server {
+        folder,
+        runner,
+        options: server,
+        ..
+    } = proxmox();
+    let project = folder.target_dir().ancestors().nth(3).unwrap();
+    for (rel, text) in [
+        ("isoloom.yml", "version: 1\n"),
+        (".isoloom/docker/compose.yml", "name: web-portal\n"),
+        (".isoloom/configure/site.yml", "- hosts: all\n"),
+        (".isoloom/vagrant/Vagrantfile", "Vagrant.configure(2)\n"),
+        ("infra/terraform.tfstate", "{\"secret\": \"pw\"}\n"),
+    ] {
+        std::fs::create_dir_all(project.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(project.join(rel), text).unwrap();
+    }
+    let run = runner.open(&folder.manifest, None).unwrap();
+    run.up(&server, &Recorder::new()).await.unwrap();
+    let archive = std::fs::File::open(runner.store.run_dir(run.name()).unwrap().join("project.tgz")).unwrap();
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
+    let names: Vec<String> = tar
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path().unwrap().to_string_lossy().trim_end_matches('/').to_owned())
+        .collect();
+    for kept in ["isoloom.yml", ".isoloom/docker/compose.yml", ".isoloom/configure/site.yml", "infra"] {
+        assert!(names.iter().any(|n| n == kept), "{kept} goes in: {names:?}");
+    }
+    for left in [".isoloom/docker-vm/proxmox/main.tf", ".isoloom/vagrant/Vagrantfile", "infra/terraform.tfstate"] {
+        assert!(!names.iter().any(|n| n == left), "{left} stays out: {names:?}");
+    }
+    run.down(&server, &Recorder::new()).await.unwrap();
+}
+
 /// The run's SSH jump (a node whose run bridge this host can't route to) carries a console as it
 /// carries the guest's own steps.
 #[tokio::test(start_paused = true)]

@@ -65,10 +65,11 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
 #[tokio::test(start_paused = true)]
 async fn a_delivery_to_a_machine_no_output_gives_the_address_of_is_manifest_invalid() {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
-    // The module's state has no such output.
+    // The module's state has no such output; the project's copy goes to the access address.
     for o in m["outputs"].as_array_mut().unwrap().iter_mut().filter(|o| o["name"] == "address_web") {
         o["from"]["name"] = "address_of_web".into();
     }
+    copy_at_ip(&mut m);
     let a = account_of(&m.to_string(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let err = run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap_err();
@@ -92,14 +93,24 @@ async fn a_delivery_cut_short_leaves_no_input_behind() {
     assert!(!input.exists(), "the values went with the operation");
 }
 
+/// The manifest `m` with its project copy (`deliver-web`) sent to the `ip` output, for a test
+/// whose `address_web` gives no value to a template.
+fn copy_at_ip(m: &mut serde_json::Value) {
+    let up = m["lifecycle"]["up"].as_array_mut().unwrap();
+    let copy = up.iter_mut().find(|s| s["id"] == "deliver-web").unwrap();
+    copy["with"]["host"] = serde_json::json!("${outputs.ip}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_delivery_reaches_its_machine_at_a_sensitive_address_output() {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
     for o in m["outputs"].as_array_mut().unwrap() {
         o["sensitive"] = serde_json::json!(o["name"] == "address_web");
     }
-    // A sensitive output is never bound for a template: the ready file is read at the `ip`.
+    // A sensitive output is never bound for a template: the ready file is read, and the project
+    // copied, at the `ip`.
     m["ready"][1]["host"] = serde_json::json!("${outputs.ip}");
+    copy_at_ip(&mut m);
     let a = account_of(&m.to_string(), 0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap();
@@ -216,7 +227,7 @@ fn compose_over_ssh() -> String {
     let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
     m["lifecycle"]["up"].as_array_mut().unwrap().push(serde_json::json!({
         "id": "compose-up", "action": "ssh.run",
-        "with": {"host": "${outputs.address_web}", "user": "${outputs.ssh_user}", "command": "cd /opt/isoloom && sudo -E docker compose up -d"}
+        "with": {"host": "${outputs.address_web}", "user": "admin", "command": "cd /opt/isoloom && sudo -E docker compose up -d"}
     }));
     let secret = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "DEMO_SECRET").unwrap();
     secret["deliver"] = serde_json::json!([{"via": "env", "var": "DEMO_SECRET", "steps": ["compose-up"]}]);

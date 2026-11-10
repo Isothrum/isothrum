@@ -281,7 +281,7 @@
           "via": "env",
           "var": "ISOLOOM_DERIVED",
           "steps": [
-            "check-networks",
+            "check-isoloom-networks",
             "check-db",
             "check-web"
           ]
@@ -509,7 +509,7 @@
       },
       {
         "id": "up",
-        "note": "Building the lab's VM with Docker in it…",
+        "note": "Building the environment's VM with Docker in it…",
         "argv": [
           "vagrant",
           "up",
@@ -522,7 +522,7 @@
       },
       {
         "id": "start",
-        "note": "Starting the lab's containers in the VM…",
+        "note": "Starting the environment's containers in the VM…",
         "argv": [
           "vagrant",
           "ssh",
@@ -698,7 +698,7 @@
           }
         ],
         "step": {
-          "id": "check-networks",
+          "id": "check-isoloom-networks",
           "argv": [
             "vagrant",
             "ssh",
@@ -711,7 +711,7 @@
         },
         "on_timeout": [
           {
-            "id": "rm-check-networks",
+            "id": "rm-check-isoloom-networks",
             "argv": [
               "vagrant",
               "ssh",

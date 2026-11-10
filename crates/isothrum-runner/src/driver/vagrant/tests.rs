@@ -73,44 +73,35 @@ fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
     }
 }
 
-/// The fixture's manifest with its web port made ephemeral and the port-mode choice declared, as
-/// Isoloom now generates a VM's published ports: the runner picks a free host port for each,
-/// unless `ISOLOOM_PUBLISH_FIXED` asks for its own number.
-fn ephemeral_manifest() -> String {
+/// The fixture's manifest with `change` made to each published port's `publish`.
+fn each_publish(change: impl Fn(&mut serde_json::Map<String, serde_json::Value>)) -> String {
     let mut v: serde_json::Value = serde_json::from_str(WEB_VM).expect("the fixture parses");
     for machine in v["machines"].as_array_mut().into_iter().flatten() {
         for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
             if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
-                publish.insert("mode".to_owned(), serde_json::Value::from("ephemeral"));
+                change(publish);
             }
         }
-    }
-    let fixed = serde_json::json!({
-        "name": "ISOLOOM_PUBLISH_FIXED",
-        "description": "Set: each published port takes its `publish:` number instead of an ephemeral one.",
-        "values": ["1"],
-        "set_by": "embedder",
-        "deliver": [{"via": "env", "var": "ISOLOOM_PUBLISH_FIXED", "steps": ["*"]}]
-    });
-    if let Some(params) = v["params"].as_array_mut() {
-        params.push(fixed);
     }
     serde_json::to_string(&v).expect("the manifest serializes")
 }
 
-/// `ephemeral_manifest`, with each published port's `preferred` number dropped — an ephemeral port
-/// Isoloom emits with no `publish:` number of its own, so its host port can only come from the
-/// runner's pick.
+/// The fixture's manifest with each published port fixed at its own number (`publish: { fixed:
+/// true }` in the spec, or Isoloom before its ports were ephemeral): no port to pick.
+fn fixed_manifest() -> String {
+    each_publish(|publish| {
+        publish.insert("mode".to_owned(), serde_json::Value::from("fixed"));
+    })
+}
+
+/// The fixture's manifest (its published port ephemeral, as Isoloom writes a VM's, and
+/// `ISOLOOM_PUBLISH_FIXED` declared), with each published port's `preferred` number dropped — an
+/// ephemeral port Isoloom emits with no `publish:` number of its own, so its host port can only
+/// come from the runner's pick.
 fn ephemeral_no_preferred_manifest() -> String {
-    let mut v: serde_json::Value = serde_json::from_str(&ephemeral_manifest()).expect("the fixture parses");
-    for machine in v["machines"].as_array_mut().into_iter().flatten() {
-        for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
-            if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
-                publish.remove("preferred");
-            }
-        }
-    }
-    serde_json::to_string(&v).expect("the manifest serializes")
+    each_publish(|publish| {
+        publish.remove("preferred");
+    })
 }
 
 impl Fixture {
@@ -261,9 +252,11 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
             e.states.insert((*vm).to_owned(), "poweroff".into());
             Reply::ok(&format!("==> {vm}: Attempting graceful shutdown of VM..."))
         }
-        [verb @ ("halt" | "suspend")] => {
+        // Every VM, or those named (Isoloom suspends the environment's own, not the controller).
+        [verb @ ("halt" | "suspend"), vms @ ..] => {
             let label = if *verb == "halt" { "poweroff" } else { "saved" };
-            for state in e.states.values_mut().filter(|s| *s == "running") {
+            let named = |vm: &String| vms.is_empty() || vms.contains(&vm.as_str());
+            for (_, state) in e.states.iter_mut().filter(|(vm, s)| *s == "running" && named(vm)) {
                 *state = label.into();
             }
             Reply::ok("")
@@ -311,8 +304,9 @@ async fn a_vm_run_comes_up_is_checked_parked_resumed_and_goes() {
     assert_eq!(started.record.state, RunState::Ready);
     assert_eq!(started.record.provider.as_deref(), Some("virtualbox"));
     assert_eq!(f.state(CONTROLLER), "poweroff", "the controller is halted once the run is built");
-    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:8086/"));
-    assert_eq!(started.message.as_deref(), Some("The page answers at http://localhost:8086/."));
+    // The published port is ephemeral: a free host port, picked at the first start.
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
+    assert_eq!(started.message.as_deref(), Some("The page answers at http://localhost:41000/."));
 
     let report = run.check(&opts(), &Recorder::new()).await.unwrap();
     assert!(report.ok, "{report:?}");
@@ -443,13 +437,13 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
-    f.engine().vbox.insert("web-vm · web".into(), "poweroff".into());
+    f.engine().vbox.insert("web-vm - web".into(), "poweroff".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
     let calls = f.fake.lines();
     let at = |text: &str| calls.iter().position(|l| l.contains(text)).unwrap_or_else(|| panic!("{text}: {calls:#?}"));
-    assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-web-vm · web --delete"));
+    assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-web-vm - web --delete"));
     assert_eq!(calls.iter().filter(|l| l.starts_with("vagrant up --provider")).count(), 2);
     assert!(f.engine().vbox.is_empty(), "the orphan is gone");
 }
@@ -514,11 +508,11 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
     let f = fixture(crate::runner::this_host());
-    f.engine().vbox.insert("web-vm · web".into(), "aborted-saved".into());
+    f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
-    let discard = calls.iter().position(|l| l == "VBoxManage discardstate web-vm · web").expect("discarded");
+    let discard = calls.iter().position(|l| l == "VBoxManage discardstate web-vm - web").expect("discarded");
     assert!(discard < calls.iter().position(|l| l.starts_with("vagrant up --provider")).unwrap());
 }
 
@@ -739,7 +733,7 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
 /// it (the Vagrantfile reads `ISOLOOM_HOSTPORTS`), and the run answers on it — not on its own 80.
 #[tokio::test]
 async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
-    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let f = fixture(HostOs::Linux);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(
@@ -770,7 +764,7 @@ async fn a_published_port_with_no_preferred_number_is_still_reported() {
 /// no port is picked again (the fake has none left to hand out).
 #[tokio::test]
 async fn a_resume_forwards_the_same_pinned_port() {
-    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let f = fixture(HostOs::Linux);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap();
@@ -784,7 +778,7 @@ async fn a_resume_forwards_the_same_pinned_port() {
 /// With `ISOLOOM_PUBLISH_FIXED`, a VM forwards the run's own port number instead of a free one.
 #[tokio::test]
 async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
-    let f = fixture_from(HostOs::Linux, &ephemeral_manifest());
+    let f = fixture(HostOs::Linux);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts().with_param("ISOLOOM_PUBLISH_FIXED", "1"), &Recorder::new()).await.unwrap();
     assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":8086}"#));
@@ -795,7 +789,7 @@ async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
 /// nothing and sets no `ISOLOOM_HOSTPORTS`; it forwards each port at its own number.
 #[tokio::test]
 async fn a_vm_with_only_fixed_ports_sets_no_host_ports_env() {
-    let f = fixture(HostOs::Linux);
+    let f = fixture_from(HostOs::Linux, &fixed_manifest());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), None);

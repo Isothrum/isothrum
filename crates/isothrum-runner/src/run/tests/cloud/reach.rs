@@ -5,14 +5,13 @@ use std::sync::atomic::Ordering;
 
 use super::*;
 
-/// The fixture with the project copied into its machine over SSH right after the apply, waiting
-/// `wait` seconds for the machine to answer.
+/// The fixture, whose start copies the project into its machine over SSH right after the apply
+/// (`deliver-web`, its last step), waiting `wait` seconds for the machine to answer.
 fn copying(wait: &str) -> String {
     let mut m: serde_json::Value = serde_json::from_str(&without_guest_delivery()).unwrap();
-    m["lifecycle"]["up"].as_array_mut().unwrap().push(serde_json::json!({
-        "id": "copy-web", "action": "ssh.run",
-        "with": {"host": "${outputs.address_web}", "user": "${outputs.ssh_user}", "command": "sudo tar -xzf - -C /opt/isoloom", "wait_s": wait}
-    }));
+    let copy = m["lifecycle"]["up"].as_array_mut().unwrap().last_mut().unwrap();
+    assert_eq!(copy["id"], "deliver-web", "the copy is the start's last step");
+    copy["with"]["wait_s"] = wait.into();
     m.to_string()
 }
 

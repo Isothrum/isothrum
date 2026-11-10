@@ -183,7 +183,7 @@
           "via": "env",
           "var": "ISOLOOM_DERIVED",
           "steps": [
-            "check-networks"
+            "check-isoloom-networks"
           ]
         }
       ]
@@ -286,7 +286,7 @@
       },
       {
         "id": "apply",
-        "note": "Creating the lab's VMs on the server…",
+        "note": "Creating the environment's VMs on the server…",
         "argv": [
           "terraform",
           "apply",
@@ -332,7 +332,7 @@
       },
       {
         "id": "destroy",
-        "note": "Removing the lab from the server…",
+        "note": "Removing the environment from the server…",
         "argv": [
           "terraform",
           "destroy",
@@ -425,7 +425,7 @@
     "setup": [],
     "runners": [
       {
-        "id": "networks",
+        "id": "isoloom-networks",
         "from": "from web",
         "checks": [
           {
@@ -436,7 +436,7 @@
           }
         ],
         "step": {
-          "id": "check-networks",
+          "id": "check-isoloom-networks",
           "action": "ssh.run",
           "with": {
             "command": "ISOLOOM_DERIVED=${params.ISOLOOM_DERIVED} sh -s",
@@ -444,7 +444,7 @@
             "user": "isoloom",
             "via": "isoloom@${outputs.ip}"
           },
-          "stdin": "checks/networks.sh",
+          "stdin": "checks/isoloom-networks.sh",
           "timeout_s": 135
         }
       }

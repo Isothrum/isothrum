@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "generator": {
     "name": "isoloom",
-    "version": "0.10.1"
+    "version": "1.0.9"
   },
   "environment": {
     "name": "web-vm",
@@ -191,8 +191,25 @@
       ]
     },
     {
+      "name": "ISOLOOM_PUBLISH_FIXED",
+      "description": "Forward each published port from its own `publish` number on the host, instead of a free port the runner picks.",
+      "values": [
+        "1"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ISOLOOM_PUBLISH_FIXED",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
       "name": "ISOLOOM_SSH_PROXY_COMMAND",
-      "description": "The command Vagrant's SSH to the VMs goes through when this host can't reach them directly (an ESXi host through the runner's relay on macOS).",
+      "description": "The command Vagrant's SSH to the VMs goes through (an SSH `ProxyCommand`), when this computer can't reach them directly; unset, it connects straight to them.",
       "providers": [
         "vmware_esxi"
       ],
@@ -310,7 +327,7 @@
           "via": "env",
           "var": "ISOLOOM_DERIVED",
           "steps": [
-            "check-controller"
+            "check-isoloom-controller"
           ]
         }
       ]
@@ -381,15 +398,15 @@
       "native": {
         "vagrant": "web",
         "vm_names": {
-          "virtualbox": "web-vm · web",
-          "vmware_desktop": "web-vm · web",
+          "virtualbox": "web-vm - web",
+          "vmware_desktop": "web-vm - web",
           "hyperv": "web-vm-web",
-          "parallels": "web-vm · web",
+          "parallels": "web-vm - web",
           "libvirt": "web-vm_web",
-          "utm": "web-vm · web",
+          "utm": "web-vm - web",
           "vmware_esxi": "web-vm-web"
         },
-        "boot_digest": "sha256:d5b2d485728610b27e8743a9d6cded3b5824143ecc34ec9c018a314fc092fb44"
+        "boot_digest": "sha256:cbcef1056555f88003fc3c5011eb22e6911bd2d4635f36c1704f138eb68ec7c5"
       },
       "ports": [
         {
@@ -398,7 +415,7 @@
           "protocol": "tcp",
           "http": true,
           "publish": {
-            "mode": "fixed",
+            "mode": "ephemeral",
             "preferred": 8086,
             "address": "127.0.0.1"
           }
@@ -418,15 +435,15 @@
       "native": {
         "vagrant": "isoloom-controller",
         "vm_names": {
-          "virtualbox": "web-vm · controller",
-          "vmware_desktop": "web-vm · controller",
-          "hyperv": "web-vm-controller",
-          "parallels": "web-vm · controller",
+          "virtualbox": "web-vm - isoloom-controller",
+          "vmware_desktop": "web-vm - isoloom-controller",
+          "hyperv": "web-vm-isoloom-controller",
+          "parallels": "web-vm - isoloom-controller",
           "libvirt": "web-vm_isoloom-controller",
-          "utm": "web-vm · controller",
-          "vmware_esxi": "web-vm-controller"
+          "utm": "web-vm - isoloom-controller",
+          "vmware_esxi": "web-vm-isoloom-controller"
         },
-        "boot_digest": "sha256:1b690cd2c4113788e875312de8b5865d27ed72d7b61981fd29b17a1b00f26947"
+        "boot_digest": "sha256:267f8921f064f907002e5cb06a41c6535396a85a43b08ad314cb4663df0044d3"
       }
     }
   ],
@@ -447,7 +464,7 @@
       },
       {
         "id": "up",
-        "note": "Building the lab's VMs (Windows machines take a while)…",
+        "note": "Building the environment's VMs (Windows machines take a while)…",
         "argv": [
           "vagrant",
           "up",
@@ -506,7 +523,8 @@
           "id": "suspend",
           "argv": [
             "vagrant",
-            "suspend"
+            "suspend",
+            "web"
           ],
           "timeout_s": 1800
         }
@@ -652,7 +670,7 @@
           }
         ],
         "step": {
-          "id": "check-controller",
+          "id": "check-isoloom-controller",
           "argv": [
             "vagrant",
             "provision",

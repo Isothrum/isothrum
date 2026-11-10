@@ -93,7 +93,7 @@ fn answer(home: &Path, cloud: &FakeCloud, call: &Call) -> Reply {
             );
         }
         let state = format!(
-            r#"{{"outputs":{{"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"instances":[{{}}]}}]}}"#
+            r#"{{"outputs":{{"ip":{{"value":"{PUBLIC}"}},"address_web":{{"value":"{PUBLIC}"}},"ssh_user_web":{{"value":"admin"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"db_password":{{"value":"hunter2-db","sensitive":true}},"published":{{"value":{{"web/web":"{PUBLIC}:8080"}}}}}},"resources":[{{"instances":[{{}}]}}]}}"#
         );
         std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
         return Reply::ok("Apply complete! Resources: 9 added, 0 changed, 0 destroyed.");
@@ -154,7 +154,7 @@ fn guest(cloud: &FakeCloud, call: &Call, line: &str) -> Reply {
             Reply::ok(&said)
         };
     }
-    if call.stdin.is_some() && line.ends_with("sh -s") {
+    if line.contains("sh .isoloom/cloud-vm/checks/isoloom-networks.sh") {
         Reply::ok("signed in to the database as admin/hunter2-db\nisoloom-check: PASS checks/web-answers.sh\nisoloom-check: END 1 passed, 0 failed")
     } else if line.contains("head -n 1") {
         Reply::ok("ready\n--isoloom-log--\n")

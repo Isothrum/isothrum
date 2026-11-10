@@ -268,7 +268,7 @@ async fn the_runs_jump_goes_before_the_router() {
     let report = run.check(&RunOptions::new().with_ssh_jump("root@elsewhere"), &Recorder::new()).await.unwrap();
     assert!(report.ok, "{report:?}");
     let check = s.fake.last("sh -s").unwrap();
-    assert!(check.stdin.as_ref().is_some_and(|p| p.ends_with("checks/networks.sh")), "{check:?}");
+    assert!(check.stdin.as_ref().is_some_and(|p| p.ends_with("checks/isoloom-networks.sh")), "{check:?}");
     assert!(
         check.args.windows(2).any(|w| w[0] == "-J" && w[1].starts_with("root@172.16.1.10,")),
         "recorded at up: {check:?}"

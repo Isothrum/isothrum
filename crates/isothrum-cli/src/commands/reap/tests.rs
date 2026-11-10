@@ -35,7 +35,7 @@ fn answer(home: &Path, call: &Call) -> Reply {
             Reply::ok("")
         }
         "terraform" if line.starts_with("terraform apply") => {
-            let state = r#"{"outputs":{"address_web":{"value":"198.51.100.10"},"ssh_user":{"value":"admin"},"ready_file":{"value":"/var/lib/isoloom/ready"}},"resources":[{"instances":[{}]}]}"#;
+            let state = r#"{"outputs":{"address_web":{"value":"198.51.100.10"},"ssh_user_web":{"value":"admin"},"ready_file":{"value":"/var/lib/isoloom/ready"}},"resources":[{"instances":[{}]}]}"#;
             std::fs::write(state_dir(call).join("terraform.tfstate"), state).unwrap();
             Reply::ok("")
         }

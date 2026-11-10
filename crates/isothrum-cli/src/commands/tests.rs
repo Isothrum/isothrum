@@ -128,7 +128,7 @@ async fn a_run_goes_up_reports_checks_and_goes_down() {
     let s = setup();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
     assert_eq!(s.out.take(), "The portal answers at http://localhost:41873/.\n");
-    assert!(s.err.take().contains("==> Starting the lab's containers…"));
+    assert!(s.err.take().contains("==> Starting the environment's containers…"));
 
     assert_eq!(s.run(&["status", "--json"]).await.unwrap(), Verdict::Pass);
     let status: serde_json::Value = serde_json::from_str(&s.out.take()).unwrap();

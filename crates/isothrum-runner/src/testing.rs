@@ -1,5 +1,15 @@
-//! What the crate's tests share: the manifests shaped like Isoloom's fixtures, a run folder
-//! holding one, and a runner configuration on fakes with a fixed clock.
+//! What the crate's tests share: the run manifests Isoloom writes, a run folder holding one, and
+//! a runner configuration on fakes with a fixed clock.
+//!
+//! The manifests in `tests/fixtures/` are `isoloom generate --target <target>` output, copied
+//! as written, for specs Isoloom's own tests use: web-portal is the run-manifest design's spec
+//! (`isoloom-targets`' `tests/targets/run_manifest.rs`), web-vm the Linux Vagrant one
+//! (`vagrant_manifest.rs`), solo-web Isoloom's example. An `-access` variant adds
+//! `user: { access: true, networks: { lab: 99 } }` (with `os: debian@12` for Vagrant, which
+//! writes no access VM without one); the AWS one gives solo-web `inputs: [DEMO_SECRET]` and `web`
+//! the file `/srv/secret.txt` from it. To take them again, generate each from Isoloom's checkout
+//! and copy `.isoloom/<target>/run.json` over its fixture; the docker, docker-vm and proxmox ones
+//! are then the same as `isoloom-manifest`'s fixtures.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -16,7 +26,7 @@ use crate::{HostPorts, ProcessRunner, RunnerConfig};
 pub(crate) const WEB_PORTAL: &str = include_str!("../tests/fixtures/web-portal.run.json");
 
 /// `web-portal` with an on-demand access machine (a Compose `user` service in the `access`
-/// profile): the hot-add op's docker fixture.
+/// profile, and Isoloom's stand-in for it while the checks run): the hot-add op's docker fixture.
 pub(crate) const WEB_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/web-portal-access.run.json");
 
 /// `web-vm` with an on-demand access VM (a Vagrant `user` define): the hot-add op's VM fixture.
@@ -25,13 +35,14 @@ pub(crate) const WEB_VM_ACCESS: &str = include_str!("../tests/fixtures/web-vm-ac
 /// Isoloom's `proxmox` fixture (the solo-web example): Terraform, ready files and checks over SSH.
 pub(crate) const SOLO_WEB_PROXMOX: &str = include_str!("../tests/fixtures/solo-web.proxmox.run.json");
 
-/// A cloud-vm manifest on AWS (the solo-web example), shaped as Isoloom writes them: its region
-/// and profile as params, its credentials as connection slots, an expiry, a secret delivered to
-/// the guest over SSH, its machine's address an output.
+/// The solo-web example's cloud-vm manifest on AWS, with a secret input: its region and profile
+/// as params, its credentials as connection slots, an expiry, the project copied and the secret
+/// delivered into the guest over SSH, its machine's address and login outputs.
 pub(crate) const SOLO_WEB_AWS: &str = include_str!("../tests/fixtures/solo-web.cloud-vm-aws.run.json");
 
 /// The `web-vm` vagrant manifest's text (Isoloom's Linux vagrant fixture): a Debian web VM
-/// with its secret as a file, its page forwarded to the host, checked from the controller.
+/// with its secret as a file, its page forwarded to a host port the runner picks, checked from
+/// the controller.
 pub(crate) const WEB_VM: &str = include_str!("../tests/fixtures/web-vm.run.json");
 
 /// Isoloom's `docker-vm` fixture (web-portal): Compose inside a VM Vagrant makes.

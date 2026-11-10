@@ -1,741 +1,716 @@
 {
- "$schema": "https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json",
- "manifest_version": 1,
- "generator": {
-  "name": "isoloom",
-  "version": "0.10.1"
- },
- "environment": {
-  "name": "web-vm",
-  "instance": null,
-  "message": "The page answers at http://localhost:${published.web.web}/."
- },
- "target": "vagrant",
- "driver": "vagrant",
- "hosts": [
-  "linux",
-  "macos",
-  "windows"
- ],
- "tools": [
-  {
-   "name": "vagrant",
-   "probe": [
-    "vagrant",
-    "--version"
-   ],
-   "min_version": "2.4.0"
+  "$schema": "https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json",
+  "manifest_version": 1,
+  "generator": {
+    "name": "isoloom",
+    "version": "1.0.9"
   },
-  {
-   "name": "virtualbox",
-   "probe": [
-    "VBoxManage",
-    "--version"
-   ],
-   "providers": [
-    "virtualbox"
-   ]
+  "environment": {
+    "name": "web-vm",
+    "instance": null,
+    "message": "The page answers at http://localhost:${published.web.web}/."
   },
-  {
-   "name": "vmware",
-   "probe": [
-    "vmrun",
-    "list"
-   ],
-   "providers": [
-    "vmware_desktop"
-   ]
-  },
-  {
-   "name": "parallels",
-   "probe": [
-    "prlctl",
-    "--version"
-   ],
-   "hosts": [
-    "macos"
-   ],
-   "providers": [
-    "parallels"
-   ]
-  },
-  {
-   "name": "libvirt",
-   "probe": [
-    "virsh",
-    "--version"
-   ],
-   "hosts": [
-    "linux"
-   ],
-   "providers": [
-    "libvirt"
-   ]
-  },
-  {
-   "name": "qemu",
-   "probe": [
-    "qemu-img",
-    "--version"
-   ],
-   "providers": [
-    "qemu"
-   ]
-  }
- ],
- "identity": {
-  "vagrant": {
-   "providers": [
-    {
-     "id": "virtualbox",
-     "hosts": [
-      "linux",
-      "macos",
-      "windows"
-     ],
-     "elevation": "none",
-     "refusal": null
-    },
-    {
-     "id": "vmware_desktop",
-     "hosts": [
-      "linux",
-      "macos",
-      "windows"
-     ],
-     "plugin": "vagrant-vmware-desktop",
-     "elevation": "none",
-     "refusal": null
-    },
-    {
-     "id": "hyperv",
-     "hosts": [
-      "windows"
-     ],
-     "elevation": "hyperv",
-     "refusal": null
-    },
-    {
-     "id": "parallels",
-     "hosts": [
-      "macos"
-     ],
-     "plugin": "vagrant-parallels",
-     "elevation": "none",
-     "refusal": null
-    },
-    {
-     "id": "libvirt",
-     "hosts": [
-      "linux"
-     ],
-     "plugin": "vagrant-libvirt",
-     "elevation": "none",
-     "refusal": null
-    },
-    {
-     "id": "qemu",
-     "hosts": [
-      "linux",
-      "macos"
-     ],
-     "plugin": "vagrant-qemu",
-     "elevation": "none",
-     "refusal": null
-    },
-    {
-     "id": "utm",
-     "hosts": [
-      "macos"
-     ],
-     "plugin": "vagrant_utm",
-     "elevation": "none",
-     "refusal": "`web` is on a network, and vagrant_utm gives a VM no private network (it only forwards ports)"
-    },
-    {
-     "id": "vmware_esxi",
-     "hosts": [
-      "linux",
-      "macos",
-      "windows"
-     ],
-     "plugin": "vagrant-vmware-esxi",
-     "elevation": "none",
-     "remote": true,
-     "refusal": null
-    }
-   ],
-   "dotfile": "${run.state_dir}/vagrant"
-  }
- },
- "params": [
-  {
-   "name": "ISOLOOM_HYPERV_SWITCH",
-   "description": "The Hyper-V virtual switch each VM's first adapter (Vagrant's connection, and the internet) goes on.",
-   "default": "Default Switch",
-   "hosts": [
+  "target": "vagrant",
+  "driver": "vagrant",
+  "hosts": [
+    "linux",
+    "macos",
     "windows"
-   ],
-   "providers": [
-    "hyperv"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+  ],
+  "tools": [
     {
-     "via": "env",
-     "var": "ISOLOOM_HYPERV_SWITCH",
-     "steps": [
-      "*"
-     ]
+      "name": "vagrant",
+      "probe": [
+        "vagrant",
+        "--version"
+      ],
+      "min_version": "2.4.0"
+    },
+    {
+      "name": "virtualbox",
+      "probe": [
+        "VBoxManage",
+        "--version"
+      ],
+      "providers": [
+        "virtualbox"
+      ]
+    },
+    {
+      "name": "vmware",
+      "probe": [
+        "vmrun",
+        "list"
+      ],
+      "providers": [
+        "vmware_desktop"
+      ]
+    },
+    {
+      "name": "parallels",
+      "probe": [
+        "prlctl",
+        "--version"
+      ],
+      "hosts": [
+        "macos"
+      ],
+      "providers": [
+        "parallels"
+      ]
+    },
+    {
+      "name": "libvirt",
+      "probe": [
+        "virsh",
+        "--version"
+      ],
+      "hosts": [
+        "linux"
+      ],
+      "providers": [
+        "libvirt"
+      ]
+    },
+    {
+      "name": "qemu",
+      "probe": [
+        "qemu-img",
+        "--version"
+      ],
+      "providers": [
+        "qemu"
+      ]
     }
-   ]
+  ],
+  "identity": {
+    "vagrant": {
+      "providers": [
+        {
+          "id": "virtualbox",
+          "hosts": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "elevation": "none",
+          "refusal": null
+        },
+        {
+          "id": "vmware_desktop",
+          "hosts": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "plugin": "vagrant-vmware-desktop",
+          "elevation": "none",
+          "refusal": null
+        },
+        {
+          "id": "hyperv",
+          "hosts": [
+            "windows"
+          ],
+          "elevation": "hyperv",
+          "refusal": null
+        },
+        {
+          "id": "parallels",
+          "hosts": [
+            "macos"
+          ],
+          "plugin": "vagrant-parallels",
+          "elevation": "none",
+          "refusal": null
+        },
+        {
+          "id": "libvirt",
+          "hosts": [
+            "linux"
+          ],
+          "plugin": "vagrant-libvirt",
+          "elevation": "none",
+          "refusal": null
+        },
+        {
+          "id": "qemu",
+          "hosts": [
+            "linux",
+            "macos"
+          ],
+          "plugin": "vagrant-qemu",
+          "elevation": "none",
+          "refusal": null
+        },
+        {
+          "id": "utm",
+          "hosts": [
+            "macos"
+          ],
+          "plugin": "vagrant_utm",
+          "elevation": "none",
+          "refusal": "`web` is on a network, and vagrant_utm gives a VM no private network (it only forwards ports)"
+        },
+        {
+          "id": "vmware_esxi",
+          "hosts": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "plugin": "vagrant-vmware-esxi",
+          "elevation": "none",
+          "remote": true,
+          "refusal": null
+        }
+      ],
+      "dotfile": "${run.state_dir}/vagrant"
+    }
   },
-  {
-   "name": "ISOLOOM_SSH_PROXY_COMMAND",
-   "description": "The command Vagrant's SSH to the VMs goes through when this host can't reach them directly (an ESXi host through the runner's relay on macOS).",
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "runner",
-   "deliver": [
+  "params": [
     {
-     "via": "env",
-     "var": "ISOLOOM_SSH_PROXY_COMMAND",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_HOSTNAME",
-   "description": "The ESXi host.",
-   "required": true,
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ISOLOOM_HYPERV_SWITCH",
+      "description": "The Hyper-V virtual switch each VM's first adapter (Vagrant's connection, and the internet) goes on.",
+      "default": "Default Switch",
+      "hosts": [
+        "windows"
+      ],
+      "providers": [
+        "hyperv"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ISOLOOM_HYPERV_SWITCH",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_HOSTNAME",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_HOSTPORT",
-   "description": "Its SSH port.",
-   "default": "22",
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ISOLOOM_PUBLISH_FIXED",
+      "description": "Forward each published port from its own `publish` number on the host, instead of a free port the runner picks.",
+      "values": [
+        "1"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ISOLOOM_PUBLISH_FIXED",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_HOSTPORT",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_USERNAME",
-   "description": "The ESXi user.",
-   "default": "root",
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ISOLOOM_SSH_PROXY_COMMAND",
+      "description": "The command Vagrant's SSH to the VMs goes through (an SSH `ProxyCommand`), when this computer can't reach them directly; unset, it connects straight to them.",
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "runner",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ISOLOOM_SSH_PROXY_COMMAND",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_USERNAME",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_DATASTORE",
-   "description": "The datastore the VMs' disks go on (default: ESXi's first).",
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ESXI_HOSTNAME",
+      "description": "The ESXi host.",
+      "required": true,
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_HOSTNAME",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_DATASTORE",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_VIRTUAL_NETWORK",
-   "description": "Port groups, comma-separated: the management network, then one per lab network.",
-   "default": "VM Network",
-   "providers": [
-    "vmware_esxi"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ESXI_HOSTPORT",
+      "description": "Its SSH port.",
+      "default": "22",
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_HOSTPORT",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_VIRTUAL_NETWORK",
-     "steps": [
-      "*"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ISOLOOM_DERIVED",
-   "description": "0: the checks derived from the spec (reachability, no internet) are skipped.",
-   "default": "1",
-   "values": [
-    "0",
-    "1"
-   ],
-   "set_by": "embedder",
-   "deliver": [
+      "name": "ESXI_USERNAME",
+      "description": "The ESXi user.",
+      "default": "root",
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_USERNAME",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ISOLOOM_DERIVED",
-     "steps": [
-      "check-controller"
-     ]
-    }
-   ]
-  }
- ],
- "secrets": [
-  {
-   "name": "DEMO_SECRET",
-   "kind": "input",
-   "required": false,
-   "sensitive": true,
-   "machines": [
-    "web"
-   ],
-   "default": "",
-   "deliver": [
+      "name": "ESXI_DATASTORE",
+      "description": "The datastore the VMs' disks go on (default: ESXi's first).",
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_DATASTORE",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "DEMO_SECRET",
-     "steps": [
-      "up",
-      "provision",
-      "provision-machine"
-     ]
-    }
-   ]
-  },
-  {
-   "name": "ESXI_PASSWORD",
-   "kind": "connection",
-   "required": true,
-   "sensitive": true,
-   "providers": [
-    "vmware_esxi"
-   ],
-   "deliver": [
+      "name": "ESXI_VIRTUAL_NETWORK",
+      "description": "Port groups, comma-separated: the management network, then one per lab network.",
+      "default": "VM Network",
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_VIRTUAL_NETWORK",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
     {
-     "via": "env",
-     "var": "ESXI_PASSWORD",
-     "steps": [
-      "*"
-     ]
+      "name": "ISOLOOM_DERIVED",
+      "description": "0: the checks derived from the spec (reachability, no internet) are skipped.",
+      "default": "1",
+      "values": [
+        "0",
+        "1"
+      ],
+      "set_by": "embedder",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ISOLOOM_DERIVED",
+          "steps": [
+            "check-user"
+          ]
+        }
+      ]
     }
-   ]
-  }
- ],
- "networks": [
-  {
-   "name": "lab",
-   "cidr": "10.61.0.0/24",
-   "internet": true,
-   "native": "isoloom-web-vm-lab"
-  }
- ],
- "machines": [
-  {
-   "name": "web",
-   "role": "member",
-   "os": "debian-12",
-   "arch": "amd64",
-   "resources": {
-    "cpus": 1,
-    "memory_mb": 768
-   },
-   "addresses": {
-    "lab": "10.61.0.10"
-   },
-   "native": {
-    "vagrant": "web",
-    "vm_names": {
-     "virtualbox": "web-vm \u00b7 web",
-     "vmware_desktop": "web-vm \u00b7 web",
-     "hyperv": "web-vm-web",
-     "parallels": "web-vm \u00b7 web",
-     "libvirt": "web-vm_web",
-     "utm": "web-vm \u00b7 web",
-     "vmware_esxi": "web-vm-web"
-    }
-   },
-   "ports": [
+  ],
+  "secrets": [
     {
-     "name": "web",
-     "port": 80,
-     "protocol": "tcp",
-     "http": true,
-     "publish": {
-      "mode": "fixed",
-      "preferred": 8086,
-      "address": "127.0.0.1"
-     }
+      "name": "DEMO_SECRET",
+      "kind": "input",
+      "required": false,
+      "sensitive": true,
+      "machines": [
+        "web"
+      ],
+      "default": "",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "DEMO_SECRET",
+          "steps": [
+            "up",
+            "provision",
+            "provision-machine"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ESXI_PASSWORD",
+      "kind": "connection",
+      "required": true,
+      "sensitive": true,
+      "providers": [
+        "vmware_esxi"
+      ],
+      "deliver": [
+        {
+          "via": "env",
+          "var": "ESXI_PASSWORD",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
     }
-   ]
-  },
-  {
-   "name": "isoloom-controller",
-   "role": "infra",
-   "resources": {
-    "cpus": 1,
-    "memory_mb": 512
-   },
-   "addresses": {
-    "lab": "10.61.0.253"
-   },
-   "native": {
-    "vagrant": "isoloom-controller",
-    "vm_names": {
-     "virtualbox": "web-vm \u00b7 controller",
-     "vmware_desktop": "web-vm \u00b7 controller",
-     "hyperv": "web-vm-controller",
-     "parallels": "web-vm \u00b7 controller",
-     "libvirt": "web-vm_isoloom-controller",
-     "utm": "web-vm \u00b7 controller",
-     "vmware_esxi": "web-vm-controller"
+  ],
+  "networks": [
+    {
+      "name": "lab",
+      "cidr": "10.61.0.0/24",
+      "internet": true,
+      "native": "isoloom-web-vm-lab"
     }
-   }
-  },
-  {
-   "name": "user",
-   "role": "access",
-   "on_demand": true,
-   "addresses": {
-    "lab": "10.61.0.99"
-   },
-   "native": {
-    "vagrant": "user",
-    "vm_names": {
-     "virtualbox": "web-vm \u00b7 user",
-     "libvirt": "web-vm_user",
-     "hyperv": "web-vm-user",
-     "vmware_esxi": "web-vm-user"
+  ],
+  "machines": [
+    {
+      "name": "web",
+      "role": "member",
+      "os": "debian-12",
+      "arch": "amd64",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 768
+      },
+      "addresses": {
+        "lab": "10.61.0.10"
+      },
+      "native": {
+        "vagrant": "web",
+        "vm_names": {
+          "virtualbox": "web-vm - web",
+          "vmware_desktop": "web-vm - web",
+          "hyperv": "web-vm-web",
+          "parallels": "web-vm - web",
+          "libvirt": "web-vm_web",
+          "utm": "web-vm - web",
+          "vmware_esxi": "web-vm-web"
+        },
+        "boot_digest": "sha256:cbcef1056555f88003fc3c5011eb22e6911bd2d4635f36c1704f138eb68ec7c5"
+      },
+      "ports": [
+        {
+          "name": "web",
+          "port": 80,
+          "protocol": "tcp",
+          "http": true,
+          "publish": {
+            "mode": "ephemeral",
+            "preferred": 8086,
+            "address": "127.0.0.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "user",
+      "role": "access",
+      "os": "debian-12",
+      "arch": "amd64",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 1024
+      },
+      "addresses": {
+        "lab": "10.61.0.99"
+      },
+      "on_demand": true,
+      "native": {
+        "vagrant": "user",
+        "vm_names": {
+          "virtualbox": "web-vm - user",
+          "vmware_desktop": "web-vm - user",
+          "hyperv": "web-vm-user",
+          "parallels": "web-vm - user",
+          "libvirt": "web-vm_user",
+          "utm": "web-vm - user",
+          "vmware_esxi": "web-vm-user"
+        },
+        "boot_digest": "sha256:b6052fbbb1647f0d816d6531ce084abc1e82a6e88829ef418c81cce889a4d1f7"
+      }
     }
-   }
-  }
- ],
- "lifecycle": {
-  "up": [
-   {
-    "id": "reconcile",
-    "note": "Clearing the state of a run on another provider, if any\u2026",
-    "action": "vagrant.reconcile_provider"
-   },
-   {
-    "id": "discard-saved",
-    "action": "vagrant.discard_aborted_saved",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox"
-    ]
-   },
-   {
-    "id": "up",
-    "note": "Building the lab's VMs (Windows machines take a while)\u2026",
-    "argv": [
-     "vagrant",
-     "up",
-     "--provider",
-     "${run.provider}"
+  ],
+  "lifecycle": {
+    "up": [
+      {
+        "id": "reconcile",
+        "note": "Clearing the state of a run on another provider, if any…",
+        "action": "vagrant.reconcile_provider"
+      },
+      {
+        "id": "discard-saved",
+        "action": "vagrant.discard_aborted_saved",
+        "failure": "tolerate",
+        "providers": [
+          "virtualbox"
+        ]
+      },
+      {
+        "id": "up",
+        "note": "Building the environment's VMs (Windows machines take a while)…",
+        "argv": [
+          "vagrant",
+          "up",
+          "--provider",
+          "${run.provider}"
+        ],
+        "timeout_s": 21600
+      }
     ],
-    "timeout_s": 21600,
-    "verdict": "fatal: \\[[^\\]]+\\]: (UNREACHABLE|FAILED)!.*"
-   },
-   {
-    "id": "park-controller",
-    "note": "Powering off the setup machine (it comes back for provisioning and checks)\u2026",
-    "action": "vagrant.park_controller",
-    "timeout_s": 300,
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox",
-     "vmware_desktop",
-     "hyperv",
-     "parallels",
-     "libvirt",
-     "utm",
-     "vmware_esxi"
-    ]
-   }
-  ],
-  "down": [
-   {
-    "id": "destroy",
-    "argv": [
-     "vagrant",
-     "destroy",
-     "--force"
+    "down": [
+      {
+        "id": "destroy",
+        "argv": [
+          "vagrant",
+          "destroy",
+          "--force"
+        ],
+        "timeout_s": 1800,
+        "when": "always"
+      },
+      {
+        "id": "orphans",
+        "action": "vagrant.remove_orphans",
+        "when": "always",
+        "failure": "tolerate",
+        "providers": [
+          "virtualbox",
+          "parallels"
+        ]
+      },
+      {
+        "id": "reset",
+        "action": "vagrant.reset_state"
+      }
     ],
-    "timeout_s": 1800,
-    "when": "always"
-   },
-   {
-    "id": "orphans",
-    "action": "vagrant.remove_orphans",
-    "when": "always",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox",
-     "parallels"
-    ]
-   },
-   {
-    "id": "reset",
-    "action": "vagrant.reset_state"
-   }
-  ],
-  "park": {
-   "pause": [
-    {
-     "id": "suspend",
-     "argv": [
-      "vagrant",
-      "suspend"
-     ],
-     "timeout_s": 1800
+    "park": {
+      "pause": [
+        {
+          "id": "suspend",
+          "argv": [
+            "vagrant",
+            "suspend",
+            "web",
+            "user"
+          ],
+          "timeout_s": 1800
+        }
+      ],
+      "shutdown": [
+        {
+          "id": "halt",
+          "argv": [
+            "vagrant",
+            "halt"
+          ],
+          "timeout_s": 1800
+        }
+      ]
+    },
+    "resume": [
+      {
+        "id": "discard-saved",
+        "action": "vagrant.discard_aborted_saved",
+        "failure": "tolerate",
+        "providers": [
+          "virtualbox"
+        ]
+      },
+      {
+        "id": "resume",
+        "argv": [
+          "vagrant",
+          "up",
+          "--no-provision",
+          "--provider",
+          "${run.provider}",
+          "web",
+          "user"
+        ],
+        "timeout_s": 3600,
+        "failure": "tolerate"
+      },
+      {
+        "id": "discard-cut-off",
+        "action": "vagrant.discard_aborted_saved",
+        "failure": "tolerate",
+        "providers": [
+          "virtualbox"
+        ]
+      },
+      {
+        "id": "boot",
+        "argv": [
+          "vagrant",
+          "up",
+          "--no-provision",
+          "--provider",
+          "${run.provider}",
+          "web",
+          "user"
+        ],
+        "timeout_s": 3600
+      }
+    ],
+    "provision": {
+      "all": [
+        {
+          "id": "provision",
+          "argv": [
+            "vagrant",
+            "provision",
+            "web",
+            "user"
+          ],
+          "timeout_s": 7200
+        }
+      ],
+      "machine": [
+        {
+          "id": "provision-machine",
+          "argv": [
+            "vagrant",
+            "provision",
+            "${machine}"
+          ],
+          "timeout_s": 7200
+        }
+      ]
+    },
+    "status": {
+      "id": "status",
+      "argv": [
+        "vagrant",
+        "status",
+        "--machine-readable"
+      ],
+      "timeout_s": 25,
+      "provider_timeout_s": {
+        "vmware_esxi": 120
+      }
     }
-   ],
-   "shutdown": [
-    {
-     "id": "halt",
-     "argv": [
-      "vagrant",
-      "halt"
-     ],
-     "timeout_s": 1800
-    }
-   ]
   },
-  "resume": [
-   {
-    "id": "discard-saved",
-    "action": "vagrant.discard_aborted_saved",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox"
-    ]
-   },
-   {
-    "id": "resume",
-    "argv": [
-     "vagrant",
-     "up",
-     "--no-provision",
-     "--provider",
-     "${run.provider}",
-     "web"
-    ],
-    "timeout_s": 3600,
-    "failure": "tolerate"
-   },
-   {
-    "id": "discard-cut-off",
-    "action": "vagrant.discard_aborted_saved",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox"
-    ]
-   },
-   {
-    "id": "boot",
-    "argv": [
-     "vagrant",
-     "up",
-     "--no-provision",
-     "--provider",
-     "${run.provider}",
-     "web"
-    ],
-    "timeout_s": 3600
-   }
-  ],
-  "provision": {
-   "all": [
+  "ready": [
     {
-     "id": "provision",
-     "argv": [
-      "vagrant",
-      "provision",
-      "web"
-     ],
-     "timeout_s": 7200
-    }
-   ],
-   "machine": [
+      "kind": "step_ok",
+      "step": "up",
+      "means": "every VM booted and ran its provisioners, the controller's playbooks included"
+    },
     {
-     "id": "provision-machine",
-     "argv": [
-      "vagrant",
-      "provision",
-      "${machine}"
-     ],
-     "timeout_s": 7200
+      "kind": "machines_running",
+      "machines": [
+        "web",
+        "user"
+      ]
     }
-   ]
-  },
-  "status": {
-   "id": "status",
-   "argv": [
-    "vagrant",
-    "status",
-    "--machine-readable"
-   ],
-   "timeout_s": 25,
-   "provider_timeout_s": {
-    "vmware_esxi": 120
-   }
-  }
- },
- "ready": [
-  {
-   "kind": "step_ok",
-   "step": "up",
-   "means": "every VM booted and ran its provisioners, the controller's playbooks included"
-  },
-  {
-   "kind": "machines_running",
-   "machines": [
-    "web"
-   ]
-  }
- ],
- "outputs": [
-  {
-   "name": "web__web",
-   "description": "web's web (port 80).",
-   "role": "entry",
-   "sensitive": false,
-   "format": "http://${host.web}:${value}/",
-   "from": {
-    "kind": "published_port",
-    "machine": "web",
-    "port": "web"
-   }
-  }
- ],
- "checks": {
-  "protocol": "isoloom-check/1",
-  "setup": [
-   {
-    "id": "wake-controller",
-    "note": "Booting the setup machine for the checks\u2026",
-    "action": "vagrant.wake_controller",
-    "timeout_s": 1800
-   }
   ],
-  "runners": [
-   {
-    "id": "isoloom-controller",
-    "from": "from the environment's networks",
-    "checks": [
-     {
-      "name": "http://web/",
-      "kind": "http",
-      "wait_s": 120,
-      "derived": false
-     }
-    ],
-    "step": {
-     "id": "check-controller",
-     "argv": [
-      "vagrant",
-      "provision",
-      "isoloom-controller",
-      "--provision-with",
-      "checks"
-     ],
-     "timeout_s": 195
+  "outputs": [
+    {
+      "name": "web__web",
+      "description": "web's web (port 80).",
+      "role": "entry",
+      "sensitive": false,
+      "format": "http://${host.web}:${value}/",
+      "from": {
+        "kind": "published_port",
+        "machine": "web",
+        "port": "web"
+      }
     }
-   }
   ],
-  "teardown": [
-   {
-    "id": "park-controller",
-    "note": "Powering off the setup machine (it comes back for provisioning and checks)\u2026",
-    "action": "vagrant.park_controller",
-    "timeout_s": 300,
-    "when": "always",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox",
-     "vmware_desktop",
-     "hyperv",
-     "parallels",
-     "libvirt",
-     "utm",
-     "vmware_esxi"
-    ]
-   }
-  ]
- },
- "recovery": {
-  "stale_markers": [
-   "verr_already_exists",
-   "could not rename",
-   "is locked",
-   "different provider",
-   "single provider at a time"
-  ],
-  "steps": [
-   {
-    "id": "destroy",
-    "note": "Clearing what an earlier run left, then starting again\u2026",
-    "argv": [
-     "vagrant",
-     "destroy",
-     "--force"
+  "checks": {
+    "protocol": "isoloom-check/1",
+    "setup": [],
+    "runners": [
+      {
+        "id": "user",
+        "from": "from user",
+        "checks": [
+          {
+            "name": "http://web/ from user",
+            "kind": "http",
+            "wait_s": 120,
+            "derived": false
+          },
+          {
+            "name": "web:80 from user",
+            "kind": "http",
+            "wait_s": 30,
+            "derived": true
+          }
+        ],
+        "step": {
+          "id": "check-user",
+          "argv": [
+            "vagrant",
+            "provision",
+            "user",
+            "--provision-with",
+            "checks"
+          ],
+          "timeout_s": 240
+        }
+      }
     ],
-    "timeout_s": 180,
-    "when": "always",
-    "failure": "tolerate"
-   },
-   {
-    "id": "orphans",
-    "action": "vagrant.remove_orphans",
-    "when": "always",
-    "failure": "tolerate",
-    "providers": [
-     "virtualbox",
-     "parallels"
-    ]
-   },
-   {
-    "id": "reset",
-    "action": "vagrant.reset_state",
-    "when": "always"
-   }
-  ],
-  "retries": 1
- }
+    "teardown": []
+  },
+  "recovery": {
+    "stale_markers": [
+      "verr_already_exists",
+      "could not rename",
+      "is locked",
+      "different provider",
+      "single provider at a time"
+    ],
+    "steps": [
+      {
+        "id": "destroy",
+        "note": "Clearing what an earlier run left, then starting again…",
+        "argv": [
+          "vagrant",
+          "destroy",
+          "--force"
+        ],
+        "timeout_s": 180,
+        "when": "always",
+        "failure": "tolerate"
+      },
+      {
+        "id": "orphans",
+        "action": "vagrant.remove_orphans",
+        "when": "always",
+        "failure": "tolerate",
+        "providers": [
+          "virtualbox",
+          "parallels"
+        ]
+      },
+      {
+        "id": "reset",
+        "action": "vagrant.reset_state",
+        "when": "always"
+      }
+    ],
+    "retries": 1
+  }
 }
