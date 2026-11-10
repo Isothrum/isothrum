@@ -69,6 +69,21 @@ The run's record, written atomically. It holds no secret value.
 Fields that don't apply are left out. The record stays after a successful `down`, with state
 `absent`. How the format is versioned is in [Policies](../policies.md#what-is-stable).
 
+## Adopting an existing Terraform deployment
+
+An app embedding the runner can adopt a Terraform deployment applied from a run manifest's module
+outside the runner (by hand, by another tool, from a home that is gone) as a run of that manifest:
+`Runner::adopt` with an `Adoption` (the run's name, the folder holding the deployment's local
+`terraform.tfstate`, and what the state doesn't say: the params it was applied with, its place,
+its expiry and start time). The state, and its `.backup`, move into the run's state folder; the
+old folder keeps no copy, and its `.terraform/` stays behind (`init` makes a new one). The run is
+recorded as `ready` with those params, so `status`, `update`, `down` and `reap` act on it like any
+other run, a `down` destroying it where it was applied.
+
+Adopting is refused (`adopt_refused`) for a manifest that isn't a Terraform one, a run whose
+record isn't `absent`, a run that already has a state, or a folder with no state. A state in a
+remote backend is pulled into a local file first (`terraform state pull > terraform.tfstate`).
+
 ## Moving or backing up
 
 The home can be copied or moved while no operation runs; see

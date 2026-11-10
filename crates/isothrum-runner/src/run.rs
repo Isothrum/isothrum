@@ -242,7 +242,7 @@ impl<'r> Running<'r> {
     }
 
     /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet
-    /// (a run taken over from another runtime, or acted on from another home, may need it).
+    /// (an adopted run, or one acted on from another home, may need it).
     pub(crate) async fn ensure_ssh_key(&self) -> Result<()> {
         if crate::ssh::needed(self.manifest()) {
             crate::ssh::ensure_key(self.runner.config.processes.as_ref(), &self.runner.config.home).await?;

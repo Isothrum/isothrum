@@ -176,7 +176,7 @@ impl Running<'_> {
         let recorded = (record.started_at.is_some()).then_some(&record.params);
         let provider = record.provider.clone().or_else(|| opts.provider.clone());
         let params = params_for_existing(self.manifest(), recorded, &opts.params, &self.scope(provider.clone()))?;
-        // A run taken over from an embedder's old runtime, or acted on from another home, may
+        // An adopted run ([`crate::Runner::adopt`]), or one acted on from another home, may
         // name a key this runner hasn't made yet.
         self.ensure_ssh_key().await?;
         let mut cx = self.acting(self.cx(params, &opts.secrets, events, provider)?)?;

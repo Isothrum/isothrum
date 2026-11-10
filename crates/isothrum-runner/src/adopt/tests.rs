@@ -142,8 +142,8 @@ fn earlier(runner: &Runner, name: &str, state: RunState) -> RunRecord {
 
 #[tokio::test]
 async fn a_run_an_earlier_down_left_absent_takes_a_deployment_over() {
-    // A run once run through the runner and stopped, then started on the embedder's own path: its
-    // record says absent and its state went with the down, so that deployment is adopted.
+    // A run once run through the runner and stopped, then applied outside it: its record says
+    // absent and its state went with the down, so that deployment is adopted.
     let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
     let old = deployment(folder.home.path());
     earlier(&runner, "app-solo-web", RunState::Absent);

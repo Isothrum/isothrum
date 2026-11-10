@@ -424,6 +424,13 @@ change.
 
 ### Changed
 
+- **`Runner::adopt` is documented as the general feature it is: adopting an existing Terraform
+  deployment as a run.** A deployment applied from a run manifest's module outside the runner
+  (by hand, by another tool, from a home that is gone), its local state in a folder of its own,
+  becomes a run of that manifest that `status`, `update`, `down` and the reaper act on; its
+  rustdoc has an example, and [State layout](docs/reference/state.md#adopting-an-existing-terraform-deployment)
+  says what moves. Its docs no longer speak of one embedder's old runtime.
+
 - **Breaking:** the machines of the environment a run manifest describes (not its router, jobs
   or checks) have the role `member` (was `target`), as Isoloom 2.0 writes them; status and
   readiness count `member` machines.

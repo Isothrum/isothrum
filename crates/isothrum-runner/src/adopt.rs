@@ -1,14 +1,15 @@
-//! Taking over a Terraform deployment made before the runner: an embedder whose old runtime kept
-//! its own state (in a folder of its own) hands it to the runner once, so a
-//! running cloud run stays destroyable after the switch, by one code path (`down`, the
-//! reaper).
+//! Adopting an existing Terraform deployment as a run ([`Runner::adopt`]): a deployment applied
+//! from a run manifest's module outside the runner (by hand, by another tool, from a home that is
+//! gone), whose local state is in a folder of its own, becomes a run of that manifest, which
+//! `status`, `update`, `down` and the reaper then act on like any other.
 //!
 //! The deployment's state moves into the run's state folder (`terraform.tfstate`, and its
 //! `.backup` when there is one), and the run's record says it is up, with the params it was
-//! applied with: a later `down` replays them (the region it was created in, never the
-//! embedder's current one). Terraform's data folder stays behind: it names the old state's path
-//! as its backend, which a run's `init` would refuse to change without a prompt; `init` makes a
-//! fresh one.
+//! applied with: a later `down` replays them (the region it was created in, never the caller's
+//! current one). Terraform's data folder stays behind: it names the old state's path as its
+//! backend, which a run's `init` would refuse to change without a prompt; `init` makes a fresh
+//! one. A state in a remote backend isn't adopted: pull it into a local file first
+//! (`terraform state pull > terraform.tfstate`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -29,7 +30,9 @@ const STATE: &str = crate::driver::terraform::state::STATE_FILE;
 /// The files that move, the state first (the only one required).
 const MOVED: [&str; 2] = [STATE, crate::driver::terraform::state::BACKUP_FILE];
 
-/// A deployment the runner takes over ([`Runner::adopt`]).
+/// An existing Terraform deployment to adopt as a run ([`Runner::adopt`]): where its local state
+/// is, and what the runner can't read from that state (the params it was applied with, where it
+/// is, when it expires).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Adoption {
@@ -38,9 +41,10 @@ pub struct Adoption {
     /// The folder holding its Terraform state.
     pub state_from: PathBuf,
     /// The params it was applied with (the region, the account's profile or project): only the
-    /// manifest's params the embedder sets are kept.
+    /// manifest's params a caller sets (`set_by: embedder`) are kept.
     pub params: BTreeMap<String, String>,
-    /// What the embedder calls the place it is on (the account's id).
+    /// What the caller calls the place it is on (an account's id), as an operation's
+    /// `host_label`.
     pub host_label: Option<String>,
     /// When it stops itself, in seconds since the Unix epoch.
     pub expires_at: Option<u64>,
@@ -73,7 +77,7 @@ impl Adoption {
         self
     }
 
-    /// On the place the embedder calls `label`.
+    /// On the place the caller calls `label` (an operation's `host_label`).
     #[must_use]
     pub fn with_host_label(mut self, label: impl Into<String>) -> Adoption {
         self.host_label = Some(label.into());
@@ -103,13 +107,28 @@ impl Adoption {
 }
 
 impl Runner {
-    /// Takes over the Terraform deployment `adoption` describes as a run of the manifest at
-    /// `manifest` (`pub async fn adopt(&self, manifest: &Path, adoption: Adoption) ->
-    /// Result<RunRecord>`): its state moves into the run's state folder, and the run is recorded
-    /// as up, with the manifest's params among `adoption.params`. A run whose record an earlier
-    /// `down` left absent (its state gone with it) is taken over too, its record replaced. Once
-    /// taken over, the old folder holds no state: taking it over again is refused, never a second
-    /// copy.
+    /// Adopts the existing Terraform deployment `adoption` describes, one applied from the
+    /// module of the manifest at `manifest` outside the runner, as a run of that manifest: its
+    /// state moves into the run's state folder, and the run is recorded as up, with the
+    /// manifest's params among `adoption.params`; `status`, `update`, `down` and the reaper then
+    /// act on it like any other run. A run whose record an earlier `down` left absent (its state
+    /// gone with it) adopts one too, its record replaced. Once adopted, the old folder holds no
+    /// state: adopting it again is refused, never a second copy.
+    ///
+    /// ```no_run
+    /// # async fn adopt(runner: &isothrum_runner::Runner) -> isothrum_runner::Result<()> {
+    /// use isothrum_runner::{Adoption, RunName};
+    ///
+    /// // A deployment applied by hand from `.isoloom/cloud-vm/aws/`, its state in `old/`.
+    /// let adoption = Adoption::new(RunName::new("shop")?, "old")
+    ///     .with_params([("region".to_owned(), "eu-west-3".to_owned())])
+    ///     .with_started_at("2026-10-15T11:00:00Z");
+    /// let record = runner.adopt(".isoloom/cloud-vm/aws/run.json".as_ref(), adoption).await?;
+    /// // From now on, `runner.open(…)?.down(…)` destroys it as it was applied.
+    /// # drop(record);
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
