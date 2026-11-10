@@ -37,6 +37,12 @@ change.
 
 ### Fixed
 
+- **A run is free as soon as the operation that held it returns.** Its lock was freed only by
+  closing the lock file, while a tool another operation started meanwhile still had the file's
+  handle until it ran (on Unix, a spawned process gets every open handle until its `exec`). So the
+  next operation on the run, or a retry right after a refusal or a failure, could be refused as
+  `locked`. The lock is now unlocked, then closed, which frees it whoever still has the handle; the
+  home's `slots.lock` the same way.
 - **A Docker CLI config that can't be read, or isn't JSON, is traced.** It read as "no context
   picked" without a word, so the inherited `DOCKER_HOST` and `DOCKER_CONTEXT` stayed with nothing
   saying why. Only a config that isn't there is now taken for none, as everywhere else.

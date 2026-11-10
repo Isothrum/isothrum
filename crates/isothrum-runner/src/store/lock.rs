@@ -36,11 +36,30 @@ const SLOTS_WAIT: Duration = Duration::from_secs(30);
 #[derive(Debug, Default)]
 pub(crate) struct RunLocks(Mutex<BTreeMap<RunName, Arc<tokio::sync::Mutex<()>>>>);
 
-/// A run held for one operation; released when dropped.
+/// A run held for one operation; released when dropped, the OS lock before this runner's.
 #[derive(Debug)]
 pub(crate) struct RunLock {
-    _file: File,
+    _file: Held,
     _here: OwnedMutexGuard<()>,
+}
+
+/// A lock file this process holds the OS lock on; unlocked when dropped, then closed.
+///
+/// Closing the file alone doesn't free it: on Unix, a process spawned while it is open (a tool
+/// another operation of this runner starts, at any time) gets a copy of the handle, which holds the
+/// lock until the process execs and drops it. Freed by the close only, the lock outlived the
+/// operation that held it, and a caller trying again at once found the run `locked`. Unlocked, it
+/// is free whoever still has a copy.
+#[derive(Debug)]
+struct Held(File);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        if let Err(e) = self.0.unlock() {
+            // Closed next: the lock is freed once the copies spawned meanwhile are gone.
+            tracing::warn!(error = %e, "a lock file wasn't unlocked; it is freed when closed");
+        }
+    }
 }
 
 impl RunLocks {
@@ -51,7 +70,10 @@ impl RunLocks {
         let here = mutex.lock_owned().await;
         let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
         match locked_within(&file, GRACE).await {
-            Ok(true) => Ok(RunLock { _file: file, _here: here }),
+            Ok(true) => Ok(RunLock {
+                _file: Held(file),
+                _here: here,
+            }),
             Ok(false) => Err(Error::Locked { run: run.to_string() }),
             Err(e) => Err(Error::io(path, "locked")(e)),
         }
@@ -61,7 +83,7 @@ impl RunLocks {
 /// The home's slots, held for one start's pick; released when dropped.
 #[derive(Debug)]
 pub(crate) struct SlotsLock {
-    _file: File,
+    _file: Held,
 }
 
 /// Holds the home's slots (the OS lock on `path`), waiting for another start's pick.
@@ -73,7 +95,7 @@ pub(crate) struct SlotsLock {
 pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
     let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
     match locked_within(&file, SLOTS_WAIT).await {
-        Ok(true) => Ok(SlotsLock { _file: file }),
+        Ok(true) => Ok(SlotsLock { _file: Held(file) }),
         Ok(false) => Err(Error::SlotsLocked {
             waited_s: SLOTS_WAIT.as_secs(),
         }),
@@ -145,6 +167,41 @@ mod tests {
         assert!(!waiting.is_finished(), "waits while the first holds the run");
         drop(first);
         waiting.await.unwrap().unwrap();
+    }
+
+    /// A copy of `held`'s handle, as a process spawned while it was held has until it execs.
+    fn spawned_meanwhile(Held(file): &Held) -> File {
+        file.try_clone().unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_run_released_is_free_at_once_while_a_process_spawned_meanwhile_still_has_its_handle() {
+        // Regression: a run's lock was freed only by closing its file, so it outlived the
+        // operation while a tool spawned meanwhile, by another operation, still had the handle:
+        // the next operation on the run, at once, was refused as `locked`.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lock");
+        let locks = RunLocks::default();
+        let held = locks.acquire(&run(), &path).await.unwrap();
+        let RunLock { _file: file, .. } = &held;
+        let spawned = spawned_meanwhile(file);
+        drop(held);
+        let again = locks.acquire(&run(), &path).await;
+        assert!(again.is_ok(), "the run is free once released: {again:?}");
+        drop(spawned);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_slots_released_are_free_at_once_while_a_process_spawned_meanwhile_still_has_their_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("slots.lock");
+        let held = hold_slots(&path).await.unwrap();
+        let SlotsLock { _file: file } = &held;
+        let spawned = spawned_meanwhile(file);
+        drop(held);
+        let again = hold_slots(&path).await;
+        assert!(again.is_ok(), "the slots are free once released: {again:?}");
+        drop(spawned);
     }
 
     #[tokio::test(start_paused = true)]
