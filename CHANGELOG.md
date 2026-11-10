@@ -508,9 +508,12 @@ change.
   `bundle_target_bytes`, `own_files` and `choices`, with `Error` and `Result`. Only the
   `#[wasm_bindgen]` exports called them; those stay, as do `Plan`, `File` and `Choices`, the
   shape of the JSON the exports hand out.
-- **Breaking:** **`LoopbackPorts` and `HeldPort::new` are internal, and `HostPorts` is sealed.** No embedder
-  implemented `HostPorts` or named the loopback's: `RunnerConfig::new` installs it, and a test sets
-  `RunnerConfig::ports` to the `fake` feature's `FakePorts`.
+- **Breaking:** **`LoopbackPorts` and `HeldPort` are internal, and `HostPorts` is sealed, its
+  questions (`in_use`, `pick_free`, `reachable`) the runner's own.** No embedder implemented
+  `HostPorts`, asked it anything or named the loopback's: `RunnerConfig::new` installs it, and a
+  test sets `RunnerConfig::ports` to the `fake` feature's `FakePorts`.
+- **Breaking:** **`ShellCommand` is `#[non_exhaustive]`**: build one with `ShellCommand::new(program,
+  args, cwd)` and `with_env`; its fields stay readable.
 - **Breaking:** **`RunnerConfig::with_processes` and `RunnerConfig::with_ports`.** Set `RunnerConfig::processes`
   and `RunnerConfig::ports` on `RunnerConfig::new(home)`, as every other field is set.
 - **Breaking:** **Runner API nothing used:** `Running::outputs` (read `Running::status`'s `outputs`),

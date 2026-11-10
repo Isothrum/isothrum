@@ -8,56 +8,60 @@ use std::time::Duration;
 use isoloom_manifest::Protocol;
 
 use crate::BoxFuture;
-
-/// A free port, held until dropped so it isn't handed out twice while others are picked.
-pub struct HeldPort {
-    /// The port.
-    pub port: u16,
-    _hold: Box<dyn Send + Sync>,
-}
-
-impl std::fmt::Debug for HeldPort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HeldPort").field("port", &self.port).finish_non_exhaustive()
-    }
-}
-
-impl HeldPort {
-    /// `port`, held by `hold` (a socket, or nothing for a fake).
-    pub(crate) fn new(port: u16, hold: impl Send + Sync + 'static) -> HeldPort {
-        HeldPort { port, _hold: Box::new(hold) }
-    }
-}
+pub(crate) use sealed::HeldPort;
 
 /// The host's ports. Sealed: [`RunnerConfig::new`](crate::RunnerConfig::new) gives the real
 /// host's (sockets on the loopback), and the `fake` feature's `FakePorts` answers from a test's
-/// setup; no other implementation is needed.
-pub trait HostPorts: Send + Sync + sealed::Sealed {
-    /// Whether `port` is taken over `protocol` on the loopback.
-    fn in_use(&self, port: u16, protocol: Protocol) -> bool;
-    /// A free loopback port over `protocol`, held.
-    fn pick_free(&self, protocol: Protocol) -> Option<HeldPort>;
-    /// Whether `host:port` accepts a TCP connection within `within`.
-    fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool>;
-}
+/// setup; no other implementation is needed, and only the runner asks them anything.
+pub trait HostPorts: Send + Sync + sealed::Ports {}
+
+impl<T: sealed::Ports> HostPorts for T {}
 
 /// The real host: sockets on the loopback. Never all interfaces: binding 0.0.0.0 made Windows
 /// Firewall ask whether the embedder's app may accept connections from the network.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct LoopbackPorts;
 
-/// What keeps [`HostPorts`] to this crate's implementations.
-mod sealed {
-    /// Implemented by this crate's ports only.
-    pub trait Sealed {}
+/// What keeps [`HostPorts`] to this crate's implementations, and its questions to the runner.
+pub(crate) mod sealed {
+    use std::time::Duration;
 
-    impl Sealed for super::LoopbackPorts {}
+    use isoloom_manifest::Protocol;
 
-    #[cfg(any(test, feature = "fake"))]
-    impl Sealed for super::FakePorts {}
+    use crate::BoxFuture;
+
+    /// A free port, held until dropped so it isn't handed out twice while others are picked.
+    pub struct HeldPort {
+        /// The port.
+        pub port: u16,
+        _hold: Box<dyn Send + Sync>,
+    }
+
+    impl std::fmt::Debug for HeldPort {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("HeldPort").field("port", &self.port).finish_non_exhaustive()
+        }
+    }
+
+    impl HeldPort {
+        /// `port`, held by `hold` (a socket, or nothing for a fake).
+        pub(crate) fn new(port: u16, hold: impl Send + Sync + 'static) -> HeldPort {
+            HeldPort { port, _hold: Box::new(hold) }
+        }
+    }
+
+    /// The host's ports, as the runner asks them. Implemented by this crate's ports only.
+    pub trait Ports: Send + Sync {
+        /// Whether `port` is taken over `protocol` on the loopback.
+        fn in_use(&self, port: u16, protocol: Protocol) -> bool;
+        /// A free loopback port over `protocol`, held.
+        fn pick_free(&self, protocol: Protocol) -> Option<HeldPort>;
+        /// Whether `host:port` accepts a TCP connection within `within`.
+        fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool>;
+    }
 }
 
-impl HostPorts for LoopbackPorts {
+impl sealed::Ports for LoopbackPorts {
     /// Taken when the IPv4 loopback can't be bound, or the IPv6 one is held (a browser opening
     /// `localhost` may reach it first); an absent IPv6 loopback doesn't count.
     fn in_use(&self, port: u16, protocol: Protocol) -> bool {
@@ -135,7 +139,7 @@ impl FakePorts {
 }
 
 #[cfg(any(test, feature = "fake"))]
-impl HostPorts for FakePorts {
+impl sealed::Ports for FakePorts {
     fn in_use(&self, port: u16, protocol: Protocol) -> bool {
         self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&(port, protocol))
     }
@@ -165,6 +169,7 @@ impl HostPorts for FakePorts {
 
 #[cfg(test)]
 mod tests {
+    use super::sealed::Ports;
     use super::*;
 
     /// A port free over both TCP and UDP, below every OS's ephemeral range, so nothing else is

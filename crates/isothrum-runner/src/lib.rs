@@ -158,7 +158,7 @@ pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use net::FakePorts;
-pub use net::{HeldPort, HostPorts};
+pub use net::HostPorts;
 pub use options::{Occupied, RunOptions};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]

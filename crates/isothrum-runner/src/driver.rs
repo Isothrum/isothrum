@@ -260,12 +260,8 @@ impl AnyDriver {
 /// The console `spec` builds, run in its own folder (`ssh`'s: the run's state folder, which its
 /// config is named relative to), else in the run's folder.
 pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
-    ShellCommand {
-        program: spec.program,
-        args: spec.args,
-        cwd: spec.cwd.unwrap_or_else(|| cx.run.dir().to_path_buf()),
-        env: spec.env,
-    }
+    let cwd = spec.cwd.unwrap_or_else(|| cx.run.dir().to_path_buf());
+    ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env)
 }
 
 /// Refuses an action of another driver's (the manifest's actions are each one driver's): step

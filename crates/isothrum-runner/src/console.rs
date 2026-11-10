@@ -11,6 +11,7 @@ use serde::Serialize;
 /// own terminal. Addresses the machine by service or define name, or by the address the run gives
 /// it, never a guessed container.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct ShellCommand {
     /// The program to run (`docker`, `vagrant`, `ssh`).
     pub program: String,
@@ -25,6 +26,24 @@ pub struct ShellCommand {
 }
 
 impl ShellCommand {
+    /// `program` with `args`, run in `cwd`, with no variable of its own.
+    #[must_use]
+    pub fn new(program: impl Into<String>, args: impl IntoIterator<Item = impl Into<String>>, cwd: impl Into<PathBuf>) -> ShellCommand {
+        ShellCommand {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+            cwd: cwd.into(),
+            env: Vec::new(),
+        }
+    }
+
+    /// The same, run with `env` besides the embedder's own variables.
+    #[must_use]
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> ShellCommand {
+        self.env = env;
+        self
+    }
+
     /// The command as one line a POSIX shell runs as it is, to paste in a terminal:
     /// `cd <cwd> && VAR=value… program args…`, each word that needs it single-quoted (a `sh -c`
     /// script with `;` or `>`, a JSON value), so the shell splits it back into this argv.
@@ -71,12 +90,7 @@ mod tests {
             "",
             "$HOME",
         ];
-        let cmd = ShellCommand {
-            program: "sh".into(),
-            args: args.map(str::to_owned).to_vec(),
-            cwd: cwd.clone(),
-            env: vec![("J".into(), r#"{"a": [1, "b c"]}"#.into())],
-        };
+        let cmd = ShellCommand::new("sh", args, cwd.clone()).with_env(vec![("J".into(), r#"{"a": [1, "b c"]}"#.into())]);
         let line = cmd.sh_line();
         assert!(line.starts_with("cd '"), "{line}");
         let out = std::process::Command::new("sh").args(["-c", &line]).output().unwrap();
@@ -88,12 +102,13 @@ mod tests {
 
     #[test]
     fn a_plain_word_stays_as_it_is() {
-        let cmd = ShellCommand {
-            program: "vagrant".into(),
-            args: vec!["ssh".into(), "web".into()],
-            cwd: PathBuf::from("/work/web-vm"),
-            env: vec![("VAGRANT_DOTFILE_PATH".into(), "/home/u/.isothrum/runs/web-vm/vagrant".into())],
-        };
+        let cmd = ShellCommand::new("vagrant", ["ssh", "web"], "/work/web-vm")
+            .with_env(vec![("VAGRANT_DOTFILE_PATH".into(), "/home/u/.isothrum/runs/web-vm/vagrant".into())]);
+        assert_eq!(
+            (cmd.program.as_str(), cmd.args.as_slice(), cmd.cwd.as_path()),
+            ("vagrant", &["ssh".to_owned(), "web".to_owned()][..], std::path::Path::new("/work/web-vm"))
+        );
+        assert_eq!(ShellCommand::new("docker", ["ps"], "/w").env, [], "no variable of its own until given");
         assert_eq!(
             cmd.sh_line(),
             "cd /work/web-vm && VAGRANT_DOTFILE_PATH=/home/u/.isothrum/runs/web-vm/vagrant vagrant ssh web"
