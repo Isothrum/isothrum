@@ -240,7 +240,7 @@ pub enum WarningCode {
     SavedStateDiscarded,
     /// A start failed on stale state: cleared, then started again.
     Recovering,
-    /// An apply failed and is tried again.
+    /// A step is tried again: an apply that failed, or an `ssh.run` whose host doesn't answer yet.
     Retrying,
     /// An operation that failed couldn't update the run's record either: the operation's own
     /// error is the one it ends with.

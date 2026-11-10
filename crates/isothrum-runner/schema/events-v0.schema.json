@@ -539,7 +539,7 @@
           "const": "recovering"
         },
         {
-          "description": "An apply failed and is tried again.",
+          "description": "A step is tried again: an apply that failed, or an `ssh.run` whose host doesn't answer yet.",
           "type": "string",
           "const": "retrying"
         },
