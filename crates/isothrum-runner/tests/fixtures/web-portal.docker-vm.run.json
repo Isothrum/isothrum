@@ -251,7 +251,7 @@
     },
     {
       "name": "ESXI_VIRTUAL_NETWORK",
-      "description": "Port groups, comma-separated: the management network, then one per lab network.",
+      "description": "Port groups, comma-separated: the management network, then one per environment network.",
       "default": "VM Network",
       "providers": [
         "vmware_esxi"
@@ -261,6 +261,27 @@
         {
           "via": "env",
           "var": "ESXI_VIRTUAL_NETWORK",
+          "steps": [
+            "*"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "VAGRANT_HOST_ARCHITECTURE",
+      "description": "The architecture Vagrant picks each box's build for: the ESXi host's (x86-64), not this computer's.",
+      "default": "amd64",
+      "values": [
+        "amd64"
+      ],
+      "providers": [
+        "vmware_esxi"
+      ],
+      "set_by": "runner",
+      "deliver": [
+        {
+          "via": "env",
+          "var": "VAGRANT_HOST_ARCHITECTURE",
           "steps": [
             "*"
           ]
