@@ -85,7 +85,7 @@ pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) ->
     cx.events
         .warning(WarningCode::OtherProvider, "this run last ran on another provider: clearing that run first");
     let destroy = v.vagrant(cx, id, &["destroy", "--force"])?;
-    if let Err(e) = call(cx, id, &destroy, RECONCILE_DESTROY_LIMIT, Echo::Shown).await {
+    if let Err(e) = lock::call_retrying(cx, id, &destroy, RECONCILE_DESTROY_LIMIT, Echo::Shown).await {
         cx.events.warning(WarningCode::StepTolerated, &e.to_string());
     }
     remove_dir(&dotfile)
@@ -179,7 +179,7 @@ pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
     }
     let limit = plan::limit_or(step, &cx.scope, BOOT_LIMIT);
     let up = v.vagrant(cx, id, &["up", &machine, "--no-provision"])?;
-    call_ok(cx, id, &up, limit, Echo::Shown).await.map(drop)
+    lock::call_ok_retrying(cx, id, &up, limit, Echo::Shown).await.map(drop)
 }
 
 /// What the controller prints when it isn't on its way down (see [`halting_probe`]).

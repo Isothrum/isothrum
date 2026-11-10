@@ -19,12 +19,13 @@ use crate::scope::Scope;
 
 /// Runs argv step `step` of list `list`; `observe` sees each line too (a check runner's results).
 /// An `ssh.run` with a `wait_s` is tried again while its host doesn't answer
-/// ([`super::reconnect`]).
+/// ([`super::reconnect`]); any other step runs as its driver runs a command
+/// ([`AnyDriver::run_argv`](crate::driver::AnyDriver::run_argv)).
 pub(crate) async fn run_argv(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
     if let Some(wait) = crate::ssh::wait_of(cx, list, step)? {
         return super::reconnect::run(cx, list, step, observe, &wait).await;
     }
-    once(cx, list, step, observe, Hold::No).await?.result(cx, step)
+    cx.run.driver.run_argv(cx, list, step, observe).await
 }
 
 /// Whether a run holds its error lines back until its command printed (an `ssh` that may not

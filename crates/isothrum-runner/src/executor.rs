@@ -20,7 +20,7 @@ use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
 pub(crate) use progress::{Progress, within};
-pub(crate) use step::{Echo, call, call_ok, capture_output, capture_step, env_of, run_argv, stdin_of, stdout_of, with_delivered};
+pub(crate) use step::{Echo, Hold, call, call_ok, capture_output, capture_step, env_of, once, run_argv, stdin_of, stdout_of, with_delivered};
 
 use crate::Result;
 use crate::error::Error;
@@ -105,6 +105,17 @@ impl LineWatch {
         let line = if self.any_case { line.to_lowercase() } else { line.to_owned() };
         let found = texts.iter().filter(|t| line.contains(t.as_str())).cloned();
         self.seen.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
+    }
+
+    /// The texts seen since the last take, or since it was told what to watch for, kept.
+    pub(crate) fn seen(&self) -> BTreeSet<String> {
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Back to having seen `seen` (what [`LineWatch::seen`] said before): what was seen since is
+    /// forgotten (the lines of a try that runs again).
+    pub(crate) fn rewind(&self, seen: BTreeSet<String>) {
+        *self.seen.lock().unwrap_or_else(PoisonError::into_inner) = seen;
     }
 
     /// The texts seen since the last take, or since it was told what to watch for.

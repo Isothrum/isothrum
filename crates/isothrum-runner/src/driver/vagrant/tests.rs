@@ -66,6 +66,56 @@ struct Engine {
     index_locks_after_halt: u32,
     /// How many `vagrant status` calls Vagrant's machine index lock still refuses.
     index_locked_reads: u32,
+    /// The Vagrant commands, by their verb, another Vagrant process's machine lock still refuses.
+    refusals: BTreeMap<&'static str, Refusal>,
+}
+
+/// A Vagrant command refused for another process's machine lock, `times` more times.
+#[derive(Debug)]
+struct Refusal {
+    times: u32,
+    /// What it printed before the refusal (what it did first).
+    before: &'static str,
+    /// What the refused try did to the VMs first.
+    did: fn(&mut Engine),
+    /// How long it ran before the refusal.
+    took: std::time::Duration,
+    /// Vagrant's refusal, on standard error.
+    said: String,
+}
+
+impl Refusal {
+    /// Refused `times` times by `vm`'s machine index lock (`MachineLocked`, libvirt) at once.
+    fn index(times: u32, vm: &str) -> Refusal {
+        Refusal {
+            times,
+            before: "",
+            did: |_| {},
+            took: std::time::Duration::ZERO,
+            said: format!(
+                "{FOG_WARNING}\nVagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant \
+                 process is currently reading or modifying\nthe machine. Please wait for that Vagrant process to end and try\n\
+                 again. Details about the machine are shown below:\n\nName: {vm}\nProvider: libvirt"
+            ),
+        }
+    }
+
+    /// Refused `times` times by `vm`'s action lock (`MachineActionLockedError`) for `action`,
+    /// before it acted.
+    fn action(times: u32, action: &str, vm: &str) -> Refusal {
+        Refusal {
+            said: format!(
+                "An action '{action}' was attempted on the machine '{vm}',\nbut another process is already executing an action on \
+                 the machine.\nVagrant locks each machine for access by only one process at a time."
+            ),
+            ..Refusal::index(times, vm)
+        }
+    }
+
+    /// Refused after printing `before` and doing `did`.
+    fn after(self, before: &'static str, did: fn(&mut Engine)) -> Refusal {
+        Refusal { before, did, ..self }
+    }
 }
 
 struct Fixture {
@@ -251,6 +301,15 @@ fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
         ["halt", CONTROLLER] if e.locked_halts > 0 => {
             e.locked_halts -= 1;
             Some(Reply::fail(1, &locked_halt(CONTROLLER)))
+        }
+        [verb, ..] if e.refusals.get(*verb).is_some_and(|r| r.times > 0) => {
+            let refusal = e.refusals.get_mut(*verb)?;
+            refusal.times -= 1;
+            let (did, mut reply) = (refusal.did, Reply::fail(1, &refusal.said));
+            reply.stdout = refusal.before.lines().map(str::to_owned).collect();
+            reply.delay = refusal.took;
+            did(e);
+            Some(reply)
         }
         _ => None,
     }
@@ -997,6 +1056,122 @@ async fn a_controller_halt_another_vagrant_process_locked_out_is_tried_again() {
         "{:?}",
         f.vagrant()
     );
+}
+
+/// Whether `events` warn that a step's Vagrant command runs again for another process's lock.
+fn warned_retrying(events: &Recorder) -> bool {
+    events
+        .events()
+        .iter()
+        .any(|e| matches!(&e.kind, crate::EventKind::Warning { code: crate::WarningCode::Retrying, message } if message.contains("held a machine's lock")))
+}
+
+/// How many times the run asked Vagrant for `call` (exactly, arguments included).
+fn calls(f: &Fixture, call: &str) -> usize {
+    f.vagrant().iter().filter(|l| *l == call).count()
+}
+
+/// Regression (friday, libvirt): a `down` whose `vagrant destroy --force` removed the web VM,
+/// then was refused by its machine index lock as the VM left Vagrant's index (another Vagrant
+/// process reading the run's VMs), failed the stop. A destroy converges: it runs again, and
+/// destroys what is left.
+#[tokio::test(start_paused = true)]
+async fn a_destroy_refused_by_a_machines_index_lock_after_removing_a_vm_runs_again() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let removed = "==> isoloom-controller: Domain is not created. Please run `vagrant up` first.\n\
+                   ==> web: Clearing any previously set forwarded ports...\n==> web: Removing domain...";
+    let refusal = Refusal::index(1, "web").after(removed, |e| drop(e.states.remove("web")));
+    f.engine().refusals.insert("destroy", refusal);
+    let events = Recorder::new();
+    run.down(&RunOptions::new(), &events).await.unwrap();
+    assert_eq!(calls(&f, "vagrant destroy --force"), 2, "{:?}", f.vagrant());
+    assert!(f.engine().states.is_empty(), "every VM destroyed: {:?}", f.engine().states);
+    assert!(warned_retrying(&events), "{:?}", events.events());
+    assert_eq!(run.status().await.unwrap().state, RunState::Absent);
+}
+
+/// Regression: a `vagrant up` that another Vagrant process's machine lock refused failed the start
+/// (Vagrant's "is locked" even read as an earlier run's leftovers: everything was destroyed and
+/// built again). Ten minutes into booting and provisioning the VMs, having acted on them, it is
+/// still run again (a second `up` boots only what isn't running, and provisions only a VM whose
+/// provisioning hadn't begun), from its own refusal on, not from the start of the step: no
+/// recovery, nothing destroyed.
+#[tokio::test(start_paused = true)]
+async fn an_up_refused_by_a_machines_lock_runs_again_and_is_no_leftover() {
+    let f = fixture(crate::runner::this_host());
+    let booted = "==> web: Machine booted and ready!\n==> web: Running provisioner: setup (shell)...";
+    let refusal = Refusal {
+        took: std::time::Duration::from_secs(600),
+        ..Refusal::index(1, "isoloom-controller").after(booted, |e| drop(e.states.insert("web".into(), "running".into())))
+    };
+    f.engine().refusals.insert("up", refusal);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    run.up(&opts(), &events).await.unwrap();
+    assert_eq!(calls(&f, "vagrant up --provider virtualbox"), 2, "{:?}", f.vagrant());
+    assert_eq!(calls(&f, "vagrant destroy --force"), 0, "no recovery: {:?}", f.vagrant());
+    let said = serde_json::to_string(&events.events()).unwrap();
+    assert!(!said.contains("recovering"), "{said}");
+    assert!(warned_retrying(&events), "{said}");
+    assert_eq!(run.status().await.unwrap().state, RunState::Ready);
+}
+
+/// A `vagrant provision` another process's action lock refused before it provisioned anything
+/// runs again. One refused once it had provisioned a VM (`==> web: Running provisioner: …`) does
+/// not: a second run would provision that VM twice.
+#[tokio::test(start_paused = true)]
+async fn a_provision_refused_before_it_acted_runs_again_never_after() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine().refusals.insert("provision", Refusal::action(2, "provision", "web"));
+    let events = Recorder::new();
+    run.provision(None, &opts(), &events).await.unwrap();
+    assert_eq!(calls(&f, "vagrant provision web"), 3, "{:?}", f.vagrant());
+    assert!(warned_retrying(&events), "{:?}", events.events());
+
+    let provisioned = "==> web: Running provisioner: setup (shell)...\n    web: Running: script: setup";
+    f.engine().refusals.insert("provision", Refusal::index(1, "web").after(provisioned, |_| {}));
+    let refused = Recorder::new();
+    let err = run.provision(None, &opts(), &refused).await.unwrap_err().to_string();
+    assert!(err.contains("Vagrant can't use the requested machine because it is locked!"), "{err}");
+    assert_eq!(calls(&f, "vagrant provision web"), 4, "not run again: {:?}", f.vagrant());
+    assert!(!warned_retrying(&refused), "{:?}", refused.events());
+}
+
+/// A VM's restart for its new boot settings (`vagrant reload`, the driver's own call) refused
+/// before it acted runs again.
+#[tokio::test(start_paused = true)]
+async fn a_restart_refused_before_it_acted_runs_again() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    std::fs::write(&f.manifest, with_boot_digest(WEB_VM, "web", Some("sha256:web-2"))).unwrap();
+    f.engine().refusals.insert("reload", Refusal::index(1, "web"));
+    let events = Recorder::new();
+    let updated = f.runner.open(&f.manifest, None).unwrap().update(&opts(), &events).await.unwrap();
+    assert_eq!(calls(&f, "vagrant reload web --no-provision"), 2, "{:?}", f.vagrant());
+    assert!(warned_retrying(&events), "{:?}", events.events());
+    assert_eq!(updated.record.vm_boot_digests.get("web").map(String::as_str), Some("sha256:web-2"));
+}
+
+/// A lock held past [`super::lock::PATIENCE`] still fails the stop, with Vagrant's own error,
+/// after a bounded number of tries.
+#[tokio::test(start_paused = true)]
+async fn a_destroy_locked_out_past_the_patience_still_fails_with_vagrants_error() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine().refusals.insert("destroy", Refusal::index(u32::MAX, "web"));
+    let err = run.down(&RunOptions::new(), &Recorder::new()).await.unwrap_err().to_string();
+    assert!(
+        err.starts_with("step `destroy` failed: Vagrant can't use the requested machine because it is locked!") && !err.contains("[fog]"),
+        "{err}"
+    );
+    let tries = calls(&f, "vagrant destroy --force");
+    assert!((2..=32).contains(&tries), "{tries} tries");
 }
 
 /// The calls of a check run on a started run whose controller still reads as running, after

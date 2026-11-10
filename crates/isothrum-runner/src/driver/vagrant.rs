@@ -12,6 +12,8 @@ mod lock;
 mod orphans;
 mod status;
 
+pub(super) use lock::run_step;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -215,7 +217,7 @@ impl Driver for Vagrant {
     /// applies only at boot. Its provisioners are left to the steps that follow.
     async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
         let spec = self.vagrant(cx, id, &["reload", define_of(machine, "restarting")?, "--no-provision"])?;
-        call_ok(cx, id, &spec, RELOAD_LIMIT, Echo::Shown).await.map(drop)
+        lock::call_ok_retrying(cx, id, &spec, RELOAD_LIMIT, Echo::Shown).await.map(drop)
     }
 
     /// Hot-adds the access machine, a VM the initial `up` left defined but `autostart: false`:
@@ -242,7 +244,9 @@ impl Driver for Vagrant {
         if let Some(box_name) = image {
             spec.env.push((access::BOX_ENV.to_owned(), box_name.to_owned()));
         }
-        call_ok(cx, Op::Attach.as_str(), &spec, ATTACH_LIMIT, Echo::Shown).await.map(drop)
+        lock::call_ok_retrying(cx, Op::Attach.as_str(), &spec, ATTACH_LIMIT, Echo::Shown)
+            .await
+            .map(drop)
     }
 
     /// A VM of the run destroyed alone (`vagrant destroy -f <define>`): the access machine's at a
@@ -251,7 +255,7 @@ impl Driver for Vagrant {
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let op = cx.events.call_id();
         let spec = self.vagrant(cx, op, &["destroy", "-f", define_of(machine, "taking out")?])?;
-        call_ok(cx, op, &spec, super::REMOVE_LIMIT, Echo::Shown).await.map(drop)
+        lock::call_ok_retrying(cx, op, &spec, super::REMOVE_LIMIT, Echo::Shown).await.map(drop)
     }
 
     /// `vagrant ssh` into the machine's VM; as `user`, `vagrant ssh <define> -c` a `sudo -i`

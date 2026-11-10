@@ -37,6 +37,20 @@ change.
 
 ### Fixed
 
+- **A Vagrant run's own commands are tried again when another Vagrant process's lock refused
+  them.** Vagrant refuses a command at once when another process holds a machine's action lock
+  (`MachineActionLockedError`) or its index lock (`MachineLocked`, taken at every read of the
+  machine's state): on libvirt a `down` failed because another process read the VMs as its
+  `vagrant destroy` removed one, and a refused `vagrant up` even read as an earlier run's leftovers
+  ("is locked"), so the run was destroyed and built again. A refusal can come after Vagrant acted
+  (the index lock is taken mid-action, and as a destroyed VM leaves Vagrant's index), so a command
+  runs again only when a second run does nothing twice: `destroy`, `halt`, `suspend` and an `up`
+  that isn't told to provision (it provisions only a VM whose provisioning hadn't begun) always;
+  `provision`, `reload`, `resume` and a provisioning `up` only when the refused try announced no
+  action on a machine. This covers the manifest's steps and the driver's own commands (the
+  controller's boot, a VM's restart, hot-add and retire), two seconds apart for up to a minute
+  after the first refusal, each new try said in a `retrying` warning; a refused try's lines no
+  longer count as stale markers.
 - **A status read while the run's own operation runs reports it, rather than failing.** Vagrant
   holds each VM's lock for the whole of a `vagrant up`, provisioning included, and refuses a
   `vagrant status` meanwhile (`MachineActionLockedError`); the read was tried again for a minute

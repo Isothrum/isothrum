@@ -222,6 +222,18 @@ impl AnyDriver {
         }
     }
 
+    /// Runs argv step `step` of list `list` once ([`crate::executor::once`]), `observe` seeing
+    /// each line; the Vagrant driver runs a `vagrant` command another Vagrant process's lock
+    /// refused again, while that is safe ([`vagrant::run_step`]).
+    pub(crate) async fn run_argv(&self, cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
+        match self {
+            AnyDriver::Vagrant(_) => vagrant::run_step(cx, list, step, observe).await,
+            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => crate::executor::once(cx, list, step, observe, crate::executor::Hold::No)
+                .await?
+                .result(cx, step),
+        }
+    }
+
     pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let span = tracing::debug_span!("driver", driver = self.name(), read = "status");
         match self {

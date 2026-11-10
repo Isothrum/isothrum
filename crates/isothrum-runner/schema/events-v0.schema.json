@@ -539,7 +539,7 @@
           "const": "recovering"
         },
         {
-          "description": "A step is tried again: an apply that failed, or an `ssh.run` whose host doesn't answer yet.",
+          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, or a\nVagrant command another Vagrant process's lock on a machine refused.",
           "type": "string",
           "const": "retrying"
         },
