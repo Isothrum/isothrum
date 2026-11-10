@@ -39,7 +39,7 @@ fn files(cx: &Cx<'_>) -> BTreeMap<String, File> {
 /// Writes the state files of `cx`'s operation: every one on a start (`fresh`), else only those
 /// missing.
 pub(crate) fn write(cx: &Cx<'_>, fresh: bool) -> Result<()> {
-    let dir = cx.run.runner.store.run_dir(cx.run.name())?;
+    let dir = cx.state_dir();
     for (path, file) in files(cx) {
         let target = dir.join(&path);
         if !fresh && target.exists() {
@@ -58,7 +58,7 @@ pub(crate) fn write(cx: &Cx<'_>, fresh: bool) -> Result<()> {
 
 /// Removes every state file the manifest names, after a successful `down`.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
-    let dir = cx.run.runner.store.run_dir(cx.run.name())?;
+    let dir = cx.state_dir();
     for d in super::every_delivery(cx.run.manifest()) {
         if let Delivery::StateFile { path, .. } = d {
             let target = dir.join(path.as_str());

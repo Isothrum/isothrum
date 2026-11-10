@@ -215,7 +215,7 @@ pub(crate) async fn run_step(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut
 /// The arguments of argv step `step` of list `list` on this host, filled, when it runs `vagrant`.
 fn vagrant_args(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Vec<String>>> {
     let Run::Argv(argv) = &step.run else { return Ok(None) };
-    let command = plan::command(argv, cx.run.runner.config.host, &cx.vars, &plan::at(list, step))?;
+    let command = plan::command(argv, cx.scope.host, &cx.vars, &plan::at(list, step))?;
     Ok((command.program == "vagrant").then_some(command.args))
 }
 

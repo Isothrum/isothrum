@@ -186,7 +186,7 @@ impl Login {
 /// the driver: a run brought up again meets new machines, maybe at the same addresses, whose new
 /// keys a pinned one would refuse.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
-    let state = cx.run.runner.store.run_dir(cx.run.name())?;
+    let state = cx.state_dir();
     [KNOWN_HOSTS, CONFIG_FILE].iter().try_for_each(|file| {
         let path = state.join(file);
         crate::store::remove_path(&path).map_err(Error::io(&path, "removed"))
@@ -197,7 +197,8 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
 /// the session: its configuration written first, in the run's state folder, where it runs.
 pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
     let home = &cx.run.runner.config.home;
-    let state = cx.run.runner.store.run_dir(cx.run.name())?;
+    let state = cx.state_dir();
+    crate::store::private_dir(state).map_err(Error::io(state, "created"))?;
     let path = state.join(CONFIG_FILE);
     let text = config(&key_path(home), &state.join(KNOWN_HOSTS)).ok_or_else(|| {
         let why = "the runner's home is at a path SSH's config can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
@@ -208,7 +209,7 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
     sent.sort();
     sent.dedup();
     let mut spec = ProcessSpec::new("ssh", login.args(&sent, command));
-    spec.cwd = Some(state);
+    spec.cwd = Some(state.to_path_buf());
     spec.env = env;
     Ok(spec)
 }

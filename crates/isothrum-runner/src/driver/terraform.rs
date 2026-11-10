@@ -69,8 +69,8 @@ impl Terraform {
         if self.identity.gone.is_empty() {
             return Ok(Vec::new());
         }
-        let dir = cx.run.runner.store.run_dir(cx.run.name())?;
-        Ok(state::read_json(&dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
+        let dir = cx.state_dir();
+        Ok(state::read_json(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
     }
 
     /// Drops from the state each instance it still holds whose text, among `seen`, its failed
@@ -93,6 +93,13 @@ impl Terraform {
 /// of the runner shares, under its home.
 pub(crate) fn plugin_cache(config: &RunnerConfig) -> PathBuf {
     config.tf_plugin_cache.clone().unwrap_or_else(|| config.home.join("terraform-plugins"))
+}
+
+/// `terraform.copy_module`, its `from` and `when` read from step `step` of list `list`.
+fn copy_module(cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    let (at, with) = (crate::executor::plan::at(list, step), super::with_of(step));
+    let (from, when) = (cx.vars.with_arg(with, &at, "from")?, cx.vars.with_arg(with, &at, "when")?);
+    copy_module::run(cx, &at, from.as_deref(), when.as_deref())
 }
 
 impl Driver for Terraform {
@@ -127,26 +134,23 @@ impl Driver for Terraform {
     }
 
     fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> impl Future<Output = Result<()>> {
-        let done = cx.run.runner.store.run_dir(cx.run.name()).and_then(|state_dir| match action {
+        let state_dir = cx.state_dir();
+        let done = match action {
             Action::TerraformClearLock => remove(&state_dir.join(LOCK_FILE)),
-            Action::TerraformReadState => state::read(&state_dir).map(drop),
-            Action::TerraformCopyModule => {
-                let (at, with) = (crate::executor::plan::at(list, step), super::with_of(step));
-                let (from, when) = (cx.vars.with_arg(with, &at, "from")?, cx.vars.with_arg(with, &at, "when")?);
-                copy_module::run(cx, &at, from.as_deref(), when.as_deref())
-            }
+            Action::TerraformReadState => state::read(state_dir).map(drop),
+            Action::TerraformCopyModule => copy_module(cx, list, step),
             other => Err(super::foreign_action(isoloom_manifest::Driver::Terraform, step, other)),
-        });
+        };
         std::future::ready(done)
     }
 
     fn observe(&self, cx: &Cx<'_>) -> impl Future<Output = Result<Observed>> {
-        let read = cx.run.runner.store.run_dir(cx.run.name()).and_then(|dir| state::read(&dir));
+        let read = state::read(cx.state_dir());
         std::future::ready(read.map(|tf| observed(cx.run.manifest(), &tf)))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
-        let state_dir = cx.run.runner.store.run_dir(cx.run.name())?;
+        let state_dir = cx.state_dir();
         FORGOTTEN.iter().try_for_each(|f| remove(&state_dir.join(f)))
     }
 

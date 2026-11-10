@@ -106,7 +106,7 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
     let note = format!("Delivering {machine}'s secrets…");
     cx.events
         .stepped(&id, Some(&note), async {
-            let dir = cx.run.runner.store.run_dir(cx.run.name())?;
+            let dir = cx.state_dir();
             let input = Input::write(dir.join(format!("{id}.in")), lines)?;
             let done = deliver_retrying(cx, &id, login, input.path()).await;
             // The file holds the values: one left behind fails the delivery, unless it failed

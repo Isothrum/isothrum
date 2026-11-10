@@ -34,7 +34,7 @@ pub(super) fn run(cx: &Cx<'_>, at: &str, from: Option<&str>, when: Option<&str>)
         Some(other) => return Err(malformed("when", format!("`{other}`: only `missing` is a `when`"))),
     };
     let source = inside_project(cx.run.dir(), at, from)?;
-    let copy = cx.run.runner.store.run_dir(cx.run.name())?.join(COPY);
+    let copy = cx.state_dir().join(COPY);
     if only_missing && copy.is_dir() {
         return Ok(());
     }

@@ -60,6 +60,12 @@ impl std::fmt::Debug for Running<'_> {
     }
 }
 
+/// Makes the run's state folder of `cx`, owner-only, for what an operation (or a status read)
+/// writes there; a query that writes nothing leaves no folder behind.
+fn made(cx: &Cx<'_>) -> Result<()> {
+    crate::store::private_dir(cx.state_dir()).map_err(Error::io(cx.state_dir(), "created"))
+}
+
 impl<'r> Running<'r> {
     pub(crate) fn new(runner: &'r Runner, loaded: LoadedManifest, name: RunName) -> Result<Running<'r>> {
         if !loaded.manifest.hosts.contains(&runner.config.host) {
@@ -138,8 +144,8 @@ impl<'r> Running<'r> {
         Ok((record, cx))
     }
 
-    /// Runs `f` on a quiet context of the run ([`Running::quiet`]), emitting nothing: for the
-    /// pure queries.
+    /// Runs `f` on a quiet context of the run ([`Running::quiet`]), emitting nothing, its state
+    /// folder not made: for the queries that run no step.
     pub(crate) fn query<T>(&self, f: impl FnOnce(&Cx<'_>) -> Result<T>) -> Result<T> {
         let events = self.silent();
         let (_, cx) = self.quiet(&events)?;
@@ -151,7 +157,9 @@ impl<'r> Running<'r> {
         Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref())
     }
 
-    /// The run as it stands: never locked, and never an event. While an operation holds the run
+    /// The run as it stands: never locked, and never an event. It changes nothing of the run, but
+    /// readies its state folder as an operation does for the tools it asks (the folder; Compose's
+    /// empty pinned-ports file, which every Compose call names; Terraform's plugin cache). While an operation holds the run
     /// (this runner's, or another process's), the engine isn't asked: that operation acts on the
     /// run with the same tools, which may refuse a read until it is done (Vagrant locks each VM
     /// for the whole of a `vagrant up`, provisioning included). The status is then the
@@ -168,6 +176,7 @@ impl<'r> Running<'r> {
         let (state, mut observed, live) = if let Some(state) = self.while_held(record.as_ref())? {
             (state, self.last_seen(), false)
         } else {
+            made(&cx)?;
             self.driver.prepare(&cx)?;
             self.relay(&mut cx).await?;
             let observed = self.observe(&mut cx).await?;
@@ -221,7 +230,7 @@ impl<'r> Running<'r> {
         events: &'a Emitter<'a>,
         provider: Option<String>,
     ) -> Result<Cx<'a>> {
-        let state_dir = self.runner.store.run_dir(&self.name)?;
+        let state_dir = self.runner.store.run_dir_path(&self.name);
         let mut vars = crate::vars::Vars::default();
         vars.set_run(RunVar::Name, self.name.as_str());
         vars.set_run(RunVar::Dir, self.dir().display().to_string());
@@ -243,6 +252,7 @@ impl<'r> Running<'r> {
             .unwrap_or_default();
         Ok(Cx {
             run: self,
+            state_dir,
             vars,
             secrets,
             events,
@@ -261,8 +271,9 @@ impl<'r> Running<'r> {
     /// management commands need elevation (Hyper-V on Windows), its tools run through one
     /// elevated session, kept in the run's state folder.
     pub(crate) fn acting<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
+        made(&cx)?;
         if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
-            let dir = self.runner.store.run_dir(&self.name)?.join("elevated");
+            let dir = cx.state_dir().join("elevated");
             let inner = std::sync::Arc::clone(&self.runner.config.processes);
             cx.processes = std::sync::Arc::new(crate::process::Elevated::new(inner, dir, self.elevated_env()));
         }

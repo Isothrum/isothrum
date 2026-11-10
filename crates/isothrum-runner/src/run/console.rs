@@ -11,8 +11,9 @@ use crate::executor::Cx;
 impl Running<'_> {
     /// The command that opens an interactive console into `machine`, any machine of the run (an
     /// SSH login on a cloud's), by its native name (the Compose service, the Vagrant define), so
-    /// the embedder never reconstructs a container name. A pure query: it runs nothing, emits
-    /// nothing, and doesn't check the machine is up (the embedder runs what it returns in its own
+    /// the embedder never reconstructs a container name. A query: it runs nothing, emits nothing,
+    /// writes only what the command needs (the SSH configuration in the run's state folder, for a
+    /// way in over SSH; nothing for a container's), and doesn't check the machine is up (the embedder runs what it returns in its own
     /// terminal once the machine is up or attached).
     ///
     /// With `user`, the console opens as that account of the machine, in its home, rather than as

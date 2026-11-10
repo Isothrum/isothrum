@@ -218,7 +218,7 @@ pub(crate) fn spec_for(cx: &Cx<'_>, list: &str, step: &Step) -> Result<ProcessSp
             });
         }
     };
-    let command = plan::command(argv, cx.run.runner.config.host, &cx.vars, &at)?;
+    let command = plan::command(argv, cx.scope.host, &cx.vars, &at)?;
     let dir = cx.run.dir();
     let spec = ProcessSpec {
         program: command.program,
@@ -227,7 +227,7 @@ pub(crate) fn spec_for(cx: &Cx<'_>, list: &str, step: &Step) -> Result<ProcessSp
         env: env_of(cx, list, step)?,
         stdin: stdin_of(cx, list, step)?,
     };
-    crate::container::wrap(cx, spec)
+    Ok(crate::container::wrap(cx, spec))
 }
 
 /// The file piped into step `step`: its `stdin` filled, from the manifest's folder (a file of

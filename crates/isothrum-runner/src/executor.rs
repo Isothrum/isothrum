@@ -35,6 +35,8 @@ use crate::vars::Vars;
 pub(crate) struct Cx<'a> {
     /// The run.
     pub(crate) run: &'a Running<'a>,
+    /// The run's state folder (`${run.state_dir}`): read it through [`Cx::state_dir`].
+    pub(crate) state_dir: std::path::PathBuf,
     /// Its placeholders' values.
     pub(crate) vars: Vars,
     /// The secret and input values given to this operation.
@@ -58,6 +60,15 @@ pub(crate) struct Cx<'a> {
     /// The machines that were set up before this operation (an update's running machines): they
     /// keep what they were given, so no guest delivery goes to them again.
     pub(crate) set_up: std::collections::BTreeSet<String>,
+}
+
+impl Cx<'_> {
+    /// The run's state folder (`${run.state_dir}`), worked out once with the context: every driver
+    /// and helper reads and writes there through this, never asking the store again. An
+    /// operation and a status read make it (owner-only) before their first step; a query doesn't.
+    pub(crate) fn state_dir(&self) -> &std::path::Path {
+        &self.state_dir
+    }
 }
 
 /// Texts watched for in every line an argv or `ssh.run` step prints (a driver action's own calls

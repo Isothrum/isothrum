@@ -22,7 +22,7 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Res
     if crate::driver::is_compose_service(machine) {
         return Err(crate::driver::no_vm_for("a console into", machine));
     }
-    let outputs = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.outputs;
+    let outputs = state::read(cx.state_dir())?.outputs;
     let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump.as_deref())?.ok_or_else(|| Error::NotRunning {
         run: cx.run.name().to_string(),
     })?;
@@ -34,7 +34,7 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Res
 /// has none. Either way the session carries no variable: a Terraform run delivers nothing to its
 /// VM's sessions.
 pub(super) fn in_guest(cx: &Cx<'_>, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-    let outputs = state::read(&cx.run.runner.store.run_dir(cx.run.name())?)?.outputs;
+    let outputs = state::read(cx.state_dir())?.outputs;
     let login = super::guest::login(cx, &outputs)?.ok_or_else(|| Error::Unsupported {
         what: "running a script in the run's VM: this run has none".to_owned(),
     })?;

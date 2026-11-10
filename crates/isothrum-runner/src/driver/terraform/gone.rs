@@ -73,7 +73,7 @@ fn address(resource: &Value, instance: &Value) -> Option<String> {
 /// `tool_failed` when `terraform state rm` fails.
 pub(super) async fn forget(cx: &Cx<'_>, list: &str, step: &Step, held: Vec<Gone>, seen: &BTreeSet<String>) -> Result<bool> {
     let found: Vec<Gone> = held.into_iter().filter(|g| seen.contains(&g.text)).collect();
-    let Some(rm) = state_rm(step, cx.run.runner.config.host, &found) else {
+    let Some(rm) = state_rm(step, cx.scope.host, &found) else {
         return Ok(false);
     };
     for g in &found {

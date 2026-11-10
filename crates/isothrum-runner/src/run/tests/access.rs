@@ -304,6 +304,9 @@ async fn a_console_opens_any_compose_service_by_name() {
     assert!(line.ends_with(crate::driver::shells::CONTAINER_SHELL), "{line}");
     assert_eq!(cmd.cwd, f.manifest.parent().unwrap(), "runs in the run's folder");
     assert_eq!(run.console_command("nope", None).unwrap_err().code(), ErrorCode::MachineUnknown);
+    // Regression: the query made the run's state folder, though a container's console writes
+    // nothing there; a run never started was left a folder.
+    assert!(!f.runner.store.run_dir_path(run.name()).exists(), "no state folder for a query");
 }
 
 /// A console as an account of a Compose service's container: `exec --user`, then a login shell

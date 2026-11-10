@@ -44,7 +44,7 @@ pub(crate) async fn project(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMa
     };
     let outputs: Vec<String> = arg("outputs")?.unwrap_or_default().split_whitespace().map(str::to_owned).collect();
     let root = cx.run.dir().join(root);
-    let out = cx.run.runner.store.run_dir(cx.run.name())?.join(ARCHIVE);
+    let out = cx.state_dir().join(ARCHIVE);
     let target = out.clone();
     let written = tokio::task::spawn_blocking(move || write(&root, &outputs, &target)).await;
     match written {
@@ -165,7 +165,7 @@ fn utf8_name(folder: &Path, name: std::ffi::OsString) -> io::Result<String> {
 
 /// Removes the run's archive once the run is down: nothing is left to copy it to.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
-    let path: PathBuf = cx.run.runner.store.run_dir(cx.run.name())?.join(ARCHIVE);
+    let path: PathBuf = cx.state_dir().join(ARCHIVE);
     crate::store::if_there(std::fs::remove_file(&path))
         .map(drop)
         .map_err(Error::io(&path, "removed"))

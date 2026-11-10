@@ -15,14 +15,13 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::Tool;
 
-use crate::Result;
 use crate::executor::Cx;
 use crate::host_env::{HostEnv, TF_CLI_CONFIG_FILE, same_var};
 use crate::process::ProcessSpec;
 
 /// The tool of the manifest that runs `program` from an image on this host, if one does.
 pub(crate) fn tool_for<'a>(cx: &'a Cx<'_>, program: &str) -> Option<&'a Tool> {
-    let host = cx.run.runner.config.host;
+    let host = cx.scope.host;
     cx.run
         .manifest()
         .tools
@@ -39,20 +38,20 @@ fn program_of(tool: &Tool) -> Option<&str> {
 }
 
 /// `spec`, run from its tool's image when the manifest says so on this host; else as it is.
-pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> Result<ProcessSpec> {
+pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> ProcessSpec {
     let Some(image) = tool_for(cx, &spec.program).and_then(|t| t.container.as_ref()) else {
-        return Ok(spec);
+        return spec;
     };
-    let state = cx.run.runner.store.run_dir(cx.run.name())?;
+    let state = cx.state_dir();
     let home = &cx.run.runner.config.home;
     let mounts = mounts(&[
         run_root(cx.run.dir()),
-        &state,
+        state,
         &crate::ssh::dir(home),
         &crate::driver::plugin_cache(&cx.run.runner.config),
     ]);
     let network = HostNetwork::read(&cx.run.runner.config.host_env);
-    Ok(docker_run(image.as_str(), &mounts, &network, spec))
+    docker_run(image.as_str(), &mounts, &network, spec)
 }
 
 /// What a container needs of this host's network settings: the variables it gets by name, and

@@ -206,24 +206,29 @@ impl Store {
 
     /// Run `name`'s folder, created owner-only.
     pub(crate) fn run_dir(&self, name: &RunName) -> Result<PathBuf> {
-        let dir = self.runs.join(name.as_str());
+        let dir = self.run_dir_path(name);
         private_dir(&dir).map_err(Error::io(&dir, "created"))?;
         Ok(dir)
     }
 
+    /// Run `name`'s folder (not made: [`Store::run_dir`] makes it).
+    pub(crate) fn run_dir_path(&self, name: &RunName) -> PathBuf {
+        self.runs.join(name.as_str())
+    }
+
     /// Run `name`'s record file (its folder not made).
     fn record_path(&self, name: &RunName) -> PathBuf {
-        self.runs.join(name.as_str()).join(RECORD_FILE)
+        self.run_dir_path(name).join(RECORD_FILE)
     }
 
     /// Run `name`'s event log (its folder not made).
     fn events_path(&self, name: &RunName) -> PathBuf {
-        self.runs.join(name.as_str()).join(EVENTS_FILE)
+        self.run_dir_path(name).join(EVENTS_FILE)
     }
 
     /// Run `name`'s lock file.
     pub(crate) fn lock_path(&self, name: &RunName) -> PathBuf {
-        self.runs.join(name.as_str()).join(LOCK_FILE)
+        self.run_dir_path(name).join(LOCK_FILE)
     }
 
     /// Whether an operation holds run `name` now, in this process or another ([`lock::held`]).
@@ -234,7 +239,7 @@ impl Store {
 
     /// Run `name`'s [`Seen`] file (its folder not made).
     fn seen_path(&self, name: &RunName) -> PathBuf {
-        self.runs.join(name.as_str()).join(SEEN_FILE)
+        self.run_dir_path(name).join(SEEN_FILE)
     }
 
     /// What the runner last saw of run `name`, when it ever read it.

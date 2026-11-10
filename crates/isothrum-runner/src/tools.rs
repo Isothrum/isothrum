@@ -40,7 +40,7 @@ fn used(cx: &Cx<'_>, tool: &Tool) -> bool {
 
 async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
     let id = StepId::parse(STEP).map_err(|e| Error::Unsupported { what: e.to_string() })?;
-    if let Some(image) = tool.container.as_ref().filter(|_| tool.container_hosts.contains(&cx.run.runner.config.host)) {
+    if let Some(image) = tool.container.as_ref().filter(|_| tool.container_hosts.contains(&cx.scope.host)) {
         // The tool runs from its pinned image here: the engine that runs it must answer, and
         // the image is the version the manifest pins.
         return engine(cx, id, image.as_str()).await;
