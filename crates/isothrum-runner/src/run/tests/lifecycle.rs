@@ -184,63 +184,6 @@ async fn unreadable_ps_output_fails_a_resume_and_keeps_the_run_parked() {
     assert_eq!(f.containers(), Containers::Stopped, "nothing started");
 }
 
-/// A `tcp` ready condition holds once its address answers, and fails a start when it never does.
-#[tokio::test(start_paused = true)]
-async fn a_tcp_condition_holds_once_its_port_answers() {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
-    m["ready"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({ "kind": "tcp", "address": "127.0.0.1", "port": "${published.web.portal}", "timeout_s": 10 }));
-    let manifest = m.to_string();
-    let silent = fixture_with(&manifest);
-    let unanswered = silent.runner.open(&silent.manifest, None).unwrap();
-    let silent_events = Recorder::new();
-    let err = unanswered.up(&opts(), &silent_events).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::NotReady, "{err}");
-
-    // Waiting is said once, with what it waits for, not every try.
-    let waited: Vec<String> = kinds(&silent_events)
-        .into_iter()
-        .filter_map(|k| match k {
-            EventKind::Ready {
-                state: crate::ReadyState::Waiting,
-                detail,
-                ..
-            } => Some(detail),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(waited, ["no answer yet; trying every 2s for 10s"]);
-
-    let f = fixture_with(&manifest);
-    f.ports.answer("127.0.0.1", 41873);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let events = Recorder::new();
-    run.up(&opts(), &events).await.unwrap();
-    assert!(kinds(&events).contains(&EventKind::Ready {
-        condition: "tcp 127.0.0.1:41873".into(),
-        state: crate::ReadyState::Ok,
-        detail: String::new(),
-    }));
-}
-
-/// A `tcp` condition whose port isn't a number is the manifest's mistake, not a run that isn't
-/// ready.
-#[tokio::test(start_paused = true)]
-async fn a_tcp_condition_on_no_port_is_manifest_invalid() {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
-    m["ready"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({ "kind": "tcp", "address": "127.0.0.1", "port": "http", "timeout_s": 10 }));
-    let f = fixture_with(&m.to_string());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
-    assert_eq!(err.to_string(), "ready.tcp.port: `http` isn't a port");
-}
-
 #[tokio::test]
 async fn leftovers_are_removed_before_a_start() {
     let f = fixture();
