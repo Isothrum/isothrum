@@ -49,7 +49,7 @@ spec and targets.
 - **Drivers.** One per manifest driver: `compose`, `vagrant`, `terraform`. A driver implements its
   own actions and how it reads status; the steps themselves are generic.
 - **Ports.** Every outside effect goes through a trait: `ProcessRunner` (starting tools),
-  `HostPorts` (the host's TCP ports) and `Events` (where events go). Tests use scripted fakes
+  `HostPorts` (the host's TCP and UDP ports) and `Events` (where events go). Tests use scripted fakes
   (the `fake` feature) and never start a real tool.
 - **Store.** A plain folder per run under the runner's home: the record, a lock, the event log and
   the run's state folder. See [State layout](../reference/state.md).

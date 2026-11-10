@@ -291,6 +291,11 @@ change.
   output now shows them (`waiting: <condition>: <detail>`). A `tcp` condition emitted an empty
   `waiting` event every 2 s; it says once what it waits for.
 
+- **A cable from a port to itself is a `SelfLink`.** The compiler checked the ports first, so a
+  cable whose two ends were the same port failed with `PortInUse` (the second end read as a port
+  that already had a cable); it now fails with `Error::SelfLink`, as a cable between two ports of
+  one node does.
+
 - **A mistyped `--param` on an existing run is refused.** `down`, `park`, `check`, `update` and
   the other operations on a run that exists dropped a param the manifest doesn't take and passed
   a value outside its `values` unchecked. They now check what is given as a start does (an

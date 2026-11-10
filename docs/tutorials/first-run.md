@@ -53,8 +53,8 @@ isothrum status
 
 ```text
 hello-stack: ready
-  cache                    target  running
-  web                      target  running      64336->80
+  cache                    member  running
+  web                      member  running      64336->80
   ...
 ```
 

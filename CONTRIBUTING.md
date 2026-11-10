@@ -27,6 +27,7 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
    ```toml
    [patch.crates-io]
    isoloom-manifest = { path = "../isoloom/crates/core/isoloom-manifest" }
+   isoloom-plan = { path = "../isoloom/crates/core/isoloom-plan" }
    isoloom-spec = { path = "../isoloom/crates/core/isoloom-spec" }
    isoloom-targets = { path = "../isoloom/crates/targets/isoloom-targets" }
    # ... and the Isoloom crates those depend on

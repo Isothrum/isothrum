@@ -9,7 +9,8 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
     <run>/                 one folder per run, named after the run
       record.json          the run's record
       lock                 the OS lock: one operation per run at a time, across processes
-      events.jsonl         the last operations' events (trimmed to half past 4000 lines)
+      events.jsonl         the last operations' events: once over 4000 lines, trimmed to the
+                           newest 2000, by the operation holding the run's lock
       ...                  the run's state folder (${run.state_dir}): what the manifest keeps there
   slots.lock               the OS lock a start holds while it picks its slot (${run.slot})
   ssh/
