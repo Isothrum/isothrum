@@ -95,7 +95,9 @@ pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
         return Some(Vec::new());
     }
     if trimmed.starts_with('[') {
-        return serde_json::from_str(trimmed).ok();
+        return serde_json::from_str(trimmed)
+            .inspect_err(|e| tracing::warn!(error = %e, "`docker compose ps`'s list couldn't be read"))
+            .ok();
     }
     let read = |(n, line): (usize, &str)| match serde_json::from_str(line) {
         Ok(entry) => Some(entry),
@@ -165,6 +167,17 @@ mod tests {
         assert!(!traced.contains("s3cret"), "the line itself isn't traced: {traced}");
         let (_, quiet) = crate::testing::traced(async { parse_ps("{\"Service\":\"web\"}\n\n") }).await;
         assert!(quiet.is_empty(), "a blank line is no container: {quiet}");
+    }
+
+    /// Regression: the list form's parse error was dropped, unlike a line's.
+    #[tokio::test]
+    async fn a_list_that_doesnt_parse_is_unreadable_and_traced() {
+        let (entries, traced) = crate::testing::traced(async { parse_ps("[{\"Service\":\"web\"},") }).await;
+        assert!(entries.is_none());
+        assert!(
+            traced.contains("WARN") && traced.contains("list couldn't be read") && traced.contains("EOF"),
+            "{traced}"
+        );
     }
 
     #[test]
