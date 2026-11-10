@@ -32,7 +32,7 @@ pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str
         Some("missing") => true,
         Some(other) => return Err(malformed("when", format!("`{other}`: only `missing` is a `when`"))),
     };
-    let source = inside_project(cx.run.dir(), from).ok_or_else(|| malformed("from", format!("`{from}` isn't a folder inside the run's project")))?;
+    let source = inside_project(cx.run.dir(), step, from)?;
     let copy = cx.run.runner.store.run_dir(cx.run.name())?.join(COPY);
     if only_missing && copy.is_dir() {
         return Ok(());
@@ -43,16 +43,41 @@ pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str
 }
 
 /// `from` (relative to the manifest's folder `dir`) as a folder inside the run's project: the
-/// folder above the `.isoloom…` one.
-pub(super) fn inside_project(dir: &Path, from: &str) -> Option<PathBuf> {
-    let project = std::fs::canonicalize(crate::container::run_root(dir)).ok()?;
-    let source = std::fs::canonicalize(dir.join(from)).ok()?;
-    (source.starts_with(&project) && source.is_dir()).then_some(source)
+/// folder above the `.isoloom…` one. Step `step`'s `with.from` is malformed when it is missing,
+/// outside the project or not a folder; a path that can't be resolved for another reason is an
+/// I/O error.
+pub(super) fn inside_project(dir: &Path, step: &str, from: &str) -> crate::Result<PathBuf> {
+    let outside = || Error::Malformed {
+        at: format!("{step}.with.from"),
+        reason: format!("`{from}` isn't a folder inside the run's project"),
+    };
+    let resolve = |path: PathBuf| match std::fs::canonicalize(&path) {
+        Ok(resolved) => Ok(Some(resolved)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::io(path, "resolved")(e)),
+    };
+    let project = resolve(crate::container::run_root(dir).to_path_buf())?.ok_or_else(outside)?;
+    let source = resolve(dir.join(from))?.ok_or_else(outside)?;
+    if source.starts_with(&project) && source.is_dir() {
+        Ok(source)
+    } else {
+        Err(outside())
+    }
 }
 
-/// Whether `dir` holds a Terraform file.
-pub(super) fn has_terraform_files(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|d| d.flatten().any(|e| is_terraform_file(&e.path())))
+/// Whether `dir` holds a Terraform file; a folder that isn't there holds none.
+pub(super) fn has_terraform_files(dir: &Path) -> crate::Result<bool> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(Error::io(dir, "read")(e)),
+    };
+    for entry in entries {
+        if is_terraform_file(&entry.map_err(Error::io(dir, "read"))?.path()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn is_terraform_file(path: &Path) -> bool {
@@ -63,7 +88,8 @@ fn is_terraform_file(path: &Path) -> bool {
 /// Removes the Terraform files under `dir` (its `.terraform` left alone).
 fn forget_terraform_files(dir: &Path) -> crate::Result<()> {
     let entries = std::fs::read_dir(dir).map_err(Error::io(dir, "read"))?;
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry.map_err(Error::io(dir, "read"))?;
         let path = entry.path();
         if path.is_dir() && entry.file_name() != ".terraform" {
             forget_terraform_files(&path)?;
@@ -82,7 +108,8 @@ fn left_out(name: &str) -> bool {
 /// Copies `from` into `to`, recursively, but what [`left_out`] names.
 fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
     let entries = std::fs::read_dir(from).map_err(Error::io(from, "read"))?;
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry.map_err(Error::io(from, "read"))?;
         let name = entry.file_name();
         if left_out(&name.to_string_lossy()) {
             continue;

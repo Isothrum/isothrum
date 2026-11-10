@@ -66,7 +66,40 @@ async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
-    assert!(err.to_string().contains("generate the run's files again"), "{err}");
+    assert_eq!(
+        err.to_string(),
+        "copy-module.with.from: `../../../terraform` isn't a folder inside the run's project"
+    );
+    assert!(a.fake.last("terraform").is_none(), "nothing ran");
+}
+
+/// Regression: the module checked was the generated one beside the manifest, whatever the copy
+/// named, so a module without a Terraform file was reported at the wrong folder.
+#[tokio::test(start_paused = true)]
+async fn a_module_without_a_terraform_file_is_named_where_it_is() {
+    let (a, module) = with_own_module();
+    for file in ["main.tf", "old.tf"] {
+        std::fs::remove_file(module.join(file)).unwrap();
+    }
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
+    let checked = std::fs::canonicalize(&module).unwrap();
+    assert!(err.to_string().starts_with(&format!("the Terraform module {}:", checked.display())), "{err}");
+}
+
+/// Regression: a `with.from` that couldn't be filled was dropped, and the run was told its
+/// generated files had no Terraform file.
+#[tokio::test(start_paused = true)]
+async fn a_copy_whose_folder_cant_be_filled_says_so() {
+    let mut m: serde_json::Value = serde_json::from_str(&own_module()).unwrap();
+    m["lifecycle"]["up"][0]["with"]["from"] = "${params.AWS_PROFILE}".into();
+    let a = account_of(&m.to_string(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let mut no_profile = opts("eu-west-3", "demo");
+    no_profile.params.remove("AWS_PROFILE");
+    let err = run.up(&no_profile, &Recorder::new()).await.unwrap_err();
+    assert!(matches!(err, crate::Error::Unbound { .. }), "{err}");
+    assert!(err.to_string().contains("copy-module.with.from"), "{err}");
     assert!(a.fake.last("terraform").is_none(), "nothing ran");
 }
 
@@ -75,6 +108,9 @@ async fn a_copy_with_a_when_it_doesnt_know_is_a_malformed_manifest() {
     let mut m: serde_json::Value = serde_json::from_str(&own_module()).unwrap();
     m["lifecycle"]["up"][0]["with"]["when"] = "always".into();
     let a = account_of(&m.to_string(), 0);
+    let module = a.folder.target_dir().join("../../../terraform");
+    std::fs::create_dir_all(&module).unwrap();
+    std::fs::write(module.join("main.tf"), "").unwrap();
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");

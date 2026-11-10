@@ -65,6 +65,15 @@ impl Terraform {
     fn module(&self, cx: &Cx<'_>) -> PathBuf {
         cx.run.dir().join(self.identity.module.as_str())
     }
+
+    /// The folder whose module the run applies, checked before anything runs: the run's own
+    /// module where it is when `up` copies one (`terraform.copy_module`), else the generated one.
+    fn checked_module(&self, cx: &Cx<'_>) -> Result<PathBuf> {
+        match copied_from(cx)? {
+            Some((step, from)) => copy_module::inside_project(cx.run.dir(), &step, &from),
+            None => Ok(self.module(cx)),
+        }
+    }
 }
 
 /// The plugin cache the runs use: the user's own (`TF_PLUGIN_CACHE_DIR`), else the one every run
@@ -75,18 +84,14 @@ pub(crate) fn plugin_cache(config: &RunnerConfig) -> PathBuf {
 
 impl Driver for Terraform {
     fn preflight(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        let module = self.module(cx);
-        // A run's own module the run copies (`terraform.copy_module`) is checked where it is.
-        let copied = copied_from(cx).and_then(|from| copy_module::inside_project(cx.run.dir(), &from));
-        let has_tf = copy_module::has_terraform_files(copied.as_deref().unwrap_or(&module));
-        std::future::ready(if has_tf {
-            Ok(())
-        } else {
-            Err(Error::Malformed {
+        let checked = self.checked_module(cx).and_then(|module| match copy_module::has_terraform_files(&module)? {
+            true => Ok(()),
+            false => Err(Error::Malformed {
                 at: format!("the Terraform module {}", module.display()),
                 reason: "it has no `.tf` file: generate the run's files again".to_owned(),
-            })
-        })
+            }),
+        });
+        std::future::ready(checked)
     }
 
     /// Creates the runner's own plugin cache; the user's is theirs, used as it is.
@@ -212,16 +217,20 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
     }
 }
 
-/// The folder the first `terraform.copy_module` of `up` copies (`with.from`), filled.
-fn copied_from(cx: &Cx<'_>) -> Option<String> {
-    let up = cx.run.manifest().lifecycle.up.as_slice();
-    up.iter().find_map(|s| match &s.run {
-        isoloom_manifest::Run::Action {
+/// The first `terraform.copy_module` of `up` that names its folder: its step and that folder
+/// (`with.from`), filled.
+fn copied_from(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
+    for step in &cx.run.manifest().lifecycle.up {
+        if let isoloom_manifest::Run::Action {
             action: Action::TerraformCopyModule,
             with,
-        } => cx.vars.with_arg(with, s.id.as_str(), "from").ok().flatten(),
-        _ => None,
-    })
+        } = &step.run
+            && let Some(from) = cx.vars.with_arg(with, step.id.as_str(), "from")?
+        {
+            return Ok(Some((step.id.as_str().to_owned(), from)));
+        }
+    }
+    Ok(None)
 }
 
 /// The manifest's expiry variable, as the module takes it, when the run has an expiry.

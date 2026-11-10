@@ -45,7 +45,7 @@ fn files(dir: &Path) -> Vec<String> {
 #[test]
 fn the_module_is_copied_without_its_providers_or_state() {
     let (_root, dir) = project();
-    let source = inside_project(&dir, "../../terraform").unwrap();
+    let source = inside_project(&dir, "copy", "../../terraform").unwrap();
     let copy = tempfile::tempdir().unwrap();
     copy_tree(&source, copy.path()).unwrap();
     assert_eq!(files(copy.path()), ["index.html", "main.tf", "modules/site/main.tf", "vars.auto.tfvars.json"]);
@@ -54,7 +54,7 @@ fn the_module_is_copied_without_its_providers_or_state() {
 #[test]
 fn a_new_copy_replaces_the_terraform_files_and_keeps_what_the_module_wrote() {
     let (_root, dir) = project();
-    let source = inside_project(&dir, "../../terraform").unwrap();
+    let source = inside_project(&dir, "copy", "../../terraform").unwrap();
     let copy = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(copy.path().join(".terraform")).unwrap();
     for (file, text) in [
@@ -79,19 +79,45 @@ fn a_new_copy_replaces_the_terraform_files_and_keeps_what_the_module_wrote() {
 #[test]
 fn a_module_outside_the_project_is_refused() {
     let (root, dir) = project();
-    assert!(inside_project(&dir, "../../terraform").is_some());
-    assert!(inside_project(&dir, "../../../").is_none(), "above the project");
-    assert!(inside_project(&dir, "../../missing").is_none());
+    assert!(inside_project(&dir, "copy", "../../terraform").is_ok());
+    let refused = |from: &str| inside_project(&dir, "copy", from).unwrap_err().to_string();
+    assert_eq!(
+        refused("../../../"),
+        "copy.with.from: `../../../` isn't a folder inside the run's project",
+        "above the project"
+    );
+    assert!(refused("../../missing").contains("isn't a folder inside"));
     std::fs::write(root.path().join("file.tf"), "").unwrap();
-    assert!(inside_project(&dir, "../../file.tf").is_none(), "a file, not a folder");
+    assert!(refused("../../file.tf").contains("isn't a folder inside"), "a file, not a folder");
+}
+
+/// Regression: a folder that couldn't be read was a folder with no Terraform file, and the run
+/// was told to generate its files again.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cant_be_read_is_an_error_not_a_module_without_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("module");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(locked.join("main.tf"), "").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let read = has_terraform_files(&locked);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let err = read.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(
+        has_terraform_files(&dir.path().join("missing")).is_ok_and(|has| !has),
+        "a missing folder holds none"
+    );
 }
 
 #[test]
 fn terraform_files_are_its_own_extensions() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(!has_terraform_files(dir.path()));
+    assert!(!has_terraform_files(dir.path()).unwrap());
     std::fs::write(dir.path().join("notes.md"), "").unwrap();
-    assert!(!has_terraform_files(dir.path()));
+    assert!(!has_terraform_files(dir.path()).unwrap());
     std::fs::write(dir.path().join("main.tf.json"), "{}").unwrap();
-    assert!(has_terraform_files(dir.path()));
+    assert!(has_terraform_files(dir.path()).unwrap());
 }
