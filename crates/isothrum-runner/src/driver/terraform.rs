@@ -13,8 +13,8 @@
 //!   outputs from the state's.
 //! - Every process gets the shared plugin cache (one copy of each provider for every run), and
 //!   with an `expiry` the computed expiry as its Terraform variable.
-//! - After a successful `down`: the state, its data folder, the run's `known_hosts` and SSH
-//!   configuration, the project's archive and the module's copy go.
+//! - After a successful `down`: the state, its data folder and the module's copy go (the run's
+//!   SSH files and the project's archive go for every driver).
 //! - No on-demand access machine: the module makes every machine it has at `up`.
 
 mod console;
@@ -38,14 +38,7 @@ use crate::{Error, Result, RunnerConfig};
 const LOCK_FILE: &str = ".terraform.tfstate.lock.info";
 
 /// What a successful `down` leaves no use for, in the run's state folder.
-const FORGOTTEN: [&str; 6] = [
-    state::STATE_FILE,
-    state::BACKUP_FILE,
-    ".terraform",
-    "known_hosts",
-    "ssh_config",
-    copy_module::COPY,
-];
+const FORGOTTEN: [&str; 4] = [state::STATE_FILE, state::BACKUP_FILE, ".terraform", copy_module::COPY];
 
 /// The output holding the published ports.
 const PUBLISHED: &str = "published";

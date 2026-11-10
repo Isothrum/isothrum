@@ -197,7 +197,7 @@ impl<'r> Running<'r> {
         vars.set_run(RunVar::Name, self.name.as_str());
         vars.set_run(RunVar::Dir, self.dir().display().to_string());
         vars.set_run(RunVar::StateDir, state_dir.display().to_string());
-        vars.set_run(RunVar::KnownHosts, state_dir.join("known_hosts").display().to_string());
+        vars.set_run(RunVar::KnownHosts, state_dir.join(crate::ssh::KNOWN_HOSTS).display().to_string());
         vars.set_run(RunVar::SshKey, crate::ssh::key_path(&self.runner.config.home).display().to_string());
         if let Some(key) = crate::ssh::public_key(&self.runner.config.home) {
             vars.set_run(RunVar::SshPublicKey, key);

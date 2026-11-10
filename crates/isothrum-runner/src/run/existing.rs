@@ -32,6 +32,7 @@ impl Running<'_> {
             run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
             self.driver.after_down(&cx)?;
             crate::executor::state_files::forget(&cx)?;
+            crate::ssh::forget(&cx)?;
             self.forget_seal()?;
             crate::archive::forget(&cx)?;
             Ok(Done {

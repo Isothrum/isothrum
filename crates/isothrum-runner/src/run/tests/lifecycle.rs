@@ -433,3 +433,20 @@ async fn a_verdict_that_isnt_a_regular_expression_is_a_malformed_manifest() {
     assert!(err.to_string().starts_with("lifecycle.up.up.verdict: `(` isn't a regular expression"), "{err}");
     assert!(f.fake.last(" up --detach ").is_none(), "the step never ran");
 }
+
+/// Regression: only the Terraform driver forgot the run's pinned host keys, so a Compose or
+/// Vagrant run brought up again refused its recreated machines' new keys at the same addresses.
+#[tokio::test]
+async fn a_down_forgets_the_runs_ssh_files_whatever_the_driver() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let state = f.runner.store.run_dir(run.name()).unwrap();
+    for file in ["known_hosts", "ssh_config"] {
+        std::fs::write(state.join(file), "10.0.0.9 ssh-ed25519 AAAAold\n").unwrap();
+    }
+    run.down(&RunOptions::default(), &Recorder::new()).await.unwrap();
+    for file in ["known_hosts", "ssh_config"] {
+        assert!(!state.join(file).exists(), "{file} is forgotten");
+    }
+}

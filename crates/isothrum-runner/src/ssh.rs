@@ -30,6 +30,9 @@ const KEY_FILE: &str = "id_ed25519";
 /// The run's SSH configuration, in its state folder.
 const CONFIG_FILE: &str = "ssh_config";
 
+/// The host keys the run's SSH pinned (`StrictHostKeyChecking accept-new`), in its state folder.
+pub(crate) const KNOWN_HOSTS: &str = "known_hosts";
+
 /// How long making the key may take.
 const KEYGEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -171,13 +174,24 @@ impl Login {
     }
 }
 
+/// Forgets the run's pinned host keys and SSH configuration, after a successful `down` whatever
+/// the driver: a run brought up again meets new machines, maybe at the same addresses, whose new
+/// keys a pinned one would refuse.
+pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
+    let state = cx.run.runner.store.run_dir(cx.run.name())?;
+    [KNOWN_HOSTS, CONFIG_FILE].iter().try_for_each(|file| {
+        let path = state.join(file);
+        crate::store::remove_path(&path).map_err(Error::io(&path, "removed"))
+    })
+}
+
 /// The process running `command` at `login` for `cx`'s run, the variables of `env` carried into
 /// the session: its configuration written first, in the run's state folder, where it runs.
 pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
     let home = &cx.run.runner.config.home;
     let state = cx.run.runner.store.run_dir(cx.run.name())?;
     let path = state.join(CONFIG_FILE);
-    let text = config(&key_path(home), &state.join("known_hosts")).ok_or_else(|| {
+    let text = config(&key_path(home), &state.join(KNOWN_HOSTS)).ok_or_else(|| {
         let why = "the runner's home is at a path SSH's config can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
         Error::io(&path, "written")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
     })?;
