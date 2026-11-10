@@ -2,3 +2,5 @@ target/
 # wasm-pack output (`cargo run -p xtask -- wasm`)
 web/
 node_modules/
+# A developer's patch of the Isoloom crates to a local checkout (CONTRIBUTING.md): never committed.
+/.cargo/config.toml
