@@ -181,11 +181,8 @@ impl Driver for Vagrant {
         // Vagrantfile reads for its forwards, defaulting each to the port's own `publish` number.
         let forwards = cx.vars.forwards();
         if !forwards.is_empty() {
-            let json = serde_json::to_string(forwards).map_err(|e| Error::Param {
-                name: super::HOSTPORTS.to_owned(),
-                reason: e.to_string(),
-            })?;
-            env.push((super::HOSTPORTS.to_owned(), json));
+            let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), (*port).into())).collect();
+            env.push((super::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
         }
         Ok(env)
     }
