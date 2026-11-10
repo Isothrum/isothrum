@@ -15,10 +15,14 @@ use crate::state::Op;
 /// What a masked value reads as.
 pub(crate) const MASK: &str = "***";
 
+/// The id a read-only query's calls are reported under.
+const QUERY: &str = "query";
+
 /// The events of one operation on one run.
 pub(crate) struct Emitter<'a> {
     run: String,
-    op: Op,
+    /// The operation, none for a read-only query's emitter, which says nothing.
+    op: Option<Op>,
     seq: AtomicU64,
     clock: &'a dyn Clock,
     sink: &'a dyn Events,
@@ -30,6 +34,16 @@ pub(crate) struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     /// Events of `op` on `run`, timed by `clock`, to `sink`.
     pub(crate) fn new(run: &str, op: Op, clock: &'a dyn Clock, sink: &'a dyn Events) -> Emitter<'a> {
+        Emitter::of(run, Some(op), clock, sink)
+    }
+
+    /// The emitter of a read-only query of `run` (`status`, a console's command): no operation,
+    /// and it says nothing.
+    pub(crate) fn silent(run: &str, clock: &'a dyn Clock) -> Emitter<'a> {
+        Emitter::of(run, None, clock, &|_: &crate::events::Event| {})
+    }
+
+    fn of(run: &str, op: Option<Op>, clock: &'a dyn Clock, sink: &'a dyn Events) -> Emitter<'a> {
         Emitter {
             run: run.to_owned(),
             op,
@@ -41,9 +55,10 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// The operation the events are of.
-    pub(crate) fn op(&self) -> Op {
-        self.op
+    /// The id the operation's own calls are reported under: the operation's name (`retire`),
+    /// `query` for a read-only query's.
+    pub(crate) fn call_id(&self) -> &'static str {
+        self.op.map_or(QUERY, Op::as_str)
     }
 
     /// Also appends each event to `log` (the run's `events.jsonl`).
@@ -92,7 +107,7 @@ impl<'a> Emitter<'a> {
             seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
             time: rfc3339(self.clock.now()),
             run: Some(self.run.clone()),
-            op: Some(self.op),
+            op: self.op,
             kind: self.masked(kind),
         };
         if let Some(log) = self.log.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {

@@ -149,7 +149,7 @@ impl<'r> Running<'r> {
 
     /// An emitter of the run that says nothing.
     fn silent(&self) -> Emitter<'_> {
-        Emitter::new(self.name.as_str(), Op::Check, self.runner.config.clock.as_ref(), &|_: &crate::events::Event| {})
+        Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref())
     }
 
     /// The run as it stands: read-only, never locked, and never an event.

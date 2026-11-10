@@ -162,7 +162,7 @@ impl Driver for Compose {
     /// start (back to an on-demand machine in the `access` profile) would keep running.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let profile = machine.on_demand.then_some(access::PROFILE);
-        self.remove(cx, cx.events.op(), profile, service_of(machine, "taking out")?).await
+        self.remove(cx, cx.events.call_id(), profile, service_of(machine, "taking out")?).await
     }
 
     /// `docker compose exec` into the machine's service, a shell there.
@@ -202,7 +202,7 @@ impl Compose {
         if let Some(image) = image {
             env.push((access::IMAGE_ENV.to_owned(), image.to_owned()));
         }
-        let services = self.with_namespace(cx, Op::Attach, Some(access::PROFILE), native).await?;
+        let services = self.with_namespace(cx, Op::Attach.as_str(), Some(access::PROFILE), native).await?;
         let mut rest = vec!["--profile", access::PROFILE, "up", "-d", "--wait", "--no-deps"];
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
@@ -214,15 +214,16 @@ impl Compose {
         Ok(())
     }
 
-    /// Stops and removes `native` with the services in its namespace, through `profile`:
+    /// Stops and removes `native` with the services in its namespace, through `profile`, its
+    /// calls reported under `id`:
     /// `docker compose [--profile <profile>] rm -sf <service> <its sidecars>`.
-    async fn remove(&self, cx: &Cx<'_>, op: Op, profile: Option<&str>, native: &str) -> Result<()> {
-        let services = self.with_namespace(cx, op, profile, native).await?;
+    async fn remove(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<()> {
+        let services = self.with_namespace(cx, id, profile, native).await?;
         let mut rest = profiled(profile);
         rest.extend(["rm", "-sf"]);
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
-        call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Shown).await?;
+        call_ok(cx, id, &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Shown).await?;
         Ok(())
     }
 
@@ -230,13 +231,12 @@ impl Compose {
     /// namespace ([`config::sharing_namespace`]): one machine, started and removed together.
     /// Refused when Compose prints a config it can't be read from: the machine would come up
     /// without its routes, or leave them running.
-    async fn with_namespace(&self, cx: &Cx<'_>, op: Op, profile: Option<&str>, native: &str) -> Result<Vec<String>> {
+    async fn with_namespace(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<Vec<String>> {
         let mut rest = profiled(profile);
         rest.extend(["config", "--format", "json"]);
         let args = self.compose_args(cx, &rest)?;
-        let config = call_ok(cx, op.as_str(), &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
-        let sidecars =
-            config::sharing_namespace(&config, native).ok_or_else(|| config::unreadable(op.as_str(), "the services in the machine's namespace are"))?;
+        let config = call_ok(cx, id, &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
+        let sidecars = config::sharing_namespace(&config, native).ok_or_else(|| config::unreadable(id, "the services in the machine's namespace are"))?;
         let mut services = vec![native.to_owned()];
         services.extend(sidecars);
         Ok(services)

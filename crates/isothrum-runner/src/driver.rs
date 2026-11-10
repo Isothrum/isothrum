@@ -227,7 +227,7 @@ impl AnyDriver {
     }
 
     pub(crate) async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = %cx.events.op(), machine = %machine.name);
+        let span = tracing::debug_span!("driver", driver = self.name(), op = cx.events.call_id(), machine = %machine.name);
         match self {
             AnyDriver::Compose(d) => d.restart(cx, machine, id).instrument(span).await,
             AnyDriver::Vagrant(d) => d.restart(cx, machine, id).instrument(span).await,
@@ -245,7 +245,7 @@ impl AnyDriver {
     }
 
     pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = %cx.events.op(), machine = %machine.name);
+        let span = tracing::debug_span!("driver", driver = self.name(), op = cx.events.call_id(), machine = %machine.name);
         match self {
             AnyDriver::Compose(d) => d.retire(cx, machine).instrument(span).await,
             AnyDriver::Vagrant(d) => d.retire(cx, machine).instrument(span).await,
