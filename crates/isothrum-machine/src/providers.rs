@@ -323,6 +323,27 @@ mod tests {
 
     use super::*;
 
+    /// The names Isoloom's `Provider` takes, from its JSON Schema (each variant's `const`, or the
+    /// `enum` that lists them), sorted.
+    fn isoloom_providers() -> Vec<String> {
+        let schema = serde_json::to_value(schemars::schema_for!(Provider)).unwrap();
+        let variants = schema.get("oneOf").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        let consts = variants.iter().filter_map(|v| v.get("const"));
+        let listed = schema.get("enum").and_then(serde_json::Value::as_array).into_iter().flatten();
+        let mut names: Vec<String> = consts.chain(listed).filter_map(serde_json::Value::as_str).map(str::to_owned).collect();
+        names.sort();
+        names
+    }
+
+    /// Detection covers every provider Isoloom names: one added there fails this until it is
+    /// listed.
+    #[test]
+    fn every_provider_isoloom_names_is_listed() {
+        let mut listed: Vec<String> = ALL.iter().map(isothrum_runner::wire_name).collect();
+        listed.sort();
+        assert_eq!(listed, isoloom_providers());
+    }
+
     #[test]
     fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
         let ids: Vec<String> = ALL.iter().map(isothrum_runner::wire_name).collect();

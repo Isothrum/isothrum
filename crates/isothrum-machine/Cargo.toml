@@ -25,6 +25,9 @@ tokio.workspace = true
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
+# The provider list's completeness test reads Isoloom's `Provider` from its JSON Schema.
+schemars.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [package.metadata.docs.rs]

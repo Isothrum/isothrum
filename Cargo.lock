@@ -776,6 +776,8 @@ version = "1.0.5"
 dependencies = [
  "isoloom-manifest",
  "isothrum-runner",
+ "schemars",
+ "serde_json",
  "tokio",
 ]
 
