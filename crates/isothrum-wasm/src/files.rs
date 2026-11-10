@@ -5,6 +5,7 @@ use isoloom_targets::GeneratedFile;
 use isothrum_compiler::ProjectFile;
 use serde::Serialize;
 
+use crate::Result;
 use crate::plan::compiled;
 
 /// A file: its path and what it holds.
@@ -36,10 +37,12 @@ impl From<ProjectFile> for File {
 
 /// The project's own files, next to isoloom.yml where its paths point: the appliances'
 /// configurations and the starter scripts of the machines' provisioning steps. What a program
-/// writes with the spec to run it; none for a topology that doesn't compile.
-#[must_use]
-pub(crate) fn own_files(topology_json: &str) -> Vec<File> {
-    compiled(topology_json)
-        .map(|(_, c)| c.into_parts().2.into_iter().map(File::from).collect())
-        .unwrap_or_default()
+/// writes with the spec to run it.
+///
+/// # Errors
+///
+/// The topology is malformed or doesn't compile.
+pub(crate) fn own_files(topology_json: &str) -> Result<Vec<File>> {
+    let (_, compiled) = compiled(topology_json)?;
+    Ok(compiled.into_parts().2.into_iter().map(File::from).collect())
 }

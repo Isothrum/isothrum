@@ -44,7 +44,7 @@ fn plan_json_is_a_plan() {
 fn own_files_json_lists_the_starters() {
     let files: serde_json::Value = serde_json::from_str(&own_files_json(TOPOLOGY).map_err(message).unwrap()).unwrap();
     assert_eq!(files[0]["path"], "provision/client.sh");
-    assert_eq!(own_files_json(MALFORMED).map_err(message).unwrap(), "[]");
+    assert!(message(own_files_json(MALFORMED).unwrap_err()).contains("malformed"));
 }
 
 #[wasm_bindgen_test]

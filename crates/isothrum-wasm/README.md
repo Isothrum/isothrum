@@ -15,8 +15,10 @@ wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --rele
 ```
 
 `cargo run -p xtask -- wasm --copy-to <dir>` builds it for size and copies the two files a page
-serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into `<dir>`. As a Rust dependency:
-`cargo add isothrum-wasm`.
+serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into `<dir>`. As a Rust dependency
+(`cargo add isothrum-wasm`), it is for a crate built for `wasm32-unknown-unknown`: its exports'
+errors are JavaScript `Error`s, which exist only in WebAssembly, so built for another target an
+export that fails panics.
 
 ## Example
 
@@ -40,7 +42,8 @@ const zip = bundle(topology);                  // Uint8Array: the project as a z
 ```
 
 `plan_json` reports a topology's problems in its plan (`ok`, `error`, `problems`); the other exports throw
-a JavaScript `Error` saying why when they can't do their work.
+a JavaScript `Error` saying why when they can't do their work (`own_files_json`, `bundle` and
+`bundle_target` for a topology that is malformed or doesn't compile).
 
 ## Feature flags
 

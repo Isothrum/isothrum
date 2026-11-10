@@ -41,10 +41,14 @@ fn read(zip: Vec<u8>, path: &str) -> Outcome<String> {
 
 #[test]
 fn the_projects_own_files_are_its_starters() {
-    let files = own_files(PAIR);
+    let files = own_files(PAIR).unwrap();
     assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["provision/client.sh"]);
     assert!(files[0].contents.starts_with("#!"));
-    assert_eq!(own_files("{ not json"), []);
+    let refused = own_files("{ not json").unwrap_err().to_string();
+    assert!(
+        refused.starts_with("the topology is malformed"),
+        "it says why, rather than give no file: {refused}"
+    );
 }
 
 #[test]
@@ -137,7 +141,7 @@ fn a_target_bundle_holds_only_that_target() -> Outcome {
     let names = names(bundle_target_bytes(PAIR, &target)?)?;
     assert!(names.contains(&SPEC_PATH.to_owned()));
     let prefix = format!(".isoloom/{target}/");
-    let own: Vec<String> = own_files(PAIR).into_iter().map(|f| f.path).collect();
+    let own: Vec<String> = own_files(PAIR)?.into_iter().map(|f| f.path).collect();
     assert!(names.iter().all(|n| n == SPEC_PATH || n.starts_with(&prefix) || own.contains(n)), "{names:?}");
     assert!(names.len() > 1);
     assert_eq!(

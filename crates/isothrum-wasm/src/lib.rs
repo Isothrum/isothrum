@@ -5,7 +5,9 @@
 //!
 //! The functions JavaScript calls are the `#[wasm_bindgen]` ones ([`plan_json`], [`bundle`],
 //! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists for the
-//! editor's tests). The JSON they hand out is a [`Plan`], [`File`]s and [`Choices`].
+//! editor's tests). The JSON they hand out is a [`Plan`], [`File`]s and [`Choices`]. They are
+//! for `wasm32-unknown-unknown`: their errors are JavaScript `Error`s, which exist only there, so
+//! built for another target an export that fails panics.
 //!
 //! ```
 //! let topology = r#"{

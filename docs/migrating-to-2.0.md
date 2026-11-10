@@ -115,7 +115,9 @@ the spec and the project's files.
 
 ## `isothrum-wasm`
 
-The JavaScript exports are unchanged, but `plan_json`, `own_files_json` and `choices_json` now
-return `Result<String, JsError>` in Rust (JavaScript gets the same string, or an `Error`). The Rust
+`own_files_json` throws an `Error` for a topology that is malformed or doesn't compile, where it
+returned `[]`: call it once `plan_json`'s plan is `ok`, or catch it. The other JavaScript exports
+are unchanged, but `plan_json`, `own_files_json` and `choices_json` now return
+`Result<String, JsError>` in Rust (JavaScript gets the same string, or an `Error`). The Rust
 functions `plan`, `bundle_bytes`, `bundle_target_bytes`, `own_files` and `choices`, with `Error`
 and `Result`, are internal; `Plan`, `File` and `Choices` stay.

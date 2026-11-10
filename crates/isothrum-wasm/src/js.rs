@@ -1,5 +1,7 @@
 //! The functions JavaScript calls (`#[wasm_bindgen]`): the engine's values as JSON, and its errors
-//! as JavaScript `Error`s whose `message` is the error's.
+//! as JavaScript `Error`s whose `message` is the error's. A JavaScript `Error` exists only in
+//! WebAssembly: built for another target (its tests, its documentation), an export that fails
+//! panics.
 
 use wasm_bindgen::prelude::*;
 
@@ -30,16 +32,14 @@ pub fn bundle(topology_json: &str) -> Result<Vec<u8>, JsError> {
 }
 
 /// JSON for a JavaScript caller: the project's own [`File`](crate::File)s, next to `isoloom.yml`
-/// where its paths point (the appliances' configurations, the provisioning steps' starters); none
-/// for a topology that doesn't compile.
+/// where its paths point (the appliances' configurations, the provisioning steps' starters).
 ///
 /// # Errors
 ///
-/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
-/// maps of strings) never cause.
+/// A JavaScript `Error` saying why: the topology is malformed or doesn't compile.
 #[wasm_bindgen]
 pub fn own_files_json(topology_json: &str) -> Result<String, JsError> {
-    json(&own_files(topology_json))
+    json(&own_files(topology_json).map_err(|e| JsError::new(&e.to_string()))?)
 }
 
 /// JSON for the editor: a [`Plan`](crate::Plan), one that says why it has nothing when the

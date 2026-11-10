@@ -439,6 +439,9 @@ change.
   had its own stand-in (`[]`, `{}`, a failed plan, else an empty string); they now return
   `Result<String, JsError>`. JavaScript gets the same string as before, and in the case that can't
   happen, an `Error` saying why.
+- **Breaking:** **`own_files_json` throws for a topology that is malformed or doesn't compile.**
+  It returned `[]`, so a caller couldn't tell a project with no file of its own from a drawing
+  that failed; it now throws an `Error` saying why, as `bundle` does.
 - **`cargo run -p xtask -- wasm --copy-to <dir>`** replaces `--website <dir>`: it copies the
   files a page serves (`isothrum_wasm.js`, `isothrum_wasm_bg.wasm`) into the folder given, not
   into a site's `public/wasm/`.
