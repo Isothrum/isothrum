@@ -34,9 +34,14 @@ a time, the values of params and secrets, and the event stream.
 | `isothrum-compiler` | Turns a drawn topology into an Isoloom spec. Not involved in running. |
 | `isothrum-wasm` | The compiler and Isoloom's targets in WebAssembly, for a browser or a JavaScript runtime. |
 
-The dependency direction is one way: the CLI and `isothrum-machine` depend on the runner; the
-runner depends on `isoloom-manifest`; the compiler and the WebAssembly build depend on Isoloom's
-spec and targets.
+The dependency direction is one way: the CLI and `isothrum-machine` depend on the runner, and the
+WebAssembly build on the compiler. Each crate's Isoloom dependencies, as its `Cargo.toml` has them:
+
+| Crate | Isoloom crates |
+|---|---|
+| `isothrum-runner`, `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
+| `isothrum-compiler` | `isoloom-spec`, `isoloom-manifest` (`isoloom-targets` for its tests only) |
+| `isothrum-wasm` | `isoloom-spec`, `isoloom-manifest`, `isoloom-plan`, `isoloom-targets` |
 
 ## Inside the runner
 
