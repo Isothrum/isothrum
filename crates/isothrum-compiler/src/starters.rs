@@ -5,8 +5,9 @@
 //! it listen on the network (PostgreSQL, MariaDB and Redis listen on localhost by default, so the
 //! project's checks couldn't reach them). The steps are portable, so a script only installs and
 //! configures: Isoloom runs it when it builds the machine's container image, or on the VM, and the
-//! services are started only where an init system runs them. A `.ps1` step gets a commented
-//! template, an Ansible playbook a minimal one (on Windows, one the controller runs over WinRM).
+//! services are started only where an init system runs them. A `.ps1` step gets a script that
+//! installs IIS for its web ports and opens each other port in the firewall, an Ansible playbook
+//! a minimal one (on Windows, one the controller runs over WinRM).
 //! They are starting points to edit, not a configuration management system.
 
 mod packages;
