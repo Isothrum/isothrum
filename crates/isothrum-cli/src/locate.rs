@@ -71,21 +71,24 @@ fn generated(outputs: &Path) -> Result<Vec<(String, PathBuf)>> {
 
 /// The folders in `dir`, by name (none when `dir` doesn't exist).
 fn folders(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let unread = |source| Error::Read {
+        path: dir.to_path_buf(),
+        source,
+    };
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(source) => {
-            return Err(Error::Read {
-                path: dir.to_path_buf(),
-                source,
-            });
-        }
+        Err(source) => return Err(unread(source)),
     };
-    Ok(entries
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .collect())
+    let mut found = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(unread)?.path();
+        if path.is_dir() {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            found.push((name, path));
+        }
+    }
+    Ok(found)
 }
 
 /// The runner's home: `--home`, else `$ISOTHRUM_HOME`, else `~/.isothrum`.

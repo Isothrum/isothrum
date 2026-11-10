@@ -187,7 +187,11 @@ impl Store {
     /// Every run's record, by name.
     pub(crate) fn records(&self) -> Result<Vec<RunRecord>> {
         let entries = std::fs::read_dir(&self.runs).map_err(Error::io(&self.runs, "read"))?;
-        let mut names: Vec<RunName> = entries.flatten().filter_map(|e| RunName::new(&e.file_name().to_string_lossy()).ok()).collect();
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(Error::io(&self.runs, "read"))?;
+            names.extend(RunName::new(&entry.file_name().to_string_lossy()).ok());
+        }
         names.sort();
         let mut records = Vec::new();
         for name in names {
