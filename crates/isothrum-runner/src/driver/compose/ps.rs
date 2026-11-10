@@ -79,8 +79,9 @@ impl PsEntry {
 }
 
 /// `ps --format json`'s containers: a JSON array (older Compose) or one object per line (2.21 on).
-/// A line that doesn't parse is skipped; `None` when there is output but no container in it can be
-/// read: taken as no container, it would make every machine of a run that is there read absent.
+/// A blank line is no container; a line that doesn't parse is skipped, and traced (by its number and why: a container's line may
+/// hold its command); `None` when there is output but no container in it can be read: taken as no
+/// container, it would make every machine of a run that is there read absent.
 pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
     let trimmed = out.trim();
     if trimmed.is_empty() {
@@ -89,7 +90,15 @@ pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
     if trimmed.starts_with('[') {
         return serde_json::from_str(trimmed).ok();
     }
-    let entries: Vec<PsEntry> = trimmed.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let read = |(n, line): (usize, &str)| match serde_json::from_str(line) {
+        Ok(entry) => Some(entry),
+        Err(e) => {
+            tracing::warn!(line = n + 1, error = %e, "a line of `docker compose ps` couldn't be read: its container is left out");
+            None
+        }
+    };
+    let lines = trimmed.lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
+    let entries: Vec<PsEntry> = lines.filter_map(read).collect();
     (!entries.is_empty()).then_some(entries)
 }
 
@@ -134,6 +143,20 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
 mod tests {
     use super::*;
     use crate::testing::docker_manifest;
+
+    #[tokio::test]
+    async fn a_line_that_doesnt_parse_is_skipped_and_traced_by_its_number() {
+        let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{\"Service\":\"db\",\"Command\":\"run --token s3cret\" cut\n";
+        let (entries, traced) = crate::testing::traced(async { parse_ps(lines) }).await;
+        assert_eq!(entries.unwrap().len(), 1);
+        assert!(
+            traced.contains("WARN") && traced.contains("line=3") && traced.contains("couldn't be read"),
+            "{traced}"
+        );
+        assert!(!traced.contains("s3cret"), "the line itself isn't traced: {traced}");
+        let (_, quiet) = crate::testing::traced(async { parse_ps("{\"Service\":\"web\"}\n\n") }).await;
+        assert!(quiet.is_empty(), "a blank line is no container: {quiet}");
+    }
 
     #[test]
     fn parses_both_compose_output_formats() {
