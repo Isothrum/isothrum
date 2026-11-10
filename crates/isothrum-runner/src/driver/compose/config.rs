@@ -6,21 +6,23 @@ use serde_json::Value;
 use crate::encoding::wire_name;
 use crate::error::Error;
 
-/// The config printed by `docker compose config --format json`, `None` when it isn't that JSON (no
-/// `services` object): what it holds is then unknown, never empty.
-fn read(config: &str) -> Option<Value> {
-    serde_json::from_str::<Value>(config)
-        .ok()
-        .filter(|v| v.get("services").is_some_and(Value::is_object))
+/// The config printed by `docker compose config --format json`, or why it isn't that JSON (not
+/// JSON at all, no `services` object): what it holds is then unknown, never empty.
+fn read(config: &str) -> Result<Value, String> {
+    let v: Value = serde_json::from_str(config).map_err(|e| format!("not JSON: {e}"))?;
+    if !v.get("services").is_some_and(Value::is_object) {
+        return Err("no `services` object".to_owned());
+    }
+    Ok(v)
 }
 
-/// The failure of `step` whose config couldn't be read: `what` is what is then unknown. A caller
-/// that acted on an empty reading instead would act blind (remove a live network, let a taken
-/// port through, start a machine without its routes).
-pub(super) fn unreadable(step: &str, what: &str) -> Error {
+/// The failure of `step` whose config couldn't be read, `why` saying how ([`read`], [`ports`]):
+/// `what` is what is then unknown. A caller that acted on an empty reading instead would act
+/// blind (remove a live network, let a taken port through, start a machine without its routes).
+pub(super) fn unreadable(step: &str, what: &str, why: &str) -> Error {
     Error::ToolFailed {
         step: step.to_owned(),
-        reason: format!("`docker compose config --format json` printed no config this runner can read, so {what} unknown"),
+        reason: format!("`docker compose config --format json` printed no config this runner can read ({why}), so {what} unknown"),
     }
 }
 
@@ -35,23 +37,32 @@ pub(super) struct ConfigPort {
     pub(super) published: Option<u16>,
 }
 
-/// The config's published ports; none when it isn't the JSON Compose prints. A port without a
-/// readable target or protocol makes the config unreadable (no half override).
-pub(super) fn ports(config: &str) -> Option<Vec<ConfigPort>> {
+/// The config's published ports, or why the config can't be read: it isn't the JSON Compose
+/// prints, or a port has no readable target or protocol, which makes the whole config unreadable
+/// (no half override).
+pub(super) fn ports(config: &str) -> Result<Vec<ConfigPort>, String> {
     let v = read(config)?;
     let mut out = Vec::new();
-    for (service, svc) in v.get("services")?.as_object()? {
+    for (service, svc) in services(&v) {
         for p in svc.get("ports").and_then(Value::as_array).into_iter().flatten() {
+            let said = p.get("protocol").and_then(Value::as_str).unwrap_or_default();
             out.push(ConfigPort {
                 service: service.clone(),
-                target: number(p.get("target")).filter(|t| *t > 0)?,
-                protocol: super::protocol(p.get("protocol").and_then(Value::as_str).unwrap_or_default())?,
+                target: number(p.get("target"))
+                    .filter(|t| *t > 0)
+                    .ok_or_else(|| format!("a port of `{service}` has no target"))?,
+                protocol: super::protocol(said).ok_or_else(|| format!("a port of `{service}` has the protocol `{said}`, neither tcp nor udp"))?,
                 host_ip: p.get("host_ip").and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_owned),
                 published: number(p.get("published")).filter(|n| *n > 0),
             });
         }
     }
-    Some(out)
+    Ok(out)
+}
+
+/// The services of a config [`read`] gave (it has the object).
+fn services(v: &Value) -> impl Iterator<Item = (&String, &Value)> {
+    v.get("services").and_then(Value::as_object).into_iter().flatten()
 }
 
 /// A port field: a number, or a string holding one.
@@ -60,39 +71,34 @@ fn number(v: Option<&Value>) -> Option<u16> {
         .and_then(|n| u16::try_from(n).ok())
 }
 
-/// The host ports the config publishes, each with its protocol; `None` when the config can't be
-/// read ([`ports`]).
-pub(super) fn host_ports(config: &str) -> Option<Vec<(u16, Protocol)>> {
-    Some(ports(config)?.iter().filter_map(|p| Some((p.published?, p.protocol))).collect())
+/// The host ports the config publishes, each with its protocol, or why the config can't be read
+/// ([`ports`]).
+pub(super) fn host_ports(config: &str) -> Result<Vec<(u16, Protocol)>, String> {
+    Ok(ports(config)?.iter().filter_map(|p| Some((p.published?, p.protocol))).collect())
 }
 
 /// The services that live in `service`'s network namespace (`network_mode: service:<service>`):
-/// part of that machine (its routes, a sidecar), started and removed with it. In name order;
-/// `None` when the config isn't the JSON Compose prints (no `services` object): unknown, not none.
-pub(super) fn sharing_namespace(config: &str, service: &str) -> Option<Vec<String>> {
+/// part of that machine (its routes, a sidecar), started and removed with it. In name order; or
+/// why the config isn't the JSON Compose prints ([`read`]): unknown, not none.
+pub(super) fn sharing_namespace(config: &str, service: &str) -> Result<Vec<String>, String> {
     let v = read(config)?;
     let mode = format!("service:{service}");
-    let mut names: Vec<String> = v
-        .get("services")?
-        .as_object()?
-        .iter()
+    let mut names: Vec<String> = services(&v)
         .filter(|(_, s)| s.get("network_mode").and_then(Value::as_str) == Some(mode.as_str()))
         .map(|(name, _)| name.clone())
         .collect();
     names.sort();
-    Some(names)
+    Ok(names)
 }
 
-/// The networks the config defines, by their Docker names (`name:`, else `<project>_<key>`);
-/// `None` when the config can't be read: unknown, not none.
-pub(super) fn networks(config: &str, project: &str) -> Option<Vec<String>> {
+/// The networks the config defines, by their Docker names (`name:`, else `<project>_<key>`), or
+/// why the config can't be read ([`read`]): unknown, not none.
+pub(super) fn networks(config: &str, project: &str) -> Result<Vec<String>, String> {
     let v = read(config)?;
     let defined = v.get("networks").and_then(Value::as_object).into_iter().flatten();
-    Some(
-        defined
-            .map(|(k, n)| n.get("name").and_then(Value::as_str).map_or_else(|| format!("{project}_{k}"), str::to_owned))
-            .collect(),
-    )
+    Ok(defined
+        .map(|(k, n)| n.get("name").and_then(Value::as_str).map_or_else(|| format!("{project}_{k}"), str::to_owned))
+        .collect())
 }
 
 /// The pinned-ports override: every service with an ephemeral port gets its whole `ports` list
@@ -158,7 +164,7 @@ mod tests {
     #[test]
     fn a_port_without_a_target_makes_the_config_unreadable() {
         let zero = r#"{"services": {"web": {"ports": [{"target": 0, "published": "8080"}]}}}"#;
-        assert_eq!(ports(zero), None);
+        assert_eq!(ports(zero), Err("a port of `web` has no target".to_owned()));
         let one = r#"{"services": {"web": {"ports": [{"target": 1, "published": "0"}]}}}"#;
         let read = ports(one).unwrap();
         assert_eq!((read[0].target, read[0].published), (1, None), "port 0 is no published port");
@@ -168,7 +174,7 @@ mod tests {
     #[test]
     fn a_port_of_a_protocol_compose_has_no_tcp_or_udp_for_makes_the_config_unreadable() {
         let sctp = r#"{"services": {"web": {"ports": [{"target": 80, "protocol": "sctp"}]}}}"#;
-        assert_eq!(ports(sctp), None);
+        assert_eq!(ports(sctp), Err("a port of `web` has the protocol `sctp`, neither tcp nor udp".to_owned()));
         let said_none = r#"{"services": {"web": {"ports": [{"target": 80}]}}}"#;
         assert_eq!(ports(said_none).unwrap()[0].protocol, Protocol::Tcp);
     }
@@ -240,25 +246,43 @@ mod tests {
         let mut found = host_ports(json).unwrap();
         found.sort();
         assert_eq!(found, [(53, Protocol::Udp), (80, Protocol::Tcp), (8443, Protocol::Tcp)]);
-        assert_eq!(host_ports(r#"{"services":{}}"#), Some(Vec::new()), "a config that publishes nothing");
-        assert!(ports(r#"{"services":{"a":{"ports":[{"published":""}]}}}"#).is_none(), "a port without a target");
+        assert_eq!(host_ports(r#"{"services":{}}"#), Ok(Vec::new()), "a config that publishes nothing");
+        assert!(ports(r#"{"services":{"a":{"ports":[{"published":""}]}}}"#).is_err(), "a port without a target");
     }
 
     #[test]
     fn networks_are_named_by_their_name_else_the_project_and_key() {
         let config = r#"{"services":{},"networks":{"lab":{"name":"app-x_lab"},"back":{}}}"#;
         assert_eq!(networks(config, "app-x").unwrap(), ["app-x_lab", "app-x_back"]);
-        assert_eq!(networks(r#"{"services":{}}"#, "p"), Some(Vec::new()), "a config that defines none");
+        assert_eq!(networks(r#"{"services":{}}"#, "p"), Ok(Vec::new()), "a config that defines none");
     }
 
     /// A config that can't be read is unknown, never empty: read as empty, it would let every port
-    /// through the free-ports check and make every live network of the project stale.
+    /// through the free-ports check and make every live network of the project stale. Why it
+    /// can't be read is said (regression: serde's error was dropped, and the step's failure said
+    /// only that the config couldn't be read).
     #[test]
-    fn a_config_it_cant_read_has_unknown_ports_and_networks() {
-        for unreadable in ["not json", "{}", r#"{"name":"p"}"#, r#"{"services":[]}"#, ""] {
-            assert_eq!(host_ports(unreadable), None, "{unreadable:?}");
-            assert_eq!(networks(unreadable, "p"), None, "{unreadable:?}");
+    fn a_config_it_cant_read_has_unknown_ports_and_networks_and_says_why() {
+        // serde's own wording follows `not JSON: ` (its exact text is serde_json's to change).
+        for (unreadable, why) in [
+            ("not json", "not JSON: "),
+            ("", "not JSON: "),
+            ("{}", "no `services` object"),
+            (r#"{"name":"p"}"#, "no `services` object"),
+            (r#"{"services":[]}"#, "no `services` object"),
+        ] {
+            assert!(
+                host_ports(unreadable).is_err_and(|e| e.starts_with(why)),
+                "{unreadable:?}: {:?}",
+                host_ports(unreadable)
+            );
+            assert!(networks(unreadable, "p").is_err_and(|e| e.starts_with(why)), "{unreadable:?}");
         }
+        let said = unreadable("compose.up", "the host ports it publishes are", "not JSON: expected value at line 1 column 1").to_string();
+        assert!(
+            said.contains("(not JSON: expected value at line 1 column 1), so the host ports it publishes are unknown"),
+            "{said}"
+        );
     }
 }
 
@@ -312,9 +336,8 @@ mod proptests {
 
         #[test]
         fn reading_any_text_never_panics(text in "\\PC{0,200}") {
-            let _ = ports(&text);
-            let _ = host_ports(&text);
-            let _ = networks(&text, "p");
+            // Read or refused with why, never a panic.
+            let (_, _, _) = (ports(&text).is_ok(), host_ports(&text).is_ok(), networks(&text, "p").is_ok());
         }
     }
 }
@@ -332,8 +355,12 @@ mod namespace_tests {
 
     #[test]
     fn a_config_it_cant_read_is_unknown_not_empty() {
-        assert_eq!(sharing_namespace("not json", "user"), None);
-        assert_eq!(sharing_namespace(r#"{"name":"p"}"#, "user"), None, "no services");
-        assert_eq!(sharing_namespace(r#"{"services":[]}"#, "user"), None);
+        assert!(sharing_namespace("not json", "user").is_err_and(|why| why.starts_with("not JSON: ")));
+        assert_eq!(
+            sharing_namespace(r#"{"name":"p"}"#, "user"),
+            Err("no `services` object".to_owned()),
+            "no services"
+        );
+        assert_eq!(sharing_namespace(r#"{"services":[]}"#, "user"), Err("no `services` object".to_owned()));
     }
 }

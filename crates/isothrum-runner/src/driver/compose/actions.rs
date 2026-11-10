@@ -44,7 +44,7 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, list: &str, step:
         return Ok(());
     }
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    let ports = config::host_ports(&config).ok_or_else(|| config::unreadable(step.id.as_str(), "the host ports it publishes are"))?;
+    let ports = config::host_ports(&config).map_err(|why| config::unreadable(step.id.as_str(), "the host ports it publishes are", &why))?;
     cx.run.runner.ensure_ports_free(cx.run.name(), ports)
 }
 
@@ -54,7 +54,7 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, list: &str, step:
 pub(super) async fn remove_stale_networks(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
     let env = env_of(cx, list, step)?;
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
-    let wanted = config::networks(&config, &c.project(cx)?).ok_or_else(|| config::unreadable(step.id.as_str(), "the networks it defines are"))?;
+    let wanted = config::networks(&config, &c.project(cx)?).map_err(|why| config::unreadable(step.id.as_str(), "the networks it defines are", &why))?;
     for net in project_networks(c, cx, step).await? {
         if !wanted.contains(&net) {
             remove_network(cx, step, &net).await?;

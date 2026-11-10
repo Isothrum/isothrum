@@ -274,7 +274,7 @@ impl Compose {
         rest.extend(["config", "--format", "json"]);
         let args = self.compose_args(cx, &rest)?;
         let config = call_ok(cx, id, &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
-        let sidecars = config::sharing_namespace(&config, native).ok_or_else(|| config::unreadable(id, "the services in the machine's namespace are"))?;
+        let sidecars = config::sharing_namespace(&config, native).map_err(|why| config::unreadable(id, "the services in the machine's namespace are", &why))?;
         let mut services = vec![native.to_owned()];
         services.extend(sidecars);
         Ok(services)

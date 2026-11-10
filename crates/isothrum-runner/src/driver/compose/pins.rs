@@ -12,7 +12,7 @@ use crate::executor::Cx;
 /// host port left to pin it to, fails the step: the run would otherwise start on ephemeral ports
 /// and a resume would get new addresses.
 pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<String>> {
-    let ports = config::ports(config).ok_or_else(|| config::unreadable(step, "the host ports to pin are"))?;
+    let ports = config::ports(config).map_err(|why| config::unreadable(step, "the host ports to pin are", &why))?;
     let mut pick = PortPick::new(cx);
     config::pinned_ports(&ports, |p| {
         let what = format!("service `{}`'s container port {}", p.service, p.target);
