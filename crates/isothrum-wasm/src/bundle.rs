@@ -34,19 +34,20 @@ pub(crate) fn bundle_target_bytes(topology_json: &str, target_dir: &str) -> Resu
 
 fn bundle_filtered(topology_json: &str, target_dir: Option<&str>) -> Result<Vec<u8>> {
     let (topo, compiled) = compiled(topology_json)?;
-    let mut own: Vec<File> = compiled.files().iter().cloned().map(File::from).collect();
-    let plan = planned(&topo, compiled);
+    let (yaml, spec, own) = compiled.into_parts();
+    let mut own: Vec<File> = own.into_iter().map(File::from).collect();
+    let plan = planned(&topo, yaml.clone(), spec);
     if !plan.problems.is_empty() {
         return Err(Error::Problems(plan.problems));
     }
     let files = target_files(plan.files, target_dir)?;
     // A one-target download only gets the project's own files its files use.
     own.retain(|o| target_dir.is_none() || uses(&files, &o.path));
-    let spec = File {
+    let spec_file = File {
         path: SPEC_PATH.into(),
-        contents: plan.isoloom_yml.unwrap_or_default(),
+        contents: yaml,
     };
-    zip_of(std::iter::once(&spec).chain(&own).chain(&files))
+    zip_of(std::iter::once(&spec_file).chain(&own).chain(&files))
 }
 
 /// Whether `files` use the project's file at `path`: they name it by its path, or by its file

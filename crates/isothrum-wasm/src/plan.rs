@@ -49,14 +49,17 @@ impl Plan {
 #[must_use]
 pub(crate) fn plan(topology_json: &str) -> Plan {
     match compiled(topology_json) {
-        Ok((topo, compiled)) => planned(&topo, compiled),
+        Ok((topo, compiled)) => {
+            let (yaml, spec, _) = compiled.into_parts();
+            planned(&topo, yaml, spec)
+        }
         Err(e) => Plan::failed(&e),
     }
 }
 
-/// The plan of a compiled topology: Isoloom's problems, else every target's files.
-pub(crate) fn planned(topo: &Topology, compiled: Compiled) -> Plan {
-    let (yaml, spec, _) = compiled.into_parts();
+/// The plan of a compiled topology, its spec's text `yaml` and the spec: Isoloom's problems,
+/// else every target's files.
+pub(crate) fn planned(topo: &Topology, yaml: String, spec: isoloom_spec::Spec) -> Plan {
     let project = Lab::new(spec);
     let problems: Vec<String> = project.problems().iter().map(ToString::to_string).collect();
     // Isoloom's generators assume a valid spec (an unattached machine has no address to give,
