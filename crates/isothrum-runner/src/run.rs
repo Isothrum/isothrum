@@ -295,7 +295,7 @@ impl<'r> Running<'r> {
         };
         let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));
         let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy).await;
-        cx.relayed = Some(relayed.map_err(Error::io(crate::relay::dir(&config.home), "set up"))?);
+        cx.relayed = Some(relayed?);
         Ok(())
     }
 

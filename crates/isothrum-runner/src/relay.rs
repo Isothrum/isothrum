@@ -188,9 +188,22 @@ pub(crate) fn dir(home: &Path) -> PathBuf {
 /// the environment pointing Vagrant, its plugin and ovftool at them. `path` is the run's `PATH`
 /// and `no_proxy` the hosts it already sends around its proxy; the ovftool wrapper goes in a
 /// folder under `home`.
-pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
-    let ssh = start(host.to_owned(), ssh_port).await?;
-    let https = start(host.to_owned(), 443).await?;
+///
+/// # Errors
+///
+/// [`crate::Error::Relay`], saying why: a relay that can't listen on the loopback, a `PATH` that isn't
+/// UTF-8, the wrapper's folder that can't be written.
+pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no_proxy: Option<&str>) -> crate::Result<Relayed> {
+    relays(host, ssh_port, home, path, no_proxy)
+        .await
+        .map_err(|source| crate::Error::Relay { host: host.to_owned(), source })
+}
+
+/// [`prepare`], its failure an I/O error that says what failed.
+async fn relays(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
+    let listening = |e: std::io::Error| std::io::Error::new(e.kind(), format!("a relay couldn't listen on the loopback: {e}"));
+    let ssh = start(host.to_owned(), ssh_port).await.map_err(listening)?;
+    let https = start(host.to_owned(), 443).await.map_err(listening)?;
     let mut env = vec![
         (ESXI_HOSTNAME.to_owned(), "127.0.0.1".to_owned()),
         (ESXI_HOSTPORT.to_owned(), ssh.port.to_string()),
@@ -202,7 +215,7 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
     // either) is replaced for plain HTTP. The run's other traffic is HTTPS (box downloads, the
     // ESXi API): it reads `https_proxy`, left as it is. Only the lowercase name, which Ruby reads
     // before the uppercase one.
-    let winrm = start_http_proxy(Targets::new(host)).await?;
+    let winrm = start_http_proxy(Targets::new(host)).await.map_err(listening)?;
     env.push(("http_proxy".into(), format!("http://127.0.0.1:{}", winrm.port)));
     env.push(("no_proxy".into(), around_proxy(no_proxy)));
     if let Some(real) = ovftool::real(path) {
@@ -345,6 +358,27 @@ mod tests {
             "the user's kept"
         );
         assert_eq!(get("https_proxy"), None, "HTTPS keeps the user's proxy");
+    }
+
+    /// Regression: any failure to set the relays up read as an I/O error on `<home>/relay`,
+    /// whatever failed (here, a `PATH` that isn't UTF-8, with ovftool on it).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn relays_that_cant_be_set_up_say_why_not_a_folder_they_didnt_touch() {
+        use std::os::unix::ffi::OsStringExt;
+        let (home, tools) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(tools.path().join("ovftool"), "").unwrap();
+        let mut path = tools.path().as_os_str().as_encoded_bytes().to_vec();
+        path.extend_from_slice(b":/nowhere/bad\xff");
+        let err = prepare("10.0.0.5", 22, home.path(), Some(&std::ffi::OsString::from_vec(path)), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::Io);
+        let said = err.to_string();
+        assert!(said.starts_with("the relays to ESXi host `10.0.0.5` couldn't be set up: "), "{said}");
+        assert!(said.contains("isn't UTF-8"), "{said}");
+        let folder_blamed = format!("{} couldn't be", dir(home.path()).display());
+        assert!(!said.contains(&folder_blamed), "{said}");
     }
 
     #[test]

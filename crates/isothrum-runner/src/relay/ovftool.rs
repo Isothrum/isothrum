@@ -34,7 +34,8 @@ pub(super) fn real(path: Option<&OsStr>) -> Option<PathBuf> {
 /// `PATH` with `dir` first, then the run's `path` (none: `dir` alone).
 pub(super) fn first_on(dir: &Path, path: Option<&OsStr>) -> io::Result<String> {
     let folders = std::iter::once(dir.to_path_buf()).chain(path.into_iter().flat_map(std::env::split_paths));
-    let joined = std::env::join_paths(folders).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let joined =
+        std::env::join_paths(folders).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("the PATH with the ovftool wrapper first: {e}")))?;
     text(joined, "the PATH with the ovftool wrapper first")
 }
 
@@ -50,7 +51,13 @@ pub(super) fn text(value: OsString, what: &str) -> io::Result<String> {
 /// put first on `PATH`.
 pub(super) fn wrapper_dir(home: &Path) -> std::io::Result<PathBuf> {
     let dir = super::dir(home);
-    crate::store::private_dir(&dir)?;
+    written(&dir).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?;
+    Ok(dir)
+}
+
+/// The wrapper written as `ovftool` in `dir`, executable.
+fn written(dir: &Path) -> std::io::Result<()> {
+    crate::store::private_dir(dir)?;
     let f = dir.join("ovftool");
     if std::fs::read_to_string(&f).ok().as_deref() != Some(WRAPPER) {
         crate::store::write_private(&f, WRAPPER.as_bytes())?;
@@ -60,7 +67,7 @@ pub(super) fn wrapper_dir(home: &Path) -> std::io::Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o700))?;
     }
-    Ok(dir)
+    Ok(())
 }
 
 #[cfg(all(test, unix))]

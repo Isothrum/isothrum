@@ -315,6 +315,15 @@ pub enum Error {
         /// The network asked for.
         network: String,
     },
+    /// The macOS relays to an ESXi host couldn't be set up (a relay that can't listen on the
+    /// loopback, a `PATH` that isn't UTF-8, the ovftool wrapper's folder that can't be written).
+    #[error("the relays to ESXi host `{host}` couldn't be set up: {source}")]
+    Relay {
+        /// The ESXi host.
+        host: String,
+        /// Why.
+        source: std::io::Error,
+    },
     /// The elevation the run's commands need couldn't be had.
     #[error("elevation: {reason}")]
     Elevation {
@@ -381,7 +390,7 @@ impl Error {
             Error::Manifest { source, .. } if source.code() == "version" => ErrorCode::ManifestVersion,
             Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } => ErrorCode::Unsupported,
-            Error::Io { .. } => ErrorCode::Io,
+            Error::Io { .. } | Error::Relay { .. } => ErrorCode::Io,
             Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,

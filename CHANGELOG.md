@@ -480,6 +480,9 @@ change.
   segment leaves the project, as Isoloom reads it.
 - **A Compose port of a protocol other than TCP or UDP no longer reads as TCP.** In the config
   it makes the config unreadable (no pin is guessed for it); in `ps` it is left out, and traced.
+- **Relays to an ESXi host that can't be set up say why** (`Error::Relay`, code `io`): a relay
+  that can't listen on the loopback, a `PATH` that isn't UTF-8, the ovftool wrapper's folder that
+  can't be written. Every such failure read as an I/O error on `<home>/relay`.
 
 ### Added
 
