@@ -46,15 +46,32 @@ jobs:
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
 
+      # On a tag, the tag must name the workspace version (as release.yml checks), so a tag
+      # can't publish crates at a version it doesn't name.
+      - name: The tag is the workspace version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "isothrum-cli") | .version')"
+          if [ "${REF_TYPE}" = tag ] && [ "v${version}" != "${TAG}" ]; then
+            echo "::error::tag ${TAG} isn't the workspace version (${version})"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Publish in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           # Leaf crates first: each crate's dependencies are published before it.
           crates=(isothrum-compiler isothrum-runner isothrum-machine isothrum-wasm isothrum-cli)
-          version="$(cargo metadata --format-version 1 --no-deps \
-            | jq -r '.packages[] | select(.name=="isothrum-compiler") | .version')"
+          version="${VERSION}"
           echo "Publishing Isothrum crates at version ${version}"
           for crate in "${crates[@]}"; do
             if curl -sf -A "isothrum-publish-workflow" \
