@@ -141,7 +141,7 @@ jobs:
           mkdir -p "$ISOTHRUM_HOME/ssh"
           printf '%s\n' "$SSH_KEY" > "$ISOTHRUM_HOME/ssh/id_ed25519"
           ssh-keygen -y -f "$ISOTHRUM_HOME/ssh/id_ed25519" > "$ISOTHRUM_HOME/ssh/id_ed25519.pub"
-          manifest=$(find "$RUN_DIR/.isoloom" -name run.json | head -n 1)
+          manifest="$RUN_DIR/.isoloom/$TARGET/run.json"
           secrets=(secret:proxmox_api_token=PROXMOX_VE_API_TOKEN)
           .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" \
             param:proxmox_endpoint="$PROXMOX_VE_ENDPOINT" param:node="$NODE" param:datastore="$DATASTORE" \
@@ -212,6 +212,8 @@ jobs:
     env:
       TARGET: cloud-vm
       CLOUD: aws
+      # Isoloom writes one manifest per cloud: `.isoloom/cloud-vm/aws/run.json`.
+      RUN_TARGET: cloud-vm/aws
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
@@ -256,7 +258,9 @@ jobs:
             echo "RUN_DIR=$RUNNER_TEMP/run"
           } >> "$GITHUB_ENV"
 
-      - name: Reap what earlier runs left (expired only)
+      # A fresh home records no run, so this lists what earlier runs left past its expiry (the
+      # orphans) and destroys nothing.
+      - name: List expired leftovers
         timeout-minutes: 15
         continue-on-error: true
         run: isothrum reap "$CLOUD" --region "$AWS_REGION" --json | tee "$RECORD/reap-pre.jsonl"
@@ -274,7 +278,7 @@ jobs:
         env:
           AWS_SIZE: ${{ vars.REAL_AWS_SIZE || 't3.small' }}
         run: |
-          manifest=$(find "$RUN_DIR/.isoloom" -name run.json | head -n 1)
+          manifest="$RUN_DIR/.isoloom/$RUN_TARGET/run.json"
           secrets=(secret:AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID secret:AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
             secret:AWS_SESSION_TOKEN=AWS_SESSION_TOKEN)
           sizes=()
@@ -288,24 +292,37 @@ jobs:
         timeout-minutes: 35
         run: |
           mapfile -t args < "$RUNNER_TEMP/up.args"
-          isothrum up "$RUN_DIR" --target "$TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
+          isothrum up "$RUN_DIR" --target "$RUN_TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
       - name: Check
         id: check
         if: steps.up.outcome == 'success'
         timeout-minutes: 15
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum check "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
+          isothrum check "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
       - name: Down
         id: down
         if: always() && steps.build.outcome == 'success'
         timeout-minutes: 20
         run: |
           mapfile -t args < "$RUNNER_TEMP/secrets.args"
-          isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
-      - name: Reap after a failed teardown
+          isothrum down "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
+      # `reap` destroys only expired runs, and this one has hours left: a failed teardown is
+      # retried with `down`.
+      - name: Down, again
         if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
+        timeout-minutes: 20
+        run: |
+          sleep 30
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          if ! isothrum down "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}"; then
+            echo "::error title=AWS leftovers::$EXAMPLE may still have resources in $AWS_REGION: check the account by hand"
+            exit 1
+          fi
+      - name: List expired leftovers, after
+        if: always() && steps.build.outcome == 'success'
         timeout-minutes: 15
+        continue-on-error: true
         run: isothrum reap "$CLOUD" --region "$AWS_REGION" --json | tee "$RECORD/reap-post.jsonl"
 
       - name: Runner cert summary
