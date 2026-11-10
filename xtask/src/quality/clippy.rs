@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde_json::Value;
 
@@ -21,10 +21,9 @@ pub(crate) struct Finding {
 
 /// Runs clippy and counts its warnings per crate; fails on an error.
 pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res<()> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut cmd = Command::new(cargo);
-    cmd.args(["clippy", "--workspace", "--all-targets", "--message-format=json", "--manifest-path"]);
-    cmd.arg(root.join("Cargo.toml")).stderr(Stdio::inherit());
+    let mut cmd = process::cargo(root);
+    cmd.args(["clippy", "--workspace", "--all-targets", "--message-format=json"]);
+    cmd.stderr(Stdio::inherit());
     let out = cmd.output().map_err(|e| format!("`{}` couldn't start: {e}", process::describe(&cmd)))?;
     let text = String::from_utf8_lossy(&out.stdout);
     let (findings, errors) = read(&text);
