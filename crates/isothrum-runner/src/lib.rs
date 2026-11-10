@@ -147,6 +147,9 @@ pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
 pub use clock::rfc3339;
 pub use console::ShellCommand;
+#[cfg(any(test, feature = "fake"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
+pub use encoding::every_name;
 pub use encoding::wire_name;
 pub use error::{Error, ErrorCode, Result, TimedOut};
 #[cfg(test)]

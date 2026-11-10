@@ -18,6 +18,32 @@ pub fn wire_name<T: Serialize + ?Sized>(value: &T) -> String {
     }
 }
 
+/// Every name the unit enum `T` is written as, from its JSON Schema (each variant's `const`, or
+/// the `enum` that lists them), in the schema's order (feature `fake`): what a test reads to keep
+/// a list of its own in step with a type of Isoloom's, a variant added there failing it.
+#[cfg(any(test, feature = "fake"))]
+#[must_use]
+pub fn every_name<T: schemars::JsonSchema>() -> Vec<String> {
+    fn names(schema: &serde_json::Value, out: &mut Vec<String>) {
+        match schema {
+            serde_json::Value::Object(fields) => {
+                if let Some(serde_json::Value::String(name)) = fields.get("const") {
+                    out.push(name.clone());
+                }
+                if let Some(serde_json::Value::Array(listed)) = fields.get("enum") {
+                    out.extend(listed.iter().filter_map(|v| v.as_str().map(str::to_owned)));
+                }
+                fields.values().for_each(|v| names(v, out));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| names(v, out)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    names(schemars::schema_for!(T).as_value(), &mut found);
+    found
+}
+
 /// Standard base64 (RFC 4648, padded).
 pub(crate) fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

@@ -317,14 +317,9 @@ mod tests {
 
     use super::*;
 
-    /// The names Isoloom's `Provider` takes, from its JSON Schema (each variant's `const`, or the
-    /// `enum` that lists them), sorted.
+    /// The names Isoloom's `Provider` takes, sorted.
     fn isoloom_providers() -> Vec<String> {
-        let schema = serde_json::to_value(schemars::schema_for!(Provider)).unwrap();
-        let variants = schema.get("oneOf").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
-        let consts = variants.iter().filter_map(|v| v.get("const"));
-        let listed = schema.get("enum").and_then(serde_json::Value::as_array).into_iter().flatten();
-        let mut names: Vec<String> = consts.chain(listed).filter_map(serde_json::Value::as_str).map(str::to_owned).collect();
+        let mut names = isothrum_runner::every_name::<Provider>();
         names.sort();
         names
     }

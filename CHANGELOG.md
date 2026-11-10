@@ -578,6 +578,8 @@ change.
   `vagrant plugin list --machine-readable`, with its version): the one rule for each, which the
   runner and `isothrum-machine` share.
   `isothrum-machine` now reads `vagrant plugin list --machine-readable`, not the human list.
+- **`isothrum_runner::every_name`** (feature `fake`): every name a unit enum is written as, from
+  its JSON Schema, for a test that keeps a list of its own in step with a type of Isoloom's.
 
 ### Changed
 

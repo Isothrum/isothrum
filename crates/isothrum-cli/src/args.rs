@@ -265,11 +265,10 @@ mod tests {
     /// those: one added there fails this until [`CLOUDS`] lists it.
     #[test]
     fn reap_takes_every_cloud_isoloom_names() {
-        let schema = serde_json::to_value(schemars::schema_for!(Cloud)).unwrap();
-        let names: Vec<&str> = schema["oneOf"].as_array().into_iter().flatten().filter_map(|v| v["const"].as_str()).collect();
+        let names = isothrum_runner::every_name::<Cloud>();
         assert_eq!(names.len(), CLOUDS.len(), "{names:?}");
         for name in names {
-            assert!(Cli::try_parse_from(["isothrum", "reap", name]).is_ok(), "{name}");
+            assert!(Cli::try_parse_from(["isothrum", "reap", &name]).is_ok(), "{name}");
         }
     }
 
