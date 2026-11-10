@@ -28,8 +28,7 @@ impl HostEnv {
 
     /// The value of `name`, its case ignored on Windows (as Windows reads names).
     pub(crate) fn get(&self, name: &str) -> Option<&str> {
-        let same = |k: &str| if cfg!(windows) { k.eq_ignore_ascii_case(name) } else { k == name };
-        self.0.iter().find(|(k, _)| same(k)).map(|(_, v)| v.as_str())
+        self.0.iter().find(|(k, _)| same_var(k, name)).map(|(_, v)| v.as_str())
     }
 
     /// Every variable, as it was read.
@@ -51,6 +50,12 @@ impl HostEnv {
         }
         out
     }
+}
+
+/// Whether `a` and `b` name the same variable on this host: their case ignored on Windows (as
+/// Windows reads names), not elsewhere.
+pub(crate) fn same_var(a: &str, b: &str) -> bool {
+    if cfg!(windows) { a.eq_ignore_ascii_case(b) } else { a == b }
 }
 
 /// Names only: the values may hold a proxy's credentials.

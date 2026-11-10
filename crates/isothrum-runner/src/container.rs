@@ -17,7 +17,7 @@ use isoloom_manifest::Tool;
 
 use crate::Result;
 use crate::executor::Cx;
-use crate::host_env::{HostEnv, TF_CLI_CONFIG_FILE};
+use crate::host_env::{HostEnv, TF_CLI_CONFIG_FILE, same_var};
 use crate::process::ProcessSpec;
 
 /// The tool of the manifest that runs `program` from an image on this host, if one does.
@@ -125,7 +125,9 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
     // runner's own environment and state files as well. A `-var-file` mount would hide it from
     // `docker inspect` only.
     let mut env = spec.env;
-    let host_own: Vec<(String, String)> = network.vars.iter().filter(|(n, _)| !env.iter().any(|(k, _)| k == n)).cloned().collect();
+    // A variable the step sets wins over the host's, whatever its spelling where names ignore
+    // case (Windows: `https_proxy` is the step's `HTTPS_PROXY`, and the later one would win).
+    let host_own: Vec<(String, String)> = network.vars.iter().filter(|(n, _)| !env.iter().any(|(k, _)| same_var(k, n))).cloned().collect();
     env.extend(host_own);
     for (name, _) in &env {
         args.extend(["-e".into(), name.clone()]);
@@ -213,7 +215,14 @@ mod tests {
         ];
         let network = HostNetwork::read(&HostEnv::of(env));
         let names: Vec<&str> = network.vars.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["HTTPS_PROXY", "no_proxy", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "TF_CLI_CONFIG_FILE"]);
+        // Windows reads a name whatever its case: each proxy set there is handed on in both
+        // spellings, which a Linux container's tools read apart.
+        let proxies: &[&str] = if cfg!(windows) {
+            &["HTTPS_PROXY", "NO_PROXY", "https_proxy", "no_proxy"]
+        } else {
+            &["HTTPS_PROXY", "no_proxy"]
+        };
+        assert_eq!(names, [proxies, &["SSL_CERT_FILE", "CURL_CA_BUNDLE", "TF_CLI_CONFIG_FILE"]].concat());
         assert_eq!(network.files, [bundle.clone(), cli_config.clone()], "only files that exist");
 
         let mut spec = ProcessSpec::new("terraform", ["init"]);
@@ -235,5 +244,8 @@ mod tests {
         assert_eq!(value("no_proxy"), Some(".corp,10.0.0.0/8"));
         assert_eq!(value("HTTPS_PROXY"), Some("http://step:8080"));
         assert_eq!(run.env.iter().filter(|(k, _)| k == "HTTPS_PROXY").count(), 1);
+        // On Windows, the host's `https_proxy` is the step's `HTTPS_PROXY`: it isn't handed on
+        // beside it, where it would win as the later one.
+        assert_eq!(run.env.iter().filter(|(k, _)| same_var(k, "HTTPS_PROXY")).count(), 1, "{:?}", run.env);
     }
 }
