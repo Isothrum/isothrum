@@ -1,7 +1,7 @@
 //! One fresh start's pick of the host ports it pins, shared by the drivers that publish on this
 //! computer (Compose, Vagrant), one rule for both ([`PortPick::pin`]): a port's `preferred` number
 //! when `ISOLOOM_PUBLISH_FIXED` asks for it and no other run of this runner reserved it, else a
-//! free loopback port; with none left, the start fails. Each pick is reserved in the runner until
+//! free loopback port; with none left (or a loopback that can't be bound), the start fails. Each pick is reserved in the runner until
 //! the start ends, so another run of this runner starting meanwhile can't take it, and each free
 //! port's socket is held until the whole pick is done, so the OS doesn't hand one out twice.
 
@@ -47,12 +47,17 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// # Errors
     ///
     /// `tool_failed` for `step` when no free host port is left: the run would otherwise start on
-    /// ports nobody pinned, and a resume would get new addresses.
+    /// ports nobody pinned, and a resume would get new addresses. `io` when the loopback
+    /// couldn't be bound to find one (no file descriptor left, a loopback that is down).
     pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<u16>, protocol: Protocol) -> Result<u16> {
-        let preferred = preferred.filter(|_| self.fixed).and_then(|n| self.fixed(n, protocol));
-        preferred.or_else(|| self.free(protocol)).ok_or_else(|| Error::ToolFailed {
+        if let Some(port) = preferred.filter(|_| self.fixed).and_then(|n| self.fixed(n, protocol)) {
+            return Ok(port);
+        }
+        let over = crate::encoding::wire_name(&protocol);
+        let free = self.free(protocol).map_err(Error::io(format!("a {over} port on 127.0.0.1"), "bound"))?;
+        free.ok_or_else(|| Error::ToolFailed {
             step: step.to_owned(),
-            reason: format!("no free host port over {} is left to pin {what} to", crate::encoding::wire_name(&protocol)),
+            reason: format!("no free host port over {over} is left to pin {what} to"),
         })
     }
 
@@ -67,12 +72,14 @@ impl<'c, 'a> PortPick<'c, 'a> {
     }
 
     /// A free loopback port over `protocol`, reserved for this run and held until the pick is
-    /// dropped.
-    fn free(&mut self, protocol: Protocol) -> Option<u16> {
-        let port = self.cx.run.runner.pick_reserved(self.cx.run.name(), protocol)?;
+    /// dropped; none when none is left.
+    fn free(&mut self, protocol: Protocol) -> std::io::Result<Option<u16>> {
+        let Some(port) = self.cx.run.runner.pick_reserved(self.cx.run.name(), protocol)? else {
+            return Ok(None);
+        };
         let number = port.port;
         self.taken.insert((number, protocol));
         self.held.push(port);
-        Some(number)
+        Ok(Some(number))
     }
 }

@@ -181,7 +181,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         }
         ErrorCode::ManifestVersion => "Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom.",
         ErrorCode::Unsupported => "Upgrade Isothrum, generate the run for another target, or ask the run for what its target does.",
-        ErrorCode::Io => "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`).",
+        ErrorCode::Io => {
+            "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`); for a port, the open-file limit (`ulimit -n`) and the loopback."
+        }
         ErrorCode::Locked => "Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it.",
         ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
         ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",

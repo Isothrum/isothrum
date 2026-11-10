@@ -84,7 +84,7 @@ impl Running<'_> {
 
     /// What a fresh start of `cx`'s run with `opts` keeps in its `record`: the host ports it
     /// pins, the manifest it runs from, its params, cloud, place, provider and start time. Fails
-    /// when no free host port is left to pin one to.
+    /// when no free host port is left to pin one to, or the loopback can't be bound to find one.
     fn record_start(&self, record: &mut RunRecord, cx: &Cx<'_>, opts: &RunOptions) -> Result<()> {
         // A driver that forwards host ports it picks itself (Vagrant, locally) pins them now, into
         // the record, so a resume forwards the same ports for the VM's whole life; `bind_record`

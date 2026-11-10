@@ -26,7 +26,7 @@ pub enum ErrorCode {
     /// the call asks the run for something its target can't do (a console into a Compose service
     /// with no VM, a Vagrant VM joined to another network).
     Unsupported,
-    /// A file or folder couldn't be read or written.
+    /// A file or folder couldn't be read or written, or a socket on this computer bound.
     Io,
     /// Another process runs an operation on this run, or holds the home's slot pick.
     Locked,
@@ -159,12 +159,12 @@ pub enum Error {
         /// What is wrong with it.
         reason: String,
     },
-    /// A file or folder couldn't be read or written.
+    /// A file or folder couldn't be read or written, or a loopback port bound.
     #[error("{} couldn't be {action}: {source}", path.display())]
     Io {
-        /// The file or folder.
+        /// The file or folder (or the port: `a tcp port on 127.0.0.1`).
         path: PathBuf,
-        /// What was done to it (`read`, `written`, `created`, `locked`).
+        /// What was done to it (`read`, `written`, `created`, `locked`, `bound`).
         action: &'static str,
         /// The OS's reason.
         source: std::io::Error,

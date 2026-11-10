@@ -579,7 +579,7 @@
           "const": "unsupported"
         },
         {
-          "description": "A file or folder couldn't be read or written.",
+          "description": "A file or folder couldn't be read or written, or a socket on this computer bound.",
           "type": "string",
           "const": "io"
         },

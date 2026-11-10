@@ -54,8 +54,12 @@ pub(crate) mod sealed {
     pub trait Ports: Send + Sync {
         /// Whether `port` is taken over `protocol` on the loopback.
         fn in_use(&self, port: u16, protocol: Protocol) -> bool;
-        /// A free loopback port over `protocol`, held.
-        fn pick_free(&self, protocol: Protocol) -> Option<HeldPort>;
+        /// A free loopback port over `protocol`, held; none when none is left.
+        ///
+        /// # Errors
+        ///
+        /// The loopback couldn't be bound (no file descriptor left, a loopback that is down).
+        fn pick_free(&self, protocol: Protocol) -> std::io::Result<Option<HeldPort>>;
         /// Whether `host:port` accepts a TCP connection within `within`.
         fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool>;
     }
@@ -70,17 +74,17 @@ impl sealed::Ports for LoopbackPorts {
         v4.is_err() || v6.is_err_and(|e| held_elsewhere(&e))
     }
 
-    fn pick_free(&self, protocol: Protocol) -> Option<HeldPort> {
-        match protocol {
+    fn pick_free(&self, protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
+        Ok(Some(match protocol {
             Protocol::Udp => {
-                let s = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
-                Some(HeldPort::new(s.local_addr().ok()?.port(), s))
+                let s = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))?;
+                HeldPort::new(s.local_addr()?.port(), s)
             }
             Protocol::Tcp => {
-                let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
-                Some(HeldPort::new(l.local_addr().ok()?.port(), l))
+                let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+                HeldPort::new(l.local_addr()?.port(), l)
             }
-        }
+        }))
     }
 
     fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool> {
@@ -110,6 +114,8 @@ pub struct FakePorts {
     taken: std::sync::Mutex<std::collections::BTreeSet<(u16, Protocol)>>,
     free: std::sync::Mutex<std::collections::VecDeque<u16>>,
     answering: std::sync::Mutex<std::collections::BTreeSet<(String, u16)>>,
+    /// What a pick fails with instead of handing out a port, if anything.
+    unbindable: std::sync::Mutex<Option<std::io::ErrorKind>>,
 }
 
 #[cfg(any(test, feature = "fake"))]
@@ -128,6 +134,12 @@ impl FakePorts {
         self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((port, protocol));
     }
 
+    /// Makes every pick of a free port fail as a bind refused with `kind` would.
+    #[cfg(test)]
+    pub(crate) fn refuse_binds(&self, kind: std::io::ErrorKind) {
+        *self.unbindable.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(kind);
+    }
+
     /// Makes `host:port` answer.
     #[cfg(test)]
     pub(crate) fn answer(&self, host: &str, port: u16) {
@@ -144,12 +156,16 @@ impl sealed::Ports for FakePorts {
         self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&(port, protocol))
     }
 
-    fn pick_free(&self, _protocol: Protocol) -> Option<HeldPort> {
-        self.free
+    fn pick_free(&self, _protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
+        if let Some(kind) = *self.unbindable.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            return Err(kind.into());
+        }
+        Ok(self
+            .free
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .pop_front()
-            .map(|p| HeldPort::new(p, ()))
+            .map(|p| HeldPort::new(p, ())))
     }
 
     fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool> {
@@ -204,8 +220,8 @@ mod tests {
 
     #[test]
     fn picked_ports_are_held_until_dropped() {
-        let a = LoopbackPorts.pick_free(Protocol::Tcp).unwrap();
-        let b = LoopbackPorts.pick_free(Protocol::Tcp).unwrap();
+        let a = LoopbackPorts.pick_free(Protocol::Tcp).unwrap().unwrap();
+        let b = LoopbackPorts.pick_free(Protocol::Tcp).unwrap().unwrap();
         assert_ne!(a.port, b.port);
         assert!(LoopbackPorts.in_use(a.port, Protocol::Tcp));
     }

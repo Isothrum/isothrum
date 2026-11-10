@@ -368,6 +368,19 @@ async fn no_free_host_port_fails_the_pinning_of_a_fresh_run() {
     assert_eq!(f.called(" up --detach "), 0, "nothing started");
 }
 
+/// Regression: a loopback that couldn't be bound (no file descriptor left) read as no free port
+/// left, a diagnosis that sends the user looking for what holds their ports.
+#[tokio::test]
+async fn a_loopback_that_cant_be_bound_fails_the_pinning_with_why() {
+    let f = fixture();
+    f.ports.refuse_binds(std::io::ErrorKind::QuotaExceeded);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(err.to_string().starts_with("a tcp port on 127.0.0.1 couldn't be bound: "), "{err}");
+    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+}
+
 /// The networks the config no longer defines go; one it defines stays.
 #[tokio::test]
 async fn a_stale_network_goes_and_a_defined_one_stays() {
