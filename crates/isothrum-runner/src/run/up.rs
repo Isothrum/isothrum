@@ -167,7 +167,7 @@ impl Running<'_> {
             cx.vars
                 .set_params(params_for_existing(self.manifest(), Some(&record.params), &opts.params, &cx.scope)?);
         }
-        let cleared = run_steps(cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await.map(drop);
+        let cleared = crate::executor::run_down_steps(cx).await.map(drop);
         cx.vars.set_params(fresh);
         cleared
     }

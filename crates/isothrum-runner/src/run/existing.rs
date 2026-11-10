@@ -28,7 +28,7 @@ impl Running<'_> {
         self.operate(Op::Down, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let (mut record, mut cx) = self.existing(connected, e).await?;
             self.begin(&mut record, Op::Down)?;
-            run_steps(&mut cx, "lifecycle.down", self.manifest().lifecycle.down.as_slice()).await?;
+            crate::executor::run_down_steps(&mut cx).await?;
             self.driver.after_down(&cx)?;
             crate::executor::state_files::forget(&cx)?;
             crate::ssh::forget(&cx)?;

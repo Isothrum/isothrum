@@ -248,6 +248,9 @@ pub enum WarningCode {
     /// An output's `format` couldn't be filled (it names a value the run doesn't have): the
     /// output has no value.
     OutputUnformatted,
+    /// A resource a destroy found already gone (its provider's error, which the manifest names) is
+    /// dropped from the run's state, and the destroy runs again.
+    AlreadyGone,
 }
 
 /// Events kept in memory, for tests.

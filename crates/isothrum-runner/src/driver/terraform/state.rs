@@ -78,7 +78,7 @@ fn of(v: &Value) -> TfState {
 }
 
 /// A scalar value as text (a string as it is); none for null, an object or a list.
-fn scalar(v: &Value) -> Option<String> {
+pub(super) fn scalar(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),

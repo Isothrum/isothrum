@@ -76,7 +76,7 @@ pub(crate) fn every_argv(argv: &HostArgv) -> impl Iterator<Item = &Argv> {
 }
 
 /// The argv of `argv` for `host`: the one argv, or the host's own, else the default.
-fn for_host(argv: &HostArgv, host: HostOs) -> Option<&Argv> {
+pub(crate) fn for_host(argv: &HostArgv, host: HostOs) -> Option<&Argv> {
     match argv {
         HostArgv::Every(a) => Some(a),
         HostArgv::PerHost(p) => match host {

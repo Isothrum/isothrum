@@ -552,6 +552,11 @@
           "description": "An output's `format` couldn't be filled (it names a value the run doesn't have): the\noutput has no value.",
           "type": "string",
           "const": "output_unformatted"
+        },
+        {
+          "description": "A resource a destroy found already gone (its provider's error, which the manifest names) is\ndropped from the run's state, and the destroy runs again.",
+          "type": "string",
+          "const": "already_gone"
         }
       ]
     },

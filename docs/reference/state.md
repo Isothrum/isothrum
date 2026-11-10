@@ -44,6 +44,13 @@ depends on the target. With Isoloom's current targets:
 backend. A `down`, `update` or `reap` needs the same home the `up` used. See
 [Use isothrum in CI](../how-to/ci.md).
 
+**A resource already gone leaves the state**: when a `down`'s `terraform destroy` fails with an
+error the manifest's `identity.terraform.gone` names, filled with the attributes of an instance
+the state still holds (bpg/proxmox's `no such IPSet 'iso1n0'` for an IP set a reset Proxmox host
+lost), the runner drops that instance with `terraform state rm`, run as the destroy is, emits an
+`already_gone` warning naming it, and destroys again (three times at most). No other instance is
+dropped.
+
 ## `record.json`
 
 The run's record, written atomically. It holds no secret value.

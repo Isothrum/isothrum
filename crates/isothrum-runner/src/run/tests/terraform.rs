@@ -42,12 +42,17 @@ fn server(host: HostOs) -> Server {
 
 /// A test's runner on `manifest`.
 fn server_of(host: HostOs, manifest: &str) -> Server {
+    scripted(host, manifest, |_| None)
+}
+
+/// A test's runner on `manifest`, `script` answering the calls it knows, [`answer`] the others.
+fn scripted(host: HostOs, manifest: &str, script: impl Fn(&Call) -> Option<Reply> + Send + Sync + 'static) -> Server {
     let folder = RunFolder::new("proxmox", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     let guest = Arc::new(Mutex::new(Guest::Ready));
     let fake = Arc::new(FakeProcesses::new({
         let (guest, home) = (Arc::clone(&guest), folder.home.path().to_path_buf());
-        move |call| answer(&home, &guest, call)
+        move |call| script(call).unwrap_or_else(|| answer(&home, &guest, call))
     }));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), no_ports(), host)).unwrap();
     Server {
@@ -463,3 +468,5 @@ async fn a_module_with_no_terraform_file_is_manifest_invalid() {
     assert!(err.to_string().contains("it has no `.tf` file: generate the run's files again"), "{err}");
     assert!(!s.fake.lines().iter().any(|l| l.starts_with("terraform")), "{:?}", s.fake.lines());
 }
+
+mod gone;

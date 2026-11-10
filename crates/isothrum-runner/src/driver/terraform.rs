@@ -13,12 +13,15 @@
 //!   outputs from the state's.
 //! - Every process gets the shared plugin cache (one copy of each provider for every run), and
 //!   with an `expiry` the computed expiry as its Terraform variable.
+//! - A `down` whose destroy failed on resources already gone, as the manifest's
+//!   `identity.terraform.gone` says, drops them from the state and runs again ([`gone`]).
 //! - After a successful `down`: the state, its data folder and the module's copy go (the run's
 //!   SSH files and the project's archive go for every driver).
 //! - No on-demand access machine: the module makes every machine it has at `up`.
 
 mod console;
 mod copy_module;
+pub(crate) mod gone;
 mod guest;
 pub(crate) mod state;
 
@@ -57,6 +60,22 @@ impl Terraform {
     /// The module's folder.
     fn module(&self, cx: &Cx<'_>) -> PathBuf {
         cx.run.dir().join(self.identity.module.as_str())
+    }
+
+    /// What a failed `down` may print for each instance of the state that is already gone: the
+    /// manifest's `identity.terraform.gone`, filled for each instance of its types the state holds.
+    pub(crate) fn gone(&self, cx: &Cx<'_>) -> Result<Vec<gone::Gone>> {
+        if self.identity.gone.is_empty() {
+            return Ok(Vec::new());
+        }
+        let dir = cx.run.runner.store.run_dir(cx.run.name())?;
+        Ok(state::read_json(&dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
+    }
+
+    /// Drops from the state each instance it still holds whose text, among `seen`, its failed
+    /// destroy `step` of list `list` printed ([`gone::forget`]); whether it dropped any.
+    pub(crate) async fn forget_gone(&self, cx: &Cx<'_>, list: &str, step: &Step, seen: &std::collections::BTreeSet<String>) -> Result<bool> {
+        gone::forget(cx, list, step, self.gone(cx)?, seen).await
     }
 
     /// The folder whose module the run applies, checked before anything runs: the run's own

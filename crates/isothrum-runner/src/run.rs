@@ -214,6 +214,7 @@ impl<'r> Running<'r> {
             events,
             scope: self.scope(provider),
             stale,
+            gone: crate::executor::Watched::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
             ssh_jump: None,
             expires_at: None,

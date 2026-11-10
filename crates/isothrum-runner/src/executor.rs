@@ -47,6 +47,8 @@ pub(crate) struct Cx<'a> {
     pub(crate) processes: std::sync::Arc<dyn crate::process::ProcessRunner>,
     /// What the steps' lines say of leftovers from an earlier run.
     pub(crate) stale: Stale,
+    /// What the steps' lines say of resources already gone, while a `down` watches for them.
+    pub(crate) gone: Watched,
     /// The login every SSH of the run goes through first, when it has one.
     pub(crate) ssh_jump: Option<String>,
     /// When the run stops itself (seconds since the Unix epoch), for a manifest with an `expiry`.
@@ -91,6 +93,38 @@ impl Stale {
     }
 }
 
+/// Texts watched for in every line an argv or `ssh.run` step prints, exactly as written: what a
+/// destroy prints for a resource already gone ([`run_down_steps`]).
+#[derive(Debug, Default)]
+pub(crate) struct Watched {
+    texts: Mutex<BTreeSet<String>>,
+    seen: Mutex<BTreeSet<String>>,
+}
+
+impl Watched {
+    /// Watches for `texts` from now on, in place of what it watched for, and forgets what it saw.
+    pub(crate) fn watch(&self, texts: impl IntoIterator<Item = String>) {
+        *self.texts.lock().unwrap_or_else(PoisonError::into_inner) = texts.into_iter().filter(|t| !t.is_empty()).collect();
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+
+    /// Notes each text `line` holds.
+    fn notice(&self, line: &str) {
+        let texts = self.texts.lock().unwrap_or_else(PoisonError::into_inner);
+        if texts.is_empty() {
+            return;
+        }
+        let found = texts.iter().filter(|t| line.contains(t.as_str())).cloned();
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
+    }
+
+    /// The texts seen since it was told what to watch for, and nothing watched any more.
+    pub(crate) fn take(&self) -> BTreeSet<String> {
+        self.texts.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        std::mem::take(&mut *self.seen.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
 /// The steps of a list that ran and succeeded, or that don't apply on this host or provider.
 #[derive(Debug, Default)]
 pub(crate) struct Ran {
@@ -99,6 +133,12 @@ pub(crate) struct Ran {
 
 /// The start's list, as messages name it.
 const UP: &str = "lifecycle.up";
+
+/// The removal's list, as messages name it.
+pub(crate) const DOWN: &str = "lifecycle.down";
+
+/// How many times a `down` drops resources already gone from the run's state and runs again.
+const GONE_ROUNDS: u8 = 3;
 
 /// Runs `steps` (the manifest's list `list`, for messages) in order. After a failure, `if_ok`
 /// steps are skipped and `always` steps still run; a `tolerate` step's failure is a warning.
@@ -113,6 +153,30 @@ pub(crate) async fn run_steps(cx: &mut Cx<'_>, list: &str, steps: &[Step]) -> Re
 /// delivery waiting for a step going once that step succeeded.
 pub(crate) async fn run_up_steps(cx: &mut Cx<'_>, steps: &[Step]) -> Result<Ran> {
     run_list(cx, UP, steps, AfterStep::DeliverToGuests).await
+}
+
+/// The manifest's removal steps (`lifecycle.down`), as [`run_steps`] runs a list. A step that
+/// failed after printing what its driver says of a resource the run's state still holds that is
+/// already gone (a Terraform destroy, the provider's error the manifest's `identity.terraform.gone`
+/// names, filled for that resource) has those resources dropped from the state, each named in a
+/// warning, then the steps run again, up to [`GONE_ROUNDS`] times. Any other failure is the
+/// list's, and nothing that might still exist is dropped.
+pub(crate) async fn run_down_steps(cx: &mut Cx<'_>) -> Result<Ran> {
+    let down = cx.run.manifest().lifecycle.down.as_slice();
+    for _ in 0..GONE_ROUNDS {
+        cx.gone.watch(cx.run.driver.gone(cx)?.into_iter().map(|g| g.text));
+        let done = run_steps(cx, DOWN, down).await;
+        let seen = cx.gone.take();
+        let failed = match &done {
+            Err(Error::ToolFailed { step, .. }) if !seen.is_empty() => down.iter().find(|s| s.id.as_str() == step),
+            _ => None,
+        };
+        let Some(step) = failed else { return done };
+        if !cx.run.driver.forget_gone(cx, DOWN, step, &seen).await? {
+            return done;
+        }
+    }
+    run_steps(cx, DOWN, down).await
 }
 
 /// What follows each step of a list that succeeded.
@@ -181,7 +245,13 @@ async fn step_work(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
     let cx: &Cx<'_> = cx;
     match &step.run {
         // `ssh.run` is a command too: its lines are the step's (a check runner's results).
-        Run::Argv(_) | Run::Action { action: Action::SshRun, .. } => run_argv(cx, list, step, &mut |line| cx.stale.notice(line)).await,
+        Run::Argv(_) | Run::Action { action: Action::SshRun, .. } => {
+            run_argv(cx, list, step, &mut |line| {
+                cx.stale.notice(line);
+                cx.gone.notice(line);
+            })
+            .await
+        }
         // The project's archive is every driver's: the runner's own.
         Run::Action {
             action: Action::ProjectArchive,
@@ -243,5 +313,22 @@ mod tests {
         let none = Stale::new(&[]);
         none.notice("anything");
         assert_eq!(none.take(), None);
+    }
+
+    #[test]
+    fn a_watched_text_is_seen_exactly_as_written_until_taken() {
+        let watched = Watched::default();
+        watched.notice("no such IPSet 'iso1n0'");
+        assert_eq!(watched.take(), BTreeSet::new(), "nothing watched yet");
+        watched.watch(["no such IPSet 'iso1n0'".to_owned(), "no such IPSet 'iso1n1'".to_owned(), String::new()]);
+        watched.notice("Error: error getting IPSet content: received an HTTP 500 response - Reason: NO SUCH IPSET 'ISO1N0'");
+        watched.notice("Error: error getting IPSet content: received an HTTP 500 response - Reason: no such IPSet 'iso1n00'");
+        watched.notice("anything");
+        assert_eq!(watched.take(), BTreeSet::new(), "another case, another set: not the text");
+        watched.watch(["no such IPSet 'iso1n0'".to_owned()]);
+        watched.notice("Error: error getting IPSet content: received an HTTP 500 response - Reason: no such IPSet 'iso1n0'");
+        assert_eq!(watched.take().into_iter().collect::<Vec<_>>(), ["no such IPSet 'iso1n0'"]);
+        watched.notice("no such IPSet 'iso1n0'");
+        assert_eq!(watched.take(), BTreeSet::new(), "taking it ends the watch");
     }
 }

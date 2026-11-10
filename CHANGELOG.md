@@ -44,6 +44,16 @@ change.
   ends a line too (`\r\n` is still one line break). A redrawn line is a `log` event only when its
   text changed and at most once a second, so a fast meter doesn't fill the event log; a line
   ended by `\n` always is.
+- **A Terraform run whose server lost one of its resources can be destroyed.** The destroy runs
+  without a refresh, so a resource the server no longer has (a Proxmox host reset after an apply
+  cut short) reaches its provider's delete, and a few deletes fail on it rather than counting it
+  done: bpg/proxmox's IP set failed every `down` of the run, and the clearing of its leftovers
+  before the next `up`, with `no such IPSet 'iso1n0'`. A `down` whose destroy printed one of the
+  errors the manifest's `identity.terraform.gone` names, filled with the attributes of an
+  instance the state still holds, now drops that instance from the state (`terraform state rm`,
+  run as the destroy is), says which in an `already_gone` warning (new in the event schema), and
+  destroys again, three times at most. Nothing else is dropped: any other failure is the
+  `down`'s, as before.
 - **A run is free as soon as the operation that held it returns.** Its lock was freed only by
   closing the lock file, while a tool another operation started meanwhile still had the file's
   handle until it ran (on Unix, a spawned process gets every open handle until its `exec`). So the

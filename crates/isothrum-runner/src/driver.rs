@@ -213,6 +213,27 @@ impl AnyDriver {
         }
     }
 
+    /// What a failed `down` may print for each resource of the run that is already gone, and the
+    /// resource: Terraform's `identity.terraform.gone`, filled for each instance its state holds
+    /// ([`terraform::gone`]). None for the other drivers.
+    pub(crate) fn gone(&self, cx: &Cx<'_>) -> Result<Vec<terraform::gone::Gone>> {
+        match self {
+            AnyDriver::Terraform(d) => d.gone(cx),
+            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => Ok(Vec::new()),
+        }
+    }
+
+    /// Drops from the run's state each resource [`AnyDriver::gone`] names whose text, among
+    /// `seen`, step `step` of list `list` printed before it failed, through that step's own tool;
+    /// whether it dropped any (so the list may run again). Nothing for a step that isn't a
+    /// Terraform destroy, nor for another driver.
+    pub(crate) async fn forget_gone(&self, cx: &Cx<'_>, list: &str, step: &Step, seen: &std::collections::BTreeSet<String>) -> Result<bool> {
+        match self {
+            AnyDriver::Terraform(d) => d.forget_gone(cx, list, step, seen).await,
+            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => Ok(false),
+        }
+    }
+
     pub(crate) fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         match self {
             AnyDriver::Compose(d) => d.after_down(cx),

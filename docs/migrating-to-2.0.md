@@ -37,7 +37,7 @@ and `--secret-from-env`.
   Every event of an operation still has both.
 - The warning code `hook_failed` is gone.
 - New error codes: `cancelled`, `usage`, `machine_ambiguous`, `network_unknown`. New warning
-  codes: `output_unformatted`, `record_not_saved`.
+  codes: `output_unformatted`, `record_not_saved`, `already_gone`.
 - `elevation_declined` is renamed `elevation_failed` (`ErrorCode::ElevationFailed`): it also
   covers an elevated session that didn't start or ended early.
 - Codes that were `unsupported` and now say what is wrong: an `attach` that names none of the
