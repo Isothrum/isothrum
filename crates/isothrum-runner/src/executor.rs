@@ -132,7 +132,7 @@ pub(crate) struct Ran {
 }
 
 /// The start's list, as messages name it.
-const UP: &str = "lifecycle.up";
+pub(crate) const UP: &str = "lifecycle.up";
 
 /// The removal's list, as messages name it.
 pub(crate) const DOWN: &str = "lifecycle.down";
@@ -256,8 +256,8 @@ async fn step_work(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
         Run::Action {
             action: Action::ProjectArchive,
             with,
-        } => crate::archive::project(cx, step, with).await,
-        Run::Action { action, with } => cx.run.driver.action(cx, step, *action, with).await,
+        } => crate::archive::project(cx, list, step, with).await,
+        Run::Action { action, .. } => cx.run.driver.action(cx, list, step, *action).await,
     }
 }
 

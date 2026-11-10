@@ -28,7 +28,7 @@ pub(crate) mod state;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use isoloom_manifest::{Action, ExpiryUnit, Machine, SnakeName, Step, Template, TerraformIdentity};
+use isoloom_manifest::{Action, ExpiryUnit, Machine, Step, TerraformIdentity};
 
 use super::{Driver, GuestUse, Observed};
 use crate::console::ShellCommand;
@@ -82,7 +82,7 @@ impl Terraform {
     /// module where it is when `up` copies one (`terraform.copy_module`), else the generated one.
     fn checked_module(&self, cx: &Cx<'_>) -> Result<PathBuf> {
         match copied_from(cx)? {
-            Some((step, from)) => copy_module::inside_project(cx.run.dir(), &step, &from),
+            Some((at, from)) => copy_module::inside_project(cx.run.dir(), &at, &from),
             None => Ok(self.module(cx)),
         }
     }
@@ -125,14 +125,14 @@ impl Driver for Terraform {
         Ok(env)
     }
 
-    fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> impl Future<Output = Result<()>> {
+    fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> impl Future<Output = Result<()>> {
         let done = cx.run.runner.store.run_dir(cx.run.name()).and_then(|state_dir| match action {
             Action::TerraformClearLock => remove(&state_dir.join(LOCK_FILE)),
             Action::TerraformReadState => state::read(&state_dir).map(drop),
             Action::TerraformCopyModule => {
-                let at = step.id.as_str();
-                let (from, when) = (cx.vars.with_arg(with, at, "from")?, cx.vars.with_arg(with, at, "when")?);
-                copy_module::run(cx, at, from.as_deref(), when.as_deref())
+                let (at, with) = (crate::executor::plan::at(list, step), super::with_of(step));
+                let (from, when) = (cx.vars.with_arg(with, &at, "from")?, cx.vars.with_arg(with, &at, "when")?);
+                copy_module::run(cx, &at, from.as_deref(), when.as_deref())
             }
             other => Err(super::foreign_action("Terraform", step, other)),
         });
@@ -229,17 +229,18 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
     }
 }
 
-/// The first `terraform.copy_module` of `up` that names its folder: its step and that folder
-/// (`with.from`), filled.
+/// The first `terraform.copy_module` of `up` that names its folder: where its step is
+/// (`lifecycle.up.<id>`) and that folder (`with.from`), filled.
 fn copied_from(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
     for step in &cx.run.manifest().lifecycle.up {
         if let isoloom_manifest::Run::Action {
             action: Action::TerraformCopyModule,
             with,
         } = &step.run
-            && let Some(from) = cx.vars.with_arg(with, step.id.as_str(), "from")?
+            && let at = crate::executor::plan::at(crate::executor::UP, step)
+            && let Some(from) = cx.vars.with_arg(with, &at, "from")?
         {
-            return Ok(Some((step.id.as_str().to_owned(), from)));
+            return Ok(Some((at, from)));
         }
     }
     Ok(None)

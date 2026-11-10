@@ -3,11 +3,10 @@
 //! the controller (waiting for one still halting) and halting it (waiting for one that powers
 //! itself off).
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
-use isoloom_manifest::{Provider, SnakeName, Step, Template};
+use isoloom_manifest::{Provider, Step};
 
 use super::{READ_LIMIT, Vagrant, lock, status};
 use crate::Result;
@@ -153,9 +152,9 @@ pub(super) fn aborted_saved(lines: &[String]) -> bool {
 /// [`HALTING`]), or no longer answers over SSH on its way down (each ask given
 /// [`PROBE_LIMIT`]). Only one that answers it isn't halting is left running as it is; one
 /// still running and not saying so after [`WAKE_PATIENCE`] fails the step.
-pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
     let id = step.id.as_str();
-    let machine = controller(cx, step, with)?;
+    let machine = controller(cx, list, step)?;
     let deadline = tokio::time::Instant::now() + WAKE_PATIENCE;
     while running(v, cx, id, &machine).await? {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -203,9 +202,9 @@ const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the c
 /// seconds, and counts as done once the controller is off. A halt another Vagrant process's lock
 /// refused is tried again first ([`lock`]). The halt's lines reach the log once it is over, so
 /// ESXi's refusal never shows as an error.
-pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
     let id = step.id.as_str();
-    let machine = controller(cx, step, with)?;
+    let machine = controller(cx, list, step)?;
     let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
     let halt = lock::call_retrying(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
@@ -244,9 +243,11 @@ fn already_off(halt: &Captured) -> bool {
         .any(|line| ESXI_ALREADY_OFF.iter().any(|said| line.contains(said)))
 }
 
-/// The controller step `step`'s action names (`with.machine`), else Isoloom's.
-fn controller(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<String> {
-    Ok(cx.vars.with_arg(with, step.id.as_str(), "machine")?.unwrap_or_else(|| CONTROLLER.to_owned()))
+/// The controller step `step` of list `list` names (`with.machine`), else Isoloom's.
+fn controller(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
+    let at = crate::executor::plan::at(list, step);
+    let named = cx.vars.with_arg(crate::driver::with_of(step), &at, "machine")?;
+    Ok(named.unwrap_or_else(|| CONTROLLER.to_owned()))
 }
 
 /// Whether Vagrant reads `machine` as running, or on its way there or down: any state but off

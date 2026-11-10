@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, SnakeName, Step, Template, access};
+use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Step, access};
 
 use super::{Driver, GuestUse, Observed};
 use crate::Result;
@@ -111,12 +111,12 @@ impl Driver for Compose {
         Ok(())
     }
 
-    async fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+    async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         match action {
-            Action::ComposePinPorts => actions::pin_ports(self, cx, step).await,
-            Action::ComposeCheckPortsFree => actions::check_ports_free(self, cx, step).await,
-            Action::ComposeRemoveStaleNetworks => actions::remove_stale_networks(self, cx, step).await,
-            Action::ComposeRemoveContainers => actions::remove_containers(self, cx, step, with).await,
+            Action::ComposePinPorts => actions::pin_ports(self, cx, list, step).await,
+            Action::ComposeCheckPortsFree => actions::check_ports_free(self, cx, list, step).await,
+            Action::ComposeRemoveStaleNetworks => actions::remove_stale_networks(self, cx, list, step).await,
+            Action::ComposeRemoveContainers => actions::remove_containers(self, cx, list, step).await,
             Action::ComposeRemoveNetworks => actions::remove_networks(self, cx, step).await,
             other => Err(super::foreign_action("Compose", step, other)),
         }

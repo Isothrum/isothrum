@@ -465,6 +465,9 @@ change.
 - **A run manifest that isn't UTF-8 is `manifest_invalid`, naming the byte.** Bytes that
   weren't UTF-8 inside a JSON string read as U+FFFD, so a path or a template of the contract
   changed without a word.
+- **A driver action's or a `project.archive`'s error names where its step is as every other
+  step's does** (`lifecycle.up.archive.with.root`, not `archive.with.root`), and a Compose
+  action's errors name its own list rather than always `lifecycle.up`.
 
 ### Added
 

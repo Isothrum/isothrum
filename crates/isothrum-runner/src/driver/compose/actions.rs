@@ -1,8 +1,6 @@
 //! The `compose` actions, each a read-then-act sequence one argv can't express.
 
-use std::collections::BTreeMap;
-
-use isoloom_manifest::{SnakeName, Step, Template};
+use isoloom_manifest::Step;
 
 use super::{Compose, NO_PINS, config, docker, pins, ps};
 use crate::Result;
@@ -18,11 +16,11 @@ const PROJECT_LABEL: &str = "com.docker.compose.project";
 /// container starts). Pins made for existing containers stay as they were created. A config
 /// that can't be read, or a port no free host port is left for, fails the step: the run would
 /// otherwise start on ephemeral ports and a resume would get new addresses.
-pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
+pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
     let Some(file) = c.pins(cx)? else {
         return Ok(());
     };
-    let env = env_of(cx, "lifecycle.up", step)?;
+    let env = env_of(cx, list, step)?;
     let listed = c.compose(cx, step, &["ps", "--all", "--format", "json"], &env).await?;
     let listed = ps::parse_ps(&listed).ok_or_else(|| ps::unreadable(step.id.as_str()))?;
     if listed.iter().any(|e| !e.one_off()) {
@@ -41,8 +39,8 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<(
 /// config that can't be read fails the step rather than pass ports nobody checked.
 /// Run inside the run's lock, right before `up`, so a pinned port taken since it was picked is
 /// caught here rather than as Docker's bind error.
-pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
-    let env = env_of(cx, "lifecycle.up", step)?;
+pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    let env = env_of(cx, list, step)?;
     let listed = c.compose(cx, step, &["ps", "--format", "json"], &env).await?;
     let listed = ps::parse_ps(&listed).ok_or_else(|| ps::unreadable(step.id.as_str()))?;
     if listed.iter().any(|e| !e.one_off() && e.state == "running") {
@@ -56,8 +54,8 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, step: &Step) -> R
 /// `compose.remove_stale_networks`: the project's networks its Compose files no longer define
 /// (left by an older version of the run), unplugged and removed. A config that can't be read
 /// fails the step and removes nothing: every network would read as stale, live ones included.
-pub(super) async fn remove_stale_networks(c: &Compose, cx: &Cx<'_>, step: &Step) -> Result<()> {
-    let env = env_of(cx, "lifecycle.up", step)?;
+pub(super) async fn remove_stale_networks(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    let env = env_of(cx, list, step)?;
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
     let wanted = config::networks(&config, &c.project(cx)?).ok_or_else(|| config::unreadable(step.id.as_str(), "the networks it defines are"))?;
     for net in project_networks(c, cx, step).await? {
@@ -79,8 +77,9 @@ pub(super) async fn remove_networks(c: &Compose, cx: &Cx<'_>, step: &Step) -> Re
 
 /// `compose.remove_containers`: the project's containers (`with.service` narrows to one service,
 /// `with.one_off` to `docker compose run` containers), one-offs included, which `down` leaves.
-pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
-    let arg = |key: &str| cx.vars.with_arg(with, step.id.as_str(), key);
+pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    let at = crate::executor::plan::at(list, step);
+    let arg = |key: &str| cx.vars.with_arg(crate::driver::with_of(step), &at, key);
     let mut args: Vec<String> = ["ps", "-aq", "--filter"].map(String::from).to_vec();
     args.push(format!("label={PROJECT_LABEL}={}", c.project(cx)?));
     if let Some(service) = arg("service")? {

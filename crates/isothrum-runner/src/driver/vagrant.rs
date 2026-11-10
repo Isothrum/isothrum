@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Machine, Native, Provider, SnakeName, Step, Template, VagrantIdentity, VagrantProvider, access};
+use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, access};
 
 use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
@@ -186,14 +186,14 @@ impl Driver for Vagrant {
         Ok(env)
     }
 
-    async fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+    async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         match action {
             Action::VagrantReconcileProvider => actions::reconcile_provider(self, cx, step).await,
             Action::VagrantDiscardAbortedSaved => actions::discard_aborted_saved(cx, step).await,
             Action::VagrantRemoveOrphans => orphans::remove(cx, step).await,
             Action::VagrantResetState => actions::reset_state(self, cx),
-            Action::VagrantWakeController => actions::wake_controller(self, cx, step, with).await,
-            Action::VagrantParkController => actions::park_controller(self, cx, step, with).await,
+            Action::VagrantWakeController => actions::wake_controller(self, cx, list, step).await,
+            Action::VagrantParkController => actions::park_controller(self, cx, list, step).await,
             Action::VagrantCheckForwardedPorts => forwarded::check(cx, step).await,
             other => Err(super::foreign_action("Vagrant", step, other)),
         }

@@ -20,11 +20,11 @@ pub(super) const COPY: &str = "module";
 /// What a module copy replaces: Terraform's own files.
 const TERRAFORM_FILES: [&str; 4] = [".tf", ".tf.json", ".tfvars", ".tfvars.json"];
 
-/// The copy the action of step `step` asks for: module `from` into the run's state folder, only
-/// when there is none with `when` `missing`.
-pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str>) -> crate::Result<()> {
+/// The copy the action of the step at `at` (`lifecycle.up.copy`) asks for: module `from` into
+/// the run's state folder, only when there is none with `when` `missing`.
+pub(super) fn run(cx: &Cx<'_>, at: &str, from: Option<&str>, when: Option<&str>) -> crate::Result<()> {
     let malformed = |field: &str, reason: String| Error::Malformed {
-        at: format!("{step}.with.{field}"),
+        at: format!("{at}.with.{field}"),
         reason,
     };
     let from = from.ok_or_else(|| malformed("from", "a `terraform.copy_module` needs the module to copy".into()))?;
@@ -33,7 +33,7 @@ pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str
         Some("missing") => true,
         Some(other) => return Err(malformed("when", format!("`{other}`: only `missing` is a `when`"))),
     };
-    let source = inside_project(cx.run.dir(), step, from)?;
+    let source = inside_project(cx.run.dir(), at, from)?;
     let copy = cx.run.runner.store.run_dir(cx.run.name())?.join(COPY);
     if only_missing && copy.is_dir() {
         return Ok(());
@@ -44,12 +44,12 @@ pub(super) fn run(cx: &Cx<'_>, step: &str, from: Option<&str>, when: Option<&str
 }
 
 /// `from` (relative to the manifest's folder `dir`) as a folder inside the run's project: the
-/// folder above the `.isoloom…` one. Step `step`'s `with.from` is malformed when it is missing,
-/// outside the project or not a folder; a path that can't be resolved for another reason is an
-/// I/O error.
-pub(super) fn inside_project(dir: &Path, step: &str, from: &str) -> crate::Result<PathBuf> {
+/// folder above the `.isoloom…` one. The `with.from` of the step at `at` is malformed when it is
+/// missing, outside the project or not a folder; a path that can't be resolved for another reason
+/// is an I/O error.
+pub(super) fn inside_project(dir: &Path, at: &str, from: &str) -> crate::Result<PathBuf> {
     let outside = || Error::Malformed {
-        at: format!("{step}.with.from"),
+        at: format!("{at}.with.from"),
         reason: format!("`{from}` isn't a folder inside the run's project"),
     };
     let resolve = |path: PathBuf| if_there(std::fs::canonicalize(&path)).map_err(Error::io(path, "resolved"));

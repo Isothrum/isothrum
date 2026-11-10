@@ -14,7 +14,7 @@ pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, SnakeName, Step, Template};
+use isoloom_manifest::{Action, Delivery, Identity, Machine, Manifest, Native, Run, SnakeName, Step, Template};
 use tracing::Instrument;
 
 use crate::Result;
@@ -84,8 +84,9 @@ pub(crate) trait Driver {
     /// What every process of the run gets in its environment, besides its step's (Vagrant: its
     /// state folder, `VAGRANT_DOTFILE_PATH`).
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>>;
-    /// Runs one of this driver's actions.
-    async fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> Result<()>;
+    /// Runs one of this driver's actions, step `step` of list `list` (`lifecycle.up`), which its
+    /// errors name it by ([`crate::executor::plan::at`]), with its arguments ([`with_of`]).
+    async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()>;
     /// The run as the engine reports it, from the manifest's `lifecycle.status`.
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
     /// Clears the run's state after a successful `down` (Compose: no pins left).
@@ -215,12 +216,12 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) async fn action(&self, cx: &Cx<'_>, step: &Step, action: Action, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+    pub(crate) async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), action = ?action);
         match self {
-            AnyDriver::Compose(d) => d.action(cx, step, action, with).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.action(cx, step, action, with).instrument(span).await,
-            AnyDriver::Terraform(d) => d.action(cx, step, action, with).instrument(span).await,
+            AnyDriver::Compose(d) => d.action(cx, list, step, action).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.action(cx, list, step, action).instrument(span).await,
+            AnyDriver::Terraform(d) => d.action(cx, list, step, action).instrument(span).await,
         }
     }
 
@@ -304,6 +305,15 @@ impl AnyDriver {
             AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, use_),
             AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, use_),
         }
+    }
+}
+
+/// The arguments (`with`) of action step `step`; none for a command step.
+pub(crate) fn with_of(step: &Step) -> &BTreeMap<SnakeName, Template> {
+    static NONE: BTreeMap<SnakeName, Template> = BTreeMap::new();
+    match &step.run {
+        Run::Action { with, .. } => with,
+        Run::Argv(_) => &NONE,
     }
 }
 

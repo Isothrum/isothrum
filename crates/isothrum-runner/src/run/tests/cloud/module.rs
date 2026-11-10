@@ -74,7 +74,7 @@ async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     let err = refused_start(&a).await;
     assert_eq!(
         err.to_string(),
-        "copy-module.with.from: `../../../terraform` isn't a folder inside the run's project"
+        "lifecycle.up.copy-module.with.from: `../../../terraform` isn't a folder inside the run's project"
     );
     assert!(a.fake.last("terraform").is_none(), "nothing ran");
 }
@@ -117,6 +117,6 @@ async fn a_copy_with_a_when_it_doesnt_know_is_a_malformed_manifest() {
     std::fs::create_dir_all(&module).unwrap();
     std::fs::write(module.join("main.tf"), "").unwrap();
     let err = refused_start(&a).await;
-    assert_eq!(err.to_string(), "copy-module.with.when: `always`: only `missing` is a `when`");
+    assert_eq!(err.to_string(), "lifecycle.up.copy-module.with.when: `always`: only `missing` is a `when`");
     assert!(a.fake.last("terraform apply").is_none(), "nothing applied");
 }

@@ -31,13 +31,14 @@ use crate::executor::Cx;
 /// The archive's name in the run's state folder.
 pub(crate) const ARCHIVE: &str = "project.tgz";
 
-/// Runs `project.archive` for step `step`: the project at `with.root` (relative to the manifest's
-/// folder) archived as the run's [`ARCHIVE`], with the outputs `with.outputs` names.
-pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
-    let arg = |key: &str| cx.vars.with_arg(with, step.id.as_str(), key);
+/// Runs `project.archive` for step `step` of list `list`: the project at `with.root` (relative to
+/// the manifest's folder) archived as the run's [`ARCHIVE`], with the outputs `with.outputs` names.
+pub(crate) async fn project(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
+    let at = crate::executor::plan::at(list, step);
+    let arg = |key: &str| cx.vars.with_arg(with, &at, key);
     let Some(root) = arg("root")? else {
         return Err(Error::Malformed {
-            at: format!("{}.with.root", step.id),
+            at: format!("{at}.with.root"),
             reason: "a `project.archive` needs the folder to archive".to_owned(),
         });
     };

@@ -217,7 +217,10 @@ async fn an_archive_step_without_its_folder_is_a_malformed_manifest() {
     let run = runner.open(&folder.manifest, None).unwrap();
     let err = run.up(&options, &Recorder::new()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
-    assert_eq!(err.to_string(), "archive.with.root: a `project.archive` needs the folder to archive");
+    assert_eq!(
+        err.to_string(),
+        "lifecycle.up.archive.with.root: a `project.archive` needs the folder to archive"
+    );
 }
 
 /// Regression: a guest host that couldn't be filled (the VM's address output gone) left
