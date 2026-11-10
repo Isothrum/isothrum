@@ -20,13 +20,16 @@ pub use tags::{Place, Tagged};
 
 use crate::Result;
 use crate::clock::unix_seconds;
-use crate::process::{ProcessRunner, ProcessSpec, capture};
+use crate::executor::{Progress, within};
+use crate::process::{ProcessRunner, ProcessSpec};
 use crate::runner::Runner;
 use crate::state::RunState;
 use crate::store::RunRecord;
 
-/// How long a cloud's query may take.
+/// How long a cloud's query may go without progress.
 const QUERY_LIMIT: Duration = Duration::from_secs(120);
+/// The id a query's timeout reads as.
+const QUERY_STEP: &str = "reap";
 
 /// What a cloud still holds past its expiry that no recorded run covers.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
@@ -97,12 +100,16 @@ fn orphaned(t: &Tagged, now: u64, covered: &BTreeSet<String>) -> bool {
     t.expires_at.is_some_and(|at| at <= now) && t.instance.as_ref().is_none_or(|i| !covered.contains(i))
 }
 
-/// What `spec` prints, when it ran to a success within [`QUERY_LIMIT`]; else why not.
+/// What `spec` prints, when it ran to a success without going [`QUERY_LIMIT`] without progress
+/// (as every tool call's limit counts); else why not.
 async fn query(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> std::result::Result<String, String> {
-    let ran = tokio::time::timeout(QUERY_LIMIT, capture(processes, spec)).await;
-    let out = ran
-        .map_err(|_| format!("no answer within {}s", QUERY_LIMIT.as_secs()))?
-        .map_err(|e| e.to_string())?;
+    let progress = Progress::new();
+    let out = within(QUERY_STEP, QUERY_LIMIT, &progress, progress.capture(processes, spec))
+        .await
+        .map_err(|e| match e {
+            crate::Error::Timeout { timed_out, .. } => timed_out.to_string(),
+            other => other.to_string(),
+        })?;
     if out.succeeded() {
         Ok(out.stdout.join("\n"))
     } else {

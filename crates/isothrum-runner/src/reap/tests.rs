@@ -94,6 +94,15 @@ async fn a_cloud_whose_command_line_is_missing_is_said_unchecked_not_a_failure()
     assert!(found.unread[0].starts_with("`gcloud compute instances list"), "{found:?}");
 }
 
+/// A query counts its limit as every tool call does: the time it goes without progress.
+#[tokio::test(start_paused = true)]
+async fn a_cloud_query_that_prints_nothing_is_given_up_after_its_limit() {
+    let (_home, r) = runner(|_| Reply::ok("[]").after(Duration::from_secs(3600)));
+    let found = r.orphans(Cloud::Gcp, &Place::default(), now()).await.unwrap();
+    assert_eq!(found.unread.len(), 1, "{found:?}");
+    assert!(found.unread[0].ends_with("printed nothing for 120s and was stopped"), "{found:?}");
+}
+
 #[test]
 fn each_cloud_asks_its_own_command_line_read_only() {
     let place = Place::new(vec!["eu-west-3".into(), "us-east-1".into()], Some("demo-123".into()));
