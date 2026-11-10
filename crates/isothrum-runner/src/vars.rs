@@ -201,6 +201,7 @@ mod tests {
     fn a_placeholder_without_a_value_is_an_error_naming_it() {
         let err = vars().render(&t("--provider ${run.provider}"), "lifecycle.up.up").unwrap_err();
         assert_eq!(err.to_string(), "lifecycle.up.up: `${run.provider}` has no value in this operation");
+        assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "the manifest names what the operation lacks");
         assert!(vars().render(&t("${published.web.admin}"), "x").is_err());
         assert!(vars().render(&t("${value}"), "x").is_err());
         let unbound_host = vars().render(&t("http://${host.db}/"), "outputs.db_site.format").unwrap_err();

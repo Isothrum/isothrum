@@ -559,7 +559,7 @@
       "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
       "oneOf": [
         {
-          "description": "The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used\nas written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`).",
+          "description": "The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as\nwritten (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a\n`tcp` condition's port), or it names a value the operation doesn't have (a placeholder\nwith none, a guest delivery's machine whose address no output gives, a Terraform module\nwith no `.tf` file).",
           "type": "string",
           "const": "manifest_invalid"
         },
@@ -659,9 +659,9 @@
           "const": "provider_refused"
         },
         {
-          "description": "The elevation Hyper-V's commands need couldn't be had (the permission prompt declined).",
+          "description": "The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt\ndeclined or unanswered, the elevated session not started or ended before the operation\n(the message says which).",
           "type": "string",
-          "const": "elevation_declined"
+          "const": "elevation_failed"
         },
         {
           "description": "A machine the run doesn't have.",

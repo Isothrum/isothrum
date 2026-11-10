@@ -57,8 +57,9 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     // The login itself, though the module or the manifest keeps it secret.
     let output = |name: &str| outputs.iter().find(|o| o.name == name).and_then(|o| o.revealed().map(str::to_owned));
     for (machine, lines) in by_machine {
-        let login = ssh::machine_login(output, &machine, cx.ssh_jump.as_deref())?.ok_or_else(|| Error::Unsupported {
-            what: format!("a guest delivery to `{machine}` without its `{}` output", ssh::address_output(&machine)),
+        let login = ssh::machine_login(output, &machine, cx.ssh_jump.as_deref())?.ok_or_else(|| Error::Malformed {
+            at: format!("the guest delivery to `{machine}`"),
+            reason: format!("no `{}` output gives the machine's address", ssh::address_output(&machine)),
         })?;
         to_machine(cx, &machine, &login, &lines).await?;
     }

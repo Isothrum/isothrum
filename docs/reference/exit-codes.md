@@ -18,7 +18,7 @@ An operation that fails ends its event stream with an `error` event whose `code`
 
 | Code | Cause | Remedy |
 | ---- | ----- | ------ |
-| `manifest_invalid` | The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used as written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`). | Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix. |
+| `manifest_invalid` | The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a `tcp` condition's port), or it names a value the operation doesn't have (a placeholder with none, a guest delivery's machine whose address no output gives, a Terraform module with no `.tf` file). | Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix. |
 | `manifest_version` | The manifest is another version of the contract. | Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom. |
 | `unsupported` | The manifest needs something this runner doesn't do (a driver, a delivery, a condition), or the call asks the run for something its target can't do (a console into a Compose service with no VM, a Vagrant VM joined to another network). | Upgrade Isothrum, generate the run for another target, or ask the run for what its target does. |
 | `io` | A file or folder couldn't be read or written. | Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`). |
@@ -38,7 +38,7 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `param_invalid` | A param is unknown, missing or holds a value it doesn't allow. | Fix the `--param NAME=VALUE` the message names (a value the manifest allows). |
 | `run_name` | A run name that can't name a run. | Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit. |
 | `provider_refused` | The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or lacks its plugin. | Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed. |
-| `elevation_declined` | The elevation Hyper-V's commands need couldn't be had (the permission prompt declined). | Approve the Windows permission prompt, or run as a member of Hyper-V Administrators. |
+| `elevation_failed` | The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt declined or unanswered, the elevated session not started or ended before the operation (the message says which). | Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session. |
 | `machine_unknown` | A machine the run doesn't have. | Name a machine of the manifest. |
 | `machine_ambiguous` | The run has several machines the call could mean, and it named none. | Name the machine (`--machine`): the message lists the run's. |
 | `network_unknown` | A network the run doesn't have. | Name a network of the manifest. |
@@ -46,5 +46,5 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `adopt_refused` | A deployment can't be taken over as a run. | The message says why the deployment can't be taken over; start the run with `up` instead. |
 | `unreachable` | A machine a step goes to over SSH never answered. | Check the machine booted and its network (SSH, `--ssh-jump`), then retry. |
 | `not_sealed` | The run's seal failed: it is up, but not sealed, so not ready. | `down` the run, which isn't ready, then `up` again. |
-| `cancelled` | The operation was cut short before it ended (its future dropped: an embedder's cancel, the command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended once they have, or 30 seconds later ([`crate::SystemProcesses`]). | Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left. |
+| `cancelled` | The operation was cut short before it ended (its future dropped: an embedder's cancel, the command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended once they have, or 30 seconds later. | Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left. |
 | `usage` | The embedder was asked for something that makes no sense (the command line: a run folder with no manifest, a value missing or malformed), so no operation started. | Fix the command line: `isothrum <command> --help`. |

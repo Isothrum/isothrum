@@ -38,12 +38,17 @@ and `--secret-from-env`.
 - The warning code `hook_failed` is gone.
 - New error codes: `cancelled`, `usage`, `machine_ambiguous`, `network_unknown`. New warning
   codes: `output_unformatted`, `record_not_saved`.
+- `elevation_declined` is renamed `elevation_failed` (`ErrorCode::ElevationFailed`): it also
+  covers an elevated session that didn't start or ended early.
 - Codes that were `unsupported` and now say what is wrong: an `attach` that names none of the
   run's several on-demand machines is `machine_ambiguous`; one whose `--network` the run doesn't
   have is `network_unknown`; a manifest value the runner can't use as written (a step's
   `verdict` that isn't a regular expression, an SSH login, an `ssh.run`'s `wait_s`, `host` or
   `command`, a `project.archive` without its folder, a `terraform.copy_module`'s `from` or
-  `when`) is `manifest_invalid`.
+  `when`) is `manifest_invalid`, as are a placeholder with no value in the operation (was
+  `unsupported`), a `tcp` condition whose port isn't a number (was `not_ready`), a guest
+  delivery to a machine whose address no output gives (was `unsupported`) and a Terraform module
+  with no `.tf` file (was `io`).
 - An `error` event for a timeout carries `timeout`: `{"kind": "no_progress", "after_s", "last_line"}`
   or `{"kind": "ceiling", "after_s"}`.
 - A sensitive output is `***` in `status --json` too.

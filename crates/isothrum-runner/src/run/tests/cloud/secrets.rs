@@ -60,6 +60,23 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     );
 }
 
+/// A delivery to a machine whose address no output gives can't happen: the manifest promised an
+/// `address_<machine>` output it doesn't have (`manifest_invalid`), and nothing is sent.
+#[tokio::test(start_paused = true)]
+async fn a_delivery_to_a_machine_no_output_gives_the_address_of_is_manifest_invalid() {
+    let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
+    // The module's state has no such output.
+    for o in m["outputs"].as_array_mut().unwrap().iter_mut().filter(|o| o["name"] == "address_web") {
+        o["from"]["name"] = "address_of_web".into();
+    }
+    let a = account_of(&m.to_string(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    let err = run.up(&with_secret("eu-west-3"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert!(err.to_string().contains("no `address_web` output gives the machine's address"), "{err}");
+    assert!(a.fake.last("/var/lib/isoloom/secrets").is_none(), "nothing delivered");
+}
+
 /// An operation cut short while it delivers (its future dropped: a cancel, Ctrl-C) leaves no
 /// input file holding the values in the run's state folder.
 #[tokio::test(start_paused = true)]

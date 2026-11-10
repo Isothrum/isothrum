@@ -210,6 +210,22 @@ async fn a_tcp_condition_holds_once_its_port_answers() {
     }));
 }
 
+/// A `tcp` condition whose port isn't a number is the manifest's mistake, not a run that isn't
+/// ready.
+#[tokio::test(start_paused = true)]
+async fn a_tcp_condition_on_no_port_is_manifest_invalid() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    m["ready"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({ "kind": "tcp", "address": "127.0.0.1", "port": "http", "timeout_s": 10 }));
+    let f = fixture_with(&m.to_string());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert_eq!(err.to_string(), "ready.tcp.port: `http` isn't a port");
+}
+
 #[tokio::test]
 async fn leftovers_are_removed_before_a_start() {
     let f = fixture();

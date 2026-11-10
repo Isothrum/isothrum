@@ -28,7 +28,8 @@ for more, with one exception:
   Isothrum starts one elevated broker for the operation (`Start-Process -Verb RunAs`, one UAC
   prompt, waited for up to 300 seconds) and sends each command to it through a fresh session
   folder in the run's state (`elevated/<token>/`); a request without the session's random token is
-  deleted unrun. A declined or unanswered prompt fails the operation with `elevation_declined`.
+  deleted unrun. A declined or unanswered prompt, or a broker that stops before the operation ends, fails it
+  with `elevation_failed`.
   An elevated process doesn't inherit the environment: the broker is handed `PATH`, the
   `VAGRANT_*` variables, the proxy and CA bundle variables, and each command's own values through
   an owner-only file it deletes once read (see [Environment variables](../reference/environment.md)).

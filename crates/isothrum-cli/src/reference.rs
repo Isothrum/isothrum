@@ -173,7 +173,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ParamInvalid => "Fix the `--param NAME=VALUE` the message names (a value the manifest allows).",
         ErrorCode::RunName => "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit.",
         ErrorCode::ProviderRefused => "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed.",
-        ErrorCode::ElevationDeclined => "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators.",
+        ErrorCode::ElevationFailed => {
+            "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session."
+        }
         ErrorCode::MachineUnknown => "Name a machine of the manifest.",
         ErrorCode::MachineAmbiguous => "Name the machine (`--machine`): the message lists the run's.",
         ErrorCode::NetworkUnknown => "Name a network of the manifest.",

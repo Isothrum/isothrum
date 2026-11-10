@@ -79,11 +79,14 @@ impl Driver for Terraform {
         // A run's own module the run copies (`terraform.copy_module`) is checked where it is.
         let copied = copied_from(cx).and_then(|from| copy_module::inside_project(cx.run.dir(), &from));
         let has_tf = copy_module::has_terraform_files(copied.as_deref().unwrap_or(&module));
-        let missing = std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "no Terraform module (no `.tf` file): generate the run's files again",
-        );
-        std::future::ready(if has_tf { Ok(()) } else { Err(Error::io(&module, "read")(missing)) })
+        std::future::ready(if has_tf {
+            Ok(())
+        } else {
+            Err(Error::Malformed {
+                at: format!("the Terraform module {}", module.display()),
+                reason: "it has no `.tf` file: generate the run's files again".to_owned(),
+            })
+        })
     }
 
     /// Creates the runner's own plugin cache; the user's is theirs, used as it is.

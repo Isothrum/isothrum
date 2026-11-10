@@ -450,3 +450,16 @@ async fn ssh_runs_in_the_state_folder_so_a_home_with_a_space_reaches_every_jump(
         "no path with a space on the line: {read:?}"
     );
 }
+
+/// A run whose Terraform module has no `.tf` file is the generated files' mistake: refused before
+/// anything runs, as `manifest_invalid` saying to generate them again.
+#[tokio::test(start_paused = true)]
+async fn a_module_with_no_terraform_file_is_manifest_invalid() {
+    let s = server(HostOs::Linux);
+    std::fs::remove_file(s.folder.target_dir().join("main.tf")).unwrap();
+    let run = s.runner.open(&s.manifest, None).unwrap();
+    let err = run.up(&opts("pve-run"), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::ManifestInvalid, "{err}");
+    assert!(err.to_string().contains("it has no `.tf` file: generate the run's files again"), "{err}");
+    assert!(!s.fake.lines().iter().any(|l| l.starts_with("terraform")), "{:?}", s.fake.lines());
+}

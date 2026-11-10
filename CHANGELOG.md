@@ -66,7 +66,7 @@ change.
   still had to run, and a request whose broker had stopped waited for its answer until its step's
   limit, then read as a `timeout`. A session now lasts as long as its operation; a broker that
   stops other than at the session's end writes why in `ended`, and the request in flight fails
-  with `elevation_declined` saying so, as does every later call of the operation. A request whose
+  with `elevation_failed` saying so, as does every later call of the operation. A request whose
   file couldn't be written, or whose answer couldn't be read, now fails the session too (the
   broker waited for it and took no later request), and a failed `whoami /groups` is traced.
 - **The macOS WinRM proxy passes a client's close on to the guest.** It shut `nc`'s input down,
@@ -344,7 +344,14 @@ change.
   expression, an SSH login, an `ssh.run`'s `wait_s`, `host` or `command`, a `project.archive`
   without its folder, a `terraform.copy_module`'s `from` or `when`) with `manifest_invalid`
   (`Error::Malformed`, naming the field). `unsupported`'s message no longer says "by this runner
-  yet": much of what it refuses is a target's limit, not a missing feature.
+  yet": much of what it refuses is a target's limit, not a missing feature. Also
+  `manifest_invalid` now: a placeholder with no value in the operation (`Error::Unbound`, was
+  `unsupported`), a `tcp` condition whose port isn't a number (was `not_ready`), a guest
+  delivery to a machine whose address no output gives (was `unsupported`) and a Terraform module
+  with no `.tf` file (was `io`).
+- **Breaking: `elevation_declined` is `elevation_failed`** (`ErrorCode::ElevationFailed`). The
+  code covered more than a declined prompt: an elevated session that didn't start, or whose
+  broker stopped before the operation ended. The message says which.
 - **The runner reads its environment once, in `RunnerConfig::new`.** The proxies, CA bundles,
   `TF_CLI_CONFIG_FILE`, Vagrant's variables and `USERPROFILE` it hands to an elevated Hyper-V
   session, a containerised tool and the macOS relays were read from the process's environment

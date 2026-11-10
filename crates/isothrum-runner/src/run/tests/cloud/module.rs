@@ -65,7 +65,8 @@ async fn a_module_that_is_missing_refuses_the_start_before_anything_runs() {
     std::fs::remove_dir_all(&module).unwrap();
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     let err = run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
+    assert!(err.to_string().contains("generate the run's files again"), "{err}");
     assert!(a.fake.last("terraform").is_none(), "nothing ran");
 }
 

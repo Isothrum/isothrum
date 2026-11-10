@@ -14,8 +14,11 @@ mod timed_out;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorCode {
-    /// The manifest isn't valid JSON or breaks the contract, or a value it gives can't be used
-    /// as written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`).
+    /// The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as
+    /// written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a
+    /// `tcp` condition's port), or it names a value the operation doesn't have (a placeholder
+    /// with none, a guest delivery's machine whose address no output gives, a Terraform module
+    /// with no `.tf` file).
     ManifestInvalid,
     /// The manifest is another version of the contract.
     ManifestVersion,
@@ -59,8 +62,10 @@ pub enum ErrorCode {
     /// The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or
     /// lacks its plugin.
     ProviderRefused,
-    /// The elevation Hyper-V's commands need couldn't be had (the permission prompt declined).
-    ElevationDeclined,
+    /// The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt
+    /// declined or unanswered, the elevated session not started or ended before the operation
+    /// (the message says which).
+    ElevationFailed,
     /// A machine the run doesn't have.
     MachineUnknown,
     /// The run has several machines the call could mean, and it named none.
@@ -109,7 +114,7 @@ impl ErrorCode {
             ErrorCode::ParamInvalid => "param_invalid",
             ErrorCode::RunName => "run_name",
             ErrorCode::ProviderRefused => "provider_refused",
-            ErrorCode::ElevationDeclined => "elevation_declined",
+            ErrorCode::ElevationFailed => "elevation_failed",
             ErrorCode::MachineUnknown => "machine_unknown",
             ErrorCode::MachineAmbiguous => "machine_ambiguous",
             ErrorCode::NetworkUnknown => "network_unknown",
@@ -373,8 +378,8 @@ impl Error {
     pub fn code(&self) -> ErrorCode {
         match self {
             Error::Manifest { source, .. } if source.code() == "version" => ErrorCode::ManifestVersion,
-            Error::Manifest { .. } | Error::Malformed { .. } => ErrorCode::ManifestInvalid,
-            Error::Unsupported { .. } | Error::Unbound { .. } => ErrorCode::Unsupported,
+            Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
+            Error::Unsupported { .. } => ErrorCode::Unsupported,
             Error::Io { .. } => ErrorCode::Io,
             Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
@@ -392,7 +397,7 @@ impl Error {
             Error::Param { .. } => ErrorCode::ParamInvalid,
             Error::RunName { .. } => ErrorCode::RunName,
             Error::Provider { .. } => ErrorCode::ProviderRefused,
-            Error::Elevation { .. } => ErrorCode::ElevationDeclined,
+            Error::Elevation { .. } => ErrorCode::ElevationFailed,
             Error::MachineUnknown { .. } => ErrorCode::MachineUnknown,
             Error::MachineAmbiguous { .. } => ErrorCode::MachineAmbiguous,
             Error::NetworkUnknown { .. } => ErrorCode::NetworkUnknown,
@@ -423,6 +428,14 @@ mod tests {
     #[test]
     fn every_code_is_written_as_serde_writes_it() {
         crate::testing::assert_named_as_serde(ErrorCode::as_str);
+    }
+
+    #[test]
+    fn an_elevation_that_failed_has_its_code_whatever_ended_it() {
+        let lost = Error::Elevation {
+            reason: "the elevated session ended: the broker stopped".into(),
+        };
+        assert_eq!((lost.code(), lost.code().as_str()), (ErrorCode::ElevationFailed, "elevation_failed"));
     }
 
     #[test]

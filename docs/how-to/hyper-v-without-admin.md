@@ -9,7 +9,7 @@ excepted), Isothrum checks the account's groups:
 - **Elevated, or a member of Hyper-V Administrators:** the tools run directly. No prompt.
 - **Otherwise:** Isothrum starts one elevated helper for the operation, which shows one UAC
   prompt. It waits up to **300 seconds** for the prompt to be approved; declined or unanswered,
-  the operation fails with `elevation_declined`. Every command of the operation then goes through
+  the operation fails with `elevation_failed` (as it does when the helper stops early). Every command of the operation then goes through
   that helper, so there is one prompt per operation, not one per command.
 
 The prompt needs someone at the desktop. For unattended use (CI, scheduled jobs, a service) the
