@@ -80,7 +80,7 @@ pub(super) async fn remove_networks(c: &Compose, cx: &Cx<'_>, step: &Step) -> Re
 /// `compose.remove_containers`: the project's containers (`with.service` narrows to one service,
 /// `with.one_off` to `docker compose run` containers), one-offs included, which `down` leaves.
 pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
-    let arg = |key: &str| with.iter().find(|(k, _)| k.as_str() == key).map(|(_, v)| cx.vars.render(v, "with")).transpose();
+    let arg = |key: &str| cx.vars.with_arg(with, step.id.as_str(), key);
     let mut args: Vec<String> = ["ps", "-aq", "--filter"].map(String::from).to_vec();
     args.push(format!("label={PROJECT_LABEL}={}", c.project(cx)?));
     if let Some(service) = arg("service")? {

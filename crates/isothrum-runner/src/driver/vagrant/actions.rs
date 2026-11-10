@@ -146,7 +146,7 @@ pub(super) fn aborted_saved(lines: &[String]) -> bool {
 /// still running and not saying so after [`WAKE_PATIENCE`] fails the step.
 pub(super) async fn wake_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
-    let machine = controller(cx, with)?;
+    let machine = controller(cx, step, with)?;
     let deadline = tokio::time::Instant::now() + WAKE_PATIENCE;
     while running(v, cx, id, &machine).await? {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -195,7 +195,7 @@ const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the c
 /// it is over, so ESXi's refusal never shows as an error.
 pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
     let id = step.id.as_str();
-    let machine = controller(cx, with)?;
+    let machine = controller(cx, step, with)?;
     let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
     let halt = call(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
@@ -236,12 +236,9 @@ fn already_off(halt: &Captured) -> bool {
         .any(|line| ESXI_ALREADY_OFF.iter().any(|said| line.contains(said)))
 }
 
-/// The controller an action names (`with.machine`), else Isoloom's.
-fn controller(cx: &Cx<'_>, with: &BTreeMap<SnakeName, Template>) -> Result<String> {
-    match with.iter().find(|(k, _)| k.as_str() == "machine") {
-        Some((_, t)) => cx.vars.render(t, "with.machine"),
-        None => Ok(CONTROLLER.to_owned()),
-    }
+/// The controller step `step`'s action names (`with.machine`), else Isoloom's.
+fn controller(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<String> {
+    Ok(cx.vars.with_arg(with, step.id.as_str(), "machine")?.unwrap_or_else(|| CONTROLLER.to_owned()))
 }
 
 /// Whether Vagrant reads `machine` as running.

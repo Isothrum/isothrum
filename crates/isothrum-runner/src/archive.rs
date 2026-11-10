@@ -34,13 +34,7 @@ pub(crate) const ARCHIVE: &str = "project.tgz";
 /// Runs `project.archive` for step `step`: the project at `with.root` (relative to the manifest's
 /// folder) archived as the run's [`ARCHIVE`], with the outputs `with.outputs` names.
 pub(crate) async fn project(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<()> {
-    let arg = |key: &str| {
-        let at = format!("{}.with.{key}", step.id);
-        match with.iter().find(|(k, _)| k.as_str() == key) {
-            Some((_, t)) => cx.vars.render(t, &at).map(Some),
-            None => Ok(None),
-        }
-    };
+    let arg = |key: &str| cx.vars.with_arg(with, step.id.as_str(), key);
     let Some(root) = arg("root")? else {
         return Err(Error::Malformed {
             at: format!("{}.with.root", step.id),
