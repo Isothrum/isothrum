@@ -37,6 +37,12 @@ change.
 
 ### Fixed
 
+- **A variable the runner hands on that isn't UTF-8 is no longer dropped in silence.** The
+  proxies, the CA bundles, `TF_CLI_CONFIG_FILE`, Vagrant's variables and `USERPROFILE` were read
+  only when they held UTF-8: one that didn't was taken for unset, so a `VAGRANT_HOME` that isn't
+  UTF-8 had an elevated Hyper-V session pinned to the profile's boxes, and nothing was traced. Each
+  is now kept as it is: it counts as set, and where it must be handed on as text it is left out,
+  and traced by name.
 - **A Vagrant record that can't be read fails the start, rather than reading as none.** An
   unreadable `machines/` folder in the run's Vagrant state read as "nothing recorded", so a run
   left on another provider was never cleared first, and `vagrant up` refused it. A network whose

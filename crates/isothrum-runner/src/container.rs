@@ -70,7 +70,7 @@ struct HostNetwork {
 impl HostNetwork {
     /// The settings `env` (the runner's environment) holds.
     fn read(env: &HostEnv) -> HostNetwork {
-        let set = |name: &&str| env.get(name).filter(|v| !v.is_empty());
+        let set = |name: &&str| env.text(name).filter(|v| !v.is_empty());
         let vars = crate::network_env::NETWORK_VARS
             .iter()
             .chain([&TF_CLI_CONFIG_FILE])

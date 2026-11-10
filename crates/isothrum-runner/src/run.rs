@@ -258,7 +258,7 @@ impl<'r> Running<'r> {
         let Some((host, port)) = crate::relay::esxi_host(&cx.scope, vagrant, params)? else {
             return Ok(());
         };
-        let no_proxy = config.host_env.get("no_proxy").or_else(|| config.host_env.get("NO_PROXY"));
+        let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));
         let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy).await;
         cx.relayed = Some(relayed.map_err(Error::io(config.home.join("relay"), "set up"))?);
         Ok(())

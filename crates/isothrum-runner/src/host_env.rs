@@ -6,36 +6,62 @@
 //! no operation reads the process's environment itself. A tool the runner starts as its child
 //! inherits the environment as it is, never this copy.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 
 use crate::network_env::is_network_var;
 
 /// Terraform's CLI configuration file (a provider mirror, credentials).
 pub(crate) const TF_CLI_CONFIG_FILE: &str = "TF_CLI_CONFIG_FILE";
 
-/// The variables of the runner's environment it hands on, as read when it was configured.
+/// The variables of the runner's environment it hands on, as read when it was configured. A
+/// value is kept as it is, UTF-8 or not: one that isn't is still set (a `VAGRANT_HOME` that isn't
+/// UTF-8 is never replaced by a default), and only where it must be handed on as text is it left
+/// out, and traced ([`HostEnv::text`]).
 #[derive(Clone, Default)]
-pub(crate) struct HostEnv(Vec<(String, String)>);
+pub(crate) struct HostEnv(Vec<(String, OsString)>);
 
 impl HostEnv {
-    /// This process's environment: the variables it hands on that hold UTF-8.
+    /// This process's environment: the variables it hands on.
     pub(crate) fn capture() -> HostEnv {
-        HostEnv::of(std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))))
+        HostEnv::read(std::env::vars_os())
+    }
+
+    /// The variables of `vars` the runner hands on. A name that isn't UTF-8 can't be handed on by
+    /// name: one that would be is left out, and traced.
+    fn read(vars: impl IntoIterator<Item = (OsString, OsString)>) -> HostEnv {
+        HostEnv::of(vars.into_iter().filter_map(|(k, v)| match k.into_string() {
+            Ok(k) => Some((k, v)),
+            Err(k) => {
+                let name = k.to_string_lossy();
+                if handed_on(&name) {
+                    tracing::warn!(name = %name, "a variable's name isn't UTF-8: it isn't handed on");
+                }
+                None
+            }
+        }))
     }
 
     /// The variables of `vars` the runner hands on.
-    pub(crate) fn of<K: Into<String>, V: Into<String>>(vars: impl IntoIterator<Item = (K, V)>) -> HostEnv {
+    pub(crate) fn of<K: Into<String>, V: Into<OsString>>(vars: impl IntoIterator<Item = (K, V)>) -> HostEnv {
         HostEnv(vars.into_iter().map(|(k, v)| (k.into(), v.into())).filter(|(k, _)| handed_on(k)).collect())
     }
 
-    /// The value of `name`, its case ignored on Windows (as Windows reads names).
-    pub(crate) fn get(&self, name: &str) -> Option<&str> {
-        self.0.iter().find(|(k, _)| same_var(k, name)).map(|(_, v)| v.as_str())
+    /// The value of `name` as it was read, UTF-8 or not, its case ignored on Windows (as Windows
+    /// reads names).
+    pub(crate) fn get(&self, name: &str) -> Option<&OsStr> {
+        self.0.iter().find(|(k, _)| same_var(k, name)).map(|(_, v)| v.as_os_str())
     }
 
-    /// Every variable, as it was read.
+    /// The value of `name` as text, to hand on where only text goes (a variable's value, an
+    /// argument). One that isn't UTF-8 is left out, and traced.
+    pub(crate) fn text(&self, name: &str) -> Option<&str> {
+        self.0.iter().find(|(k, _)| same_var(k, name)).and_then(|(k, v)| as_text(k, v))
+    }
+
+    /// Every variable whose value is text, as it was read; one that isn't UTF-8 is left out, and
+    /// traced.
     pub(crate) fn vars(&self) -> impl Iterator<Item = (String, String)> + '_ {
-        self.0.iter().cloned()
+        self.0.iter().filter_map(|(k, v)| Some((k.clone(), as_text(k, v)?.to_owned())))
     }
 
     /// What an elevated Hyper-V session's broker, which inherits nothing, is handed: the Vagrant
@@ -54,12 +80,21 @@ impl HostEnv {
         });
         out.extend(path.map(|p| ("PATH".to_owned(), p.to_owned())));
         if self.get("VAGRANT_HOME").is_none()
-            && let Some(profile) = self.get("USERPROFILE")
+            && let Some(profile) = self.text("USERPROFILE")
         {
             out.push(("VAGRANT_HOME".into(), format!("{}\\.vagrant.d", profile.trim_end_matches(['\\', '/']))));
         }
         out
     }
+}
+
+/// `value`, the value of `name`, as text: none, and traced, when it isn't UTF-8.
+fn as_text<'a>(name: &str, value: &'a OsStr) -> Option<&'a str> {
+    let text = value.to_str();
+    if text.is_none() {
+        tracing::warn!(name, "a variable's value isn't UTF-8: it isn't handed on");
+    }
+    text
 }
 
 /// Whether `a` and `b` name the same variable on this host: their case ignored on Windows (as
@@ -105,7 +140,7 @@ mod tests {
         ]);
         let names: Vec<String> = env.vars().map(|(k, _)| k).collect();
         assert_eq!(names, ["HTTPS_PROXY", "no_proxy", "TF_CLI_CONFIG_FILE", "VAGRANT_HOME", "USERPROFILE"]);
-        assert_eq!(env.get("no_proxy"), Some(".corp"));
+        assert_eq!(env.text("no_proxy"), Some(".corp"));
         assert_eq!(env.get("AWS_SECRET_ACCESS_KEY"), None);
         let shown = format!("{env:?}");
         assert!(shown.contains("HTTPS_PROXY") && !shown.contains("pw@"), "{shown}");
@@ -137,6 +172,32 @@ mod tests {
     fn a_name_is_read_as_this_host_reads_it() {
         let env = HostEnv::of([("NO_PROXY", ".corp")]);
         assert_eq!(env.get("no_proxy").is_some(), cfg!(windows));
-        assert_eq!(env.get("NO_PROXY"), Some(".corp"));
+        assert_eq!(env.text("NO_PROXY"), Some(".corp"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_value_that_isnt_utf8_is_still_set_and_is_traced_where_it_cant_be_handed_on() {
+        use std::os::unix::ffi::OsStringExt;
+        let not_utf8 = || OsString::from_vec(b"/boxes/\xff".to_vec());
+        let env = HostEnv::read([
+            (OsString::from("VAGRANT_HOME"), not_utf8()),
+            (OsString::from("USERPROFILE"), OsString::from("C:\\Users\\ada")),
+            (OsString::from("SSL_CERT_FILE"), not_utf8()),
+        ]);
+        assert_eq!(env.get("VAGRANT_HOME"), Some(not_utf8().as_os_str()), "kept as it is");
+        let (elevated, elevation_traces) = crate::testing::traced(async { env.for_elevation(None) }).await;
+        assert_eq!(elevated, [], "neither left out in silence nor replaced by the profile's boxes");
+        assert!(
+            elevation_traces.contains("WARN") && elevation_traces.contains("VAGRANT_HOME") && elevation_traces.contains("isn't UTF-8"),
+            "{elevation_traces}"
+        );
+        let (cert, cert_traces) = crate::testing::traced(async { env.text("SSL_CERT_FILE") }).await;
+        assert_eq!(cert, None);
+        assert!(cert_traces.contains("SSL_CERT_FILE"), "{cert_traces}");
+        let bad_name = [(OsString::from_vec(b"VAGRANT_\xff".to_vec()), OsString::new())];
+        let (read, name_traces) = crate::testing::traced(async { HostEnv::read(bad_name) }).await;
+        assert_eq!(read.vars().count(), 0);
+        assert!(name_traces.contains("name isn't UTF-8"), "{name_traces}");
     }
 }

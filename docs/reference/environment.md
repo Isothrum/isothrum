@@ -28,7 +28,11 @@ A value that isn't UTF-8 is never taken for an unset variable. Where it names a 
 text, it is refused by name: a secret's variable is a usage error (exit 2), and an `ISOTHRUM_LOG`
 or `ISOTHRUM_LOG_FORMAT` a warning, with no tracing. A `PATH` is handed on as text: one that isn't
 UTF-8 is left out of an elevated session's variables (and traced), and fails the macOS relay's
-set-up when its `ovftool` wrapper must go first on it.
+set-up when its `ovftool` wrapper must go first on it. The variables handed on below (the proxies,
+the CA bundles, `TF_CLI_CONFIG_FILE`, Vagrant's, `USERPROFILE`) are read as they are too: one that
+isn't UTF-8 still counts as set (a `VAGRANT_HOME` is never replaced by the profile's), and where it
+must be handed on as text (an elevated session's variables, a containerised Terraform's) it is
+left out, and traced by name.
 
 ## What the tools get
 
