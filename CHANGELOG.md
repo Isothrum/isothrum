@@ -582,6 +582,8 @@ change.
   its JSON Schema, for a test that keeps a list of its own in step with a type of Isoloom's.
 - **`Topology::vlan_lan`** (`isothrum-compiler`): the topology's key for a switch's VLAN, what a
   network the spec nests under the switch's LAN came from.
+- **`Status::any_present`**: whether anything of the run is there (a machine that isn't absent),
+  by the runner's own rule.
 
 ### Changed
 

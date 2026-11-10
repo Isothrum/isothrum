@@ -161,6 +161,14 @@ pub struct Status {
     pub message: Option<String>,
 }
 
+impl Status {
+    /// Whether anything of the run is there: a machine that isn't absent.
+    #[must_use]
+    pub fn any_present(&self) -> bool {
+        any_present(&self.machines)
+    }
+}
+
 /// [`Status::live`] in a status written before it existed: every status was read from the
 /// engine then.
 fn live_when_absent() -> bool {

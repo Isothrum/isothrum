@@ -56,8 +56,10 @@ pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
         " (an operation is in progress: machines as last read)"
     };
     let mut lines = vec![format!("{name}: {}{held}", status.state.as_str())];
+    // Once anything of the run is there, a machine that isn't goes unsaid.
+    let any_present = status.any_present();
     for m in &status.machines {
-        if m.state == MachineState::Absent && status.machines.iter().any(|o| o.state != MachineState::Absent) {
+        if m.state == MachineState::Absent && any_present {
             continue;
         }
         let role = isothrum_runner::wire_name(&m.role);
