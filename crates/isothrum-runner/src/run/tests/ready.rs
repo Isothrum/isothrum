@@ -47,6 +47,33 @@ async fn a_tcp_condition_holds_once_its_port_answers() {
     }));
 }
 
+/// Regression: `${host.<machine>}` was the loopback whatever address the manifest publishes on,
+/// so a run published on a LAN address was checked, and reported, where nothing listens. It is
+/// the manifest's `publish.address`, filled; one on every interface answers at the loopback.
+#[tokio::test(start_paused = true)]
+async fn a_published_host_is_the_address_the_manifest_publishes_on() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    let condition = serde_json::json!({ "kind": "tcp", "address": "${host.web}", "port": "${published.web.portal}", "timeout_s": 10 });
+    m["ready"].as_array_mut().unwrap().push(condition);
+    let manifest = m.to_string();
+    for (address, host) in [("192.0.2.7", "192.0.2.7"), ("0.0.0.0", "127.0.0.1")] {
+        let f = fixture_with(&manifest);
+        f.ports.answer(host, 41873);
+        let run = f.runner.open(&f.manifest, None).unwrap();
+        let events = Recorder::new();
+        run.up(&opts().with_param("ISOLOOM_PUBLISH_ADDRESS", address), &events).await.unwrap();
+        assert!(
+            kinds(&events).contains(&EventKind::Ready {
+                condition: format!("tcp {host}:41873"),
+                state: crate::ReadyState::Ok,
+                detail: String::new(),
+            }),
+            "{address}: {:?}",
+            kinds(&events)
+        );
+    }
+}
+
 /// A `tcp` condition whose port isn't a number is the manifest's mistake, not a run that isn't
 /// ready.
 #[tokio::test(start_paused = true)]

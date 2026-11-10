@@ -125,8 +125,17 @@ impl Driver for Compose {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
         let (machines, published) = read_ps(cx.run.manifest(), &out).ok_or_else(|| ps::unreadable(super::STATUS))?;
-        // Compose publishes on this computer.
-        let hosts = published.keys().map(|(machine, _)| (machine.clone(), "127.0.0.1".to_owned())).collect();
+        // Compose publishes on this computer, at the address the manifest binds.
+        let publishing = cx
+            .run
+            .manifest()
+            .machines
+            .iter()
+            .filter(|m| published.keys().any(|(name, _)| m.name.as_str() == name));
+        let mut hosts = BTreeMap::new();
+        for m in publishing {
+            hosts.insert(m.name.to_string(), super::publish_host(cx, m)?);
+        }
         Ok(Observed {
             machines,
             published,

@@ -454,6 +454,11 @@ change.
 - **A starter script installs with the package manager Isoloom records for its OS.** The
   compiler guessed it from the distribution's name, so a distribution Isoloom adds got `apt-get`
   whatever it installs with, and a shell step on Windows got `apt-get` lines too (now none).
+- **A Compose or local Vagrant run answers at the address its ports are published on.**
+  `${host.<machine>}` was always `127.0.0.1`, while the manifest's `publish.address` (Isoloom's
+  `ISOLOOM_PUBLISH_ADDRESS`) was never read: a run published on a LAN address was reported, and
+  its `tcp` ready conditions tried, at the loopback, where nothing listened. It is now that
+  address, filled; one on every interface (`0.0.0.0`, `::`) answers at the loopback.
 
 ### Added
 

@@ -1054,6 +1054,21 @@ async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
     assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
 }
 
+/// Regression: a VM forwarding to this computer answered at the loopback whatever address the
+/// manifest publishes its ports on (`${host.<machine>}`).
+#[tokio::test]
+async fn a_local_vm_answers_at_the_address_its_ports_are_published_on() {
+    let mut m: serde_json::Value = serde_json::from_str(&each_publish(|publish| {
+        publish.insert("address".to_owned(), "192.0.2.9".into());
+    }))
+    .unwrap();
+    m["outputs"][0]["format"] = "http://${host.web}:${value}/".into();
+    let f = fixture_from(HostOs::Linux, &m.to_string());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let started = run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://192.0.2.9:41000/"));
+}
+
 /// A published port with no `preferred` number (an ephemeral port Isoloom emits without a
 /// `publish:` number) was dropped from `status` entirely, so `${published…}`/`${host…}` could not
 /// resolve. Its host port is the runner's pick, so it is reported like any other published port.

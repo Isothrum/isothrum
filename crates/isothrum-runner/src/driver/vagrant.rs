@@ -45,9 +45,6 @@ const RELOAD_LIMIT: Duration = Duration::from_secs(1800);
 /// The id the plugin check reports under.
 const PLUGINS: &str = "plugins";
 
-/// Where ports forwarded to this computer answer.
-const LOOPBACK: &str = "127.0.0.1";
-
 /// The `vagrant` driver of one manifest.
 #[derive(Debug, Clone)]
 pub(crate) struct Vagrant {
@@ -205,12 +202,9 @@ impl Driver for Vagrant {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = lock::read_status(cx).await?;
         let read = status::parse(&out);
-        let guests = if cx.scope.runs_on(Provider::VmwareEsxi) {
-            Some(self.guest_addresses(cx, &read).await)
-        } else {
-            None
-        };
-        Ok(machines(cx.run.manifest(), &read, guests.as_ref(), cx.vars.forwards()))
+        let at_vm = cx.scope.runs_on(Provider::VmwareEsxi);
+        let hosts = if at_vm { self.guest_addresses(cx, &read).await } else { local_hosts(cx)? };
+        Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.forwards()))
     }
 
     fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {
@@ -298,14 +292,25 @@ fn answers(manifest: &isoloom_manifest::Manifest, m: &Machine) -> bool {
     m.ports.iter().any(|p| p.publish.is_some()) || manifest.guest.as_ref().is_some_and(|g| g.machine == m.name)
 }
 
-/// Every machine of the manifest as Vagrant reports it, by its define name. Locally a published
-/// port is forwarded to this computer at the number `chosen` for it (keyed `"<machine>/<port>"`),
-/// else its `preferred` fallback. With `guests` (ESXi, which forwards nothing), it answers at its
-/// VM's address, on the VM's own port, while that address is known.
+/// Where each VM forwarding to this computer answers, by define name: the address the manifest
+/// publishes its ports on ([`super::publish_host`]).
+fn local_hosts(cx: &Cx<'_>) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    for m in &cx.run.manifest().machines {
+        out.insert(native_name(m).to_owned(), super::publish_host(cx, m)?);
+    }
+    Ok(out)
+}
+
+/// Every machine of the manifest as Vagrant reports it, by its define name, each answering at its
+/// address among `hosts` while that address is known. Locally a published port is forwarded to
+/// this computer at the number `chosen` for it (keyed `"<machine>/<port>"`), else its `preferred`
+/// fallback. `at_vm` (ESXi, which forwards nothing), it answers on the VM's own port.
 fn machines(
     manifest: &isoloom_manifest::Manifest,
     read: &status::Reading,
-    guests: Option<&BTreeMap<String, String>>,
+    hosts: &BTreeMap<String, String>,
+    at_vm: bool,
     chosen: &BTreeMap<String, u16>,
 ) -> Observed {
     let mut out = Observed::default();
@@ -315,13 +320,13 @@ fn machines(
             .states
             .get(define)
             .map_or(crate::status::MachineState::Absent, |s| status::machine_state(s));
-        let host = host_for(guests, define).filter(|_| state != crate::status::MachineState::Absent);
-        if let Some(host) = host.as_ref().filter(|_| answers(manifest, m)) {
+        let host = hosts.get(define).filter(|_| state != crate::status::MachineState::Absent);
+        if let Some(host) = host.filter(|_| answers(manifest, m)) {
             out.hosts.insert(m.name.to_string(), host.clone());
         }
         let mut published = Vec::new();
         if host.is_some() {
-            for (name, port) in published_ports(m, guests.is_some(), chosen) {
+            for (name, port) in published_ports(m, at_vm, chosen) {
                 out.published.insert((m.name.to_string(), name), port.host_port);
                 published.push(port);
             }
@@ -335,15 +340,6 @@ fn machines(
         });
     }
     out
-}
-
-/// Where VM `define` answers: its address among `guests` (ESXi's, when known), else this
-/// computer's loopback.
-fn host_for(guests: Option<&BTreeMap<String, String>>, define: &str) -> Option<String> {
-    match guests {
-        Some(guests) => guests.get(define).cloned(),
-        None => Some(LOOPBACK.to_owned()),
-    }
 }
 
 /// The ports `m` publishes, by name, each with its host port: on a VM that answers at its own address

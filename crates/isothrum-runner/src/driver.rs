@@ -312,6 +312,33 @@ impl AnyDriver {
     }
 }
 
+/// The loopback: where a port published on every interface of this computer answers.
+const LOOPBACK: &str = "127.0.0.1";
+
+/// Where `machine`'s ports published on this computer answer (`${host.<machine>}`): the address
+/// its published ports listen on (the first one's `publish.address`, filled), the loopback for one
+/// on every interface (`0.0.0.0`, `::`) or none said.
+///
+/// # Errors
+///
+/// As [`crate::vars::Vars::render`]: an address naming a value the run doesn't have.
+pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
+    let at = cx.run.manifest().machines.iter().position(|m| m.name == machine.name).unwrap_or_default();
+    let address = machine
+        .ports
+        .iter()
+        .enumerate()
+        .find_map(|(j, p)| Some((j, p.publish.as_ref()?.address.as_ref()?)));
+    let Some((j, address)) = address else {
+        return Ok(LOOPBACK.to_owned());
+    };
+    let address = cx.vars.render(address, &format!("machines[{at}].ports[{j}].publish.address"))?;
+    Ok(match address.trim() {
+        "" | "0.0.0.0" | "::" | "[::]" => LOOPBACK.to_owned(),
+        bound => bound.to_owned(),
+    })
+}
+
 /// The console `spec` builds, run in its own folder (`ssh`'s: the run's state folder, which its
 /// config is named relative to), else in the run's folder.
 pub(crate) fn console_in_run(cx: &Cx<'_>, spec: ProcessSpec) -> ShellCommand {
