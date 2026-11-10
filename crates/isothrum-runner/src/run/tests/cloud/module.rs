@@ -120,3 +120,16 @@ async fn a_copy_with_a_when_it_doesnt_know_is_a_malformed_manifest() {
     assert_eq!(err.to_string(), "lifecycle.up.copy-module.with.when: `always`: only `missing` is a `when`");
     assert!(a.fake.last("terraform apply").is_none(), "nothing applied");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_copy_without_a_from_is_a_malformed_manifest() {
+    let mut m: serde_json::Value = serde_json::from_str(&own_module()).unwrap();
+    m["lifecycle"]["up"][0]["with"].as_object_mut().unwrap().remove("from");
+    let a = account_of(&m.to_string(), 0);
+    let err = refused_start(&a).await;
+    assert_eq!(
+        err.to_string(),
+        "lifecycle.up.copy-module.with.from: a `terraform.copy_module` needs the module to copy"
+    );
+    assert!(a.fake.last("terraform apply").is_none(), "nothing applied");
+}

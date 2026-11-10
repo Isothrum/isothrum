@@ -51,13 +51,7 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     if a.check {
         return check(&root, &fuzz);
     }
-    let mut targets = targets(&std::fs::read_to_string(fuzz.join("Cargo.toml"))?)?;
-    if !a.targets.is_empty() {
-        if let Some(unknown) = a.targets.iter().find(|t| !targets.iter().any(|known| known.name == **t)) {
-            return Err(format!("no fuzz target {unknown} in fuzz/Cargo.toml").into());
-        }
-        targets.retain(|t| a.targets.contains(&t.name));
-    }
+    let targets = chosen(targets(&std::fs::read_to_string(fuzz.join("Cargo.toml"))?)?, &a.targets)?;
     let mut failed = Vec::new();
     for t in &targets {
         if !fuzz_one(&root, t, a.time)? {
@@ -69,6 +63,18 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     }
     println!("fuzz: {} of {} target(s) clean, {} s each", targets.len() - failed.len(), targets.len(), a.time);
     Ok(process::exit_code(failed.is_empty()))
+}
+
+/// The targets `known` that `asked` names, or every one when it names none; refused when it names
+/// one `fuzz/Cargo.toml` doesn't declare.
+fn chosen(mut known: Vec<Target>, asked: &[String]) -> Res<Vec<Target>> {
+    if !asked.is_empty() {
+        if let Some(unknown) = asked.iter().find(|t| !known.iter().any(|k| k.name == **t)) {
+            return Err(format!("no fuzz target {unknown} in fuzz/Cargo.toml").into());
+        }
+        known.retain(|t| asked.contains(&t.name));
+    }
+    Ok(known)
 }
 
 /// Runs one target for `secs` seconds; whether it found nothing.
@@ -146,6 +152,28 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn the_targets_asked_for_are_run_and_an_unknown_one_is_refused() {
+        let known = || {
+            ["a", "b"]
+                .map(|name| Target {
+                    name: name.into(),
+                    seeds: Vec::new(),
+                })
+                .to_vec()
+        };
+        assert_eq!(chosen(known(), &[]).unwrap(), known(), "every one by default");
+        assert_eq!(
+            chosen(known(), &["b".into()]).unwrap(),
+            [Target {
+                name: "b".into(),
+                seeds: Vec::new()
+            }]
+        );
+        let refused = chosen(known(), &["b".into(), "c".into()]).unwrap_err().to_string();
+        assert_eq!(refused, "no fuzz target c in fuzz/Cargo.toml");
     }
 
     #[test]

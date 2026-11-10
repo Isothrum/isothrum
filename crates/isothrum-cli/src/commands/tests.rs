@@ -305,6 +305,29 @@ async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
     assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sf user")));
 }
 
+/// A run whose manifest has no message comes up with the command's own line instead.
+#[tokio::test]
+async fn a_run_with_no_message_says_it_is_up() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
+    m["environment"].as_object_mut().unwrap().remove("message");
+    let s = setup_with(&m.to_string());
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(s.out.take(), "The run is up.\n");
+}
+
+/// An access machine with no address of its own is said attached, without one.
+#[tokio::test]
+async fn attach_of_a_machine_with_no_address_says_only_that_it_is_attached() {
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL_ACCESS).unwrap();
+    let user = m["machines"].as_array_mut().unwrap().iter_mut().find(|m| m["name"] == "user").unwrap();
+    user["addresses"] = serde_json::json!({});
+    let s = setup_with(&m.to_string());
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.out.take();
+    assert_eq!(s.run(&["attach"]).await.unwrap(), Verdict::Pass);
+    assert_eq!(s.out.take(), "Attached user.\n");
+}
+
 /// `attach`'s `--param` and `--secret-from-env` reach the operation: a value it was given is
 /// masked in what it prints, and a param it refuses fails it.
 #[tokio::test]

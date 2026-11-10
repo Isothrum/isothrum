@@ -75,6 +75,39 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
     assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
 }
 
+/// An access service with no container once it is up has nothing to join to the chosen network:
+/// the attach fails saying so; and a network whose native name the manifest doesn't give can't be
+/// joined (`unsupported`).
+#[tokio::test]
+async fn attach_to_a_network_needs_the_container_and_the_networks_native_name() {
+    let empty = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
+        if c.line().ends_with(" ps -q user") {
+            return Reply::ok("\n");
+        }
+        joining(e, c, Reply::ok(""))
+    });
+    empty.set(Containers::Up);
+    let run = empty.runner.open(&empty.manifest, None).unwrap();
+    let err = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::ToolFailed, "{err}");
+    assert!(err.to_string().contains("`user` has no container to join to network `web-portal_lab`"), "{err}");
+    assert!(empty.fake.last("network connect").is_none(), "nothing joined");
+
+    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL_ACCESS).unwrap();
+    for net in m["networks"].as_array_mut().unwrap() {
+        net.as_object_mut().unwrap().remove("native");
+    }
+    let unnamed = fixture_answering(&m.to_string(), |e, c| joining(e, c, Reply::ok("")));
+    unnamed.set(Containers::Up);
+    let nameless = unnamed.runner.open(&unnamed.manifest, None).unwrap();
+    let refused = attach(&nameless, None, Some("lab"), None, &Recorder::new()).await.unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::Unsupported, "{refused}");
+    assert!(
+        refused.to_string().contains("joining network `lab`: the run doesn't say its native name"),
+        "{refused}"
+    );
+}
+
 /// The run's Docker, its config putting a routes service in the access service's namespace.
 fn routed_answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     if call.line().contains("--profile access config --format json") {

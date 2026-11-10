@@ -51,6 +51,24 @@ fn the_projects_own_files_are_its_starters() {
     );
 }
 
+/// A drawing that doesn't compile gives no own files and no zip: each says the compiler's error.
+#[test]
+fn a_drawing_that_doesnt_compile_gives_no_files_and_says_why() {
+    let t = r#"{"name":"project","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
+        "a":{"kind":{"container":{"image":"alpine:3.20"}},"networks":{"lan":1}}}}"#;
+    let why = "on LAN `lan` (10.10.1.0/24), `a` asks for .1, which no machine can take there";
+    assert!(own_files(t).unwrap_err().to_string().contains(why));
+    assert!(bundle_bytes(t).unwrap_err().to_string().contains(why));
+    assert!(bundle_target_bytes(t, "docker").unwrap_err().to_string().contains(why));
+}
+
+/// A target's folder may be written with slashes around it (`/docker/`): the same zip.
+#[test]
+fn a_target_folder_with_slashes_around_it_is_that_target() -> Outcome {
+    assert_eq!(names(bundle_target_bytes(PAIR, "/docker/")?)?, names(bundle_target_bytes(PAIR, "docker")?)?);
+    Ok(())
+}
+
 #[test]
 fn a_topology_becomes_a_spec_and_generated_files() -> Outcome {
     let (plan, yml) = clean_plan(PAIR)?;

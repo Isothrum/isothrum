@@ -23,6 +23,7 @@ mod machete;
 mod sources;
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::ExitCode;
 
 use crate::{Res, repo};
@@ -74,17 +75,22 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     sources::measure(&root, &crates, &mut counts)?;
     dup::measure(&root, &crates, &mut counts)?;
     machete::measure(&root, &crates, &mut counts)?;
-    let file = root.join("quality-baseline.json");
-    let Some(before) = baseline::read(&file)? else {
+    settle(&root.join("quality-baseline.json"), &counts, a)
+}
+
+/// Checks `counts` against the baseline in `file`: the first measure writes it; a count that went
+/// up fails; with `--update`, the counts are written when none went up.
+fn settle(file: &Path, counts: &Counts, a: &Args) -> Res<ExitCode> {
+    let Some(before) = baseline::read(file)? else {
         // The first measure is the baseline.
-        print!("{}", baseline::table(&counts));
-        baseline::write(&file, &counts)?;
+        print!("{}", baseline::table(counts));
+        baseline::write(file, counts)?;
         println!("quality: no baseline yet; {} written", file.display());
         return Ok(ExitCode::SUCCESS);
     };
-    let changes = baseline::compare(&before, &counts);
+    let changes = baseline::compare(&before, counts);
     if a.table || a.update {
-        print!("{}", baseline::table(&counts));
+        print!("{}", baseline::table(counts));
     }
     for line in &changes.lines {
         println!("{line}");
@@ -94,7 +100,7 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
         return Ok(ExitCode::FAILURE);
     }
     if a.update {
-        baseline::write(&file, &counts)?;
+        baseline::write(file, counts)?;
         println!("quality: {} written", file.display());
     } else if !changes.lowered.is_empty() {
         println!(
@@ -124,5 +130,29 @@ mod tests {
         assert_eq!(crate_of(&crates, "crates/isothrum-runner/src/lib.rs"), "isothrum-runner");
         assert_eq!(crate_of(&crates, "crates/other/src/lib.rs"), "outer");
         assert_eq!(crate_of(&crates, "fuzz/x.rs"), "workspace");
+    }
+
+    #[test]
+    fn the_first_measure_is_the_baseline_and_a_count_that_goes_up_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("quality-baseline.json");
+        let check = Args { update: false, table: false };
+        let update = Args { update: true, table: false };
+        let counts = |n: u64| {
+            let mut c = Counts::new();
+            for _ in 0..n {
+                add(&mut c, "file/over-400-loc", "isothrum-runner");
+            }
+            c
+        };
+        assert_eq!(settle(&file, &counts(2), &check).unwrap(), ExitCode::SUCCESS, "no baseline yet");
+        assert_eq!(baseline::read(&file).unwrap(), Some(counts(2)), "the first measure written");
+        assert_eq!(settle(&file, &counts(3), &check).unwrap(), ExitCode::FAILURE, "a count went up");
+        assert_eq!(settle(&file, &counts(3), &update).unwrap(), ExitCode::FAILURE, "--update never raises one");
+        assert_eq!(baseline::read(&file).unwrap(), Some(counts(2)));
+        assert_eq!(settle(&file, &counts(1), &check).unwrap(), ExitCode::SUCCESS, "one went down");
+        assert_eq!(baseline::read(&file).unwrap(), Some(counts(2)), "written only with --update");
+        assert_eq!(settle(&file, &counts(1), &update).unwrap(), ExitCode::SUCCESS);
+        assert_eq!(baseline::read(&file).unwrap(), Some(counts(1)));
     }
 }

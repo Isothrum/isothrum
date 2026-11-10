@@ -420,6 +420,38 @@ mod tests {
         assert!(virtualbox.is_none_or(|s| s.reason.is_none()), "{virtualbox:?}");
     }
 
+    /// Each missing layer is said for what it is: Hyper-V turned off (a Windows feature, not a
+    /// program), a hypervisor whose program isn't installed.
+    #[test]
+    fn a_hypervisor_that_is_off_or_not_installed_says_which() {
+        let absent = Detection {
+            hypervisor: Some(false),
+            hypervisor_version: None,
+            unresponsive: false,
+            plugin: None,
+            plugin_installed: true,
+            plugin_version: None,
+            plugins_unknown: None,
+            needs_admin: false,
+        };
+        assert_eq!(
+            unavailable_reason(Provider::Hyperv, absent).as_deref(),
+            Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it")
+        );
+        assert_eq!(unavailable_reason(Provider::Virtualbox, absent).as_deref(), Some("`VBoxManage` was not found"));
+    }
+
+    #[tokio::test]
+    async fn a_virtualbox_that_isnt_installed_is_detected_as_such() {
+        let tools = FakeProcesses::rules(&[("VBoxManage", Reply::missing())]);
+        let statuses = detect(&tools, true).await;
+        let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);
+        assert!(
+            virtualbox.is_none_or(|s| s.reason.as_deref() == Some("`VBoxManage` was not found")),
+            "{virtualbox:?}"
+        );
+    }
+
     #[tokio::test]
     async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
         let tools = FakeProcesses::rules(&[]);
