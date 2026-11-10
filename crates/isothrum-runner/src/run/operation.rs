@@ -97,41 +97,19 @@ impl Running<'_> {
             armed: true,
         };
         let done = work(opts, emitter).await;
-        unfinished.disarm();
         let code = done.as_ref().err().map(Error::code);
-        let after = match self.close_record(op, code, done.as_ref().ok().and_then(|d| d.state)) {
-            Ok(after) => after,
+        let settled = unfinished.settle(code, done.as_ref().ok().and_then(|d| d.state), |e| {
             // The work's own failure is the operation's: the record's is said beside it.
-            Err(e) if done.is_err() => {
-                tracing::warn!(error = %e, "the run's record wasn't updated");
-                emitter.warning(WarningCode::RecordNotSaved, &format!("the run's record wasn't updated: {e}"));
-                None
+            if done.is_ok() {
+                return Err(e);
             }
-            Err(e) => return Err(e),
-        };
-        if let Some(during) = op.during() {
-            emitter.emit(EventKind::State {
-                from: during,
-                to: after.unwrap_or(before),
-            });
-        }
+            tracing::warn!(error = %e, "the run's record wasn't updated");
+            emitter.warning(WarningCode::RecordNotSaved, &format!("the run's record wasn't updated: {e}"));
+            Ok(())
+        });
+        unfinished.disarm();
+        settled?;
         done
-    }
-
-    /// Records that `op` was cut short (`cancelled`), as [`Running::close_record`] does for a
-    /// failure, and emits the state it left the run in. Nobody is left to report to: a record that
-    /// can't be written is traced.
-    fn close_cut_short(&self, op: Op, before: RunState, emitter: &Emitter<'_>) {
-        let after = match self.close_record(op, Some(ErrorCode::Cancelled), None) {
-            Ok(after) => after.unwrap_or(before),
-            Err(e) => {
-                tracing::warn!(error = %e, "the record of a cancelled operation wasn't updated");
-                before
-            }
-        };
-        if let Some(during) = op.during() {
-            emitter.emit(EventKind::State { from: during, to: after });
-        }
     }
 
     /// Records how `op` ended and the state it left the run in: `state` when it succeeded; when
@@ -225,6 +203,27 @@ struct Unfinished<'r, 'e> {
 }
 
 impl Unfinished<'_, '_> {
+    /// Records how the operation ended ([`Running::close_record`]: failed with `code`, else in
+    /// `state`) and emits the state it left the run in. A record that can't be written is what
+    /// `unsaved` makes of it: an error stops there, nothing emitted; else the run is said to be
+    /// where it was before.
+    fn settle(&self, code: Option<ErrorCode>, state: Option<RunState>, unsaved: impl FnOnce(Error) -> Result<()>) -> Result<()> {
+        let after = match self.running.close_record(self.op, code, state) {
+            Ok(after) => after,
+            Err(e) => {
+                unsaved(e)?;
+                None
+            }
+        };
+        if let Some(during) = self.op.during() {
+            self.emitter.emit(EventKind::State {
+                from: during,
+                to: after.unwrap_or(self.before),
+            });
+        }
+        Ok(())
+    }
+
     /// The work ended: the operation records how.
     fn disarm(mut self) {
         self.armed = false;
@@ -232,9 +231,15 @@ impl Unfinished<'_, '_> {
 }
 
 impl Drop for Unfinished<'_, '_> {
+    /// Cut short: the record says `cancelled`. Nobody is left to report to: a record that can't
+    /// be written is traced.
     fn drop(&mut self) {
         if self.armed {
-            self.running.close_cut_short(self.op, self.before, self.emitter);
+            let traced = |e: Error| {
+                tracing::warn!(error = %e, "the record of a cancelled operation wasn't updated");
+                Ok(())
+            };
+            drop(self.settle(Some(ErrorCode::Cancelled), None, traced));
         }
     }
 }
