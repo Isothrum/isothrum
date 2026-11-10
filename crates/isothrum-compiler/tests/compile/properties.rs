@@ -5,8 +5,8 @@
 use std::num::NonZeroU16;
 
 use indexmap::IndexMap;
+use isoloom_spec::net::Cidr;
 use isoloom_spec::syntax::{OsRef, PortProtocol};
-use isoloom_spec::validate::Cidr;
 use isoloom_spec::{Appliance, Tc};
 use isothrum_compiler::{Endpoint, Error, Kind, Lan, Link, Node, Service, Topology, compile};
 use proptest::prelude::*;

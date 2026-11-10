@@ -21,7 +21,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use self::http_proxy::{Targets, start_http_proxy};
-use crate::contract::{ESXI_DEFAULT_SSH_PORT, ESXI_HOSTNAME, ESXI_HOSTPORT, SSH_PROXY_COMMAND};
+use isoloom_manifest::contract::{ESXI_DEFAULT_SSH_PORT, ESXI_HOSTNAME, ESXI_HOSTPORT, SSH_PROXY_COMMAND};
 
 /// A loopback port forwarding to one LAN endpoint while it lives.
 #[derive(Debug)]

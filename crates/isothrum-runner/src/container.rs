@@ -87,7 +87,10 @@ impl HostNetwork {
 /// folder itself when it isn't under one). A module reads the run's files from there.
 pub(crate) fn run_root(dir: &Path) -> &Path {
     dir.ancestors()
-        .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(crate::contract::OUTPUT_DIR)))
+        .find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with(isoloom_manifest::contract::OUTPUT_DIR))
+        })
         .and_then(Path::parent)
         .unwrap_or(dir)
 }

@@ -2,7 +2,7 @@
 //! there, the one it asks for or the next free one.
 
 use indexmap::IndexMap;
-use isoloom_spec::validate::Cidr;
+use isoloom_spec::net::Cidr;
 
 use crate::cables::is_link_network;
 use crate::document::NetworkDoc;
@@ -14,7 +14,7 @@ use crate::{Error, Lan, Result, Topology};
 /// controller and router) or the broadcast). A /24 starts at .10, leaving room for the
 /// infrastructure people expect low in a LAN.
 fn usable(block: Cidr) -> impl Iterator<Item = u8> {
-    let floor = if block.len == 24 { 10 } else { 0 };
+    let floor = if block.prefix() == 24 { 10 } else { 0 };
     (floor..=u8::MAX).filter(move |octet| block.host(*octet).is_some())
 }
 

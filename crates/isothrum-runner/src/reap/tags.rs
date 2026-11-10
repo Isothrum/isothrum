@@ -7,8 +7,8 @@
 use isoloom_manifest::Cloud;
 use serde_json::Value;
 
-use crate::contract::{EXPIRES_TAG, EXPIRES_WORD, INSTANCE_TAG, RESERVED_PREFIX};
 use crate::process::ProcessSpec;
+use isoloom_manifest::contract::{EXPIRES_TAG, EXPIRES_WORD, INSTANCE_TAG, RESERVED_PREFIX};
 
 /// A resource a cloud holds with Isoloom's tags.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

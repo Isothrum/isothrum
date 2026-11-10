@@ -3,7 +3,7 @@
 
 use std::net::Ipv4Addr;
 
-use isoloom_spec::validate::Cidr;
+use isoloom_spec::net::Cidr;
 
 use crate::document::NetworkDoc;
 use crate::draft::Draft;
@@ -35,10 +35,7 @@ fn link_block(i: usize) -> Option<(String, u8, u8)> {
     let third = u8::try_from(i / LINKS_PER_THIRD).ok()?;
     let fourth = u8::try_from((i % LINKS_PER_THIRD) * 8).ok()?;
     let [a, b] = LINK_BASE;
-    let block = Cidr {
-        base: u32::from(Ipv4Addr::new(a, b, third, fourth)),
-        len: 29,
-    };
+    let block = Cidr::enclosing(Ipv4Addr::new(a, b, third, fourth), 29);
     Some((block.to_string(), fourth + 2, fourth + 3))
 }
 

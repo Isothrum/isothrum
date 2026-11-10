@@ -744,6 +744,7 @@ version = "1.0.5"
 dependencies = [
  "clap",
  "clap_complete",
+ "isoloom-manifest",
  "isothrum-runner",
  "proptest",
  "schemars",
@@ -761,6 +762,7 @@ version = "1.0.5"
 dependencies = [
  "indexmap",
  "insta",
+ "isoloom-manifest",
  "isoloom-spec",
  "isoloom-targets",
  "proptest",
@@ -808,6 +810,7 @@ name = "isothrum-wasm"
 version = "1.0.5"
 dependencies = [
  "indexmap",
+ "isoloom-manifest",
  "isoloom-plan",
  "isoloom-spec",
  "isoloom-targets",

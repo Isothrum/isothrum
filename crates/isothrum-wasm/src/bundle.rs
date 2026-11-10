@@ -57,7 +57,7 @@ fn uses(files: &[File], path: &str) -> bool {
 
 /// The generated files of the target in `target_dir` (`docker`, `cloud-docker/aws`…), or all.
 fn target_files(files: Vec<File>, target_dir: Option<&str>) -> Result<Vec<File>> {
-    let prefix = target_dir.map(|d| format!("{}/{}/", isoloom_targets::OUTPUT_DIR, d.trim_matches('/')));
+    let prefix = target_dir.map(|d| format!("{}/{}/", isoloom_manifest::contract::OUTPUT_DIR, d.trim_matches('/')));
     let files: Vec<File> = files.into_iter().filter(|f| prefix.as_ref().is_none_or(|p| f.path.starts_with(p))).collect();
     if files.is_empty() {
         return Err(Error::NoFiles(target_dir.unwrap_or("any target").to_owned()));

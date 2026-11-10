@@ -36,7 +36,7 @@ pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) {
             .iter()
             .find(|(name, n)| is_cisco_router(&n.kind) && draft.machines.get(*name).is_some_and(|m| m.networks.contains_key(lan)));
         if let Some((name, _)) = router
-            && let Some(c) = isoloom_spec::validate::Cidr::parse(&net.cidr)
+            && let Some(c) = isoloom_spec::net::Cidr::parse(&net.cidr)
             && let Some(m) = draft.machines.get_mut(name)
         {
             net.gateway = Some(name.clone());

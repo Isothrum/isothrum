@@ -21,6 +21,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 clap_complete.workspace = true
+isoloom-manifest.workspace = true
 isothrum-runner.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

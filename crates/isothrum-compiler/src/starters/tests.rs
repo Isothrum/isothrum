@@ -206,11 +206,6 @@ fn a_package_two_ports_call_for_is_installed_once() {
     assert_eq!(sh.matches("systemctl enable nginx").count(), 1, "{sh}");
 }
 
-#[test]
-fn the_outputs_folder_is_isoloom_s() {
-    assert_eq!(OUTPUT_DIR, isoloom_targets::OUTPUT_DIR);
-}
-
 /// Regression: the guard spelled `isoloom.yml` alone, so a step at `isoloom.yaml` (a name Isoloom
 /// also reads the spec from) got a starter over it.
 #[test]

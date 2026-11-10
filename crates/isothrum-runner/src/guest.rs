@@ -23,11 +23,11 @@ use std::time::Duration;
 use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
-use crate::contract::{DELIVERED, SECRETS_DIR};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call, stdout_of};
 use crate::secrets::SecretValue;
 use crate::ssh::{self, Login};
+use isoloom_manifest::contract::{DELIVERED, SECRETS_DIR};
 
 /// What runs as root on the machine: each `<name> <base64>` line of its input kept owner-only
 /// under [`SECRETS_DIR`]`/<name>` (a name of letters, digits, `_` and `-` only), then the mark the

@@ -15,6 +15,7 @@ exclude = ["tests/"]
 publish = true
 
 [dependencies]
+isoloom-manifest.workspace = true
 isoloom-spec.workspace = true
 indexmap.workspace = true
 serde.workspace = true

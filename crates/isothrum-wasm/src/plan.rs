@@ -3,7 +3,7 @@
 
 use indexmap::IndexMap;
 use isoloom_spec::model;
-use isoloom_spec::validate::Cidr;
+use isoloom_spec::net::Cidr;
 use isoloom_targets::Lab;
 use isothrum_compiler::{Compiled, Topology};
 use serde::Serialize;

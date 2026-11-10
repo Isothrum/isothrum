@@ -11,13 +11,13 @@ use isoloom_manifest::{Provider, SnakeName, Step, Template};
 
 use super::{READ_LIMIT, Vagrant, lock, status};
 use crate::Result;
-use crate::contract::{CONTROLLER, HALTING};
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::executor::{Cx, Echo, call, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
 use crate::status::MachineState;
 use crate::store::if_there;
+use isoloom_manifest::contract::{CONTROLLER, HALTING};
 
 /// How long the clean-up destroy of a record on another provider may go without progress (as
 /// every tool call's limit counts) before the record is dropped anyway (a wedged hypervisor must

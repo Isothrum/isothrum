@@ -1,7 +1,7 @@
 //! A switch's VLANs, nested under the LAN named after the switch (Isoloom's `vlans`).
 
 use indexmap::IndexMap;
-use isoloom_spec::validate::Cidr;
+use isoloom_spec::net::Cidr;
 
 use crate::cables::is_link_network;
 use crate::document::{NetworkDoc, ReachDoc, VlanDoc};
@@ -114,22 +114,14 @@ fn rename_refs(draft: &mut Draft, renamed: &IndexMap<&String, String>) {
     }
 }
 
-/// The mask of a prefix of `len` bits (at most 32); Isoloom's [`Cidr`] keeps its own private.
-fn mask(len: u8) -> u32 {
-    u32::MAX.checked_shl(32 - u32::from(len.min(32))).unwrap_or(0)
-}
-
 /// The smallest IPv4 block holding every one of `cidrs` (at most a /8).
 fn covering<'a>(cidrs: impl Iterator<Item = &'a str>) -> String {
     let blocks: Vec<Cidr> = cidrs.filter_map(Cidr::parse).collect();
     let Some(first) = blocks.first() else {
         return String::new();
     };
-    let mut len = blocks.iter().map(|b| b.len).min().unwrap_or(24);
-    let around = |prefix: u8| Cidr {
-        base: first.base & mask(prefix),
-        len: prefix,
-    };
+    let mut len = blocks.iter().map(|b| b.prefix()).min().unwrap_or(24);
+    let around = |prefix: u8| Cidr::enclosing(first.address(), prefix);
     while len > 8 && !blocks.iter().all(|b| around(len).contains(*b)) {
         len -= 1;
     }
@@ -151,14 +143,6 @@ mod tests {
             "what isn't a block is left out"
         );
         assert_eq!(covering(std::iter::empty()), "");
-    }
-
-    #[test]
-    fn a_mask_has_its_prefix_bits_set() {
-        assert_eq!(mask(0), 0);
-        assert_eq!(mask(8), 0xff00_0000);
-        assert_eq!(mask(32), u32::MAX);
-        assert_eq!(mask(40), u32::MAX, "a longer prefix is a whole address");
     }
 
     fn vlan(cidr: &str, internet: bool) -> VlanDoc {

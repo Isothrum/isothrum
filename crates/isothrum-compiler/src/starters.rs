@@ -11,18 +11,14 @@
 
 mod packages;
 
+use isoloom_manifest::contract::OUTPUT_DIR;
 use isoloom_spec::Spec;
+use isoloom_spec::net::Cidr;
 use isoloom_spec::syntax::{Machine, Octets, OsRef, Step};
-use isoloom_spec::validate::Cidr;
 
 use crate::ProjectFile;
 use crate::controller::ControllerPlaybook;
 use packages::{Family, PACKAGES, install, start, wanted};
-
-/// The folder Isoloom writes its outputs to, at the project's root: `isoloom_render::OUTPUT_DIR`
-/// (re-exported by `isoloom-targets`, which this crate doesn't depend on; a test holds the two
-/// equal).
-const OUTPUT_DIR: &str = ".isoloom";
 
 /// Adds to `files` one starter per provisioning step, the machines' own then the controller's:
 /// at paths inside the project, which no file has yet (Isoloom's own aside).

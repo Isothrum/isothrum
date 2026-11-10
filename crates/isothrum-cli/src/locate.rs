@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use isoloom_manifest::contract::OUTPUT_DIR;
+
 use crate::error::{Error, Result};
 
 /// The manifest to run: `run` itself when it is a file; else the one Isoloom generated under
@@ -12,7 +14,7 @@ pub(crate) fn manifest(run: &Path, target: Option<&str>) -> Result<PathBuf> {
     if run.is_file() {
         return Ok(run.to_path_buf());
     }
-    let outputs = run.join(".isoloom");
+    let outputs = run.join(OUTPUT_DIR);
     if let Some(path) = target.map(|t| outputs.join(t).join(MANIFEST)).filter(|p| p.is_file()) {
         return Ok(path);
     }
