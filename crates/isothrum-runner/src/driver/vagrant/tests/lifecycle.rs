@@ -137,14 +137,21 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
     assert_eq!(f.engine().provider.as_deref(), Some("libvirt"));
 }
 
-#[tokio::test]
-async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
-    // VirtualBox prints VERR_ALREADY_EXISTS in capitals; the manifest's markers are lower case.
+/// A fixture whose first `vagrant up` trips over the VM an earlier run left registered in
+/// VirtualBox (`web-vm - web`). VirtualBox prints `VERR_ALREADY_EXISTS` in capitals; the
+/// manifest's markers are lower case.
+fn tripped_over_an_orphan() -> Fixture {
     let f = fixture(crate::runner::this_host());
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
     f.engine().vbox.insert("web-vm - web".into(), "poweroff".into());
+    f
+}
+
+#[tokio::test]
+async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
+    let f = tripped_over_an_orphan();
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
@@ -203,11 +210,7 @@ fn warnings(events: &Recorder) -> Vec<String> {
 /// still met it.
 #[tokio::test]
 async fn an_orphan_the_hypervisor_wont_delete_is_warned_about_not_said_removed() {
-    let f = fixture(crate::runner::this_host());
-    f.engine()
-        .ups
-        .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
-    f.engine().vbox.insert("web-vm - web".into(), "poweroff".into());
+    let f = tripped_over_an_orphan();
     f.engine().fails.insert(Fails::Delete);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();

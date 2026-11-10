@@ -11,6 +11,7 @@ mod event_log;
 mod leaks;
 mod lifecycle;
 mod ready;
+mod refusals;
 mod risks;
 mod seen;
 mod terraform;

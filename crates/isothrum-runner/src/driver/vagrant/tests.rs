@@ -8,6 +8,7 @@ mod lifecycle;
 mod locks;
 mod outputs;
 mod ports;
+mod setups;
 mod updates;
 
 use std::collections::BTreeMap;
@@ -23,6 +24,7 @@ use crate::testing::{RunFolder, WEB_VM, modelled, processes, runner_config, virt
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
 use self::outputs::{ESXI_ALREADY_OFF, FOG_WARNING, VBOX_LOCKED, VBOX_WEDGED, index_locked_status, locked_halt, locked_status};
+use self::setups::{each_publish, ephemeral_no_preferred_manifest, esxi_secrets, fixed_manifest, on_esxi, with_vm_added};
 
 const CONTROLLER: &str = "isoloom-controller";
 const SECRET: &str = "token-vm-0001";
@@ -167,37 +169,6 @@ fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
         engine,
         runner,
     }
-}
-
-/// The fixture's manifest with `change` made to each published port's `publish`.
-fn each_publish(change: impl Fn(&mut serde_json::Map<String, serde_json::Value>)) -> String {
-    let mut v: serde_json::Value = serde_json::from_str(WEB_VM).expect("the fixture parses");
-    for machine in v["machines"].as_array_mut().into_iter().flatten() {
-        for port in machine.get_mut("ports").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
-            if let Some(publish) = port.get_mut("publish").and_then(serde_json::Value::as_object_mut) {
-                change(publish);
-            }
-        }
-    }
-    serde_json::to_string(&v).expect("the manifest serializes")
-}
-
-/// The fixture's manifest with each published port fixed at its own number (`publish: { fixed:
-/// true }` in the spec, or Isoloom before its ports were ephemeral): no port to pick.
-fn fixed_manifest() -> String {
-    each_publish(|publish| {
-        publish.insert("mode".to_owned(), serde_json::Value::from("fixed"));
-    })
-}
-
-/// The fixture's manifest (its published port ephemeral, as Isoloom writes a VM's, and
-/// `ISOLOOM_PUBLISH_FIXED` declared), with each published port's `preferred` number dropped — an
-/// ephemeral port Isoloom emits with no `publish:` number of its own, so its host port can only
-/// come from the runner's pick.
-fn ephemeral_no_preferred_manifest() -> String {
-    each_publish(|publish| {
-        publish.remove("preferred");
-    })
 }
 
 impl Fixture {
@@ -472,34 +443,6 @@ fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
         }
         _ => Reply::ok(""),
     }
-}
-
-/// The fixture with a VM added (a copy of `web` under another define), as Isoloom regenerates a
-/// run with a machine added.
-fn with_vm_added(define: &str) -> String {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
-    let mut added = m["machines"][0].clone();
-    added["name"] = define.into();
-    added["native"]["vagrant"] = define.into();
-    added["ports"] = serde_json::json!([]);
-    m["machines"].as_array_mut().unwrap().push(added);
-    m.to_string()
-}
-
-/// The run's main secret and the ESXi host's password.
-fn esxi_secrets() -> Secrets {
-    let mut secrets = Secrets::new();
-    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    secrets.insert("ESXI_PASSWORD", SecretValue::new("pw"));
-    secrets
-}
-
-/// The options of a run on the ESXi host at 172.16.1.20, with `secrets`.
-fn on_esxi(secrets: Secrets) -> RunOptions {
-    RunOptions::new()
-        .with_provider("vmware_esxi")
-        .with_param("ESXI_HOSTNAME", "172.16.1.20")
-        .with_secrets(secrets)
 }
 
 /// A start once `set` made the engine so: it succeeds, with no step tolerated.
