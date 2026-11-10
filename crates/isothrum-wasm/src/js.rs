@@ -25,7 +25,8 @@ pub fn bundle_target(topology_json: &str, target_dir: &str) -> Result<Vec<u8>, J
 /// # Errors
 ///
 /// A JavaScript `Error` saying why: the topology is malformed or doesn't compile, Isoloom finds
-/// problems in the spec, or the zip can't be written.
+/// problems in the spec, no target generates any file for the project, or the zip can't be
+/// written.
 #[wasm_bindgen]
 pub fn bundle(topology_json: &str) -> Result<Vec<u8>, JsError> {
     bundle_bytes(topology_json).map_err(|e| JsError::new(&e.to_string()))

@@ -44,8 +44,9 @@ const zip = bundle(topology);                  // Uint8Array: the project as a z
 `plan_json` reports a topology's problems in its plan (`ok`, `error`, `problems`); the other exports throw
 a JavaScript `Error` saying why when they can't do their work: `own_files_json`, `bundle` and
 `bundle_target` for a topology that is malformed or doesn't compile; `bundle` and `bundle_target`
-also for a spec Isoloom finds problems in, or a zip that can't be written; and `bundle_target`
-for a target the project generates no files for.
+also for a spec Isoloom finds problems in, or a zip that can't be written; `bundle` for a
+project no target generates any file for; and `bundle_target` for a target the project
+generates no files for.
 
 ## Feature flags
 
