@@ -46,6 +46,9 @@ fn address_one(topo: &Topology, draft: &mut Draft, name: &str, lan: &Lan) -> Res
         .networks
         .insert(name.into(), NetworkDoc::new(lan.cidr.clone(), lan.internet, lan.tc.clone()));
     let taken = asked_addresses(topo, draft, name)?;
+    for (octet, node) in &taken {
+        draft.attach(node, name, *octet);
+    }
     let mut free = usable(block).filter(|o| !taken.contains_key(o));
     for (node, _) in members(topo, draft, name).into_iter().filter(|(_, octet)| octet.is_none()) {
         let octet = free.next().ok_or_else(|| Error::LanFull {
@@ -67,8 +70,9 @@ fn members<'t>(topo: &'t Topology, draft: &Draft, lan: &str) -> Vec<(&'t str, Op
         .collect()
 }
 
-/// The addresses machines ask for on `lan`, given to them first: octet → machine.
-fn asked_addresses(topo: &Topology, draft: &mut Draft, lan: &str) -> Result<IndexMap<u8, String>> {
+/// The addresses machines ask for on `lan`, which they get before the others are given theirs:
+/// octet → machine. Two asking for one is refused.
+fn asked_addresses(topo: &Topology, draft: &Draft, lan: &str) -> Result<IndexMap<u8, String>> {
     let asked: Vec<(&str, u8)> = members(topo, draft, lan).into_iter().filter_map(|(node, octet)| Some((node, octet?))).collect();
     let mut taken: IndexMap<u8, String> = IndexMap::new();
     for (node, octet) in asked {
@@ -80,7 +84,6 @@ fn asked_addresses(topo: &Topology, draft: &mut Draft, lan: &str) -> Result<Inde
                 second: node.to_owned(),
             });
         }
-        draft.attach(node, lan, octet);
     }
     Ok(taken)
 }
