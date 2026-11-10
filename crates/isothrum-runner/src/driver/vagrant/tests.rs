@@ -228,7 +228,8 @@ fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
 }
 
 /// What `vagrant status --machine-readable` prints on Hyper-V when another Vagrant process
-/// holds `vm`'s lock (seen on karen while `vagrant global-status --prune` read the run's VMs).
+/// holds `vm`'s lock (seen on a Windows host with Hyper-V, while another process running
+/// `vagrant global-status --prune` read the run's VMs).
 fn locked_status(vm: &str) -> Vec<String> {
     let said = format!(
         "An action 'read_state' was attempted on the machine '{vm}'%!(VAGRANT_COMMA)\\nbut another process is already executing \
@@ -606,7 +607,7 @@ The attempted operation cannot be performed in the current state (Powered off).\
 
 #[tokio::test]
 async fn on_esxi_a_controller_already_off_is_halted_without_an_error_in_the_log() {
-    // Seen on esxi-run: the controller powers itself off at the end of its play, and ESXi
+    // Seen on an ESXi host: the controller powers itself off at the end of its play, and ESXi
     // refuses the guest shutdown `vagrant halt` asks for.
     let f = fixture(HostOs::Linux);
     {
@@ -703,9 +704,9 @@ async fn a_controller_still_started_on_utm_or_on_its_way_down_is_no_halt() {
 }
 
 /// Regression: on Hyper-V, reading a VM's state takes its Vagrant lock, and a `vagrant status`
-/// that came while another process read the run's VMs (the launcher's `vagrant global-status
-/// --prune`) was refused at once (`MachineActionLockedError`), failing the start. The read is
-/// tried again until the lock is free.
+/// that came while another process read the run's VMs (another process running `vagrant
+/// global-status --prune`) was refused at once (`MachineActionLockedError`), failing the start.
+/// The read is tried again until the lock is free.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_another_vagrant_process_locked_out_is_read_again() {
     let f = fixture(crate::runner::this_host());
