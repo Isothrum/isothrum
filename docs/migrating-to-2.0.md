@@ -85,9 +85,9 @@ the tools still stopping outlive it.
 
 Removed, with no replacement because nothing used them: the `Hooks` port (`Hooks`, `HookError`,
 `RunView`, `Runner::add_hooks`); `RunRecord::manifest_sha256` and `LoadedManifest::sha256`;
-`OutputValue::revealed`; `Runner::in_flight`; `process::capture` and `Captured`; `LoopbackPorts`
-and `HeldPort` (`HostPorts` is sealed, and its `in_use`, `pick_free` and `reachable` are the
-runner's own); `Running::outputs` (read `status().outputs`);
+`Runner::in_flight`; `process::capture` and `Captured`; `LoopbackPorts` and `HeldPort`
+(`HostPorts` is sealed, and its `in_use`, `pick_free` and `reachable` are the runner's own);
+`Running::outputs` (read `status().outputs`);
 `Running::path`; `JsonLines` (an `Events` sink is a closure); `FixedClock`; the `Clock` port and
 `SystemClock`; `this_host`; `Recorder`; `EVENTS_VERSION`; `FakePorts::take`, `FakePorts::answer`,
 `Reply::after`, `FakeProcesses::lines` (read `FakeProcesses::calls`); `From<Option<i32>>` for

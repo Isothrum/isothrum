@@ -125,8 +125,8 @@ change.
 - **`attach` joins the chosen network by the name the run gave it, and says when it can't.** On
   Compose it guessed the network as `<project>_<network>` and swallowed every failure to join
   it, so an attach reported (and its event claimed) a network its machine wasn't on. The network
-  must now be one of the manifest's (`unsupported` otherwise, before anything starts), is joined
-  by its rendered native name (as status shows it), and a failure to join fails the attach
+  must now be one of the manifest's (`network_unknown` otherwise, before anything starts), is
+  joined by its rendered native name (as status shows it), and a failure to join fails the attach
   (`tool_failed`); only a container already on it is left as it is. A Vagrant run refuses a
   chosen network (`unsupported`): a VM's networks are its Vagrantfile's, and the network was
   ignored.
@@ -531,7 +531,6 @@ change.
 - **Breaking:** **`isothrum-machine`'s cloud providers.** `Provider::{Aws, Azure, Gcp, DigitalOcean, Linode,
   Oci}` and `Provider::is_cloud` go: detection never reports them (a cloud run is Terraform's, not
   a Vagrant provider's).
-- **Breaking:** **`OutputValue::revealed`** is internal: no embedder read a sensitive output's value.
 - **Breaking:** **`isothrum-machine`'s `ProviderStatus::available`**: it was `reason.is_none()`; read that.
 - **Breaking:** **`Compiled::yaml`.** `Compiled::into_parts` gives the spec's text, with the spec and the
   project's files.
