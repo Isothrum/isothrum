@@ -16,6 +16,9 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
     id_ed25519             the runner's SSH key, and id_ed25519.pub (made on first use)
   terraform-plugins/       the Terraform provider cache every run of this home shares,
                            unless TF_PLUGIN_CACHE_DIR names another one
+  relay/
+    ovftool                on macOS, a Vagrant run on VMware ESXi: the wrapper that sends
+                           ovftool's upload through the run's loopback relay
 ```
 
 On Unix, the folders Isothrum creates are `0700` and its files `0600`; on Windows, a home outside
@@ -31,8 +34,9 @@ depends on the target. With Isoloom's current targets:
 |---|---|
 | Compose | `ports.yml`, the host ports pinned for the run. |
 | Vagrant | `vagrant/`, Vagrant's own state (`VAGRANT_DOTFILE_PATH`), and the host ports the run forwards (in the record). |
-| Terraform | `terraform.tfstate` and its backup, `.terraform/` (`TF_DATA_DIR`), and a `state_file` delivery's variable file while the run exists. |
-| Any, over SSH | `ssh_config` and `known_hosts` for the run. |
+| Terraform | `terraform.tfstate` and its backup, `.terraform/` (`TF_DATA_DIR`), a `state_file` delivery's variable file while the run exists, and `module/`, the copy of the run's own module a `terraform.copy_module` step makes. |
+| Any, over SSH | `ssh_config` and `known_hosts` for the run; `guest-<machine>.in`, a guest delivery's values, only while it is delivered. |
+| Any, with `project.archive` | `project.tgz`, the project as a gzipped tar for a later step to pipe into a guest. |
 | Hyper-V on Windows | `elevated/<token>/`, the elevated broker's session folder, one per operation. |
 
 **Terraform state is local**: it lives in the run's state folder under the home, not in a remote
