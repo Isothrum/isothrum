@@ -18,7 +18,6 @@ mod fs;
 mod lock;
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Cloud, Driver, Target};
@@ -202,20 +201,23 @@ impl Store {
         let path = self.run_dir(name)?.join("events.jsonl");
         let lines = read_lines(&path)?;
         if lines.len() > EVENTS_KEPT {
-            let newer: Vec<&str> = lines.iter().skip(lines.len().saturating_sub(EVENTS_KEPT / 2)).map(String::as_str).collect();
-            let kept = newer.join("\n") + "\n";
-            write_private(&path, kept.as_bytes()).map_err(Error::io(&path, "written"))?;
+            let mut kept = Vec::new();
+            for line in lines.iter().skip(lines.len().saturating_sub(EVENTS_KEPT / 2)) {
+                kept.extend_from_slice(line);
+                kept.push(b'\n');
+            }
+            write_private(&path, &kept).map_err(Error::io(&path, "written"))?;
         }
         fs::append_private(&path).map_err(Error::io(&path, "written"))
     }
 
     /// Run `name`'s logged events, oldest first, with how many of its lines aren't an event
-    /// this runner reads.
+    /// this runner reads (a line cut short, mid-character included).
     pub(crate) fn events(&self, name: &RunName) -> Result<EventLog> {
         let path = self.runs.join(name.as_str()).join("events.jsonl");
         let mut log = EventLog::default();
-        for line in read_lines(&path)?.iter().filter(|l| !l.trim().is_empty()) {
-            match serde_json::from_str(line) {
+        for line in read_lines(&path)?.iter().filter(|l| !l.trim_ascii().is_empty()) {
+            match serde_json::from_slice(line) {
                 Ok(event) => log.events.push(event),
                 Err(_) => log.unreadable += 1,
             }
@@ -224,13 +226,22 @@ impl Store {
     }
 }
 
-/// `path`'s lines; none when it doesn't exist.
-fn read_lines(path: &Path) -> Result<Vec<String>> {
-    match std::fs::File::open(path) {
-        Ok(f) => BufReader::new(f).lines().collect::<Result<_, _>>().map_err(Error::io(path, "read")),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(Error::io(path, "read")(e)),
+/// `path`'s lines, as bytes: a log cut short (a full disk, a killed process) can end mid-character,
+/// and that line is one like any other. None when the file doesn't exist.
+fn read_lines(path: &Path) -> Result<Vec<Vec<u8>>> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(Error::io(path, "read")(e)),
+    };
+    let body = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
+    if body.is_empty() {
+        return Ok(Vec::new());
     }
+    Ok(body
+        .split(|b| *b == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line).to_vec())
+        .collect())
 }
 
 /// The JSON file at `path`, read; `None` when there is none.
@@ -294,7 +305,7 @@ mod tests {
         drop(store.event_log(&name).unwrap());
         let lines = read_lines(&home.path().join("runs/r/events.jsonl")).unwrap();
         assert_eq!(lines.len(), EVENTS_KEPT / 2);
-        assert_eq!(lines.last().unwrap(), &format!("{{\"seq\":{EVENTS_KEPT}}}"));
+        assert_eq!(lines.last().unwrap(), format!("{{\"seq\":{EVENTS_KEPT}}}").as_bytes());
     }
 
     #[test]
@@ -308,5 +319,47 @@ mod tests {
         drop(log);
         let events = store.events(&name).unwrap();
         assert_eq!((events.events.len(), events.unreadable), (1, 2));
+    }
+
+    /// A log cut mid-character (a full disk, a killed process) holds a line that isn't UTF-8: it
+    /// is one unreadable line, and the log still opens, is read and is trimmed.
+    #[test]
+    fn a_line_cut_mid_character_is_unreadable_and_the_log_goes_on() {
+        let (home, store, name) = run_r();
+        let read = r#"{"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"r","op":"up","event":"result","ok":true,"data":null}"#;
+        let mut log = store.event_log(&name).unwrap();
+        log.write_all(format!("{read}\n").as_bytes()).unwrap();
+        // `é` is 0xC3 0xA9: the line ends after its first byte.
+        log.write_all(b"{\"v\":0,\"message\":\"d\xC3").unwrap();
+        drop(log);
+        let mut reopened = store.event_log(&name).expect("the log opens to append");
+        reopened.write_all(format!("\n{read}\n").as_bytes()).unwrap();
+        drop(reopened);
+        let events = store.events(&name).unwrap();
+        assert_eq!((events.events.len(), events.unreadable), (2, 1));
+
+        let mut many = store.event_log(&name).unwrap();
+        for seq in 0..=EVENTS_KEPT {
+            writeln!(many, "{{\"seq\":{seq}}}").unwrap();
+        }
+        drop(many);
+        drop(store.event_log(&name).expect("a long log with such a line is trimmed"));
+        assert_eq!(read_lines(&home.path().join("runs/r/events.jsonl")).unwrap().len(), EVENTS_KEPT / 2);
+    }
+
+    #[test]
+    fn a_files_lines_are_split_on_line_feeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        assert_eq!(read_lines(&path).unwrap(), Vec::<Vec<u8>>::new(), "no file, no line");
+        for (text, lines) in [
+            (&b""[..], vec![]),
+            (b"a\n", vec![b"a".to_vec()]),
+            (b"a\r\nb", vec![b"a".to_vec(), b"b".to_vec()]),
+            (b"a\n\nb\n", vec![b"a".to_vec(), b"".to_vec(), b"b".to_vec()]),
+        ] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(read_lines(&path).unwrap(), lines, "{text:?}");
+        }
     }
 }

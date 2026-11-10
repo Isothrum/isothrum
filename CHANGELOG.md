@@ -215,6 +215,12 @@ change.
   minutes); an operation cut short then (a cancel, Ctrl-C) skipped its removal, and the file
   stayed. It is now removed however the delivery ends.
 
+- **An event log cut mid-character no longer stops the run.** The run's `events.jsonl` was read
+  as UTF-8 text, so a log cut short inside a character (a full disk, a killed process) failed
+  every later operation of the run with `io`, and `isothrum events` with it. Such a line now
+  counts as one the runner can't read (`EventLog::unreadable`), and each event is written in one
+  write, its line break included.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

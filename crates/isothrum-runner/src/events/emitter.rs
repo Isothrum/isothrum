@@ -83,9 +83,12 @@ impl<'a> Emitter<'a> {
             kind: self.masked(kind),
         };
         if let Some(log) = &self.log {
-            let written = serde_json::to_string(&event)
-                .map_err(std::io::Error::from)
-                .and_then(|text| writeln!(log.lock().unwrap_or_else(PoisonError::into_inner), "{text}"));
+            // One write per event, its line break included, so a log cut short ends between two
+            // events or inside one, never with an event and no line break after it.
+            let written = serde_json::to_vec(&event).map_err(std::io::Error::from).and_then(|mut line| {
+                line.push(b'\n');
+                log.lock().unwrap_or_else(PoisonError::into_inner).write_all(&line)
+            });
             // The log is a convenience for a UI that reattaches: losing a line never fails the run.
             if let Err(e) = written {
                 tracing::warn!(error = %e, "an event wasn't logged");
