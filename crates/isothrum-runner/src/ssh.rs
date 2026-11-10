@@ -20,7 +20,7 @@ use isoloom_manifest::{SnakeName, Step, Template};
 
 use crate::Result;
 use crate::error::Error;
-use crate::executor::Cx;
+use crate::executor::{Cx, plan};
 use crate::process::{ProcessRunner, ProcessSpec};
 use crate::store::write_private;
 
@@ -210,7 +210,7 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
 /// `stdin` piped, and the variables the manifest delivers to it by name carried into the guest
 /// (never the Terraform variables every step gets: a server's password stays on this computer).
 pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<ProcessSpec> {
-    let at = format!("{list}.{}", step.id);
+    let at = plan::at(list, step);
     let arg = |name: &str| cx.vars.with_text(with, &at, name);
     let (host, command) = (arg("host")?, arg("command")?);
     if host.is_empty() || command.is_empty() {
@@ -275,7 +275,7 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
     else {
         return Ok(None);
     };
-    let at = format!("{list}.{}", step.id);
+    let at = plan::at(list, step);
     let arg = |name: &str| cx.vars.with_text(with, &at, name);
     let text = arg("wait_s")?;
     if text.is_empty() {
