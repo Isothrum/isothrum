@@ -158,6 +158,16 @@ fn the_bundle_holds_the_spec_and_the_generated_files() -> Outcome {
     Ok(())
 }
 
+/// Regression guard: the download takes the spec's text from the compiled parts; an empty or
+/// other spec in the zip would pass a test that reads only its names.
+#[test]
+fn every_download_holds_the_plans_spec() -> Outcome {
+    let (_, yml) = clean_plan(PAIR)?;
+    assert_eq!(read(bundle_bytes(PAIR)?, SPEC_PATH)?, yml);
+    assert_eq!(read(bundle_target_bytes(PAIR, "docker")?, SPEC_PATH)?, yml);
+    Ok(())
+}
+
 #[test]
 fn a_vm_project_comes_with_its_provisioning_scripts() -> Outcome {
     let vms = r#"{"name":"vms","networks":{"lan":{"cidr":"10.10.1.0/24"}},"nodes":{
