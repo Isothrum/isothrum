@@ -99,7 +99,14 @@ impl Running<'_> {
             self.observe_running(&mut cx).await?;
             self.driver.attach(&cx, target, image, native.as_deref()).await?;
             let report = report(target, network, image);
-            let data = json!({ "machine": report.machine, "native": report.native, "network": report.network, "address": report.address });
+            // The whole report: `isothrum attach --json` says where it is with this event alone.
+            let data = json!({
+                "machine": report.machine,
+                "native": report.native,
+                "network": report.network,
+                "address": report.address,
+                "image": report.image,
+            });
             Ok(Done {
                 value: report,
                 ok: true,

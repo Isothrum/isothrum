@@ -6,7 +6,7 @@
 
 use std::time::SystemTime;
 
-use isothrum_runner::{Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
+use isothrum_runner::{Event, EventKind, Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
 use serde_json::json;
 
 use crate::args::ReapArgs;
@@ -47,16 +47,17 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &d
         }
     }
     let orphans = runner.orphans(cloud, &Place::new(args.regions.clone(), args.project.clone()), now).await?;
+    let clean = swept.failed.is_empty() && orphans.resources.is_empty() && orphans.unread.is_empty();
     if json {
-        term.out(&summary(args, &swept, &orphans).to_string());
+        // The sweep is no one run's operation: its `result` has no `run` nor `op`.
+        let data = summary(args, &swept, &orphans);
+        term.json(&Event::new(1, None, None, EventKind::Result { ok: clean, data }));
     } else {
         for line in lines(args, &swept, &orphans) {
             term.out(&line);
         }
     }
-    Ok(Verdict::of(
-        swept.failed.is_empty() && orphans.resources.is_empty() && orphans.unread.is_empty(),
-    ))
+    Ok(Verdict::of(clean))
 }
 
 /// The run of `record` destroyed, with `connection`.
@@ -65,7 +66,7 @@ async fn destroy(runner: &Runner, record: &RunRecord, connection: &Secrets, even
     run.down(&RunOptions::new(), events).await
 }
 
-/// The sweep as one JSON object.
+/// The sweep as one JSON object: the data of the `result` that closes `reap --json`.
 fn summary(args: &ReapArgs, swept: &Swept, orphans: &Orphans) -> serde_json::Value {
     let failed: Vec<serde_json::Value> = swept.failed.iter().map(|(run, why)| json!({ "run": run, "error": why })).collect();
     json!({

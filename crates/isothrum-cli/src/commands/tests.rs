@@ -320,6 +320,31 @@ async fn attach_takes_the_params_and_secrets_it_is_given() {
     assert!(refused.contains("error: ") && refused.contains("ISOLOOM_DERIVED"), "{refused}");
 }
 
+/// With `--json`, `attach` says where the machine is in its `result` event, the last line: one
+/// event per line, and the image masked when it is a secret's value.
+#[tokio::test]
+async fn attach_with_json_says_where_in_its_result_event() {
+    let mut s = setup_with(WEB_PORTAL_ACCESS);
+    s.env.push(("MY_SECRET", "me/toolbox"));
+    assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
+    s.out.take();
+    let attached = s
+        .run(&["attach", "--json", "--image", "me/toolbox", "--secret-from-env", "DEMO_SECRET=MY_SECRET"])
+        .await;
+    assert_eq!(attached.unwrap(), Verdict::Pass);
+    let said = s.out.take();
+    let events: Vec<serde_json::Value> = said.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert!(events.iter().all(|e| e["event"].is_string()), "one event per line: {said}");
+    let last = events.last().unwrap();
+    assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("attach")), "{last}");
+    assert_eq!(
+        (last["data"]["machine"].as_str(), last["data"]["address"].as_str()),
+        (Some("user"), Some("10.30.0.99"))
+    );
+    assert_eq!(last["data"]["image"], "***", "{last}");
+    assert!(!said.contains("me/toolbox"), "{said}");
+}
+
 #[tokio::test]
 async fn events_says_how_many_lines_of_the_log_it_couldnt_read() {
     let s = setup();

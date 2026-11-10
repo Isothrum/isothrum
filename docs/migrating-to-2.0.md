@@ -52,6 +52,9 @@ and `--secret-from-env`.
 - An `error` event for a timeout carries `timeout`: `{"kind": "no_progress", "after_s", "last_line"}`
   or `{"kind": "ceiling", "after_s"}`.
 - A sensitive output is `***` in `status --json` too.
+- `isothrum attach --json` prints no object after its events: read where the machine is from its
+  `result` event's `data`. `isothrum reap --json`'s closing summary is a `result` event (no `run`
+  nor `op`), the summary its `data`.
 
 ## `isothrum-runner`
 

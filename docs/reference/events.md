@@ -22,9 +22,13 @@ The authoritative definition is the JSON Schema committed at
 | `op` | The operation: `up`, `down`, `park`, `resume`, `check`, `provision`, `attach`, `detach`, `update`, `retire`. |
 | `event` | The kind, below. |
 
-Every event an operation emits has `run` and `op`. They are absent only from an `error` written
+Every event an operation emits has `run` and `op`. They are absent only from an event written
 outside an operation: with `--json`, a failure before any operation began (code `usage`, for
-instance) is an `error` event too, so one stream carries every outcome.
+instance) is an `error` event too, and `isothrum reap --json` ends with a `result` whose `data`
+is the sweep (`cloud`, `destroyed`, `pending`, `failed`, `orphans`, `unread`), after the events of
+each run it destroyed; so one stream carries every outcome, one event per line. `isothrum attach
+--json` says where the machine is in its `result`'s `data` (`machine`, `native`, `network`,
+`address`, `image`).
 
 ## Kinds
 

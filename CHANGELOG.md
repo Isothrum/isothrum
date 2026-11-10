@@ -253,6 +253,12 @@ change.
   when the runner was configured, but `docker run -e NAME` took their values from the process's
   environment of the moment; `docker` is now given those values.
 
+- **`attach --json` and `reap --json` print events only.** Each ended with a JSON object that
+  wasn't an event, on the stream documented as one event per line, and `attach`'s showed its
+  image unmasked when it was a secret's value. `attach` now says where the machine is in its
+  `result` event's `data` (masked as every event is); `reap` ends with a `result` event, no
+  `run` nor `op`, whose `data` is the sweep.
+
 ### Added
 
 - **Release binaries.** A tag publishes `isothrum` for Linux (x86_64, aarch64; static musl),

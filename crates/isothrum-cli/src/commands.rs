@@ -195,15 +195,14 @@ async fn status(out: &Out<'_>, run: &Running<'_>) -> Result<Verdict> {
     Ok(Verdict::Pass)
 }
 
-/// Hot-adds the on-demand access machine, then says where to reach it (JSON, or a line).
+/// Hot-adds the on-demand access machine, then says where to reach it: in its `result` event's
+/// data with `--json`, else as a line.
 async fn attach(out: &Out<'_>, run: &Running<'_>, pick: AccessPick<'_>, opts: &RunOptions) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     let Ok(report) = run.attach(pick, opts, events).await else {
         return Ok(Verdict::Fail);
     };
-    if json {
-        term.out(&serde_json::to_string(&report)?);
-    } else {
+    if !json {
         let at = report.address.as_deref().map(|a| format!(" at {a}")).unwrap_or_default();
         term.out(&format!("Attached {}{at}.", report.machine));
     }

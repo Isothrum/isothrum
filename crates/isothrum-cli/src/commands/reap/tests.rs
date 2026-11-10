@@ -115,7 +115,13 @@ async fn reap_destroys_a_clouds_expired_runs_and_lists_what_no_run_records() {
     let s = setup();
     s.expired_run().await;
     let verdict = s.run(&["reap", "aws", "--region", "eu-west-3", "--json"]).await;
-    let summary: serde_json::Value = serde_json::from_str(s.out.take().lines().last().unwrap()).unwrap();
+    let said = s.out.take();
+    let events: Vec<serde_json::Value> = said.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert!(events.iter().all(|e| e["v"] == 0 && e["event"].is_string()), "one event per line: {said}");
+    let last = events.last().unwrap();
+    assert_eq!((last["event"].as_str(), last["ok"].as_bool()), (Some("result"), Some(false)), "{last}");
+    assert!(last.get("run").is_none() && last.get("op").is_none(), "no one run's operation: {last}");
+    let summary = &last["data"];
     assert_eq!(summary["destroyed"], serde_json::json!(["solo-web"]));
     assert!(s.fake.last("terraform destroy").is_some());
     assert_eq!(summary["orphans"][0]["id"], "arn:aws:ec2:eu-west-3:1:instance/i-0lost");
