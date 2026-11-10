@@ -147,7 +147,8 @@ pub enum Error {
     /// something its target can't do.
     #[error("{what} isn't supported")]
     Unsupported {
-        /// What, as the manifest names it (`driver vagrant`, `delivery tf_var`).
+        /// What, in a few words: target `cloud-vm` on this host; step `up`: the action
+        /// `ssh.run` on a compose run.
         what: String,
     },
     /// A value the manifest gives that can't be used as written.
@@ -288,7 +289,7 @@ pub enum Error {
         /// The placeholder.
         placeholder: String,
     },
-    /// A machine the run doesn't have (to provision).
+    /// A machine the run doesn't have (to provision, console into, attach, detach or retire).
     #[error("run `{run}` has no machine `{machine}`")]
     MachineUnknown {
         /// The run.

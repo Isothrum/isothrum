@@ -41,7 +41,7 @@ pub(crate) struct Cx<'a> {
     pub(crate) secrets: &'a Secrets,
     /// Its events.
     pub(crate) events: &'a Emitter<'a>,
-    /// This host, and the run's Vagrant provider when it has one.
+    /// This host, and the run's provider when it has one (whatever its driver).
     pub(crate) scope: Scope,
     /// Starts the tools: the runner's, or an elevated session's for an operation on Hyper-V.
     pub(crate) processes: std::sync::Arc<dyn crate::process::ProcessRunner>,

@@ -1,5 +1,5 @@
 //! One manifest opened under one run name: the operations an embedder calls, and the read-only
-//! queries (status, outputs) here. `operation` is what every operation does around its own work,
+//! query `status` here (`console_command`, the other one, is in `console`). `operation` is what every operation does around its own work,
 //! `up` starts a run, `existing` holds the operations on a run that exists (down, park, resume,
 //! check, provision), `update` brings a running run up to date with its manifest, `boot` restarts
 //! the VMs whose boot-time settings it changed, `retire` takes a machine out ahead of it, `attach`
