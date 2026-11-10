@@ -24,6 +24,16 @@ use crate::store::write_private;
 
 pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
 
+/// The label Compose puts on each container naming its service, which finds a service's
+/// container whatever project and file started it.
+pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+
+/// The label Compose puts on what a project creates.
+const PROJECT_LABEL: &str = "com.docker.compose.project";
+
+/// The label, with its value, Compose puts on a `docker compose run` container (a one-off).
+const ONE_OFF_LABEL: &str = "com.docker.compose.oneoff=True";
+
 /// Every machine of `manifest` as `ps --all --format json`'s output `out` shows it, and the host
 /// port each published machine port got: a project on this computer's Docker, or one Compose runs
 /// inside a VM (`docker-vm`'s guest). `None` when `out` lists no container this runner can read.

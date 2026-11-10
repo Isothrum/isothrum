@@ -9,7 +9,7 @@ pub(crate) mod shells;
 pub(crate) mod terraform;
 mod vagrant;
 
-pub(crate) use compose::{UNREADABLE_PS, read_ps};
+pub(crate) use compose::{COMPOSE_SERVICE_LABEL, UNREADABLE_PS, read_ps};
 pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
@@ -25,10 +25,6 @@ use crate::executor::Cx;
 use crate::process::ProcessSpec;
 use crate::status::MachineStatus;
 use crate::vars::PortKey;
-
-/// The label Compose puts on each container naming its service, which finds a service's
-/// container whatever project and file started it.
-pub(crate) const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 
 /// How long taking one machine out of a running run may go without progress (as every tool
 /// call's limit counts): a VM destroyed, a service in the run's VM removed with its namespace.

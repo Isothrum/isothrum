@@ -47,7 +47,7 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) ->
 impl PsEntry {
     /// A `docker compose run` container (a check runner): not one of the run's machines.
     pub(super) fn one_off(&self) -> bool {
-        self.labels.split(',').any(|l| l.trim() == "com.docker.compose.oneoff=True")
+        self.labels.split(',').any(|l| l.trim() == super::ONE_OFF_LABEL)
     }
 
     fn machine_state(&self) -> MachineState {

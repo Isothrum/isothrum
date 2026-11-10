@@ -2,14 +2,11 @@
 
 use isoloom_manifest::Step;
 
-use super::{Compose, NO_PINS, config, docker, pins, ps};
+use super::{COMPOSE_SERVICE_LABEL, Compose, NO_PINS, ONE_OFF_LABEL, PROJECT_LABEL, config, docker, pins, ps};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, env_of};
 use crate::store::write_private;
-
-/// The label Compose puts on what a project creates.
-const PROJECT_LABEL: &str = "com.docker.compose.project";
 
 /// `compose.pin_ports`: on a fresh run only (no container yet), the ephemeral host ports get
 /// fixed ones, so a resumed run keeps its addresses (Docker picks a new ephemeral port each time a
@@ -83,10 +80,10 @@ pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, list: &str, step
     let mut args: Vec<String> = ["ps", "-aq", "--filter"].map(String::from).to_vec();
     args.push(format!("label={PROJECT_LABEL}={}", c.project(cx)?));
     if let Some(service) = arg("service")? {
-        args.extend(["--filter".into(), format!("label={}={service}", crate::driver::COMPOSE_SERVICE_LABEL)]);
+        args.extend(["--filter".into(), format!("label={COMPOSE_SERVICE_LABEL}={service}")]);
     }
     if arg("one_off")?.as_deref() == Some("true") {
-        args.extend(["--filter".into(), "label=com.docker.compose.oneoff=True".into()]);
+        args.extend(["--filter".into(), format!("label={ONE_OFF_LABEL}")]);
     }
     let ids = docker(cx, step, args, &[]).await?;
     let ids: Vec<String> = ids.split_whitespace().map(str::to_owned).collect();
