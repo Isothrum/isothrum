@@ -109,15 +109,17 @@ const RESOLVERS: [&str; 4] = [
 ///
 /// # Errors
 ///
-/// Fewer than two answered with the same address, or two disagreed.
+/// `curl` can't start, or fewer than two resolvers answered with the same address, or two
+/// disagreed.
 pub(crate) fn public_ip() -> Res<String> {
-    let answers: Vec<Option<String>> = RESOLVERS
-        .iter()
-        .map(|url| {
-            let out = std::process::Command::new("curl").args(["-fsS", "--max-time", "8", url]).output().ok()?;
-            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
-        })
-        .collect();
+    let mut answers: Vec<Option<String>> = Vec::new();
+    for url in RESOLVERS {
+        let out = std::process::Command::new("curl")
+            .args(["-fsS", "--max-time", "8", url])
+            .output()
+            .map_err(|e| format!("`curl` couldn't start, to ask {url} for this machine's address: {e}"))?;
+        answers.push(out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()));
+    }
     agreed(&answers).ok_or_else(|| "the public resolvers didn't agree on this machine's address: set ALLOWED_CIDR (<your IP>/32)".into())
 }
 
