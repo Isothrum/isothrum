@@ -205,3 +205,22 @@ fn a_package_two_ports_call_for_is_installed_once() {
     assert!(sh.contains("apt-get install -y nginx\n"), "{sh}");
     assert_eq!(sh.matches("systemctl enable nginx").count(), 1, "{sh}");
 }
+
+#[test]
+fn the_outputs_folder_is_isoloom_s() {
+    assert_eq!(OUTPUT_DIR, isoloom_targets::OUTPUT_DIR);
+}
+
+/// Regression: the guard spelled `isoloom.yml` alone, so a step at `isoloom.yaml` (a name Isoloom
+/// also reads the spec from) got a starter over it.
+#[test]
+fn no_starter_goes_where_isoloom_reads_or_writes() {
+    for path in ["isoloom.yml", "isoloom.yaml", ".isoloom/docker/x.sh"] {
+        let mut files = Vec::new();
+        add(&mut files, path, String::new());
+        assert!(files.is_empty(), "{path}");
+    }
+    let mut files = Vec::new();
+    add(&mut files, ".isoloomignore.sh", String::new());
+    assert_eq!(files.len(), 1, "a name that only starts like the folder is the project's");
+}

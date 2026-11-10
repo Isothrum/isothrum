@@ -19,6 +19,11 @@ use crate::ProjectFile;
 use crate::controller::ControllerPlaybook;
 use packages::{Family, PACKAGES, install, start, wanted};
 
+/// The folder Isoloom writes its outputs to, at the project's root: `isoloom_render::OUTPUT_DIR`
+/// (re-exported by `isoloom-targets`, which this crate doesn't depend on; a test holds the two
+/// equal).
+const OUTPUT_DIR: &str = ".isoloom";
+
 /// Adds to `files` one starter per provisioning step, the machines' own then the controller's:
 /// at paths inside the project, which no file has yet (Isoloom's own aside).
 pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller: &[ControllerPlaybook]) {
@@ -41,10 +46,11 @@ pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller
     }
 }
 
-/// Adds the starter at `path`, unless the path leaves the project, is Isoloom's (`isoloom.yml`,
-/// `.isoloom/`), or already has a file.
+/// Adds the starter at `path`, unless the path leaves the project, is Isoloom's (a name it reads
+/// the spec from, [`isoloom_spec::SPEC_FILES`], or its outputs' folder), or already has a file.
 fn add(files: &mut Vec<ProjectFile>, path: &str, contents: String) {
-    let isoloom_s = path == "isoloom.yml" || path.starts_with(".isoloom/");
+    let in_outputs = path.strip_prefix(OUTPUT_DIR).is_some_and(|rest| rest.starts_with('/'));
+    let isoloom_s = isoloom_spec::SPEC_FILES.contains(&path) || in_outputs;
     if !path.starts_with('/') && !path.contains("..") && !isoloom_s && !files.iter().any(|s| s.path == path) {
         files.push(ProjectFile {
             path: path.to_owned(),

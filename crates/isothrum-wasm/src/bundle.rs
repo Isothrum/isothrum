@@ -7,9 +7,6 @@ use zip::write::SimpleFileOptions;
 use crate::plan::{compiled, planned};
 use crate::{Error, File, Result};
 
-/// Where the spec goes in a download.
-const SPEC_PATH: &str = "isoloom.yml";
-
 /// The zip the user downloads: `isoloom.yml` at the root, the project's own files where it points,
 /// and each generated file at its path.
 ///
@@ -44,7 +41,7 @@ fn bundle_filtered(topology_json: &str, target_dir: Option<&str>) -> Result<Vec<
     // A one-target download only gets the project's own files its files use.
     own.retain(|o| target_dir.is_none() || uses(&files, &o.path));
     let spec_file = File {
-        path: SPEC_PATH.into(),
+        path: isoloom_spec::SPEC_FILE.into(),
         contents: yaml,
     };
     zip_of(std::iter::once(&spec_file).chain(&own).chain(&files))
@@ -60,7 +57,7 @@ fn uses(files: &[File], path: &str) -> bool {
 
 /// The generated files of the target in `target_dir` (`docker`, `cloud-docker/aws`…), or all.
 fn target_files(files: Vec<File>, target_dir: Option<&str>) -> Result<Vec<File>> {
-    let prefix = target_dir.map(|d| format!(".isoloom/{}/", d.trim_matches('/')));
+    let prefix = target_dir.map(|d| format!("{}/{}/", isoloom_targets::OUTPUT_DIR, d.trim_matches('/')));
     let files: Vec<File> = files.into_iter().filter(|f| prefix.as_ref().is_none_or(|p| f.path.starts_with(p))).collect();
     if files.is_empty() {
         return Err(Error::NoFiles(target_dir.unwrap_or("any target").to_owned()));
