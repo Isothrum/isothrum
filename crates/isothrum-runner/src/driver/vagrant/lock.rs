@@ -12,7 +12,8 @@ use std::time::Duration;
 use isoloom_manifest::Step;
 
 use crate::Result;
-use crate::executor::{Cx, Echo, call, capture_output, step_stdout};
+use crate::driver::STATUS;
+use crate::executor::{Cx, Echo, call, call_stdout, capture_output, step_stdout};
 use crate::process::{Captured, ProcessSpec};
 
 /// How long a call refused for another process's lock keeps being tried: a read of the machine
@@ -53,17 +54,24 @@ where
     }
 }
 
-/// The run's `lifecycle.status` (`vagrant status --machine-readable`): its standard output, once
-/// no other process's lock stops it.
-pub(super) async fn status(cx: &Cx<'_>) -> Result<String> {
+/// Reads the run's `lifecycle.status` (`vagrant status --machine-readable`): its standard
+/// output, once no other process's lock stops it.
+pub(super) async fn read_status(cx: &Cx<'_>) -> Result<String> {
     let step: &Step = &cx.run.manifest().lifecycle.status;
-    let out = waiting("lifecycle.status", || capture_output(cx, "lifecycle.status", step)).await?;
+    let out = waiting(STATUS, || capture_output(cx, STATUS, step)).await?;
     step_stdout(cx, step, &out)
 }
 
 /// [`call`], tried again while another process's lock is all that refused it.
-pub(super) async fn call_unlocked(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<Captured> {
+pub(super) async fn call_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<Captured> {
     waiting(id, || call(cx, id, spec, limit, echo)).await
+}
+
+/// [`call_retrying`], failing unless it exits 0: its standard output (as
+/// [`call_ok`](crate::executor::call_ok)).
+pub(super) async fn call_ok_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
+    let out = call_retrying(cx, id, spec, limit, echo).await?;
+    call_stdout(cx, id, spec, &out)
 }
 
 #[cfg(test)]

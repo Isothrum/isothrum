@@ -13,7 +13,7 @@ use super::{READ_LIMIT, Vagrant, lock, status};
 use crate::Result;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
-use crate::executor::{Cx, Echo, call, call_failed, call_ok, plan};
+use crate::executor::{Cx, Echo, call, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
 use crate::status::MachineState;
 
@@ -199,7 +199,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, step: &Step, with:
     let id = step.id.as_str();
     let machine = controller(cx, step, with)?;
     let limit = plan::limit_or(step, &cx.scope, HALT_LIMIT);
-    let halt = lock::call_unlocked(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
+    let halt = lock::call_retrying(cx, id, &v.vagrant(cx, id, &["halt", &machine])?, limit, Echo::Quiet).await?;
     let halted = halt.succeeded();
     if !halted && already_off(&halt) {
         cx.events.log(id, Stream::Stdout, &format!("{machine} was already off."));
@@ -247,15 +247,8 @@ fn controller(cx: &Cx<'_>, step: &Step, with: &BTreeMap<SnakeName, Template>) ->
 /// or absent ([`up`]).
 async fn running(v: &Vagrant, cx: &Cx<'_>, id: &str, machine: &str) -> Result<bool> {
     let spec = v.vagrant(cx, id, &["status", machine, "--machine-readable"])?;
-    let read = lock::call_unlocked(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
-    if !read.succeeded() {
-        return Err(call_failed(cx, id, &spec, &read));
-    }
-    Ok(super::status::parse(&read.stdout.join("\n"))
-        .states
-        .get(machine)
-        .map(String::as_str)
-        .is_some_and(up))
+    let read = lock::call_ok_retrying(cx, id, &spec, READ_LIMIT, Echo::Quiet).await?;
+    Ok(status::parse(&read).states.get(machine).map(String::as_str).is_some_and(up))
 }
 
 /// Whether a VM in state `label` is up: running (UTM's `started` too, [`status::machine_state`]),

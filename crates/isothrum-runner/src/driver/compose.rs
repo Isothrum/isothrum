@@ -124,7 +124,7 @@ impl Driver for Compose {
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = super::status_report(cx).await?;
-        let (machines, published) = read_ps(cx.run.manifest(), &out).ok_or_else(|| ps::unreadable("lifecycle.status"))?;
+        let (machines, published) = read_ps(cx.run.manifest(), &out).ok_or_else(|| ps::unreadable(super::STATUS))?;
         // Compose publishes on this computer.
         let hosts = published.keys().map(|(machine, _)| (machine.clone(), "127.0.0.1".to_owned())).collect();
         Ok(Observed {

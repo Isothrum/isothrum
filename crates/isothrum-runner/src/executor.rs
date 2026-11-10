@@ -20,7 +20,7 @@ use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
 pub(crate) use progress::{Progress, within};
-pub(crate) use step::{Echo, call, call_failed, call_ok, capture_output, capture_step, env_of, run_argv, stdin_of, step_stdout, why_failed};
+pub(crate) use step::{Echo, call, call_ok, call_stdout, capture_output, capture_step, env_of, run_argv, stdin_of, step_stdout, why_failed};
 
 use crate::Result;
 use crate::error::Error;

@@ -159,14 +159,20 @@ fn masked(cx: &Cx<'_>, e: Error) -> Error {
 /// [`call`], failing unless it exits 0: its standard output.
 pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
     let out = call(cx, id, spec, limit, echo).await?;
+    call_stdout(cx, id, spec, &out)
+}
+
+/// The standard output of `spec`, the step `id`'s own call, that ended as `out`: a failure
+/// unless it exited 0 ([`call_failed`]).
+pub(crate) fn call_stdout(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Result<String> {
     if out.succeeded() {
         return Ok(out.stdout.join("\n"));
     }
-    Err(call_failed(cx, id, spec, &out))
+    Err(call_failed(cx, id, spec, out))
 }
 
 /// The error of `spec`, the step `id`'s own call, that ended as `out`, a failure.
-pub(crate) fn call_failed(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Error {
+fn call_failed(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Error {
     let reason = format!("`{}` failed: {}", spec.line(), why_failed(out));
     Error::ToolFailed {
         step: id.to_owned(),

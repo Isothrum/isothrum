@@ -286,9 +286,12 @@ pub(crate) fn foreign_action(driver: &str, step: &Step, action: Action) -> Error
     }
 }
 
+/// The manifest's `lifecycle.status`, as messages name it.
+pub(crate) const STATUS: &str = "lifecycle.status";
+
 /// What the manifest's `lifecycle.status` prints: the engine's own report of the run.
 pub(crate) async fn status_report(cx: &Cx<'_>) -> Result<String> {
-    crate::executor::capture_step(cx, "lifecycle.status", &cx.run.manifest().lifecycle.status).await
+    crate::executor::capture_step(cx, STATUS, &cx.run.manifest().lifecycle.status).await
 }
 
 /// A machine's static addresses as the status shows them: each of the run's networks, by name, to the address

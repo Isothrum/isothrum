@@ -203,7 +203,7 @@ impl Driver for Vagrant {
     }
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
-        let out = lock::status(cx).await?;
+        let out = lock::read_status(cx).await?;
         let read = status::parse(&out);
         let guests = if cx.scope.runs_on(Provider::VmwareEsxi) {
             Some(self.guest_addresses(cx, &read).await)
