@@ -16,6 +16,7 @@ use crate::events::{Stream, WarningCode};
 use crate::executor::{Cx, Echo, call, call_ok, plan};
 use crate::process::{Captured, ProcessSpec};
 use crate::status::MachineState;
+use crate::store::if_there;
 
 /// How long the clean-up destroy of a record on another provider may go without progress (as
 /// every tool call's limit counts) before the record is dropped anyway (a wedged hypervisor must
@@ -48,21 +49,32 @@ const HALT_LIMIT: Duration = Duration::from_secs(300);
 
 /// The providers Vagrant recorded a created machine under in `dotfile`
 /// (`machines/<name>/<provider>/id`; a provider folder without its `id` is no machine: a destroy
-/// or a mere `vagrant status` leaves one).
-pub(super) fn recorded_providers(dotfile: &Path) -> Vec<String> {
-    let Ok(machines) = std::fs::read_dir(dotfile.join("machines")) else {
-        return Vec::new();
+/// or a mere `vagrant status` leaves one). No `machines` folder is no record; one that can't be
+/// read is an error, never nothing recorded.
+pub(super) fn recorded_providers(dotfile: &Path) -> std::io::Result<Vec<String>> {
+    let Some(machines) = if_there(std::fs::read_dir(dotfile.join("machines")))? else {
+        return Ok(Vec::new());
     };
-    let mut out: Vec<String> = machines
-        .flatten()
-        .filter_map(|m| std::fs::read_dir(m.path()).ok())
-        .flat_map(std::iter::Iterator::flatten)
-        .filter(|p| p.path().join("id").is_file())
-        .map(|p| p.file_name().to_string_lossy().into_owned())
-        .collect();
+    let mut out = Vec::new();
+    for machine in machines {
+        let machine = machine?.path();
+        // A file there (a `.DS_Store`) is no machine; a folder gone meanwhile holds none.
+        if !machine.is_dir() {
+            continue;
+        }
+        let Some(providers) = if_there(std::fs::read_dir(&machine))? else {
+            continue;
+        };
+        for provider in providers {
+            let provider = provider?;
+            if provider.path().join("id").is_file() {
+                out.push(provider.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
     out.sort();
     out.dedup();
-    out
+    Ok(out)
 }
 
 /// `vagrant.reconcile_provider`: a run recorded under another provider (the run last ran on
@@ -71,7 +83,8 @@ pub(super) fn recorded_providers(dotfile: &Path) -> Vec<String> {
 pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let dotfile = v.dotfile(cx)?;
     let asked = cx.scope.provider.clone().unwrap_or_default();
-    if !recorded_providers(&dotfile).iter().any(|p| *p != asked) {
+    let recorded = recorded_providers(&dotfile).map_err(Error::io(dotfile.join("machines"), "read"))?;
+    if !recorded.iter().any(|p| *p != asked) {
         return Ok(());
     }
     let id = step.id.as_str();

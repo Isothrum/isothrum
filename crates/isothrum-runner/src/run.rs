@@ -332,8 +332,13 @@ impl<'r> Running<'r> {
         read
     }
 
-    /// The run's networks, their native names filled.
+    /// The run's networks, their native names filled; one that can't be is left out, and traced.
     fn networks(&self, cx: &Cx<'_>) -> Vec<status::NetworkView> {
-        status::networks(self.manifest(), |t| cx.vars.render(t, "networks.native").ok())
+        status::networks(self.manifest(), |t| {
+            cx.vars
+                .render(t, "networks.native")
+                .inspect_err(|e| tracing::warn!(error = %e, "a network's native name couldn't be filled: it is left out"))
+                .ok()
+        })
     }
 }

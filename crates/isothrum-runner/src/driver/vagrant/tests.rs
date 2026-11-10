@@ -563,6 +563,28 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
     assert!(!again.vagrant().iter().take(1).any(|l| l.contains("destroy")), "{:?}", again.vagrant());
 }
 
+/// Regression: a Vagrant record that couldn't be read read as no record, so a run left on another
+/// provider was never cleared first. A file among the machines' folders is no machine.
+#[tokio::test]
+async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
+    std::fs::create_dir_all(&dotfile).unwrap();
+    std::fs::write(dotfile.join("machines"), "not a folder").unwrap();
+    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Io, "{err}");
+    assert!(err.to_string().contains("machines"), "{err}");
+    assert!(f.vagrant().is_empty(), "nothing ran: {:?}", f.vagrant());
+
+    let again = fixture(crate::runner::this_host());
+    let same = again.runner.open(&again.manifest, None).unwrap();
+    let kept = again.runner.store.run_dir(same.name()).unwrap().join("vagrant");
+    record(&kept, "web", "virtualbox");
+    std::fs::write(kept.join("machines").join(".DS_Store"), "").unwrap();
+    same.up(&opts().with_occupied(crate::Occupied::Replace), &Recorder::new()).await.unwrap();
+}
+
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
     let f = fixture(crate::runner::this_host());

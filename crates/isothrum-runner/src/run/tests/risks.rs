@@ -176,3 +176,21 @@ async fn an_output_whose_format_cant_be_filled_is_said_at_up() {
         ["an output has no value: outputs.web__portal.format: `${outputs.token}` has no value in this operation"]
     );
 }
+
+/// Regression: a network whose native name couldn't be filled (from an output the run hasn't
+/// given yet) was shown without one, and nothing
+/// said why.
+#[tokio::test]
+async fn a_network_native_name_that_cant_be_filled_is_traced() {
+    let unfillable = WEB_PORTAL.replace(r#""native": "${run.name}_lab""#, r#""native": "${outputs.web__portal}_lab""#);
+    assert_ne!(unfillable, WEB_PORTAL, "the fixture's network has a native name");
+    let f = fixture_with(&unfillable);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let (status, traced) = crate::testing::traced(run.status()).await;
+    assert_eq!(status.unwrap().networks[0].native, None);
+    assert!(
+        traced.contains("WARN") && traced.contains("a network's native name couldn't be filled"),
+        "{traced}"
+    );
+    assert!(traced.contains("outputs.web__portal"), "with the render error: {traced}");
+}

@@ -37,6 +37,10 @@ change.
 
 ### Fixed
 
+- **A Vagrant record that can't be read fails the start, rather than reading as none.** An
+  unreadable `machines/` folder in the run's Vagrant state read as "nothing recorded", so a run
+  left on another provider was never cleared first, and `vagrant up` refused it. A network whose
+  native name can't be filled is now traced too, rather than shown without one in silence.
 - **The free-port check before a Vagrant start checks the ports the VM forwards.** It looked
   only at a fixed port's `preferred` number and an ephemeral port's pinned one, while the VM
   forwards an ephemeral port no free one was pinned for at its `preferred` number (as status
