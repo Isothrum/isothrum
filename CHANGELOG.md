@@ -296,6 +296,10 @@ change.
   that already had a cable); it now fails with `Error::SelfLink`, as a cable between two ports of
   one node does.
 
+- **A failed `step_ok` ready condition says one thing.** Its `ready` event gave what the step's
+  success means, its `not_ready` error "the step didn't succeed"; both now say "the step didn't
+  succeed, so not: <what it means>".
+
 - **A malformed `--name` exits 2, a usage error.** It exited 1 with the code `run_name`, where
   the exit-code reference promises 2 for a value missing or malformed; its `error` event's code
   is now `usage`.
