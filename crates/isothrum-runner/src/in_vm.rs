@@ -43,7 +43,11 @@ pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Obser
         .find(|m| m.name == guest.machine.as_str())
         .map_or(MachineState::Absent, |m| m.state.clone());
     let host = match &guest.host {
-        Some(t) => cx.vars.render(t, "guest.host").ok(),
+        Some(t) => cx
+            .vars
+            .render(t, "guest.host")
+            .inspect_err(|e| tracing::warn!(error = %e, "the guest's host couldn't be filled: `${{host.<machine>}}` stays unset"))
+            .ok(),
         None => observed.hosts.get(guest.machine.as_str()).cloned(),
     };
     let read = if vm == MachineState::Running {

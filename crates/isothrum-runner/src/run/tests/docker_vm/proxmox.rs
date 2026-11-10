@@ -219,3 +219,22 @@ async fn an_archive_step_without_its_folder_is_a_malformed_manifest() {
     assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "{err}");
     assert_eq!(err.to_string(), "archive.with.root: a `project.archive` needs the folder to archive");
 }
+
+/// Regression: a guest host that couldn't be filled (the VM's address output gone) left
+/// `${host.<machine>}` unset with no word, and the later reads failed elsewhere.
+#[tokio::test(start_paused = true)]
+async fn a_guest_host_that_cant_be_filled_is_traced() {
+    let Server {
+        folder,
+        runner,
+        options: server,
+        ..
+    } = proxmox();
+    let run = runner.open(&folder.manifest, None).unwrap();
+    run.up(&server, &Recorder::new()).await.unwrap();
+    let state = runner.store.run_dir(run.name()).unwrap().join("terraform.tfstate");
+    std::fs::write(&state, r#"{"outputs":{},"resources":[{"instances":[{}]}]}"#).unwrap();
+    let (_status, traced) = crate::testing::traced(run.status()).await;
+    assert!(traced.contains("WARN") && traced.contains("the guest's host couldn't be filled"), "{traced}");
+    assert!(traced.contains("outputs.ip"), "with the render error: {traced}");
+}
