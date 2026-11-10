@@ -38,7 +38,7 @@ fn ephemeral(p: &Port) -> bool {
 /// hand one out twice), or the port's `preferred` number when `ISOLOOM_PUBLISH_FIXED` asked for it
 /// and it is free. Empty for an ESXi run (which forwards nothing: a VM's ports answer at its own
 /// address) or when no published port is ephemeral.
-pub(super) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
+pub(in crate::driver) fn pick(cx: &Cx<'_>) -> BTreeMap<String, u16> {
     let mut chosen = BTreeMap::new();
     if cx.scope.runs_on(Provider::VmwareEsxi) {
         return chosen;

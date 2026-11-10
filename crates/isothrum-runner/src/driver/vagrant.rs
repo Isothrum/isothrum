@@ -6,7 +6,7 @@
 //! matched to the manifest's machines by their define names.
 
 mod actions;
-mod forwarded;
+pub(super) mod forwarded;
 mod orphans;
 mod status;
 
@@ -296,12 +296,6 @@ fn answers(manifest: &isoloom_manifest::Manifest, m: &Machine) -> bool {
     m.ports.iter().any(|p| p.publish.is_some()) || manifest.guest.as_ref().is_some_and(|g| g.machine == m.name)
 }
 
-/// The host ports a fresh local Vagrant start pins (`AnyDriver::forward_ports`), by
-/// `"<machine>/<port>"`, ready to be kept in the run's record.
-pub(super) fn pick_forwards(cx: &Cx<'_>) -> BTreeMap<String, u16> {
-    forwarded::pick(cx)
-}
-
 /// Every machine of the manifest as Vagrant reports it, by its define name. Locally a published
 /// port is forwarded to this computer at the number `chosen` for it (keyed `"<machine>/<port>"`),
 /// else its `preferred` fallback. With `guests` (ESXi, which forwards nothing), it answers at its
@@ -319,38 +313,15 @@ fn machines(
             .states
             .get(define)
             .map_or(crate::status::MachineState::Absent, |s| status::machine_state(s));
-        let host = match guests {
-            Some(guests) => guests.get(define).cloned(),
-            None => Some(LOOPBACK.to_owned()),
-        };
-        let mut published = Vec::new();
-        let host = host.filter(|_| state != crate::status::MachineState::Absent);
+        let host = host_for(guests, define).filter(|_| state != crate::status::MachineState::Absent);
         if let Some(host) = host.as_ref().filter(|_| answers(manifest, m)) {
             out.hosts.insert(m.name.to_string(), host.clone());
         }
+        let mut published = Vec::new();
         if host.is_some() {
-            for p in &m.ports {
-                let Some(publish) = p.publish.as_ref() else {
-                    continue;
-                };
-                let host_port = if guests.is_some() {
-                    p.port.get()
-                } else {
-                    // The runner's pick for this port; else its `preferred` number (a fixed port);
-                    // else the port itself. Gating on `publish` (not `preferred`) keeps an ephemeral
-                    // port with no `publish:` number of its own, whose host port is the pick.
-                    chosen
-                        .get(&forwarded::key(m, p))
-                        .copied()
-                        .or_else(|| publish.preferred.map(std::num::NonZeroU16::get))
-                        .unwrap_or_else(|| p.port.get())
-                };
-                published.push(PublishedPort {
-                    port: p.port.get(),
-                    protocol: p.kind.transport(),
-                    host_port,
-                });
-                out.published.insert((m.name.to_string(), p.name.to_string()), host_port);
+            for (name, port) in published_ports(m, guests.is_some(), chosen) {
+                out.published.insert((m.name.to_string(), name), port.host_port);
+                published.push(port);
             }
         }
         out.machines.push(MachineStatus {
@@ -362,6 +333,44 @@ fn machines(
         });
     }
     out
+}
+
+/// Where VM `define` answers: its address among `guests` (ESXi's, when known), else this
+/// computer's loopback.
+fn host_for(guests: Option<&BTreeMap<String, String>>, define: &str) -> Option<String> {
+    match guests {
+        Some(guests) => guests.get(define).cloned(),
+        None => Some(LOOPBACK.to_owned()),
+    }
+}
+
+/// The ports `m` publishes, by name, each with its host port: on a VM that answers at its own address
+/// (`at_vm`, ESXi), the port itself; locally, the runner's pick for it (`chosen`), else its
+/// `preferred` number (a fixed port), else the port itself. Gating on `publish` (not
+/// `preferred`) keeps an ephemeral port with no `publish:` number of its own, whose host port is
+/// the pick.
+fn published_ports(m: &Machine, at_vm: bool, chosen: &BTreeMap<String, u16>) -> Vec<(String, PublishedPort)> {
+    m.ports
+        .iter()
+        .filter_map(|p| {
+            let publish = p.publish.as_ref()?;
+            let host_port = if at_vm {
+                p.port.get()
+            } else {
+                chosen
+                    .get(&forwarded::key(m, p))
+                    .copied()
+                    .or_else(|| publish.preferred.map(std::num::NonZeroU16::get))
+                    .unwrap_or_else(|| p.port.get())
+            };
+            let port = PublishedPort {
+                port: p.port.get(),
+                protocol: p.kind.transport(),
+                host_port,
+            };
+            Some((p.name.to_string(), port))
+        })
+        .collect()
 }
 
 #[cfg(test)]

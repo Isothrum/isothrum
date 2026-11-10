@@ -195,7 +195,7 @@ impl AnyDriver {
     /// `pin_ports` action, and a Terraform (server/cloud) run forwards nothing to this computer.
     pub(crate) fn forward_ports(&self, cx: &Cx<'_>) -> BTreeMap<String, u16> {
         match self {
-            AnyDriver::Vagrant(_) => vagrant::pick_forwards(cx),
+            AnyDriver::Vagrant(_) => vagrant::forwarded::pick(cx),
             AnyDriver::Compose(_) | AnyDriver::Terraform(_) => BTreeMap::new(),
         }
     }
