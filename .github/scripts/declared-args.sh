@@ -13,6 +13,10 @@ set -euo pipefail
 
 manifest=$1
 shift
+if [ ! -f "$manifest" ]; then
+  echo "declared-args.sh: no run manifest at '$manifest'" >&2
+  exit 2
+fi
 
 declares() {
   jq -e --arg list "$1" --arg name "$2" 'any(.[$list][]?; .name == $name)' "$manifest" >/dev/null
