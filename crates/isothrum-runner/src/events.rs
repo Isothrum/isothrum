@@ -8,7 +8,6 @@
 
 mod emitter;
 
-#[cfg(any(test, feature = "fake"))]
 #[cfg(test)]
 use std::sync::{Mutex, PoisonError};
 
