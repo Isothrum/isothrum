@@ -13,19 +13,20 @@ unsound = "all"
 yanked = "warn"
 ignore = [
   # unsafe-libyaml (under serde_yaml_ng, Isoloom's YAML crate and the compiler's) is archived
-  # upstream: an "unmaintained" notice, with no known vulnerability. Isoloom ignores it for the same
-  # reason; drop this once the YAML parsing moves to a maintained crate.
+  # upstream: an "unmaintained" notice, with no known vulnerability. Isoloom's deny.toml
+  # (https://github.com/isoloom/isoloom/blob/main/deny.toml) ignores it for the same reason; drop
+  # this once the YAML parsing moves to a maintained crate.
   { id = "RUSTSEC-2024-0449", reason = "unmaintained only (no vulnerability); used through serde_yaml_ng until the YAML crate is replaced" },
   # The three zip 2.x extraction advisories (SUID/SGID preservation + symlink traversal in
   # ZipArchive::extract). isothrum-wasm uses zip WRITE-ONLY (ZipWriter in bundle.rs builds the
   # bundle); it never calls ZipArchive::extract/stream-extract, so none of these are reachable.
-  # The real fix is zip >= 9.0.0 (a major upgrade with write-API changes) — tracked for 1.x.
-  { id = "RUSTSEC-2026-0367", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade tracked for 1.x" },
-  { id = "RUSTSEC-2026-0368", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade tracked for 1.x" },
-  { id = "RUSTSEC-2026-0369", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade tracked for 1.x" },
+  # The real fix is zip >= 9.0.0 (a major upgrade with write-API changes), still to come.
+  { id = "RUSTSEC-2026-0367", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade to come" },
+  { id = "RUSTSEC-2026-0368", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade to come" },
+  { id = "RUSTSEC-2026-0369", reason = "zip extraction vuln; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade to come" },
   # A fourth one of the same kind: ZipArchive::extract aborting on a symlink entry with a huge
   # declared size. Not reachable for the same reason.
-  { id = "RUSTSEC-2026-0429", reason = "zip extraction abort; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade tracked" },
+  { id = "RUSTSEC-2026-0429", reason = "zip extraction abort; isothrum-wasm is write-only (never extracts), not reachable; zip 9.x upgrade to come" },
 ]
 
 [licenses]

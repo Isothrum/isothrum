@@ -79,7 +79,8 @@ pub enum EventKind {
         step: String,
         /// Where it stands.
         state: StepState,
-        /// The manifest's line for it, when it starts.
+        /// What it does, said when it starts: the manifest's line for a manifest step, the
+        /// runner's own for a step of its own (the tool probes, the boot, a guest delivery).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },

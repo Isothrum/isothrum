@@ -201,9 +201,10 @@ pub struct Started {
     pub message: Option<String>,
 }
 
-/// The state of a run whose machines are `machines`, given its record. Ready when every member
-/// machine runs healthy; parked when its record says so and none runs ([`any_member_running`]:
-/// one up with a failing healthcheck runs); absent when nothing is there.
+/// The state of a run whose machines are `machines`, given its record. Absent when nothing is
+/// there; parked when its record says so and none runs ([`any_member_running`]: one up with a
+/// failing healthcheck runs); failed when its record says its start failed, whatever runs; ready
+/// when every member machine runs healthy; failed otherwise.
 pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
     if !any_present(machines) {
         return RunState::Absent;

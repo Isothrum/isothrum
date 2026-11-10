@@ -81,7 +81,7 @@
           "$ref": "#/$defs/StepState"
         },
         "note": {
-          "description": "The manifest's line for it, when it starts.",
+          "description": "What it does, said when it starts: the manifest's line for a manifest step, the\nrunner's own for a step of its own (the tool probes, the boot, a guest delivery).",
           "type": [
             "string",
             "null"
