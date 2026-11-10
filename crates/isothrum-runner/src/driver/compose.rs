@@ -20,7 +20,6 @@ use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::process::ProcessSpec;
 use crate::state::Op;
-use crate::store::write_private;
 
 pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
 
@@ -131,7 +130,7 @@ impl Driver for Compose {
         if let Some(pins) = self.pins(cx)?
             && !pins.exists()
         {
-            write_private(&pins, NO_PINS.as_bytes()).map_err(Error::io(&pins, "written"))?;
+            crate::store::write(&pins, NO_PINS.as_bytes())?;
         }
         Ok(())
     }
@@ -172,7 +171,7 @@ impl Driver for Compose {
     fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         // The next start is a new run: it picks its ports again.
         if let Some(pins) = self.pins(cx)? {
-            write_private(&pins, NO_PINS.as_bytes()).map_err(Error::io(&pins, "written"))?;
+            crate::store::write(&pins, NO_PINS.as_bytes())?;
         }
         Ok(())
     }

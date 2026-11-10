@@ -133,7 +133,7 @@ struct Input {
 impl Input {
     /// `lines` written owner-only at `path`.
     fn write(path: PathBuf, lines: &str) -> Result<Input> {
-        crate::store::write_private(&path, lines.as_bytes()).map_err(Error::io(&path, "written"))?;
+        crate::store::write(&path, lines.as_bytes())?;
         Ok(Input { path, held: true })
     }
 

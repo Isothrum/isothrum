@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -165,10 +165,7 @@ fn utf8_name(folder: &Path, name: std::ffi::OsString) -> io::Result<String> {
 
 /// Removes the run's archive once the run is down: nothing is left to copy it to.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
-    let path: PathBuf = cx.state_dir().join(ARCHIVE);
-    crate::store::if_there(std::fs::remove_file(&path))
-        .map(drop)
-        .map_err(Error::io(&path, "removed"))
+    crate::store::remove(&cx.state_dir().join(ARCHIVE))
 }
 
 #[cfg(test)]

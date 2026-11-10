@@ -63,7 +63,7 @@ impl std::fmt::Debug for Running<'_> {
 /// Makes the run's state folder of `cx`, owner-only, for what an operation (or a status read)
 /// writes there; a query that writes nothing leaves no folder behind.
 fn made(cx: &Cx<'_>) -> Result<()> {
-    crate::store::private_dir(cx.state_dir()).map_err(Error::io(cx.state_dir(), "created"))
+    crate::store::create_dir(cx.state_dir())
 }
 
 impl<'r> Running<'r> {

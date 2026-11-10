@@ -22,7 +22,6 @@ use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, plan};
 use crate::process::{Exit, ProcessRunner, ProcessSpec};
-use crate::store::write_private;
 
 /// The runner's key, under its home's `ssh/` folder.
 const KEY_FILE: &str = "id_ed25519";
@@ -67,7 +66,7 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
         return Ok(key);
     }
     let dir = dir(home);
-    crate::store::private_dir(&dir).map_err(Error::io(&dir, "created"))?;
+    crate::store::create_dir(&dir)?;
     let path = key_path(home);
     let spec = ProcessSpec::new(
         "ssh-keygen",
@@ -189,7 +188,7 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     let state = cx.state_dir();
     [KNOWN_HOSTS, CONFIG_FILE].iter().try_for_each(|file| {
         let path = state.join(file);
-        crate::store::remove_path(&path).map_err(Error::io(&path, "removed"))
+        crate::store::remove(&path)
     })
 }
 
@@ -198,13 +197,13 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
 pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
     let home = &cx.run.runner.config.home;
     let state = cx.state_dir();
-    crate::store::private_dir(state).map_err(Error::io(state, "created"))?;
+    crate::store::create_dir(state)?;
     let path = state.join(CONFIG_FILE);
     let text = config(&key_path(home), &state.join(KNOWN_HOSTS)).ok_or_else(|| {
         let why = "the runner's home is at a path SSH's config can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
         Error::io(&path, "written")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
     })?;
-    write_private(&path, text.as_bytes()).map_err(Error::io(&path, "written"))?;
+    crate::store::write(&path, text.as_bytes())?;
     let mut sent: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
     sent.sort();
     sent.dedup();

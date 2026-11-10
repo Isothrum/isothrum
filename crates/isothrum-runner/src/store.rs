@@ -36,6 +36,24 @@ use isoloom_manifest::{Cloud, Driver, Target};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
+
+/// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
+/// when that fails.
+pub(crate) fn create_dir(dir: &Path) -> Result<()> {
+    private_dir(dir).map_err(Error::io(dir, "created"))
+}
+
+/// Writes `contents` to `path` whole and owner-only ([`write_private`]); [`Error::Io`] naming it
+/// when that fails.
+pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
+    write_private(path, contents).map_err(Error::io(path, "written"))
+}
+
+/// Removes `path`, a file or a folder, nothing there being fine ([`remove_path`]); [`Error::Io`]
+/// naming it when that fails.
+pub(crate) fn remove(path: &Path) -> Result<()> {
+    remove_path(path).map_err(Error::io(path, "removed"))
+}
 pub(crate) use lock::{RunLocks, SlotsLock};
 
 use crate::Result;
@@ -192,7 +210,7 @@ impl Store {
     pub(crate) fn open(home: &Path, profile: Option<&Path>) -> Result<Store> {
         fs::private_home(home, profile).map_err(Error::io(home, "made owner-only"))?;
         let runs = home.join("runs");
-        private_dir(&runs).map_err(Error::io(&runs, "created"))?;
+        create_dir(&runs)?;
         Ok(Store {
             runs,
             slots_lock: home.join("slots.lock"),
@@ -207,7 +225,7 @@ impl Store {
     /// Run `name`'s folder, created owner-only.
     pub(crate) fn run_dir(&self, name: &RunName) -> Result<PathBuf> {
         let dir = self.run_dir_path(name);
-        private_dir(&dir).map_err(Error::io(&dir, "created"))?;
+        create_dir(&dir)?;
         Ok(dir)
     }
 
@@ -256,7 +274,7 @@ impl Store {
     /// Forgets what the runner last saw of run `name` (a run gone: the next start is a new run).
     pub(crate) fn forget_seen(&self, name: &RunName) -> Result<()> {
         let path = self.seen_path(name);
-        remove_path(&path).map_err(Error::io(&path, "removed"))
+        remove(&path)
     }
 
     /// Run `name`'s record, when it has one.
@@ -306,7 +324,7 @@ impl Store {
                 kept.extend_from_slice(line);
                 kept.push(b'\n');
             }
-            write_private(&path, &kept).map_err(Error::io(&path, "written"))?;
+            write(&path, &kept)?;
         }
         Ok(())
     }
@@ -357,7 +375,7 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<O
 /// Writes `value` as the JSON file at `path`, whole and owner-only: [`read_json`]'s counterpart.
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let text = serde_json::to_vec_pretty(value).map_err(|e| Error::io(path, "written")(e.into()))?;
-    write_private(path, &text).map_err(Error::io(path, "written"))
+    write(path, &text)
 }
 
 #[cfg(test)]

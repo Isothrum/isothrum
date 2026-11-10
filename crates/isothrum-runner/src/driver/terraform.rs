@@ -123,7 +123,7 @@ impl Driver for Terraform {
             return Ok(());
         }
         let cache = plugin_cache(config);
-        crate::store::private_dir(&cache).map_err(Error::io(&cache, "created"))
+        crate::store::create_dir(&cache)
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
@@ -285,7 +285,7 @@ fn expiry_var(cx: &Cx<'_>) -> Option<(String, String)> {
 
 /// Removes `path` (a file or a folder); nothing there is fine.
 fn remove(path: &Path) -> Result<()> {
-    crate::store::remove_path(path).map_err(Error::io(path, "removed"))
+    crate::store::remove(path)
 }
 
 #[cfg(test)]

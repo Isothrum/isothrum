@@ -101,7 +101,7 @@ pub(super) fn reset_state(v: &Vagrant, cx: &Cx<'_>) -> Result<()> {
 
 /// Removes `dir` and what it holds ([`crate::store::remove_path`]).
 fn remove_dir(dir: &Path) -> Result<()> {
-    crate::store::remove_path(dir).map_err(Error::io(dir, "removed"))
+    crate::store::remove(dir)
 }
 
 /// The run's VMs' names under `provider`, from the manifest: what orphan clean-up and the

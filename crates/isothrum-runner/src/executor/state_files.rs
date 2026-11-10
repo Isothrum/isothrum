@@ -11,7 +11,6 @@ use isoloom_manifest::{Delivery, StateFileFormat};
 use super::Cx;
 use super::delivery::valued;
 use crate::Result;
-use crate::error::Error;
 
 /// One file: its format and its entries, by key.
 struct File {
@@ -46,12 +45,12 @@ pub(crate) fn write(cx: &Cx<'_>, fresh: bool) -> Result<()> {
             continue;
         }
         if let Some(parent) = target.parent() {
-            crate::store::private_dir(parent).map_err(Error::io(parent, "created"))?;
+            crate::store::create_dir(parent)?;
         }
         let text = match file.format {
             StateFileFormat::TfvarsJson => tfvars_json(&file.entries),
         };
-        crate::store::write_private(&target, text.as_bytes()).map_err(Error::io(&target, "written"))?;
+        crate::store::write(&target, text.as_bytes())?;
     }
     Ok(())
 }
@@ -62,7 +61,7 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     for d in super::every_delivery(cx.run.manifest()) {
         if let Delivery::StateFile { path, .. } = d {
             let target = dir.join(path.as_str());
-            crate::store::if_there(std::fs::remove_file(&target)).map_err(Error::io(&target, "removed"))?;
+            crate::store::remove(&target)?;
         }
     }
     Ok(())

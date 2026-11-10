@@ -169,7 +169,7 @@ impl Driver for Vagrant {
         // Its parent is the run's own folder, owner-only; Vagrant makes the folder itself.
         let dotfile = self.dotfile(cx)?;
         match dotfile.parent() {
-            Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::private_dir(parent).map_err(Error::io(parent, "created")),
+            Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::create_dir(parent),
             _ => Ok(()),
         }
     }

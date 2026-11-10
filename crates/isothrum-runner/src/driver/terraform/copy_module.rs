@@ -38,7 +38,7 @@ pub(super) fn run(cx: &Cx<'_>, at: &str, from: Option<&str>, when: Option<&str>)
     if only_missing && copy.is_dir() {
         return Ok(());
     }
-    crate::store::private_dir(&copy).map_err(Error::io(&copy, "created"))?;
+    crate::store::create_dir(&copy)?;
     forget_terraform_files(&copy)?;
     copy_tree(&source, &copy)
 }
@@ -111,7 +111,7 @@ fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
         }
         let (source, target) = (entry.path(), to.join(&name));
         if source.is_dir() {
-            crate::store::private_dir(&target).map_err(Error::io(&target, "created"))?;
+            crate::store::create_dir(&target)?;
             copy_tree(&source, &target)?;
         } else {
             std::fs::copy(&source, &target).map_err(Error::io(&target, "written"))?;

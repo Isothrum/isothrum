@@ -4,9 +4,7 @@ use isoloom_manifest::Step;
 
 use super::{COMPOSE_SERVICE_LABEL, Compose, NO_PINS, ONE_OFF_LABEL, PROJECT_LABEL, config, docker, pins, ps};
 use crate::Result;
-use crate::error::Error;
 use crate::executor::{Cx, env_of};
-use crate::store::write_private;
 
 /// `compose.pin_ports`: on a fresh run only (no container yet), the ephemeral host ports get
 /// fixed ones, so a resumed run keeps its addresses (Docker picks a new ephemeral port each time a
@@ -23,10 +21,10 @@ pub(super) async fn pin_ports(c: &Compose, cx: &Cx<'_>, list: &str, step: &Step)
     if listed.iter().any(|e| !e.one_off()) {
         return Ok(());
     }
-    write_private(&file, NO_PINS.as_bytes()).map_err(Error::io(&file, "written"))?;
+    crate::store::write(&file, NO_PINS.as_bytes())?;
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
     if let Some(yaml) = pins::pick(cx, step.id.as_str(), &config)? {
-        write_private(&file, yaml.as_bytes()).map_err(Error::io(&file, "written"))?;
+        crate::store::write(&file, yaml.as_bytes())?;
     }
     Ok(())
 }
