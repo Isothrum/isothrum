@@ -855,8 +855,8 @@ the workspace, so it moves straight to 1.0.4 alongside the other crates.
 
 ### Added
 
-- **`isothrum-machine` reaches launcher parity and becomes publishable.** The crate now
-  covers the launcher's machine-layer capabilities while staying no-unsafe: an
+- **`isothrum-machine` covers the machine layer and becomes publishable.** The crate now
+  covers the machine-layer capabilities an embedder needs while staying no-unsafe: an
   `ElevatedBoot` injection point runs a VM self-test's `vagrant up` + readiness probe as
   one elevated batch, an injected `may_manage_hyperv` folds the needs-admin reason into
   Hyper-V's status without computing the privileged Win32 token check in the crate,

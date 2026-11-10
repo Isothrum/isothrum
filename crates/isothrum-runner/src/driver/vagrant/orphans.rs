@@ -178,23 +178,23 @@ mod tests {
 
     #[test]
     fn folder_candidates_cover_virtualbox_sanitization_exactly() {
-        let c = folder_candidates("minilab · dc01");
-        assert!(c.contains(&"minilab · dc01".to_owned()) && c.contains(&"minilab - dc01".to_owned()));
-        assert!(!c.iter().any(|f| f == "minilab-dc01"), "never a collapsed form");
+        let c = folder_candidates("lab · dc01");
+        assert!(c.contains(&"lab · dc01".to_owned()) && c.contains(&"lab - dc01".to_owned()));
+        assert!(!c.iter().any(|f| f == "lab-dc01"), "never a collapsed form");
     }
 
     #[test]
     fn leftover_folders_go_by_their_exact_sanitized_names() {
         let base = tempfile::tempdir().unwrap();
-        for f in ["minilab - dc01", "minilab-dc01", "unrelated"] {
+        for f in ["lab - dc01", "lab-dc01", "unrelated"] {
             std::fs::create_dir_all(base.path().join(f)).unwrap();
         }
-        std::fs::write(base.path().join("minilab · dc01"), "a file, not a folder").unwrap();
-        let wanted = BTreeSet::from(["minilab · dc01".to_owned()]);
-        assert_eq!(leftover_folders(base.path(), &wanted).unwrap(), [base.path().join("minilab - dc01")]);
+        std::fs::write(base.path().join("lab · dc01"), "a file, not a folder").unwrap();
+        let wanted = BTreeSet::from(["lab · dc01".to_owned()]);
+        assert_eq!(leftover_folders(base.path(), &wanted).unwrap(), [base.path().join("lab - dc01")]);
         assert_eq!(leftover_folders(&base.path().join("nope"), &wanted).unwrap(), Vec::<PathBuf>::new());
         // Regression: a machine folder that couldn't be read read as one with nothing left.
-        assert!(leftover_folders(&base.path().join("minilab · dc01"), &wanted).is_err(), "a file isn't a folder");
+        assert!(leftover_folders(&base.path().join("lab · dc01"), &wanted).is_err(), "a file isn't a folder");
     }
 
     #[cfg(unix)]
@@ -203,12 +203,12 @@ mod tests {
         let base = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();
         std::fs::write(elsewhere.path().join("keep.txt"), "x").unwrap();
-        std::os::unix::fs::symlink(elsewhere.path(), base.path().join("minilab - dc01")).unwrap();
-        let wanted = BTreeSet::from(["minilab · dc01".to_owned()]);
+        std::os::unix::fs::symlink(elsewhere.path(), base.path().join("lab - dc01")).unwrap();
+        let wanted = BTreeSet::from(["lab · dc01".to_owned()]);
         for f in leftover_folders(base.path(), &wanted).unwrap() {
             crate::store::remove_path(&f).unwrap();
         }
         assert!(elsewhere.path().join("keep.txt").is_file());
-        assert!(std::fs::symlink_metadata(base.path().join("minilab - dc01")).is_err());
+        assert!(std::fs::symlink_metadata(base.path().join("lab - dc01")).is_err());
     }
 }

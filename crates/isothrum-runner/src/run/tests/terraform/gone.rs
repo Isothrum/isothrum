@@ -2,10 +2,7 @@
 //! IP set a Proxmox host's reset lost, and its destroy fails as the real one did.
 
 use super::*;
-
-/// The state a Proxmox host's reset left of a cut-short apply: its IP set, gone from the server,
-/// as the real run kept it.
-const IPSET_LEFT: &str = r#"{"version":4,"terraform_version":"1.16.7","serial":24,"outputs":{},"resources":[{"mode":"managed","type":"proxmox_virtual_environment_firewall_ipset","name":"test","provider":"provider[\"registry.terraform.io/bpg/proxmox\"]","instances":[{"schema_version":0,"attributes":{"cidr":[{"comment":"","name":"10.254.250.0/24","nomatch":false}],"comment":"cyberctf-server-selftest: network test","container_id":null,"id":"iso1n0","name":"iso1n0","node_name":null,"vm_id":null},"sensitive_attributes":[]}]}]}"#;
+use crate::testing::IPSET_LEFT;
 
 /// What the real destroy printed for that IP set, its lines as they came.
 const IPSET_GONE: &str = "\nError: error getting IPSet content: received an HTTP 500 response - Reason: no such IPSet 'iso1n0'\n";

@@ -203,8 +203,8 @@ mod tests {
     #[test]
     fn a_service_in_a_vm_is_entered_by_its_compose_label() {
         assert_eq!(
-            into_service("attackbox"),
-            "sudo docker exec -it \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=attackbox' | head -n 1)\" sh -c 'if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'"
+            into_service("user"),
+            "sudo docker exec -it \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=user' | head -n 1)\" sh -c 'if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'"
         );
     }
 

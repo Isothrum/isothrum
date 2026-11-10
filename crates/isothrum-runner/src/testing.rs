@@ -52,6 +52,10 @@ pub(crate) const DOCKER_VM: &str = include_str!("../tests/fixtures/web-portal.do
 /// Isoloom's `docker-vm` fixture on Proxmox: Compose inside a VM Terraform makes, over SSH.
 pub(crate) const DOCKER_VM_PROXMOX: &str = include_str!("../tests/fixtures/web-portal.docker-vm-proxmox.run.json");
 
+/// The Terraform state a Proxmox host's reset left of a cut-short apply: its IP set, gone from the
+/// server, as a real run kept it.
+pub(crate) const IPSET_LEFT: &str = r#"{"version":4,"terraform_version":"1.16.7","serial":24,"outputs":{},"resources":[{"mode":"managed","type":"proxmox_virtual_environment_firewall_ipset","name":"test","provider":"provider[\"registry.terraform.io/bpg/proxmox\"]","instances":[{"schema_version":0,"attributes":{"cidr":[{"comment":"","name":"10.254.250.0/24","nomatch":false}],"comment":"network test","container_id":null,"id":"iso1n0","name":"iso1n0","node_name":null,"vm_id":null},"sensitive_attributes":[]}]}]}"#;
+
 /// When the tests' clock stands: 2026-10-15T12:00:00Z.
 pub(crate) const TEST_TIME: u64 = 1_792_065_600;
 

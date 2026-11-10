@@ -1,8 +1,5 @@
 use super::*;
-
-/// The state a Proxmox host's reset left (a cut-short apply's IP set, gone from the server), as
-/// the real run kept it.
-const LEFT: &str = r#"{"version":4,"resources":[{"mode":"managed","type":"proxmox_virtual_environment_firewall_ipset","name":"test","provider":"provider[\"registry.terraform.io/bpg/proxmox\"]","instances":[{"schema_version":0,"attributes":{"cidr":[{"comment":"","name":"10.254.250.0/24","nomatch":false}],"comment":"cyberctf-server-selftest: network test","container_id":null,"id":"iso1n0","name":"iso1n0","node_name":null,"vm_id":null}}]}]}"#;
+use crate::testing::IPSET_LEFT as LEFT;
 
 fn errors(named: &[(&str, &str)]) -> Vec<GoneError> {
     named
