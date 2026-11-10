@@ -23,6 +23,21 @@ fn an_applied_state_runs_every_machine_and_publishes_at_the_routers_address() {
     assert_eq!(o.outputs.get("ip").map(String::as_str), Some("10.10.10.7"));
     let web = o.machines.iter().find(|x| x.name == "web").unwrap();
     assert_eq!(web.addresses.get("app").map(String::as_str), Some("10.80.0.10"));
+    // Regression: a machine's own published ports were always empty on a Terraform run.
+    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 8080)]);
+}
+
+/// Regression: an entry of `published` that didn't read as `<machine>/<port>` at
+/// `<address>:<port>` was dropped without a word.
+#[tokio::test]
+async fn a_published_entry_that_doesnt_read_is_left_out_and_traced() {
+    let tf = state(r#"{"outputs":{"published":{"value":{"web/web":"10.10.10.7","web":"10.10.10.7:8080"}}},"resources":[{"instances":[{}]}]}"#);
+    let (o, traced) = crate::testing::traced(async { observed(&proxmox_manifest(), &tf) }).await;
+    assert!(o.published.is_empty(), "{:?}", o.published);
+    assert!(
+        traced.contains("WARN") && traced.contains("`published` entry") && traced.contains("10.10.10.7:8080"),
+        "{traced}"
+    );
 }
 
 #[test]

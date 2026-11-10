@@ -34,7 +34,8 @@ use super::{Driver, GuestUse, Observed};
 use crate::console::ShellCommand;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
-use crate::status::{MachineState, MachineStatus};
+use crate::status::{MachineState, MachineStatus, PublishedPort};
+use crate::vars::PortKey;
 use crate::{Error, Result, RunnerConfig};
 
 /// The local backend's lock file, left behind by a crashed or killed run.
@@ -198,6 +199,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
         (true, true) => MachineState::Unhealthy,
         (true, false) => MachineState::Running,
     };
+    let published = published(tf);
     let machines = manifest
         .machines
         .iter()
@@ -206,17 +208,18 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
             role: m.role,
             state: machine_state.clone(),
             addresses: super::static_addresses(m),
-            published: Vec::new(),
-        })
-        .collect();
-    let published = tf
-        .maps
-        .get(PUBLISHED)
-        .into_iter()
-        .flatten()
-        .filter_map(|(key, address)| {
-            let (machine, port) = key.split_once('/')?;
-            Some(((machine.to_owned(), port.to_owned()), state::port_of(address)?))
+            published: m
+                .ports
+                .iter()
+                .filter_map(|p| {
+                    let host_port = *published.get(&(m.name.to_string(), p.name.to_string()))?;
+                    Some(PublishedPort {
+                        port: p.port.get(),
+                        protocol: p.kind.transport(),
+                        host_port,
+                    })
+                })
+                .collect(),
         })
         .collect();
     Observed {
@@ -227,6 +230,25 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
         outputs: tf.outputs.clone(),
         sensitive: tf.sensitive.clone(),
     }
+}
+
+/// The host port of each published machine port, as the state's `published` output gives them
+/// (`"<machine>/<port>": "<address>:<port>"`); an entry that doesn't read so is left out, and
+/// traced.
+fn published(tf: &state::TfState) -> BTreeMap<PortKey, u16> {
+    let mut out = BTreeMap::new();
+    for (key, address) in tf.maps.get(PUBLISHED).into_iter().flatten() {
+        if let (Some((machine, port)), Some(host_port)) = (key.split_once('/'), state::port_of(address)) {
+            out.insert((machine.to_owned(), port.to_owned()), host_port);
+        } else {
+            tracing::warn!(
+                key,
+                address,
+                "a `published` entry isn't `<machine>/<port>` at `<address>:<port>`: it is left out"
+            );
+        }
+    }
+    out
 }
 
 /// The first `terraform.copy_module` of `up` that names its folder: where its step is

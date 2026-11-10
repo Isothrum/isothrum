@@ -468,6 +468,9 @@ change.
 - **A driver action's or a `project.archive`'s error names where its step is as every other
   step's does** (`lifecycle.up.archive.with.root`, not `archive.with.root`), and a Compose
   action's errors name its own list rather than always `lifecycle.up`.
+- **A Terraform run's status shows each machine's published ports**, as a Compose or Vagrant
+  run's does; they were always empty. An entry of the state's `published` output that doesn't
+  read as `<machine>/<port>` at `<address>:<port>` is still left out, and now traced.
 
 ### Added
 
