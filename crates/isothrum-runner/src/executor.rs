@@ -11,7 +11,7 @@ mod reconnect;
 pub(crate) mod state_files;
 mod step;
 
-pub(crate) use delivery::{env_deliveries, every_delivery};
+pub(crate) use delivery::{env_deliveries, every_delivery, slot_value};
 
 use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};

@@ -24,8 +24,7 @@ use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
 use crate::error::Error;
-use crate::executor::{Cx, Echo, call, stdout_of};
-use crate::secrets::SecretValue;
+use crate::executor::{Cx, Echo, call, slot_value, stdout_of};
 use crate::ssh::{self, Login};
 use isoloom_manifest::contract::{DELIVERED, SECRETS_DIR};
 
@@ -68,19 +67,19 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     Ok(())
 }
 
-/// Each machine's input lines (`<slot> <base64>`) due after `after`.
+/// Each machine's input lines (`<slot> <base64>`) due after `after`, each slot's value as every
+/// delivery has it ([`slot_value`]: given, else its default; none for another provider's slot).
 fn due(cx: &Cx<'_>, after: Option<&str>) -> BTreeMap<String, String> {
-    let given = |name: &str| cx.secrets.get(name).map(SecretValue::expose);
-    due_lines(&cx.run.manifest().secrets, given, after)
+    due_lines(&cx.run.manifest().secrets, |slot| slot_value(cx, slot), after)
 }
 
-/// [`due`] over `slots`, each slot's value from `given` else its default. A machine with a
-/// delivery due gets its entry even when every value is unset (no lines): its set-up waits for
-/// `.delivered`, which only a delivery writes.
-fn due_lines<'a>(slots: &'a [SecretSlot], given: impl Fn(&str) -> Option<&'a str>, after: Option<&str>) -> BTreeMap<String, String> {
+/// [`due`] over `slots`, each slot's value from `value`. A machine with a delivery due gets its
+/// entry even when every value is unset (no lines): its set-up waits for `.delivered`, which only
+/// a delivery writes.
+fn due_lines<'a>(slots: &'a [SecretSlot], value: impl Fn(&'a SecretSlot) -> Option<&'a str>, after: Option<&str>) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     for slot in slots {
-        let value = given(slot.name.as_str()).or(slot.default.as_deref());
+        let value = value(slot);
         for d in &slot.deliver {
             let Delivery::Guest { machine, during_step, .. } = d else {
                 continue;
@@ -182,30 +181,25 @@ mod tests {
     use super::due_lines;
 
     /// The solo-web cloud-vm manifest delivers `DEMO_SECRET` to `web`, over SSH, at the end of `up`.
-    fn slots(default: Option<&str>) -> Vec<isoloom_manifest::SecretSlot> {
-        let mut m = crate::testing::solo_web_aws_manifest();
-        m.secrets
-            .iter_mut()
-            .filter(|s| s.name.as_str() == "DEMO_SECRET")
-            .for_each(|s| s.default = default.map(str::to_owned));
-        m.secrets
+    fn slots() -> Vec<isoloom_manifest::SecretSlot> {
+        crate::testing::solo_web_aws_manifest().secrets
     }
 
     #[test]
     fn a_given_value_goes_to_its_machine_in_base64() {
-        let due = due_lines(&slots(None), |n| (n == "DEMO_SECRET").then_some("token-x"), None);
+        let due = due_lines(&slots(), |s| (s.name.as_str() == "DEMO_SECRET").then_some("token-x"), None);
         assert_eq!(due["web"], format!("DEMO_SECRET {}\n", crate::encoding::base64(b"token-x")));
     }
 
     #[test]
     fn a_machine_whose_values_are_all_unset_still_gets_its_delivery() {
-        // No value and no default: no line, but the delivery still runs and writes `.delivered`.
-        let due = due_lines(&slots(None), |_| None, None);
+        // No value: no line, but the delivery still runs and writes `.delivered`.
+        let due = due_lines(&slots(), |_| None, None);
         assert_eq!(due.get("web").map(String::as_str), Some(""));
     }
 
     #[test]
     fn a_delivery_waits_for_its_step() {
-        assert!(due_lines(&slots(Some("x")), |_| None, Some("some-step")).is_empty());
+        assert!(due_lines(&slots(), |_| Some("x"), Some("some-step")).is_empty());
     }
 }

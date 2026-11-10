@@ -40,6 +40,21 @@ async fn a_flag_with_no_store_to_read_it_from_is_delivered_into_its_machine_over
     assert!(deliver < lines.iter().position(|l| l.contains("head -n 1")).unwrap());
 }
 
+/// A slot for another provider has no value on this run, in its guest delivery as in any other:
+/// its default isn't written into the machine. The delivery still runs (the machine's set-up
+/// waits for it).
+#[tokio::test(start_paused = true)]
+async fn a_slot_for_another_provider_is_not_delivered_into_the_machine() {
+    let mut m: serde_json::Value = serde_json::from_str(SOLO_WEB_AWS).unwrap();
+    let slot = m["secrets"].as_array_mut().unwrap().iter_mut().find(|s| s["name"] == "DEMO_SECRET").unwrap();
+    slot["providers"] = serde_json::json!(["virtualbox"]);
+    slot["default"] = serde_json::json!("vbox-only");
+    let a = account_of(&m.to_string(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    assert_eq!(*a.cloud.delivered.lock().unwrap(), [String::new()], "delivered, with no value");
+}
+
 /// An input file holding the values that can't be removed once delivered fails the delivery,
 /// naming the file, rather than stay in the run's folder with only a trace saying so.
 #[tokio::test(start_paused = true)]

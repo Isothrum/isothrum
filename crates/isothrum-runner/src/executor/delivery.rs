@@ -3,11 +3,12 @@
 //! operation has no value for gets its manifest `default` when it has one (Isoloom gives every
 //! docker input slot `default: ""`: Compose refuses an unset variable for a secret it reads from
 //! the environment, on every start, and keeps what a container was created with when it is
-//! empty), and isn't delivered otherwise.
+//! empty), and isn't delivered otherwise. A slot for another provider has no value here, wherever
+//! it goes ([`slot_value`]: the guest delivery reads it too).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use isoloom_manifest::{Delivery, NonEmpty, StepSelection, TfVarShape};
+use isoloom_manifest::{Delivery, NonEmpty, SecretSlot, StepSelection, TfVarShape};
 
 use super::Cx;
 use crate::secrets::SecretValue;
@@ -42,8 +43,17 @@ pub(crate) fn every_delivery(manifest: &isoloom_manifest::Manifest) -> impl Iter
     params.chain(manifest.secrets.iter().flat_map(|s| s.deliver.iter()))
 }
 
-/// The params and slots this operation has a value for (a slot's `default` when none was given),
-/// with where each goes.
+/// The value slot `slot` has in this operation, wherever it goes: the one given, else its
+/// `default`; none when it has neither, or when the slot doesn't concern this operation (one for
+/// another provider).
+pub(crate) fn slot_value<'a>(cx: &'a Cx<'_>, slot: &'a SecretSlot) -> Option<&'a str> {
+    if !cx.scope.admits(&BTreeSet::new(), &slot.providers) {
+        return None;
+    }
+    cx.secrets.get(slot.name.as_str()).map(SecretValue::expose).or(slot.default.as_deref())
+}
+
+/// The params and slots this operation has a value for ([`slot_value`]), with where each goes.
 pub(super) fn valued<'a>(cx: &'a Cx<'_>) -> Vec<(&'a str, String, &'a NonEmpty<Delivery>)> {
     let manifest = cx.run.manifest();
     let params = manifest
@@ -51,15 +61,10 @@ pub(super) fn valued<'a>(cx: &'a Cx<'_>) -> Vec<(&'a str, String, &'a NonEmpty<D
         .iter()
         .filter(|p| cx.scope.admits(&p.hosts, &p.providers))
         .filter_map(|p| Some((p.name.as_str(), cx.vars.params().get(p.name.as_str())?.clone(), &p.deliver)));
-    let every_host = std::collections::BTreeSet::new();
     let slots = manifest
         .secrets
         .iter()
-        .filter(move |s| cx.scope.admits(&every_host, &s.providers))
-        .filter_map(|s| {
-            let given = cx.secrets.get(s.name.as_str()).map(SecretValue::expose);
-            Some((s.name.as_str(), given.or(s.default.as_deref())?.to_owned(), &s.deliver))
-        });
+        .filter_map(|s| Some((s.name.as_str(), slot_value(cx, s)?.to_owned(), &s.deliver)));
     params.chain(slots).collect()
 }
 
