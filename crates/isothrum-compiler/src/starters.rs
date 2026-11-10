@@ -12,6 +12,7 @@
 
 mod packages;
 
+use isoloom_manifest::RelPath;
 use isoloom_manifest::contract::OUTPUT_DIR;
 use isoloom_spec::Spec;
 use isoloom_spec::net::NetworkBlock;
@@ -43,12 +44,13 @@ pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller
     }
 }
 
-/// Adds the starter at `path`, unless the path leaves the project, is Isoloom's (a name it reads
+/// Adds the starter at `path`, unless the path isn't one inside the project as Isoloom reads one
+/// ([`RelPath::parse`]: relative, `/`-separated, no `..` segment), is Isoloom's (a name it reads
 /// the spec from, [`isoloom_spec::SPEC_FILES`], or its outputs' folder), or already has a file.
 fn add(files: &mut Vec<ProjectFile>, path: &str, contents: String) {
     let in_outputs = path.strip_prefix(OUTPUT_DIR).is_some_and(|rest| rest.starts_with('/'));
     let isoloom_s = isoloom_spec::SPEC_FILES.contains(&path) || in_outputs;
-    let leaves = path.starts_with('/') || path.split('/').any(|segment| segment == "..");
+    let leaves = RelPath::parse(path).is_err();
     if !leaves && !isoloom_s && !files.iter().any(|s| s.path == path) {
         files.push(ProjectFile {
             path: path.to_owned(),

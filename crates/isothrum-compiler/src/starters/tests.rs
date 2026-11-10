@@ -229,6 +229,9 @@ fn only_a_dot_dot_segment_leaves_the_project() {
         ("../x.sh", false),
         ("provision/../../x.sh", false),
         ("/x.sh", false),
+        // Isoloom's rule (RelPath) also keeps a Windows path out: a drive, a backslash.
+        ("C:/x.sh", false),
+        ("provision\\..\\..\\x.sh", false),
     ] {
         let mut files = Vec::new();
         add(&mut files, path, String::new());

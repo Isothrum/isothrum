@@ -5,6 +5,7 @@
 #![no_main]
 
 use isothrum_compiler::{Error, Topology, compile};
+use isothrum_runner::isoloom_manifest::RelPath;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -13,13 +14,9 @@ fuzz_target!(|data: &[u8]| {
         Ok(compiled) => {
             let (_, _, files) = compiled.into_parts();
             for (i, file) in files.iter().enumerate() {
-                // Isoloom's rule for a path inside the project (`isoloom-spec`'s `validate/files.rs`):
-                // not absolute, and no `..` segment (`a..b.sh` stays inside).
-                assert!(
-                    !file.path.starts_with('/') && !file.path.split('/').any(|segment| segment == ".."),
-                    "a file outside the project: {}",
-                    file.path
-                );
+                // Isoloom's rule for a path inside the project: relative, `/`-separated, no `..`
+                // segment (`a..b.sh` stays inside).
+                assert!(RelPath::parse(&file.path).is_ok(), "a file outside the project: {}", file.path);
                 assert!(
                     file.path != "isoloom.yml" && !file.path.starts_with(".isoloom/"),
                     "a file Isoloom writes: {}",
