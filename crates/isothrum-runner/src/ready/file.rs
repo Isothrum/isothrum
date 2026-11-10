@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use isoloom_manifest::ReadyGrammar;
+use isoloom_manifest::{ReadyGrammar, ReadyLine};
 
 use super::not_ready;
 use crate::Result;
@@ -48,17 +48,14 @@ pub(crate) fn progress(grammar: ReadyGrammar, line: &str) -> Progress {
     }
 }
 
-/// The ready file's first line, read with `isoloom-ready/1`.
+/// The ready file's first line, read with `isoloom-ready/1` as Isoloom reads it
+/// ([`ReadyLine::parse`]).
 fn progress_v1(line: &str) -> Progress {
-    let line = line.trim();
-    if line == "ready" {
-        Progress::Ready
-    } else if let Some(step) = line.strip_prefix("failed:") {
-        Progress::Failed(step.trim().to_owned())
-    } else if let Some(step) = line.strip_prefix("running:") {
-        Progress::Running(step.trim().to_owned())
-    } else {
-        Progress::Booting
+    match ReadyLine::parse(line) {
+        Some(ReadyLine::Ready) => Progress::Ready,
+        Some(ReadyLine::Running { step }) => Progress::Running(step),
+        Some(ReadyLine::Failed { step }) => Progress::Failed(step),
+        None => Progress::Booting,
     }
 }
 
