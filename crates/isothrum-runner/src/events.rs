@@ -232,7 +232,7 @@ pub enum WarningCode {
     CheckCleanupFailed,
     /// What an earlier run left is removed before a start.
     LeftoversRemoved,
-    /// A VM (or its folder) an earlier run left is removed.
+    /// A VM (or its folder) an earlier run left was removed.
     OrphanRemoved,
     /// The run last ran on another Vagrant provider: that run is cleared first.
     OtherProvider,
@@ -252,6 +252,10 @@ pub enum WarningCode {
     /// A resource a destroy found already gone (its provider's error, which the manifest names) is
     /// dropped from the run's state, and the destroy runs again.
     AlreadyGone,
+    /// A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its
+    /// folder, the run on another Vagrant provider): what it would have removed may still be
+    /// there, and the start goes on.
+    CleanupFailed,
 }
 
 /// Events kept in memory, for tests.

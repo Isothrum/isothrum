@@ -58,3 +58,6 @@ pub(super) fn locked_halt(vm: &str) -> String {
          Vagrant locks each machine for access by only one process at a time."
     )
 }
+
+/// What `VBoxManage unregistervm --delete` prints for a VM another process has a session on.
+pub(super) const VBOX_LOCKED: &str = "VBoxManage: error: Cannot unregister the machine 'web-vm - web' while it is locked";

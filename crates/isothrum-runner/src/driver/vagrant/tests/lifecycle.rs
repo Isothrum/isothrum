@@ -185,3 +185,96 @@ async fn a_hypervisor_listing_that_fails_is_traced_and_removes_nothing() {
         "{traced}"
     );
 }
+
+/// The warnings of `events`, as `code: message`.
+fn warnings(events: &Recorder) -> Vec<String> {
+    events
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            crate::EventKind::Warning { code, message } => Some(format!("{}: {message}", crate::encoding::wire_name(&code))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression: an orphaned VM was announced removed before the hypervisor was asked, and a
+/// deletion it refused was only traced at debug: the events said it was gone, and the next import
+/// still met it.
+#[tokio::test]
+async fn an_orphan_the_hypervisor_wont_delete_is_warned_about_not_said_removed() {
+    let f = fixture(crate::runner::this_host());
+    f.engine()
+        .ups
+        .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
+    f.engine().vbox.insert("web-vm - web".into(), "poweroff".into());
+    f.engine().fails.insert(Fails::Delete);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    run.up(&opts(), &events).await.ok();
+    let said = warnings(&events);
+    assert!(!said.iter().any(|w| w.starts_with("orphan_removed")), "{said:#?}");
+    assert!(
+        said.iter()
+            .any(|w| w.starts_with("cleanup_failed: a VM an earlier run left (web-vm - web) couldn't be removed: ") && w.contains(VBOX_LOCKED)),
+        "{said:#?}"
+    );
+}
+
+#[tokio::test]
+async fn an_orphan_parallels_wont_delete_is_warned_about_and_one_it_deletes_said_removed() {
+    for undeletable in [false, true] {
+        let f = fixture(HostOs::Macos);
+        f.engine().plugins.push("vagrant-parallels".into());
+        f.engine().parallels = Some(["web-vm - web"].map(String::from).into());
+        if undeletable {
+            f.engine().fails.insert(Fails::Delete);
+        }
+        let run = f.runner.open(&f.manifest, None).unwrap();
+        run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+        let events = Recorder::new();
+        run.down(&RunOptions::new(), &events).await.unwrap();
+        let said = warnings(&events);
+        let removed = said.iter().any(|w| w == "orphan_removed: removed a VM an earlier run left (web-vm - web)");
+        let refused = said
+            .iter()
+            .any(|w| w.starts_with("cleanup_failed: a VM an earlier run left (web-vm - web) couldn't be removed: "));
+        assert_eq!((removed, refused), (!undeletable, undeletable), "{said:#?}");
+    }
+}
+
+/// A machine folder that can't be listed is a failed clean-up, said as one (it was a tolerated
+/// step's warning, though no step of the manifest's had failed); a leftover folder removed is said
+/// once it is gone.
+#[tokio::test]
+async fn virtualbox_leftover_folders_are_said_removed_once_gone_and_an_unreadable_folder_is_a_failed_clean_up() {
+    let machines = tempfile::tempdir().unwrap();
+    let leftover = machines.path().join("web-vm - web");
+    std::fs::create_dir(&leftover).unwrap();
+    let not_a_folder = machines.path().join("a-file");
+    std::fs::write(&not_a_folder, "").unwrap();
+    for (folder, expected) in [
+        (
+            machines.path().to_path_buf(),
+            format!("orphan_removed: removed a VM folder an earlier run left ({})", leftover.display()),
+        ),
+        (
+            not_a_folder.clone(),
+            format!(
+                "cleanup_failed: the VM folders an earlier run left in {} couldn't be removed: ",
+                not_a_folder.display()
+            ),
+        ),
+    ] {
+        let f = fixture(crate::runner::this_host());
+        f.engine().machine_folder = Some(folder);
+        let run = f.runner.open(&f.manifest, None).unwrap();
+        run.up(&opts(), &Recorder::new()).await.unwrap();
+        let events = Recorder::new();
+        run.down(&RunOptions::new(), &events).await.unwrap();
+        let said = warnings(&events);
+        assert!(said.iter().any(|w| w.starts_with(&expected)), "{expected}\n{said:#?}");
+        assert!(!said.iter().any(|w| w.starts_with("step_tolerated")), "{said:#?}");
+    }
+    assert!(!leftover.exists());
+}

@@ -75,6 +75,28 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
     assert!(!again.vagrant().iter().take(1).any(|l| l.contains("destroy")), "{:?}", again.vagrant());
 }
 
+/// Regression: the destroy of the run left on another provider, which the runner does on its own,
+/// was said as a tolerated step's failure when it failed.
+#[tokio::test]
+async fn a_failed_destroy_of_the_run_on_another_provider_is_a_failed_clean_up() {
+    let f = fixture(crate::runner::this_host());
+    f.engine().fails.insert(Fails::Destroy);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    record(&f.runner.store.run_dir(run.name()).unwrap().join("vagrant"), "web", "vmware_desktop");
+    let events = Recorder::new();
+    run.up(&opts(), &events).await.unwrap();
+    let codes: Vec<crate::WarningCode> = events
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            crate::EventKind::Warning { code, .. } => Some(code),
+            _ => None,
+        })
+        .collect();
+    assert!(codes.contains(&crate::WarningCode::CleanupFailed), "{codes:?}");
+    assert!(!codes.contains(&crate::WarningCode::StepTolerated), "{codes:?}");
+}
+
 /// Regression: a Vagrant record that couldn't be read read as no record, so a run left on another
 /// provider was never cleared first. A file among the machines' folders is no machine.
 #[tokio::test]

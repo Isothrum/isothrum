@@ -22,7 +22,7 @@ use crate::secrets::{SecretValue, Secrets};
 use crate::testing::{RunFolder, WEB_VM, modelled, processes, runner_config, virtualbox_options, with_boot_digest};
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
-use self::outputs::{ESXI_ALREADY_OFF, FOG_WARNING, VBOX_WEDGED, index_locked_status, locked_halt, locked_status};
+use self::outputs::{ESXI_ALREADY_OFF, FOG_WARNING, VBOX_LOCKED, VBOX_WEDGED, index_locked_status, locked_halt, locked_status};
 
 const CONTROLLER: &str = "isoloom-controller";
 const SECRET: &str = "token-vm-0001";
@@ -80,6 +80,19 @@ struct Engine {
     refusals: BTreeMap<&'static str, Refusal>,
     /// VirtualBox answers no `showvminfo` (its service wedged).
     vbox_wedged: bool,
+    /// What fails that otherwise works.
+    fails: std::collections::BTreeSet<Fails>,
+    /// VirtualBox's default machine folder (`VBoxManage list systemproperties`), if it has one.
+    machine_folder: Option<PathBuf>,
+}
+
+/// A call of a clean-up that fails in a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Fails {
+    /// The hypervisor deleting a VM (`VBoxManage unregistervm`, `prlctl delete`).
+    Delete,
+    /// `vagrant destroy --force`.
+    Destroy,
 }
 
 /// A Vagrant command refused for another process's machine lock, `times` more times.
@@ -385,6 +398,9 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
             }
             Reply::ok("")
         }
+        ["destroy", "--force"] if e.fails.contains(&Fails::Destroy) => {
+            Reply::fail(1, "The provider for this Vagrant-managed machine is reporting that it is not yet ready")
+        }
         ["destroy", "--force"] => {
             e.states.clear();
             // As Vagrant does: the machines' records go with them (none to remove is fine).
@@ -404,6 +420,7 @@ fn prlctl(e: &mut Engine, args: &[&str]) -> Reply {
             Some(vms) => Reply::ok(&vms.iter().cloned().collect::<Vec<_>>().join("\n")),
             None => Reply::fail(1, "Failed to get the list of VMs: the Parallels service isn't running"),
         },
+        ["delete", _] if e.fails.contains(&Fails::Delete) => Reply::fail(1, "Failed to delete the VM: the virtual machine is in use"),
         ["delete", name] => {
             e.parallels.as_mut().map(|vms| vms.remove(*name));
             Reply::ok("")
@@ -443,6 +460,11 @@ fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
             Reply::ok("")
         }
         ["list", "vms"] => Reply::ok(&e.vbox.keys().map(|n| format!("\"{n}\" {{uuid-{n}}}")).collect::<Vec<_>>().join("\n")),
+        ["unregistervm", _, "--delete"] if e.fails.contains(&Fails::Delete) => Reply::fail(1, VBOX_LOCKED),
+        ["list", "systemproperties"] => match &e.machine_folder {
+            Some(folder) => Reply::ok(&format!("Default machine folder:          {}", folder.display())),
+            None => Reply::ok(""),
+        },
         ["unregistervm", uuid, "--delete"] => {
             let name = uuid.trim_start_matches("uuid-").to_owned();
             e.vbox.remove(&name);

@@ -519,7 +519,7 @@
           "const": "leftovers_removed"
         },
         {
-          "description": "A VM (or its folder) an earlier run left is removed.",
+          "description": "A VM (or its folder) an earlier run left was removed.",
           "type": "string",
           "const": "orphan_removed"
         },
@@ -557,6 +557,11 @@
           "description": "A resource a destroy found already gone (its provider's error, which the manifest names) is\ndropped from the run's state, and the destroy runs again.",
           "type": "string",
           "const": "already_gone"
+        },
+        {
+          "description": "A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its\nfolder, the run on another Vagrant provider): what it would have removed may still be\nthere, and the start goes on.",
+          "type": "string",
+          "const": "cleanup_failed"
         }
       ]
     },

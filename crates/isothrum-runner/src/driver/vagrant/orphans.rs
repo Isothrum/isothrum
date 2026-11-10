@@ -28,13 +28,40 @@ pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
     }
 }
 
-/// Runs `spec`, its failure only traced: each removal is best effort ("nothing there" is fine).
+/// Runs `spec`, a step towards a removal whose own failure says nothing (a VM that isn't running
+/// can't be powered off): only traced.
 async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<()> {
     let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
     if let Err(reason) = out.output() {
-        tracing::debug!(call = spec.line(), reason, "a removal of an orphan failed (nothing there, or it can't be)");
+        tracing::debug!(
+            call = spec.line(),
+            reason,
+            "a step of an orphan's removal failed (nothing to stop, or it can't be)"
+        );
     }
     Ok(())
+}
+
+/// Runs `spec`, the call that removes `what`: said once it is done; when it fails, a warning
+/// with why, since what it removes may still be there.
+async fn removal(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec, what: &str) -> Result<()> {
+    let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
+    match out.output() {
+        Ok(_) => removed(cx, what),
+        Err(reason) => not_removed(cx, what, &reason),
+    }
+    Ok(())
+}
+
+/// Says `what`, an orphan, was removed.
+fn removed(cx: &Cx<'_>, what: &str) {
+    cx.events.warning(WarningCode::OrphanRemoved, &format!("removed {what}"));
+}
+
+/// Says `what`, an orphan, couldn't be removed, and why.
+fn not_removed(cx: &Cx<'_>, what: &str, reason: &str) {
+    tracing::warn!(what, reason, "an orphan couldn't be removed");
+    cx.events.warning(WarningCode::CleanupFailed, &format!("{what} couldn't be removed: {reason}"));
 }
 
 /// What `spec`, a listing of the hypervisor's VMs or settings, prints; `None` when it fails,
@@ -57,11 +84,10 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
     }
     if let Some(vms) = listed(cx, step, &vboxmanage(&["list", "vms"])).await? {
         for (name, uuid) in parse_vms(&vms).into_iter().filter(|(n, _)| wanted.contains(n)) {
-            cx.events
-                .warning(WarningCode::OrphanRemoved, &format!("removing a VM an earlier run left: {name}"));
             attempt(cx, step, &vboxmanage(&["discardstate", &uuid])).await?;
             attempt(cx, step, &vboxmanage(&["controlvm", &uuid, "poweroff"])).await?;
-            attempt(cx, step, &vboxmanage(&["unregistervm", &uuid, "--delete"])).await?;
+            let what = format!("a VM an earlier run left ({name})");
+            removal(cx, step, &vboxmanage(&["unregistervm", &uuid, "--delete"]), &what).await?;
         }
     }
     let properties = listed(cx, step, &vboxmanage(&["list", "systemproperties"])).await?;
@@ -69,16 +95,15 @@ async fn virtualbox(cx: &Cx<'_>, step: &Step) -> Result<()> {
         return Ok(());
     };
     let folders = leftover_folders(&base, &wanted).unwrap_or_else(|e| {
-        cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", base.display()));
+        let what = format!("the VM folders an earlier run left in {}", base.display());
+        not_removed(cx, &what, &format!("the folder can't be read: {e}"));
         Vec::new()
     });
     for folder in folders {
-        cx.events.warning(
-            WarningCode::OrphanRemoved,
-            &format!("removing a VM folder an earlier run left: {}", folder.display()),
-        );
-        if let Err(e) = crate::store::remove_path(&folder) {
-            cx.events.warning(WarningCode::StepTolerated, &format!("{}: {e}", folder.display()));
+        let what = format!("a VM folder an earlier run left ({})", folder.display());
+        match crate::store::remove_path(&folder) {
+            Ok(()) => removed(cx, &what),
+            Err(e) => not_removed(cx, &what, &e.to_string()),
         }
     }
     Ok(())
@@ -92,10 +117,8 @@ async fn parallels(cx: &Cx<'_>, step: &Step) -> Result<()> {
         return Ok(());
     };
     for name in vms.lines().map(str::trim).filter(|n| wanted.contains(*n)) {
-        cx.events
-            .warning(WarningCode::OrphanRemoved, &format!("removing a VM an earlier run left: {name}"));
         attempt(cx, step, &prlctl(&["stop", name, "--kill"])).await?;
-        attempt(cx, step, &prlctl(&["delete", name])).await?;
+        removal(cx, step, &prlctl(&["delete", name]), &format!("a VM an earlier run left ({name})")).await?;
     }
     Ok(())
 }
