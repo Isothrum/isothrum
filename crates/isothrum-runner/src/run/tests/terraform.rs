@@ -478,4 +478,5 @@ async fn a_module_with_no_terraform_file_is_manifest_invalid() {
 
 mod console;
 mod gone;
+mod on_server;
 mod params;

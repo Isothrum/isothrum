@@ -23,6 +23,11 @@ fn proxmox_api(call: &Call, configs: &Mutex<Vec<String>>) -> Option<Reply> {
             r#"{"data":{"ticket":"PVE:root@pam:ABC::sig","CSRFPreventionToken":"csrf1","username":"root@pam"}}"#,
         ));
     }
+    if config.contains("/cluster/resources?type=vm") {
+        return Some(Reply::ok(
+            r#"{"data":[{"id":"qemu/104","vmid":104,"node":"pve-run","status":"running","type":"qemu"}]}"#,
+        ));
+    }
     if config.contains("/nodes/pve-run/qemu/104/vncproxy") {
         return Some(Reply::ok(
             r#"{"data":{"port":"5901","ticket":"PVEVNC:6A3F::tk+t/x=","user":"root@pam","cert":"c","upid":"u"}}"#,
@@ -32,7 +37,7 @@ fn proxmox_api(call: &Call, configs: &Mutex<Vec<String>>) -> Option<Reply> {
 }
 
 /// A server up with the fake Proxmox API, `api` answering its `curl`s.
-async fn up_with_api(api: impl Fn(&Call) -> Option<Reply> + Send + Sync + 'static) -> super::Server {
+pub(super) async fn up_with_api(api: impl Fn(&Call) -> Option<Reply> + Send + Sync + 'static) -> super::Server {
     let s = scripted(HostOs::Linux, SOLO_WEB_PROXMOX, move |call| {
         if call.line().contains(" apply ") {
             let state = format!(
@@ -48,7 +53,7 @@ async fn up_with_api(api: impl Fn(&Call) -> Option<Reply> + Send + Sync + 'stati
 }
 
 /// The run on `s`, its connection giving Proxmox's password.
-fn signed_in(s: &super::Server) -> crate::Running<'_> {
+pub(super) fn signed_in(s: &super::Server) -> crate::Running<'_> {
     let mut connection = Secrets::new();
     connection.insert("proxmox_password", SecretValue::new("pw-s3cret"));
     s.runner.open(&s.manifest, None).unwrap().with_connection(connection)
@@ -62,6 +67,9 @@ async fn a_proxmox_vms_console_is_proxmoxs_own_through_its_api() {
         move |call| proxmox_api(call, &configs)
     })
     .await;
+    // The start's status reads asked the API too: only the console's requests are looked at.
+    configs.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    let curls_before = s.fake.calls().into_iter().filter(|c| c.program == "curl").count();
     let run = signed_in(&s);
     let console = run.graphical_console("web").await.unwrap();
     let crate::Endpoint::ProxmoxVnc(vnc) = &console.endpoint else {
@@ -79,15 +87,17 @@ async fn a_proxmox_vms_console_is_proxmoxs_own_through_its_api() {
         "the ticket is the VNC password"
     );
     // The credentials reached curl in its config, never its command line, and the config is gone.
+    // (The console reads the run's status first, which asks the API where its VMs stand.)
     let said = configs.lock().unwrap_or_else(PoisonError::into_inner).clone();
-    assert!(said[0].contains("data-urlencode = \"password=pw-s3cret\""), "{said:?}");
+    let vncproxy = said.iter().position(|c| c.contains("/vncproxy")).unwrap();
+    assert!(said[vncproxy - 1].contains("data-urlencode = \"password=pw-s3cret\""), "{said:?}");
     assert!(
-        said[1].contains("cookie = \"PVEAuthCookie=PVE:root@pam:ABC::sig\"") && said[1].contains("CSRFPreventionToken: csrf1"),
+        said[vncproxy].contains("cookie = \"PVEAuthCookie=PVE:root@pam:ABC::sig\"") && said[vncproxy].contains("CSRFPreventionToken: csrf1"),
         "{said:?}"
     );
     let curls: Vec<Call> = s.fake.calls().into_iter().filter(|c| c.program == "curl").collect();
     assert!(curls.iter().all(|c| !c.line().contains("s3cret") && !c.line().contains("PVE:")), "{curls:?}");
-    assert!(!curls[0].stdin.as_ref().unwrap().exists(), "the config is removed");
+    assert!(!curls[curls_before].stdin.as_ref().unwrap().exists(), "the config is removed");
     // With no credential, no request: why instead.
     let bare = s.runner.open(&s.manifest, None).unwrap();
     let err = bare.graphical_console("web").await.unwrap_err();

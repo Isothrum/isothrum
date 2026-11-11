@@ -8,7 +8,9 @@
 //!   state folder, [`copy_module`]). `ssh.run` is the executor's. A module the run copies is
 //!   checked where it is, before anything runs.
 //! - Its status: every machine of the manifest is running when the state holds resources none of
-//!   which is tainted, unhealthy when one is, absent with none. The published ports come from the
+//!   which is tainted, unhealthy when one is, absent with none; then each VM its server can be
+//!   asked about (a Proxmox VE VM with Proxmox's console, through its API) as the server says it
+//!   stands: removed or powered off outside the run ([`on_server`]). The published ports come from the
 //!   module's `published` output (`"<machine>/<port>" = "<address>:<host port>"`), the other
 //!   outputs from the state's.
 //! - Every process gets the shared plugin cache (one copy of each provider for every run), and
@@ -145,9 +147,15 @@ impl Driver for Terraform {
         std::future::ready(done)
     }
 
-    fn observe(&self, cx: &Cx<'_>) -> impl Future<Output = Result<Observed>> {
-        let read = state::read(cx.state_dir());
-        std::future::ready(read.map(|tf| observed(cx.run.manifest(), &tf)))
+    /// The run as its state says it is, then, for a run with resources, each VM as its server
+    /// says it stands ([`on_server`]).
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+        let tf = state::read(cx.state_dir())?;
+        let mut seen = observed(cx.run.manifest(), &tf);
+        if tf.resources {
+            on_server(cx, &mut seen).await?;
+        }
+        Ok(seen)
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
@@ -238,6 +246,29 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
         sensitive: tf.sensitive.clone(),
         busy: None,
     }
+}
+
+/// Each machine of `seen` as its server says it stands, where the server can be asked (a
+/// Proxmox VE VM, through its API): a VM removed in the server's own UI is absent, one powered
+/// off there stopped, whatever the run's state still holds. Terraform's state changes only at the
+/// next apply or destroy, so it alone read such a VM as running. A VM the state holds tainted
+/// stays unhealthy while it runs.
+///
+/// # Errors
+///
+/// `server_auth_failed` when the server refuses the run's credentials.
+async fn on_server(cx: &Cx<'_>, seen: &mut Observed) -> Result<()> {
+    let mut vars = cx.vars.clone();
+    let read = crate::outputs::read(cx.run.manifest(), &vars, &seen.outputs, &seen.sensitive);
+    crate::outputs::bind(&mut vars, &read.values);
+    let states = crate::graphical::proxmox_vm_states(cx, &vars).await?;
+    for m in &mut seen.machines {
+        match states.get(&m.name) {
+            Some(MachineState::Running) | None => {}
+            Some(state) => m.state = state.clone(),
+        }
+    }
+    Ok(())
 }
 
 /// The host port of each published machine port, as the state's `published` output gives them

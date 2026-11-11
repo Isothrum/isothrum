@@ -20,6 +20,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `tool_failed`, in an operation and in a status read, naming the server as the run's params do
   (`server`: the API's host, the ESXi host), so an embedder can say which credentials to update.
 
+### Fixed
+
+- **A Proxmox VM removed or powered off in Proxmox's web UI reads so.** A Terraform run's status
+  read its local state alone, which changes only at the next apply or destroy: a VM removed on the
+  server read as running. The status of a run whose VMs have Proxmox's console now asks the
+  server's API where they stand (`cluster/resources`, with the run's connection: its token, else a
+  ticket for its password): a VM the server no longer has reads `absent` (a resume refuses it as
+  gone, a start again rebuilds the run), one powered off `stopped`. A server that doesn't answer,
+  or a run whose connection gives no credentials, leaves the state's view; a server refusing the
+  credentials is `server_auth_failed`.
+
 ## [2.0.0] — 2026-11-11
 
 ### Highlights

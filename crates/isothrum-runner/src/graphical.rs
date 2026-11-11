@@ -35,6 +35,7 @@ use crate::secrets::SecretValue;
 
 pub use native::{NativeApp, NativeConsole, NativeNeed, NativeOpen};
 pub use proxmox::ProxmoxVnc;
+pub(crate) use proxmox::vm_states as proxmox_vm_states;
 
 /// What a status says of a machine's graphical console under the run's provider: its protocol,
 /// or `none` and why ([`isoloom_manifest::Console`]'s, as the manifest says it).
