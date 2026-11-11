@@ -63,6 +63,14 @@ fn virsh_domdisplay(env: &HostEnv, domain: &str) -> ProcessSpec {
     }
 }
 
+/// The libvirt connection the run's Vagrant uses: `LIBVIRT_DEFAULT_URI` as `env` sets it, else
+/// vagrant-libvirt's default.
+pub(super) fn libvirt_uri(env: &HostEnv) -> String {
+    env.get(LIBVIRT_DEFAULT_URI)
+        .filter(|u| !u.is_empty())
+        .map_or_else(|| LIBVIRT_URI.to_owned(), |u| u.to_string_lossy().into_owned())
+}
+
 /// The address of a `vnc://<host>:<display>` line `virsh domdisplay` prints (port 5900 plus the
 /// display number), a bare IPv6 host in brackets.
 pub(super) fn vnc_display(said: &str) -> Option<SocketAddr> {

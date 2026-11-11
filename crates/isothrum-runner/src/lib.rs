@@ -158,7 +158,7 @@ pub use error::{Error, ErrorCode, Result, TimedOut};
 pub(crate) use events::Recorder;
 pub use events::{Event, EventKind, EventLog, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
-pub use graphical::{Console, ConsoleOffer, Endpoint, ProxmoxVnc};
+pub use graphical::{Console, ConsoleOffer, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc};
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, MANIFEST_FILE, is_outputs_folder, load_manifest};
 pub use name::RunName;

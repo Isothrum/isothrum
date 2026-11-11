@@ -204,3 +204,22 @@ async fn a_controller_that_stays_up_is_not_booted_again() {
     let calls = checks_with_a_running_controller(|_| {}).await;
     assert!(boots_controller(&calls).is_none(), "{calls:#?}");
 }
+
+/// A VM on an ESXi host opens in the host's own web console (its Host Client), by the VM's id
+/// Vagrant records.
+#[tokio::test(start_paused = true)]
+async fn a_vm_on_esxi_opens_in_its_host_clients_console() {
+    let f = with_esxi_plugin();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
+    let native = run.native_console("web").await.unwrap();
+    assert_eq!(
+        (native.app.as_str(), native.ways),
+        (
+            "ESXi",
+            vec![crate::NativeOpen::Url {
+                url: "https://172.16.1.20/ui/#/console/0000".into()
+            }]
+        )
+    );
+}

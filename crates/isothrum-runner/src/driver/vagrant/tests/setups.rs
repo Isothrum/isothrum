@@ -54,6 +54,13 @@ pub(super) fn esxi_secrets() -> Secrets {
     secrets
 }
 
+/// A test's runner on Linux whose Vagrant has the ESXi provider's plugin.
+pub(super) fn with_esxi_plugin() -> super::Fixture {
+    let f = super::fixture(HostOs::Linux);
+    f.engine().plugins.push("vagrant-vmware-esxi".into());
+    f
+}
+
 /// The options of a run on the ESXi host at 172.16.1.20, with `secrets`.
 pub(super) fn on_esxi(secrets: Secrets) -> RunOptions {
     RunOptions::new()

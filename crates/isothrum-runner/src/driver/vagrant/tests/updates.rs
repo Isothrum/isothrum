@@ -66,8 +66,7 @@ async fn a_connection_secret_given_to_the_run_reaches_every_operation() {
 /// failed in the tool, not with `secret_missing`.
 #[tokio::test]
 async fn an_update_of_an_esxi_run_needs_the_hosts_password_with_no_provider_given() {
-    let f = fixture(HostOs::Linux);
-    f.engine().plugins.push("vagrant-vmware-esxi".into());
+    let f = with_esxi_plugin();
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
     let before = f.vagrant().len();

@@ -24,7 +24,7 @@ use crate::testing::{RunFolder, WEB_VM, modelled, processes, runner_config, virt
 use crate::{ErrorCode, Park, Recorder, RunOptions, RunState, Runner};
 
 use self::outputs::{ESXI_ALREADY_OFF, FOG_WARNING, VBOX_LOCKED, VBOX_WEDGED, index_locked_status, locked_halt, locked_status};
-use self::setups::{each_publish, ephemeral_no_preferred_manifest, esxi_secrets, fixed_manifest, on_esxi, with_vm_added};
+use self::setups::{each_publish, ephemeral_no_preferred_manifest, esxi_secrets, fixed_manifest, on_esxi, with_esxi_plugin, with_vm_added};
 
 const CONTROLLER: &str = "isoloom-controller";
 const SECRET: &str = "token-vm-0001";

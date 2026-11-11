@@ -104,6 +104,13 @@ websocket, with a ticket per session the embedder connects with. The passwords a
 libvirt's, QEMU's and VirtualBox's consoles take no password: any program of a user of this
 computer can reach them while the VM runs, as it can a forwarded port.
 
+`Running::native_console` runs nothing: it hands the embedder what opens a VM in its hypervisor's
+own app, as a program and its arguments (never a shell line), a macOS app and the file or link it
+opens, or an `https` URL. Each value taken from the run (a VM's name, Vagrant's record of its file
+or id, Parallels' bundle, a server's address) is checked first: one that is empty, starts with
+`-` or holds a control character is refused, a URL's host is a name or an address alone, and an
+id is digits.
+
 ## Network
 
 Isothrum opens no listening port on the network. It binds the loopback to find free ports for a

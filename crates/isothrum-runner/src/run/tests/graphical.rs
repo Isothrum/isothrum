@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::testing::WEB_VM;
-use crate::{Endpoint, ErrorCode};
+use crate::{Endpoint, ErrorCode, NativeNeed, NativeOpen};
 use isoloom_manifest::contract::CONSOLES;
 use isoloom_manifest::{ConsoleProtocol, Provider};
 
@@ -62,6 +62,9 @@ async fn up_on(provider: Provider, h: Hypervisor, ports: &[u16]) -> (RunFolder, 
             }
             if line.contains("showvminfo") {
                 return Reply::ok(h.vminfo);
+            }
+            if line.starts_with("prlctl list --info --json") {
+                return Reply::ok(r#"[{"ID": "{b1}", "Name": "web-vm - web", "Home": "/Users/u/Parallels/web-vm - web.pvm/"}]"#);
             }
             Reply::ok("")
         }
@@ -313,4 +316,136 @@ async fn a_qemu_vm_started_without_a_vnc_display_says_to_restart_it() {
     let console = run.graphical_console("web").await.unwrap();
     assert_eq!(console.endpoint, Endpoint::Loopback("127.0.0.1:5902".parse().unwrap()));
     with.abort();
+}
+
+/// Writes what Vagrant records of `web`'s VM under `provider` (its `id` file) in `folder`'s run.
+fn vagrant_records(folder: &RunFolder, provider: &str, id: &str) {
+    let dir = folder.home.path().join("runs/web-vm/vagrant/machines/web").join(provider);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("id"), id).unwrap();
+}
+
+/// A program and its arguments, as a way to open a VM.
+fn program(program: &str, args: &[&str]) -> NativeOpen {
+    NativeOpen::Program {
+        program: program.into(),
+        args: args.iter().map(|a| (*a).to_owned()).collect(),
+    }
+}
+
+/// VirtualBox's app opens a running VM as a window on it (`startvm --type separate`); the status
+/// names it, and the program it needs.
+#[tokio::test]
+async fn virtualbox_opens_a_running_vm_in_a_window_of_its_own() {
+    let (folder, _, _, runner) = up_on(Provider::Virtualbox, RUNNING, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let vbox = run.native_console("web").await.unwrap();
+    assert_eq!(
+        (vbox.app.as_str(), vbox.ways),
+        ("VirtualBox", vec![program("VBoxManage", &["startvm", "web-vm - web", "--type", "separate"])])
+    );
+    let app = run.status().await.unwrap().native.unwrap();
+    assert_eq!((app.name.as_str(), app.needs), ("VirtualBox", vec![NativeNeed::Program("VBoxManage".into())]));
+}
+
+/// libvirt's VM opens in `virt-viewer` on its domain, else `remote-viewer` on its display.
+#[tokio::test]
+async fn libvirt_opens_a_running_vm_in_virt_viewer_else_remote_viewer() {
+    let (folder, _, _, runner) = up_on(Provider::Libvirt, RUNNING, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let libvirt = run.native_console("web").await.unwrap();
+    assert_eq!(
+        libvirt.ways,
+        vec![
+            program("virt-viewer", &["--connect", "qemu:///system", "web-vm_web"]),
+            program("remote-viewer", &["vnc://127.0.0.1:2"]),
+        ]
+    );
+}
+
+/// VMware's VM opens in Workstation (on Linux) on the `.vmx` Vagrant records.
+#[tokio::test]
+async fn vmware_opens_a_running_vm_on_its_vmx() {
+    let (folder, _, _, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931]).await;
+    vagrant_records(&folder, "vmware_desktop", "/vms/web-vm - web/web.vmx\n");
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let vmware = run.native_console("web").await.unwrap();
+    assert_eq!(
+        (vmware.app.as_str(), vmware.ways),
+        ("VMware Workstation", vec![program("vmware", &["/vms/web-vm - web/web.vmx"])])
+    );
+}
+
+/// Parallels' VM opens in Parallels Desktop on its bundle, where `prlctl` says it is.
+#[tokio::test]
+async fn parallels_opens_a_running_vm_on_its_bundle() {
+    let (folder, fake, _, runner) = up_on(Provider::Parallels, RUNNING, &[]).await;
+    vagrant_records(&folder, "parallels", "{b1}");
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let parallels = run.native_console("web").await.unwrap();
+    assert_eq!(
+        (parallels.app.as_str(), parallels.ways),
+        (
+            "Parallels Desktop",
+            vec![NativeOpen::MacApp {
+                app: "/Applications/Parallels Desktop.app".into(),
+                args: vec!["/Users/u/Parallels/web-vm - web.pvm".into()],
+            }]
+        )
+    );
+    assert_eq!(fake.last("prlctl").unwrap().line(), "prlctl list --info --json {b1}");
+}
+
+/// vagrant-qemu has no app of its own: none is named, and none opens.
+#[tokio::test]
+async fn qemu_has_no_app_to_open_a_vm_in() {
+    let (folder, _, _, runner) = up_on(Provider::Qemu, RUNNING, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    assert_eq!(run.status().await.unwrap().native, None);
+    let err = run.native_console("web").await.unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "machine `web` has no graphical console: its hypervisor has no app of its own to show it in"
+    );
+}
+
+/// A VM that isn't running, or whose record would be read as more than one argument (an option
+/// a name begins with), opens nothing.
+#[tokio::test]
+async fn a_stopped_vm_or_one_its_record_makes_an_option_of_opens_nothing() {
+    let (folder, _, h, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931]).await;
+    vagrant_records(&folder, "vmware_desktop", "--gui");
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let option = run.native_console("web").await.unwrap_err();
+    assert!(option.to_string().contains("can't be handed to its app"), "{option}");
+    h.lock().unwrap_or_else(PoisonError::into_inner).running = false;
+    let stopped = run.native_console("web").await.unwrap_err();
+    assert!(stopped.to_string().ends_with("it isn't running (stopped)"), "{stopped}");
+    assert_eq!(run.native_console("nope").await.unwrap_err().code(), ErrorCode::MachineUnknown);
+}
+
+/// The app each provider has, and what of it each host needs: Fusion on a Mac, Workstation
+/// elsewhere, Hyper-V's `vmconnect`, UTM's app, ESXi's and Proxmox VE's web consoles.
+#[test]
+fn each_provider_names_its_app_and_what_it_needs_on_each_host() {
+    use crate::graphical::native::app;
+    use isoloom_manifest::HostOs;
+    let vagrant = isoloom_manifest::parse(WEB_VM).unwrap();
+    let named = |p: Provider, host: HostOs| app(&vagrant, Some(p), host).map(|a| (a.name, a.needs));
+    assert_eq!(
+        named(Provider::VmwareDesktop, HostOs::Macos),
+        Some(("VMware Fusion".into(), vec![NativeNeed::MacApp("/Applications/VMware Fusion.app".into())]))
+    );
+    let workstation = named(Provider::VmwareDesktop, HostOs::Windows).unwrap();
+    assert_eq!(workstation.0, "VMware Workstation");
+    assert!(matches!(&workstation.1[0], NativeNeed::Program(p) if p.ends_with(r"VMware Workstation\vmware.exe")));
+    assert_eq!(
+        named(Provider::Hyperv, HostOs::Windows),
+        Some(("Hyper-V".into(), vec![NativeNeed::Program("vmconnect.exe".into())]))
+    );
+    assert_eq!(named(Provider::Utm, HostOs::Macos).unwrap().0, "UTM");
+    assert_eq!(named(Provider::VmwareEsxi, HostOs::Linux), Some(("ESXi".into(), vec![NativeNeed::Browser])));
+    assert_eq!(named(Provider::Qemu, HostOs::Macos), None);
+    let proxmox = isoloom_manifest::parse(crate::testing::SOLO_WEB_PROXMOX).unwrap();
+    assert_eq!(app(&proxmox, None, HostOs::Linux).map(|a| a.name), Some("Proxmox VE".into()));
 }

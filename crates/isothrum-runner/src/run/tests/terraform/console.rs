@@ -116,3 +116,24 @@ async fn a_console_request_cut_short_leaves_no_credentials_on_disk() {
     let config = s.runner.store.run_dir(run.name()).unwrap().join("proxmox-console.curl");
     assert!(!config.exists(), "the credentials are gone");
 }
+
+/// A Proxmox VE VM opens in Proxmox VE's own web console, at the server the run's address names,
+/// on the VM's node and id; the status names it, the default browser all it needs.
+#[tokio::test(start_paused = true)]
+async fn a_proxmox_vm_opens_in_proxmoxs_web_console() {
+    let s = up_with_api(|_| None).await;
+    let run = signed_in(&s);
+    let status = run.status().await.unwrap();
+    assert_eq!(
+        status.native.map(|a| (a.name, a.needs)),
+        Some(("Proxmox VE".into(), vec![crate::NativeNeed::Browser]))
+    );
+    let native = run.native_console("web").await.unwrap();
+    let [crate::NativeOpen::Url { url }] = native.ways.as_slice() else {
+        panic!("{:?}", native.ways)
+    };
+    assert!(
+        url.starts_with("https://") && url.ends_with("/?console=kvm&novnc=1&vmid=104&node=pve-run"),
+        "{url}"
+    );
+}

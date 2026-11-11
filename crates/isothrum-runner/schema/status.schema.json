@@ -51,6 +51,17 @@
         "string",
         "null"
       ]
+    },
+    "native": {
+      "description": "The hypervisor's own app that shows the run's running VMs in a window of its own\n([`crate::Running::native_console`]), and what of it this computer needs; none where the\nrun's provider has none (vagrant-qemu), or for a run of containers.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NativeApp"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -460,6 +471,79 @@
           "description": "Anything else worth showing.",
           "type": "string",
           "const": "info"
+        }
+      ]
+    },
+    "NativeApp": {
+      "description": "The hypervisor's own app that shows a running VM's screen in a window of its own, and what of\nit this computer must have (any one of `needs`).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Its name as its maker writes it (`VirtualBox`, `VMware Fusion`): what a button names.",
+          "type": "string"
+        },
+        "needs": {
+          "description": "What opens it, best first: the program or app [`NativeConsole::ways`] runs, in the same\norder.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NativeNeed"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "needs"
+      ]
+    },
+    "NativeNeed": {
+      "description": "What of a hypervisor's app must be on this computer for a way to open it.",
+      "oneOf": [
+        {
+          "description": "A program, by its name on `PATH` or its full path.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "program"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ]
+        },
+        {
+          "description": "A macOS app bundle.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "mac_app"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ]
+        },
+        {
+          "description": "The default browser (a web console).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "browser"
+            }
+          },
+          "required": [
+            "kind"
+          ]
         }
       ]
     }

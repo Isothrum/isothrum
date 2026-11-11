@@ -3,7 +3,7 @@
 
 use super::Running;
 use crate::Result;
-use crate::graphical::{Console, none, offered, reach};
+use crate::graphical::{Console, native, none, offered, reach};
 
 impl Running<'_> {
     /// `machine`'s graphical console (its screen), as its manifest says it has one under the
@@ -39,6 +39,28 @@ impl Running<'_> {
         }
         let outputs = self.bind_observed(&mut cx, observed).values;
         reach(&cx, target, console, &outputs).await
+    }
+
+    /// What opens running VM `machine` in its hypervisor's own app, beside the embedder's viewer
+    /// ([`crate::Status::native`] names the app): a program and its arguments, a macOS app and
+    /// what it opens, or an `https` URL, best first, each argument checked; the embedder runs the
+    /// first this computer has, never through a shell. Reads as [`Running::graphical_console`]
+    /// does, and runs nothing but a read (Parallels' `prlctl`, libvirt's `virsh`).
+    ///
+    /// # Errors
+    ///
+    /// `machine_unknown` for a machine the run doesn't have; `no_console` when its hypervisor
+    /// has no app (vagrant-qemu), it isn't a VM, isn't running, another process acts on it, or
+    /// what names it can't be handed to the app as it is.
+    pub async fn native_console(&self, machine: &str) -> Result<crate::NativeConsole> {
+        let target = self.machine_named(machine)?;
+        let events = self.silent();
+        let (record, mut cx) = self.silent_cx(&events)?;
+        let app = native::app(self.manifest(), cx.scope.provider, cx.scope.host).ok_or_else(|| native::no_app(target))?;
+        let (_, observed, _) = self.read_for_query(&mut cx, record.as_ref()).await?;
+        runs_now(target, &observed)?;
+        self.bind_observed(&mut cx, observed);
+        native::console(&cx, target, &app).await
     }
 }
 

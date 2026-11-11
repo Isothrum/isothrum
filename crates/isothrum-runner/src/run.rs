@@ -206,6 +206,7 @@ impl<'r> Running<'r> {
             networks: self.networks(&cx),
             outputs,
             message,
+            native: crate::graphical::native::app(self.manifest(), provider, cx.scope.host),
         })
     }
 

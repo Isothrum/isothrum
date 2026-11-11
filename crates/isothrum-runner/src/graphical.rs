@@ -18,6 +18,7 @@
 //! - **An SSH tunnel**: `ssh -N -L 127.0.0.1:<port>:<host>:<port>` ([`tunnel`]).
 
 pub(crate) mod chosen;
+pub(crate) mod native;
 mod proxmox;
 mod tunnel;
 mod vagrant;
@@ -32,6 +33,7 @@ use crate::error::Error;
 use crate::executor::Cx;
 use crate::secrets::SecretValue;
 
+pub use native::{NativeApp, NativeConsole, NativeNeed, NativeOpen};
 pub use proxmox::ProxmoxVnc;
 
 /// What a status says of a machine's graphical console under the run's provider: its protocol,

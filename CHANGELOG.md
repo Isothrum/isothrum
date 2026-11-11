@@ -550,6 +550,14 @@ change.
   it can't be shown now (`unavailable`): its hypervisor gives it no display, or it doesn't answer
   where the hypervisor says (libvirt, QEMU, VirtualBox and the runner's own are asked; one through
   Proxmox's API or an SSH tunnel isn't opened for a status).
+- **A VM's screen in its hypervisor's own app.** `Running::native_console(machine)` gives what
+  opens a running VM there (`NativeConsole`: the app, and its ways, best first: a program and its
+  arguments, a macOS app and what it opens, or an `https` URL), never a shell line, each argument
+  checked: VirtualBox (`VBoxManage startvm <vm> --type separate`), Hyper-V (`vmconnect.exe`),
+  libvirt (`virt-viewer`, else `remote-viewer`), VMware Fusion or Workstation on the VM's `.vmx`,
+  Parallels Desktop on its bundle, UTM, ESXi's Host Client and Proxmox VE's web console;
+  vagrant-qemu has no app. A status names the run's app and what of it this computer needs
+  (`Status::native`, `NativeApp`).
 - **`isothrum key --json`** prints `{"public_key": …}`; `--json` ignored it. The policies list the
   `console`, `screen` and `key` JSON documents as stable machine output, with their fields, and the
   `--json` help says what each command prints.

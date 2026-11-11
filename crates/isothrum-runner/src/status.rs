@@ -175,6 +175,11 @@ pub struct Status {
     pub outputs: Vec<OutputValue>,
     /// The run's message, filled, once the run is ready.
     pub message: Option<String>,
+    /// The hypervisor's own app that shows the run's running VMs in a window of its own
+    /// ([`crate::Running::native_console`]), and what of it this computer needs; none where the
+    /// run's provider has none (vagrant-qemu), or for a run of containers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<crate::NativeApp>,
 }
 
 impl Status {
