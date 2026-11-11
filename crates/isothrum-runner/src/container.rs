@@ -153,8 +153,8 @@ mod tests {
         assert_eq!(run_root(Path::new("/l/x/.isoloom-2/docker-vm/proxmox")), Path::new("/l/x"));
         assert_eq!(run_root(Path::new("/tmp/m")), Path::new("/tmp/m"));
         assert_eq!(
-            run_root(Path::new("/l/x/.isoloom-reach/m")),
-            Path::new("/l/x/.isoloom-reach/m"),
+            run_root(Path::new("/l/x/.isoloom-old/m")),
+            Path::new("/l/x/.isoloom-old/m"),
             "not an outputs folder"
         );
         assert_eq!(run_root(Path::new("/l/x/.isoloomfoo/docker")), Path::new("/l/x/.isoloomfoo/docker"));

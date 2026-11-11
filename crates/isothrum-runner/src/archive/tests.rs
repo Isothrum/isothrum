@@ -42,12 +42,13 @@ fn the_walk_never_enters_what_no_copy_takes_even_when_outputs_go_in() {
         "a/b/.vagrant",
         ".terraform",
         ".isoloom/docker/.terraform",
-        ".isoloom-reach",
-        "infra/.isoloom-reach",
         "infra/env.tfstate.d",
     ] {
         assert_eq!(filter.visit(rel, true), out, "{rel}");
     }
+    // A `.isoloom*` folder further down is the project's: Isoloom writes none there (nor a
+    // `.isoloom-reach` anywhere).
+    assert_eq!(filter.visit("infra/.isoloom-reach", true), Visit { add: true, descend: true });
     // An output a guest reads goes in; Isoloom's other outputs are walked only for it.
     assert_eq!(filter.visit(".isoloom/docker", true), Visit { add: true, descend: true });
     assert_eq!(filter.visit(".isoloom", true), Visit { add: false, descend: true });
@@ -65,7 +66,7 @@ fn an_ignored_folder_is_walked_only_when_a_rule_may_bring_something_back() {
 }
 
 #[test]
-fn terraform_state_and_the_runners_logins_stay_out_at_any_depth() {
+fn terraform_state_stays_out_at_any_depth() {
     let project = tempfile::tempdir().unwrap();
     let root = project.path();
     for rel in ["", "infra/", "a/b/"] {
@@ -74,7 +75,6 @@ fn terraform_state_and_the_runners_logins_stay_out_at_any_depth() {
         file(root, &format!("{rel}terraform.tfstate.backup"), "{\"secret\": \"pw\"}\n");
         file(root, &format!("{rel}.terraform.tfstate.lock.info"), "{}\n");
         file(root, &format!("{rel}crash.log"), "panic\n");
-        file(root, &format!("{rel}.isoloom-reach/web"), "admin@203.0.113.7\n");
         file(root, &format!("{rel}.terraform/providers/x"), "binary\n");
     }
     let names = archived(root, &[]);
@@ -154,7 +154,7 @@ fn a_folder_no_copy_takes_is_never_read() {
     let root = project.path();
     file(root, "isoloom.yml", "version: 1\n");
     file(root, ".isoloom/docker/compose.yml", "name: x\n");
-    let shut = [".git", ".isoloom/docker/.terraform", "infra/.isoloom-reach"];
+    let shut = [".git", ".isoloom/docker/.terraform", "infra/.vagrant"];
     for rel in shut {
         file(root, &format!("{rel}/x"), "\n");
         std::fs::set_permissions(root.join(rel), std::fs::Permissions::from_mode(0o000)).unwrap();

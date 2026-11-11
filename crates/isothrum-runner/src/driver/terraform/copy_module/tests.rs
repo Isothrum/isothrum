@@ -3,8 +3,8 @@ use std::path::Path;
 use super::*;
 
 /// A run's project: `isoloom.yml`, its module `terraform/` (a variable file, a sub-module, and
-/// what no copy takes: a provider cache, a state, crash logs, version control, Vagrant's and the
-/// runner's state), and the manifest's folder.
+/// what no copy takes: a provider cache, a state, crash logs, version control and Vagrant's
+/// state), and the manifest's folder.
 fn project() -> (tempfile::TempDir, PathBuf) {
     let root = tempfile::tempdir().unwrap();
     let module = root.path().join("terraform");
@@ -23,7 +23,6 @@ fn project() -> (tempfile::TempDir, PathBuf) {
         ("modules/site/crash.log", "x"),
         (".git/config", "x"),
         (".vagrant/machines", "x"),
-        (".isoloom-reach/web", "x"),
     ] {
         std::fs::create_dir_all(module.join(file).parent().unwrap()).unwrap();
         std::fs::write(module.join(file), text).unwrap();
@@ -51,7 +50,7 @@ fn files(dir: &Path) -> Vec<String> {
 }
 
 /// Regression: the copy left out `.terraform` and states only, so a crash log (which can hold a
-/// variable's secret), `.git`, `.vagrant` and `.isoloom-reach` went into the run's state folder.
+/// variable's secret), `.git` and `.vagrant` went into the run's state folder.
 #[test]
 fn the_module_is_copied_without_its_providers_or_state() {
     let (_root, dir) = project();

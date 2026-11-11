@@ -191,7 +191,7 @@ mod tests {
     /// Regression: only `.isoloom/` was read, so a project generated as an instance
     /// (`isoloom generate --instance 2`, written to `.isoloom-2/`) had no manifest. An instance's
     /// is found too, named with its folder, by its target alone or with the folder; `.isoloom`'s
-    /// own target comes first; a folder that only starts like one (`.isoloom-reach`) isn't read.
+    /// own target comes first; a folder that only starts like one (`.isoloom-old`) isn't read.
     #[test]
     fn an_instances_manifest_is_found_in_its_own_outputs_folder() {
         let run = tempfile::tempdir().unwrap();
@@ -201,7 +201,7 @@ mod tests {
             std::fs::write(&path, "{}").unwrap();
             path
         };
-        write(".isoloom-reach/docker/run.json");
+        write(".isoloom-old/docker/run.json");
         write(".isoloomfoo/docker/run.json");
         let second = write(".isoloom-2/docker/run.json");
         assert_eq!(manifest(run.path(), None).unwrap(), second);

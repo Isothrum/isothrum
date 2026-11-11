@@ -47,8 +47,8 @@ change.
   only while they read.
 - **`terraform.copy_module` copies nothing a copy of a project never takes.** It left out
   `.terraform` and states only, so Terraform's crash logs (`crash.log`, `crash.*.log`, which can
-  hold a variable's secret), `.git`, `.vagrant` and `.isoloom-reach` went into the run's state
-  folder; it now follows Isoloom's `never_copied` rule, as the project's archive does.
+  hold a variable's secret), `.git` and `.vagrant` went into the run's state folder; it now
+  follows Isoloom's `never_copied` rule, as the project's archive does.
 - **A value given twice on the command line is refused** (`--param A=…` or `--secret-from-env A`
   repeated: a usage error naming it), where the last one was kept without a word.
 - **A half-drawn VLAN is refused.** A LAN with a `switch` but no `vlan`, or the reverse, compiles to
@@ -174,12 +174,11 @@ change.
 - **`project.archive` no longer puts a Terraform state or Isoloom's other outputs in the guest's
   copy.** The archive left out only `.git`, `.vagrant`, `.terraform` and the top's
   `.isoloom-project*`, plus what `.isoloomignore` listed, so a `*.tfstate` (the secrets Terraform
-  saw, in plain text), its backups and lock, crash logs, the runner's `.isoloom-reach/` logins and
-  every `.isoloom/` output went into the archive a step pipes into a guest. It now leaves out
-  exactly what the generated files' copies do (`isoloom_manifest::ignore::Rules::for_copy`):
-  Isoloom's outputs but those the step's new `with.outputs` names, and, at any depth, version
-  control and the tools' state, in those outputs too. The walk never enters a folder no copy
-  takes.
+  saw, in plain text), its backups and lock, crash logs and every `.isoloom/` output went into the
+  archive a step pipes into a guest. It now leaves out exactly what the generated files' copies do
+  (`isoloom_manifest::ignore::Rules::for_copy`): Isoloom's outputs but those the step's new
+  `with.outputs` names, and, at any depth, version control and the tools' state, in those outputs
+  too. The walk never enters a folder no copy takes.
 - **Ctrl-C or a cancelled CI job no longer leaves the tools running.** Each tool runs in its own
   process group (a job object on Windows), so SIGINT and SIGTERM reached only `isothrum`, and
   Terraform or Vagrant kept running. `isothrum` now races its command against SIGINT and SIGTERM
@@ -687,6 +686,9 @@ change.
 
 ### Changed
 
+- **A `.isoloom-reach` folder is the project's own.** Isoloom no longer writes a machine's login
+  there, and its copy rules no longer name it, so `project.archive` and `terraform.copy_module`
+  copy one below the project's top as any other folder.
 - **Breaking: the Vagrant provider is Isoloom's `Provider`, not a string.** `RunOptions::provider`,
   `RunRecord::provider` and `Status::provider` are `Option<Provider>`, and
   `RunOptions::with_provider` takes a `Provider`. Their JSON is the same wire name

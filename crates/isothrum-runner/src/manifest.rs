@@ -46,9 +46,10 @@ pub const MANIFEST_FILE: &str = "run.json";
 
 /// Whether a folder named `name`, at a project's top, is one Isoloom writes the project's outputs
 /// under: [`OUTPUT_DIR`] (`.isoloom`), or an instance's `.isoloom-<n>`, `n` an instance Isoloom
-/// takes ([`isoloom_manifest::Instance::new`]: 1 to 99) as it writes it (no sign, no leading zero). Not `.isoloom-reach` nor any other `.isoloom*`
-/// name. Isoloom publishes the way there (`isoloom_spec::instance::output_dir`) but not this way
-/// back; a test holds this copy to the folders Isoloom generates.
+/// takes ([`isoloom_manifest::Instance::new`]: 1 to 99) as it writes it (no sign, no leading
+/// zero). No other `.isoloom*` name. Isoloom publishes the way there
+/// (`isoloom_spec::instance::output_dir`) but not this way back; a test holds this copy to the
+/// folders Isoloom generates.
 #[must_use]
 pub fn is_outputs_folder(name: &str) -> bool {
     let Some(rest) = name.strip_prefix(OUTPUT_DIR) else {
@@ -109,7 +110,7 @@ mod tests {
             ".isoloom-02",
             ".isoloom-+2",
             ".isoloom-",
-            ".isoloom-reach",
+            ".isoloom-old",
             ".isoloomfoo",
             "isoloom",
             ".isoloom-2/",
