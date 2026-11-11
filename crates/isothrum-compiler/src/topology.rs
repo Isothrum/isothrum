@@ -27,7 +27,8 @@ pub struct Topology {
 
 impl Topology {
     /// The key of the LAN that is VLAN `id` of switch `switch`: what a network the spec nests
-    /// under the switch's LAN came from, as the topology names it.
+    /// under the switch's LAN came from, as the topology names it (a topology that compiles has
+    /// at most one).
     #[must_use]
     pub fn vlan_lan(&self, switch: &str, id: u16) -> Option<&str> {
         self.networks
@@ -51,7 +52,8 @@ pub struct Lan {
     /// In the spec it nests under that switch's LAN (`sw1.vlan10`).
     #[serde(default)]
     pub switch: Option<String>,
-    /// A VLAN's id on its switch.
+    /// A VLAN's id on its switch: one LAN per id of a switch
+    /// ([`Error::VlanTaken`](crate::Error::VlanTaken)).
     #[serde(default)]
     pub vlan: Option<u16>,
     /// The switch's machine when it runs a Cisco OS (a node of its own, with no networks):

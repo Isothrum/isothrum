@@ -231,3 +231,29 @@ fn a_vlan_with_conditions_is_refused() -> Outcome {
     accepted(&topo)?;
     Ok(())
 }
+
+/// Regression: two LANs on the same VLAN of a switch compiled into one block, the first LAN's
+/// machines moved silently into the second's; it is refused, naming both.
+#[test]
+fn two_lans_on_the_same_vlan_of_a_switch_are_refused() -> Outcome {
+    let mut topo = two_lans()?;
+    for (name, block) in [("a", "10.20.1.0/24"), ("b", "10.20.2.0/24")] {
+        let vlan = Lan {
+            switch: Some("sw1".into()),
+            vlan: Some(10),
+            ..lan(block)
+        };
+        topo.networks.insert(name.into(), vlan);
+    }
+    join(&mut topo, "server", "a", None)?;
+    join(&mut topo, "client", "b", None)?;
+    let e = compile(&topo).unwrap_err();
+    assert!(
+        matches!(&e, Error::VlanTaken { switch, vlan: 10, first, second } if switch == "sw1" && first == "a" && second == "b"),
+        "{e}"
+    );
+    assert_eq!(e.to_string(), "LANs `a` and `b` are both VLAN 10 of switch `sw1`; give one another VLAN id");
+    topo.networks["b"].vlan = Some(20);
+    accepted(&topo)?;
+    Ok(())
+}

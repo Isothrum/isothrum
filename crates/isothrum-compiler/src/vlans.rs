@@ -25,11 +25,23 @@ fn vlan_of(lan: &Lan) -> Option<(&str, u16)> {
 }
 
 /// Refuses what a switch's VLANs can't say in the spec: a switch named like a plain LAN or like
-/// a cable's network (its VLANs nest under a network of the switch's name), and a VLAN with a
-/// `tc` (Isoloom's VLANs have none).
+/// a cable's network (its VLANs nest under a network of the switch's name), a VLAN with a `tc`
+/// (Isoloom's VLANs have none), and two LANs on the same VLAN of a switch (the spec has one block
+/// per VLAN id).
 pub(crate) fn check(topo: &Topology) -> Result<()> {
     if let Some((name, _)) = topo.networks.iter().find(|(_, l)| vlan_of(l).is_some() && l.tc.is_some()) {
         return Err(Error::VlanTc { lan: name.clone() });
+    }
+    let mut seen: IndexMap<(&str, u16), &String> = IndexMap::new();
+    for (name, (switch, vlan)) in topo.networks.iter().filter_map(|(n, l)| Some((n, vlan_of(l)?))) {
+        if let Some(first) = seen.insert((switch, vlan), name) {
+            return Err(Error::VlanTaken {
+                switch: switch.to_owned(),
+                vlan,
+                first: first.clone(),
+                second: name.clone(),
+            });
+        }
     }
     let plain = |name: &String| topo.networks.get(name).is_some_and(|l| vlan_of(l).is_none());
     for switch in topo.networks.values().filter_map(|l| l.switch.as_ref()) {

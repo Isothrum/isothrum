@@ -135,6 +135,18 @@ pub enum Error {
     /// Isoloom's format holds).
     #[error("Isoloom doesn't read the compiled spec: {}", lines(.0))]
     Unreadable(Problems),
+    /// Two LANs are the same VLAN of the same switch: the spec holds one block per VLAN id.
+    #[error("LANs `{first}` and `{second}` are both VLAN {vlan} of switch `{switch}`; give one another VLAN id")]
+    VlanTaken {
+        /// The switch.
+        switch: String,
+        /// The VLAN id.
+        vlan: u16,
+        /// The LAN drawn first.
+        first: String,
+        /// The other one.
+        second: String,
+    },
 }
 
 /// The problems, on one line, separated by semicolons.
