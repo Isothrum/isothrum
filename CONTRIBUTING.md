@@ -11,30 +11,45 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
 
 1. Install Rust with [rustup](https://rustup.rs/). The toolchain is pinned by
    `rust-toolchain.toml` (1.99.0, with rustfmt and clippy); rustup installs it on first use.
-2. Clone the repository and build:
+2. **Until Isoloom's next release, clone Isoloom beside this repository and patch its crates in.**
+   `main` uses Isoloom API that the version `Cargo.toml` pins (1.0.9 on crates.io) doesn't have
+   yet, so a build against crates.io alone fails. Clone both side by side, Isoloom at its `main`:
 
    ```sh
+   git clone https://github.com/isoloom/isoloom
    git clone https://github.com/Isothrum/isothrum
+   ```
+
+   Then write `isothrum/.cargo/config.toml` (git-ignored: never commit it), patching every Isoloom
+   crate the build reads to that checkout:
+
+   ```toml
+   [patch.crates-io]
+   isoloom-ansible = { path = "../isoloom/crates/backends/isoloom-ansible" }
+   isoloom-compose = { path = "../isoloom/crates/backends/isoloom-compose" }
+   isoloom-kubernetes = { path = "../isoloom/crates/backends/isoloom-kubernetes" }
+   isoloom-terraform = { path = "../isoloom/crates/backends/isoloom-terraform" }
+   isoloom-vagrant = { path = "../isoloom/crates/backends/isoloom-vagrant" }
+   isoloom-catalogue = { path = "../isoloom/crates/core/isoloom-catalogue" }
+   isoloom-manifest = { path = "../isoloom/crates/core/isoloom-manifest" }
+   isoloom-plan = { path = "../isoloom/crates/core/isoloom-plan" }
+   isoloom-render = { path = "../isoloom/crates/core/isoloom-render" }
+   isoloom-spec = { path = "../isoloom/crates/core/isoloom-spec" }
+   isoloom-targets = { path = "../isoloom/crates/targets/isoloom-targets" }
+   ```
+
+   A path is read from the folder that holds `.cargo/`; the fuzz crate (`fuzz/`) reads the same
+   file. Then build:
+
+   ```sh
    cd isothrum
    cargo build
    ```
 
-3. **When the code needs an unreleased Isoloom.** The Isoloom crates come from crates.io at the
-   version `Cargo.toml` names. When a change needs Isoloom's next, unreleased version, clone
-   Isoloom beside this repository and patch the crates to it in a git-ignored
-   `.cargo/config.toml`, never committed:
-
-   ```toml
-   [patch.crates-io]
-   isoloom-manifest = { path = "../isoloom/crates/core/isoloom-manifest" }
-   isoloom-plan = { path = "../isoloom/crates/core/isoloom-plan" }
-   isoloom-spec = { path = "../isoloom/crates/core/isoloom-spec" }
-   isoloom-targets = { path = "../isoloom/crates/targets/isoloom-targets" }
-   # ... and the Isoloom crates those depend on
-   ```
-
-   A patched build rewrites `Cargo.lock` and `fuzz/Cargo.lock` for the local crates: don't commit
-   those changes.
+   The patched build rewrites `Cargo.lock` and `fuzz/Cargo.lock` for the local crates: don't
+   commit those changes, and run the gates below without `--locked` (it refuses the rewrite).
+   CI builds against crates.io (`--locked`, no patch), so its jobs fail on `main` until then. Once
+   Isoloom releases, the pins are raised to it and a plain clone builds with no patch.
 
 Optional tools the gates use: `cargo install cargo-nextest cargo-machete cargo-deny
 cargo-semver-checks typos-cli`, Node (the ratchet runs jscpd through `npx`), and `wasm-pack` for
