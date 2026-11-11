@@ -209,7 +209,7 @@ async fn an_ephemeral_port_with_no_free_host_port_left_fails_the_start() {
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
     assert!(
         matches!(&err, crate::Error::ToolFailed { step, reason } if step == "host-ports"
-            && reason.starts_with("no free host port over tcp is left to pin machine `")),
+            && reason.starts_with("no free host port over tcp that another run starting hasn't reserved could be found to pin machine `")),
         "{err}"
     );
     assert!(l.fake.last("vagrant up").is_none(), "nothing was made");

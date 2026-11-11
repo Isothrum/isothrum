@@ -46,9 +46,11 @@ impl<'c, 'a> PortPick<'c, 'a> {
     ///
     /// # Errors
     ///
-    /// `tool_failed` for `step` when no free host port is left: the run would otherwise start on
-    /// ports nobody pinned, and a resume would get new addresses. `io` when the loopback
-    /// couldn't be bound to find one (no file descriptor left, a loopback that is down).
+    /// `tool_failed` for `step` when no free host port another run starting hasn't reserved is
+    /// found (on this computer: every port the OS offered was reserved by another run of this
+    /// runner, or held on the IPv6 loopback): the run would otherwise start on ports nobody pinned,
+    /// and a resume would get new addresses. `io` when the loopback couldn't be bound to find one
+    /// (no file descriptor left, a loopback that is down).
     pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<u16>, protocol: Protocol) -> Result<u16> {
         if let Some(port) = preferred.filter(|_| self.fixed).and_then(|n| self.fixed(n, protocol)) {
             return Ok(port);
@@ -57,7 +59,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
         let free = self.free(protocol).map_err(Error::io(format!("a {over} port on 127.0.0.1"), "bound"))?;
         free.ok_or_else(|| Error::ToolFailed {
             step: step.to_owned(),
-            reason: format!("no free host port over {over} is left to pin {what} to"),
+            reason: format!("no free host port over {over} that another run starting hasn't reserved could be found to pin {what} to"),
         })
     }
 

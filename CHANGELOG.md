@@ -87,8 +87,9 @@ change.
   resume got new addresses; a Vagrant start left the port out in silence, so the VM forwarded it at
   its `preferred` number, which a resume needn't get again, and the QEMU helper VM's SSH forward
   fell back to 50022 the same way. Both drivers now pick by one rule (the `preferred` number with
-  `ISOLOOM_PUBLISH_FIXED` when no other run reserved it, else a free loopback port) and fail with
-  `tool_failed` naming the port when none is left. A loopback the runner can't bind to look for one
+  `ISOLOOM_PUBLISH_FIXED` when no other run reserved it, else a free loopback port, one the IPv6
+  loopback doesn't hold either, as the free-port check counts a port) and fail with `tool_failed`
+  naming the port when no free one another run starting hasn't reserved is found. A loopback the runner can't bind to look for one
   (no file descriptor left, a loopback that is down), which read as no free port, now fails the pick
   with `io` and the OS's reason (`a tcp port on 127.0.0.1 couldn't be bound: …`); the `io` code
   covers a socket on this computer too.

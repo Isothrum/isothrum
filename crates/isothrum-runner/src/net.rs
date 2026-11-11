@@ -74,22 +74,43 @@ impl sealed::Ports for LoopbackPorts {
         v4.is_err() || v6.is_err_and(|e| held_elsewhere(&e))
     }
 
+    /// A port the OS offers on the IPv4 loopback that [`in_use`](sealed::Ports::in_use) wouldn't call
+    /// taken: one held on the IPv6 loopback is passed over ([`free_on_both`]).
     fn pick_free(&self, protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
-        Ok(Some(match protocol {
+        free_on_both(protocol, || match protocol {
             Protocol::Udp => {
                 let s = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))?;
-                HeldPort::new(s.local_addr()?.port(), s)
+                Ok(HeldPort::new(s.local_addr()?.port(), s))
             }
             Protocol::Tcp => {
                 let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-                HeldPort::new(l.local_addr()?.port(), l)
+                Ok(HeldPort::new(l.local_addr()?.port(), l))
             }
-        }))
+        })
     }
 
     fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool> {
         Box::pin(async move { matches!(tokio::time::timeout(within, tokio::net::TcpStream::connect((host, port))).await, Ok(Ok(_))) })
     }
+}
+
+/// How many ports the OS may offer a pick before it gives up.
+const PICKS: usize = 16;
+
+/// The first port `next` holds on the IPv4 loopback that the IPv6 one doesn't hold either, as
+/// [`LoopbackPorts`]'s `in_use` counts a port; each one passed over stays held meanwhile, so it
+/// isn't offered again. None after [`PICKS`] offers.
+fn free_on_both(protocol: Protocol, mut next: impl FnMut() -> std::io::Result<HeldPort>) -> std::io::Result<Option<HeldPort>> {
+    let mut passed = Vec::new();
+    for _ in 0..PICKS {
+        let held = next()?;
+        if bind(Ipv6Addr::LOCALHOST.into(), held.port, protocol).is_err_and(|e| held_elsewhere(&e)) {
+            passed.push(held);
+        } else {
+            return Ok(Some(held));
+        }
+    }
+    Ok(None)
 }
 
 /// Binds (then frees) `ip:port` over `protocol`.
@@ -225,6 +246,30 @@ mod tests {
         let b = LoopbackPorts.pick_free(Protocol::Tcp).unwrap().unwrap();
         assert_ne!(a.port, b.port);
         assert!(LoopbackPorts.in_use(a.port, Protocol::Tcp));
+    }
+
+    /// Regression: a pick bound the IPv4 loopback only, so it could hand out a port held on the
+    /// IPv6 one, which `in_use` calls taken. Such a port is passed over (kept held meanwhile).
+    #[test]
+    fn a_port_held_on_the_ipv6_loopback_is_passed_over() {
+        let Ok(v6) = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)) else {
+            return; // No IPv6 loopback here: nothing can hold a port on it.
+        };
+        let held = v6.local_addr().unwrap().port();
+        let Ok(v4) = TcpListener::bind((Ipv4Addr::LOCALHOST, held)) else {
+            return; // The OS took the IPv4 port too: nothing to pass over.
+        };
+        let mut offers = vec![HeldPort::new(held, v4)].into_iter();
+        let picked = free_on_both(Protocol::Tcp, || {
+            Ok(offers.next().unwrap_or_else(|| {
+                let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+                HeldPort::new(l.local_addr().unwrap().port(), l)
+            }))
+        })
+        .unwrap()
+        .unwrap();
+        assert_ne!(picked.port, held);
+        assert!(LoopbackPorts.in_use(held, Protocol::Tcp), "{held} held on ::1");
     }
 
     #[tokio::test]

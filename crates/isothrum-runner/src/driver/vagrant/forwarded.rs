@@ -46,7 +46,8 @@ const PICK_STEP: &str = "host-ports";
 ///
 /// # Errors
 ///
-/// `tool_failed` ([`PICK_STEP`]) when no free host port is left for one: as Compose's pick does.
+/// `tool_failed` ([`PICK_STEP`]) when no free host port is found for one, `io` when the loopback
+/// can't be bound to look for one: as Compose's pick does ([`PortPick::pin`]).
 pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
     let mut chosen = BTreeMap::new();
     if cx.scope.runs_on(Provider::VmwareEsxi) {

@@ -201,7 +201,8 @@ impl AnyDriver {
     ///
     /// # Errors
     ///
-    /// `tool_failed` when no free host port is left for one.
+    /// `tool_failed` when no free host port is found for one, `io` when the loopback can't be
+    /// bound to look for one ([`port_pick::PortPick::pin`]).
     pub(crate) fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
         match self {
             AnyDriver::Vagrant(_) => vagrant::forwarded::pin(cx),
