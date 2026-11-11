@@ -644,7 +644,7 @@
           "const": "not_parkable"
         },
         {
-          "description": "Nothing of the run is left to resume.",
+          "description": "Nothing of the run, or not every one of its machines, is left to resume.",
           "type": "string",
           "const": "nothing_to_resume"
         },

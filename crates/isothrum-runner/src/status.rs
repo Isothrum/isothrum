@@ -247,6 +247,19 @@ pub(crate) fn any_present(machines: &[MachineStatus]) -> bool {
     machines.iter().any(|m| m.state != MachineState::Absent)
 }
 
+/// The member machines of `machines` that are gone (absent) while something of the run is
+/// there: removed outside the runner.
+pub(crate) fn gone_members(machines: &[MachineStatus]) -> Vec<String> {
+    if !any_present(machines) {
+        return Vec::new();
+    }
+    machines
+        .iter()
+        .filter(|m| m.role == Role::Member && m.state == MachineState::Absent)
+        .map(|m| m.name.clone())
+        .collect()
+}
+
 /// Whether any member machine of `machines` runs.
 pub(crate) fn any_member_running(machines: &[MachineStatus]) -> bool {
     machines.iter().any(|m| m.role == Role::Member && m.state.runs())

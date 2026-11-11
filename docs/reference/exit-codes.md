@@ -33,7 +33,7 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `running_elsewhere` | The run is recorded on another place (server or account) than the one asked for. | Act on the run with the `--host-label` it was started with. |
 | `port_in_use` | A host port the run publishes is taken. | Stop what holds the port, or start the run with other published ports. |
 | `not_parkable` | The manifest has no park steps for that mode. | Park it in the other mode (`--mode`), or `down` it. |
-| `nothing_to_resume` | Nothing of the run is left to resume. | Start it again with `up`. |
+| `nothing_to_resume` | Nothing of the run, or not every one of its machines, is left to resume. | Start it again with `up`. |
 | `not_running` | The run isn't up. | Start it with `up` (or `resume` a parked run) first. |
 | `not_ready` | A ready condition didn't hold. | Read the `ready` events: the service the condition waits for didn't come up. `status`, then `down` and `up` again. |
 | `secret_missing` | A required secret or input has no value. | Give the value: `--secret-from-env NAME[=VAR]`, with the variable set. |

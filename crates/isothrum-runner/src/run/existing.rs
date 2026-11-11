@@ -84,7 +84,9 @@ impl Running<'_> {
     ///
     /// # Errors
     ///
-    /// Fails with `nothing_to_resume` when nothing is left (the parked mark is dropped), and as
+    /// Fails with `nothing_to_resume` when nothing is left (the parked mark is dropped) or a
+    /// member machine is gone (removed outside the runner: the run is then recorded `failed`, so
+    /// the next `up` clears what is left and starts it afresh), and as
     /// [`Running::up`] does for a tool, a step, a ready condition or the state.
     pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
         self.operate(Op::Resume, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
@@ -98,11 +100,25 @@ impl Running<'_> {
     /// Resumes the run of `record` in `cx` (the context of an operation on the run that exists,
     /// [`Running::existing`]), its tools already checked.
     pub(crate) async fn resume_work(&self, mut record: RunRecord, cx: &mut Cx<'_>) -> Result<Done<Started>> {
-        if !self.exists(cx).await? {
+        let observed = self.observe(cx).await?;
+        if !crate::status::any_present(&observed.machines) {
             // Nothing left: the parked mark goes, and a fresh start is the way back.
             record.state = RunState::Absent;
             self.runner.store.save(&record)?;
             return Err(Error::NothingToResume { run: self.name().to_string() });
+        }
+        let gone = crate::status::gone_members(&observed.machines);
+        if !gone.is_empty() {
+            // A machine removed outside the runner: the resume steps would bring back the rest
+            // without it, or a VM's would make it again from its image, never set up (`vagrant up
+            // --no-provision`), and call the run ready. What is left is a failed run's, which
+            // the next start clears.
+            record.state = RunState::Failed;
+            self.runner.store.save(&record)?;
+            return Err(Error::PartlyGone {
+                run: self.name().to_string(),
+                machines: gone,
+            });
         }
         self.begin(&mut record, Op::Resume)?;
         run_steps(cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;

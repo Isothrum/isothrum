@@ -155,7 +155,9 @@ impl Running<'_> {
             // A start that failed with its machines up: what it left goes, then a fresh start.
             _ if record.state == RunState::Failed => Ok(Occupancy::Leftovers),
             _ if running && !parked => already(),
-            Occupied::ResumeParked if parked => Ok(Occupancy::Parked),
+            // A parked run a machine of which was removed meanwhile can't resume as it was: what
+            // is left goes, then a fresh start (`resume` alone refuses it: `nothing_to_resume`).
+            Occupied::ResumeParked if parked && crate::status::gone_members(&observed.machines).is_empty() => Ok(Occupancy::Parked),
             _ => Ok(Occupancy::Leftovers),
         }
     }

@@ -50,7 +50,12 @@ fn setup_with(manifest: &str) -> Setup {
     let fake = Arc::new(FakeProcesses::new(move |call| {
         let line = call.line();
         let now = state.load(Ordering::SeqCst);
-        let web = |s: &str| format!(r#"{{"Service":"web","State":"{s}","Publishers":[{{"PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"}}]}}"#);
+        // The project's two machines (a resume refuses a run one of whose machines is gone).
+        let web = |s: &str| {
+            format!(
+                "{{\"Service\":\"web\",\"State\":\"{s}\",\"Publishers\":[{{\"PublishedPort\":41873,\"TargetPort\":80,\"Protocol\":\"tcp\"}}]}}\n{{\"Service\":\"db\",\"State\":\"{s}\"}}"
+            )
+        };
         match () {
             () if line.contains(" ps --all ") && now == STOPPED => Reply::ok(&web("exited")),
             () if line.contains(" ps ") && !line.contains(" ps -q ") => Reply::ok(if now == UP { web("running") } else { String::new() }.as_str()),

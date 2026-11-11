@@ -54,7 +54,7 @@ pub enum ErrorCode {
     PortInUse,
     /// The manifest has no park steps for that mode.
     NotParkable,
-    /// Nothing of the run is left to resume.
+    /// Nothing of the run, or not every one of its machines, is left to resume.
     NothingToResume,
     /// The run isn't up.
     NotRunning,
@@ -287,6 +287,15 @@ pub enum Error {
         /// The run.
         run: String,
     },
+    /// Some of the run's machines are gone (removed outside the runner): a resume brings back
+    /// only what was kept, so it can't bring the run back as it was.
+    #[error("run `{run}` can't resume as it was: {} gone: start it again", gone(machines))]
+    PartlyGone {
+        /// The run.
+        run: String,
+        /// Its machines that are gone.
+        machines: Vec<String>,
+    },
     /// The run isn't up.
     #[error("run `{run}` isn't running")]
     NotRunning {
@@ -451,7 +460,7 @@ impl Error {
             Error::RunningElsewhere { .. } => ErrorCode::RunningElsewhere,
             Error::PortInUse { .. } => ErrorCode::PortInUse,
             Error::NotParkable { .. } => ErrorCode::NotParkable,
-            Error::NothingToResume { .. } => ErrorCode::NothingToResume,
+            Error::NothingToResume { .. } | Error::PartlyGone { .. } => ErrorCode::NothingToResume,
             Error::NotRunning { .. } => ErrorCode::NotRunning,
             Error::NotReady { .. } => ErrorCode::NotReady,
             Error::SecretMissing { .. } => ErrorCode::SecretMissing,
@@ -477,6 +486,16 @@ impl Error {
     }
 }
 
+/// Machines `machines` as an error says they are gone: `web is`, `web and db are`, `a, b and c are`.
+fn gone(machines: &[String]) -> String {
+    let quoted: Vec<String> = machines.iter().map(|m| format!("`{m}`")).collect();
+    match quoted.as_slice() {
+        [] => "nothing is".to_owned(),
+        [one] => format!("machine {one} is"),
+        [rest @ .., last] => format!("machines {} and {last} are", rest.join(", ")),
+    }
+}
+
 impl std::fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
@@ -490,6 +509,21 @@ mod tests {
     #[test]
     fn every_code_is_written_as_serde_writes_it() {
         crate::testing::assert_named_as_serde(ErrorCode::as_str);
+    }
+
+    #[test]
+    fn a_run_partly_gone_names_its_gone_machines_and_has_nothing_to_resume() {
+        let one = Error::PartlyGone {
+            run: "r".into(),
+            machines: vec!["web".into()],
+        };
+        assert_eq!(one.code(), ErrorCode::NothingToResume);
+        assert_eq!(one.to_string(), "run `r` can't resume as it was: machine `web` is gone: start it again");
+        let three = Error::PartlyGone {
+            run: "r".into(),
+            machines: vec!["a".into(), "b".into(), "c".into()],
+        };
+        assert!(three.to_string().contains("machines `a`, `b` and `c` are gone"), "{three}");
     }
 
     #[test]

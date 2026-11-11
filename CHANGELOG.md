@@ -47,6 +47,13 @@ change.
   `already_running`. Such a run now reads as `failed`, and the next operation, once it holds the
   run, records it `failed` (its `last` the killed operation, `cancelled`), so `up` clears what
   it left and starts afresh.
+- **A resume never brings back a run with a machine gone.** A machine removed outside the runner
+  (`docker rm -f`, `vagrant destroy`, the hypervisor's Delete) while the run ran or was parked
+  was left out of a Compose resume, and a Vagrant resume made it again from its box,
+  unprovisioned (`vagrant up --no-provision`); either way the run was called ready. `resume`
+  now fails with `nothing_to_resume` naming the machines (`Error::PartlyGone`) and records the
+  run `failed`, and an `up` that resumes parked runs (`Occupied::ResumeParked`) clears what is
+  left and starts it afresh instead.
 - **A Compose start pulls its images before its `up`, with no time limit while they move.** An
   11 GB image pulled through a slow connection was still downloading when the start's `up` step
   ran into its limit, and the embedder could only say the `up` took too long. Before a step that
