@@ -185,12 +185,8 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
 #[tokio::test]
 async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
     let f = fixture(HostOs::Macos);
-    f.engine().plugins.push("vagrant-parallels".into());
     f.engine().parallels = Some(["web-vm - web", "web-vm-web", "mine"].map(String::from).into());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
-        .await
-        .unwrap();
+    let run = up_on_parallels(&f).await;
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
     assert!(calls.contains(&"prlctl stop web-vm - web --kill".to_owned()), "{calls:#?}");
@@ -203,17 +199,11 @@ async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
 #[tokio::test]
 async fn a_hypervisor_listing_that_fails_is_a_cleanup_warning_and_removes_nothing() {
     let f = fixture(HostOs::Macos);
-    f.engine().plugins.push("vagrant-parallels".into());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
-        .await
-        .unwrap();
-    let events = Recorder::new();
-    let (down, traced) = crate::testing::traced(run.down(&RunOptions::new(), &events)).await;
-    down.unwrap();
+    let run = up_on_parallels(&f).await;
+    let (said, traced) = crate::testing::traced(down_warnings(&run)).await;
     assert!(!f.fake.lines().iter().any(|l| l.starts_with("prlctl delete")));
     assert_eq!(
-        warnings(&events),
+        said,
         [
             "cleanup_failed: what earlier runs left couldn't be listed (`prlctl list -a --no-header -o name`), so none of it is removed: \
           Failed to get the list of VMs: the Parallels service isn't running (exited with code 1)"
@@ -223,6 +213,23 @@ async fn a_hypervisor_listing_that_fails_is_a_cleanup_warning_and_removes_nothin
         traced.contains("WARN") && traced.contains("couldn't be read") && traced.contains("the Parallels service isn't running"),
         "{traced}"
     );
+}
+
+/// A run of `f` started on Parallels, its plugin installed.
+async fn up_on_parallels(f: &Fixture) -> crate::Running<'_> {
+    f.engine().plugins.push("vagrant-parallels".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
+        .await
+        .unwrap();
+    run
+}
+
+/// The warnings of a `down` of `run` that succeeds.
+async fn down_warnings(run: &crate::Running<'_>) -> Vec<String> {
+    let events = Recorder::new();
+    run.down(&RunOptions::new(), &events).await.unwrap();
+    warnings(&events)
 }
 
 /// The warnings of `events`, as `code: message`.
@@ -260,18 +267,11 @@ async fn an_orphan_the_hypervisor_wont_delete_is_warned_about_not_said_removed()
 async fn an_orphan_parallels_wont_delete_is_warned_about_and_one_it_deletes_said_removed() {
     for undeletable in [false, true] {
         let f = fixture(HostOs::Macos);
-        f.engine().plugins.push("vagrant-parallels".into());
         f.engine().parallels = Some(["web-vm - web"].map(String::from).into());
         if undeletable {
             f.engine().fails.insert(Fails::Delete);
         }
-        let run = f.runner.open(&f.manifest, None).unwrap();
-        run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
-            .await
-            .unwrap();
-        let events = Recorder::new();
-        run.down(&RunOptions::new(), &events).await.unwrap();
-        let said = warnings(&events);
+        let said = down_warnings(&up_on_parallels(&f).await).await;
         let removed = said.iter().any(|w| w == "orphan_removed: removed a VM an earlier run left (web-vm - web)");
         let refused = said
             .iter()
