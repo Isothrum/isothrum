@@ -194,8 +194,6 @@ impl Running<'_> {
     }
 }
 
-/// The report of an attach of `m`: its identity and address from the manifest, with the picked
-/// `network` and `image`.
 impl AttachReport {
     /// The report as its `result` event's `data`: each field by its JSON name, built from its
     /// strings (so it can't fail as writing through a serializer could).
@@ -210,6 +208,8 @@ impl AttachReport {
     }
 }
 
+/// The report of an attach of `m`: its identity and address from the manifest, with the picked
+/// `network` and `image`.
 fn report(m: &Machine, network: Option<&str>, image: Option<&str>) -> AttachReport {
     let (network, address) = address_on(m, network);
     AttachReport {

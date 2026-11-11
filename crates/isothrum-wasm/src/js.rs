@@ -48,8 +48,8 @@ pub fn own_files_json(topology_json: &str) -> Result<String, JsError> {
 ///
 /// # Errors
 ///
-/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
-/// maps of strings) never cause.
+/// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, booleans,
+/// nulls, lists and maps of them) never cause.
 #[wasm_bindgen]
 pub fn plan_json(topology_json: &str) -> Result<String, JsError> {
     json(&plan(topology_json))
@@ -61,13 +61,14 @@ pub fn plan_json(topology_json: &str) -> Result<String, JsError> {
 /// # Errors
 ///
 /// A JavaScript `Error` if the JSON couldn't be written, which its values (strings, lists and
-/// maps of strings) never cause.
+/// maps of them) never cause.
 #[wasm_bindgen]
 pub fn choices_json() -> Result<String, JsError> {
     json(&choices())
 }
 
-/// `value` as JSON. Every value handed out is strings, lists and maps of strings, so writing it
+/// `value` as JSON. Every value handed out is strings, booleans, nulls, lists and maps of them
+/// (no map with keys that aren't strings), so writing it
 /// can't fail; were it to, the caller gets a JavaScript `Error` saying why, not a stand-in value.
 fn json(value: &impl serde::Serialize) -> Result<String, JsError> {
     serde_json::to_string(value).map_err(|e| JsError::new(&format!("writing the JSON: {e}")))

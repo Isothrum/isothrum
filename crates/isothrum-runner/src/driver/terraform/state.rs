@@ -17,7 +17,8 @@ pub(crate) const BACKUP_FILE: &str = "terraform.tfstate.backup";
 /// A state, as far as the runner reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct TfState {
-    /// Each output's value: a string as it is, anything else as JSON.
+    /// Each scalar output's value: a string as it is, a number or a boolean as written; an
+    /// object, a list or null is none ([`scalar`]).
     pub(super) outputs: BTreeMap<String, String>,
     /// Each map output's entries (`published`: `"web/site" = "10.0.0.5:8080"`).
     pub(super) maps: BTreeMap<String, BTreeMap<String, String>>,

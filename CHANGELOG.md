@@ -826,7 +826,8 @@ change.
   self-tests (`selftest`, `BootProbe`, `ElevatedBoot`, `Vm`), the system report (`system`,
   `SystemReport`, `DockerDenied`), `Dirs`, `Error` and `Result`, the record's writing half
   (`storage::{path, update, Before, image_ids, box_list, claim, tracked}`), and the provider helpers
-  `parse_plugins`, `kvm_problem` and `HYPERV_NEEDS_ADMIN` (still used inside `detect`). The `exec`
+  `parse_plugins` (replaced by `isothrum_runner::vagrant_plugins`), and `kvm_problem` and
+  `HYPERV_NEEDS_ADMIN` (still used inside `detect`). The `exec`
   module is internal (no longer `pub`).
 - **Breaking:** **The `Hooks` port** (`Hooks`, `HookError`, `RunView`, `Runner::add_hooks`) and the
   `hook_failed` warning code (gone from the event schema): nothing implemented it. An embedder

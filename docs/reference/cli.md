@@ -2,7 +2,7 @@
 
 # The `isothrum` command line
 
-isothrum: run what Isoloom generates (up, down, park, resume, status, check, events) from the command line.
+isothrum: run what Isoloom generates from the command line.
 
 ```text
 isothrum [OPTIONS] <COMMAND>

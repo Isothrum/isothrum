@@ -22,8 +22,9 @@ else `~/.isothrum`. See [State layout](../reference/state.md).
    isothrum status <run folder>
    ```
 
-   On Windows: `setx ISOTHRUM_HOME D:\isothrum`, then open a new terminal. Keep the home inside
-   your user profile, or give the new folder the same restricted permissions.
+   On Windows: `setx ISOTHRUM_HOME D:\isothrum`, then open a new terminal. A home outside your
+   user profile is made owner-only by `isothrum` itself: every command gives it a protected DACL
+   (your account, SYSTEM, Administrators) that everything under it inherits.
 
 ## What keeps working
 

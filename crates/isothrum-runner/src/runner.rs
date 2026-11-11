@@ -102,11 +102,14 @@ pub struct Runner {
 }
 
 impl Runner {
-    /// A runner with `config`; its home's `runs/` folder is created owner-only.
+    /// A runner with `config`; its home (with its missing parents) and the home's `runs/` folder
+    /// are created, owner-only (on Windows, a home outside the user's profile gets an owner-only
+    /// DACL).
     ///
     /// # Errors
     ///
-    /// Fails with `io` when the home's `runs/` folder can't be created.
+    /// Fails with `io` when the home can't be created or made owner-only (on Windows, its owner
+    /// can't be read or its DACL set), or its `runs/` folder can't be created.
     pub fn new(config: RunnerConfig) -> Result<Runner> {
         let store = Store::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
         Ok(Runner {

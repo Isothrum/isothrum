@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-cli"
-description = "isothrum: run what Isoloom generates (up, down, park, resume, status, check, events) from the command line."
+description = "isothrum: run what Isoloom generates from the command line."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

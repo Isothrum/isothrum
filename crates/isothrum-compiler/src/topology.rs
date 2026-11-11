@@ -130,7 +130,9 @@ pub enum Kind {
     Vm {
         /// The OS, `<family>@<version>` (`debian@12`).
         os: OsRef,
-        /// Steps run in order: `.sh` scripts (`.ps1` on Windows), or Ansible playbooks (`.yml`).
+        /// Steps run in order on the machine: `.sh` scripts (`.ps1` on Windows), or Ansible
+        /// playbooks (`.yml`); a Windows machine's playbooks run from Isoloom's controller instead,
+        /// after the machine's own steps.
         /// Each is a file of the project, relative to its folder and inside it (no leading `/`,
         /// no `..`: [`Error::StepPath`](crate::Error::StepPath)).
         #[serde(default)]
