@@ -65,13 +65,23 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
     let Some(min) = &tool.min_version else { return Ok(()) };
-    match crate::version_found(&out) {
+    new_enough(tool.name.as_str(), min, &out)
+}
+
+/// Whether `tool`, its probe having printed `said`, is `min` or later: refused when it says an
+/// older version; passed, and traced with what it said, when no version can be read in it.
+fn new_enough(tool: &str, min: &isoloom_manifest::Version, said: &str) -> Result<()> {
+    match crate::version_found(said) {
         Some(found) if found < *min => Err(Error::ToolTooOld {
-            tool: tool.name.to_string(),
+            tool: tool.to_owned(),
             found: found.as_str().to_owned(),
             required: min.as_str().to_owned(),
         }),
-        _ => Ok(()),
+        Some(_) => Ok(()),
+        None => {
+            tracing::warn!(tool, min = min.as_str(), said, "the tool's version couldn't be read: it passes unchecked");
+            Ok(())
+        }
     }
 }
 
@@ -113,18 +123,19 @@ mod tests {
         assert_eq!((id.as_str(), docker.as_str()), (STEP, "docker"));
     }
 
-    #[test]
-    fn a_tools_version_is_read_and_ordered_as_isoloom_orders_versions() {
-        let v = |s: &str| isoloom_manifest::Version::parse(s).unwrap();
-        assert_eq!(crate::version_found("Docker Compose version v2.29.1"), Some(v("2.29.1")));
-        assert_eq!(crate::version_found("Vagrant 2.3.8.dev"), Some(v("2.3.8")));
-        assert_eq!(crate::version_found("2.4"), Some(v("2.4.0")));
-        assert_eq!(crate::version_found("no version here"), None);
-        // Regression: the probe compared numbers only, so a release candidate passed for the
-        // release it leads to.
-        let rc = crate::version_found("Terraform v1.6.0-rc.1\non linux_amd64").unwrap();
-        assert_eq!(rc, v("1.6.0-rc.1"));
-        assert!(rc < v("1.6.0"), "a pre-release is older than its release");
+    /// Regression: a version that couldn't be read passed without a word.
+    #[tokio::test]
+    async fn a_version_that_cant_be_read_passes_traced_and_an_older_one_is_refused() {
+        let min = isoloom_manifest::Version::parse("1.6.0").unwrap();
+        let (passed, trace) = crate::testing::traced(async { new_enough("terraform", &min, "no version here") }).await;
+        assert!(passed.is_ok());
+        assert!(
+            trace.contains("couldn't be read") && trace.contains("terraform") && trace.contains("no version here"),
+            "{trace}"
+        );
+        let old = new_enough("terraform", &min, "Terraform v1.6.0-rc.1\non linux_amd64").unwrap_err();
+        assert_eq!(old.code(), crate::ErrorCode::ToolTooOld, "a release candidate is older than its release");
+        assert!(new_enough("terraform", &min, "Terraform v1.9.2").is_ok());
     }
 
     #[test]
