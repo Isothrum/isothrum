@@ -5,12 +5,12 @@ use indexmap::IndexMap;
 use isoloom_spec::model;
 use isoloom_targets::Lab;
 use isothrum_compiler::{Compiled, Topology};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Error, File, Result};
 
 /// What the engine makes of a topology, as the caller reads it (JSON).
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Plan {
     /// Whether the topology compiled (`false`: `error` says why). `true` says nothing of Isoloom's
     /// verdict on the spec: read `problems` too, which hold what it finds wrong (and no file is

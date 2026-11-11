@@ -7,7 +7,7 @@
 //! The functions JavaScript calls are the `#[wasm_bindgen]` ones ([`plan_json`], [`bundle`],
 //! [`bundle_target`], [`own_files_json`], and [`choices_json`], Isoloom's own lists, which a
 //! caller's OS, appliance and protocol fields offer). The JSON they hand out is a [`Plan`],
-//! [`File`]s and [`Choices`]. They are for `wasm32-unknown-unknown`: their errors are JavaScript
+//! [`File`]s and [`Choices`], which a Rust caller (a server, a test) reads back into those types. They are for `wasm32-unknown-unknown`: their errors are JavaScript
 //! `Error`s, which exist only there, so built for another target an export that fails panics.
 //!
 //! ```
@@ -19,10 +19,12 @@
 //!     "user": { "kind": { "vm": { "os": "debian@12" } }, "access": true, "networks": { "office": null } }
 //!   }
 //! }"#;
-//! let plan: serde_json::Value = serde_json::from_str(&isothrum_wasm::plan_json(topology).unwrap())?;
-//! assert!(plan["ok"] == true && plan["problems"] == serde_json::json!([]), "{}", plan["problems"]);
-//! assert!(plan["files"].as_array().unwrap().iter().any(|f| f["path"] == ".isoloom/docker/compose.yml"));
-//! assert_eq!(plan["addresses"]["web"], serde_json::json!([["office", "10.10.1.10"]]));
+//! let plan: isothrum_wasm::Plan = serde_json::from_str(&isothrum_wasm::plan_json(topology).unwrap())?;
+//! assert!(plan.ok && plan.problems.is_empty(), "{:?}", plan.problems);
+//! assert!(plan.files.iter().any(|f| f.path == ".isoloom/docker/compose.yml"));
+//! assert_eq!(plan.addresses["web"], [("office".to_owned(), "10.10.1.10".to_owned())]);
+//! let choices: isothrum_wasm::Choices = serde_json::from_str(&isothrum_wasm::choices_json().unwrap())?;
+//! assert!(choices.os.iter().any(|os| os == "debian@12"));
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 //!

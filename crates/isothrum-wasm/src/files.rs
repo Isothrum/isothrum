@@ -3,13 +3,13 @@
 
 use isoloom_targets::GeneratedFile;
 use isothrum_compiler::ProjectFile;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::Result;
 use crate::plan::compiled;
 
 /// A file: its path and what it holds.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct File {
     /// Its path, relative to the project's folder.
     pub path: String,

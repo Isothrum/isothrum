@@ -3,10 +3,10 @@
 
 use isoloom_spec::Appliance;
 use isoloom_spec::syntax::PortProtocol;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Isoloom's lists, as a topology writes their values.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Choices {
     /// Every OS, `<family>@<version>` (`debian@12`).
     pub os: Vec<String>,
