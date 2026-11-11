@@ -37,6 +37,11 @@ change.
 
 ### Fixed
 
+- **A guest delivery and a Terraform console read a machine's outputs under Isoloom's names.**
+  The runner wrote the machine's name in `address_<machine>` and `ssh_user_<machine>` with `-` as
+  `_` only, where Isoloom also writes `.` as `_` and lowers the case, so a machine named with a `.`
+  or a capital was never found. A spec names its machines in kebab-case today, so no generated
+  project met it; a test now holds the names to the outputs Isoloom generates.
 - **A secret slot for another provider isn't written into a machine.** Its guest delivery took
   the slot's default without asking the run's provider, where the `env` and Terraform deliveries
   did; the delivery still runs (the machine's set-up waits for it), with no value for the slot.

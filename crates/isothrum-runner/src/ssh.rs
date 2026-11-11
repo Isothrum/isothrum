@@ -238,20 +238,32 @@ pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<S
     Login::new(&arg("user")?, host, cx.ssh_jump.as_deref(), &arg("via")?)
 }
 
-/// The output holding `machine`'s address: `address_<machine>`, `-` written `_`.
+/// A machine's name as Isoloom writes it in the name of one of its outputs: a Terraform
+/// identifier (`-` and `.` written `_`), in lower case. Isoloom keeps the rule private
+/// (`isoloom-terraform`'s `ident`); a test holds this copy to the outputs Isoloom generates.
+fn output_key(machine: &str) -> String {
+    machine.replace(['-', '.'], "_").to_ascii_lowercase()
+}
+
+/// The output holding `machine`'s address: `address_<machine>` ([`output_key`]).
 pub(crate) fn address_output(machine: &str) -> String {
-    format!("address_{}", machine.replace('-', "_"))
+    format!("address_{}", output_key(machine))
+}
+
+/// The output holding the user the run's key signs in as on `machine`: `ssh_user_<machine>`
+/// ([`output_key`]).
+pub(crate) fn ssh_user_output(machine: &str) -> String {
+    format!("ssh_user_{}", output_key(machine))
 }
 
 /// The login to `machine` a run's module gives in its outputs (read by `output`): its address
-/// ([`address_output`]) as its user (`ssh_user_<machine>`, `-` written `_`, else the run's
-/// `ssh_user`, else `root`), through `jump`. `None` while the address has no value.
+/// ([`address_output`]) as its user ([`ssh_user_output`], else the run's `ssh_user`, else
+/// `root`), through `jump`. `None` while the address has no value.
 pub(crate) fn machine_login(output: impl Fn(&str) -> Option<String>, machine: &str, jump: Option<&str>) -> Result<Option<Login>> {
     let Some(host) = output(&address_output(machine)).filter(|a| !a.is_empty()) else {
         return Ok(None);
     };
-    let key = machine.replace('-', "_");
-    let user = output(&format!("ssh_user_{key}")).or_else(|| output("ssh_user")).unwrap_or_default();
+    let user = output(&ssh_user_output(machine)).or_else(|| output("ssh_user")).unwrap_or_default();
     Login::new(&user, &host, jump, "").map(Some)
 }
 
@@ -452,6 +464,37 @@ mod tests {
         assert_eq!(machine_login(none, "web-1", None).unwrap().unwrap().target, "root@198.51.100.7");
         assert_eq!(machine_login(outputs(&[("address_web_1", "")]), "web-1", None).unwrap(), None, "no address yet");
         assert_eq!(machine_login(outputs(&[]), "web-1", None).unwrap(), None);
+    }
+
+    /// The names are Isoloom's: `-` and `.` as `_`, in lower case.
+    #[test]
+    fn a_machines_output_names_are_its_terraform_identifier_in_lower_case() {
+        assert_eq!(address_output("web-1"), "address_web_1");
+        assert_eq!(address_output("Web.1"), "address_web_1");
+        assert_eq!(ssh_user_output("db.Primary-2"), "ssh_user_db_primary_2");
+    }
+
+    /// The rule held to what Isoloom generates: every Linux VM of each cloud's `cloud-vm`
+    /// manifest has the address and user outputs the runner reads, and the guest delivery to it
+    /// finds its login there.
+    #[test]
+    fn every_linux_vm_has_the_outputs_isoloom_generates_for_it() {
+        let spec = "version: 1\nname: pair\nnetworks:\n  app: { cidr: 10.80.0.0/24, internet: true }\n\
+                    machines:\n  web-1: { os: debian@12, networks: { app: 10 } }\n  db-main-2: { os: debian@12, networks: { app: 11 } }\n";
+        let lab = isoloom_targets::Lab::parse(spec).unwrap();
+        let (files, _) = isoloom_targets::generate_all(&lab);
+        let clouds: Vec<_> = files.iter().filter(|f| f.path.starts_with(".isoloom/cloud-vm/") && f.path.ends_with("/run.json")).collect();
+        assert!(!clouds.is_empty(), "{:?}", files.iter().map(|f| &f.path).collect::<Vec<_>>());
+        for file in clouds {
+            let manifest = isoloom_manifest::parse(&file.contents).unwrap();
+            let names: Vec<String> = manifest.outputs.iter().map(|o| o.name.to_string()).collect();
+            let output = |name: &str| names.iter().any(|n| n == name).then(|| "198.51.100.7".to_owned());
+            for machine in ["web-1", "db-main-2"] {
+                assert!(names.contains(&address_output(machine)), "{}: {names:?}", file.path);
+                assert!(names.contains(&ssh_user_output(machine)), "{}: {names:?}", file.path);
+                assert!(machine_login(output, machine, None).unwrap().is_some(), "{}", file.path);
+            }
+        }
     }
 
     #[test]

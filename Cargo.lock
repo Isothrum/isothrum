@@ -788,6 +788,7 @@ dependencies = [
  "flate2",
  "getrandom",
  "isoloom-manifest",
+ "isoloom-targets",
  "process-wrap",
  "proptest",
  "regex",

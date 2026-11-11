@@ -5,9 +5,9 @@
 //!
 //! - **When:** once the step named by the delivery's `during_step` succeeded, else once `up`'s
 //!   steps all did (before the ready conditions, which wait for the set-up that waits for this).
-//! - **Where:** the machine's address is the output `address_<machine>` (its `-` written `_`),
-//!   its login the output `ssh_user_<machine>`, else `ssh_user`, else `root`; through the run's SSH
-//!   jump.
+//! - **Where:** the machine's address is the output `address_<machine>`, its login the output
+//!   `ssh_user_<machine>`, else `ssh_user`, else `root` (the machine's name as Isoloom writes it
+//!   there: `-` and `.` as `_`, in lower case); through the run's SSH jump.
 //! - **How:** one SSH session per machine runs [`receive`] as root; its standard input holds one
 //!   line per slot, `<slot name> <value in base64>`, from an owner-only file in the run's state
 //!   folder removed right after (a removal that fails, fails the step), or as soon as the

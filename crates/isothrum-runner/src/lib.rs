@@ -65,8 +65,8 @@
 //! JSON object), `state_file` (an owner-only Terraform variable file in the run's state folder,
 //! written at `up`, kept for the destroy, removed by a successful `down`), and `guest` over SSH, Isoloom's delivery into a machine for a cloud with no secret
 //! store (DigitalOcean, Linode): once the step it names (else every `up` step) succeeded, one
-//! SSH session per machine, to the outputs `address_<machine>` (`-` as `_`) and
-//! `ssh_user_<machine>` (else `ssh_user`), runs a fixed script as root that keeps each value
+//! SSH session per machine, to the outputs `address_<machine>` and `ssh_user_<machine>` (else
+//! `ssh_user`; the machine's name with `-` and `.` as `_`, in lower case), runs a fixed script as root that keeps each value
 //! owner-only under `/var/lib/isoloom/secrets/<slot name>` and then touches
 //! `/var/lib/isoloom/secrets/.delivered`, which the machine's set-up waits for; the values travel
 //! base64-encoded on its standard input, retried while SSH can't connect (up to 15 minutes),

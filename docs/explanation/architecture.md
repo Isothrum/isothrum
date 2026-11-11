@@ -39,7 +39,8 @@ WebAssembly build on the compiler. Each crate's Isoloom dependencies, as its `Ca
 
 | Crate | Isoloom crates |
 |---|---|
-| `isothrum-runner`, `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
+| `isothrum-runner` | `isoloom-manifest` (`isoloom-targets` for its tests only) |
+| `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
 | `isothrum-compiler` | `isoloom-spec`, `isoloom-manifest` (`isoloom-targets` for its tests only) |
 | `isothrum-wasm` | `isoloom-spec`, `isoloom-manifest`, `isoloom-plan`, `isoloom-targets` |
 
