@@ -14,11 +14,32 @@ fn args(cloud: Cloud) -> CloudArgs {
     }
 }
 
-/// A manifest declaring `params` (`name`, required) and slots `slots`.
+/// A cloud manifest Isoloom generated (AWS's `solo-web`), with `params` (`name`, required) and
+/// slots `slots` too: one it has is marked as asked, one it lacks added as a copy of its first
+/// one, renamed.
 fn declared(params: &[(&str, bool)], slots: &[&str]) -> String {
-    let params: Vec<serde_json::Value> = params.iter().map(|(n, r)| serde_json::json!({"name": n, "required": r})).collect();
-    let slots: Vec<serde_json::Value> = slots.iter().map(|n| serde_json::json!({"name": n})).collect();
-    serde_json::json!({"params": params, "secrets": slots}).to_string()
+    let mut manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../crates/isothrum-runner/tests/fixtures/solo-web.cloud-vm-aws.run.json"
+    ))
+    .unwrap();
+    for (key, name, required) in params
+        .iter()
+        .map(|(n, r)| ("params", *n, Some(*r)))
+        .chain(slots.iter().map(|n| ("secrets", *n, None)))
+    {
+        let list = manifest[key].as_array_mut().unwrap();
+        let at = list.iter().position(|e| e["name"] == name).unwrap_or_else(|| {
+            let mut copy = list[0].clone();
+            copy["name"] = name.into();
+            copy.as_object_mut().unwrap().remove("default");
+            list.push(copy);
+            list.len() - 1
+        });
+        if let Some(required) = required {
+            list[at]["required"] = required.into();
+        }
+    }
+    manifest.to_string()
 }
 
 fn aws() -> Account {
@@ -81,6 +102,15 @@ fn a_module_without_a_size_param_keeps_its_own_sizes() {
         "{up}"
     );
     assert!(!up.contains("Standard_B1s"), "no size param to set: {up}");
+}
+
+/// Regression: the manifest was read as untyped JSON, so one Isoloom's contract doesn't read (a
+/// field renamed) passed no params and no slots instead of failing.
+#[test]
+fn a_manifest_the_contract_doesnt_read_refuses_the_run() {
+    let renamed = declared(&[("allowed_cidr", true)], &[]).replace("\"params\"", "\"parameters\"");
+    let (run_dir, home) = (PathBuf::from("/l"), PathBuf::from("/h"));
+    assert!(phases(&args(Cloud::Aws), &aws(), &renamed, "1.2.3.4/32", (&run_dir, &home)).is_err());
 }
 
 #[test]

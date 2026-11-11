@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use isothrum_runner::isoloom_manifest::{self, Manifest};
 use isothrum_runner::wire_name;
 
 use super::{Account, CloudArgs, NAME};
@@ -79,14 +80,11 @@ const SIZES: [&str; 6] = ["instance_type", "size", "vm_size", "machine_type", "s
 ///
 /// # Errors
 ///
-/// The manifest isn't JSON, or it needs a param the account can't give.
+/// The manifest isn't one Isoloom's contract reads, or it needs a param the account can't give.
 pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &str, (run_dir, home): (&Path, &Path)) -> Res<Vec<Phase>> {
-    let manifest: serde_json::Value = serde_json::from_str(declared)?;
-    let names = |key: &str| -> Vec<String> {
-        let list = manifest.get(key).and_then(serde_json::Value::as_array);
-        list.into_iter().flatten().filter_map(|p| p.get("name")?.as_str().map(str::to_owned)).collect()
-    };
-    let (params, slots) = (names("params"), names("secrets"));
+    let manifest = isoloom_manifest::parse(declared)?;
+    let params: Vec<String> = manifest.params.iter().map(|p| p.name.to_string()).collect();
+    let slots: Vec<String> = manifest.secrets.iter().map(|s| s.name.to_string()).collect();
     let mut given: Vec<(String, String)> = vec![("allowed_cidr".into(), cidr.into())];
     given.extend(
         SIZES
@@ -141,13 +139,13 @@ pub(crate) fn phases(a: &CloudArgs, account: &Account, declared: &str, cidr: &st
     ])
 }
 
-/// The params the manifest requires that have no default.
-fn required(manifest: &serde_json::Value) -> Vec<String> {
-    let list = manifest.get("params").and_then(serde_json::Value::as_array);
-    list.into_iter()
-        .flatten()
-        .filter(|p| p.get("required").and_then(serde_json::Value::as_bool) == Some(true))
-        .filter_map(|p| p.get("name")?.as_str().map(str::to_owned))
+/// The params the manifest requires (`required`) and gives no default.
+fn required(manifest: &Manifest) -> Vec<String> {
+    manifest
+        .params
+        .iter()
+        .filter(|p| p.required && p.default.is_none())
+        .map(|p| p.name.to_string())
         .collect()
 }
 
