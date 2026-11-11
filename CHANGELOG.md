@@ -40,6 +40,26 @@ change.
 
 ### Fixed
 
+- **An engine's sensitive output never fills a later template.** A guest VM's read (`docker-vm`)
+  and a Terraform run's guest login bound every engine output into `${outputs.*}` under the
+  engine's names, sensitive ones included, for the rest of the operation; they now bind as the
+  run's outputs are bound (`outputs::bind`: by the manifest's names, sensitive ones left out), and
+  only while they read.
+- **`terraform.copy_module` copies nothing a copy of a project never takes.** It left out
+  `.terraform` and states only, so Terraform's crash logs (`crash.log`, `crash.*.log`, which can
+  hold a variable's secret), `.git`, `.vagrant` and `.isoloom-reach` went into the run's state
+  folder; it now follows Isoloom's `never_copied` rule, as the project's archive does.
+- **A value given twice on the command line is refused** (`--param A=…` or `--secret-from-env A`
+  repeated: a usage error naming it), where the last one was kept without a word.
+- **A half-drawn VLAN is refused.** A LAN with a `switch` but no `vlan`, or the reverse, compiles to
+  `Error::VlanIncomplete`, and a `device` on a plain LAN to `Error::DeviceOffSwitch`, where both
+  compiled as a plain LAN, the field dropped.
+- **A tool whose version can't be read is traced** when the manifest sets its `min_version`: it
+  still passes, with a warning naming it and what its probe printed.
+- **libvirt's KVM device is said as it is.** A `/dev/kvm` that can't be opened for another reason
+  than permission (busy, no such device) read "add yourself to the kvm and libvirt groups".
+- **`ISOTHRUM_LOG`'s value prefixes only the filter's error**, not a bad `ISOTHRUM_LOG_FORMAT`'s.
+
 - **An operation on a run that exists fills a param's default, refuses a required one with no
   value, and leaves out one of another scope, as a start does.** It took the recorded params and
   the given ones only, so a param a run taken over wasn't given, or one a regenerated manifest
@@ -492,6 +512,12 @@ change.
   Isoloom builds from parts.
 
 ### Added
+
+- **`isothrum key --json`** prints `{"public_key": …}`; `--json` ignored it. The policies list the
+  `console`, `screen` and `key` JSON documents as stable machine output, with their fields, and the
+  `--json` help says what each command prints.
+- **`Deserialize` on `isothrum_wasm::{Plan, File, Choices}`**, so a Rust caller reads an export's
+  JSON back into them.
 
 - **A machine's graphical console**, where its run manifest lists one (`machines[].consoles`,
   Isoloom's next release): `Running::graphical_console(machine)` gives a `Console` (its protocol,
