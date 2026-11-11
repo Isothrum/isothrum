@@ -11,7 +11,8 @@
 //! - `wasm`: the editor's engine built for the browser (`web/pkg/`), and with `--copy-to <dir>`
 //!   the files a page serves copied into that folder;
 //! - `quality`: the ratchet, the clean-code counts per crate against `quality-baseline.json`;
-//! - `test`: the tests under cargo-nextest, then the doctests;
+//! - `test`: the tests under cargo-nextest, then the doctests, in a temp folder of their own that
+//!   must be empty at the end (`ISOTHRUM_KEEP_TEMP=1` keeps it);
 //! - `msrv` and `features`: every crate checked with its declared minimum Rust, and with every
 //!   combination of its features (cargo-hack);
 //! - `fuzz`: the fuzz targets of `fuzz/` (cargo-fuzz), each for a while;
@@ -70,7 +71,8 @@ enum Task {
     /// The ratchet: every clean-code count per crate against quality-baseline.json; fails when
     /// one goes up (`--update` writes them when they only went down).
     Quality(quality::Args),
-    /// The workspace's tests under cargo-nextest (`.config/nextest.toml`), then the doctests.
+    /// The workspace's tests under cargo-nextest (`.config/nextest.toml`), then the doctests; fails
+    /// when they leave anything in their temp folder (`ISOTHRUM_KEEP_TEMP=1` keeps it to look into).
     Test(test::Args),
     /// Every crate checked with the toolchain its `rust-version` names (cargo-hack).
     Msrv,

@@ -63,7 +63,7 @@ them before you push:
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace                 # or: cargo run -p xtask -- test (nextest, then doctests)
+cargo run -p xtask -- test            # nextest, then doctests; fails on what they leave in temp
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo run -p xtask -- quality          # the clean-code ratchet (quality-baseline.json)
 cargo deny check

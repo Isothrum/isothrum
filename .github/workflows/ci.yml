@@ -50,7 +50,12 @@ jobs:
           # Only main writes the cache, so a pull request can't seed what main builds with.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      # The tests and doctests under the xtask, which fails when they leave anything in their temp
+      # folder.
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-nextest@0.9.151
+      - run: cargo run -p xtask --locked -- test
 
   docs:
     name: API docs and the quality ratchet
