@@ -12,9 +12,10 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
-# The inputs each target starts from (folders, relative to this one), besides its own corpus.
+# The inputs each target starts from (folders, relative to this one), besides its own corpus:
+# the fixtures, and the inputs a run once found a crash with (`seeds/<target>`).
 [package.metadata.seeds]
-drawing = ["../crates/isothrum-compiler/tests/fixtures"]
+drawing = ["../crates/isothrum-compiler/tests/fixtures", "seeds/drawing"]
 placeholders = []
 plan = ["../crates/isothrum-runner/tests/fixtures"]
 

@@ -128,6 +128,8 @@ pub enum Kind {
         /// The OS, `<family>@<version>` (`debian@12`).
         os: OsRef,
         /// Steps run in order: `.sh` scripts (`.ps1` on Windows), or Ansible playbooks (`.yml`).
+        /// Each is a file of the project, relative to its folder and inside it (no leading `/`,
+        /// no `..`: [`Error::StepPath`](crate::Error::StepPath)).
         #[serde(default)]
         provision: Vec<String>,
     },

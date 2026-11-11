@@ -7,13 +7,13 @@
 //! playbooks run from Isoloom's controller instead (see `controller`).
 
 use isoloom_spec::Appliance;
-use isoloom_spec::syntax::OsRef;
+use isoloom_spec::syntax::{OsRef, ProjectPath};
 
 use crate::controller::ControllerPlaybook;
 use crate::document::{AppDoc, MachineDoc, StepDoc};
 use crate::draft::Draft;
 use crate::project::{config_path, firmware_path, own_config};
-use crate::{Kind, Node, Result, Topology, ports};
+use crate::{Error, Kind, Node, Result, Topology, ports};
 
 /// What keeps an idle container running: it has no service of its own.
 const IDLE_COMMAND: [&str; 2] = ["sleep", "infinity"];
@@ -60,7 +60,7 @@ fn machine(name: &str, node: &Node) -> Result<(MachineDoc, Vec<ControllerPlayboo
             Vec::new()
         }
         Kind::Vm { os, provision } => {
-            let (steps, playbooks) = vm_steps(name, *os, provision);
+            let (steps, playbooks) = vm_steps(name, *os, provision)?;
             m.os = Some(*os);
             m.app = (!steps.is_empty()).then(|| AppDoc { steps, ..AppDoc::default() });
             playbooks
@@ -71,10 +71,17 @@ fn machine(name: &str, node: &Node) -> Result<(MachineDoc, Vec<ControllerPlayboo
 }
 
 /// A VM's provisioning steps, in order: its own, and on Windows the playbooks the controller runs.
-fn vm_steps(name: &str, os: OsRef, provision: &[String]) -> (Vec<StepDoc>, Vec<ControllerPlaybook>) {
+/// A path that isn't one of the project as Isoloom reads it ([`ProjectPath`]) is refused, whatever
+/// the OS.
+fn vm_steps(name: &str, os: OsRef, provision: &[String]) -> Result<(Vec<StepDoc>, Vec<ControllerPlaybook>)> {
     let mut steps = Vec::new();
     let mut playbooks = Vec::new();
     for path in provision {
+        path.parse::<ProjectPath>().map_err(|source| Error::StepPath {
+            node: name.to_owned(),
+            path: path.clone(),
+            source: Box::new(source),
+        })?;
         match step(path) {
             StepDoc::Playbook(path) if os.is_windows() => playbooks.push(ControllerPlaybook {
                 path,
@@ -83,7 +90,7 @@ fn vm_steps(name: &str, os: OsRef, provision: &[String]) -> (Vec<StepDoc>, Vec<C
             own => steps.push(own),
         }
     }
-    (steps, playbooks)
+    Ok((steps, playbooks))
 }
 
 /// A provisioning step: an Ansible playbook (`.yml`, `.yaml`), else a script.
@@ -127,7 +134,7 @@ mod tests {
     fn a_windows_vms_playbooks_run_from_the_controller_and_its_scripts_on_it() {
         let provision = ["provision/a.ps1".to_owned(), "provision/b.yml".to_owned(), "provision/c.ps1".to_owned()];
         let windows: OsRef = "windows-server@2022".parse().unwrap();
-        let (own, playbooks) = vm_steps("dc01", windows, &provision);
+        let (own, playbooks) = vm_steps("dc01", windows, &provision).unwrap();
         assert_eq!(own, [StepDoc::Run("provision/a.ps1".into()), StepDoc::Run("provision/c.ps1".into())]);
         assert_eq!(
             playbooks,
@@ -137,7 +144,7 @@ mod tests {
             }]
         );
         let linux: OsRef = "debian@12".parse().unwrap();
-        let (linux_own, linux_playbooks) = vm_steps("web", linux, &provision);
+        let (linux_own, linux_playbooks) = vm_steps("web", linux, &provision).unwrap();
         assert_eq!(linux_own.len(), 3);
         assert!(linux_playbooks.is_empty(), "a Linux machine runs its playbooks itself");
     }

@@ -147,6 +147,18 @@ pub enum Error {
         /// The other one.
         second: String,
     },
+    /// A machine's provisioning step isn't a file of the project as Isoloom reads one: an
+    /// absolute path, or one with a `..` that leaves the project.
+    #[error("provisioning step `{path}` of `{node}`: {source}")]
+    StepPath {
+        /// The machine.
+        node: String,
+        /// The step's path as drawn.
+        path: String,
+        /// Why Isoloom refuses it.
+        #[source]
+        source: Box<isoloom_spec::Error>,
+    },
 }
 
 /// The problems, on one line, separated by semicolons.

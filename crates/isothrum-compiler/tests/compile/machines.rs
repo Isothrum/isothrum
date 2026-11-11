@@ -1,6 +1,7 @@
 //! Machines: what each kind of node becomes, its steps and its ports.
 
 use isoloom_spec::syntax::Recipe;
+use isothrum_compiler::{Error, compile};
 
 use crate::testing::{Outcome, accepted, container, files, spec, three_node, vm, yaml};
 
@@ -100,5 +101,30 @@ fn a_windows_vm_with_only_playbooks_is_its_os_alone() -> Outcome {
         "{}",
         yaml(&c)
     );
+    Ok(())
+}
+
+/// Regression: a step path outside the project reached Isoloom's reader as it was, and failed as
+/// `Unreadable` (a compiler bug) on Linux while a Windows playbook's compiled; it is the user's
+/// mistake, named, whatever the OS. The fuzz seed `fuzz/seeds/drawing/step-outside.json` is one.
+#[test]
+fn a_step_outside_the_project_is_refused_naming_it() -> Outcome {
+    for (os, path) in [
+        ("debian@12", "/x.sh"),
+        ("debian@12", "../x.sh"),
+        ("debian@12", "provision/../../x.sh"),
+        ("windows-server@2022", "/x.yml"),
+    ] {
+        let mut topo = three_node()?;
+        topo.nodes["client"].kind = vm(os, &["provision/ok.sh", path])?;
+        let e = compile(&topo).unwrap_err();
+        assert!(
+            matches!(&e, Error::StepPath { node, path: p, .. } if node == "client" && p == path),
+            "{os} {path}: {e}"
+        );
+        assert!(e.to_string().starts_with(&format!("provisioning step `{path}` of `client`: ")), "{e}");
+    }
+    let seed = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fuzz/seeds/drawing/step-outside.json"))?;
+    assert!(matches!(compile(&serde_json::from_str(&seed)?), Err(Error::StepPath { .. })));
     Ok(())
 }

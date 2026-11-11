@@ -430,6 +430,10 @@ change.
 - **A VLAN drawn with a `tc` is refused (`Error::VlanTc`).** The compiler dropped it without a
   word: Isoloom's VLANs have no `tc`, and the switch's LAN they nest under was written without
   one. A plain LAN and a cable keep theirs.
+- **A provisioning step outside the project is refused (`Error::StepPath`, naming the machine and
+  the path).** An absolute path or one with a `..` that leaves the project failed as
+  `Error::Unreadable`, which says the compiler wrote what Isoloom doesn't read (a bug), while the
+  same path as a Windows VM's playbook compiled.
 - **Two LANs on the same VLAN of a switch are refused (`Error::VlanTaken`, naming both).** They
   compiled into one VLAN block, the second LAN's: the first LAN's machines moved to it without a
   word, at the second LAN's addresses.
