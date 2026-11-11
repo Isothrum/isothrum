@@ -58,7 +58,9 @@ WebAssembly build on the compiler. Each crate's Isoloom dependencies, as its `Ca
   pulls the images of an `up` (`pull-<step>`), Vagrant downloads the boxes a `vagrant up` boots
   (`boxes-<step>`, those the manifest lists that aren't there yet), so a slow download isn't
   counted against the `up`. A step the manifest marks `download` (Compose's pull in a VM) runs
-  under the same rule.
+  under the same rule. A download that failed for the network (a connection reset, a gateway's
+  502) runs again, up to three more times with a growing wait, in the executor for every driver;
+  a refusal (a sign-in, a rate limit, a name the registry doesn't have) and a stall don't.
 - **Ports.** Every outside effect goes through a trait: `ProcessRunner` (starting tools),
   `HostPorts` (the host's TCP and UDP ports) and `Events` (where events go). Tests use scripted fakes
   (the `fake` feature) and never start a real tool.

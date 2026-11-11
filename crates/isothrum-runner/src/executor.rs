@@ -8,6 +8,7 @@ mod delivery;
 pub(crate) mod plan;
 mod progress;
 mod reconnect;
+mod retry;
 pub(crate) mod state_files;
 mod step;
 

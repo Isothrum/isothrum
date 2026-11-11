@@ -134,6 +134,49 @@ async fn a_pull_that_fails_says_composes_reason_and_starts_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_pull_the_network_cut_runs_again_from_the_layers_it_kept_and_up_follows() {
+    // The first pull's connection resets in the middle of a layer; Docker keeps what it finished,
+    // and the next pull, 5 s later, ends it.
+    fn cut_once(engine: &Mutex<Engine>, call: &Call) -> Reply {
+        if call.line().contains(" pull --policy ") {
+            let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
+            if e.images == Images::Missing {
+                e.images = Images::Here;
+                let mut reply = Reply::fail(1, "failed to copy: read tcp 10.0.2.15:42512->13.249.228.76:443: read: connection reset by peer");
+                reply.stdout = vec!["36b0bafd7f97 Downloading 1.932GB".to_owned()];
+                return reply;
+            }
+        }
+        answer(engine, call)
+    }
+    let f = fixture_answering(WEB_PORTAL, cut_once);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    let started = tokio::time::Instant::now();
+    run.up(&opts(), &events).await.unwrap();
+    assert_eq!(started.elapsed(), Duration::from_secs(5));
+    // The start's images pulled twice (the init container's pull comes after `up`).
+    assert_eq!((f.called(" --include-deps "), f.called(" up --detach ")), (2, 1));
+    assert_eq!(f.containers(), Containers::Up);
+    let said: Vec<String> = kinds(&events)
+        .into_iter()
+        .filter_map(|k| match k {
+            EventKind::Warning {
+                code: crate::WarningCode::Retrying,
+                message,
+            } => message.strip_prefix("step `pull-up`: ").map(str::to_owned),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            "download failed for the network, retrying in 5s (attempt 2 of 4): failed to copy: read tcp 10.0.2.15:42512->13.249.228.76:443: read: connection reset by peer (exited with code 1)"
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn ups_own_limit_still_holds_once_its_images_are_pulled() {
     // The images pulled in two hours; then `up` waits on a container, printing nothing.
     fn then_quiet(engine: &Mutex<Engine>, call: &Call) -> Reply {

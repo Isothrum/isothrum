@@ -539,7 +539,7 @@
           "const": "recovering"
         },
         {
-          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, or a\nVagrant command another Vagrant process's lock on a machine refused.",
+          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a\nVagrant command another Vagrant process's lock on a machine refused, or a download the\nnetwork cut (a connection reset, a gateway's 502), up to three more times.",
           "type": "string",
           "const": "retrying"
         },
@@ -619,7 +619,7 @@
           "const": "download_stalled"
         },
         {
-          "description": "A download couldn't be made: its tool failed (the message says why: a registry or a box\ncatalog refusing it, a name it doesn't know, the network).",
+          "description": "A download couldn't be made: its tool failed (the message says why: a registry or a box\ncatalog refusing it, a name it doesn't know, the network). A failure for the network that\npasses (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried\nagain first, up to three more times: the message is the last try's.",
           "type": "string",
           "const": "download_failed"
         },

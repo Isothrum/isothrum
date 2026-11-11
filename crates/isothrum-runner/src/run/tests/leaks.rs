@@ -128,3 +128,43 @@ async fn every_operation_masks_the_values_in_its_events() {
         assert!(said.contains("note: ***"), "{op} ran a tool whose output it showed masked: {said}");
     }
 }
+
+/// The fake engine, its first pull cut by the network in a line that holds the value it was
+/// given (a registry mirror's address carrying it); the next pull goes through.
+fn pull_cut_saying_the_secret(engine: &Mutex<Engine>, call: &Call) -> Reply {
+    if call.line().contains(" pull --policy ") {
+        let mut e = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if e.images == super::Images::Missing {
+            e.images = super::Images::Here;
+            let secret = call.env("DEMO_SECRET").unwrap_or_default();
+            return Reply::fail(1, &format!("Get \"https://mirror.lab/v2/?t={secret}\": read: connection reset by peer"));
+        }
+    }
+    answer(engine, call)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_download_tried_again_says_the_line_that_failed_masked() {
+    let f = fixture_answering(WEB_PORTAL, pull_cut_saying_the_secret);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let events = Recorder::new();
+    run.up(&opts(), &events).await.unwrap();
+    let said: Vec<String> = events
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            crate::EventKind::Warning {
+                code: crate::WarningCode::Retrying,
+                message,
+            } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        matches!(said.as_slice(), [one] if one.contains("?t=***\": read: connection reset by peer")),
+        "one retry, its line masked: {said:?}"
+    );
+    let every = serde_json::to_string(&events.events()).unwrap();
+    assert!(!every.contains(SECRET), "{every}");
+    assert!(files_holding(f.home(), SECRET).is_empty(), "the value lands in no file");
+}

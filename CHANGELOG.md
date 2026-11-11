@@ -42,6 +42,18 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   (`taskkill /T /F`). Only the very process recorded is ended: an id that now names another
   process is left alone. `ProcessSpec` has a `tools` field (the folder a tool is recorded in).
 
+- **A download the network cut runs again.** One `connection reset by peer` in the middle of a
+  1.93 GB image layer, pulled in a VM, failed the whole start. A download (a step the manifest
+  marks `download`, a Compose start's pull, a Vagrant start's `vagrant box add`) that fails with a
+  network error that passes (a connection reset, refused or timed out, a TLS handshake timeout, an
+  unexpected `EOF`, a name not resolved for now, a registry's gateway answering 502, 503 or 504,
+  curl's 18, 28, 35 or 56) now runs again, up to three more times, 5, 15 and 45 seconds apart, each
+  new try said in a `retrying` warning with the step and the line that failed (as the runner's
+  other retries are); Docker keeps the layers it finished, so the next pull takes up where the last
+  one ended. A refusal (a sign-in, `toomanyrequests`, an image or a box the registry doesn't have)
+  still fails at once, as does a download that stalled, and an operation cut short stops waiting
+  with it.
+
 ## [2.0.0] — 2026-11-11
 
 ### Highlights

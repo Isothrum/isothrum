@@ -247,8 +247,9 @@ pub enum WarningCode {
     SavedStateDiscarded,
     /// A start failed on stale state: cleared, then started again.
     Recovering,
-    /// A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, or a
-    /// Vagrant command another Vagrant process's lock on a machine refused.
+    /// A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a
+    /// Vagrant command another Vagrant process's lock on a machine refused, or a download the
+    /// network cut (a connection reset, a gateway's 502), up to three more times.
     Retrying,
     /// An operation that failed couldn't update the run's record either: the operation's own
     /// error is the one it ends with.

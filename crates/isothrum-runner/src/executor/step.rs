@@ -1,7 +1,8 @@
 //! One argv step: the command filled in for this host and run, its lines streamed as `log`
 //! events (masked), stopped with everything it started once it shows no progress for its time
 //! limit ([`super::progress`]). A download (a step the manifest marks `download`) has no ceiling,
-//! and its stall and failure are `download_stalled` and `download_failed`.
+//! runs again when it failed for the network ([`super::retry`]), and its stall and failure are
+//! `download_stalled` and `download_failed`.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -11,6 +12,7 @@ use regex::Regex;
 
 use super::delivery::step_env;
 use super::progress::{Progress, downloading, within};
+use super::retry::Retry;
 use super::{Cx, plan};
 use crate::Result;
 use crate::error::Error;
@@ -19,10 +21,26 @@ use crate::process::{Captured, ProcessError, ProcessSpec, STDOUT_REASON_LINES, T
 use crate::scope::Scope;
 
 /// Runs argv step `step` of list `list`; `observe` sees each line too (a check runner's results).
-/// An `ssh.run` with a `wait_s` is tried again while its host doesn't answer
-/// ([`super::reconnect`]); any other step runs as its driver runs a command
-/// ([`AnyDriver::run_argv`](crate::driver::AnyDriver::run_argv)).
+/// A download (a step the manifest marks `download`) that failed for the network runs again
+/// ([`Retry`]: the stale markers its failed try printed don't count); any other failure is the
+/// step's at once.
 pub(crate) async fn run_argv(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
+    let mut retry = Retry::default();
+    loop {
+        let stale = cx.stale.seen();
+        let done = run_argv_once(cx, list, step, observe).await;
+        let Err(Error::DownloadFailed { reason, .. }) = &done else { return done };
+        if !step.download || !retry.again(cx, step.id.as_str(), reason).await {
+            return done;
+        }
+        cx.stale.rewind(stale);
+    }
+}
+
+/// Runs argv step `step` of list `list` once: an `ssh.run` with a `wait_s` is tried again while
+/// its host doesn't answer ([`super::reconnect`]); any other step runs as its driver runs a
+/// command ([`AnyDriver::run_argv`](crate::driver::AnyDriver::run_argv)).
+async fn run_argv_once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
     if let Some(wait) = crate::ssh::wait_of(cx, list, step)? {
         return super::reconnect::run(cx, list, step, observe, &wait).await;
     }
@@ -165,10 +183,22 @@ pub(crate) async fn call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Durat
 }
 
 /// Runs `spec`, a download for step `id` made before the step it is for, its lines shown as
-/// `log` events of `id`, until it shows no progress for `stall` ([`downloading`]: no ceiling).
-/// Its standard output and last error lines are kept, its exit status returned (a failure is the
-/// caller's to judge). A missing tool and a stall are errors.
+/// `log` events of `id`, until it shows no progress for `stall` ([`downloading`]: no ceiling),
+/// again when it failed for the network ([`Retry`]). Its standard output and last error lines are
+/// kept, its last try's exit status returned (a failure is the caller's to judge). A missing tool
+/// and a stall are errors.
 pub(crate) async fn download(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, stall: Duration) -> Result<Captured> {
+    let mut retry = Retry::default();
+    loop {
+        let out = download_once(cx, id, spec, stall).await?;
+        if out.success() || !retry.again(cx, id, &cx.events.mask(&out.reason())).await {
+            return Ok(out);
+        }
+    }
+}
+
+/// One try of [`download`].
+async fn download_once(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, stall: Duration) -> Result<Captured> {
     let progress = Progress::new();
     let mut shown = |stream: Stream, line: &str| {
         progress.saw(line);

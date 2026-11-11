@@ -45,7 +45,9 @@ pub enum ErrorCode {
     /// progress for as long as a download may, and was stopped.
     DownloadStalled,
     /// A download couldn't be made: its tool failed (the message says why: a registry or a box
-    /// catalog refusing it, a name it doesn't know, the network).
+    /// catalog refusing it, a name it doesn't know, the network). A failure for the network that
+    /// passes (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried
+    /// again first, up to three more times: the message is the last try's.
     DownloadFailed,
     /// The run is already up.
     AlreadyRunning,
@@ -253,7 +255,7 @@ pub enum Error {
     DownloadFailed {
         /// The download's step (`pull-up`, `boxes-up`, `pull-start`).
         step: String,
-        /// The tool's last error lines, or its exit status (secrets masked).
+        /// The last try's last error lines, or its exit status (secrets masked).
         reason: String,
     },
     /// The run is already up.

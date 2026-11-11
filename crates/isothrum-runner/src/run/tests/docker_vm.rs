@@ -51,7 +51,7 @@ fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
         return Reply::fail(255, "ssh: connect to host: Connection refused");
     }
     if command.contains(" pull --policy ") {
-        return downloads::pulled(e.pull);
+        return downloads::pulled(&mut e.pull);
     }
     if command.contains(" up --detach ") {
         e.up = true;
