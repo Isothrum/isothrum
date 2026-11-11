@@ -206,12 +206,29 @@ impl Runner {
     ///
     /// The loopback couldn't be bound.
     pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.pick_where(protocol, |port| self.reserve(name, port, protocol))
+    }
+
+    /// A free loopback port over `protocol` that no run of this runner but `name` holds, not
+    /// reserved: for a query, which holds no reservation past its end (a console's tunnel, whose
+    /// `ssh` binds it at once). None when none is left.
+    ///
+    /// # Errors
+    ///
+    /// The loopback couldn't be bound.
+    pub(crate) fn pick_unreserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.pick_where(protocol, |port| !self.reserved_elsewhere(name, port, protocol))
+    }
+
+    /// A free loopback port over `protocol` that `take` accepts; one it refuses is held meanwhile
+    /// so it isn't offered again. None when none is left.
+    fn pick_where(&self, protocol: Protocol, take: impl Fn(u16) -> bool) -> std::io::Result<Option<crate::net::HeldPort>> {
         let mut refused = Vec::new();
         for _ in 0..64 {
             let Some(port) = self.config.ports.pick_free(protocol)? else {
                 return Ok(None);
             };
-            if self.reserve(name, port.port, protocol) {
+            if take(port.port) {
                 return Ok(Some(port));
             }
             refused.push(port);

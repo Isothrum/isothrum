@@ -324,6 +324,19 @@ async fn a_remote_desktop_is_reached_through_an_ssh_tunnel_from_the_loopback() {
     assert!(err.to_string().contains("its tunnel through 198.51.100.10 didn't open"), "{err}");
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_loopback_that_cant_be_bound_for_a_tunnel_says_so() {
+    // Regression: the bind's error was dropped and the console said `no_console`, "no free port".
+    let ports = Arc::new(crate::net::FakePorts::new([24001, 24002]));
+    let a = account_with(&with_rdp(), 0, Arc::<crate::net::FakePorts>::clone(&ports));
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    ports.refuse_binds(std::io::ErrorKind::QuotaExceeded);
+    let err = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(err.to_string().starts_with("a tcp port on 127.0.0.1 couldn't be bound: "), "{err}");
+}
+
 #[tokio::test]
 async fn a_tunnel_goes_through_the_runs_ssh_config_and_listens_on_the_loopback() {
     let a = account_of(&with_rdp(), 0);

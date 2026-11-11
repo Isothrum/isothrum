@@ -95,12 +95,12 @@ fn define(machine: &Machine) -> Result<&str> {
 /// default under Vagrant's own folder (`$VAGRANT_HOME/tmp/vagrant-qemu/<id>/qemu_socket`).
 fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
     let data = dotfile(cx)?.join("machines").join(define(machine)?).join("qemu");
-    let id = std::fs::read_to_string(data.join("id")).map(|s| s.trim().to_owned()).unwrap_or_default();
+    let id = read_if_there(&data.join("id"))?.map(|s| s.trim().to_owned()).unwrap_or_default();
     if id.is_empty() {
         return Err(none(machine, "Vagrant records no QEMU VM for it: it isn't up"));
     }
-    let options = std::fs::read_to_string(data.join(&id).join("run").join("options.yml")).unwrap_or_default();
-    if let Some(recorded) = recorded_socket(&options) {
+    let options = read_if_there(&data.join(&id).join("run").join("options.yml"))?;
+    if let Some(recorded) = options.as_deref().and_then(recorded_socket) {
         return Ok(recorded);
     }
     let home = std::env::var_os("VAGRANT_HOME")
@@ -108,6 +108,11 @@ fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".vagrant.d")))
         .ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
     Ok(home.join("tmp").join("vagrant-qemu").join(id).join("qemu_socket"))
+}
+
+/// The text of `path`; none when there is no file there, an error naming it when it can't be read.
+fn read_if_there(path: &std::path::Path) -> Result<Option<String>> {
+    crate::store::if_there(std::fs::read_to_string(path)).map_err(crate::error::Error::io(path, "read"))
 }
 
 /// The `:monitor_socket:` vagrant-qemu's `options.yml` records.
@@ -197,6 +202,7 @@ pub(super) async fn vrde(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
             "VirtualBox's remote display is off: it needs the Oracle VM VirtualBox Extension Pack, installed before the VM boots (then restart the VM)",
         )),
         Vrde::NotListening => Err(none(machine, "VirtualBox's remote display isn't listening: the VM isn't running")),
+        Vrde::Unreadable(address) => Err(none(machine, format!("VirtualBox's remote display address `{address}` isn't an IP address"))),
         Vrde::At(at) => on_loopback(machine, at),
     }
 }
@@ -208,12 +214,14 @@ pub(super) enum Vrde {
     Off,
     /// On, but bound to no port (the VM is off).
     NotListening,
+    /// Listening at an address that isn't an IP address, as said.
+    Unreadable(String),
     /// Listening there.
     At(SocketAddr),
 }
 
-/// Reads `vrde="on"`, `vrdeport=<port in use>` and `vrdeaddress="<address>"` (the loopback when
-/// empty, as VirtualBox's default is every interface: then it is refused as off it).
+/// Reads `vrde="on"`, `vrdeport=<port in use>` and `vrdeaddress="<address>"`. An empty address
+/// is VirtualBox's default, every interface (`0.0.0.0`), which [`on_loopback`] then refuses.
 pub(super) fn remote_display(lines: &[String]) -> Vrde {
     let value = |key: &str| {
         lines
@@ -231,12 +239,13 @@ pub(super) fn remote_display(lines: &[String]) -> Vrde {
         return Vrde::NotListening;
     };
     let address = value("vrdeaddress").unwrap_or_default();
-    let ip = if address.is_empty() {
-        std::net::IpAddr::from([0, 0, 0, 0])
-    } else {
-        address.parse().unwrap_or(std::net::IpAddr::from([0, 0, 0, 0]))
-    };
-    Vrde::At(SocketAddr::new(ip, port))
+    if address.is_empty() {
+        return Vrde::At(SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), port));
+    }
+    match address.parse() {
+        Ok(ip) => Vrde::At(SocketAddr::new(ip, port)),
+        Err(_) => Vrde::Unreadable(address),
+    }
 }
 
 #[cfg(test)]
@@ -296,6 +305,23 @@ mod tests {
             Vrde::At("0.0.0.0:3389".parse().unwrap()),
             "every interface: refused by on_loopback"
         );
+        assert_eq!(
+            remote_display(&lines(&["vrde=\"on\"", "vrdeport=3389", "vrdeaddress=\"vbox-host\""])),
+            Vrde::Unreadable("vbox-host".into()),
+            "regression: read as every interface, and refused as listening there"
+        );
+    }
+
+    #[test]
+    fn a_vagrant_qemu_file_that_cant_be_read_is_an_error_not_a_vm_that_isnt_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = dir.path().join("id");
+        assert_eq!(read_if_there(&id).unwrap(), None, "no file: nothing recorded");
+        // A folder where the file goes: there, but unreadable as text.
+        std::fs::create_dir(&id).unwrap();
+        let err = read_if_there(&id).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+        assert!(err.to_string().starts_with(&format!("{} couldn't be read: ", id.display())), "{err}");
     }
 
     /// A fake QEMU monitor on a real Unix socket: its banner, the command echoed, its answer.

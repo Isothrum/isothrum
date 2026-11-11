@@ -64,18 +64,22 @@ pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
     let mut held = Vec::new();
     for machine in missing {
         let port = loop {
-            let Ok(Some(free)) = cx.run.runner.config.ports.pick_free(Protocol::Tcp) else {
-                return Err(Error::NoConsole {
-                    machine,
+            // Reserved for the run while the operation lasts, so another run starting meanwhile
+            // doesn't take it before the VM binds it.
+            let free = cx
+                .run
+                .runner
+                .pick_reserved(cx.run.name(), Protocol::Tcp)
+                .map_err(Error::io("a tcp port on 127.0.0.1", "bound"))?
+                .ok_or_else(|| Error::NoConsole {
+                    machine: machine.clone(),
                     why: "no free port on this computer's loopback for its console".into(),
-                });
-            };
-            if !taken.contains(&free.port) {
-                let port = free.port;
-                held.push(free);
+                })?;
+            let port = free.port;
+            held.push(free);
+            if !taken.contains(&port) {
                 break port;
             }
-            held.push(free);
         };
         table.insert(machine, Chosen { port, password: password()? });
     }
@@ -88,7 +92,7 @@ pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
 fn password() -> Result<String> {
     const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     let mut bytes = [0u8; PASSWORD_LEN];
-    getrandom::fill(&mut bytes).map_err(|e| Error::io("consoles.json", "written")(std::io::Error::other(e.to_string())))?;
+    getrandom::fill(&mut bytes).map_err(|e| Error::io("the OS's random source", "read")(std::io::Error::other(e.to_string())))?;
     Ok(bytes
         .iter()
         .filter_map(|b| ALPHABET.get(usize::from(*b) % ALPHABET.len()).copied().map(char::from))
@@ -101,7 +105,8 @@ pub(crate) fn var(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
     if table.is_empty() {
         return Ok(None);
     }
-    let text = serde_json::to_string(&table).map_err(|e| Error::io(path(cx), "read")(e.into()))?;
+    // Written into the variable Vagrant reads, not read: the file was read above.
+    let text = serde_json::to_string(&table).map_err(|e| Error::io(CONSOLES, "written")(e.into()))?;
     Ok(Some((CONSOLES.to_owned(), text)))
 }
 

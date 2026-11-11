@@ -12,11 +12,15 @@ use isoloom_manifest::{Machine, Protocol};
 
 use super::{LOOPBACK, none};
 use crate::Result;
+use crate::error::Error;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
 
 /// How long the tunnel may take to listen.
 const OPENING: Duration = Duration::from_secs(20);
+
+/// The step id a missing `ssh` is reported under.
+const STEP: &str = "console";
 
 /// Where a tunnel goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +57,7 @@ impl Drop for Tunnel {
 pub(super) fn spec(cx: &Cx<'_>, to: &To, local: u16) -> Result<ProcessSpec> {
     let login = crate::ssh::Login::new(&to.user, &to.via, cx.ssh_jump.as_deref(), "")?;
     if !to.host.chars().all(|c| c.is_ascii_alphanumeric() || ".:-".contains(c)) || to.host.is_empty() {
-        return Err(crate::error::Error::Malformed {
+        return Err(Error::Malformed {
             at: "a console's tunnel".to_owned(),
             reason: format!("`{}` isn't an address", to.host),
         });
@@ -74,29 +78,46 @@ fn bracketed(host: &str) -> String {
 }
 
 /// Opens a tunnel to `to` for `machine`'s console: a free loopback port, `ssh` started, and the
-/// port answering within [`OPENING`].
+/// port answering within [`OPENING`]; when it doesn't, why, in `ssh`'s own words when it said any.
 pub(super) async fn open(cx: &Cx<'_>, machine: &Machine, to: &To) -> Result<Tunnel> {
-    let ports = &cx.run.runner.config.ports;
-    let Ok(Some(free)) = ports.pick_free(Protocol::Tcp) else {
-        return Err(none(machine, "no free port on this computer's loopback for its tunnel"));
-    };
+    let free = cx
+        .run
+        .runner
+        .pick_unreserved(cx.run.name(), Protocol::Tcp)
+        .map_err(Error::io("a tcp port on 127.0.0.1", "bound"))?
+        .ok_or_else(|| none(machine, "no free port on this computer's loopback for its tunnel"))?;
     let local = free.port;
     drop(free);
-    let spec = spec(cx, to, local)?;
-    let tunnel = start(&spec, SocketAddr::new(LOOPBACK, local)).map_err(|e| none(machine, format!("its tunnel's `ssh` didn't start: {e}")))?;
-    if !ports.reachable(&LOOPBACK.to_string(), local, OPENING).await {
+    let mut tunnel = started(machine, &spec(cx, to, local)?, SocketAddr::new(LOOPBACK, local))?;
+    if !cx.run.runner.config.ports.reachable(&LOOPBACK.to_string(), local, OPENING).await {
+        let said = tunnel.why_closed().await;
+        let because = said.map_or_else(String::new, |line| format!(": ssh said `{}`", cx.events.mask(&line)));
         return Err(none(
             machine,
             format!(
-                "its tunnel through {} didn't open (SSH refused or {}:{} doesn't answer)",
+                "its tunnel through {} didn't open (SSH refused or {}:{} doesn't answer){because}",
                 to.via, to.host, to.port
             ),
         ));
     }
+    tunnel.drain();
     Ok(tunnel)
 }
 
-/// Starts `spec` as a tunnel listening at `local`, stopped when the tunnel is dropped.
+/// [`start`] for `machine`'s console: a program that isn't installed is `tool_missing`, another
+/// failure to start it `no_console` saying why.
+fn started(machine: &Machine, spec: &ProcessSpec, local: SocketAddr) -> Result<Tunnel> {
+    start(spec, local).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => Error::ToolMissing {
+            step: STEP.to_owned(),
+            tool: spec.program.clone(),
+        },
+        _ => none(machine, format!("its tunnel's `{}` didn't start: {e}", spec.program)),
+    })
+}
+
+/// Starts `spec` as a tunnel listening at `local`, stopped when the tunnel is dropped; its
+/// standard error kept for [`Tunnel::why_closed`].
 pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tunnel> {
     let mut command = tokio::process::Command::new(&spec.program);
     command
@@ -104,7 +125,7 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
@@ -112,9 +133,70 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
     Ok(Tunnel { local, ssh: command.spawn()? })
 }
 
+impl Tunnel {
+    /// The last line `ssh` wrote to its standard error, once it is stopped: why a tunnel that
+    /// didn't open closed (a host key that changed, a key refused). None when it said nothing.
+    async fn why_closed(&mut self) -> Option<String> {
+        use tokio::io::AsyncReadExt;
+        // An `ssh` that failed has exited, or is about to: it is given a moment to say why.
+        if tokio::time::timeout(Duration::from_secs(2), self.ssh.wait()).await.is_err()
+            && let Err(e) = self.ssh.start_kill()
+        {
+            tracing::debug!(error = %e, "a console's tunnel couldn't be stopped");
+        }
+        let mut stderr = self.ssh.stderr.take()?;
+        let mut said = Vec::new();
+        // Its end comes with the process's; a grandchild holding the pipe open is waited for no
+        // longer than this.
+        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(2), stderr.read_to_end(&mut said)).await {
+            tracing::debug!(error = %e, "a console's tunnel's standard error couldn't be read");
+        }
+        String::from_utf8_lossy(&said)
+            .lines()
+            .map(str::trim)
+            .rfind(|l| !l.is_empty())
+            .map(str::to_owned)
+    }
+
+    /// Reads what `ssh` writes to its standard error while the tunnel is open, into the trace, so
+    /// a full pipe never stalls it.
+    fn drain(&mut self) {
+        let Some(stderr) = self.ssh.stderr.take() else { return };
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                tracing::debug!(%line, "a console's tunnel's ssh said");
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_missing_ssh_is_a_tool_missing() {
+        // Regression: any failure to start it, a missing program included, was `no_console`.
+        let web: Machine = serde_json::from_value(serde_json::json!({ "name": "web", "role": "member", "addresses": {} })).unwrap();
+        let spec = ProcessSpec::new("isothrum-no-such-ssh", ["-N"]);
+        let err = started(&web, &spec, "127.0.0.1:1".parse().unwrap()).unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::ToolMissing, "{err}");
+        assert!(err.to_string().contains("isothrum-no-such-ssh"), "{err}");
+    }
+
+    /// Regression: `ssh`'s standard error went to null, so a tunnel that didn't open never said
+    /// why (a host key that changed, a key refused).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_that_closed_says_what_ssh_said() {
+        let spec = ProcessSpec::new("sh", ["-c", "echo 'debug1: x' >&2; echo 'Host key verification failed.' >&2; exit 255"]);
+        let mut tunnel = start(&spec, "127.0.0.1:1".parse().unwrap()).unwrap();
+        assert_eq!(tunnel.why_closed().await.as_deref(), Some("Host key verification failed."));
+        let quiet = ProcessSpec::new("sh", ["-c", "exit 255"]);
+        assert_eq!(start(&quiet, "127.0.0.1:1".parse().unwrap()).unwrap().why_closed().await, None);
+    }
 
     #[test]
     fn an_ipv6_host_is_bracketed_in_the_forward() {
