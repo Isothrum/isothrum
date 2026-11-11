@@ -693,6 +693,10 @@ change.
   providers (vagrant_utm gives a VM no private network), nor a UTM entry among a machine's
   graphical consoles: `--provider utm` on such a run is refused as not one of the run's providers.
   A `docker-vm` run still runs on UTM.
+- **A drawing no target can run says so.** The WASM plan's `problems` hold Isoloom's
+  `no target is possible` with each form's reason (an access VM with ports and steps beside
+  containers only, say), and a target whose generation fails is in `skipped` with Isoloom's error,
+  where a message or configuration it couldn't resolve was silently dropped.
 - **Breaking: the Vagrant provider is Isoloom's `Provider`, not a string.** `RunOptions::provider`,
   `RunRecord::provider` and `Status::provider` are `Option<Provider>`, and
   `RunOptions::with_provider` takes a `Provider`. Their JSON is the same wire name

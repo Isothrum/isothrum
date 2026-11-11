@@ -262,7 +262,13 @@ proptest! {
         let compiled = compile(&topo).map_err(|e| TestCaseError::fail(format!("{e}")))?;
         let project = isoloom_targets::Lab::parse(&yaml(&compiled)).map_err(|p| TestCaseError::fail(format!("{p:?}")))?;
         let problems: Vec<String> = project.problems().iter().map(ToString::to_string).collect();
-        prop_assert!(problems.is_empty(), "{}\n{}", problems.join("\n"), yaml(&compiled));
+        // Which target runs a drawing is Isoloom's rule (`Lab::possible`): one none runs (an
+        // access VM with ports and steps beside containers only: hybrid doesn't count the access
+        // machine as a mix, and a container has no command for its steps) is refused for that
+        // alone, never for what the compiler wrote.
+        let no_target = project.possible().is_empty()
+            && matches!(problems.as_slice(), [only] if only.contains("no target is possible"));
+        prop_assert!(problems.is_empty() || no_target, "{}\n{}", problems.join("\n"), yaml(&compiled));
     }
 
     #[test]
