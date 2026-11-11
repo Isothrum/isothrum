@@ -27,15 +27,19 @@ fn all() -> Vec<Provider> {
         .collect()
 }
 
-/// Whether this provider can run on the current OS at all: local hypervisors are
-/// platform-specific, remote ones apply anywhere.
+/// Whether this provider can run on the current OS and CPU at all ([`applicable_on`]).
 fn applicable(provider: Provider) -> bool {
-    use std::env::consts::{ARCH, OS};
+    applicable_on(provider, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Whether `provider` can run on OS `os` and CPU `arch` (as [`std::env::consts`] names them):
+/// local hypervisors are platform-specific, remote ones apply anywhere.
+fn applicable_on(provider: Provider, os: &str, arch: &str) -> bool {
     match provider {
-        Provider::Virtualbox | Provider::VmwareDesktop if OS == "windows" && ARCH == "aarch64" => false,
-        Provider::Hyperv => OS == "windows",
-        Provider::Parallels | Provider::Utm => OS == "macos",
-        Provider::Libvirt => OS == "linux",
+        Provider::Virtualbox | Provider::VmwareDesktop if os == "windows" && arch == "aarch64" => false,
+        Provider::Hyperv => os == "windows",
+        Provider::Parallels | Provider::Utm => os == "macos",
+        Provider::Libvirt => os == "linux",
         _ => true,
     }
 }
@@ -111,23 +115,28 @@ const KVM: &str = "/dev/kvm";
 /// Why libvirt can't run VMs here although `virsh` is installed: vagrant-libvirt boots KVM guests,
 /// so it needs KVM's device `dev`, and the user must be allowed to open it. `None` when it is
 /// fine. It reads the file system: [`detect`] asks it, [`unavailable_reason`] reads the answer.
-fn kvm_problem(dev: &Path) -> Option<&'static str> {
+/// A device the user may not open says how to get leave; any other failure is said as it is.
+fn kvm_problem(dev: &Path) -> Option<String> {
     if !dev.exists() {
-        return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor");
+        return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor".to_owned());
     }
-    if std::fs::OpenOptions::new().read(true).write(true).open(dev).is_err() {
-        return Some("you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in");
+    match std::fs::OpenOptions::new().read(true).write(true).open(dev) {
+        Ok(_) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            Some("you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in".to_owned())
+        }
+        Err(e) => Some(format!("/dev/kvm can't be opened: {e}")),
     }
-    None
 }
 
 /// The QEMU binary for this machine's CPU.
 fn qemu_binary() -> &'static str {
-    if std::env::consts::ARCH == "aarch64" {
-        "qemu-system-aarch64"
-    } else {
-        "qemu-system-x86_64"
-    }
+    qemu_binary_on(std::env::consts::ARCH)
+}
+
+/// The QEMU binary for a CPU `arch` (as [`std::env::consts::ARCH`] names it).
+fn qemu_binary_on(arch: &str) -> &'static str {
+    if arch == "aarch64" { "qemu-system-aarch64" } else { "qemu-system-x86_64" }
 }
 
 /// One provider's readiness on this machine.
@@ -226,6 +235,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         let needs_admin = needs_admin(provider, hypervisor, runner).await;
         let platform_problem = if provider == Provider::Libvirt { kvm_problem(Path::new(KVM)) } else { None };
+        let platform_problem = platform_problem.as_deref();
         let detection = Detection {
             hypervisor,
             hypervisor_version: hypervisor_version.as_deref(),
@@ -282,7 +292,7 @@ struct Detection<'a> {
     needs_admin: bool,
     /// Why this machine can't run the provider's guests although its tool is installed (libvirt:
     /// KVM's device missing or not the user's to open).
-    platform_problem: Option<&'static str>,
+    platform_problem: Option<&'a str>,
 }
 
 /// Why a provider can't be used here, Vagrant being installed; `None` when it can: the first
@@ -344,6 +354,55 @@ mod tests {
         let mut listed: Vec<String> = all().iter().map(isothrum_runner::wire_name).collect();
         listed.sort();
         assert_eq!(listed, isoloom_providers());
+    }
+
+    /// The problem of a device the user may not open: one only its owner reads (root reads any,
+    /// so as root the text is the one it would be).
+    fn denied_device(dir: &Path) -> String {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let device = dir.join("denied");
+            std::fs::write(&device, "").unwrap();
+            std::fs::set_permissions(&device, std::fs::Permissions::from_mode(0o400)).unwrap();
+            if let Some(said) = kvm_problem(&device) {
+                assert!(said.starts_with("you can't use /dev/kvm yet"), "{said}");
+                return said;
+            }
+        }
+        let _ = dir;
+        "you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in".to_owned()
+    }
+
+    /// Each provider on each OS and CPU, not only this host's.
+    #[test]
+    fn a_provider_applies_where_its_hypervisor_runs() {
+        let platforms = [
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+            ("macos", "aarch64"),
+            ("macos", "x86_64"),
+            ("windows", "x86_64"),
+            ("windows", "aarch64"),
+        ];
+        let table = [
+            (Provider::Virtualbox, [true, true, true, true, true, false]),
+            (Provider::VmwareDesktop, [true, true, true, true, true, false]),
+            (Provider::Hyperv, [false, false, false, false, true, true]),
+            (Provider::Parallels, [false, false, true, true, false, false]),
+            (Provider::Utm, [false, false, true, true, false, false]),
+            (Provider::Libvirt, [true, true, false, false, false, false]),
+            (Provider::Qemu, [true; 6]),
+            (Provider::VmwareEsxi, [true; 6]),
+        ];
+        assert_eq!(table.len(), all().len(), "every provider is in the table");
+        for (provider, expected) in table {
+            for ((os, arch), applies) in platforms.iter().zip(expected) {
+                assert_eq!(applicable_on(provider, os, arch), applies, "{provider:?} on {os} {arch}");
+            }
+        }
+        assert_eq!(qemu_binary_on("aarch64"), "qemu-system-aarch64");
+        assert_eq!(qemu_binary_on("x86_64"), "qemu-system-x86_64");
     }
 
     #[test]
@@ -456,12 +515,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = kvm_problem(&dir.path().join("kvm")).unwrap();
         assert!(missing.starts_with("KVM isn't available on this machine (no /dev/kvm)"), "{missing}");
-        // A folder can't be opened for writing: as a device the user may not open.
-        let denied = kvm_problem(dir.path()).unwrap();
-        assert!(denied.starts_with("you can't use /dev/kvm yet"), "{denied}");
+        // Regression: any failure to open it (a folder here; EBUSY, ENXIO on a real device) was
+        // said as a device the user may not open.
+        let other = kvm_problem(dir.path()).unwrap();
+        assert!(other.starts_with("/dev/kvm can't be opened: "), "{other}");
         let device = dir.path().join("device");
         std::fs::write(&device, "").unwrap();
         assert_eq!(kvm_problem(&device), None);
+        let denied = denied_device(dir.path());
+        let (missing, denied) = (missing.as_str(), denied.as_str());
         let libvirt = |hypervisor, platform_problem| Detection {
             hypervisor: Some(hypervisor),
             hypervisor_version: None,
