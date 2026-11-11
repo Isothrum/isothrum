@@ -9,6 +9,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Vagrant run on QEMU downloads each box once.** The box download before `vagrant up` asked
+  for the box's `qemu` build, but vagrant-qemu boots libvirt-format boxes, so `vagrant up` found
+  none and downloaded the box again (`Box Provider: libvirt`). The download now asks for the
+  format the provider boots (`--provider libvirt` for QEMU), and a libvirt build already there
+  counts.
+
 ## [2.1.0] — 2026-11-11
 
 ### Added

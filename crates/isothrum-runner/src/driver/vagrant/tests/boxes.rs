@@ -172,3 +172,27 @@ async fn a_refused_box_download_says_vagrants_reason_and_one_there_already_is_no
     let added_meanwhile = there.runner.open(&there.manifest, None).unwrap();
     added_meanwhile.up(&opts(), &Recorder::new()).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_start_on_qemu_downloads_the_libvirt_build_vagrant_qemu_boots() {
+    // Regression: the download asked for the box's qemu build, then `vagrant up` found no libvirt
+    // build (vagrant-qemu's format) and downloaded the box a second time.
+    let f = fixture_on(Arch::Amd64);
+    f.engine().plugins.push("vagrant-qemu".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let qemu = || opts().with_provider(isoloom_manifest::Provider::Qemu);
+    run.up(&qemu(), &Recorder::new()).await.unwrap();
+    let (added, before_up) = adds(&f);
+    assert!(!added.is_empty() && added.iter().all(|a| a.contains(" --provider libvirt")), "{added:?}");
+    assert!(before_up, "{:?}", f.fake.lines());
+
+    // Its libvirt build there: nothing downloaded.
+    let again = fixture_on(Arch::Amd64);
+    again.engine().plugins.push("vagrant-qemu".into());
+    again
+        .engine()
+        .boxes
+        .push(["cloud-image/debian-12", "libvirt", "20260923.2610.0", "amd64"].map(str::to_owned));
+    again.runner.open(&again.manifest, None).unwrap().up(&qemu(), &Recorder::new()).await.unwrap();
+    assert_eq!(adds(&again).0, Vec::<String>::new());
+}

@@ -4,7 +4,8 @@
 //! provider and this computer's architecture, the access machine's left to its hot-add (which may
 //! be given another box). A box already there, its provider, version (when exact) and build the
 //! same, is skipped (`vagrant box list --machine-readable`); each other one is added
-//! (`vagrant box add <box> --provider <p> [--box-version <v>] [--architecture <a>]`) in the step
+//! (`vagrant box add <box> --provider <format> [--box-version <v>] [--architecture <a>]`, the
+//! format the provider boots: its own, libvirt's for QEMU) in the step
 //! `boxes-<step>`, its lines that step's `log` events.
 //!
 //! A download still moving has no time limit: it is stopped once it shows no progress for
@@ -15,7 +16,7 @@
 
 use std::collections::BTreeSet;
 
-use isoloom_manifest::{Arch, Native, Run, Step, VagrantBox};
+use isoloom_manifest::{Arch, Native, Provider, Run, Step, VagrantBox};
 
 use super::{READ_LIMIT, Vagrant};
 use crate::Result;
@@ -87,9 +88,15 @@ fn arch_id(a: Arch) -> &'static str {
     }
 }
 
-/// The provider a box is for, as Vagrant names it.
+/// The box format Vagrant looks a box up by when its provider boots it: the provider's own name,
+/// but vagrant-qemu's, which boots libvirt-format boxes (its `box_format`). Added as the qemu
+/// format, a box was downloaded twice: once by the download, then again by `vagrant up`, which
+/// found no libvirt build of it.
 fn wire(b: &VagrantBox) -> &'static str {
-    b.provider.id()
+    match b.provider {
+        Provider::Qemu => Provider::Libvirt.id(),
+        other => other.id(),
+    }
 }
 
 /// The boxes the run's machines boot on its provider and this computer, each once, in the
@@ -228,6 +235,16 @@ mod tests {
             }
         );
         assert_eq!((there[1].arch.as_ref(), there[2].arch.as_ref()), (None, None), "none said, or unknown");
+    }
+
+    #[test]
+    fn a_qemu_box_is_the_libvirt_format_vagrant_qemu_boots() {
+        // Regression: a lab on QEMU downloaded `cloud-image/debian-12` for `--provider qemu`, then
+        // `vagrant up` said "Box Provider: libvirt" and downloaded it again (vagrant-qemu 0.8.0).
+        let qemu = wanted("generic/alpine319", Provider::Qemu, None, None);
+        assert_eq!(wire(&qemu), "libvirt");
+        assert!(is_there(&qemu, Arch::Amd64, &listed(LIST)), "the libvirt build listed is the one it boots");
+        assert_eq!(wire(&wanted("bento/debian-12", Provider::Virtualbox, None, None)), "virtualbox");
     }
 
     #[test]
