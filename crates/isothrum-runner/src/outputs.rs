@@ -58,6 +58,15 @@ pub(crate) fn read(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, S
     Read { values, unformatted }
 }
 
+/// `vars` with what the engine gives back (`engine`, its sensitive ones `engine_sensitive`) bound
+/// as the run's outputs are ([`read`], then [`bind`]): under the manifest's names, sensitive ones
+/// left out. For a template filled before the run's outputs are bound (a guest VM's address).
+pub(crate) fn with_engine(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, String>, engine_sensitive: &BTreeSet<String>) -> Vars {
+    let mut bound = vars.clone();
+    bind(&mut bound, &read(manifest, vars, engine, engine_sensitive).values);
+    bound
+}
+
 /// Binds `outputs` into `vars` (`${outputs.<name>}`), sensitive ones excepted.
 pub(crate) fn bind(vars: &mut Vars, outputs: &[OutputValue]) {
     for o in outputs.iter().filter(|o| !o.sensitive) {
@@ -124,5 +133,21 @@ mod tests {
         assert_eq!((read.values[0].value.as_deref(), read.values[1].value.as_deref()), (None, Some("***")));
         let said: Vec<String> = read.unformatted.iter().map(ToString::to_string).collect();
         assert_eq!(said, ["outputs.web__portal.format: `${outputs.token}` has no value in this operation"]);
+    }
+
+    #[test]
+    fn the_engines_outputs_are_bound_as_the_runs_are_sensitive_ones_left_out() {
+        // Regression: a guest's address and a Terraform run's guest login bound every engine
+        // output under its own name, sensitive ones included, for any later template to fill.
+        let m = crate::testing::proxmox_manifest();
+        let engine: BTreeMap<String, String> = [("ip", "10.10.10.7"), ("ssh_user", "isoloom"), ("db_password", "hunter2")]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .into();
+        let marked = BTreeSet::from(["ssh_user".to_owned()]);
+        let bound = with_engine(&m, &Vars::default(), &engine, &marked);
+        let t = |s: &str| isoloom_manifest::Template::parse(s).unwrap();
+        assert_eq!(bound.render(&t("${outputs.ip}"), "t").unwrap(), "10.10.10.7");
+        assert!(bound.render(&t("${outputs.ssh_user}"), "t").is_err(), "sensitive: never filled in");
+        assert!(bound.render(&t("${outputs.db_password}"), "t").is_err(), "not one of the run's outputs");
     }
 }

@@ -34,8 +34,7 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Res
 /// has none. Either way the session carries no variable: a Terraform run delivers nothing to its
 /// VM's sessions.
 pub(super) fn in_guest(cx: &Cx<'_>, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-    let outputs = state::read(cx.state_dir())?.outputs;
-    let login = super::guest::login(cx, &outputs)?.ok_or_else(|| Error::Unsupported {
+    let login = super::guest::login(cx, &state::read(cx.state_dir())?)?.ok_or_else(|| Error::Unsupported {
         what: "running a script in the run's VM: this run has none".to_owned(),
     })?;
     over_ssh(cx, &login, script, use_)

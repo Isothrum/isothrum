@@ -32,11 +32,18 @@ const READS: u32 = 2;
 const RETRY: Duration = Duration::from_secs(1);
 
 /// `observed` (the VM's driver's) with the containers as `guest` reads them in the VM. The
-/// outputs the driver read are bound first: the VM's address may be one (`${outputs.ip}`).
+/// outputs the driver read are bound while they are read, as the run's outputs are
+/// ([`crate::outputs::with_engine`]: sensitive ones left out): the VM's address may be one
+/// (`${outputs.ip}`). The operation's own values are as they were after.
 pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Observed) {
-    for (name, value) in &observed.outputs {
-        cx.vars.set_output(name, value.clone());
-    }
+    let bound = crate::outputs::with_engine(cx.run.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
+    let own = std::mem::replace(&mut cx.vars, bound);
+    read_in(cx, guest, observed).await;
+    cx.vars = own;
+}
+
+/// [`observe`], its outputs bound in `cx`.
+async fn read_in(cx: &Cx<'_>, guest: &Guest, observed: &mut Observed) {
     let vm = observed
         .machines
         .iter()
