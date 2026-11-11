@@ -11,13 +11,15 @@ impl Running<'_> {
     /// ([`crate::Endpoint`]: a port of this computer's loopback, or Proxmox's VNC websocket), the
     /// account and password that sign in. A console the hypervisor says listens anywhere but the
     /// loopback is refused. A console reached through an SSH tunnel holds it open: drop it once
-    /// the viewer is done. Emits nothing; never locks the run.
+    /// the viewer is done. Emits nothing, never locks the run, and writes no state but a
+    /// Proxmox request's credentials while `curl` reads them.
     ///
     /// # Errors
     ///
     /// `machine_unknown` for a machine the run doesn't have; `no_console` when it has none there
     /// (the error says why, in the manifest's words: UTM's SPICE, VirtualBox without its
-    /// extension pack…), isn't running, or its hypervisor doesn't say where its console is; a
+    /// extension pack…), isn't running, its hypervisor doesn't say where its console is, or the
+    /// runner chose none for it yet (VMware's: the run's next start chooses it); a
     /// tool's own failure (`tool_missing` for a missing `virsh`, `VBoxManage`, `curl` or `ssh`).
     pub async fn graphical_console(&self, machine: &str) -> Result<Console> {
         let target = self.machine_named(machine)?;

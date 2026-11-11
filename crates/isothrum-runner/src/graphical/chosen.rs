@@ -1,7 +1,9 @@
 //! The graphical consoles the runner chooses for a run (`source.from: runner`, VMware's VNC
 //! server): a free port of this computer's loopback and an 8-character password per machine,
-//! chosen before the run's first Vagrant command and kept in the run's `consoles.json`
-//! (owner-only) until its `down`. Every Vagrant process of the run's operations gets them in
+//! chosen by an operation that holds the run's lock (`up`, and each one on a run that exists:
+//! `resume`, `update`, `attach`…) before its first Vagrant command, and kept in the run's
+//! `consoles.json` (owner-only) until its `down`. A query (`status`, `graphical_console`) only
+//! reads it. Every Vagrant process of the run's operations gets them in
 //! `ISOLOOM_CONSOLES` ([`var`]); a command handed to an embedder never does.
 
 use std::collections::BTreeMap;
@@ -49,8 +51,9 @@ fn wanted<'m>(cx: &'m Cx<'_>) -> impl Iterator<Item = &'m Machine> {
         .filter(move |m| m.console(provider).is_some_and(|c| matches!(c.source, Some(ConsoleSource::Runner {}))))
 }
 
-/// Chooses a console for each machine that wants one and has none yet, before the run's Vagrant
-/// commands run: a free loopback port and a random password, kept in the run's file.
+/// Chooses a console for each machine that wants one and has none yet, before an operation's
+/// Vagrant commands run: a free loopback port and a random password, kept in the run's file. Only
+/// an operation holding the run's lock calls it, so no other process rewrites the file meanwhile.
 pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
     let mut table = read(cx)?;
     let missing: Vec<String> = wanted(cx).map(|m| m.name.to_string()).filter(|m| !table.contains_key(m)).collect();

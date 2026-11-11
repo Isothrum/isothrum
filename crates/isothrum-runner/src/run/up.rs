@@ -62,6 +62,7 @@ impl Running<'_> {
         self.relay(&mut cx).await?;
         self.driver.preflight(&cx).await?;
         self.driver.prepare(&cx)?;
+        crate::graphical::chosen::ensure(&cx)?;
         tools::probe(&cx).await?;
         let observed = self.observe(&mut cx).await?;
         match self.occupancy(&observed, &record, opts.occupied)? {

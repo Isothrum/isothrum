@@ -195,3 +195,22 @@ async fn no_console_where_the_manifest_says_none_nor_on_a_stopped_vm() {
         )
     );
 }
+
+#[tokio::test]
+async fn a_query_never_chooses_a_console_only_an_operation_does() {
+    // Regression: the Vagrant driver's prepare chose them, so an unlocked `status` or
+    // `graphical_console` generated passwords and wrote `consoles.json`, racing a start in another
+    // process whose Vagrant had read the file already.
+    let (folder, _, _, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931, 5932]).await;
+    let state = folder.home.path().join("runs/web-vm/consoles.json");
+    std::fs::remove_file(&state).unwrap();
+    let run = runner.open(&folder.manifest, None).unwrap();
+    run.status().await.unwrap();
+    let err = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NoConsole);
+    assert!(err.to_string().ends_with("it boots with one at the run's next start"), "{err}");
+    assert!(!state.exists(), "a query wrote no password");
+    run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    assert!(state.is_file(), "an operation chooses them before its Vagrant commands");
+    assert!(run.graphical_console("web").await.is_ok());
+}

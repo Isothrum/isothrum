@@ -498,7 +498,8 @@ change.
   piped into it and removed however the request ends, a cancel or Ctrl-C included), or an SSH tunnel it opens from the loopback (`ssh -N -L`, held by the
   `Console` until it is dropped). A console the hypervisor says listens off the loopback is
   refused. For VMware's VNC server, the runner chooses a free loopback port and an 8-character
-  password per machine before the run's first Vagrant command, keeps them in the run's
+  password per machine before the run's first Vagrant command, in an operation that holds the
+  run's lock (a `status` or `graphical_console` only reads them), keeps them in the run's
   `consoles.json` until `down`, and gives them to the run's Vagrant processes in
   `ISOLOOM_CONSOLES`, never to a command an embedder runs. `MachineStatus::console`
   (`ConsoleOffer`: the protocol, or `none` and why) says each machine's in a status. The error

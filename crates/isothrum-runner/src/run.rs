@@ -160,7 +160,8 @@ impl<'r> Running<'r> {
 
     /// The run as it stands: never locked, and never an event. It changes nothing of the run, but
     /// readies its state folder as an operation does for the tools it asks (the folder; Compose's
-    /// empty pinned-ports file, which every Compose call names; Terraform's plugin cache). While an operation holds the run
+    /// empty pinned-ports file, which every Compose call names; Terraform's plugin cache); it
+    /// never writes a secret (the consoles the runner chooses are an operation's to choose). While an operation holds the run
     /// (this runner's, or another process's), the engine isn't asked: that operation acts on the
     /// run with the same tools, which may refuse a read until it is done (Vagrant locks each VM
     /// for the whole of a `vagrant up`, provisioning included). The status is then the

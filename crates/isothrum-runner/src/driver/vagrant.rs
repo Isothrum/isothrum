@@ -180,8 +180,7 @@ impl Driver for Vagrant {
             Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::create_dir(parent)?,
             _ => {}
         }
-        // The consoles the runner chooses (VMware's VNC server), before a Vagrant command reads them.
-        crate::graphical::chosen::ensure(cx)
+        Ok(())
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
