@@ -67,10 +67,11 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     Ok(())
 }
 
-/// The entries as one JSON object, a string each, in key order.
+/// The entries as one JSON object, a string each, in key order, indented (a JSON value's
+/// alternate form, which can't fail as writing through a serializer could).
 fn tfvars_json(entries: &BTreeMap<String, String>) -> String {
     let object: serde_json::Map<String, serde_json::Value> = entries.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))).collect();
-    serde_json::to_string_pretty(&serde_json::Value::Object(object)).unwrap_or_default() + "\n"
+    format!("{:#}\n", serde_json::Value::Object(object))
 }
 
 #[cfg(test)]

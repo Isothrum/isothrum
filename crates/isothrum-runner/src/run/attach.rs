@@ -99,9 +99,8 @@ impl Running<'_> {
             self.observe_running(&mut cx).await?;
             self.driver.attach(&cx, target, image, native.as_deref()).await?;
             let report = report(target, network, image);
-            // The whole report: `isothrum attach --json` says where it is with this event alone
-            // (its fields are strings: writing it as JSON can't fail).
-            let data = serde_json::to_value(&report).unwrap_or_default();
+            // The whole report: `isothrum attach --json` says where it is with this event alone.
+            let data = report.data();
             Ok(Done {
                 value: report,
                 ok: true,
@@ -197,6 +196,20 @@ impl Running<'_> {
 
 /// The report of an attach of `m`: its identity and address from the manifest, with the picked
 /// `network` and `image`.
+impl AttachReport {
+    /// The report as its `result` event's `data`: each field by its JSON name, built from its
+    /// strings (so it can't fail as writing through a serializer could).
+    fn data(&self) -> serde_json::Value {
+        serde_json::json!({
+            "machine": self.machine,
+            "native": self.native,
+            "network": self.network,
+            "address": self.address,
+            "image": self.image,
+        })
+    }
+}
+
 fn report(m: &Machine, network: Option<&str>, image: Option<&str>) -> AttachReport {
     let (network, address) = address_on(m, network);
     AttachReport {
@@ -220,5 +233,24 @@ fn address_on(m: &Machine, network: Option<&str>) -> (Option<String>, Option<Str
             .iter()
             .next()
             .map_or((None, None), |(k, a)| (Some(k.as_str().to_owned()), Some(a.to_string()))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The event's data is the report as its own JSON writes it, field for field: a field added
+    /// to one and not the other fails this.
+    #[test]
+    fn the_events_data_is_the_report() {
+        let report = AttachReport {
+            machine: "attacker".into(),
+            native: "access".into(),
+            network: Some("lan".into()),
+            address: None,
+            image: Some("kali".into()),
+        };
+        assert_eq!(report.data(), serde_json::to_value(&report).unwrap());
     }
 }

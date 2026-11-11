@@ -299,11 +299,14 @@ pub fn events_schema() -> serde_json::Value {
 
 /// `T`'s JSON Schema, titled `title`.
 pub(crate) fn titled_schema<T: schemars::JsonSchema>(title: &str) -> serde_json::Value {
-    let mut schema = serde_json::to_value(schemars::schema_for!(T)).unwrap_or_default();
-    if let Some(fields) = schema.as_object_mut() {
+    let schema = schemars::schema_for!(T);
+    // Written out as schemars writes a schema (its leading keys first, at every level); should that
+    // ever fail, the schema's own value, the same keys in another order, rather than nothing.
+    let mut value = serde_json::to_value(&schema).unwrap_or_else(|_| schema.to_value());
+    if let Some(fields) = value.as_object_mut() {
         fields.insert("title".to_owned(), serde_json::json!(title));
     }
-    schema
+    value
 }
 
 #[cfg(test)]
