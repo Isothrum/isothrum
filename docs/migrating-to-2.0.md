@@ -14,22 +14,29 @@ change; [CHANGELOG.md](../CHANGELOG.md) has the detail of each item.
 Regenerate the files with the Isoloom release that writes version 1 (`isoloom generate`). For a
 run 1.x brought up, either take it down with 1.x before upgrading, or regenerate its files in the
 same folder: the record names the `run.json` it was brought up from, and 2.0 reads the regenerated
-one there. [Policies](policies.md#run-manifest-versions) has which Isothrum reads which version.
+one there. Detach a 1.x ad-hoc access machine (`<run>-isoloom-access`) with 1.x first: 2.0 no
+longer knows it, so a later `down` leaves it running. [Policies](policies.md#run-manifest-versions) has which Isothrum reads which version.
 
 ## Command line
 
 | 1.x | 2.0 |
 |---|---|
 | `isothrum shell` | `isothrum console <machine>` prints the command that opens a console into any machine of the run (the access machine included). |
-| `--ssh-jump` on any command | `--ssh-jump` on `up` only. It is recorded when the run starts; later operations go the same way. Elsewhere it did nothing. |
+| `--ssh-jump` on `up`, `down`, `resume`, `check` and `provision` | `--ssh-jump` on `up` only. It is recorded when the run starts; later operations go the same way. Elsewhere it did nothing. |
 | `isothrum park` took no run options | `park` takes `--param`, `--secret-from-env`, `--host-label` and `--provider`, as `down` does. A run recorded under another `--host-label` is now refused (`running_elsewhere`). |
 | `attach` on a run with no access machine stood up an ad-hoc box | It fails with `unsupported`. Declare an access machine in the spec, or add a machine with `update`. |
 | Killed by SIGINT or SIGTERM | Asks the tools it started to stop (SIGINT; on Windows they are ended at once), ends what is still running 30 s later or at a second signal, then exits 130 or 143; the operation ends with an `error` event, code `cancelled`. |
 | A usage error with `--json` was text on standard error | It is an `error` event (code `usage`) on standard output. |
 | `isothrum reap` passed when it couldn't query the cloud | It fails. |
 
-New: `isothrum update`, `retire`, `console`, `completions`; `attach` and `detach` take `--param`
-and `--secret-from-env`.
+New: `isothrum update`, `retire`, `console`, `completions`; `attach` and `detach` take every run
+option: `--param`, `--secret-from-env`, `--host-label` (a run recorded under another is refused,
+`running_elsewhere`) and `--provider`. `--provider` takes only a provider Isoloom names
+(`virtualbox`, `vmware_esxi`, …).
+
+A step's `timeout_s` is the time it may go without progress (a new output line), with a ceiling of
+six hours from its start (or its own limit, when that is longer), not its total time: a long step
+that keeps printing runs past it.
 
 ## Event stream
 
@@ -44,9 +51,10 @@ and `--secret-from-env`.
   runner does on its own failed; `step_tolerated` is now a tolerated manifest step's only).
 - `elevation_declined` is renamed `elevation_failed` (`ErrorCode::ElevationFailed`): it also
   covers an elevated session that didn't start or ended early.
+- An `attach` whose `--network` the run doesn't have fails with `network_unknown`: 1.x went on
+  without it (on Compose, its failure to join swallowed).
 - Codes that were `unsupported` and now say what is wrong: an `attach` that names none of the
-  run's several on-demand machines is `machine_ambiguous`; one whose `--network` the run doesn't
-  have is `network_unknown`; a manifest value the runner can't use as written (a step's
+  run's several on-demand machines is `machine_ambiguous`; a manifest value the runner can't use as written (a step's
   `verdict` that isn't a regular expression, an SSH login, an `ssh.run`'s `wait_s`, `host` or
   `command`, a `project.archive` without its folder, a `terraform.copy_module`'s `from` or
   `when`) is `manifest_invalid`, as are a placeholder with no value in the operation (was
@@ -56,6 +64,8 @@ and `--secret-from-env`.
 - An `error` event for a timeout carries `timeout`: `{"kind": "no_progress", "after_s", "last_line"}`
   or `{"kind": "ceiling", "after_s"}`.
 - A sensitive output is `***` in `status --json` too.
+- The machines of the environment (not its router, jobs or checks) have the role `member` (was
+  `target`), as Isoloom 2.0 writes them: `status --json` writes `"role": "member"`.
 - `isothrum attach --json` prints no object after its events: read where the machine is from its
   `result` event's `data`. `isothrum reap --json`'s closing summary is a `result` event (no `run`
   nor `op`), the summary its `data`.
@@ -66,7 +76,7 @@ and `--secret-from-env`.
 |---|---|
 | `Running::park(mode, events)` | `Running::park(mode, opts, events)` |
 | `Running::attach(...)`, `Running::detach(...)` | `attach(pick, opts, events)` with an `AccessPick` built from `AccessPick::default()` and its `with_*` methods; `detach(machine, opts, events)`. Pass `RunOptions::new()` for no options. |
-| `Running::shell_command` | `Running::console_command(machine, None)`, or `Some(user)` to open it as that account |
+| `Running::shell_command(machine)` (`None`: the only on-demand machine, else the ad-hoc box) | `Running::console_command(machine, None)`: the machine is always named, and may be any of the run's; `Some(user)` opens it as that account |
 | `ShellCommand::cwd: Option<PathBuf>` | `ShellCommand::cwd: PathBuf` |
 | `ShellCommand { program, args, cwd, env }` | `ShellCommand::new(program, args, cwd).with_env(env)`: it is `#[non_exhaustive]`. |
 | `Error::Timeout { after_s, .. }` | `Error::Timeout { timed_out: TimedOut, .. }` (`NoProgress` or `Ceiling`; `timed_out.after_s()`) |
@@ -77,10 +87,11 @@ and `--secret-from-env`.
 | `isothrum_runner::process::{Exit, ProcessError, OnLine, capture, Captured, ...}` | At the crate root: `isothrum_runner::{Exit, ProcessError, OnLine, ProcessRunner, ProcessSpec, SystemProcesses, capture, Captured}`. |
 | `process::fake::{FakeProcesses, Reply, Call}` | `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (feature `fake`); `Call` is `ProcessSpec`. |
 | `SystemProcesses::new`, `SystemProcesses::for_host` | `SystemProcesses::default()`, which follows the Docker CLI's current context. |
-| `RunnerConfig::with_processes`, `with_ports`, `with_clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's. |
+| `RunnerConfig::with_processes`, `with_ports`, `with_clock`, the public `RunnerConfig::clock` | Set `RunnerConfig::processes` and `RunnerConfig::ports` on `RunnerConfig::new(home)`; the clock is the system's (`clock` is internal). |
 | `Captured::exit: Option<Exit>`, `Captured: Default` | `Captured::exit: Exit` (a process that ran always has one); `Captured` no longer implements `Default`. |
 | `RunnerConfig::path: Option<String>` | `Option<OsString>`: a `PATH` that isn't UTF-8 is kept. |
-| `AccessPick`, `AttachReport` built with struct literals | Both are `#[non_exhaustive]`. |
+| `AttachReport` built with a struct literal | It is `#[non_exhaustive]`, as the new `AccessPick` is. |
+| `EventKind::Error { code, message, step }` in a pattern or a literal | It has a `timeout` (`Option<TimedOut>`): add it, or `..` in a pattern. |
 | `RunOptions::provider`, `RunRecord::provider`, `Status::provider`: `Option<String>`; `with_provider(impl Into<String>)` | `Option<isoloom_manifest::Provider>`; `with_provider(Provider)`. The JSON is the same wire name; `isothrum_runner::from_wire_name` reads a name back. |
 
 A tool an operation cut short (its future dropped, a step's timeout) is now asked to stop
@@ -110,7 +121,8 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
 
 - `providers::detect` takes no `may_manage_hyperv`: it asks `whoami /groups` through the process
   runner it is given, as the runner does before it elevates. Drop the argument; the check on its
-  own is `isothrum_runner::may_manage_hyperv(tools)`.
+  own is `isothrum_runner::may_manage_hyperv(tools).await`, an `Option<bool>` (`None` when it
+  can't tell).
 - Import `Provider` and `ProviderStatus` from `providers` (the crate root no longer re-exports
   them). `Provider` is Isoloom's `isoloom_manifest::Provider`; a provider's id is
   `isothrum_runner::wire_name(&provider)` (was `Provider::id`).
@@ -119,7 +131,8 @@ The crate keeps only provider detection: `providers::{detect, Provider, Provider
 - `ProviderStatus::available` is gone: read `reason.is_none()`. Its `remote`, `hypervisor`,
   `plugin` and `plugin_installed` are gone: `reason` says what is missing or
   too old.
-- `Serialize` and `Deserialize` on `ProviderStatus` are gone (`Provider`, Isoloom's, keeps them).
+- `Serialize` on `ProviderStatus` is gone (`Provider`, Isoloom's, keeps `Serialize` and
+  `Deserialize`).
 - Gone with no user: the self-tests, the system report, `Dirs`, `Error`, `Result`, the download
   record (`storage::*`), `Provider::ALL`, `Provider::is_remote` and the
   provider helpers. The `exec` module is internal now (no longer `pub`).

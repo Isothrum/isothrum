@@ -89,16 +89,19 @@ change.
   fell back to 50022 the same way. Both drivers now pick by one rule (the `preferred` number with
   `ISOLOOM_PUBLISH_FIXED` when no other run reserved it, else a free loopback port, one the IPv6
   loopback doesn't hold either, as the free-port check counts a port) and fail with `tool_failed`
-  naming the port when no free one another run starting hasn't reserved is found. A loopback the runner can't bind to look for one
-  (no file descriptor left, a loopback that is down), which read as no free port, now fails the pick
-  with `io` and the OS's reason (`a tcp port on 127.0.0.1 couldn't be bound: …`); the `io` code
+  naming the port when no free one another run starting hasn't reserved is found. A loopback the
+  runner can't bind to look for one (no file descriptor left, a loopback that is down), which read
+  as no free port, now fails the pick with `io` and the OS's reason (`a tcp port on 127.0.0.1 couldn't be bound: …`); the `io` code
   covers a socket on this computer too.
 - **A failed tool says why in one wording everywhere.** An argv or `ssh.run` step that failed
   with nothing on its standard error said only "exited with code 1", while a driver's own call
   quoted its last output lines (a login refused on stdout, as Debian on AWS does); a ready file's
-  failed read quoted one line, and `isothrum-machine` said "it exited with 1". Each now says its
-  last error lines, else its last output lines, then how it ended (`(exited with code 1)`,
-  `exited with a signal`): `isothrum_runner::Captured::reason`, which `isothrum-machine` uses too.
+  failed read quoted one line, and `isothrum-machine` said "it exited with 1". Each now says the
+  error a machine-readable Vagrant call printed as its `error-exit` record, else its last error
+  lines, else its last output lines, then how it ended (`(exited with code 1)`, `exited with a
+  signal`): `isothrum_runner::Captured::reason`, which `isothrum-machine` uses too. Its error lines
+  leave out vagrant-libvirt's `[fog][WARNING]` lines, which every call prints: on libvirt a failure
+  read as fog's warnings.
 - **A cloud resource whose expiry tag isn't a time is said by `reap`, not passed over.** Every
   resource a cloud's query returns carries Isoloom's expiry tag; one whose value didn't parse (empty,
   a date, a typo) was left out of both the orphans and `unread`, so the one resource the sweep
@@ -236,9 +239,11 @@ change.
   owner-only `guest-<machine>.in` in the run's state folder while SSH is retried (up to 15 minutes).
   An operation cut short then (a cancel, Ctrl-C) skipped the file's removal, and a removal that
   failed was only traced: the values stayed. The file is now removed however the delivery ends, and
-  a failure to remove it fails the step (`io`). The README and the crate docs list the four
-  deliveries (`env`, `tf_var`, `state_file`, `guest`) and no longer say no value is ever stored:
-  they name the two owner-only files, and no longer describe a `dotenv` state file.
+  a failure to remove it fails the step (`io`). The runner's crate docs list the four deliveries
+  (`env`, `tf_var`, `state_file`, `guest`), no longer say no value is ever stored and no longer
+  describe a `dotenv` state file; `SECURITY.md` and the security model name the three owner-only
+  files a value is kept in (a `state_file` delivery's, a guest delivery's input, an elevated
+  session's variables).
 - **A guest delivery whose machine never answers over SSH fails with `unreachable`**, as an
   `ssh.run` step whose host never answers does. Past its 15 minutes, ssh's exit status 255 read as
   the tool failing (`tool_failed`).
@@ -517,6 +522,8 @@ change.
 - `is_outputs_folder(name)` and `MANIFEST_FILE`: whether a folder at a project's top is one Isoloom
   writes the project's outputs under (`.isoloom`, an instance's `.isoloom-<n>`), and the file a
   target's run manifest is in (`run.json`).
+- `fake::Reply::pace` (feature `fake`): how long a scripted tool runs before each line it prints,
+  after its `delay` (a slow download's progress), for a test of a step's time without progress.
 - `AccessPick::{with_machine, with_network, with_image}`: an `AccessPick` is built from
   `AccessPick::default()` with them.
 - `Running::console_command(machine, user)`: the command that opens a console into any machine of
@@ -591,7 +598,8 @@ change.
   (a `sh -c` script with `;` or `>`, a JSON value), so the shell splits it back into the argv.
   `isothrum console` prints it; before, the CLI joined the words unquoted and left the folder
   out, so a pasted console broke.
-- The CLI's `attach` and `detach` take `--param` and `--secret-from-env`.
+- The CLI's `attach` and `detach` take every run option: `--param`, `--secret-from-env`,
+  `--host-label` (a run recorded under another is refused, `running_elsewhere`) and `--provider`.
 - **The machine-setup backend holds UTM and its plugin to a version.** `isothrum-machine`'s
   provider detection reads each Vagrant plugin's version and UTM's own (its app bundle's
   `CFBundleShortVersionString`), and reports UTM unavailable with the way out
@@ -649,7 +657,8 @@ change.
   `unsupported`.** `unsupported` meant both "this runner doesn't do it" and a mistake of the
   caller's or the manifest's. Now an `attach` (or `detach`) that names none of the run's several
   on-demand machines fails with the new `machine_ambiguous` (`Error::MachineAmbiguous`), one
-  whose network the run doesn't have with the new `network_unknown` (`Error::NetworkUnknown`),
+  whose network the run doesn't have with the new `network_unknown` (`Error::NetworkUnknown`; 1.x
+  went on without it, its join's failure swallowed on Compose: see the `attach` entry under Fixed),
   and a manifest value the runner can't use as written (a step's `verdict` that isn't a regular
   expression, an SSH login, an `ssh.run`'s `wait_s`, `host` or `command`, a `project.archive`
   without its folder, a `terraform.copy_module`'s `from` or `when`) with `manifest_invalid`
@@ -704,6 +713,9 @@ change.
   progress for 1800s and was stopped; its last line: `…` ``), and the `error` event carries it as
   `timeout` (`{"kind": "no_progress", "after_s": 1800, "last_line": "…"}`, or
   `{"kind": "ceiling", "after_s": 21600}`), secrets masked.
+- **Breaking:** **`EventKind::Error` has a `timeout` field** (`Option<TimedOut>`, the limit a step
+  ran into when the code is `timeout`). The variant isn't `#[non_exhaustive]`: a pattern or a
+  literal written without `..` no longer compiles; add `timeout` (`None`) or `..`.
 - **Breaking:** **`ShellCommand::cwd` is a `PathBuf`**, no longer an `Option`: a console always runs in the
   run's folder.
 - **Breaking:** **`Running::attach(pick, opts, events)` and `Running::detach(machine, opts, events)` take the
@@ -716,8 +728,8 @@ change.
   `isothrum park` takes `--param`, `--secret-from-env`, `--host-label` and `--provider`, as
   `down` does. Its SSH goes through the jump the run recorded at `up`, as every later
   operation's does.
-- **Breaking:** **`isothrum` takes `--ssh-jump` on `up` only.** Every command that runs an operation accepted
-  it, but only an `up` that starts the run reads it (it is recorded; later operations go the
+- **Breaking:** **`isothrum` takes `--ssh-jump` on `up` only.** `up`, `down`, `resume`, `check` and
+  `provision` accepted it, but only an `up` that starts the run reads it (it is recorded; later operations go the
   same way): given anywhere else it did nothing. `RunOptions::ssh_jump` says so.
 - **Breaking:** **`RunnerConfig::new` honours the user's Docker context.** It started processes with
   `SystemProcesses::default()`, which never read the Docker CLI's config, so a runner built with
@@ -736,8 +748,8 @@ change.
   `ProcessSpec` (a type alias): a call is recorded as the spec it ran, its fields and `line()` and
   `env(name)` as before. `Captured::exit` is an `Exit` (was an `Option<Exit>`: a process that ran
   always has one), and `Captured` no longer implements `Default`.
-- **Breaking:** **`AccessPick` and `AttachReport` are `#[non_exhaustive]`**: build an `AccessPick` from
-  `AccessPick::default()` with its `with_*` methods.
+- **Breaking:** **`AttachReport` is `#[non_exhaustive]`** (the new `AccessPick` too): build an
+  `AccessPick` from `AccessPick::default()` with its `with_*` methods.
 - **Breaking:** **`ShellCommand` is `#[non_exhaustive]`**: build one with `ShellCommand::new(program,
   args, cwd)` and `with_env`; its fields stay readable.
 - **`isothrum-machine`'s reasons speak to no particular program**: no "then re-check" or "run
@@ -782,8 +794,9 @@ change.
   that keeps something beside a run does it around the operation's call.
 - **Breaking:** **`RunRecord::manifest_sha256` and `LoadedManifest::sha256`**: nothing read the hash. A record
   written with it still loads.
-- **Breaking:** **`Serialize` and `Deserialize` on `isothrum-machine`'s `ProviderStatus`**: nothing
-  wrote or read it as JSON (an embedder reads its fields). `Provider`, Isoloom's own, keeps both.
+- **Breaking:** **`Serialize` on `isothrum-machine`'s `ProviderStatus`** (camelCase; 1.x derived no
+  `Deserialize`): nothing wrote it as JSON (an embedder reads its fields). `Provider`, Isoloom's
+  own, keeps `Serialize` and `Deserialize`.
 - **Breaking:** **`isothrum-machine`'s `Provider::Proxmox`.** There is no Vagrant Proxmox provider in use:
   detection always reported it unavailable (`vagrant-proxmox` not installed). A Proxmox run is
   Terraform's.
@@ -811,9 +824,8 @@ change.
   `SystemClock`, `RunnerConfig::clock`: the runner reads the system's clock), `Recorder`,
   `EVENTS_VERSION` (an event's `v`), `Running::path`, and the test doubles' `FakePorts::take`,
   `FakePorts::answer`, `Reply::after` and `FakeProcesses::lines` (read `FakeProcesses::calls`), and
-  `From<Option<i32>>` for `process::Exit` (use `Exit::new`). In `isothrum-compiler`:
-  `Compiled::spec` (`Compiled::into_parts` gives the spec). In `isothrum-machine`: `Provider::ALL`,
-  `Provider::is_remote`, and `ProviderStatus`'s `remote`, `hypervisor`, `plugin` and
+  `From<Option<i32>>` for `process::Exit` (use `Exit::new`). In `isothrum-machine`:
+  `Provider::ALL`, `Provider::is_remote`, and `ProviderStatus`'s `remote`, `hypervisor`, `plugin` and
   `plugin_installed` (its `reason` says what is missing or too old).
 - **Breaking:** **`Occupied::Refuse`**: no embedder asked for a parked run to be refused.
   `Occupied::ResumeParked`, the default, resumes it; `Occupied::Replace` starts afresh; without
