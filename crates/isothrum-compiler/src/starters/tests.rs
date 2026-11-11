@@ -58,7 +58,7 @@ fn each_family_installs_with_its_own_tool() {
         ("rocky@9", "dnf install -y nginx"),
         ("centos@7", "yum install -y nginx"),
         ("alpine@3.19", "apk add --no-cache nginx"),
-        ("kali", "apt-get install -y nginx"),
+        ("debian@12", "apt-get install -y nginx"),
     ] {
         let files = starters_of(&project(&format!(
             "  web:\n    os: {os}\n    networks: {{ lan: 10 }}\n    ports: {{ http: 80, admin: 9000 }}\n    app: {{ steps: [{{ run: provision/web.sh }}] }}\n"

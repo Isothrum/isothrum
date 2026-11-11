@@ -367,8 +367,8 @@ mod tests {
     fn a_console_takes_its_machine_and_the_run_defaults_to_here() {
         let console = Cli::parse_from(["isothrum", "console", "web"]);
         assert!(matches!(on_runner(console.command), RunnerCommand::Console { machine: m, run, user: None } if m == "web" && run.path.as_os_str() == "."));
-        let as_user = Cli::parse_from(["isothrum", "console", "--user", "player", "web"]);
-        assert!(matches!(on_runner(as_user.command), RunnerCommand::Console { user: Some(u), .. } if u == "player"));
+        let as_user = Cli::parse_from(["isothrum", "console", "--user", "user", "web"]);
+        assert!(matches!(on_runner(as_user.command), RunnerCommand::Console { user: Some(u), .. } if u == "user"));
     }
 
     #[test]

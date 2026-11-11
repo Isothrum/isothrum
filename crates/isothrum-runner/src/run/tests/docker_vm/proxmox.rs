@@ -171,12 +171,8 @@ async fn on_proxmox_a_console_into_a_service_goes_over_ssh_into_its_container() 
         "{:?}",
         console.args
     );
-    let as_player = run.console_command("web", Some("player")).unwrap();
-    assert!(
-        as_player.args.last().unwrap().contains("docker exec -it --user player "),
-        "{:?}",
-        as_player.args
-    );
+    let as_user = run.console_command("web", Some("user")).unwrap();
+    assert!(as_user.args.last().unwrap().contains("docker exec -it --user user "), "{:?}", as_user.args);
 }
 
 /// On a server, a Compose service in the run's VM is removed there over SSH, as the guest's

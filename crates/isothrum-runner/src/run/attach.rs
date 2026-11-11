@@ -245,11 +245,11 @@ mod tests {
     #[test]
     fn the_events_data_is_the_report() {
         let report = AttachReport {
-            machine: "attacker".into(),
+            machine: "user".into(),
             native: "access".into(),
             network: Some("lan".into()),
             address: None,
-            image: Some("kali".into()),
+            image: Some("debian:12".into()),
         };
         assert_eq!(report.data(), serde_json::to_value(&report).unwrap());
     }

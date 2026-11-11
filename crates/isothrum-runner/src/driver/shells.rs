@@ -32,7 +32,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_scripts_as_an_account_are_sh() {
-        for script in [login_shell_as("player"), container_shell_as()] {
+        for script in [login_shell_as("user"), container_shell_as()] {
             let parsed = std::process::Command::new("sh").args(["-n", "-c", &script]).status();
             assert!(parsed.is_ok_and(|s| s.success()), "{script}");
         }
@@ -51,20 +51,20 @@ mod tests {
         }
         let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
         let out = std::process::Command::new("sh")
-            .args(["-c", &login_shell_as("player")])
+            .args(["-c", &login_shell_as("user")])
             .env("PATH", path)
             .output()
             .unwrap();
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "sudo -iu player\n");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "sudo -iu user\n");
     }
 
     /// Run as the account already, the login shell is the session's own; as another, `sudo -i`.
     #[test]
     fn a_login_as_an_account_is_a_sudo_login_unless_it_is_the_sessions() {
-        let script = login_shell_as("player");
+        let script = login_shell_as("user");
         assert_eq!(
             script,
-            "if [ $(id -un) = player ]; then if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi; else exec sudo -iu player; fi"
+            "if [ $(id -un) = user ]; then if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi; else exec sudo -iu user; fi"
         );
     }
 }

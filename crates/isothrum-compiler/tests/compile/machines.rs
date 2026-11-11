@@ -44,7 +44,7 @@ fn an_idle_container_is_kept_running_by_its_own_command() -> Outcome {
 #[test]
 fn a_vm_without_steps_is_its_os_alone_and_a_playbook_is_a_playbook_step() -> Outcome {
     let mut topo = three_node()?;
-    topo.nodes["client"].kind = vm("kali", &[])?;
+    topo.nodes["client"].kind = vm("debian@12", &[])?;
     topo.nodes["server"].kind = vm("ubuntu@24.04", &["provision/web.sh", "provision/site.yml"])?;
     let c = accepted(&topo)?;
     assert!(spec(&c).machines["client"].app().is_none());

@@ -309,11 +309,11 @@ async fn a_console_into_the_vm_or_a_service_opens_as_the_account_asked() {
     let l = local();
     let run = l.runner.open(&l.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let console = run.console_command("web", Some("player")).unwrap();
+    let console = run.console_command("web", Some("user")).unwrap();
     assert_eq!(console.args[..3], ["ssh", "default", "-c"]);
-    assert!(console.args[3].starts_with("sudo docker exec -it --user player "), "{}", console.args[3]);
-    let vm = run.console_command(HOST, Some("player")).unwrap();
-    assert_eq!(vm.args, ["ssh", "default", "-c", &crate::driver::shells::login_shell_as("player")]);
+    assert!(console.args[3].starts_with("sudo docker exec -it --user user "), "{}", console.args[3]);
+    let vm = run.console_command(HOST, Some("user")).unwrap();
+    assert_eq!(vm.args, ["ssh", "default", "-c", &crate::driver::shells::login_shell_as("user")]);
 }
 
 /// A console is handed to the embedder, which prints and runs it: it carries nothing the manifest

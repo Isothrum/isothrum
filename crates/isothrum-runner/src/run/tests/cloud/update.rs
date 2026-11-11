@@ -90,14 +90,14 @@ async fn a_console_over_ssh_opens_as_the_account_asked() {
     let a = account(0);
     let run = a.runner.open(&a.folder.manifest, None).unwrap();
     run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
-    let console = run.console_command("web", Some("player")).unwrap();
+    let console = run.console_command("web", Some("user")).unwrap();
     assert_eq!(console.args.first().map(String::as_str), Some("-t"));
     assert!(
         console.args.iter().any(|x| x == "admin@198.51.100.10"),
         "logs in as the module's user: {:?}",
         console.args
     );
-    assert_eq!(console.args.last(), Some(&crate::driver::shells::login_shell_as("player")));
+    assert_eq!(console.args.last(), Some(&crate::driver::shells::login_shell_as("user")));
 }
 
 /// A machine that was running keeps what it was given: an update (which carries no launch's

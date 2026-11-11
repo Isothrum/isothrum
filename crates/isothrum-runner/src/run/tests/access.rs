@@ -348,9 +348,9 @@ async fn a_console_opens_any_compose_service_by_name() {
 async fn a_console_into_a_compose_service_opens_as_the_account_asked() {
     let f = fixture_with(WEB_PORTAL_ACCESS);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let cmd = run.console_command("web", Some("player")).unwrap();
+    let cmd = run.console_command("web", Some("user")).unwrap();
     let line = cmd.args.join(" ");
-    assert!(line.contains(" exec --user player web sh -c "), "{line}");
+    assert!(line.contains(" exec --user user web sh -c "), "{line}");
     assert!(line.ends_with(&crate::driver::shells::container_shell_as()), "{line}");
     for refused in ["", "Player", "a b", "x;id", "-u", "1st", &"p".repeat(33)] {
         let err = run.console_command("web", Some(refused)).unwrap_err();
@@ -368,8 +368,8 @@ async fn a_console_opens_any_vagrant_define_by_name() {
     assert_eq!(cmd.program, "vagrant");
     assert_eq!(cmd.args, vec!["ssh".to_owned(), "web".to_owned()]);
     // As an account: a `sudo -i` login as it, from Vagrant's own (`-c` has a terminal).
-    let as_player = run.console_command("web", Some("player")).unwrap();
-    assert_eq!(as_player.args, ["ssh", "web", "-c", &crate::driver::shells::login_shell_as("player")]);
+    let as_user = run.console_command("web", Some("user")).unwrap();
+    assert_eq!(as_user.args, ["ssh", "web", "-c", &crate::driver::shells::login_shell_as("user")]);
 }
 
 /// Retiring a Vagrant machine destroys its define, and only it, ahead of its removal from the

@@ -107,7 +107,7 @@ async fn a_console_as_an_account_into_a_windows_machine_is_refused() {
     m["machines"][0]["windows"] = serde_json::json!(true);
     let f = fixture_from(crate::runner::this_host(), &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.console_command("web", Some("player")).unwrap_err();
+    let err = run.console_command("web", Some("user")).unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
     assert!(err.to_string().contains("which runs Windows"), "{err}");
     assert_eq!(run.console_command("web", None).unwrap().args, ["ssh", "web"]);

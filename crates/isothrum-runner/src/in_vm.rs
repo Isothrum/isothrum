@@ -224,8 +224,8 @@ mod tests {
     #[test]
     fn a_service_in_a_vm_is_entered_as_the_account_asked() {
         assert_eq!(
-            into_service("user", Some("player")),
-            "sudo docker exec -it --user player \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=user' | head -n 1)\" sh -c 'cd 2>/dev/null; if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi'"
+            into_service("user", Some("user")),
+            "sudo docker exec -it --user user \"$(sudo docker ps -q --filter 'label=com.docker.compose.service=user' | head -n 1)\" sh -c 'cd 2>/dev/null; if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi'"
         );
     }
 
