@@ -26,6 +26,9 @@ change.
   Isoloom release writes, and refuses the version 0 that 1.x read: regenerate the files first.
 - **New operations:** `update` (bring a running run up to date with its regenerated manifest),
   `retire` and `console`; `isothrum completions`.
+- **Graphical consoles:** `Running::graphical_console` and `isothrum screen` reach a VM's screen
+  (VNC or RDP) on the loopback, opening an SSH tunnel where the manifest says, and a status says
+  each machine's console or why it has none.
 - **CI-ready command line:** Ctrl-C and SIGTERM stop the tools and exit 130/143 with a `cancelled`
   error; with `--json` every failure is an event; a step's timeout counts time without progress.
 - **Corporate environments:** proxy and CA settings reach an elevated Hyper-V session and a
@@ -472,6 +475,23 @@ change.
 
 ### Added
 
+- **A machine's graphical console**, where its run manifest lists one (`machines[].consoles`,
+  Isoloom's next release): `Running::graphical_console(machine)` gives a `Console` (its protocol,
+  VNC or RDP; its `Endpoint`, a port of this computer's loopback or Proxmox VE's VNC websocket
+  (`ProxmoxVnc`: the URL, the ticket, the header that signs it in); the account and password to
+  sign in with), reading the port where the hypervisor keeps it: `virsh domdisplay` for libvirt,
+  `info vnc` on vagrant-qemu's monitor socket, `VBoxManage showvminfo` for VirtualBox's remote
+  display, `vncproxy` over Proxmox's API (with `curl`, its credentials in an owner-only config file
+  piped into it and removed), or an SSH tunnel it opens from the loopback (`ssh -N -L`, held by the
+  `Console` until it is dropped). A console the hypervisor says listens off the loopback is
+  refused. For VMware's VNC server, the runner chooses a free loopback port and an 8-character
+  password per machine before the run's first Vagrant command, keeps them in the run's
+  `consoles.json` until `down`, and gives them to the run's Vagrant processes in
+  `ISOLOOM_CONSOLES`, never to a command an embedder runs. `MachineStatus::console`
+  (`ConsoleOffer`: the protocol, or `none` and why) says each machine's in a status. The error
+  `no_console` (`Error::NoConsole`) says why a machine has none, isn't running, or its hypervisor
+  doesn't say where it is. `isothrum screen <machine>` prints where it answers (`--show-password`,
+  `--json`), and holds a tunnel open until it is stopped.
 - **`Captured::success`, `Captured::reason` and `Captured::output`** on `isothrum_runner::Captured`,
   what `isothrum_runner::capture` keeps of a tool it runs (both were in `process`, now at the crate
   root): whether it exited 0, why it failed, as every failed tool's error says it, and what it

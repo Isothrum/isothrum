@@ -57,9 +57,11 @@ The full model: [docs/explanation/security-model.md](docs/explanation/security-m
   results.
 - **State is private.** The home's folders are `0700` and its files `0600` on Unix; on Windows a
   home outside the user's profile gets an owner-only DACL. No secret value is stored, except in
-  three owner-only files in the run's state folder, each kept only while the run needs it: a
-  `state_file` delivery's file, a guest delivery's input (`guest-<machine>.in`) and an elevated
-  Hyper-V session's request variables (`env-<n>.json`)
+  five owner-only files in the run's state folder, each kept only while the run needs it: a
+  `state_file` delivery's file, a guest delivery's input (`guest-<machine>.in`), an elevated
+  Hyper-V session's request variables (`env-<n>.json`), the graphical consoles' passwords the
+  runner chose for a VMware run (`consoles.json`) and a Proxmox console request's credentials
+  (`proxmox-console.curl`, only while `curl` runs)
   ([Security model](docs/explanation/security-model.md)).
 - **Signed releases.** Binaries come with checksums, a Sigstore signature and build provenance
   ([verify a release](docs/how-to/verify-a-release.md)); the crates forbid `unsafe` code.

@@ -469,4 +469,5 @@ async fn a_module_with_no_terraform_file_is_manifest_invalid() {
     assert!(!s.fake.lines().iter().any(|l| l.starts_with("terraform")), "{:?}", s.fake.lines());
 }
 
+mod console;
 mod gone;

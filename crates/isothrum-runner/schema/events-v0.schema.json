@@ -709,6 +709,11 @@
           "const": "not_sealed"
         },
         {
+          "description": "The machine has no graphical console to reach: its target or provider gives none (the\nerror says why), it isn't running, or its hypervisor doesn't say where it is.",
+          "type": "string",
+          "const": "no_console"
+        },
+        {
           "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended\nonce they have, or 30 seconds later.",
           "type": "string",
           "const": "cancelled"

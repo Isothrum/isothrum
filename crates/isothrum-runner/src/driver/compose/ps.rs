@@ -143,6 +143,7 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
             state: entry.map_or(MachineState::Absent, PsEntry::machine_state),
             addresses: crate::driver::static_addresses(m),
             published: ports,
+            console: None,
         });
     }
     (out, published)

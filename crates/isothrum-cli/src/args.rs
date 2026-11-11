@@ -93,6 +93,18 @@ pub(crate) enum RunnerCommand {
         #[command(flatten)]
         run: RunArgs,
     },
+    /// Reach a machine's graphical console (its screen) and print where it answers: an address of
+    /// this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. One reached
+    /// through an SSH tunnel is held open until the command is stopped (Ctrl-C).
+    Screen {
+        /// The machine, by its manifest name.
+        machine: String,
+        /// Print its password too (the VNC password, or the account's for RDP).
+        #[arg(long)]
+        show_password: bool,
+        #[command(flatten)]
+        run: RunArgs,
+    },
     /// Print the run's recorded events, oldest first.
     Events(RunArgs),
     /// Destroy a cloud's runs past their expiry (each with the params it was applied with), then
@@ -339,6 +351,14 @@ mod tests {
         };
         assert_eq!((retired.as_str(), retiring.run.path), ("web", "runs/web".into()));
         assert_eq!(retiring.secrets, ["DEMO_SECRET"]);
+    }
+
+    #[test]
+    fn a_screen_takes_its_machine_and_keeps_its_password_unless_asked() {
+        let screen = Cli::parse_from(["isothrum", "screen", "web"]);
+        assert!(matches!(on_runner(screen.command), RunnerCommand::Screen { machine: m, show_password: false, .. } if m == "web"));
+        let shown = Cli::parse_from(["isothrum", "screen", "--show-password", "web"]);
+        assert!(matches!(on_runner(shown.command), RunnerCommand::Screen { show_password: true, .. }));
     }
 
     #[test]

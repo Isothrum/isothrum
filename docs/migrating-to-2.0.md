@@ -81,6 +81,7 @@ that keeps printing runs past it.
 | `ShellCommand { program, args, cwd, env }` | `ShellCommand::new(program, args, cwd).with_env(env)`: it is `#[non_exhaustive]`. |
 | `Error::Timeout { after_s, .. }` | `Error::Timeout { timed_out: TimedOut, .. }` (`NoProgress` or `Ceiling`; `timed_out.after_s()`) |
 | `Error::PortInUse { protocol: &'static str }` | `protocol: String` |
+| `MachineStatus { name, role, state, addresses, published }` | It has `console` too (`Option<ConsoleOffer>`), and is `#[non_exhaustive]`: read it, don't build it. A match on `ErrorCode` meets `NoConsole` (`no_console`). |
 | `ProcessError::Refused { arg }` | `ProcessError::Refused { why }` |
 | `Event::run: String`, `Event::op: Op` | `Option<String>`, `Option<Op>` |
 | `Runner::events(name) -> Vec<Event>` | `-> EventLog`: its `events`, and `unreadable`, the log's lines it couldn't read (a 1.x `hook_failed` warning). |

@@ -81,6 +81,9 @@ pub enum ErrorCode {
     Unreachable,
     /// The run's seal failed: it is up, but not sealed, so not ready.
     NotSealed,
+    /// The machine has no graphical console to reach: its target or provider gives none (the
+    /// error says why), it isn't running, or its hypervisor doesn't say where it is.
+    NoConsole,
     /// The operation was cut short before it ended (its future dropped: an embedder's cancel, the
     /// command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended
     /// once they have, or 30 seconds later.
@@ -123,6 +126,7 @@ impl ErrorCode {
             ErrorCode::AdoptRefused => "adopt_refused",
             ErrorCode::Unreachable => "unreachable",
             ErrorCode::NotSealed => "not_sealed",
+            ErrorCode::NoConsole => "no_console",
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Usage => "usage",
         }
@@ -382,6 +386,14 @@ pub enum Error {
         /// Why.
         reason: String,
     },
+    /// A machine with no graphical console to reach, and why.
+    #[error("machine `{machine}` has no graphical console: {why}")]
+    NoConsole {
+        /// The machine.
+        machine: String,
+        /// Why.
+        why: String,
+    },
     /// A run name that can't name a run.
     #[error("`{value}` can't name a run: use 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit")]
     RunName {
@@ -423,6 +435,7 @@ impl Error {
             Error::Adopt { .. } => ErrorCode::AdoptRefused,
             Error::Unreachable { .. } => ErrorCode::Unreachable,
             Error::Unsealed { .. } => ErrorCode::NotSealed,
+            Error::NoConsole { .. } => ErrorCode::NoConsole,
         }
     }
 

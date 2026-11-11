@@ -110,11 +110,12 @@ impl Vagrant {
     }
 
     /// `vagrant <args>` for a console in the embedder's terminal: with the run's own variables
-    /// ([`Driver::env`]) and nothing the manifest delivers to a step, whose values would show in
-    /// the printed command.
+    /// ([`Driver::env`]) but the consoles the runner chose, and nothing the manifest delivers to a
+    /// step, whose values (and passwords) would show in the printed command.
     fn console(&self, cx: &Cx<'_>, args: &[&str]) -> Result<ProcessSpec> {
         let mut spec = ProcessSpec::new("vagrant", args.iter().copied());
         spec.env = self.env(cx)?;
+        spec.env.retain(|(k, _)| k != isoloom_manifest::contract::CONSOLES);
         Ok(spec)
     }
 
@@ -176,9 +177,11 @@ impl Driver for Vagrant {
         // Its parent is the run's own folder, owner-only; Vagrant makes the folder itself.
         let dotfile = self.dotfile(cx)?;
         match dotfile.parent() {
-            Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::create_dir(parent),
-            _ => Ok(()),
+            Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::create_dir(parent)?,
+            _ => {}
         }
+        // The consoles the runner chooses (VMware's VNC server), before a Vagrant command reads them.
+        crate::graphical::chosen::ensure(cx)
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
@@ -190,6 +193,9 @@ impl Driver for Vagrant {
             let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), (*port).into())).collect();
             env.push((isoloom_manifest::contract::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
         }
+        // The consoles the runner chose, passwords and all: the run's own Vagrant processes only
+        // (a console's command, which an embedder is handed, leaves them out: `console`).
+        env.extend(crate::graphical::chosen::var(cx)?);
         Ok(env)
     }
 
@@ -214,9 +220,10 @@ impl Driver for Vagrant {
         Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
     }
 
-    fn after_down(&self, _cx: &Cx<'_>) -> Result<()> {
-        // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder.
-        Ok(())
+    fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
+        // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder; the
+        // consoles the runner chose go with the run.
+        crate::graphical::chosen::forget(cx)
     }
 
     /// `vagrant reload <define> --no-provision`: the VM boots with what the Vagrantfile now says,
@@ -352,6 +359,7 @@ fn machines(
             state,
             addresses: super::static_addresses(m),
             published,
+            console: None,
         });
     }
     out

@@ -10,6 +10,7 @@ mod attach;
 mod boot;
 mod console;
 mod existing;
+mod graphical;
 mod operation;
 mod retire;
 mod seal;
@@ -182,7 +183,16 @@ impl<'r> Running<'r> {
             let observed = self.observe(&mut cx).await?;
             (status::derive_state(&observed.machines, record.as_ref()), observed, true)
         };
-        let machines = std::mem::take(&mut observed.machines);
+        let mut machines = std::mem::take(&mut observed.machines);
+        let known = cx.scope.provider;
+        for m in &mut machines {
+            m.console = self
+                .manifest()
+                .machines
+                .iter()
+                .find(|x| x.name.as_str() == m.name)
+                .and_then(|x| crate::graphical::ConsoleOffer::of(x, known));
+        }
         let outputs = self.bind_observed(&mut cx, observed).values;
         let message = (state == crate::RunState::Ready)
             .then(|| outputs::message(self.manifest(), &cx.vars, &outputs))

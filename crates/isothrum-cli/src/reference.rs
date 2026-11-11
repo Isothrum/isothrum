@@ -212,6 +212,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::AdoptRefused => "The message says why the deployment can't be taken over; start the run with `up` instead.",
         ErrorCode::Unreachable => "Check the machine booted and its network (SSH, `--ssh-jump`), then retry.",
         ErrorCode::NotSealed => "`down` the run, which isn't ready, then `up` again.",
+        ErrorCode::NoConsole => {
+            "Read why in the message: start the machine, install what its hypervisor needs (VirtualBox's extension pack), or use its console (`isothrum console`) instead."
+        }
         ErrorCode::Cancelled => "Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left.",
         ErrorCode::Usage => "Fix the command line: `isothrum <command> --help`.",
         _ => return None,

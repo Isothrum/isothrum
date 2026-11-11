@@ -1,6 +1,6 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{AccessPick, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use std::borrow::Borrow;
 
@@ -64,6 +64,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
             Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
         RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref())?),
+        RunnerCommand::Screen { run, machine, show_password } => screen(out, &open(runner, run)?, machine, *show_password).await,
         RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
         RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
         RunnerCommand::Key => {
@@ -88,7 +89,12 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
         RunnerCommand::Provision { .. } => Op::Provision,
         RunnerCommand::Attach { .. } => Op::Attach,
         RunnerCommand::Detach { .. } => Op::Detach,
-        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
+        RunnerCommand::Status(_)
+        | RunnerCommand::Console { .. }
+        | RunnerCommand::Screen { .. }
+        | RunnerCommand::Events(_)
+        | RunnerCommand::Reap(_)
+        | RunnerCommand::Key => {
             return None;
         }
     })
@@ -110,7 +116,7 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
         | RunnerCommand::Provision { op, .. }
         | RunnerCommand::Attach { op, .. }
         | RunnerCommand::Detach { op, .. } => &op.run,
-        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Events(run) => run,
+        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Screen { run, .. } | RunnerCommand::Events(run) => run,
         RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
     };
     target.name.as_deref()
@@ -213,6 +219,45 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
         term.out(&serde_json::to_string(cmd)?);
     } else {
         term.out(&cmd.sh_line());
+    }
+    Ok(Verdict::Pass)
+}
+
+/// `machine`'s graphical console, reached: where it answers (its password only when `show`), as
+/// one JSON object or lines for a person; a tunnel it holds kept open until the command is
+/// stopped.
+async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
+    let console = run.graphical_console(machine).await?;
+    let protocol = serde_json::to_value(console.protocol)?.as_str().unwrap_or_default().to_owned();
+    let (address, websocket) = match &console.endpoint {
+        Endpoint::Loopback(at) => (Some(at.to_string()), None),
+        Endpoint::ProxmoxVnc(vnc) => (None, Some(vnc.websocket.expose().to_owned())),
+        _ => (None, None),
+    };
+    let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
+    if json {
+        let line = serde_json::json!({
+            "machine": console.machine, "protocol": protocol, "address": address, "websocket": websocket,
+            "user": console.user, "password": password, "tunnelled": console.tunnelled(), "note": console.note,
+        });
+        term.out(&line.to_string());
+    } else {
+        term.out(&format!("{protocol} {}", address.or(websocket).unwrap_or_default()));
+        if let Some(user) = &console.user {
+            term.out(&format!("user: {user}"));
+        }
+        match (&password, &console.password) {
+            (Some(p), _) => term.out(&format!("password: {p}")),
+            (None, Some(_)) => term.out("password: (hidden: --show-password prints it)"),
+            (None, None) => {}
+        }
+        if console.tunnelled() {
+            term.out("The tunnel stays open until this command is stopped (Ctrl-C).");
+        }
+    }
+    if console.tunnelled() {
+        std::future::pending::<()>().await;
     }
     Ok(Verdict::Pass)
 }

@@ -78,6 +78,10 @@ pub struct MachineStatus {
     pub addresses: BTreeMap<String, String>,
     /// Its published ports.
     pub published: Vec<PublishedPort>,
+    /// Its graphical console under the run's provider, as the manifest offers it (`none` and
+    /// why where there is none); `None` when the manifest says nothing (a container).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<crate::graphical::ConsoleOffer>,
 }
 
 /// A network of the run.
@@ -261,6 +265,7 @@ mod tests {
             state,
             addresses: BTreeMap::new(),
             published: Vec::new(),
+            console: None,
         }
     }
 

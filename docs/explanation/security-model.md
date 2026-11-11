@@ -51,12 +51,16 @@ The manifest declares *slots* (secrets, inputs, connection credentials). Their v
   variables and `TF_CLI_CONFIG_FILE` by name, the files they name mounted read-only.
 - **are masked.** Every sensitive value is replaced by `***` in events, log lines, error messages
   and results; a sensitive output shows as `***` in `status` too.
-- **are not stored**, with three exceptions, all owner-only files in the run's state folder: a
+- **are not stored**, with five exceptions, all owner-only files in the run's state folder: a
   `state_file` delivery (written at `up`, kept for the destroy, removed by a successful `down`),
   a `guest` delivery's input file (removed once delivered, or when the operation is cut short; a
-  removal that fails fails the step), and an elevated Hyper-V session's `env-<n>.json`, a
+  removal that fails fails the step), an elevated Hyper-V session's `env-<n>.json`, a
   request's variables (deleted by the broker before it starts the program; the session's folder
-  goes when the session ends). The tools themselves may keep values: Terraform state can hold any
+  goes when the session ends), `consoles.json`, the port and password the runner chose for each
+  machine's VMware VNC console (made before the run's first Vagrant command, removed by a
+  successful `down`; VMware itself writes the password in the VM's `.vmx`), and
+  `proxmox-console.curl`, a Proxmox console request's credentials, which `curl` reads on its
+  standard input and the runner removes once it ran. The tools themselves may keep values: Terraform state can hold any
   value a resource received.
 
 Terraform doesn't inherit the shell's cloud settings: `AWS_*`, `ARM_*`, `AZURE_*`, `GOOGLE_*`,
@@ -86,13 +90,27 @@ key only, `StrictHostKeyChecking accept-new` (a machine's key is pinned the firs
 seen), batch mode, and the user's `~/.ssh/config` is not read. Jump hosts get the same settings.
 See [Manage the SSH key](../how-to/ssh-keys.md).
 
+## Graphical consoles
+
+`Running::graphical_console` hands an embedder a machine's console only on this computer's
+loopback: the address the hypervisor gives is refused unless it is a loopback one, and a console
+the manifest reaches through a machine of the run gets an SSH tunnel that listens on `127.0.0.1`
+alone (`ssh -N -L 127.0.0.1:<port>:…`, `ExitOnForwardFailure`), with the run's key and pinned host
+keys, open as long as the embedder holds the `Console`. Proxmox's console goes through its API's
+websocket, with a ticket per session the embedder connects with. The passwords a `Console` holds
+(the runner's for VMware, Proxmox's ticket, a Windows account's from a sensitive output) are
+`SecretValue`s, never printed (`isothrum screen` prints one only with `--show-password`).
+libvirt's, QEMU's and VirtualBox's consoles take no password: any program of a user of this
+computer can reach them while the VM runs, as it can a forwarded port.
+
 ## Network
 
 Isothrum opens no listening port on the network. It binds the loopback to find free ports for a
 run's published ports. On macOS, a Vagrant run on VMware ESXi gets relays on the loopback to the
 ESXi host (SSH, HTTPS, and WinRM through a forward proxy that only forwards WinRM's port); they
 live for the operation. The runner also opens TCP connections itself for a manifest's `tcp`
-ready conditions. Everything else on the network is done by the tools.
+ready conditions, and asks vagrant-qemu's monitor socket for a VM's VNC port. A graphical
+console's SSH tunnel listens on the loopback only, while its `Console` lives. Everything else on the network is done by the tools.
 
 ## Supply chain
 

@@ -179,6 +179,17 @@
           "items": {
             "$ref": "#/$defs/PublishedPort"
           }
+        },
+        "console": {
+          "description": "Its graphical console under the run's provider, as the manifest offers it (`none` and\nwhy where there is none); `None` when the manifest says nothing (a container).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsoleOffer"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -317,6 +328,46 @@
           "description": "UDP.",
           "type": "string",
           "const": "udp"
+        }
+      ]
+    },
+    "ConsoleOffer": {
+      "description": "What a status says of a machine's graphical console under the run's provider: its protocol,\nor `none` and why ([`isoloom_manifest::Console`]'s, as the manifest says it).",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "description": "`vnc`, `rdp`, or `none`.",
+          "$ref": "#/$defs/ConsoleProtocol"
+        },
+        "note": {
+          "description": "Why there is none, or what it needs (an extension pack).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "protocol"
+      ]
+    },
+    "ConsoleProtocol": {
+      "description": "The protocol a graphical console speaks.",
+      "oneOf": [
+        {
+          "description": "VNC (RFB).",
+          "type": "string",
+          "const": "vnc"
+        },
+        {
+          "description": "Microsoft's Remote Desktop Protocol.",
+          "type": "string",
+          "const": "rdp"
+        },
+        {
+          "description": "No graphical console: the console's `note` says why.",
+          "type": "string",
+          "const": "none"
         }
       ]
     },

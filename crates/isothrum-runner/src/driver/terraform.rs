@@ -226,6 +226,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
                     })
                 })
                 .collect(),
+            console: None,
         })
         .collect();
     Observed {

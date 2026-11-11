@@ -53,9 +53,10 @@
 //! host's ports) and [`Events`] (where events go). [`ProcessRunner`] and [`Events`] are open traits,
 //! since embedders implement them. [`HostPorts`] is sealed: [`RunnerConfig::new`] binds the
 //! loopback itself, and the `fake` feature's `FakePorts` stands in for it in tests, as its
-//! `FakeProcesses` does for the tools. Two programs run outside [`ProcessRunner`], each for a
+//! `FakeProcesses` does for the tools. Three programs run outside [`ProcessRunner`], each for a
 //! reason of its own: Apple's `nc`, the macOS relays' byte pipe for as long as a connection lasts
-//! (not a tool run to its end), and on Windows `whoami` and `icacls`, which make the home
+//! (not a tool run to its end), a graphical console's SSH tunnel (`ssh -N -L`), for as long as its
+//! [`Console`] lives, and on Windows `whoami` and `icacls`, which make the home
 //! owner-only when the runner is built ([`Runner::new`]), before any operation.
 //!
 //! # Deliveries
@@ -114,6 +115,7 @@ mod future;
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
 pub mod fuzzing;
+mod graphical;
 mod guest;
 mod host_env;
 mod in_vm;
@@ -153,6 +155,7 @@ pub use error::{Error, ErrorCode, Result, TimedOut};
 pub(crate) use events::Recorder;
 pub use events::{Event, EventKind, EventLog, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
+pub use graphical::{Console, ConsoleOffer, Endpoint, ProxmoxVnc};
 pub use isoloom_manifest;
 pub use manifest::{LoadedManifest, MANIFEST_FILE, is_outputs_folder, load_manifest};
 pub use name::RunName;

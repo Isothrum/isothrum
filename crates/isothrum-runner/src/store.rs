@@ -15,6 +15,9 @@
 //!   ssh_config          the run's SSH settings, with its `known_hosts`, for a run reached over
 //!                       SSH
 //!   guest-<machine>.in  a guest delivery's values, only while it is delivered
+//!   consoles.json       the graphical consoles the runner chose (VMware's VNC: port and
+//!                       password per machine); removed by a down
+//!   proxmox-console.curl  a Proxmox console request's credentials, only while curl runs
 //!   elevated/<token>/   an elevated session's folder (Hyper-V): each request's `env-<n>.json`,
 //!                       its variables, until the broker starts the program
 //!   …                   what the manifest keeps in `${run.state_dir}`: Compose's pinned ports,

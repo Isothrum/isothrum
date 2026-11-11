@@ -213,6 +213,20 @@ isothrum console [OPTIONS] <MACHINE> [PATH]
 - `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
 - `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
 
+## `isothrum screen`
+
+Reach a machine's graphical console (its screen) and print where it answers: an address of this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. One reached through an SSH tunnel is held open until the command is stopped (Ctrl-C)
+
+```text
+isothrum screen [OPTIONS] <MACHINE> [PATH]
+```
+
+- `<MACHINE>`: The machine, by its manifest name.
+- `--show-password`: Print its password too (the VNC password, or the account's for RDP)
+- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
+- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
+- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
+
 ## `isothrum events`
 
 Print the run's recorded events, oldest first.

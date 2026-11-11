@@ -74,6 +74,11 @@ fn without_guest_delivery() -> String {
 
 /// A test's runner on `manifest`, its first `failing_applies` applies failing.
 fn account_of(manifest: &str, failing_applies: u32) -> Account {
+    account_with(manifest, failing_applies, no_ports())
+}
+
+/// [`account_of`], the host's ports `ports`.
+fn account_with(manifest: &str, failing_applies: u32, ports: Arc<dyn crate::HostPorts>) -> Account {
     let folder = RunFolder::new("cloud-vm/aws", manifest);
     std::fs::write(folder.target_dir().join("main.tf"), "").unwrap();
     let cloud = Arc::new(FakeCloud::default());
@@ -82,7 +87,7 @@ fn account_of(manifest: &str, failing_applies: u32) -> Account {
         let (home, cloud) = (folder.home.path().to_path_buf(), Arc::clone(&cloud));
         move |call| answer(&home, &cloud, call)
     }));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), no_ports(), HostOs::Linux)).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Linux)).unwrap();
     Account { folder, fake, cloud, runner }
 }
 
@@ -275,3 +280,74 @@ mod reach;
 mod seal;
 mod secrets;
 mod update;
+
+/// The fixture as a Windows machine's would be: `web` reached over Remote Desktop through an SSH
+/// tunnel through itself, signing in with the module's sensitive password output.
+fn with_rdp() -> String {
+    let mut m: serde_json::Value = serde_json::from_str(&without_guest_delivery()).unwrap();
+    m["machines"][0]["consoles"] = serde_json::json!([{
+        "protocol": "rdp",
+        "source": { "from": "ssh_tunnel", "via": "${outputs.address_web}", "user": "${outputs.ssh_user_web}", "host": "10.0.1.5", "port": 3389 },
+        "account": { "user": "isoloom", "password": "${outputs.db_password}" }
+    }]);
+    m["outputs"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "db_password", "role": "info", "sensitive": true, "from": { "kind": "terraform_output", "name": "db_password" }
+    }));
+    m.to_string()
+}
+
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_remote_desktop_is_reached_through_an_ssh_tunnel_from_the_loopback() {
+    let ports = Arc::new(crate::net::FakePorts::new([24001, 24002]));
+    let a = account_with(&with_rdp(), 0, Arc::<crate::net::FakePorts>::clone(&ports));
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    ports.answer("127.0.0.1", 24001);
+    let console = run.graphical_console("web").await.unwrap();
+    assert_eq!(
+        console.endpoint,
+        crate::Endpoint::Loopback("127.0.0.1:24001".parse().unwrap()),
+        "the tunnel's loopback end"
+    );
+    assert!(console.tunnelled());
+    assert_eq!(console.user.as_deref(), Some("isoloom"));
+    assert_eq!(
+        console.password.as_ref().map(SecretValue::expose),
+        Some("hunter2-db"),
+        "the sensitive output, revealed for the viewer"
+    );
+    drop(console);
+    // A tunnel that never listens is no console.
+    let err = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::NoConsole);
+    assert!(err.to_string().contains("its tunnel through 198.51.100.10 didn't open"), "{err}");
+}
+
+#[tokio::test]
+async fn a_tunnel_goes_through_the_runs_ssh_config_and_listens_on_the_loopback() {
+    let a = account_of(&with_rdp(), 0);
+    let run = a.runner.open(&a.folder.manifest, None).unwrap();
+    run.up(&opts("eu-west-3", "demo"), &Recorder::new()).await.unwrap();
+    let to = crate::graphical::tunnel_to_for_tests("198.51.100.10", "admin", "10.0.1.5", 3389);
+    let spec = run.query(|cx| crate::graphical::tunnel_spec_for_tests(cx, &to, 24001)).unwrap();
+    assert_eq!(spec.program, "ssh");
+    assert_eq!(
+        spec.args,
+        [
+            "-F",
+            "ssh_config",
+            "-N",
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-L",
+            "127.0.0.1:24001:10.0.1.5:3389",
+            "admin@198.51.100.10"
+        ]
+    );
+    let bad = crate::graphical::tunnel_to_for_tests("198.51.100.10", "admin", "10.0.1.5 -oProxyCommand=x", 3389);
+    assert!(
+        run.query(|cx| crate::graphical::tunnel_spec_for_tests(cx, &bad, 24001)).is_err(),
+        "an address, nothing else"
+    );
+}
