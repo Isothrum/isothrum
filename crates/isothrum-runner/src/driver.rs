@@ -261,6 +261,16 @@ impl AnyDriver {
         }
     }
 
+    /// Whether `e`, a failure of the start's steps `up`, is one a later apply may get past (a
+    /// cloud's eventual consistency): a step that runs `terraform apply` failing. Never for another
+    /// driver.
+    pub(crate) fn reapplies(&self, up: &[Step], e: &Error) -> bool {
+        match self {
+            AnyDriver::Terraform(_) => terraform::argv::applied(up, e),
+            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => false,
+        }
+    }
+
     pub(crate) fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         match self {
             AnyDriver::Compose(d) => d.after_down(cx),

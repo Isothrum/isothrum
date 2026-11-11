@@ -19,6 +19,7 @@
 //!   SSH files and the project's archive go for every driver).
 //! - No on-demand access machine: the module makes every machine it has at `up`.
 
+pub(crate) mod argv;
 mod console;
 mod copy_module;
 pub(crate) mod gone;

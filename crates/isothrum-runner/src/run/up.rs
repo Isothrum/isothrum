@@ -221,7 +221,7 @@ impl Running<'_> {
                 }
                 // A module that converges on a later apply (a cloud's eventual consistency); any
                 // other step's failure is the start's.
-                Err(e @ Error::ToolFailed { .. }) if applies > 0 && applied(up, &e) => {
+                Err(e @ Error::ToolFailed { .. }) if applies > 0 && self.driver.reapplies(up, &e) => {
                     applies -= 1;
                     cx.events.warning(WarningCode::Retrying, &format!("applying again: {e}"));
                 }
@@ -240,22 +240,6 @@ impl Running<'_> {
     }
 }
 
-/// Whether `e` is the failure of a step of `up` that runs `terraform apply`.
-fn applied(up: &[isoloom_manifest::Step], e: &Error) -> bool {
-    let Error::ToolFailed { step, .. } = e else { return false };
-    up.iter().filter(|s| s.id.as_str() == step).any(|s| match &s.run {
-        isoloom_manifest::Run::Argv(argv) => argv_applies(argv),
-        isoloom_manifest::Run::Action { .. } => false,
-    })
-}
-
-/// Whether `argv` (on any host) is `terraform apply …` (or `tofu`), global options such as
-/// `-chdir=<module>` before the subcommand.
-fn argv_applies(argv: &isoloom_manifest::HostArgv) -> bool {
-    let applies = |a: &isoloom_manifest::Argv| crate::executor::plan::terraform_subcommand(a).is_some_and(|(_, s)| s == "apply");
-    crate::executor::plan::every_argv(argv).any(applies)
-}
-
 /// How long a run with an `expiry` lives when neither the embedder nor the manifest says.
 const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 
@@ -268,30 +252,5 @@ fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<Strin
         ok: true,
         data,
         state: Some(RunState::Ready),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn argv(json: &str) -> isoloom_manifest::HostArgv {
-        serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn an_apply_is_terraforms_apply_subcommand_wherever_its_module() {
-        assert!(argv_applies(&argv(r#"["terraform", "apply", "-auto-approve"]"#)));
-        assert!(argv_applies(&argv(
-            r#"["terraform", "-chdir=${run.state_dir}/module", "apply", "-auto-approve"]"#
-        )));
-        assert!(argv_applies(&argv(r#"["tofu", "apply"]"#)));
-        assert!(!argv_applies(&argv(r#"["terraform", "destroy", "-auto-approve"]"#)));
-        assert!(
-            !argv_applies(&argv(r#"["terraform", "-chdir=apply", "init"]"#)),
-            "a folder named apply isn't the subcommand"
-        );
-        assert!(!argv_applies(&argv(r#"["ssh", "apply"]"#)));
-        assert!(argv_applies(&argv(r#"{"default": ["terraform", "apply"], "windows": ["terraform", "apply"]}"#)));
     }
 }

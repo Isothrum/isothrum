@@ -90,7 +90,7 @@ pub(super) async fn forget(cx: &Cx<'_>, list: &str, step: &Step, held: Vec<Gone>
 fn state_rm(step: &Step, host: HostOs, gone: &[Gone]) -> Option<Step> {
     let Run::Argv(command) = &step.run else { return None };
     let chosen = crate::executor::plan::for_host(command, host)?;
-    let (at, subcommand) = crate::executor::plan::terraform_subcommand(chosen)?;
+    let (at, subcommand) = super::argv::subcommand(chosen)?;
     if gone.is_empty() || subcommand != "destroy" {
         return None;
     }
