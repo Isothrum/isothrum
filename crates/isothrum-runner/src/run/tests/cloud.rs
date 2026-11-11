@@ -16,12 +16,14 @@ use crate::{EventKind, Recorder, RunOptions, RunState, Runner, WarningCode};
 /// The machine's public address the fake apply reports.
 const PUBLIC: &str = "198.51.100.10";
 
-/// A test's runner on the cloud fixture and its fake tools.
+/// A test's runner on the cloud fixture and its fake tools. The fields drop in order: the runner
+/// and the fakes first, so [`FakeCloud`]'s drop gives a read-only folder back its rights before
+/// the run's folder goes; declared first, the folder failed to go and stayed in the temp folder.
 struct Account {
-    folder: RunFolder,
     fake: Arc<FakeProcesses>,
     cloud: Arc<FakeCloud>,
     runner: Runner,
+    folder: RunFolder,
 }
 
 /// What the fake tools do: how many applies fail first, how many deliveries find the machine
@@ -88,7 +90,7 @@ fn account_with(manifest: &str, failing_applies: u32, ports: Arc<dyn crate::Host
         move |call| answer(&home, &cloud, call)
     }));
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Linux)).unwrap();
-    Account { folder, fake, cloud, runner }
+    Account { fake, cloud, runner, folder }
 }
 
 /// The run's state folder the fake Terraform writes in.

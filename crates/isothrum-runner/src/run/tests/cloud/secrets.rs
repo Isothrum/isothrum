@@ -74,6 +74,12 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
             .any(|e| matches!(&e.kind, EventKind::Step { step, state: crate::StepState::Failed, .. } if step == "guest-web")),
         "the delivery's step fails"
     );
+    // Regression: the read-only folder standing in for the input kept the runner's home in the
+    // temp folder after the test.
+    let home = a.folder.home.path().to_path_buf();
+    drop(run);
+    drop(a);
+    assert!(!home.exists(), "{} is left behind", home.display());
 }
 
 /// Regression: a delivery whose machine never answered over SSH failed with `tool_failed` and
