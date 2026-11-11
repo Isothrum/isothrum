@@ -35,7 +35,11 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
 
     let up = f.fake.last("--profile access up").expect("the access profile is brought up");
     assert!(up.line().contains("--no-deps user"), "{}", up.line());
-    assert_eq!(up.env(isoloom_manifest::access::IMAGE_ENV), Some("myimage"), "the picked image is delivered");
+    assert_eq!(
+        up.env(isoloom_manifest::contract::ACCESS_IMAGE),
+        Some("myimage"),
+        "the picked image is delivered"
+    );
     let joined = f.fake.last("network connect").expect("joined to the chosen network");
     assert_eq!(joined.line(), "docker network connect web-portal_lab c0ffee", "its rendered native name");
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
@@ -143,7 +147,7 @@ async fn attach_without_an_image_lets_the_services_default_stand() {
     let f = fixture_with(WEB_PORTAL_ACCESS);
     let up = attach_plain(&f).await;
     assert_eq!(
-        up.env(isoloom_manifest::access::IMAGE_ENV),
+        up.env(isoloom_manifest::contract::ACCESS_IMAGE),
         None,
         "no override: the service's baked default stands"
     );
@@ -231,7 +235,7 @@ async fn vagrant_attach_boots_the_access_vm_with_the_picked_box() {
     assert_eq!((report.machine.as_str(), report.native.as_str()), ("user", "user"));
 
     let up = fake.last("up user").expect("the access VM is booted");
-    assert_eq!(up.env(isoloom_manifest::access::BOX_ENV), Some("mybox"), "the picked box is delivered");
+    assert_eq!(up.env(isoloom_manifest::contract::ACCESS_BOX), Some("mybox"), "the picked box is delivered");
 
     detach(&run, None, &Recorder::new()).await.unwrap();
     assert!(fake.last("destroy -f user").is_some(), "the access VM is destroyed");

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, access};
+use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, contract};
 
 use super::{Driver, GuestUse, Observed, native_name};
 use crate::Result;
@@ -115,7 +115,7 @@ impl Vagrant {
     fn console(&self, cx: &Cx<'_>, args: &[&str]) -> Result<ProcessSpec> {
         let mut spec = ProcessSpec::new("vagrant", args.iter().copied());
         spec.env = self.env(cx)?;
-        spec.env.retain(|(k, _)| k != isoloom_manifest::contract::CONSOLES);
+        spec.env.retain(|(k, _)| k != contract::CONSOLES);
         Ok(spec)
     }
 
@@ -190,7 +190,7 @@ impl Driver for Vagrant {
         let forwards = cx.vars.vm_pins();
         if !forwards.is_empty() {
             let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), (*port).into())).collect();
-            env.push((isoloom_manifest::contract::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
+            env.push((contract::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
         }
         // The consoles the runner chose, passwords and all: the run's own Vagrant processes only
         // (a console's command, which an embedder is handed, leaves them out: `console`).
@@ -236,7 +236,7 @@ impl Driver for Vagrant {
     /// Hot-adds the access machine, a VM the initial `up` left defined but `autostart: false`:
     /// its define booted alone (`vagrant up <define> --provider=<p>`) on the run's own provider,
     /// the one its other VMs came up on, with the picked box (the attach's image) in
-    /// [`access::BOX_ENV`] (its `ENV.fetch` default otherwise). A VM's networks are the
+    /// [`contract::ACCESS_BOX`] (its `ENV.fetch` default otherwise). A VM's networks are the
     /// manifest's, fixed in the Vagrantfile: a chosen one is refused.
     async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
         let define = define_of(machine, "hot-adding")?;
@@ -255,7 +255,7 @@ impl Driver for Vagrant {
         }
         let mut spec = self.vagrant(cx, Op::Attach.as_str(), &args)?;
         if let Some(box_name) = image {
-            spec.env.push((access::BOX_ENV.to_owned(), box_name.to_owned()));
+            spec.env.push((contract::ACCESS_BOX.to_owned(), box_name.to_owned()));
         }
         lock::call_ok_retrying(cx, Op::Attach.as_str(), &spec, ATTACH_LIMIT, Echo::Shown)
             .await

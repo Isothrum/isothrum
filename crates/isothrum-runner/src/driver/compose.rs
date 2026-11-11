@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access};
+use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access, contract};
 
 use super::{Driver, GuestUse, Observed};
 use crate::Result;
@@ -231,13 +231,13 @@ impl Compose {
     /// Brings the manifest's access service up in its profile, so the initial `up` left it down,
     /// with the services in its namespace (its routes through the run's router):
     /// `docker compose --profile access up -d --wait --no-deps <service> <its sidecars>`, with the
-    /// picked image in [`access::IMAGE_ENV`] (the service's `${VAR:-default}` keeps its default
+    /// picked image in [`contract::ACCESS_IMAGE`] (the service's `${VAR:-default}` keeps its default
     /// otherwise). When a network is named (its native name), the started container is also
     /// plugged into it.
     async fn attach_profile(&self, cx: &Cx<'_>, native: &str, image: Option<&str>, network: Option<&str>) -> Result<()> {
         let mut env = Vec::new();
         if let Some(image) = image {
-            env.push((access::IMAGE_ENV.to_owned(), image.to_owned()));
+            env.push((contract::ACCESS_IMAGE.to_owned(), image.to_owned()));
         }
         let services = self.with_namespace(cx, Op::Attach.as_str(), Some(access::PROFILE), native).await?;
         let mut rest = vec!["--profile", access::PROFILE, "up", "-d", "--wait", "--no-deps"];
