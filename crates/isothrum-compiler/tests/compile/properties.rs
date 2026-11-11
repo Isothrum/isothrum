@@ -233,9 +233,14 @@ fn add_cables(topo: &mut Topology, links: Vec<(Index, Index, Option<Tc>)>) {
     }
 }
 
-/// A Cisco router is its LAN's gateway, and a LAN routed by its gateway has no link conditions
-/// of its own (Isoloom's router applies them).
+/// A Cisco router is its LAN's gateway, at the gateway's address (so none is drawn for it), and a
+/// LAN routed by its gateway has no link conditions of its own (Isoloom's router applies them).
 fn settle_gateways(topo: &mut Topology) {
+    for n in topo.nodes.values_mut() {
+        if matches!(n.kind, Kind::Container { appliance: Some(a), .. } if !is_switch(a)) {
+            n.networks.values_mut().for_each(|octet| *octet = None);
+        }
+    }
     let routed: Vec<String> = topo
         .nodes
         .values()

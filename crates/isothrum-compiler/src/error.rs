@@ -84,6 +84,19 @@ pub enum Error {
         /// The LAN's block.
         cidr: String,
     },
+    /// A Cisco router asks for an address on a LAN it is the gateway of: there it is at the
+    /// gateway's address, which no machine asks for.
+    #[error("on LAN `{lan}`, `{node}` is the gateway (the first Cisco router on it), at .{gateway}: leave its address there unset rather than .{octet}")]
+    GatewayAddress {
+        /// The LAN.
+        lan: String,
+        /// The router.
+        node: String,
+        /// The address it asks for.
+        octet: u8,
+        /// The gateway's last octet, where it is.
+        gateway: u8,
+    },
     /// A LAN has more machines than free addresses.
     #[error("LAN `{lan}` ({cidr}) has no free address left; use a larger block")]
     LanFull {

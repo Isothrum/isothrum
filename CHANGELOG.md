@@ -291,6 +291,11 @@ change.
   `.14`, …) on `10.10.1.8/29` compiled, and Isoloom refused the spec. It is now the compiler's new
   `Error::AddressOutside`, naming the LAN, the machine, the address and the block. A /24's
   addresses below `.10`, which the compiler gives no machine itself, can still be asked for.
+- **A Cisco router drawn at an address of its own on a LAN it is the gateway of is refused.** The
+  compiler put the first Cisco router on a plain LAN at the LAN's gateway address and dropped the
+  address drawn for it without a word; it is now the compiler's new `Error::GatewayAddress`,
+  naming the LAN, the router, the address drawn and the gateway's. A router left without an
+  address there, or one that stays a member (a second router, a VLAN), is as before.
 - **A cloud target's manifest is found from the run's folder.** Isoloom writes one manifest per
   cloud (`.isoloom/cloud-vm/aws/run.json`), but the command line looked only for
   `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target

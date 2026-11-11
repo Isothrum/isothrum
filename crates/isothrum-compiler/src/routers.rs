@@ -6,7 +6,7 @@ use isoloom_spec::appliance::is_switch;
 use crate::document::ReachDoc;
 use crate::draft::Draft;
 use crate::vlans::vlan_ref;
-use crate::{Kind, Topology};
+use crate::{Error, Kind, Result, Topology};
 
 /// The automatic routers' `reach` rules, each pair once.
 pub(crate) fn add_reach_rules(draft: &mut Draft) {
@@ -30,21 +30,38 @@ pub(crate) fn add_reach_rules(draft: &mut Draft) {
 /// it), the first in the drawing's order is; the others stay members, at the addresses they
 /// already have. Not on a VLAN: Isoloom's VLANs have no gateway, so there the router stays a
 /// member too.
-pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) {
+///
+/// # Errors
+///
+/// [`Error::GatewayAddress`] when the drawing asks for another address for the router on a LAN
+/// it becomes the gateway of: it is at the gateway's address there, never where it was drawn.
+pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) -> Result<()> {
     let plain_lan = |n: &str| topo.networks.get(n).is_some_and(|l| vlan_ref(l).is_none());
     for (lan, net) in draft.networks.iter_mut().filter(|(n, _)| plain_lan(n)) {
         let router = topo
             .nodes
             .iter()
             .find(|(name, n)| is_cisco_router(&n.kind) && draft.machines.get(*name).is_some_and(|m| m.networks.contains_key(lan)));
-        if let Some((name, _)) = router
+        if let Some((name, node)) = router
             && let Some(c) = isoloom_spec::net::NetworkBlock::parse(&net.cidr)
             && let Some(m) = draft.machines.get_mut(name)
         {
+            let gateway = c.gateway_octet();
+            if let Some(&Some(octet)) = node.networks.get(lan)
+                && octet != gateway
+            {
+                return Err(Error::GatewayAddress {
+                    lan: lan.clone(),
+                    node: name.clone(),
+                    octet,
+                    gateway,
+                });
+            }
             net.gateway = Some(name.clone());
-            m.networks.insert(lan.clone(), c.gateway_octet());
+            m.networks.insert(lan.clone(), gateway);
         }
     }
+    Ok(())
 }
 
 /// A Cisco router appliance: one Isoloom doesn't call a switch ([`is_switch`]).

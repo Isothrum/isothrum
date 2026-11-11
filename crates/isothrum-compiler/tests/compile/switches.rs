@@ -83,6 +83,40 @@ fn of_two_cisco_routers_on_a_lan_the_first_is_its_gateway() -> Outcome {
     Ok(())
 }
 
+/// A Cisco router drawn at an address of its own on a LAN it becomes the gateway of is refused,
+/// naming the router and the LAN: it would sit at the gateway's address, not where it was drawn.
+/// A router that stays a member keeps the address drawn for it.
+#[test]
+fn a_gateway_router_drawn_at_an_address_of_its_own_is_refused() -> Outcome {
+    let drawn = |first: &str, second: &str| -> Result<Compiled> {
+        let topo: Topology = serde_json::from_str(&format!(
+            r#"{{
+              "name": "two-routers",
+              "nodes": {{
+                "r1": {{ "kind": {{ "container": {{ "image": "vrnetlab/cisco_iol:17.12.01", "appliance": "cisco-iol" }} }}, "networks": {{ "transit": {first} }} }},
+                "r2": {{ "kind": {{ "container": {{ "image": "vrnetlab/cisco_iol:17.12.01", "appliance": "cisco-iol" }} }}, "networks": {{ "transit": {second} }} }}
+              }},
+              "networks": {{ "transit": {{ "cidr": "10.10.1.0/24" }} }}
+            }}"#
+        ))
+        .unwrap();
+        compile(&topo)
+    };
+    let err = drawn("20", "null").unwrap_err();
+    assert!(
+        matches!(&err, Error::GatewayAddress { lan, node, octet: 20, gateway: 1 } if lan == "transit" && node == "r1"),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "on LAN `transit`, `r1` is the gateway (the first Cisco router on it), at .1: leave its address there unset rather than .20"
+    );
+    let c = drawn("null", "20")?;
+    assert_eq!(octet(&c, "r1", "transit")?, 1);
+    assert_eq!(octet(&c, "r2", "transit")?, 20);
+    Ok(())
+}
+
 /// A Dynamips router boots the IOS image the user adds: no image of its own.
 #[test]
 fn a_dynamips_router_boots_its_firmware() -> Outcome {

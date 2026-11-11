@@ -40,7 +40,7 @@ pub fn compile(topo: &Topology) -> Result<Compiled> {
     lans::address(topo, &mut draft)?;
     cables::allocate(topo, &mut draft)?;
     routers::add_reach_rules(&mut draft);
-    routers::cisco_gateways(topo, &mut draft);
+    routers::cisco_gateways(topo, &mut draft)?;
     vlans::nest(topo, &mut draft);
     let doc = SpecDoc {
         version: 1,
