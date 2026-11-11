@@ -71,7 +71,8 @@ impl Adoption {
         }
     }
 
-    /// With the params it was applied with.
+    /// With the params it was applied with: a later operation replays them, a param left out
+    /// taking its default, and one the manifest requires with none refused.
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (String, String)>) -> Adoption {
         self.params.extend(params);

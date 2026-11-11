@@ -69,7 +69,7 @@ The run's record, written atomically. It holds no secret value.
 | `provider` | The Vagrant provider, for a Vagrant run. |
 | `host_label` | The place the run is on, when one was given (`--host-label`). |
 | `state` | Where the run stood after its last operation (`ready`, `parked`, `absent`, ...). |
-| `params` | Every param the run was started with; later operations replay them. |
+| `params` | Every param the run was started with; later operations replay them, a param the record lacks taking the value given, else its default (a required one with neither is refused). |
 | `vm_host_ports` | The host ports a local VM run forwards, by `<machine>/<port>`. |
 | `vm_boot_digests` | Each VM's boot digest, which `update` compares to restart a VM whose boot-time settings changed. |
 | `started_at` | When it was last started. |

@@ -40,6 +40,11 @@ change.
 
 ### Fixed
 
+- **An operation on a run that exists fills a param's default, refuses a required one with no
+  value, and leaves out one of another scope, as a start does.** It took the recorded params and
+  the given ones only, so a param a run taken over wasn't given, or one a regenerated manifest
+  adds, had no value (`${params.<name>}` unbound, no Terraform variable), while a secret slot
+  fell back to its default; and a given param of another host or provider was kept.
 - **`Runner::adopt` keeps the slot a deployment was applied in, or refuses it, and picks it under
   the home's slots lock.** A slot another run on the place held, or out of 1 to 99, was replaced
   by a free one without a word, so a later `update` or `down` applied under names the deployment's

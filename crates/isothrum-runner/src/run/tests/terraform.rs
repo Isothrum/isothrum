@@ -350,7 +350,12 @@ async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
     )
     .unwrap();
     let name = crate::RunName::new("app-solo-web").unwrap();
-    let params = [("node".to_owned(), "pve-run".to_owned()), ("uplink_bridge".to_owned(), "vmbr1".to_owned())];
+    let params = [
+        ("node", "pve-run"),
+        ("uplink_bridge", "vmbr1"),
+        ("proxmox_endpoint", "https://172.16.1.10:8006/"),
+    ];
+    let params = params.map(|(k, v)| (k.to_owned(), v.to_owned()));
     let adoption = crate::Adoption::new(name.clone(), &old)
         .with_params(params)
         .with_host_label("pve-run")
@@ -363,6 +368,8 @@ async fn a_deployment_taken_over_is_destroyed_where_it_was_applied() {
     assert_eq!(destroy.env("TF_VAR_node"), Some("pve-run"), "the applied node, not the profile's current one");
     assert_eq!(destroy.env("TF_VAR_slot"), Some("1"), "the slot it was applied in");
     assert_eq!(destroy.env("TF_VAR_proxmox_password"), Some("pw-s3cret"));
+    // Regression: a param the deployment wasn't given took no value, not its default.
+    assert_eq!(destroy.env("TF_VAR_datastore"), Some("local-lvm"), "the manifest's default");
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
 }
 
@@ -471,3 +478,4 @@ async fn a_module_with_no_terraform_file_is_manifest_invalid() {
 
 mod console;
 mod gone;
+mod params;
