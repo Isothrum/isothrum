@@ -139,6 +139,7 @@ impl<'r> Running<'r> {
             &self.scope(provider),
         )?;
         let mut cx = self.cx(params, &self.connection, events, provider)?;
+        cx.query = true;
         if let Some(r) = &record {
             Self::bind_record(&mut cx, r);
         }
@@ -170,29 +171,28 @@ impl<'r> Running<'r> {
     /// # Errors
     ///
     /// Fails when the engine can't be asked (the status step fails or runs out of time) or the
-    /// run's record can't be read.
+    /// run's record can't be read. Another process acting on a machine (Vagrant's lock on it,
+    /// past a short wait) is no failure: that machine is [`MachineState::Busy`](crate::MachineState::Busy),
+    /// the others as last read, and the status isn't live.
     pub async fn status(&self) -> Result<Status> {
         let events = self.silent();
         let (record, mut cx) = self.silent_cx(&events)?;
         let provider = cx.scope.provider;
-        let (state, mut observed, live) = if let Some(state) = self.while_held(record.as_ref())? {
-            (state, self.last_seen(), false)
-        } else {
-            made(&cx)?;
-            self.driver.prepare(&cx)?;
-            self.relay(&mut cx).await?;
-            let observed = self.observe(&mut cx).await?;
-            (status::derive_state(&observed.machines, record.as_ref()), observed, true)
-        };
+        let (state, mut observed, live) = self.read_for_query(&mut cx, record.as_ref()).await?;
         let mut machines = std::mem::take(&mut observed.machines);
         let known = cx.scope.provider;
         for m in &mut machines {
-            m.console = self
-                .manifest()
-                .machines
-                .iter()
-                .find(|x| x.name.as_str() == m.name)
-                .and_then(|x| crate::graphical::ConsoleOffer::of(x, known));
+            let Some(declared) = self.manifest().machines.iter().find(|x| x.name.as_str() == m.name) else {
+                continue;
+            };
+            m.console = crate::graphical::ConsoleOffer::of(declared, known);
+            // A running machine's console is offered as it stands now: there, and answering.
+            if m.state.runs()
+                && let Some(offer) = m.console.as_mut()
+                && let Some(console) = declared.console(known).filter(|c| c.source.is_some())
+            {
+                offer.unavailable = crate::graphical::unavailable(&cx, declared, console).await;
+            }
         }
         let outputs = self.bind_observed(&mut cx, observed).values;
         let message = (state == crate::RunState::Ready)
@@ -207,6 +207,36 @@ impl<'r> Running<'r> {
             outputs,
             message,
         })
+    }
+
+    /// Where the run stands, its machines and whether they were read now, for a query (`cx`, a
+    /// silent context, `record` its run's record): while an operation holds the run, its state
+    /// and the machines as last read; else as the engine reads them, unless another process
+    /// acting on some of them refuses the read ([`crate::driver::Observed::busy`]): then those
+    /// are busy, the others as last read, and the run where an operation holding it now, or its
+    /// record, says.
+    pub(crate) async fn read_for_query(
+        &self,
+        cx: &mut Cx<'_>,
+        record: Option<&crate::store::RunRecord>,
+    ) -> Result<(crate::RunState, crate::driver::Observed, bool)> {
+        if let Some(state) = self.while_held(record)? {
+            return Ok((state, self.last_seen(), false));
+        }
+        made(cx)?;
+        self.driver.prepare(cx)?;
+        self.relay(cx).await?;
+        let observed = self.observe(cx).await?;
+        let Some(busy) = &observed.busy else {
+            return Ok((status::derive_state(&observed.machines, record), observed, true));
+        };
+        let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
+        let state = self.while_held(record)?.unwrap_or(recorded);
+        let mut seen = self.last_seen();
+        for m in seen.machines.iter_mut().filter(|m| busy.contains(&m.name)) {
+            m.state = crate::MachineState::Busy;
+        }
+        Ok((state, seen, false))
     }
 
     /// Where the run stands while an operation holds it, if one does: the moving state of this
@@ -275,6 +305,7 @@ impl<'r> Running<'r> {
             expires_at: None,
             relayed: None,
             set_up: std::collections::BTreeSet::new(),
+            query: false,
         })
     }
 
@@ -351,6 +382,10 @@ impl<'r> Running<'r> {
     /// What it read is kept as what the runner last saw of the run ([`crate::store::Seen`]).
     pub(crate) async fn observe(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
         let mut observed = self.driver.observe(cx).await?;
+        if observed.busy.is_some() {
+            // Nothing was read: what the runner last saw stands.
+            return Ok(observed);
+        }
         if let Some(guest) = &self.manifest().guest {
             crate::in_vm::observe(cx, guest, &mut observed).await;
         }

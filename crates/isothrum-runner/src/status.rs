@@ -29,6 +29,9 @@ pub enum MachineState {
     Absent,
     /// Something else, as the engine says it.
     Unknown(String),
+    /// Not read: another process acts on it (Vagrant's lock on the machine, held by a `vagrant
+    /// up` that isn't this runner's), so its state is whatever that action leaves.
+    Busy,
 }
 
 impl MachineState {
@@ -48,6 +51,7 @@ impl std::fmt::Display for MachineState {
             MachineState::Stopped => f.write_str("stopped"),
             MachineState::Absent => f.write_str("absent"),
             MachineState::Unknown(s) => f.write_str(s),
+            MachineState::Busy => f.write_str("busy"),
         }
     }
 }

@@ -109,15 +109,53 @@ async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_r
 }
 
 /// With no operation holding the run, a lock another Vagrant process holds past
-/// [`super::lock::PATIENCE`] still fails the status read, after a bounded wait.
+/// [`super::lock::QUERY_PATIENCE`] is no failure of a status read: the machine Vagrant names is
+/// busy, after a short, bounded wait.
 #[tokio::test(start_paused = true)]
-async fn a_status_read_locked_out_past_the_patience_with_no_operation_still_fails() {
+async fn a_status_read_locked_out_past_a_query_patience_says_the_machine_busy() {
     let f = fixture(crate::runner::this_host());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     f.engine().locked_reads = u32::MAX;
-    let err = run.status().await.unwrap_err();
-    assert!(err.to_string().contains("MachineActionLockedError"), "{err}");
+    let reads = |fx: &Fixture| fx.fake.lines().iter().filter(|l| l.starts_with("vagrant status")).count();
+    let before = reads(&f);
+    let asked = tokio::time::Instant::now();
+    let status = run.status().await.unwrap();
+    assert!(asked.elapsed() <= super::super::lock::QUERY_PATIENCE + std::time::Duration::from_secs(2));
+    assert!((2..=7).contains(&(reads(&f) - before)), "{} reads", reads(&f) - before);
+    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.state, crate::MachineState::Busy);
+}
+
+/// A status read refused while an operation of another process takes the run (it began after
+/// the read did, which saw the run free) gives up at once: that operation holds the VMs for as
+/// long as it acts. The run is as its record says, the machine Vagrant named busy, the others as
+/// last read.
+#[tokio::test(start_paused = true)]
+async fn a_status_read_refused_as_an_operation_takes_the_run_gives_up_at_once() {
+    let f = fixture(crate::runner::this_host());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine().locked_reads = u32::MAX;
+    let lock = f.folder.home.path().join("runs/web-vm/lock");
+    let reads = |fx: &Fixture| fx.fake.lines().iter().filter(|l| l.starts_with("vagrant status")).count();
+    let before = reads(&f);
+    let operation = async {
+        // Another process's operation takes the run once the read has been refused a few times.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let held = std::fs::OpenOptions::new().read(true).write(true).open(&lock).unwrap();
+        held.lock().unwrap();
+        held
+    };
+    let (status, _held) = tokio::join!(run.status(), operation);
+    let status = status.unwrap();
+    // Refused at 0, 2 and 4 seconds, the run held since 3: not tried again.
+    assert_eq!(reads(&f) - before, 3, "gave up once the run was held");
+    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    let state = |name: &str| status.machines.iter().find(|m| m.name == name).map(|m| m.state.clone());
+    assert_eq!(state("web"), Some(crate::MachineState::Busy), "the machine Vagrant named");
+    assert_eq!(state(CONTROLLER), Some(crate::MachineState::Stopped), "as last read");
 }
 
 /// Regression: on libvirt, the status read that followed the controller's park was refused by
@@ -277,4 +315,76 @@ async fn a_destroy_locked_out_past_the_patience_still_fails_with_vagrants_error(
     );
     let tries = calls(&f, "vagrant destroy --force");
     assert!((2..=32).contains(&tries), "{tries} tries");
+}
+
+/// The refusal the app showed (a Mac on vagrant-qemu): its status poll read the run while the
+/// attack box's `vagrant up` held `attackbox`, and every read failed with Vagrant's own words.
+const ATTACKBOX_LOCKED: &str = "An action 'read_state' was attempted on the machine 'attackbox',\nbut another process is \
+                                already executing an action on the machine.\nVagrant locks each machine for access by only \
+                                one process at a time. (Vagrant::Errors::MachineActionLockedError) (exited with code 1)";
+
+/// Regression (the app's status poll, on vagrant-qemu): another process's `vagrant up` brought
+/// `attackbox` up and provisioned it, no operation of this runner holding the run, and each status
+/// read, refused by Vagrant's action lock on it, was tried again for a minute, then failed with
+/// Vagrant's refusal (`An action 'read_state' was attempted on the machine 'attackbox', …
+/// (Vagrant::Errors::MachineActionLockedError) (exited with code 1)`): the app showed it as the
+/// lab's error. A status read refused so is no failure: the run as last read, `attackbox` busy,
+/// not live; once the lock is gone, it is read again.
+#[tokio::test(start_paused = true)]
+async fn a_status_read_refused_for_another_process_acting_on_a_machine_says_it_busy() {
+    let f = fixture_from(crate::runner::this_host(), &with_vm_added("attackbox"));
+    f.engine().added.push("attackbox".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    // The attack box's start, in another process: its `vagrant up` holds `attackbox`.
+    f.engine().acting_on = Some("attackbox");
+    let status = run.status().await.unwrap_or_else(|e| {
+        assert_eq!(e.to_string(), format!("step `status` failed: {ATTACKBOX_LOCKED}"), "Vagrant's own refusal");
+        panic!("a status read another process's lock refused failed: {e}")
+    });
+    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    let state = |name: &str| status.machines.iter().find(|m| m.name == name).map(|m| m.state.clone());
+    assert_eq!(state("attackbox"), Some(crate::MachineState::Busy), "{:?}", status.machines);
+    assert_eq!(state("web"), Some(crate::MachineState::Running), "as last read");
+    f.engine().acting_on = None;
+    let after = run.status().await.unwrap();
+    assert_eq!((after.state, after.live), (RunState::Ready, true));
+    assert!(after.machines.iter().all(|m| m.state != crate::MachineState::Busy), "{:?}", after.machines);
+}
+
+/// Regression (the Screen button, on vagrant-qemu): `attackbox`'s screen, asked for while the
+/// attack box's `vagrant up` held it, read the run's status for a minute, Vagrant refusing each
+/// read, then failed with Vagrant's refusal, the viewer spinning all along. It is refused within
+/// a query's patience, saying why. While an operation holds the run, Vagrant isn't asked at all:
+/// the machine is as last read, and its hypervisor is asked where its screen is.
+#[tokio::test(start_paused = true)]
+async fn a_screen_asked_for_while_another_process_acts_on_its_machine_is_refused_saying_so() {
+    let f = fixture_from(crate::runner::this_host(), &with_vm_added("attackbox"));
+    f.engine().added.push("attackbox".into());
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine().acting_on = Some("attackbox");
+    let asked = tokio::time::Instant::now();
+    let err = run.graphical_console("attackbox").await.unwrap_err();
+    assert!(asked.elapsed() <= super::super::lock::QUERY_PATIENCE + std::time::Duration::from_secs(2));
+    assert_eq!(
+        (err.code(), err.to_string()),
+        (
+            ErrorCode::NoConsole,
+            "machine `attackbox` has no graphical console: another process is acting on it (starting or provisioning it): its \
+             screen can be shown once that is done"
+                .to_owned()
+        )
+    );
+    // Another process's operation holds the run: Vagrant isn't asked.
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(f.folder.home.path().join("runs/web-vm/lock"))
+        .unwrap();
+    held.lock().unwrap();
+    let reads = f.vagrant().iter().filter(|l| l.starts_with("vagrant status")).count();
+    let web = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(f.vagrant().iter().filter(|l| l.starts_with("vagrant status")).count(), reads);
+    assert!(web.to_string().contains("VirtualBox"), "its hypervisor was asked: {web}");
 }

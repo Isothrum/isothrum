@@ -43,6 +43,10 @@ pub(crate) struct Observed {
     pub(crate) outputs: BTreeMap<String, String>,
     /// The engine's outputs it marks sensitive itself (a Terraform output's `sensitive`).
     pub(crate) sensitive: std::collections::BTreeSet<String>,
+    /// Not read, for a query: another process acts on these machines (by the manifest's names;
+    /// none when the engine named none), and the engine refused the read for as long as a query
+    /// waits ([`Cx::query`]). Nothing else is filled then.
+    pub(crate) busy: Option<Vec<String>>,
 }
 
 impl Observed {

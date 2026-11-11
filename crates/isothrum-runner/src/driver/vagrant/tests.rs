@@ -78,6 +78,9 @@ struct Engine {
     index_locks_after_halt: u32,
     /// How many `vagrant status` calls Vagrant's machine index lock still refuses.
     index_locked_reads: u32,
+    /// The VM another Vagrant process acts on (its `vagrant up`, not this runner's), if any: every
+    /// `vagrant status` meanwhile is refused with Vagrant's action lock on it.
+    acting_on: Option<&'static str>,
     /// The Vagrant commands, by their verb, another Vagrant process's machine lock still refuses.
     refusals: BTreeMap<&'static str, Refusal>,
     /// VirtualBox answers no `showvminfo` (its service wedged).
@@ -274,6 +277,11 @@ fn locked_out(e: &mut Engine, args: &[&str]) -> Option<Reply> {
         // The run's own `vagrant up` provisions `web`: Vagrant refuses to read its state.
         ["status", ..] if up_holds => Some(Reply {
             stdout: locked_status("web"),
+            code: 1,
+            ..Reply::default()
+        }),
+        ["status", ..] if e.acting_on.is_some() => Some(Reply {
+            stdout: locked_status(e.acting_on.unwrap_or_default()),
             code: 1,
             ..Reply::default()
         }),

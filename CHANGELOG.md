@@ -52,6 +52,24 @@ change.
   `download_failed` and Compose's reason, before anything starts. The `up` then runs under its own
   limit. An `up` the runner doesn't read whole (an option it doesn't know), one with `--pull
   never`, and every `up` on a Compose that refuses `pull --policy` pull in the `up` as before.
+- **A status read another process's action on a machine refuses is no failure.** With no
+  operation of this runner holding the run (another process's `vagrant up` adding and provisioning
+  a VM, or one that began just after the read looked), each `status` was refused by Vagrant's
+  action lock, tried again for a minute, then failed with Vagrant's words (`An action 'read_state'
+  was attempted on the machine 'attackbox', … (Vagrant::Errors::MachineActionLockedError) (exited
+  with code 1)`), which an app polling the run showed as an error. A query now waits 10 s at most,
+  not again once an operation holds the run, and then reports the machines Vagrant named
+  `busy` (`MachineState::Busy`), the others as last read, the status not live. An operation's own
+  reads still wait a minute and fail with Vagrant's refusal.
+- **A graphical console is no longer asked for through a busy run.** `graphical_console` read the
+  run's Vagrant status even while an operation held the run, so a screen asked for while a VM was
+  being added waited a minute on Vagrant's locks, then failed with them. It reads the run as
+  `status` does (as last read while an operation holds it) and refuses a machine another process
+  acts on at once, saying so.
+- **A graphical console that doesn't answer isn't handed out.** A console on the loopback is
+  checked to accept a connection (2 s) before `graphical_console` gives it, and refused otherwise
+  (`its screen didn't answer at 127.0.0.1:5901`). A vagrant-qemu VM started without a VNC display
+  (`info vnc`: `None`) is refused saying so and to restart it, not that `info vnc` named no server.
 - **An engine's sensitive output never fills a later template.** A guest VM's read (`docker-vm`)
   and a Terraform run's guest login bound every engine output into `${outputs.*}` under the
   engine's names, sensitive ones included, for the rest of the operation; they now bind as the
@@ -528,6 +546,10 @@ change.
   `download_failed`: a download made before a step, in a step of its own (a Compose `up`'s images),
   that showed no progress for as long as a download may (`after_s`, `last_line`), or whose tool
   failed (`reason`).
+- **A console offered as it stands now.** A status's `ConsoleOffer` of a running machine says why
+  it can't be shown now (`unavailable`): its hypervisor gives it no display, or it doesn't answer
+  where the hypervisor says (libvirt, QEMU, VirtualBox and the runner's own are asked; one through
+  Proxmox's API or an SSH tunnel isn't opened for a status).
 - **`isothrum key --json`** prints `{"public_key": …}`; `--json` ignored it. The policies list the
   `console`, `screen` and `key` JSON documents as stable machine output, with their fields, and the
   `--json` help says what each command prints.

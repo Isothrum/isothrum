@@ -212,7 +212,10 @@ impl Driver for Vagrant {
     }
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
-        let out = lock::read_status(cx).await?;
+        let out = match lock::read_status(cx).await? {
+            lock::StatusRead::Read(out) => out,
+            lock::StatusRead::Busy(defines) => return Ok(busy(cx.run.manifest(), &defines)),
+        };
         let read = status::parse(&out);
         let at_vm = cx.scope.runs_on(Provider::VmwareEsxi);
         let hosts = if at_vm { self.guest_addresses(cx, &read).await } else { local_hosts(cx)? };
@@ -362,6 +365,21 @@ fn machines(
         });
     }
     out
+}
+
+/// A query's read another process's lock refused: the manifest's machines Vagrant named
+/// (`defines`, by define name) busy, by their names; nothing else is read.
+fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observed {
+    let named = manifest
+        .machines
+        .iter()
+        .filter(|m| defines.iter().any(|d| d == native_name(m)))
+        .map(|m| m.name.to_string())
+        .collect();
+    Observed {
+        busy: Some(named),
+        ..Observed::default()
+    }
 }
 
 /// The ports `m` publishes, by name, each with its host port: on a VM that answers at its own address

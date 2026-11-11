@@ -25,6 +25,11 @@
 //! (`destroy`, `halt`, `suspend`; `up`, which provisions only a VM it hasn't provisioned yet,
 //! unless told to provision), or any of the others when the refused try announced no action on
 //! a machine ([`ACTING`]).
+//!
+//! A query's status read (a status, a console's: [`Cx::query`]) waits less, [`QUERY_PATIENCE`],
+//! and not at all once an operation holds the run (that operation's `vagrant up` holds the VMs
+//! for minutes): its refusal is then no failure, but the machines Vagrant named busy
+//! ([`read_status`]).
 
 use std::future::Future;
 use std::time::Duration;
@@ -41,6 +46,10 @@ use crate::process::{Captured, ProcessSpec};
 /// tried: a read of the machine holds it for seconds; a process acting on it for longer is no
 /// passing read.
 pub(super) const PATIENCE: Duration = Duration::from_secs(60);
+
+/// How long a query's status read keeps being tried after its first refusal: a passing read of
+/// another process holds a machine for seconds, and the app polling the run waits meanwhile.
+pub(super) const QUERY_PATIENCE: Duration = Duration::from_secs(10);
 
 /// How long between two tries.
 const POLL: Duration = Duration::from_secs(2);
@@ -120,15 +129,32 @@ fn acted(out: &Captured) -> bool {
     out.stdout.iter().chain(&out.stderr).any(|line| announces(line))
 }
 
-/// When a call refused for a lock stops being tried again: [`PATIENCE`] after its first refusal.
-#[derive(Debug, Default)]
-struct Patience(Option<tokio::time::Instant>);
+/// When a call refused for a lock stops being tried again: its patience ([`PATIENCE`], a
+/// query's [`QUERY_PATIENCE`]) after its first refusal.
+#[derive(Debug)]
+struct Patience {
+    /// How long after the first refusal.
+    lasts: Duration,
+    /// When it ends, from the first refusal on.
+    deadline: Option<tokio::time::Instant>,
+}
+
+impl Default for Patience {
+    fn default() -> Patience {
+        Patience::of(PATIENCE)
+    }
+}
 
 impl Patience {
+    /// A patience of `lasts` after the first refusal.
+    fn of(lasts: Duration) -> Patience {
+        Patience { lasts, deadline: None }
+    }
+
     /// After a refusal: whether there is time left for another try, which is then waited for.
     async fn wait(&mut self) -> bool {
         let now = tokio::time::Instant::now();
-        let deadline = *self.0.get_or_insert(now + PATIENCE);
+        let deadline = *self.deadline.get_or_insert(now + self.lasts);
         if now + POLL > deadline {
             return false;
         }
@@ -138,14 +164,13 @@ impl Patience {
 }
 
 /// `attempt` until it isn't refused for a lock ([`refused`]), as long as `safe` says a refused
-/// try may run again and [`Patience`] allows: how the last try ended. `retrying` is told before
+/// try may run again and `patience` allows: how the last try ended. `retrying` is told before
 /// each new try.
-async fn waiting<F, Fut>(what: &str, safe: impl Fn(&Captured) -> bool, mut retrying: impl FnMut(), mut attempt: F) -> Result<Captured>
+async fn waiting<F, Fut>(what: &str, mut patience: Patience, safe: impl Fn(&Captured) -> bool, mut retrying: impl FnMut(), mut attempt: F) -> Result<Captured>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<Captured>>,
 {
-    let mut patience = Patience::default();
     loop {
         let out = attempt().await?;
         if !refused(&out) || !safe(&out) || !patience.wait().await {
@@ -156,12 +181,63 @@ where
     }
 }
 
+/// What a status read gave: Vagrant's answer, or, for a query, its refusal for another
+/// process's lock on these machines (their define names; none when Vagrant named none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum StatusRead {
+    /// Its standard output.
+    Read(String),
+    /// Refused for as long as the query waits, or until an operation held the run.
+    Busy(Vec<String>),
+}
+
 /// Reads the run's `lifecycle.status` (`vagrant status --machine-readable`): its standard
-/// output, once no other process's lock stops it.
-pub(super) async fn read_status(cx: &Cx<'_>) -> Result<String> {
+/// output, once no other process's lock stops it. An operation's read refused past [`PATIENCE`]
+/// fails with Vagrant's refusal; a query's ([`Cx::query`]) is tried for [`QUERY_PATIENCE`], not
+/// again once an operation holds the run, and is then [`StatusRead::Busy`].
+pub(super) async fn read_status(cx: &Cx<'_>) -> Result<StatusRead> {
     let step: &Step = &cx.run.manifest().lifecycle.status;
-    let out = waiting(STATUS, |_| true, || {}, || capture_output(cx, STATUS, step)).await?;
-    stdout_of(cx, step.id.as_str(), None, &out)
+    let patience = Patience::of(if cx.query { QUERY_PATIENCE } else { PATIENCE });
+    // An operation that holds the run meanwhile holds its VMs for as long as it acts.
+    let still = |_: &Captured| !cx.query || !cx.run.runner.store.held(cx.run.name()).unwrap_or(false);
+    let out = waiting(STATUS, patience, still, || {}, || capture_output(cx, STATUS, step)).await?;
+    if cx.query && refused(&out) {
+        return Ok(StatusRead::Busy(locked_machines(&out)));
+    }
+    stdout_of(cx, step.id.as_str(), None, &out).map(StatusRead::Read)
+}
+
+/// [`read_status`] for an operation: Vagrant's answer, or its refusal as the read's failure.
+pub(super) async fn read_status_output(cx: &Cx<'_>) -> Result<String> {
+    match read_status(cx).await? {
+        StatusRead::Read(out) => Ok(out),
+        StatusRead::Busy(_) => Err(crate::error::Error::ToolFailed {
+            step: STATUS.to_owned(),
+            reason: "another Vagrant process holds the run's machines".to_owned(),
+        }),
+    }
+}
+
+/// The machines (define names) a lock refusal `out` names: the action lock's `on the machine
+/// '<define>'`, the index lock's `Name: <define>`, on either stream, each once.
+pub(super) fn locked_machines(out: &Captured) -> Vec<String> {
+    let mut named = Vec::new();
+    for line in out.stdout.iter().chain(&out.stderr) {
+        // A machine-readable record keeps the message on one line, its newlines written `\n`.
+        for part in line.split("\\n") {
+            let found = part
+                .split_once("on the machine '")
+                .and_then(|(_, rest)| rest.split_once('\''))
+                .map(|(define, _)| define)
+                .or_else(|| part.trim().strip_prefix("Name:").map(str::trim));
+            if let Some(define) = found.filter(|d| !d.is_empty())
+                && !named.iter().any(|n| n == define)
+            {
+                named.push(define.to_owned());
+            }
+        }
+    }
+    named
 }
 
 /// [`call`], tried again while another process's lock is all that refused it and [`again`]
@@ -174,7 +250,7 @@ pub(super) async fn call_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, lim
         }
     };
     let safe = |out: &Captured| again(&spec.args, acted(out));
-    waiting(id, safe, retrying, || call(cx, id, spec, limit, echo)).await
+    waiting(id, Patience::default(), safe, retrying, || call(cx, id, spec, limit, echo)).await
 }
 
 /// [`call_retrying`], failing unless it exits 0: its standard output (as

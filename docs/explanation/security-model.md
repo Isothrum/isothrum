@@ -110,7 +110,8 @@ Isothrum opens no listening port on the network. It binds the loopback to find f
 run's published ports. On macOS, a Vagrant run on VMware ESXi gets relays on the loopback to the
 ESXi host (SSH, HTTPS, and WinRM through a forward proxy that only forwards WinRM's port); they
 live for the operation. The runner also opens TCP connections itself for a manifest's `tcp`
-ready conditions, and asks vagrant-qemu's monitor socket for a VM's VNC port. A graphical
+ready conditions and to check that a graphical console on the loopback answers, and asks
+vagrant-qemu's monitor socket for a VM's VNC port. A graphical
 console's SSH tunnel listens on the loopback only, while its `Console` lives. Everything else on the network is done by the tools.
 
 ## Supply chain

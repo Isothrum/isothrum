@@ -23,7 +23,7 @@ const STEP: &str = "console";
 const LIBVIRT_URI: &str = "qemu:///system";
 
 /// `machine`'s VM name under `provider`, as the manifest records it.
-fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
+pub(super) fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
     match &machine.native {
         Some(Native::Vagrant { vm_names, .. }) => vm_names
             .get(&provider)
@@ -80,7 +80,7 @@ pub(super) fn vnc_display(said: &str) -> Option<SocketAddr> {
 }
 
 /// The run's Vagrant state folder (`identity.vagrant.dotfile`), as its driver renders it.
-fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
+pub(super) fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
     match &cx.run.manifest().identity {
         Identity::Vagrant(v) => match &v.dotfile {
             Some(t) => Ok(cx.run.dir().join(cx.vars.render(t.template(), "identity.vagrant.dotfile")?)),
@@ -91,7 +91,7 @@ fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
 }
 
 /// The define name of `machine`.
-fn define(machine: &Machine) -> Result<&str> {
+pub(super) fn define(machine: &Machine) -> Result<&str> {
     match &machine.native {
         Some(Native::Vagrant { vagrant, .. }) => Ok(vagrant.as_str()),
         _ => Err(none(machine, "it isn't a Vagrant VM")),
@@ -122,7 +122,7 @@ fn vagrant_home(env: &HostEnv) -> Option<PathBuf> {
 }
 
 /// The text of `path`; none when there is no file there, an error naming it when it can't be read.
-fn read_if_there(path: &std::path::Path) -> Result<Option<String>> {
+pub(super) fn read_if_there(path: &std::path::Path) -> Result<Option<String>> {
     crate::store::if_there(std::fs::read_to_string(path)).map_err(crate::error::Error::io(path, "read"))
 }
 
@@ -143,7 +143,10 @@ pub(super) async fn qemu(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
         .map_err(|e| none(machine, format!("its QEMU monitor didn't answer ({}): {e}", socket.display())))?;
     match vnc_server(&said) {
         Some(at) => on_loopback(machine, at),
-        None => Err(none(machine, "its QEMU has no VNC display (`info vnc` names no server)")),
+        None => Err(none(
+            machine,
+            "its VM was started without a screen (its QEMU has no VNC display): restart it to get one",
+        )),
     }
 }
 

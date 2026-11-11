@@ -284,6 +284,11 @@
             "unknown"
           ],
           "additionalProperties": false
+        },
+        {
+          "description": "Not read: another process acts on it (Vagrant's lock on the machine, held by a `vagrant\nup` that isn't this runner's), so its state is whatever that action leaves.",
+          "type": "string",
+          "const": "busy"
         }
       ]
     },
@@ -341,6 +346,13 @@
         },
         "note": {
           "description": "Why there is none, or what it needs (an extension pack).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unavailable": {
+          "description": "Why it can't be shown now, as the status found it on a running machine: its hypervisor\ngives it no display (a VM started without one), or it doesn't answer where the hypervisor\nsays. None when it answers, or wasn't looked at: the machine doesn't run, it has none, or\nit is reached through an SSH tunnel or Proxmox's API, which a status doesn't open.",
           "type": [
             "string",
             "null"

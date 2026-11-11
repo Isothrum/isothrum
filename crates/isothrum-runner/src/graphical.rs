@@ -44,6 +44,12 @@ pub struct ConsoleOffer {
     /// Why there is none, or what it needs (an extension pack).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Why it can't be shown now, as the status found it on a running machine: its hypervisor
+    /// gives it no display (a VM started without one), or it doesn't answer where the hypervisor
+    /// says. None when it answers, or wasn't looked at: the machine doesn't run, it has none, or
+    /// it is reached through an SSH tunnel or Proxmox's API, which a status doesn't open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
 }
 
 impl ConsoleOffer {
@@ -54,6 +60,7 @@ impl ConsoleOffer {
         machine.console(provider).map(|c| ConsoleOffer {
             protocol: c.protocol,
             note: c.note.clone(),
+            unavailable: None,
         })
     }
 }
@@ -147,20 +154,68 @@ pub(crate) fn on_loopback(machine: &Machine, at: SocketAddr) -> Result<Endpoint>
     }
 }
 
+/// How long a console on the loopback gets to accept a connection before it is said not to
+/// answer.
+const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// `at`, once a connection to it is accepted within [`ANSWER_LIMIT`]; refused otherwise, saying
+/// where it didn't answer.
+async fn answering(cx: &Cx<'_>, machine: &Machine, at: SocketAddr) -> Result<Endpoint> {
+    let ports = &cx.run.runner.config.ports;
+    if ports.reachable(&at.ip().to_string(), at.port(), ANSWER_LIMIT).await {
+        Ok(Endpoint::Loopback(at))
+    } else {
+        Err(none(machine, format!("its screen didn't answer at {at}")))
+    }
+}
+
+/// Where the hypervisor of this computer says `machine`'s console `console` answers, with the
+/// password the runner chose for it, when the hypervisor keeps it (libvirt, QEMU, VirtualBox,
+/// the runner's own); `None` for one reached through Proxmox's API or an SSH tunnel.
+async fn local(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console) -> Option<Result<(SocketAddr, Option<SecretValue>)>> {
+    let at = |endpoint: Result<Endpoint>| match endpoint {
+        Ok(Endpoint::Loopback(at)) => Ok((at, None)),
+        Ok(Endpoint::ProxmoxVnc(_)) => Err(none(machine, "its hypervisor gives no port of this computer")),
+        Err(e) => Err(e),
+    };
+    Some(match console.source.as_ref()? {
+        ConsoleSource::Libvirt {} => at(vagrant::libvirt(cx, machine).await),
+        ConsoleSource::QemuMonitor {} => at(vagrant::qemu(cx, machine).await),
+        ConsoleSource::Vrde {} => at(vagrant::vrde(cx, machine).await),
+        ConsoleSource::Runner {} => chosen::of(cx, machine).map(|(port, password)| (SocketAddr::new(LOOPBACK, port), Some(password))),
+        ConsoleSource::ProxmoxApi { .. } | ConsoleSource::SshTunnel { .. } => return None,
+    })
+}
+
+/// Why `machine`'s console `console` (one [`offered`] gave) can't be shown now, the machine
+/// running: its hypervisor gives it no display, or it doesn't answer there. None when it answers,
+/// or is reached through Proxmox's API or an SSH tunnel, which this doesn't open.
+pub(crate) async fn unavailable(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console) -> Option<String> {
+    let found = match local(cx, machine, console).await? {
+        Ok((at, _)) => answering(cx, machine, at).await.map(drop),
+        Err(e) => Err(e),
+    };
+    match found {
+        Ok(()) => None,
+        Err(Error::NoConsole { why, .. }) => Some(why),
+        Err(e) => Some(e.to_string()),
+    }
+}
+
 /// Reaches `machine`'s console `console` (one [`offered`] gave), the machine running and the
-/// run's outputs bound in `cx`.
+/// run's outputs bound in `cx`: one on the loopback only once it answers there.
 pub(crate) async fn reach(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console, outputs: &[crate::OutputValue]) -> Result<Console> {
     let at = |field: &str| format!("machines.{}.consoles.source.{field}", machine.name);
-    let mut reached = match console.source.as_ref() {
+    if let Some(found) = local(cx, machine, console).await {
+        let (address, password) = found?;
+        let mut c = Console::new(machine, console, answering(cx, machine, address).await?);
+        c.password = password;
+        return with_account(cx, machine, console, outputs, c);
+    }
+    let reached = match console.source.as_ref() {
         None => return Err(none(machine, "it has none")),
-        Some(ConsoleSource::Libvirt {}) => Console::new(machine, console, vagrant::libvirt(cx, machine).await?),
-        Some(ConsoleSource::QemuMonitor {}) => Console::new(machine, console, vagrant::qemu(cx, machine).await?),
-        Some(ConsoleSource::Vrde {}) => Console::new(machine, console, vagrant::vrde(cx, machine).await?),
-        Some(ConsoleSource::Runner {}) => {
-            let (port, password) = chosen::of(cx, machine)?;
-            let mut c = Console::new(machine, console, Endpoint::Loopback(SocketAddr::new(LOOPBACK, port)));
-            c.password = Some(password);
-            c
+        Some(ConsoleSource::Libvirt {} | ConsoleSource::QemuMonitor {} | ConsoleSource::Vrde {} | ConsoleSource::Runner {}) => {
+            return Err(none(machine, "its hypervisor didn't say where it is"));
         }
         Some(ConsoleSource::ProxmoxApi { .. }) => {
             let vnc = proxmox::vnc(cx, machine, console).await?;
@@ -178,6 +233,12 @@ pub(crate) async fn reach(cx: &Cx<'_>, machine: &Machine, console: &isoloom_mani
             c
         }
     };
+    with_account(cx, machine, console, outputs, reached)
+}
+
+/// `reached` with the account `console` signs in as, when it names one.
+fn with_account(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console, outputs: &[crate::OutputValue], mut reached: Console) -> Result<Console> {
+    let at = |field: &str| format!("machines.{}.consoles.source.{field}", machine.name);
     if let Some(account) = &console.account {
         reached.user = Some(cx.vars.render(&account.user, &at("account.user"))?);
         reached.password = Some(SecretValue::new(revealed(cx, &account.password, outputs, &at("account.password"))?));
@@ -242,7 +303,8 @@ mod tests {
             ConsoleOffer::of(&m, Some(Provider::Parallels)),
             Some(ConsoleOffer {
                 protocol: ConsoleProtocol::None,
-                note: Some("no console set up".into())
+                note: Some("no console set up".into()),
+                unavailable: None,
             })
         );
         assert_eq!(ConsoleOffer::of(&machine(&serde_json::json!([])), None), None, "a container says nothing");

@@ -67,9 +67,14 @@ async fn up_on(provider: Provider, h: Hypervisor, ports: &[u16]) -> (RunFolder, 
         }
     }));
     // The console ports first (picked before any step), then the web page's forward.
-    let host_ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(ports.iter().copied().chain([18080])));
+    let fake_ports = FakePorts::new(ports.iter().copied().chain([18080]));
+    // Where the hypervisors below say the consoles are, they answer.
+    for port in [5902, 3391, 5931, 5932, 18080] {
+        fake_ports.answer("127.0.0.1", port);
+    }
+    let host_ports: Arc<dyn crate::HostPorts> = Arc::new(fake_ports);
     // Parallels is a Mac's; the others run on Linux too.
-    let host = if provider == Provider::Parallels {
+    let host = if matches!(provider, Provider::Parallels | Provider::Qemu) {
         isoloom_manifest::HostOs::Macos
     } else {
         isoloom_manifest::HostOs::Linux
@@ -212,5 +217,100 @@ async fn a_query_never_chooses_a_console_only_an_operation_does() {
     assert!(!state.exists(), "a query wrote no password");
     run.resume(&RunOptions::new(), &Recorder::new()).await.unwrap();
     assert!(state.is_file(), "an operation chooses them before its Vagrant commands");
-    assert!(run.graphical_console("web").await.is_ok());
+    run.graphical_console("web").await.unwrap();
+}
+
+/// A console where its hypervisor says it is, that doesn't answer there, is offered as it stands:
+/// the status says why it can't be shown now, and the viewer is refused it, saying where it
+/// didn't answer.
+#[tokio::test]
+async fn a_console_that_doesnt_answer_where_its_hypervisor_says_is_said_unavailable() {
+    let silent = Hypervisor {
+        display: "vnc://127.0.0.1:7\n",
+        ..RUNNING
+    };
+    let (folder, _, _, runner) = up_on(Provider::Libvirt, silent, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let err = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(
+        (err.code(), err.to_string()),
+        (
+            ErrorCode::NoConsole,
+            "machine `web` has no graphical console: its screen didn't answer at 127.0.0.1:5907".to_owned()
+        )
+    );
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    let offer = web.console.as_ref().unwrap();
+    assert_eq!(
+        (offer.protocol, offer.unavailable.as_deref()),
+        (ConsoleProtocol::Vnc, Some("its screen didn't answer at 127.0.0.1:5907"))
+    );
+}
+
+/// A running machine whose console answers is offered with nothing against it; a stopped one
+/// isn't looked at.
+#[tokio::test]
+async fn a_console_that_answers_is_offered_and_a_stopped_machines_isnt_looked_at() {
+    let (folder, fake, h, runner) = up_on(Provider::Libvirt, RUNNING, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let offer = |status: &crate::Status| status.machines.iter().find(|m| m.name == "web").and_then(|m| m.console.clone());
+    let up = run.status().await.unwrap();
+    assert_eq!(offer(&up).map(|o| o.unavailable), Some(None));
+    h.lock().unwrap_or_else(PoisonError::into_inner).running = false;
+    let asked = fake.lines().iter().filter(|l| l.contains("domdisplay")).count();
+    let down = run.status().await.unwrap();
+    assert_eq!(offer(&down).map(|o| o.unavailable), Some(None));
+    assert_eq!(fake.lines().iter().filter(|l| l.contains("domdisplay")).count(), asked, "libvirt not asked");
+}
+
+/// A fake QEMU monitor on a real Unix socket at `socket`, answering `info vnc` with `said`
+/// (after its banner), to every connection.
+#[cfg(unix)]
+fn qemu_monitor(socket: &std::path::Path, said: &'static str) -> tokio::task::JoinHandle<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::UnixListener::bind(socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = listener.accept().await {
+            s.write_all(b"QEMU 10.1.0 monitor - type 'help' for more information\r\n(qemu) ").await.unwrap();
+            let mut buf = [0u8; 64];
+            let _ = s.read(&mut buf).await.unwrap();
+            s.write_all(format!("info vnc\r\n{said}\r\n(qemu) ").as_bytes()).await.unwrap();
+        }
+    })
+}
+
+/// Regression (a Mac on vagrant-qemu): a VM QEMU runs with no VNC display, started before the
+/// run's Vagrantfile gave it one, was offered a screen the viewer then never showed. Its QEMU
+/// says so (`info vnc`: `None`): the status says it can't be shown and why, and so does the
+/// console; one started with its display is offered once it answers.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_qemu_vm_started_without_a_vnc_display_says_to_restart_it() {
+    let (folder, _, _, runner) = up_on(Provider::Qemu, RUNNING, &[]).await;
+    let run = runner.open(&folder.manifest, None).unwrap();
+    // Where vagrant-qemu records the VM and its monitor socket.
+    let machine = folder.home.path().join("runs/web-vm/vagrant/machines/web/qemu");
+    let sockets = tempfile::tempdir().unwrap();
+    let socket = sockets.path().join("m.sock");
+    std::fs::create_dir_all(machine.join("vq_1/run")).unwrap();
+    std::fs::write(machine.join("id"), "vq_1").unwrap();
+    std::fs::write(
+        machine.join("vq_1/run/options.yml"),
+        format!("---\n:monitor_socket: \"{}\"\n", socket.display()),
+    )
+    .unwrap();
+    let without = qemu_monitor(&socket, "None");
+    let why = "its VM was started without a screen (its QEMU has no VNC display): restart it to get one";
+    let err = run.graphical_console("web").await.unwrap_err();
+    assert_eq!(err.to_string(), format!("machine `web` has no graphical console: {why}"));
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.console.as_ref().and_then(|c| c.unavailable.as_deref()), Some(why));
+    without.abort();
+    std::fs::remove_file(&socket).unwrap();
+    let with = qemu_monitor(&socket, "default:\r\n  Server: 127.0.0.1:5902 (ipv4)\r\n    Auth: none (Sub: none)");
+    let console = run.graphical_console("web").await.unwrap();
+    assert_eq!(console.endpoint, Endpoint::Loopback("127.0.0.1:5902".parse().unwrap()));
+    with.abort();
 }

@@ -236,6 +236,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
         hosts: BTreeMap::new(),
         outputs: tf.outputs.clone(),
         sensitive: tf.sensitive.clone(),
+        busy: None,
     }
 }
 

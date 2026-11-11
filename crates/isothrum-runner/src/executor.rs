@@ -62,6 +62,11 @@ pub(crate) struct Cx<'a> {
     /// The machines that were set up before this operation (an update's running machines): they
     /// keep what they were given, so no guest delivery goes to them again.
     pub(crate) set_up: std::collections::BTreeSet<String>,
+    /// A read-only query's (a status, a console's), never an operation's: a read another
+    /// process's machine lock refuses waits only briefly, gives up once an operation holds the
+    /// run, and is then no failure but machines said busy
+    /// ([`Observed::busy`](crate::driver::Observed::busy)).
+    pub(crate) query: bool,
 }
 
 impl Cx<'_> {
