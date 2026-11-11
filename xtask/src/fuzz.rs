@@ -4,8 +4,8 @@
 //!
 //! A target that crashes (a panic, a failed assertion, an input that takes over 10 seconds) fails
 //! the run; libFuzzer leaves the input under `fuzz/artifacts/<target>/`. Each crash becomes a
-//! regression test in the crate it belongs to, then the fix. The workspace repository's
-//! `cargo xtask check-all --deep` runs every target for the default time.
+//! regression test in the crate it belongs to, then the fix. `cargo run -p xtask -- fuzz` runs
+//! every target for the default time.
 //!
 //! `--check` builds nothing with nightly: it checks the fuzz crate on the pinned toolchain
 //! instead (its format, its lints, and `cargo deny` over its own lockfile), so a change to the APIs
@@ -14,7 +14,7 @@
 //!
 //! The fuzz crate is a workspace of its own, and Cargo runs in its folder: it reads the
 //! `.cargo/config.toml` of that folder and of each one above it, so a `[patch.crates-io]` at the
-//! root (or the workspace repository's, above it) applies to it too.
+//! root (or one in a folder above the checkout) applies to it too.
 //!
 //! Needs `cargo install --locked cargo-fuzz` and `rustup toolchain install nightly --profile
 //! minimal`. The builds go to `<target dir>/fuzz`.

@@ -1,5 +1,5 @@
-# typos (a gate here, and of the workspace repository's `cargo xtask check-all`): words that are right here
-# although they look like misspellings.
+# typos (a gate, CONTRIBUTING.md): words that are right here although they look like
+# misspellings.
 
 [default.extend-words]
 # whoami's output format option (`whoami /groups /fo csv /nh`).

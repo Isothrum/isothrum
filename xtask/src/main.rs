@@ -18,8 +18,7 @@
 //! - `mutants`: mutation testing of the compiler, the runner's executor and its readers of what
 //!   Compose, Vagrant and Terraform answer (cargo-mutants).
 //!
-//! The workspace repository's `cargo xtask check-all --repos isothrum` runs them with the other
-//! gates. Each task is a module; `process` runs the tools they drive, `repo` finds the checkout.
+//! CONTRIBUTING lists them with the other gates. Each task is a module; `process` runs the tools they drive, `repo` finds the checkout.
 //! `workspace` holds the tests that keep the workspace's dependencies one-way and its manifests inheriting the workspace's;
 //! `ci_scripts` those of the workflows' scripts.
 

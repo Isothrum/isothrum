@@ -7,8 +7,8 @@
 //!
 //! Each crate's report goes to `<target dir>/mutants/<crate>/mutants.out` (`missed.txt`,
 //! `caught.txt`, `timeout.txt`, `outcomes.json`). `--jobs N` builds and tests N mutants at once,
-//! each in its own copy of the tree. The workspace repository's `cargo xtask check-all --deep` runs
-//! it. Needs `cargo install --locked cargo-mutants`.
+//! each in its own copy of the tree. Run it with `cargo run -p xtask -- mutants`. Needs `cargo
+//! install --locked cargo-mutants`.
 
 use std::process::ExitCode;
 

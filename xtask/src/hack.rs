@@ -7,7 +7,7 @@
 //!   --feature-powerset`), so features stay additive and no combination breaks the build.
 //!
 //! A checkout patched to a local Isoloom (a `[patch.crates-io]` in a git-ignored
-//! `.cargo/config.toml`, or the workspace repository's) resolves the patched crates into the
+//! `.cargo/config.toml`, here or in a folder above the checkout) resolves the patched crates into the
 //! committed `Cargo.lock`, and the minimum toolchain's older Cargo may write it in another format.
 //! `msrv` puts the committed lockfile back afterwards, so the check never leaves it changed.
 
