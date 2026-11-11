@@ -2,8 +2,9 @@ use std::path::Path;
 
 use super::*;
 
-/// A run's project: `isoloom.yml`, its module `terraform/` (a variable file, a sub-module, a
-/// provider cache and a state the copy leaves out), and the manifest's folder.
+/// A run's project: `isoloom.yml`, its module `terraform/` (a variable file, a sub-module, and
+/// what no copy takes: a provider cache, a state, crash logs, version control, Vagrant's and the
+/// runner's state), and the manifest's folder.
 fn project() -> (tempfile::TempDir, PathBuf) {
     let root = tempfile::tempdir().unwrap();
     let module = root.path().join("terraform");
@@ -17,7 +18,14 @@ fn project() -> (tempfile::TempDir, PathBuf) {
         ("terraform.tfstate", "{}"),
         ("terraform.tfstate.backup", "{}"),
         (".terraform/providers/aws", "binary"),
+        ("crash.log", "TF_VAR_db_password=hunter2"),
+        ("crash.20261111.log", "x"),
+        ("modules/site/crash.log", "x"),
+        (".git/config", "x"),
+        (".vagrant/machines", "x"),
+        (".isoloom-reach/web", "x"),
     ] {
+        std::fs::create_dir_all(module.join(file).parent().unwrap()).unwrap();
         std::fs::write(module.join(file), text).unwrap();
     }
     let dir = root.path().join(".isoloom/cloud-services");
@@ -42,6 +50,8 @@ fn files(dir: &Path) -> Vec<String> {
     out
 }
 
+/// Regression: the copy left out `.terraform` and states only, so a crash log (which can hold a
+/// variable's secret), `.git`, `.vagrant` and `.isoloom-reach` went into the run's state folder.
 #[test]
 fn the_module_is_copied_without_its_providers_or_state() {
     let (_root, dir) = project();

@@ -4,11 +4,14 @@
 //!
 //! The copy's Terraform files (`*.tf`, `*.tf.json`, `*.tfvars`, `*.tfvars.json`) are removed
 //! first, so a file renamed or removed in the module isn't applied any more; everything else the
-//! module wrote there is kept. `.terraform` folders and state files (`*.tfstate*`) are never
-//! copied. With `when: missing` it copies only when there is no copy yet: a `down` destroys with
+//! module wrote there is kept. What no copy of a project takes is never copied (Isoloom's
+//! [`never_copied`]: `.terraform` folders, states and their backups, Terraform's crash logs,
+//! version control, Vagrant's and the runner's state). With `when: missing` it copies only when there is no copy yet: a `down` destroys with
 //! the module as it was applied. The module must be inside the run's project.
 
 use std::path::{Path, PathBuf};
+
+use isoloom_manifest::ignore::{Rules, never_copied};
 
 use crate::error::Error;
 use crate::executor::Cx;
@@ -41,6 +44,11 @@ pub(super) fn run(cx: &Cx<'_>, at: &str, from: Option<&str>, when: Option<&str>)
     crate::store::create_dir(&copy)?;
     forget_terraform_files(&copy)?;
     copy_tree(&source, &copy)
+}
+
+/// What no copy takes ([`never_copied`]), as rules.
+fn never() -> Rules {
+    Rules::parse(&never_copied().collect::<Vec<_>>().join("\n"))
 }
 
 /// `from` (relative to the manifest's folder `dir`) as a folder inside the run's project: the
@@ -95,25 +103,26 @@ fn forget_terraform_files(dir: &Path) -> crate::Result<()> {
     Ok(())
 }
 
-/// Whether `name` stays out of a copy: Terraform's data folder, a state.
-fn left_out(name: &str) -> bool {
-    name == ".terraform" || name.contains(".tfstate")
+/// Copies `from` into `to`, recursively, but what no copy of a project takes ([`never_copied`]).
+/// A file keeps its permissions (a module's script its executable bit). A symbolic link is
+/// refused, not followed: one to a folder above would copy without end, and one anywhere else
+/// would bring in what is outside the project.
+fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
+    copy_below(from, to, "", &never())
 }
 
-/// Copies `from` into `to`, recursively, but what [`left_out`] names. A file keeps its
-/// permissions (a module's script its executable bit). A symbolic link is refused, not followed:
-/// one to a folder above would copy without end, and one anywhere else would bring in what is
-/// outside the project.
-fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
+/// [`copy_tree`] of `from`, at `rel` in the module (empty, or ending with `/`), `never` its rules.
+fn copy_below(from: &Path, to: &Path, rel: &str, never: &Rules) -> crate::Result<()> {
     let entries = std::fs::read_dir(from).map_err(Error::io(from, "read"))?;
     for entry in entries {
         let entry = entry.map_err(Error::io(from, "read"))?;
         let name = entry.file_name();
-        if left_out(&name.to_string_lossy()) {
-            continue;
-        }
         let (source, target) = (entry.path(), to.join(&name));
         let kind = entry.file_type().map_err(Error::io(&source, "read"))?;
+        let path = format!("{rel}{}", name.to_string_lossy());
+        if never.ignored(&if kind.is_dir() { format!("{path}/") } else { path.clone() }) {
+            continue;
+        }
         if kind.is_symlink() {
             return Err(Error::Unsupported {
                 what: format!(
@@ -123,7 +132,7 @@ fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
             });
         } else if kind.is_dir() {
             crate::store::create_dir(&target)?;
-            copy_tree(&source, &target)?;
+            copy_below(&source, &target, &format!("{path}/"), never)?;
         } else {
             std::fs::copy(&source, &target).map_err(Error::io(&target, "written"))?;
         }
