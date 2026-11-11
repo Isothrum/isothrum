@@ -25,6 +25,18 @@ pub struct Topology {
     pub links: Vec<Link>,
 }
 
+impl Topology {
+    /// The key of the LAN that is VLAN `id` of switch `switch`: what a network the spec nests
+    /// under the switch's LAN came from, as the topology names it.
+    #[must_use]
+    pub fn vlan_lan(&self, switch: &str, id: u16) -> Option<&str> {
+        self.networks
+            .iter()
+            .find(|(_, l)| l.switch.as_deref() == Some(switch) && l.vlan == Some(id))
+            .map(|(name, _)| name.as_str())
+    }
+}
+
 /// A LAN (or VLAN): one shared segment for every machine on it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

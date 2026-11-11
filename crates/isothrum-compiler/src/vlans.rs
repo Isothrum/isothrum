@@ -24,18 +24,6 @@ fn vlan_of(lan: &Lan) -> Option<(&str, u16)> {
     Some((lan.switch.as_deref()?, lan.vlan?))
 }
 
-impl Topology {
-    /// The key of the LAN that is VLAN `id` of switch `switch`: what a network the spec nests
-    /// under the switch's LAN came from, as the topology names it.
-    #[must_use]
-    pub fn vlan_lan(&self, switch: &str, id: u16) -> Option<&str> {
-        self.networks
-            .iter()
-            .find(|(_, l)| vlan_of(l) == Some((switch, id)))
-            .map(|(name, _)| name.as_str())
-    }
-}
-
 /// Refuses what a switch's VLANs can't say in the spec: a switch named like a plain LAN or like
 /// a cable's network (its VLANs nest under a network of the switch's name), and a VLAN with a
 /// `tc` (Isoloom's VLANs have none).
