@@ -919,6 +919,9 @@ change.
   (`AsyncFd`'s constructors; Isothrum doesn't call them). `cargo deny` allows crates.io only,
   Isoloom's git repository no longer, and `cargo run -p xtask -- fuzz --check` (a CI and
   CONTRIBUTING gate) runs it over the fuzz crate's lockfile too.
+- **rustix 1.1.6** in `Cargo.lock` and `fuzz/Cargo.lock`, past RUSTSEC-2026-0486 (its
+  extended-attribute functions given a zero-length buffer), which `tempfile` and `tar`'s `xattr`
+  reach.
 
 ## [1.0.5] — 2026-11-08
 
