@@ -321,6 +321,7 @@ dependencies = [
  "flate2",
  "getrandom",
  "isoloom-manifest",
+ "nix",
  "process-wrap",
  "regex",
  "schemars",

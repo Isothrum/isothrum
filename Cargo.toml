@@ -37,6 +37,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "net"] }
 process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group", "job-object", "creation-flags"] }
 windows = { version = "0.62", features = ["Win32_System_Threading"] }
+# Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
+nix = { version = "0.31", default-features = false, features = ["signal"] }
 clap = { version = "4", features = ["derive", "string"] }
 clap_complete = "4"
 tempfile = "3"

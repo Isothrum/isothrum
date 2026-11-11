@@ -48,7 +48,7 @@ impl Stopping {
 
     /// Asks `child`'s tree to stop, and ends it once it has, or after the grace. Where it can't
     /// be asked (Windows, a tree already gone), it is ended at once.
-    pub(super) fn stop(self: &Arc<Self>, mut child: Box<dyn ChildWrapper>) {
+    pub(super) fn stop(self: &Arc<Self>, mut child: Box<dyn ChildWrapper>, recorded: Option<super::ledger::Recorded>) {
         if !interrupt(child.as_ref()) {
             end(child.as_mut());
             return;
@@ -57,10 +57,13 @@ impl Stopping {
         let since = self.epoch.load(Ordering::SeqCst);
         let slot: Slot = Arc::new(Mutex::new(Some(child)));
         let (stopping, theirs) = (Arc::clone(self), Arc::clone(&slot));
+        // Its entry in the run's tools goes once it has ended, not before: this process killed
+        // meanwhile, the next operation ends it.
         let spawned = std::thread::Builder::new().name("isothrum-stop".into()).spawn(move || {
             if let Some(mut tool) = take(&theirs) {
                 stopping.end_when_stopped(tool.as_mut(), since);
             }
+            drop(recorded);
             stopping.count.fetch_sub(1, Ordering::SeqCst);
         });
         if let Err(e) = spawned {

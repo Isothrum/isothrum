@@ -319,5 +319,6 @@ fn docker_spec(cx: &Cx<'_>, args: Vec<String>, env: Vec<(String, String)>) -> Pr
         cwd: Some(cx.run.dir().to_path_buf()),
         env,
         stdin: None,
+        tools: None,
     }
 }

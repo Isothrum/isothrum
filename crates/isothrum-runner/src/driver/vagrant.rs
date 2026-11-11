@@ -108,6 +108,7 @@ impl Vagrant {
             cwd: Some(cx.run.dir().to_path_buf()),
             env,
             stdin: None,
+            tools: None,
         })
     }
 

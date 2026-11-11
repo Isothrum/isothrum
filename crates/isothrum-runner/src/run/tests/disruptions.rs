@@ -177,6 +177,14 @@ impl Fixture {
         self.runner.store.save(&record).unwrap();
     }
 
+    /// The run, started, then left `starting` as a process killed mid-start leaves it.
+    async fn killed_start(&self) -> crate::Running<'_> {
+        let run = self.run();
+        run.up(&super::opts(), &Recorder::new()).await.unwrap();
+        self.killed_in(RunState::Starting);
+        run
+    }
+
     /// The calls whose line contains `text`.
     fn called(&self, text: &str) -> usize {
         self.fake.lines().iter().filter(|l| l.contains(text)).count()

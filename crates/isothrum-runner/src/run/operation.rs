@@ -86,6 +86,7 @@ impl Running<'_> {
         // dropping after the lock was released, freed the second op's port reservations.
         let _flight = self.runner.enter(self.name(), op);
         self.settle_cut_off()?;
+        self.end_left_running().await;
         let before = store.record(self.name())?.map_or(RunState::Absent, |r| r.state);
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State { from: before, to: during });
@@ -177,6 +178,17 @@ impl Running<'_> {
             at: rfc3339(self.runner.config.clock.now()),
         });
         store.save(&record)
+    }
+
+    /// Ends the tools a killed operation on the run left running ([`crate::process::ledger`]):
+    /// before anything acts on the run, with it locked, so this operation never races a
+    /// `vagrant up` or a `docker compose up` still going from the last.
+    async fn end_left_running(&self) {
+        let dir = self.runner.store.run_dir_path(self.name()).join(crate::process::ledger::DIR);
+        let ended = crate::process::ledger::end_orphans(&dir).await;
+        if !ended.is_empty() {
+            tracing::warn!(?ended, "ended the tools a killed operation on the run left running");
+        }
     }
 
     /// Records that `op` began acting on the run (the record moves to the operation's state).

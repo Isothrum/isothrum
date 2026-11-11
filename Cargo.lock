@@ -796,6 +796,7 @@ dependencies = [
  "getrandom",
  "isoloom-manifest",
  "isoloom-targets",
+ "nix",
  "process-wrap",
  "proptest",
  "regex",

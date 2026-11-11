@@ -31,6 +31,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   or a run whose connection gives no credentials, leaves the state's view; a server refusing the
   credentials is `server_auth_failed`.
 
+- **The tools a killed operation left running are ended by the next operation.** Each tool runs
+  in a process group of its own (a job object on Windows), so a process killed outright (SIGKILL,
+  Task Manager, a crash) stopped none of them: a `docker compose up` ran to its end seconds later,
+  a `vagrant up` could run an hour, and the next start waited on Vagrant's machine lock. An
+  operation's tools are now recorded in the run's state folder while they run (`tools/`: each
+  one's process id and start, under a lock the recording process holds while it lives), and
+  every operation, settling a killed one with the run locked, ends the tools a dead process left
+  first: its process group asked to stop (SIGINT), killed after 30 seconds; on Windows its tree
+  (`taskkill /T /F`). Only the very process recorded is ended: an id that now names another
+  process is left alone. `ProcessSpec` has a `tools` field (the folder a tool is recorded in).
+
 ## [2.0.0] — 2026-11-11
 
 ### Highlights

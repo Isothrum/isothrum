@@ -274,3 +274,34 @@ async fn a_docker_cli_config_that_cant_be_read_or_isnt_json_is_traced() {
     assert!(!cut_short.strip_engine_overrides);
     assert!(not_json.contains("WARN") && not_json.contains("config isn't JSON"), "{not_json}");
 }
+
+/// A tool run with a folder to record it in is there while it runs (it lists its own entry,
+/// named by its process id), and gone once it exited.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(crate::process::ledger::DIR);
+    // The entry is written once the tool started: it waits for it (5 s at most), then lists.
+    let script = "echo \"$$\"; i=0; while [ $i -lt 50 ] && ! ls \"$0\" | grep -q \"-$$.tool\"; do sleep 0.1; i=$((i+1)); done; ls \"$0\"";
+    let mut listing = spec("sh", &["-c", script, dir.to_str().unwrap()]);
+    listing.tools = Some(dir.clone());
+    let out = capture(&SystemProcesses::default(), &listing).await.unwrap();
+    assert!(out.success(), "{out:?}");
+    let pid = &out.stdout[0];
+    assert!(
+        out.stdout.iter().any(|l| l.ends_with(&format!("-{pid}.tool"))),
+        "the tool's own entry, named by its id: {:?}",
+        out.stdout
+    );
+    let tools: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "tool"))
+        .collect();
+    assert!(tools.is_empty(), "{tools:?}");
+    // Unrecorded: nothing is written.
+    let other = tempfile::tempdir().unwrap();
+    capture(&SystemProcesses::default(), &spec("true", &[])).await.unwrap();
+    assert_eq!(std::fs::read_dir(other.path()).unwrap().count(), 0);
+}

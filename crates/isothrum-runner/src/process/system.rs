@@ -11,7 +11,7 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
 use super::stopping::{GRACE, Stopping};
-use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, lines, shim};
+use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, shim};
 use crate::BoxFuture;
 
 /// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
@@ -97,7 +97,8 @@ impl SystemProcesses {
         tracing::debug!(program = %spec.program, args = ?spec.args, "starting a process");
         let mut cmd = self.command(spec).map_err(io)?;
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
-        let mut tree = Tree(Some(child), Arc::clone(&self.stopping));
+        let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
+        let mut tree = Tree(Some(child), Arc::clone(&self.stopping), recorded);
         let status = match tree.0.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
             None => return Err(io(std::io::Error::other("the process went away"))),
@@ -149,13 +150,14 @@ impl ProcessRunner for SystemProcesses {
 }
 
 /// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
-/// cancellation).
-struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>);
+/// cancellation), with its entry in the run's tools when it was recorded: removed once the tool
+/// ended.
+struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>, Option<ledger::Recorded>);
 
 impl Drop for Tree {
     fn drop(&mut self) {
         if let Some(child) = self.0.take() {
-            self.1.stop(child);
+            self.1.stop(child, self.2.take());
         }
     }
 }

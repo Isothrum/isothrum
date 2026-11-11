@@ -316,10 +316,15 @@ impl<'r> Running<'r> {
     /// elevated session, kept in the run's state folder.
     pub(crate) fn acting<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
         made(&cx)?;
+        // Its tools recorded in the run's state folder while they run: this process killed, the
+        // next operation ends them ([`crate::process::ledger`]).
+        let tools = cx.state_dir().join(crate::process::ledger::DIR);
+        let recorded: std::sync::Arc<dyn crate::ProcessRunner> =
+            std::sync::Arc::new(crate::process::Recording::new(std::sync::Arc::clone(&self.runner.config.processes), tools));
+        cx.processes = std::sync::Arc::clone(&recorded);
         if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
             let dir = cx.state_dir().join("elevated");
-            let inner = std::sync::Arc::clone(&self.runner.config.processes);
-            cx.processes = std::sync::Arc::new(crate::process::Elevated::new(inner, dir, self.elevated_env()));
+            cx.processes = std::sync::Arc::new(crate::process::Elevated::new(recorded, dir, self.elevated_env()));
         }
         Ok(cx)
     }

@@ -63,9 +63,7 @@ async fn a_start_whose_process_was_killed_is_failed_not_ready_and_the_next_start
     // off) left its record `starting`. Its run read as ready though its set-up never ran, and the
     // next start was refused as already running.
     let f = fixture();
-    let run = f.run();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
-    f.killed_in(RunState::Starting);
+    let run = f.killed_start().await;
 
     let status = run.status().await.unwrap();
     assert_eq!(status.state, RunState::Failed, "a start that never ended isn't ready");
@@ -237,4 +235,47 @@ async fn a_lock_file_a_dead_process_left_doesnt_hold_the_run() {
     std::fs::write(&lock, "").unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert!(f.every_member_runs());
+}
+
+/// Every tool an operation runs is recorded in the run's state folder while it runs (A4); a
+/// status read records none.
+#[tokio::test]
+async fn an_operations_tools_are_recorded_in_the_runs_state_and_a_reads_are_not() {
+    let f = fixture();
+    let run = f.run();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let tools = f.runner.store.run_dir_path(run.name()).join(crate::process::ledger::DIR);
+    let calls = f.fake.calls();
+    assert!(!calls.is_empty() && calls.iter().all(|c| c.tools.as_ref() == Some(&tools)), "{calls:?}");
+    let before = f.fake.calls().len();
+    run.status().await.unwrap();
+    assert!(f.fake.calls()[before..].iter().all(|c| c.tools.is_none()));
+}
+
+/// Regression (tests/resilience.md A4): a start killed with its worker left its tools running (a
+/// `docker compose up` finished on its own seconds later; a `vagrant up` can run an hour). The
+/// next operation, settling the killed one, ends them before it acts.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_tools_a_killed_start_left_running_are_ended_by_the_next_operation() {
+    use std::os::unix::process::CommandExt;
+    let f = fixture();
+    let run = f.killed_start().await;
+    let mut left = std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
+    let tools = f.runner.store.run_dir_path(run.name()).join(crate::process::ledger::DIR);
+    crate::process::ledger::left_by_a_killed_process(&tools, left.id()).unwrap();
+
+    run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    let mut ended = false;
+    for _ in 0..100 {
+        if left.try_wait().unwrap().is_some() {
+            ended = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(ended, "the tool the killed start left is ended");
+    let entries: Vec<_> = std::fs::read_dir(&tools).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert!(entries.iter().all(|n| !n.to_string_lossy().starts_with("dead")), "{entries:?}");
+    assert_eq!(f.record().state, RunState::Absent);
 }

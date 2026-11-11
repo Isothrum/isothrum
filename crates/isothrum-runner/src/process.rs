@@ -7,6 +7,7 @@
 mod elevated;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
+pub(crate) mod ledger;
 mod lines;
 mod shim;
 mod stopping;
@@ -38,6 +39,10 @@ pub struct ProcessSpec {
     pub env: Vec<(String, String)>,
     /// A file piped into its standard input (default: none).
     pub stdin: Option<PathBuf>,
+    /// The folder the tool is recorded in while it runs (its process group; its process tree on
+    /// Windows), so the next operation can end it if the process that started it is killed first
+    /// (default: not recorded). An operation's tools are recorded in the run's state folder.
+    pub tools: Option<PathBuf>,
 }
 
 impl ProcessSpec {
@@ -139,6 +144,32 @@ pub type OnLine<'a> = &'a mut (dyn FnMut(Stream, &str) + Send);
 pub trait ProcessRunner: Send + Sync {
     /// Runs `spec` to its end, handing each line it prints to `on_line` (decoded lossily).
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>>;
+}
+
+/// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::tools`]): an
+/// operation's tools, in its run's state folder.
+pub(crate) struct Recording {
+    inner: std::sync::Arc<dyn ProcessRunner>,
+    dir: PathBuf,
+}
+
+impl Recording {
+    /// `inner`'s tools, recorded in `dir`.
+    pub(crate) fn new(inner: std::sync::Arc<dyn ProcessRunner>, dir: PathBuf) -> Recording {
+        Recording { inner, dir }
+    }
+}
+
+impl ProcessRunner for Recording {
+    fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
+        Box::pin(async move {
+            let recorded = ProcessSpec {
+                tools: Some(self.dir.clone()),
+                ..spec.clone()
+            };
+            self.inner.run(&recorded, on_line).await
+        })
+    }
 }
 
 /// `program` and `args` as one line, separated by spaces.

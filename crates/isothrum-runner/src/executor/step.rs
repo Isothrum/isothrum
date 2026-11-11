@@ -254,6 +254,7 @@ pub(crate) fn spec_for(cx: &Cx<'_>, list: &str, step: &Step) -> Result<ProcessSp
         cwd: Some(step.cwd.as_ref().map_or_else(|| dir.to_path_buf(), |c| dir.join(c.as_str()))),
         env: env_of(cx, list, step)?,
         stdin: stdin_of(cx, list, step)?,
+        tools: None,
     };
     Ok(crate::container::wrap(cx, spec))
 }

@@ -140,6 +140,7 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
         cwd: spec.cwd,
         env,
         stdin: spec.stdin,
+        tools: spec.tools,
     }
 }
 
@@ -173,7 +174,7 @@ mod tests {
             args: vec!["apply".into(), "-auto-approve".into()],
             cwd: Some("/l/x/.isoloom/proxmox".into()),
             env: vec![("TF_VAR_proxmox_password".into(), "s3cret".into())],
-            stdin: None,
+            ..ProcessSpec::default()
         };
         let run = docker_run(
             "hashicorp/terraform:1.9.8@sha256:00",
