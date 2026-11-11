@@ -57,6 +57,7 @@ async fn a_slot_for_another_provider_is_not_delivered_into_the_machine() {
 
 /// An input file holding the values that can't be removed once delivered fails the delivery,
 /// naming the file, rather than stay in the run's folder with only a trace saying so.
+#[cfg(unix)]
 #[tokio::test(start_paused = true)]
 async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     let a = account_of(SOLO_WEB_AWS, 0);

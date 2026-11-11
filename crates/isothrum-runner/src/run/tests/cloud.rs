@@ -40,10 +40,25 @@ struct FakeCloud {
     /// The module copy's `main.tf` as the destroy found it.
     destroyed_module: Mutex<Option<String>>,
     delivered: Mutex<Vec<String>>,
-    /// A delivery's input can't be removed once delivered (a folder stands in its place).
+    /// A delivery's input can't be removed once delivered: a folder stands in its place, holding
+    /// a read-only one with a file in it.
+    #[cfg(unix)]
     input_stuck: AtomicBool,
+    /// That read-only folder, given back its owner's rights when the test is done.
+    #[cfg(unix)]
+    stuck: Mutex<Option<std::path::PathBuf>>,
     /// The state file `inputs.tfvars.json` as the destroy found it.
     destroyed_with: Mutex<Option<String>>,
+}
+
+#[cfg(unix)]
+impl Drop for FakeCloud {
+    fn drop(&mut self) {
+        if let Some(held) = self.stuck.get_mut().unwrap_or_else(PoisonError::into_inner).take() {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(held, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
 }
 
 fn account(failing_applies: u32) -> Account {
@@ -125,10 +140,16 @@ fn guest(cloud: &FakeCloud, call: &Call, line: &str) -> Reply {
         }
         let input = std::fs::read_to_string(call.stdin.as_ref().unwrap()).unwrap();
         cloud.delivered.lock().unwrap_or_else(PoisonError::into_inner).push(input);
+        #[cfg(unix)]
         if cloud.input_stuck.load(Ordering::SeqCst) {
+            use std::os::unix::fs::PermissionsExt;
             let path = call.stdin.as_ref().unwrap();
             std::fs::remove_file(path).unwrap();
-            std::fs::create_dir_all(path.join("held")).unwrap();
+            let held = path.join("held");
+            std::fs::create_dir_all(&held).unwrap();
+            std::fs::write(held.join("value"), "").unwrap();
+            std::fs::set_permissions(&held, std::fs::Permissions::from_mode(0o500)).unwrap();
+            *cloud.stuck.lock().unwrap_or_else(PoisonError::into_inner) = Some(held);
         }
         return Reply::ok("");
     }
