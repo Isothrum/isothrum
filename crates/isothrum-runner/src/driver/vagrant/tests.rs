@@ -3,6 +3,7 @@
 //! which keeps Vagrant's record where the call's `VAGRANT_DOTFILE_PATH` says, as Vagrant does.
 
 mod controller;
+mod disruptions;
 mod failures;
 mod lifecycle;
 mod locks;

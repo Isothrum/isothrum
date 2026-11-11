@@ -221,6 +221,14 @@ pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake:
     assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
 }
 
+/// A resume of `run`, whose machine `machine` was removed outside the runner, is refused
+/// (`nothing_to_resume`, naming it).
+pub(crate) async fn refuses_to_resume_without(run: &crate::Running<'_>, machine: &str) {
+    let err = run.resume(&crate::RunOptions::new(), &crate::Recorder::new()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::NothingToResume);
+    assert!(err.to_string().contains(&format!("machine `{machine}` is gone")), "{err}");
+}
+
 /// What `f` traces while it runs (every level, as text), with what it gives. One global test
 /// subscriber writes each event to the buffer of the thread that is capturing, if any: a
 /// subscriber set per test (`set_default`) races `tracing`'s global interest cache with the

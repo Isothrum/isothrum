@@ -6,6 +6,7 @@ mod access;
 mod cancel;
 mod checks;
 mod cloud;
+mod disruptions;
 mod docker_vm;
 mod event_log;
 mod graphical;
