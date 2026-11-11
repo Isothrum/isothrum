@@ -516,9 +516,13 @@ mod tests {
         let missing = kvm_problem(&dir.path().join("kvm")).unwrap();
         assert!(missing.starts_with("KVM isn't available on this machine (no /dev/kvm)"), "{missing}");
         // Regression: any failure to open it (a folder here; EBUSY, ENXIO on a real device) was
-        // said as a device the user may not open.
-        let other = kvm_problem(dir.path()).unwrap();
-        assert!(other.starts_with("/dev/kvm can't be opened: "), "{other}");
+        // said as a device the user may not open. Unix only: Windows refuses to open a folder
+        // with "access denied", the permission problem's own kind.
+        #[cfg(unix)]
+        {
+            let other = kvm_problem(dir.path()).unwrap();
+            assert!(other.starts_with("/dev/kvm can't be opened: "), "{other}");
+        }
         let device = dir.path().join("device");
         std::fs::write(&device, "").unwrap();
         assert_eq!(kvm_problem(&device), None);
