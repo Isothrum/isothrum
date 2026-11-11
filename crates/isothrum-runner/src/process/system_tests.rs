@@ -58,9 +58,31 @@ async fn a_tool_cancelled_takes_what_it_started_with_it() {
         spec("sh", &["-c", &format!("sleep 120 & echo $! > '{path}'; wait")])
     };
     let runner = SystemProcesses::default();
-    let limit = Duration::from_secs(if cfg!(windows) { 10 } else { 2 });
-    assert!(tokio::time::timeout(limit, capture(&runner, &job)).await.is_err(), "cancelled while it ran");
-    let pid = std::fs::read_to_string(&file).unwrap().trim().to_owned();
+    // Cancelled once its child runs (its pid written), however long the tool took to get there:
+    // a PowerShell's cold start on a busy Windows runner took longer than any fixed wait.
+    let mut run = Box::pin(capture(&runner, &job));
+    let started = async {
+        loop {
+            if let Some(pid) = std::fs::read_to_string(&file)
+                .ok()
+                .map(|s| s.trim().to_owned())
+                .filter(|s| s.parse::<u32>().is_ok())
+            {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let pid = tokio::time::timeout(Duration::from_secs(300), async {
+        tokio::select! {
+            out = &mut run => panic!("the tool ended before it was cancelled: {out:?}"),
+            pid = started => pid,
+        }
+    })
+    .await
+    .expect("the tool never started its child");
+    // Dropped: the cancel.
+    drop(run);
     assert!(gone(&pid).await, "the tool's child {pid} was left running");
 }
 

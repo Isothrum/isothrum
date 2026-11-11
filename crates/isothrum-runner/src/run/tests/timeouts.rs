@@ -72,8 +72,10 @@ async fn a_slow_pull_still_moving_runs_as_long_as_it_moves() {
     assert_eq!(
         pull,
         format!(
-            "docker compose --project-name web-portal --file compose.yml --file {} pull --policy missing --ignore-buildable --include-deps db isoloom-routes-db web isoloom-routes-web isoloom-probe-amd64",
-            f.home().join("runs/web-portal/ports.yml").display()
+            "docker compose --project-name web-portal --file compose.yml --file {}/ports.yml pull --policy missing --ignore-buildable --include-deps db isoloom-routes-db web isoloom-routes-web isoloom-probe-amd64",
+            // The run's folder as the runner makes it (`${run.state_dir}`), the manifest's `/` after
+            // it: `\` between the folders on Windows.
+            f.home().join("runs").join("web-portal").display()
         )
     );
     let steps: Vec<(String, StepState)> = kinds(&events)
