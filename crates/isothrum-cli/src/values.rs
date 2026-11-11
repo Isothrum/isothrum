@@ -11,24 +11,28 @@ use crate::error::{Error, Result};
 /// Reads the environment: variable `name`'s value, `None` when it isn't set.
 pub(crate) type Var<'a> = dyn Fn(&str) -> Option<OsString> + 'a;
 
-/// `NAME=VALUE` pairs, by name.
+/// `NAME=VALUE` pairs, by name; a name given twice is refused, not the last one kept.
 pub(crate) fn params(pairs: &[String]) -> Result<BTreeMap<String, String>> {
-    pairs
-        .iter()
-        .map(|p| {
-            p.split_once('=')
-                .map(|(k, v)| (k.to_owned(), v.to_owned()))
-                .ok_or_else(|| Error::Usage(format!("`--param {p}`: write NAME=VALUE")))
-        })
-        .collect()
+    let mut out = BTreeMap::new();
+    for p in pairs {
+        let (k, v) = p.split_once('=').ok_or_else(|| Error::Usage(format!("`--param {p}`: write NAME=VALUE")))?;
+        if out.insert(k.to_owned(), v.to_owned()).is_some() {
+            return Err(Error::Usage(format!("`--param {p}`: `{k}` is given twice")));
+        }
+    }
+    Ok(out)
 }
 
-/// The slots' values, each `NAME[=VAR]` read from variable `VAR` (default `NAME`) through `var`.
+/// The slots' values, each `NAME[=VAR]` read from variable `VAR` (default `NAME`) through `var`;
+/// a slot named twice is refused, not the last one kept.
 pub(crate) fn secrets(specs: &[String], var: &Var<'_>) -> Result<Secrets> {
     let mut out = Secrets::new();
     for spec in specs {
         let (name, from) = spec.split_once('=').unwrap_or((spec, spec));
         let refused = |why: &str| Error::Usage(format!("`--secret-from-env {spec}`: `{from}` {why}"));
+        if out.get(name).is_some() {
+            return Err(Error::Usage(format!("`--secret-from-env {spec}`: `{name}` is given twice")));
+        }
         let value = var(from).ok_or_else(|| refused("isn't set"))?;
         let value = value.into_string().map_err(|_| refused("isn't UTF-8"))?;
         out.insert(name, SecretValue::new(value));
@@ -81,5 +85,15 @@ mod tests {
             let parsed = params(&[format!("{name}={value}")]).unwrap();
             proptest::prop_assert_eq!(parsed, BTreeMap::from([(name, value)]));
         }
+    }
+
+    /// Regression: a repeated `--param A=…` or `--secret-from-env A` silently kept the last value.
+    #[test]
+    fn a_value_given_twice_is_refused() {
+        let twice = params(&["A=1".into(), "A=2".into()]).unwrap_err();
+        assert_eq!(twice.to_string(), "`--param A=2`: `A` is given twice");
+        let env = |_: &str| Some(OsString::from("v"));
+        let again = secrets(&["S".into(), "S=OTHER".into()], &env).unwrap_err();
+        assert_eq!(again.to_string(), "`--secret-from-env S=OTHER`: `S` is given twice");
     }
 }
