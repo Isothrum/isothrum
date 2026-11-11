@@ -41,18 +41,6 @@ fn tool() -> std::process::Child {
     std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap()
 }
 
-/// Whether `child` has ended, within a few seconds.
-#[cfg(unix)]
-fn ends(child: &mut std::process::Child) -> bool {
-    for _ in 0..100 {
-        if child.try_wait().unwrap().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    false
-}
-
 /// Regression (tests/resilience.md A4): a process killed mid-operation left its tools running to
 /// their end. A tool a dead process recorded is ended, its entry gone; a live owner's tool, and a
 /// recorded id that now names another process (here, this very test), are left alone.
@@ -62,15 +50,22 @@ async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(DIR);
     let (mut orphan, mut owned) = (tool(), tool());
-    left_by_a_killed_process(&dir, orphan.id()).unwrap();
+    let orphan_id = orphan.id();
+    left_by_a_killed_process(&dir, orphan_id).unwrap();
+    // Reaped as soon as it ends, as init reaps a tool whose parent was killed: a zombie still
+    // counts in its process group, and the group would only be killed after the grace.
+    let (reaped, reaping) = std::sync::mpsc::channel();
+    std::thread::spawn(move || reaped.send(orphan.wait().is_ok()));
     // This process's own tool: its owner (this process) holds its lock.
     let mine = Recorded::write(&dir, owned.id()).unwrap();
     // An id that names another process now: recorded as started at the epoch.
     let me = std::process::id();
     std::fs::write(dir.join(format!("dead-{me}.tool")), format!("{me} at:1\n")).unwrap();
 
-    assert_eq!(end_orphans(&dir).await, [orphan.id()]);
-    assert!(ends(&mut orphan), "the orphaned tool was ended");
+    let asked = std::time::Instant::now();
+    assert_eq!(end_orphans(&dir).await, [orphan_id]);
+    assert_eq!(reaping.recv_timeout(Duration::from_secs(5)), Ok(true), "the orphaned tool was ended");
+    assert!(asked.elapsed() < GRACE, "it stopped when asked, not killed after the grace");
     assert!(owned.try_wait().unwrap().is_none(), "a live process's tool runs on");
     let left: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
@@ -91,4 +86,26 @@ async fn nothing_recorded_is_nothing_to_end() {
     let home = tempfile::tempdir().unwrap();
     let none: [u32; 0] = [];
     assert_eq!(end_orphans(&home.path().join(DIR)).await, none);
+}
+
+/// Regression: the token was kept for the life of the process, so once the run's state folder was
+/// removed and made again (an embedder that lives on, a home cleared by hand), every later tool
+/// went unrecorded, or was recorded beside no owner, which nothing ever ends.
+#[test]
+fn a_folder_made_again_gets_its_owner_again() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(DIR);
+    let pid = std::process::id();
+    let first = Recorded::write(&dir, pid).unwrap();
+    drop(first);
+    std::fs::remove_dir_all(&dir).unwrap();
+    let again = Recorded::write(&dir, pid).expect("recorded in the folder made again");
+    let names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    let owner = names.iter().find_map(|n| n.strip_suffix(".owner")).expect("an owner beside the entry");
+    assert!(names.contains(&format!("{owner}-{pid}.tool")), "{names:?}");
+    drop(again);
 }

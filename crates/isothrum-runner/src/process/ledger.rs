@@ -114,11 +114,16 @@ impl Drop for Recorded {
 static OWNED: Mutex<BTreeMap<PathBuf, (String, File)>> = Mutex::new(BTreeMap::new());
 
 /// This process's token in `dir`: its `<token>.owner` made and locked the first time, held until
-/// it exits.
+/// it exits. Made again when it is no longer there (the run's state folder removed and made again
+/// while this process lives, by an embedder or by hand): an entry beside no owner would never be
+/// ended.
 fn owner_token(dir: &Path) -> io::Result<String> {
     let mut owned = OWNED.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some((token, _)) = owned.get(dir) {
-        return Ok(token.clone());
+        if dir.join(format!("{token}.owner")).is_file() {
+            return Ok(token.clone());
+        }
+        owned.remove(dir);
     }
     crate::store::private_dir(dir)?;
     let mut bytes = [0u8; 8];
