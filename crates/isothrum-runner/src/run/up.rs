@@ -15,6 +15,7 @@ use crate::executor::{Cx, Ran, run_steps};
 use crate::options::{Occupied, RunOptions};
 use crate::params::{params_for_existing, params_for_start};
 use crate::secrets::check_secrets;
+use crate::slot::Asked;
 use crate::state::{Op, RunState};
 use crate::status::{OutputValue, Started, any_member_running, any_present};
 use crate::store::RunRecord;
@@ -71,11 +72,13 @@ impl Running<'_> {
         self.record_start(&mut record, &cx, opts)?;
         // The slot is picked and recorded (the run `starting`) under the home's lock: a start
         // in another process waits, then sees it taken.
-        let slots = self.hold_slots().await?;
-        self.place(&mut record, opts)?;
+        let place = opts.host_label.as_deref();
+        let slot = crate::slot::choose(&self.runner.store, self.manifest(), self.name(), place, Asked::Own(record.slot)).await?;
+        slot.keep_in(&mut record);
+        self.place(&mut record, opts);
         Self::bind_record(&mut cx, &record);
         self.begin(&mut record, Op::Up)?;
-        drop(slots);
+        drop(slot);
         crate::executor::state_files::write(&cx, true)?;
         self.converge(&mut cx).await?;
         self.seal(&mut cx, &mut record).await?;
@@ -171,29 +174,15 @@ impl Running<'_> {
         cleared
     }
 
-    /// The home's slots, held while this start picks its own, when the run needs one.
-    async fn hold_slots(&self) -> Result<Option<crate::store::SlotsLock>> {
-        if crate::slot::needed(self.manifest()) {
-            return self.runner.store.hold_slots().await.map(Some);
-        }
-        Ok(None)
-    }
-
-    /// Where the run goes on its place, kept in `record`: its slot (when the manifest names
-    /// `${run.slot}`), its SSH jump, and its expiry (when the manifest has one).
-    fn place(&self, record: &mut RunRecord, opts: &RunOptions) -> Result<()> {
-        let place = opts.host_label.as_deref();
-        if crate::slot::needed(self.manifest()) {
-            let taken = crate::slot::taken(&self.runner.store.records()?, self.name(), place);
-            record.slot = Some(crate::slot::pick(record.slot, &taken, place)?);
-        }
+    /// Where the run goes on its place, kept in `record` beside its slot: its SSH jump, and its
+    /// expiry (when the manifest has one).
+    fn place(&self, record: &mut RunRecord, opts: &RunOptions) {
         record.ssh_jump.clone_from(&opts.ssh_jump);
         record.expires_at = self.manifest().expiry.as_ref().map(|e| {
             let minutes = u64::from(e.default_minutes.unwrap_or(DEFAULT_LIFETIME_MINUTES));
             let life = opts.lifetime.map_or(minutes * 60, |l| l.as_secs());
             clock::unix_seconds(self.runner.config.clock.now()).saturating_add(life)
         });
-        Ok(())
     }
 
     /// The start steps; a failure after a step printed one of `recovery.stale_markers` (any line

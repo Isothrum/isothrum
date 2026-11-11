@@ -21,6 +21,7 @@ use crate::error::Error;
 use crate::manifest::{LoadedManifest, load_manifest};
 use crate::name::RunName;
 use crate::runner::Runner;
+use crate::slot::Asked;
 use crate::state::RunState;
 use crate::store::RunRecord;
 
@@ -98,7 +99,9 @@ impl Adoption {
         self
     }
 
-    /// Applied in slot `slot` of its place.
+    /// Applied in slot `slot` of its place (`${run.slot}`, 1 to 99): the run keeps it, as its
+    /// resources are named after it; [`Runner::adopt`] refuses one out of range or another run on
+    /// the place holds. Without it, the run takes the lowest free one.
     #[must_use]
     pub fn with_slot(mut self, slot: u8) -> Adoption {
         self.slot = Some(slot);
@@ -133,10 +136,12 @@ impl Runner {
     /// # Errors
     ///
     /// Fails with `adopt_refused` when the manifest isn't a Terraform one, when the run already
-    /// has a record that isn't absent or a state, or when the old folder holds no state; with `locked` while
-    /// another operation holds the run; with `manifest_invalid` or `io` when the manifest can't
-    /// be read; and with `io` when a file can't be moved or the record written (the state is
-    /// put back then).
+    /// has a record that isn't absent or a state, when the old folder holds no state, or when the
+    /// slot it was applied in ([`Adoption::with_slot`]) is out of range or another run on its
+    /// place holds it; with `slots_full` when it names no slot and none is free on its place;
+    /// with `locked` while another operation holds the run or another process picks a slot past
+    /// the wait; with `manifest_invalid` or `io` when the manifest can't be read; and with `io`
+    /// when a file can't be moved or the record written (the state is put back then).
     pub async fn adopt(&self, manifest: &Path, adoption: Adoption) -> Result<RunRecord> {
         let loaded = load_manifest(manifest)?;
         let name = adoption.name.clone();
@@ -157,20 +162,25 @@ impl Runner {
             return Err(refuse(format!("{} holds no {STATE}", adoption.state_from.display())));
         }
         let from = adoption.state_from.clone();
-        let record = self.adopted(loaded, adoption)?;
+        // The slot is picked and recorded under the home's slots lock, as a start's is.
+        let asked = Asked::Applied(adoption.slot);
+        let slot = crate::slot::choose(&self.store, &loaded.manifest, &name, adoption.host_label.as_deref(), asked).await?;
+        let mut record = self.adopted(loaded, adoption);
+        slot.keep_in(&mut record);
         let moved = move_files(&from, &to)?;
         if let Err(e) = self.store.save(&record) {
             put_back(&moved, &from, &to);
             return Err(e);
         }
+        drop(slot);
         Ok(record)
     }
 }
 
 impl Runner {
-    /// The record of `adoption`, a run of `loaded`: up, with the manifest's params among its own,
-    /// and its slot when the manifest names one.
-    fn adopted(&self, loaded: LoadedManifest, adoption: Adoption) -> Result<RunRecord> {
+    /// The record of `adoption`, a run of `loaded`: up, with the manifest's params among its own;
+    /// its slot is kept in it apart ([`crate::slot::choose`]).
+    fn adopted(&self, loaded: LoadedManifest, adoption: Adoption) -> RunRecord {
         let manifest = &loaded.manifest;
         let mut record = RunRecord::fresh(adoption.name, loaded.path, manifest.target, manifest.driver);
         record.params = adoption
@@ -178,18 +188,13 @@ impl Runner {
             .into_iter()
             .filter(|(k, _)| manifest.params.iter().any(|p| p.name.as_str() == k && p.set_by == SetBy::Embedder))
             .collect();
-        if crate::slot::needed(manifest) {
-            let place = adoption.host_label.as_deref();
-            let taken = crate::slot::taken(&self.store.records()?, &record.name, place);
-            record.slot = Some(crate::slot::pick(adoption.slot, &taken, place)?);
-        }
         record.cloud = manifest.cloud;
         record.host_label = adoption.host_label;
         record.expires_at = adoption.expires_at;
         // A recorded start is what makes a later operation replay the params.
         record.started_at = Some(adoption.started_at.unwrap_or_else(|| crate::clock::rfc3339(self.config.clock.now())));
         record.state = RunState::Ready;
-        Ok(record)
+        record
     }
 }
 

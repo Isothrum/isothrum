@@ -40,6 +40,12 @@ change.
 
 ### Fixed
 
+- **`Runner::adopt` keeps the slot a deployment was applied in, or refuses it, and picks it under
+  the home's slots lock.** A slot another run on the place held, or out of 1 to 99, was replaced
+  by a free one without a word, so a later `update` or `down` applied under names the deployment's
+  resources don't have; it is now refused (`adopt_refused`). The slot was also picked without
+  `slots.lock`, so a start in another process could take the same one meanwhile. A start and a
+  take-over now share one way to pick it.
 - **A guest delivery and a Terraform console read a machine's outputs under Isoloom's names.**
   The runner wrote the machine's name in `address_<machine>` and `ssh_user_<machine>` with `-` as
   `_` only, where Isoloom also writes `.` as `_` and lowers the case, so a machine named with a `.`

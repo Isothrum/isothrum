@@ -93,7 +93,10 @@ recorded as `ready` with those params, so `status`, `update`, `down` and `reap` 
 other run, a `down` destroying it where it was applied.
 
 Adopting is refused (`adopt_refused`) for a manifest that isn't a Terraform one, a run whose
-record isn't `absent`, a run that already has a state, or a folder with no state. A state in a
+record isn't `absent`, a run that already has a state, a folder with no state, or a slot
+(`${run.slot}`, the one the deployment was applied in) out of 1 to 99 or held by another run on
+its place. The slot is picked and recorded under `slots.lock`, as a start's is; with none given,
+the run takes the lowest free one. A state in a
 remote backend is pulled into a local file first (`terraform state pull > terraform.tfstate`).
 
 ## Moving or backing up

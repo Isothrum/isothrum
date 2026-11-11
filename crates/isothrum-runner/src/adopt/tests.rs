@@ -220,3 +220,38 @@ fn a_copy_whose_source_cant_be_removed_goes_too() {
     assert!(!to.exists(), "the copy is removed");
     assert!(locked.join("terraform.tfstate").is_file());
 }
+
+#[tokio::test]
+async fn a_deployments_slot_another_run_holds_is_refused_not_swapped() {
+    // Regression: a slot held by another run on the place was replaced by a free one without a
+    // word, so a later update applied under names the deployment's resources don't have.
+    let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
+    let mut other = earlier(&runner, "other", RunState::Ready);
+    other.host_label = Some("pve-1".into());
+    runner.store.save(&other).unwrap();
+    let old = deployment(folder.home.path());
+    for (slot, why) in [(7, "its slot 7 is held by another run on `pve-1`"), (0, "its slot 0 isn't one of 1 to 99")] {
+        let err = runner.adopt(&folder.manifest, adoption(&old).with_slot(slot)).await.unwrap_err();
+        assert_eq!(err.code(), ErrorCode::AdoptRefused, "{err}");
+        assert!(err.to_string().ends_with(why), "{err}");
+        assert!(old.join("terraform.tfstate").is_file(), "the old state stays where it was");
+        assert!(runner.store.record(&RunName::new("app-solo-web").unwrap()).unwrap().is_none());
+    }
+    let record = runner.adopt(&folder.manifest, adoption(&old).with_slot(8)).await.unwrap();
+    assert_eq!(record.slot, Some(8));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_take_over_picks_its_slot_only_while_no_other_process_picks_one() {
+    // Regression: a take-over picked its slot without the home's slots lock, so a start in
+    // another process could take the same one meanwhile.
+    let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
+    let old = deployment(folder.home.path());
+    let other = std::fs::File::create(folder.home.path().join("slots.lock")).unwrap();
+    other.lock().unwrap();
+    let err = runner.adopt(&folder.manifest, adoption(&old)).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Locked, "{err}");
+    assert!(old.join("terraform.tfstate").is_file(), "nothing moved");
+    drop(other);
+    assert_eq!(runner.adopt(&folder.manifest, adoption(&old)).await.unwrap().slot, Some(1));
+}
