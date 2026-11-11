@@ -9,6 +9,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-11-11
+
 ### Added
 
 - **`Error::ServerAuthFailed`**, code `server_auth_failed`: the server a run is on (Proxmox VE,

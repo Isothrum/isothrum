@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@<commit sha> # pin the version you use
       - name: Install isothrum (checksum verified)
         env:
-          VERSION: 2.0.0
+          VERSION: 2.1.0
           TARGET: x86_64-unknown-linux-musl
         run: |
           set -euo pipefail
