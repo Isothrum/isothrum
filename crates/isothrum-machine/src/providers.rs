@@ -108,15 +108,18 @@ fn hyperv_enabled() -> bool {
     root.join("System32").join("vmms.exe").is_file()
 }
 
+/// KVM's device, which vagrant-libvirt's guests run on.
+const KVM: &str = "/dev/kvm";
+
 /// Why libvirt can't run VMs here although `virsh` is installed: vagrant-libvirt boots KVM guests,
-/// so it needs `/dev/kvm`, and the user must be allowed to open it. `None` when it is fine.
-fn kvm_problem() -> Option<String> {
-    let dev = Path::new("/dev/kvm");
+/// so it needs KVM's device `dev`, and the user must be allowed to open it. `None` when it is
+/// fine. It reads the file system: [`detect`] asks it, [`unavailable_reason`] reads the answer.
+fn kvm_problem(dev: &Path) -> Option<&'static str> {
     if !dev.exists() {
-        return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor".to_owned());
+        return Some("KVM isn't available on this machine (no /dev/kvm): turn on virtualization in the firmware, or use another hypervisor");
     }
     if std::fs::OpenOptions::new().read(true).write(true).open(dev).is_err() {
-        return Some("you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in".to_owned());
+        return Some("you can't use /dev/kvm yet: add yourself to the kvm and libvirt groups, then sign out and back in");
     }
     None
 }
@@ -225,6 +228,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         let needs_admin = needs_admin(provider, hypervisor, runner).await;
+        let platform_problem = if provider == Provider::Libvirt { kvm_problem(Path::new(KVM)) } else { None };
         let detection = Detection {
             hypervisor,
             hypervisor_version: hypervisor_version.as_deref(),
@@ -234,6 +238,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
             plugin_version,
             plugins_unknown: plugins_unknown.as_deref(),
             needs_admin,
+            platform_problem,
         };
         let reason = unavailable_reason(provider, detection);
         statuses.push(ProviderStatus { provider, reason });
@@ -257,7 +262,8 @@ async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
 }
 
 /// What `detect` learned about one provider, grouped so `unavailable_reason` reads one value
-/// rather than a handful of flags that always travel together.
+/// rather than a handful of flags that always travel together: every probe of the machine is
+/// `detect`'s, so `unavailable_reason` only decides.
 #[derive(Clone, Copy)]
 struct Detection<'a> {
     /// Whether the hypervisor is installed, `None` when there is nothing to probe.
@@ -277,6 +283,9 @@ struct Detection<'a> {
     /// Whether this account may not manage Hyper-V (Hyper-V only), as
     /// `isothrum_runner::may_manage_hyperv` answers.
     needs_admin: bool,
+    /// Why this machine can't run the provider's guests although its tool is installed (libvirt:
+    /// KVM's device missing or not the user's to open).
+    platform_problem: Option<&'static str>,
 }
 
 /// Why a provider can't be used here, Vagrant being installed; `None` when it can: the first
@@ -291,6 +300,7 @@ fn unavailable_reason(provider: Provider, detection: Detection<'_>) -> Option<St
         plugin_version,
         plugins_unknown,
         needs_admin,
+        platform_problem,
     } = detection;
     if unresponsive {
         Some("VirtualBox isn't responding (its background service is stuck): quit VirtualBox and any VM windows, or restart the computer".to_owned())
@@ -300,8 +310,8 @@ fn unavailable_reason(provider: Provider, detection: Detection<'_>) -> Option<St
         Some(HYPERV_NEEDS_ADMIN.to_owned())
     } else if hypervisor == Some(false) {
         Some(probe(provider).map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")))
-    } else if let Some(why) = (provider == Provider::Libvirt).then(kvm_problem).flatten() {
-        Some(why)
+    } else if let Some(why) = platform_problem {
+        Some(why.to_owned())
     } else if let Some((name, version, min)) = hypervisor_too_old(provider, hypervisor_version) {
         // Said before the plugin: updating the plugin wouldn't help.
         Some(format!("{name} {version} is too old: {min} or later is needed. Update {name}"))
@@ -359,6 +369,7 @@ mod tests {
             plugin_version: pl,
             plugins_unknown: None,
             needs_admin: false,
+            platform_problem: None,
         };
         assert_eq!(plugin_too_old(Provider::Utm, Some("0.1.6")), Some(("0.1.6", "0.2.0")));
         // Regression: a suffix was dropped, so a pre-release of the minimum passed for it; it comes
@@ -432,12 +443,46 @@ mod tests {
             plugin_version: None,
             plugins_unknown: None,
             needs_admin: false,
+            platform_problem: None,
         };
         assert_eq!(
             unavailable_reason(Provider::Hyperv, absent).as_deref(),
             Some("Hyper-V isn't turned on (Windows Features > Hyper-V), or this edition of Windows doesn't have it")
         );
         assert_eq!(unavailable_reason(Provider::Virtualbox, absent).as_deref(), Some("`VBoxManage` was not found"));
+    }
+
+    /// libvirt needs KVM's device, and the user's leave to open it: each is said, read once by
+    /// `detect`, and comes after the tool itself (no `virsh` is said first).
+    #[test]
+    fn libvirt_without_kvm_or_its_leave_says_which() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = kvm_problem(&dir.path().join("kvm")).unwrap();
+        assert!(missing.starts_with("KVM isn't available on this machine (no /dev/kvm)"), "{missing}");
+        // A folder can't be opened for writing: as a device the user may not open.
+        let denied = kvm_problem(dir.path()).unwrap();
+        assert!(denied.starts_with("you can't use /dev/kvm yet"), "{denied}");
+        let device = dir.path().join("device");
+        std::fs::write(&device, "").unwrap();
+        assert_eq!(kvm_problem(&device), None);
+        let libvirt = |hypervisor, platform_problem| Detection {
+            hypervisor: Some(hypervisor),
+            hypervisor_version: None,
+            unresponsive: false,
+            plugin: Some("vagrant-libvirt"),
+            plugin_installed: true,
+            plugin_version: None,
+            plugins_unknown: None,
+            needs_admin: false,
+            platform_problem,
+        };
+        assert_eq!(unavailable_reason(Provider::Libvirt, libvirt(true, Some(missing))).as_deref(), Some(missing));
+        assert_eq!(unavailable_reason(Provider::Libvirt, libvirt(true, Some(denied))).as_deref(), Some(denied));
+        assert_eq!(
+            unavailable_reason(Provider::Libvirt, libvirt(false, Some(missing))).as_deref(),
+            Some("`virsh` was not found")
+        );
+        assert_eq!(unavailable_reason(Provider::Libvirt, libvirt(true, None)), None);
     }
 
     #[tokio::test]
@@ -521,6 +566,7 @@ mod tests {
             plugin_version: None,
             plugins_unknown: None,
             needs_admin,
+            platform_problem: None,
         };
         assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(true)).as_deref(), Some(HYPERV_NEEDS_ADMIN));
         assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(false)), None);
