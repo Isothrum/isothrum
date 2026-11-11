@@ -9,6 +9,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-11-12
+
 ### Fixed
 
 - **A Vagrant run on QEMU downloads each box once.** The box download before `vagrant up` asked
