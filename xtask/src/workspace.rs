@@ -40,10 +40,11 @@ const ROLES: [(&str, Role); 6] = [
     ("xtask", Role::Xtask),
 ];
 
-/// Crates that make a user interface: a library never depends on one.
+/// Crates that make a user interface: a library never depends on one directly (the rule reads each
+/// crate's own dependencies, `cargo metadata --no-deps`).
 const UI: [&str; 7] = ["tauri", "tauri-build", "wasm-bindgen", "js-sys", "web-sys", "clap", "tracing-subscriber"];
 
-/// What the compiler and its WASM build never depend on: they run in a browser.
+/// What the compiler and its WASM build never depend on directly: they run in a browser.
 const NOT_WASM: [&str; 2] = ["tokio", "process-wrap"];
 
 fn role(name: &str) -> Option<Role> {

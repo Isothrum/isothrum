@@ -27,9 +27,31 @@ pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res
     let report: Value = serde_json::from_str(&report?)?;
     let base = format!("{}/", repo::slashed(root));
     for clone in report.get("duplicates").and_then(Value::as_array).into_iter().flatten() {
-        let file = clone.get("firstFile").and_then(|f| f.get("name")).and_then(Value::as_str).unwrap_or("");
-        let file = repo::slashed(Path::new(file));
+        let file = repo::slashed(Path::new(first_file(clone)?));
         add(counts, "dup/clone", &crate_of(crates, file.strip_prefix(&base).unwrap_or(&file)));
     }
     Ok(())
+}
+
+/// The file a clone of jscpd's report is first found in; a clone that names none is an error, not
+/// one counted in no crate.
+fn first_file(clone: &Value) -> Res<&str> {
+    Ok(clone
+        .get("firstFile")
+        .and_then(|f| f.get("name"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("jscpd's report has a clone with no first file: {clone}"))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: a clone with no file name was counted under `workspace`, a crate of none.
+    #[test]
+    fn a_clone_with_no_file_fails_the_count() {
+        let named = serde_json::json!({"firstFile": {"name": "/w/crates/a/src/lib.rs"}});
+        assert_eq!(first_file(&named).unwrap(), "/w/crates/a/src/lib.rs");
+        assert!(first_file(&serde_json::json!({"secondFile": {"name": "x"}})).is_err());
+    }
 }

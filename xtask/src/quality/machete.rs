@@ -18,8 +18,10 @@ pub(crate) fn measure(root: &Path, crates: &[Crate], counts: &mut Counts) -> Res
         add(counts, "machete/unused", &name);
     }
     for c in crates {
-        let manifest = std::fs::read_to_string(path_in(root, &c.dir).join("Cargo.toml"))?;
-        for _ in 0..ignored(&manifest) {
+        let path = path_in(root, &c.dir).join("Cargo.toml");
+        let manifest = std::fs::read_to_string(&path)?;
+        let count = ignored(&manifest).map_err(|e| format!("{}: {e}", path.display()))?;
+        for _ in 0..count {
             add(counts, "machete/ignored", &c.name);
         }
     }
@@ -53,15 +55,17 @@ fn unused(report: &str) -> Vec<String> {
     out
 }
 
-/// How many dependencies a manifest tells machete to ignore.
-fn ignored(manifest: &str) -> usize {
-    let Ok(doc) = manifest.parse::<toml::Table>() else { return 0 };
-    doc.get("package")
+/// How many dependencies a manifest tells machete to ignore; a manifest that isn't TOML is an
+/// error, not one that ignores nothing.
+fn ignored(manifest: &str) -> Res<usize> {
+    let doc = manifest.parse::<toml::Table>()?;
+    Ok(doc
+        .get("package")
         .and_then(|p| p.get("metadata"))
         .and_then(|m| m.get("cargo-machete"))
         .and_then(|m| m.get("ignored"))
         .and_then(toml::Value::as_array)
-        .map_or(0, Vec::len)
+        .map_or(0, Vec::len))
 }
 
 #[cfg(test)]
@@ -96,8 +100,15 @@ mod tests {
         let report = "cargo-machete found the following unused dependencies in this directory:\nisothrum-x -- ./crates/isothrum-x/Cargo.toml:\n\tserde\n\tindexmap\n\nDone!\n";
         assert_eq!(unused(report), ["isothrum-x", "isothrum-x"]);
         assert_eq!(
-            ignored("[package]\nname = \"a\"\n[package.metadata.cargo-machete]\nignored = [\"indexmap\"]\n"),
+            ignored("[package]\nname = \"a\"\n[package.metadata.cargo-machete]\nignored = [\"indexmap\"]\n").unwrap(),
             1
         );
+        assert_eq!(ignored("[package]\nname = \"a\"\n").unwrap(), 0);
+    }
+
+    /// Regression: a manifest that wouldn't parse counted as one ignoring nothing.
+    #[test]
+    fn a_manifest_that_isnt_toml_fails_the_count() {
+        assert!(ignored("[package\nname = ").is_err());
     }
 }

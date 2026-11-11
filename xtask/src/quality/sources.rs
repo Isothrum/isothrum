@@ -20,22 +20,36 @@ const SOURCE_DIRS: [&str; 2] = ["src", "fuzz_targets"];
 
 /// The workspace's crates, from `cargo metadata`, and the fuzz crate.
 pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
-    let metadata = repo::metadata(root)?;
-    let base = repo::slashed(Path::new(metadata.get("workspace_root").and_then(serde_json::Value::as_str).unwrap_or("")));
-    let packages = metadata.get("packages").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
-    Ok(packages
-        .iter()
-        .filter_map(|p| {
-            let name = p.get("name")?.as_str()?.to_owned();
-            let manifest = repo::slashed(Path::new(p.get("manifest_path")?.as_str()?));
-            let dir = manifest.strip_suffix("/Cargo.toml")?.strip_prefix(&base)?.trim_start_matches('/').to_owned();
-            Some(Crate { name, dir })
-        })
-        .chain([Crate {
-            name: FUZZ.0.to_owned(),
-            dir: FUZZ.1.to_owned(),
-        }])
-        .collect())
+    crates_in(&repo::metadata(root)?)
+}
+
+/// The crates `cargo metadata`'s `metadata` lists, and the fuzz crate. A package whose name or
+/// folder can't be read from it is an error: left out, it would be counted nowhere.
+fn crates_in(metadata: &serde_json::Value) -> Res<Vec<Crate>> {
+    let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+    let base = repo::slashed(Path::new(&text(metadata, "workspace_root").ok_or("cargo metadata gives no workspace_root")?));
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("cargo metadata gives no packages")?;
+    let mut out = Vec::new();
+    for p in packages {
+        let (Some(name), Some(manifest)) = (text(p, "name"), text(p, "manifest_path")) else {
+            return Err(format!("a package cargo metadata gives has no name or manifest_path: {p}").into());
+        };
+        let manifest = repo::slashed(Path::new(&manifest));
+        let dir = manifest.strip_suffix("/Cargo.toml").and_then(|m| m.strip_prefix(&base));
+        let dir = dir.ok_or_else(|| format!("{name}: its manifest {manifest} isn't a Cargo.toml under the workspace {base}"))?;
+        out.push(Crate {
+            name,
+            dir: dir.trim_start_matches('/').to_owned(),
+        });
+    }
+    out.push(Crate {
+        name: FUZZ.0.to_owned(),
+        dir: FUZZ.1.to_owned(),
+    });
+    Ok(out)
 }
 
 /// Counts the files over the size limit (in a crate's [`SOURCE_DIRS`], its unit tests' files
@@ -278,6 +292,20 @@ mod tests {
         std::fs::write(dir.path().join("src").join("lib.rs"), "").unwrap();
         assert_eq!(rust_files(dir.path()).unwrap(), [dir.path().join("src").join("lib.rs")]);
         assert!(rust_files(&dir.path().join("missing")).is_err());
+    }
+
+    /// Regression: a package whose manifest wasn't under the workspace's folder was dropped, and
+    /// so counted in no crate.
+    #[test]
+    fn a_package_outside_the_workspace_fails_the_count() {
+        let metadata = |path: &str| serde_json::json!({"workspace_root": "/w", "packages": [{"name": "a", "manifest_path": path}]});
+        let found = crates_in(&metadata("/w/crates/a/Cargo.toml")).unwrap();
+        assert_eq!(
+            found.iter().map(|c| (c.name.as_str(), c.dir.as_str())).collect::<Vec<_>>(),
+            [("a", "crates/a"), FUZZ]
+        );
+        assert!(crates_in(&metadata("/elsewhere/a/Cargo.toml")).is_err());
+        assert!(crates_in(&serde_json::json!({"workspace_root": "/w"})).is_err());
     }
 
     #[test]
