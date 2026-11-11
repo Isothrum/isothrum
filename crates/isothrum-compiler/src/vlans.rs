@@ -11,17 +11,12 @@ use crate::{Error, Lan, Result, Topology};
 /// What joins a switch's LAN to the VLAN id in a VLAN's name in the spec.
 const VLAN_SEPARATOR: &str = ".vlan";
 
-/// The name a VLAN LAN has in the spec: `<switch>.vlan<id>` (`None` for a plain LAN).
+/// The name a VLAN LAN has in the spec: `<switch>.vlan<id>` (`None` for a plain LAN). The format is
+/// Isoloom's, which keeps its reader private (`isoloom-spec`'s `vlans`); the compiler only writes
+/// it, and Isoloom reads every spec the compiler hands out.
 pub(crate) fn vlan_ref(lan: &Lan) -> Option<String> {
     let (switch, id) = vlan_of(lan)?;
     Some(format!("{switch}{VLAN_SEPARATOR}{id}"))
-}
-
-/// The switch's LAN and the VLAN id a spec's VLAN name (`sw1.vlan10`) names: [`vlan_ref`]
-/// read back. `None` for a name that isn't one.
-pub(crate) fn parse_ref(name: &str) -> Option<(&str, u16)> {
-    let (lan, id) = name.split_once(VLAN_SEPARATOR)?;
-    Some((lan, id.parse().ok()?))
 }
 
 /// The switch and VLAN id of a VLAN LAN.
@@ -84,9 +79,8 @@ fn nested(topo: &Topology, flat: IndexMap<String, NetworkDoc>) -> IndexMap<Strin
             continue;
         };
         let internet = net.reaches_internet();
-        let parent = networks
-            .entry(switch.to_owned())
-            .or_insert_with(|| NetworkDoc::new(String::new(), internet, None));
+        // The VLAN's own block to start with; settled to one covering all its VLANs once they are in.
+        let parent = networks.entry(switch.to_owned()).or_insert_with(|| NetworkDoc::new(net.cidr, internet, None));
         if lan.device.is_some() {
             parent.switch.clone_from(&lan.device);
         }
@@ -103,7 +97,7 @@ fn nested(topo: &Topology, flat: IndexMap<String, NetworkDoc>) -> IndexMap<Strin
 
 /// A switch's LAN: the block covering its VLANs, and their `internet` said once when they agree.
 fn settle_parent(parent: &mut NetworkDoc) {
-    parent.cidr = covering(parent.vlans.values().map(|v| v.cidr.as_str()));
+    parent.cidr = covering(parent.cidr, parent.vlans.values().map(|v| v.cidr));
     let all: Vec<bool> = parent.vlans.values().filter_map(|v| v.internet).collect();
     let agreed = match all.split_first() {
         Some((first, rest)) if rest.iter().all(|i| i == first) => Some(*first),
@@ -116,9 +110,10 @@ fn settle_parent(parent: &mut NetworkDoc) {
     }
 }
 
-/// Machines' networks and `reach` rules, with each VLAN LAN under its spec name.
+/// Machines' networks, `reach` rules and the blocks, with each VLAN LAN under its spec name.
 fn rename_refs(draft: &mut Draft, renamed: &IndexMap<&String, String>) {
     let rename = |n: &String| renamed.get(n).cloned().unwrap_or_else(|| n.clone());
+    draft.blocks = std::mem::take(&mut draft.blocks).into_iter().map(|(n, b)| (rename(&n), b)).collect();
     for m in draft.machines.values_mut() {
         m.networks = m.networks.iter().map(|(n, o)| (rename(n), *o)).collect();
     }
@@ -130,57 +125,53 @@ fn rename_refs(draft: &mut Draft, renamed: &IndexMap<&String, String>) {
     }
 }
 
-/// The smallest IPv4 block holding every one of `cidrs` (at most a /8).
-fn covering<'a>(cidrs: impl Iterator<Item = &'a str>) -> String {
-    let blocks: Vec<Cidr> = cidrs.filter_map(Cidr::parse).collect();
-    let Some(first) = blocks.first() else {
-        return String::new();
-    };
+/// The smallest IPv4 block holding `first` and every one of `others` (at most a /8).
+fn covering(first: Cidr, others: impl Iterator<Item = Cidr>) -> Cidr {
+    let blocks: Vec<Cidr> = others.collect();
     let mut len = blocks.iter().map(|b| b.prefix()).fold(first.prefix(), u8::min);
     let around = |prefix: u8| Cidr::enclosing(first.address(), prefix);
     while len > 8 && !blocks.iter().all(|b| around(len).contains(*b)) {
         len -= 1;
     }
-    around(len).to_string()
+    around(len)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_covering_block_holds_every_vlan() {
-        assert_eq!(covering(["10.10.10.0/24", "10.10.20.0/24"].into_iter()), "10.10.0.0/19");
-        assert_eq!(covering(["10.10.10.0/24"].into_iter()), "10.10.10.0/24");
-        assert_eq!(covering(["10.10.10.0/24", "11.0.0.0/24"].into_iter()), "10.0.0.0/8", "at most a /8");
-        assert_eq!(
-            covering(["10.10.10.0/24", "bad", "10.10.11.0/24"].into_iter()),
-            "10.10.10.0/23",
-            "what isn't a block is left out"
-        );
-        assert_eq!(covering(std::iter::empty()), "");
+    fn cidr(text: &str) -> Cidr {
+        Cidr::parse(text).unwrap()
     }
 
-    fn vlan(cidr: &str, internet: bool) -> VlanDoc {
+    #[test]
+    fn the_covering_block_holds_every_vlan() {
+        let covered = |first: &str, others: &[&str]| covering(cidr(first), others.iter().map(|o| cidr(o))).to_string();
+        assert_eq!(covered("10.10.10.0/24", &["10.10.20.0/24"]), "10.10.0.0/19");
+        assert_eq!(covered("10.10.10.0/24", &[]), "10.10.10.0/24");
+        assert_eq!(covered("10.10.10.0/24", &["11.0.0.0/24"]), "10.0.0.0/8", "at most a /8");
+    }
+
+    fn vlan(block: &str, internet: bool) -> VlanDoc {
         VlanDoc {
-            cidr: cidr.into(),
+            cidr: cidr(block),
             internet: Some(internet),
         }
     }
 
     #[test]
     fn vlans_that_agree_say_their_internet_once_on_their_lan() {
-        let mut lan = NetworkDoc::new(String::new(), true, None);
+        let mut lan = NetworkDoc::new(cidr("10.10.10.0/24"), true, None);
         lan.vlans.insert(10, vlan("10.10.10.0/24", false));
         lan.vlans.insert(20, vlan("10.10.20.0/24", false));
         settle_parent(&mut lan);
-        assert_eq!((lan.cidr.as_str(), lan.internet), ("10.10.0.0/19", Some(false)));
+        assert_eq!((lan.cidr.to_string().as_str(), lan.internet), ("10.10.0.0/19", Some(false)));
         assert!(lan.vlans.values().all(|v| v.internet.is_none()));
     }
 
     #[test]
     fn vlans_that_disagree_keep_the_default_and_the_one_without_says_so() {
-        let mut lan = NetworkDoc::new(String::new(), false, None);
+        let mut lan = NetworkDoc::new(cidr("10.10.10.0/24"), false, None);
         lan.vlans.insert(10, vlan("10.10.10.0/24", true));
         lan.vlans.insert(20, vlan("10.10.20.0/24", false));
         settle_parent(&mut lan);
@@ -201,8 +192,5 @@ mod tests {
         assert_eq!(vlan_ref(&lan(Some("sw1"), Some(10))).as_deref(), Some("sw1.vlan10"));
         assert_eq!(vlan_ref(&lan(Some("sw1"), None)), None);
         assert_eq!(vlan_ref(&lan(None, Some(10))), None);
-        assert_eq!(parse_ref("sw1.vlan10"), Some(("sw1", 10)));
-        assert_eq!(parse_ref("sw1"), None);
-        assert_eq!(parse_ref("sw1.vlanx"), None);
     }
 }

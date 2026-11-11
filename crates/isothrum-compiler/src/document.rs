@@ -5,9 +5,15 @@
 use std::num::NonZeroU16;
 
 use indexmap::IndexMap;
+use isoloom_spec::net::Cidr;
 use isoloom_spec::syntax::{OsRef, PortName, PortProtocol};
 use isoloom_spec::{Appliance, Tc};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+
+/// A value as its text: a block as the spec writes it (`10.10.1.0/24`).
+fn as_text<S: Serializer, T: std::fmt::Display>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_str(value)
+}
 
 /// A spec, version 1.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -33,7 +39,8 @@ pub(crate) struct ProvisionDoc {
 /// A network: its block, and what differs from Isoloom's defaults.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct NetworkDoc {
-    pub(crate) cidr: String,
+    #[serde(serialize_with = "as_text")]
+    pub(crate) cidr: Cidr,
     /// `Some(false)` when its machines may not reach the internet; Isoloom's default, yes, isn't
     /// written.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +57,7 @@ pub(crate) struct NetworkDoc {
 
 impl NetworkDoc {
     /// A plain network: a block, whether it reaches the internet, how its link behaves.
-    pub(crate) fn new(cidr: String, internet: bool, tc: Option<Tc>) -> NetworkDoc {
+    pub(crate) fn new(cidr: Cidr, internet: bool, tc: Option<Tc>) -> NetworkDoc {
         NetworkDoc {
             cidr,
             internet: (!internet).then_some(false),
@@ -75,7 +82,8 @@ impl NetworkDoc {
 /// A VLAN of a LAN: its block, and its `internet` when it differs from the LAN's.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct VlanDoc {
-    pub(crate) cidr: String,
+    #[serde(serialize_with = "as_text")]
+    pub(crate) cidr: Cidr,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) internet: Option<bool>,
 }

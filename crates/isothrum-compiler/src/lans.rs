@@ -13,20 +13,18 @@ use crate::{Error, Lan, Result, Topology};
 /// ([`NetworkBlock::host`]: not the network address, the gateway, the two last usable addresses (its
 /// controller and router) or the broadcast). A /24 starts at .10, leaving room for the
 /// infrastructure people expect low in a LAN.
-fn usable(block: NetworkBlock) -> impl Iterator<Item = u8> {
+pub(crate) fn usable(block: NetworkBlock) -> impl Iterator<Item = u8> {
     let floor = if block.prefix() == 24 { 10 } else { 0 };
     (floor..=u8::MAX).filter(move |octet| block.host(*octet).is_some())
 }
 
 /// A LAN's block: one Isoloom gives machines addresses on (its network's own address, a /24 to a
-/// /29).
+/// /29, each of which has some).
 fn block_of(name: &str, lan: &Lan) -> Result<NetworkBlock> {
-    NetworkBlock::parse(&lan.cidr)
-        .filter(|block| usable(*block).next().is_some())
-        .ok_or_else(|| Error::BadCidr {
-            lan: name.into(),
-            cidr: lan.cidr.clone(),
-        })
+    NetworkBlock::parse(&lan.cidr).ok_or_else(|| Error::BadCidr {
+        lan: name.into(),
+        cidr: lan.cidr.clone(),
+    })
 }
 
 /// Each LAN becomes a network, and each machine on it gets its address there.
@@ -42,9 +40,8 @@ fn address_one(topo: &Topology, draft: &mut Draft, name: &str, lan: &Lan) -> Res
         return Err(Error::ReservedName(name.into()));
     }
     let block = block_of(name, lan)?;
-    draft
-        .networks
-        .insert(name.into(), NetworkDoc::new(lan.cidr.clone(), lan.internet, lan.tc.clone()));
+    draft.networks.insert(name.into(), NetworkDoc::new(block.cidr(), lan.internet, lan.tc.clone()));
+    draft.blocks.insert(name.into(), block);
     let taken = asked_addresses(topo, draft, name)?;
     check_inside(name, lan, block, &taken)?;
     for (octet, node) in &taken {
@@ -145,9 +142,17 @@ mod tests {
     }
 
     #[test]
-    fn a_block_isoloom_does_not_address_offers_nothing() {
-        for size in ["10.10.0.0/16", "10.10.1.0/23", "10.10.1.0/30", "10.10.1.0/32"] {
-            assert_eq!(usable_in(size), Vec::<u8>::new(), "{size}");
+    fn a_block_isoloom_does_not_address_is_refused() {
+        for cidr in ["10.10.0.0/16", "10.10.1.0/23", "10.10.1.0/30", "10.10.1.0/32", "10.10.1.5/24", "bad"] {
+            let lan = Lan {
+                cidr: cidr.into(),
+                internet: true,
+                switch: None,
+                vlan: None,
+                device: None,
+                tc: None,
+            };
+            assert!(matches!(block_of("office", &lan), Err(Error::BadCidr { .. })), "{cidr}");
         }
     }
 }

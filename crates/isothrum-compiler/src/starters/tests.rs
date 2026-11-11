@@ -4,10 +4,18 @@ fn spec(yaml: &str) -> Spec {
     isoloom_spec::parse(yaml).unwrap()
 }
 
+/// Each plain network's block of `spec`, by its name.
+fn blocks_of(spec: &Spec) -> Blocks {
+    spec.networks
+        .iter()
+        .filter_map(|(name, n)| Some((name.clone(), NetworkBlock::parse(&n.cidr)?)))
+        .collect()
+}
+
 /// The starters of a spec's machines (no controller playbook).
 fn starters_of(spec: &Spec) -> Vec<ProjectFile> {
     let mut files = Vec::new();
-    add_starters(&mut files, spec, &[]);
+    add_starters(&mut files, spec, &blocks_of(spec), &[]);
     files
 }
 
@@ -127,14 +135,6 @@ fn a_controller_playbook_sets_up_its_machine_over_winrm() {
 }
 
 #[test]
-fn a_vlans_address_is_read_under_its_lan() {
-    let s = spec(
-        "version: 1\nname: x\nnetworks:\n  sw1:\n    cidr: 10.10.0.0/19\n    vlans:\n      10: { cidr: 10.10.10.0/24 }\nmachines:\n  pc:\n    os: debian@12\n    networks: { sw1.vlan10: 10 }\n    app: { steps: [{ run: provision/pc.sh }] }\n",
-    );
-    assert!(starters_of(&s)[0].contents.contains("# Address: 10.10.10.10 (sw1.vlan10)"));
-}
-
-#[test]
 fn a_step_said_twice_gets_one_starter() {
     // A path outside the project is Isoloom's to refuse; the controller's playbooks show it skipped.
     let files = starters_of(&project(
@@ -164,7 +164,7 @@ fn a_controller_playbook_gets_its_starter_after_the_machines_at_a_free_path_of_t
         playbook("isoloom.yml", "dc01"),
         playbook(".isoloom/docker/compose.yml", "dc01"),
     ];
-    add_starters(&mut files, &spec, &controller);
+    add_starters(&mut files, &spec, &blocks_of(&spec), &controller);
     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["configs/r1.cfg", "provision/web.sh", "provision/dc01.yml"]);
     assert!(files[2].contents.contains("- hosts: dc01"));

@@ -4,10 +4,11 @@
 
 use std::net::Ipv4Addr;
 
-use isoloom_spec::net::Cidr;
+use isoloom_spec::net::NetworkBlock;
 
 use crate::document::NetworkDoc;
 use crate::draft::Draft;
+use crate::lans::usable;
 use crate::{Error, Link, Result, Topology};
 
 /// The block the cables are cut from, `10.200.0.0/16`: its first two octets. Isoloom takes a /24
@@ -30,14 +31,15 @@ pub(crate) fn is_link_network(name: &str) -> bool {
     name.starts_with("link-")
 }
 
-/// The /29 of the `i`th cable: its network address and the last octets of its two ends; none past
-/// the block's last.
-fn link_block(i: usize) -> Option<(String, u8, u8)> {
+/// The /29 of the `i`th cable and the last octets of its two ends, the first two a machine may
+/// take there ([`usable`]); none past the block's last.
+fn link_block(i: usize) -> Option<(NetworkBlock, u8, u8)> {
     let third = u8::try_from(i / LINKS_PER_THIRD).ok()?;
     let fourth = u8::try_from((i % LINKS_PER_THIRD) * 8).ok()?;
     let [a, b] = LINK_BASE;
-    let block = Cidr::enclosing(Ipv4Addr::new(a, b, third, fourth), 29);
-    Some((block.to_string(), fourth + 2, fourth + 3))
+    let block = NetworkBlock::enclosing(Ipv4Addr::new(a, b, third, fourth), 29);
+    let mut ends = usable(block);
+    Some((block, ends.next()?, ends.next()?))
 }
 
 /// Refuses more cables than the cables' block holds.
@@ -89,13 +91,14 @@ fn check<'a>(topo: &Topology, i: usize, link: &'a Link, used_ports: &mut Vec<(&'
 
 /// The `i`th cable's network, on `block`; an automatic router at an end joins it, a machine gets
 /// its address.
-fn cable(draft: &mut Draft, i: usize, link: &Link, (cidr, a_octet, b_octet): (String, u8, u8)) {
+fn cable(draft: &mut Draft, i: usize, link: &Link, (block, a_octet, b_octet): (NetworkBlock, u8, u8)) {
     // A cable between two automatic routers carries nothing of its own.
     if draft.is_router(&link.a.node) && draft.is_router(&link.b.node) {
         return;
     }
     let net = link_network(i);
-    draft.networks.insert(net.clone(), NetworkDoc::new(cidr, false, link.tc.clone()));
+    draft.networks.insert(net.clone(), NetworkDoc::new(block.cidr(), false, link.tc.clone()));
+    draft.blocks.insert(net.clone(), block);
     draft.attach(&link.a.node, &net, a_octet);
     draft.attach(&link.b.node, &net, b_octet);
 }
@@ -106,7 +109,7 @@ mod tests {
 
     #[test]
     fn the_last_cable_takes_the_last_block() {
-        assert_eq!(link_block(MAX_LINKS - 1), Some(("10.200.255.248/29".to_owned(), 250, 251)));
+        assert_eq!(link_block(MAX_LINKS - 1), Some((NetworkBlock::parse("10.200.255.248/29").unwrap(), 250, 251)));
         assert_eq!(link_block(MAX_LINKS), None);
     }
 
@@ -142,8 +145,8 @@ mod tests {
     fn the_blocks_run_through_the_whole_16_in_order() {
         let blocks: Vec<_> = (0..).map_while(link_block).collect();
         assert_eq!(blocks.len(), MAX_LINKS);
-        assert_eq!(blocks.first(), Some(&("10.200.0.0/29".to_owned(), 2, 3)));
-        assert_eq!(blocks.get(32), Some(&("10.200.1.0/29".to_owned(), 2, 3)));
+        assert_eq!(blocks.first(), Some(&(NetworkBlock::parse("10.200.0.0/29").unwrap(), 2, 3)));
+        assert_eq!(blocks.get(32), Some(&(NetworkBlock::parse("10.200.1.0/29").unwrap(), 2, 3)));
     }
 
     #[test]

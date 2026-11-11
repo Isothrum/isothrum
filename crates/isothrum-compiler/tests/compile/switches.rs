@@ -117,6 +117,28 @@ fn a_gateway_router_drawn_at_an_address_of_its_own_is_refused() -> Outcome {
     Ok(())
 }
 
+/// A starter says the machine's addresses on every network the compiler made, a VLAN under its
+/// spec name and a cable's network included: each block as the compiler read it, once.
+#[test]
+fn a_starter_names_its_machines_address_on_a_vlan_and_a_cable() -> Outcome {
+    let topo: Topology = serde_json::from_str(
+        r#"{
+          "name": "vlan-starter",
+          "nodes": {
+            "pc": { "kind": { "vm": { "os": "debian@12", "provision": ["provision/pc.sh"] } }, "networks": { "vlan10": null } },
+            "peer": { "kind": { "container": { "image": "alpine:3.20", "idle": true } } }
+          },
+          "networks": { "vlan10": { "cidr": "10.10.10.0/24", "switch": "sw1", "vlan": 10 } },
+          "links": [{ "a": { "node": "pc", "port": "eth1" }, "b": { "node": "peer", "port": "eth0" } }]
+        }"#,
+    )?;
+    let c = accepted(&topo)?;
+    let starter = files(&c).into_iter().find(|f| f.path == "provision/pc.sh").ok_or("no starter")?;
+    assert!(starter.contents.contains("# Address: 10.10.10.10 (sw1.vlan10)\n"), "{}", starter.contents);
+    assert!(starter.contents.contains("# Address: 10.200.0.2 (link-0)\n"), "{}", starter.contents);
+    Ok(())
+}
+
 /// A Dynamips router boots the IOS image the user adds: no image of its own.
 #[test]
 fn a_dynamips_router_boots_its_firmware() -> Outcome {

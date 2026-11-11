@@ -3,7 +3,6 @@
 
 use indexmap::IndexMap;
 use isoloom_spec::model;
-use isoloom_spec::net::Cidr;
 use isoloom_targets::Lab;
 use isothrum_compiler::{Compiled, Topology};
 use serde::Serialize;
@@ -89,10 +88,7 @@ pub(crate) fn compiled(topology_json: &str) -> Result<(Topology, Compiled)> {
     Ok((topo, compiled))
 }
 
-/// Every machine's IPv4 addresses, as Isoloom gives them ([`isoloom_plan::addressing::address`]),
-/// on the networks whose block reads: every one, as the compiler refuses a LAN whose block
-/// doesn't and makes the others' itself (the check only keeps Isoloom's addressing from being
-/// asked about one).
+/// Every machine's IPv4 addresses, as Isoloom gives them ([`isoloom_plan::addressing::address`]).
 /// Networks go by the topology's names: the network a VLAN becomes once lowered (Isoloom names
 /// it, and records the LAN and VLAN id it came from) goes by the key the topology gave that VLAN.
 fn addresses(spec: &model::Spec, topo: &Topology) -> IndexMap<String, Vec<(String, String)>> {
@@ -101,12 +97,11 @@ fn addresses(spec: &model::Spec, topo: &Topology) -> IndexMap<String, Vec<(Strin
         topo.vlan_lan(lan, *id)
     };
     let address = |net: &String, octet: u8| {
-        Cidr::parse(&spec.networks.get(net)?.cidr)?;
         let shown = topology_name(net).unwrap_or(net).to_owned();
-        Some((shown, isoloom_plan::addressing::address(spec, net, octet).to_string()))
+        (shown, isoloom_plan::addressing::address(spec, net, octet).to_string())
     };
     spec.machines
         .iter()
-        .map(|(name, m)| (name.clone(), m.networks.iter().filter_map(|(net, octet)| address(net, *octet)).collect()))
+        .map(|(name, m)| (name.clone(), m.networks.iter().map(|(net, octet)| address(net, *octet)).collect()))
         .collect()
 }

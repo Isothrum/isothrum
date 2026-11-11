@@ -53,6 +53,6 @@ pub fn compile(topo: &Topology) -> Result<Compiled> {
     let yaml = serde_yaml_ng::to_string(&doc).map_err(Error::Yaml)?;
     let spec = isoloom_spec::syntax::parse(&yaml).map_err(Error::Unreadable)?;
     let mut files = project::config_files(topo);
-    starters::add_starters(&mut files, &spec, &draft.controller);
+    starters::add_starters(&mut files, &spec, &draft.blocks, &draft.controller);
     Ok(Compiled { yaml, spec, files })
 }

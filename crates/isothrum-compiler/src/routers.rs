@@ -43,10 +43,10 @@ pub(crate) fn cisco_gateways(topo: &Topology, draft: &mut Draft) -> Result<()> {
             .iter()
             .find(|(name, n)| is_cisco_router(&n.kind) && draft.machines.get(*name).is_some_and(|m| m.networks.contains_key(lan)));
         if let Some((name, node)) = router
-            && let Some(c) = isoloom_spec::net::NetworkBlock::parse(&net.cidr)
+            && let Some(block) = draft.blocks.get(lan)
             && let Some(m) = draft.machines.get_mut(name)
         {
-            let gateway = c.gateway_octet();
+            let gateway = block.gateway_octet();
             if let Some(&Some(octet)) = node.networks.get(lan)
                 && octet != gateway
             {

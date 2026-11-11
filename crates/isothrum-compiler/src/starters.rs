@@ -12,6 +12,7 @@
 
 mod packages;
 
+use indexmap::IndexMap;
 use isoloom_manifest::RelPath;
 use isoloom_manifest::ignore;
 use isoloom_spec::Spec;
@@ -22,17 +23,20 @@ use crate::ProjectFile;
 use crate::controller::ControllerPlaybook;
 use packages::{Family, PACKAGES, install, start, wanted};
 
+/// Each network's block, by the spec's name for it ([`crate::draft::Draft::blocks`]).
+type Blocks = IndexMap<String, NetworkBlock>;
+
 /// Adds to `files` one starter per provisioning step, the machines' own then the controller's:
 /// at paths inside the project, which no file has yet (Isoloom's own aside).
-pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, controller: &[ControllerPlaybook]) {
+pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, blocks: &Blocks, controller: &[ControllerPlaybook]) {
     for (name, m) in &spec.machines {
         let (Some(os), Some(app)) = (m.os, m.app()) else {
             continue;
         };
         for step in &app.steps {
             let (path, contents) = match step {
-                Step::Run { script, .. } if is_ps1(script.as_str()) => (script.as_str(), powershell(spec, name, m, os)),
-                Step::Run { script, .. } => (script.as_str(), shell(spec, name, m, os)),
+                Step::Run { script, .. } if is_ps1(script.as_str()) => (script.as_str(), powershell(blocks, name, m, os)),
+                Step::Run { script, .. } => (script.as_str(), shell(blocks, name, m, os)),
                 Step::Playbook(file) => (file.as_str(), playbook(name, PlaybookOn::Machine)),
                 _ => continue,
             };
@@ -89,7 +93,7 @@ fn transports(m: &Machine) -> Vec<(u16, &'static str)> {
 }
 
 /// The machine's addresses, as `10.10.1.12 (lan)`.
-fn addresses(spec: &Spec, m: &Machine) -> Vec<String> {
+fn addresses(blocks: &Blocks, m: &Machine) -> Vec<String> {
     m.networks
         .iter()
         .filter_map(|(net, octets)| {
@@ -97,27 +101,18 @@ fn addresses(spec: &Spec, m: &Machine) -> Vec<String> {
                 Octets::One(o) => *o,
                 Octets::Several(list) => *list.first()?,
             };
-            let address = NetworkBlock::parse(cidr_of(spec, net)?)?.host(octet)?;
+            let address = blocks.get(net)?.host(octet)?;
             Some(format!("{address} ({net})"))
         })
         .collect()
 }
 
-/// A network's block: a LAN's own, or a VLAN's under its LAN (`sw1.vlan10`).
-fn cidr_of<'s>(spec: &'s Spec, net: &str) -> Option<&'s str> {
-    if let Some(n) = spec.networks.get(net) {
-        return Some(&n.cidr);
-    }
-    let (lan, id) = crate::vlans::parse_ref(net)?;
-    spec.networks.get(lan)?.vlans.get(&id).map(|v| v.cidr.as_str())
-}
-
 /// A Linux step's script: what it is, then the install, the configuration and the start.
-fn shell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
+fn shell(blocks: &Blocks, name: &str, m: &Machine, os: OsRef) -> String {
     let family = Family::of(os.os());
     let ports = ports(m);
     let wanted = family.map(|f| wanted(&ports, f)).unwrap_or_default();
-    let mut lines = header(spec, name, m, os);
+    let mut lines = header(blocks, name, m, os);
     lines.insert(0, "#!/bin/sh".to_owned());
     if !ports.is_empty() {
         let list: Vec<String> = ports.iter().map(ToString::to_string).collect();
@@ -158,11 +153,11 @@ fn text(lines: &[String]) -> String {
 }
 
 /// A starter's first lines: what it is and the machine's addresses.
-fn header(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> Vec<String> {
+fn header(blocks: &Blocks, name: &str, m: &Machine, os: OsRef) -> Vec<String> {
     let mut lines = vec![format!(
         "# Starter set-up for `{name}` ({os}), written by Isothrum: edit it to build your project."
     )];
-    lines.extend(addresses(spec, m).iter().map(|a| format!("# Address: {a}")));
+    lines.extend(addresses(blocks, m).iter().map(|a| format!("# Address: {a}")));
     lines
 }
 
@@ -171,8 +166,8 @@ const WEB_PORTS: [u16; 2] = [80, 443];
 
 /// A Windows step's script: IIS for its web ports, a firewall rule for each other port, on its
 /// own transport.
-fn powershell(spec: &Spec, name: &str, m: &Machine, os: OsRef) -> String {
-    let mut lines = header(spec, name, m, os);
+fn powershell(blocks: &Blocks, name: &str, m: &Machine, os: OsRef) -> String {
+    let mut lines = header(blocks, name, m, os);
     lines.push("$ErrorActionPreference = 'Stop'".to_owned());
     lines.push(String::new());
     let ports = transports(m);
