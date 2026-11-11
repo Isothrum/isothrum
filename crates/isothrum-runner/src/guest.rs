@@ -145,14 +145,14 @@ impl Input {
     /// Removes it; one that can't be removed is an error naming it.
     fn remove(mut self) -> Result<()> {
         self.held = false;
-        std::fs::remove_file(&self.path).map_err(Error::io(&self.path, "removed"))
+        crate::store::remove(&self.path)
     }
 }
 
 impl Drop for Input {
     fn drop(&mut self) {
         if self.held
-            && let Err(e) = std::fs::remove_file(&self.path)
+            && let Err(e) = crate::store::remove_path(&self.path)
         {
             tracing::error!(error = %e, path = %self.path.display(), "a cut-short delivery's input file was left in the run's state folder");
         }

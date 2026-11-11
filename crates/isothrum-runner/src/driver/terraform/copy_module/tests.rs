@@ -91,6 +91,21 @@ fn a_module_outside_the_project_is_refused() {
     assert!(refused("../../file.tf").contains("isn't a folder inside"), "a file, not a folder");
 }
 
+/// Regression: a symbolic link in the module was followed, so one to a folder above it copied
+/// until the stack ran out, and one elsewhere brought in what is outside the project. It is
+/// refused, naming it.
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_in_the_module_is_refused_not_followed() {
+    let (root, dir) = project();
+    let source = inside_project(&dir, "copy", "../../terraform").unwrap();
+    std::os::unix::fs::symlink(root.path().join("terraform/index.html"), source.join("linked.html")).unwrap();
+    let copy = tempfile::tempdir().unwrap();
+    let err = copy_tree(&source, copy.path()).unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Unsupported, "{err}");
+    assert!(err.to_string().contains("symbolic link") && err.to_string().contains("linked.html"), "{err}");
+}
+
 /// Regression: a folder that couldn't be read was a folder with no Terraform file, and the run
 /// was told to generate its files again.
 #[cfg(unix)]

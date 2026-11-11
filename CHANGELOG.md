@@ -301,6 +301,9 @@ change.
   `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target
   cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
   cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
+- **A symbolic link in a module `terraform.copy_module` copies is refused, not followed.** One to a
+  folder above it copied until the stack ran out, and one elsewhere brought in a file from outside
+  the project; the step now fails (`unsupported`) naming the link.
 - **The editor's whole-project download says when no target generates anything.** `bundle` on a
   project no target generates a file for said ``this project has no files for `any target` ``; it
   now says no target generates any file for the project, and that the plan's `skipped` says why.

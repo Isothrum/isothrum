@@ -89,7 +89,7 @@ fn forget_terraform_files(dir: &Path) -> crate::Result<()> {
         if path.is_dir() && entry.file_name() != ".terraform" {
             forget_terraform_files(&path)?;
         } else if is_terraform_file(&path) {
-            std::fs::remove_file(&path).map_err(Error::io(&path, "removed"))?;
+            crate::store::remove(&path)?;
         }
     }
     Ok(())
@@ -100,7 +100,10 @@ fn left_out(name: &str) -> bool {
     name == ".terraform" || name.contains(".tfstate")
 }
 
-/// Copies `from` into `to`, recursively, but what [`left_out`] names.
+/// Copies `from` into `to`, recursively, but what [`left_out`] names. A file keeps its
+/// permissions (a module's script its executable bit). A symbolic link is refused, not followed:
+/// one to a folder above would copy without end, and one anywhere else would bring in what is
+/// outside the project.
 fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
     let entries = std::fs::read_dir(from).map_err(Error::io(from, "read"))?;
     for entry in entries {
@@ -110,7 +113,15 @@ fn copy_tree(from: &Path, to: &Path) -> crate::Result<()> {
             continue;
         }
         let (source, target) = (entry.path(), to.join(&name));
-        if source.is_dir() {
+        let kind = entry.file_type().map_err(Error::io(&source, "read"))?;
+        if kind.is_symlink() {
+            return Err(Error::Unsupported {
+                what: format!(
+                    "copying the symbolic link {} of a Terraform module (a copy takes files and folders)",
+                    source.display()
+                ),
+            });
+        } else if kind.is_dir() {
             crate::store::create_dir(&target)?;
             copy_tree(&source, &target)?;
         } else {
