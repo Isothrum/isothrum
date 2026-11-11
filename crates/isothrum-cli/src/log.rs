@@ -41,7 +41,7 @@ pub(crate) fn from_env(var: &Var<'_>) -> Result<(), Error> {
         return Ok(());
     };
     let format = text(var, LOG_FORMAT)?;
-    to_stderr(&filter, format.as_deref()).map_err(|e| format!("{LOG}={filter}: {e}").into())
+    to_stderr(&filter, format.as_deref())
 }
 
 /// Variable `name`, read through `var`: `None` when it isn't set, an error naming it when it
@@ -68,7 +68,7 @@ fn subscriber<W>(filter: &str, format: Option<&str>, writer: W) -> Result<Subscr
 where
     W: for<'w> MakeWriter<'w> + Send + Sync + 'static,
 {
-    let filter = EnvFilter::try_new(filter)?;
+    let filter = EnvFilter::try_new(filter).map_err(|e| format!("{LOG}={filter}: {e}"))?;
     let builder = fmt().with_env_filter(filter).with_writer(writer);
     Ok(match parse_format(format)? {
         Format::Text => Box::new(builder.finish()),
@@ -143,9 +143,13 @@ mod tests {
         }
     }
 
+    /// Regression: every error was prefixed with the filter, so a bad format read
+    /// `ISOTHRUM_LOG=debug: ISOTHRUM_LOG_FORMAT=yaml: …`.
     #[test]
-    fn an_unknown_format_or_filter_is_refused() {
-        assert!(parse_format(Some("yaml")).is_err());
-        assert!(subscriber("isothrum_runner=loud", None, Buf::default()).is_err());
+    fn an_unknown_format_or_filter_is_refused_naming_its_own_variable() {
+        let format = subscriber("debug", Some("yaml"), Buf::default()).err().unwrap().to_string();
+        assert_eq!(format, "ISOTHRUM_LOG_FORMAT=yaml: use `text` or `json`");
+        let filter = subscriber("isothrum_runner=loud", None, Buf::default()).err().unwrap().to_string();
+        assert!(filter.starts_with("ISOTHRUM_LOG=isothrum_runner=loud: "), "{filter}");
     }
 }
