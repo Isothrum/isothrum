@@ -11,9 +11,17 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
 
 1. Install Rust with [rustup](https://rustup.rs/). The toolchain is pinned by
    `rust-toolchain.toml` (1.99.0, with rustfmt and clippy); rustup installs it on first use.
-2. **Until Isoloom's next release, clone Isoloom beside this repository and patch its crates in.**
-   `main` uses Isoloom API that the version `Cargo.toml` pins (1.0.9 on crates.io) doesn't have
-   yet, so a build against crates.io alone fails. Clone both side by side, Isoloom at its `main`:
+2. **Clone and build.** `Cargo.toml` pins the Isoloom crates on crates.io (2.0.0), so a plain
+   clone builds:
+
+   ```sh
+   git clone https://github.com/Isothrum/isothrum
+   cd isothrum
+   cargo build
+   ```
+
+   **A change that needs unreleased Isoloom API** builds against an Isoloom checkout instead.
+   Clone both side by side, Isoloom at its `main`:
 
    ```sh
    git clone https://github.com/isoloom/isoloom
@@ -48,8 +56,8 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
 
    The patched build rewrites `Cargo.lock` and `fuzz/Cargo.lock` for the local crates: don't
    commit those changes, and run the gates below without `--locked` (it refuses the rewrite).
-   CI builds against crates.io (`--locked`, no patch), so its jobs fail on `main` until then. Once
-   Isoloom releases, the pins are raised to it and a plain clone builds with no patch.
+   CI builds against crates.io (`--locked`, no patch), so such a change waits for the Isoloom
+   release that has the API; the release step raises the pins to it.
 
 Optional tools the gates use: `cargo install cargo-nextest cargo-machete cargo-deny
 cargo-semver-checks typos-cli`, Node (the ratchet runs jscpd through `npx`), and `wasm-pack` for

@@ -6,7 +6,7 @@ members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.0.5"
+version = "2.0.0"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -16,16 +16,15 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-# Isoloom's published crates (crates.io). The unreleased changes here need the next Isoloom
-# release (its manifest without the values it no longer writes): until it is published, build
-# against a local Isoloom checkout through the git-ignored `.cargo/config.toml` patch; the release
-# step raises these pins to it.
-isoloom-spec = "1.0.9"
-isoloom-targets = "1.0.9"
-isoloom-manifest = "1.0.9"
-isoloom-plan = "1.0.9"
-isothrum-compiler = { path = "crates/isothrum-compiler", version = "1.0.5" }
-isothrum-runner = { path = "crates/isothrum-runner", version = "1.0.5" }
+# Isoloom's published crates (crates.io), at the release this one pairs with. A change that needs
+# unreleased Isoloom API builds against a local Isoloom checkout through the git-ignored
+# `.cargo/config.toml` patch (CONTRIBUTING.md); the release step raises these pins to it.
+isoloom-spec = "2.0.0"
+isoloom-targets = "2.0.0"
+isoloom-manifest = "2.0.0"
+isoloom-plan = "2.0.0"
+isothrum-compiler = { path = "crates/isothrum-compiler", version = "2.0.0" }
+isothrum-runner = { path = "crates/isothrum-runner", version = "2.0.0" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"

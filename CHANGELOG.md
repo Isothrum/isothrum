@@ -9,9 +9,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-11-11
+
 ### Highlights
 
-The next release is a **major** one: it removes and changes public API (every such entry below
+2.0.0 is a **major** release: it removes and changes public API (every such entry below
 starts with **Breaking:**). [docs/migrating-to-2.0.md](docs/migrating-to-2.0.md) says what to
 change.
 
@@ -22,8 +24,8 @@ change.
   `--ssh-jump` is taken by `up` only, and `attach` no longer stands up an ad-hoc box.
 - **Breaking, for event readers:** an event's `run` and `op` can be absent (on an event written
   outside an operation), and the `hook_failed` warning is gone.
-- **Breaking, for every run:** Isothrum reads run manifest version 1, the frozen contract the next
-  Isoloom release writes, and refuses the version 0 that 1.x read: regenerate the files first.
+- **Breaking, for every run:** Isothrum reads run manifest version 1, the frozen contract
+  Isoloom 2.0 writes, and refuses the version 0 that 1.x read: regenerate the files first.
 - **New operations:** `update` (bring a running run up to date with its regenerated manifest),
   `retire` and `console`; `isothrum completions`.
 - **Graphical consoles:** `Running::graphical_console` and `isothrum screen` reach a VM's screen
@@ -598,7 +600,7 @@ change.
   JSON back into them.
 
 - **A machine's graphical console**, where its run manifest lists one (`machines[].consoles`,
-  Isoloom's next release): `Running::graphical_console(machine)` gives a `Console` (its protocol,
+  Isoloom 2.0): `Running::graphical_console(machine)` gives a `Console` (its protocol,
   VNC or RDP; its `Endpoint`, a port of this computer's loopback or Proxmox VE's VNC websocket
   (`ProxmoxVnc`: the URL, the ticket, the header that signs it in); the account and password to
   sign in with), reading the port where the hypervisor keeps it: `virsh domdisplay` for libvirt,
@@ -928,7 +930,7 @@ change.
 ### Removed
 
 - **Breaking:** The run-manifest values Isoloom never writes are no longer read: a `static` output, an expiry in
-  minutes from now, a dotenv state file and a WinRM guest delivery (the next Isoloom release
+  minutes from now, a dotenv state file and a WinRM guest delivery (Isoloom 2.0
   removes them from the manifest).
 - **Breaking:** **`Running::shell_command`.** The access machine's shell is `Running::console_command` of its
   name (the `AttachReport`'s `machine`), which starts bash where the machine has it, else sh.

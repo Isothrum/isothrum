@@ -54,7 +54,7 @@ added in a minor Isoloom release needs an Isothrum built with that release.
 | Isothrum | `isoloom-manifest` it builds with | Reads `manifest_version` |
 |---|---|---|
 | 1.0.0 to 1.0.5 | 1.0.x (1.0.9 for 1.0.5) | 0 |
-| 2.0.0 (unreleased) | the next Isoloom release | 1 |
+| 2.0.0 | 2.0.x (2.0.0 for 2.0.0) | 1 |
 
 Each Isothrum release names the Isoloom release it pairs with in `Cargo.toml`
 (`[workspace.dependencies]`). Moving to a new `manifest_version` means older manifests are

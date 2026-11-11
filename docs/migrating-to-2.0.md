@@ -1,7 +1,7 @@
 # Migrating to 2.0
 
 Isothrum 2.0 removes public API that nothing used and changes some signatures, so it is a major
-release. It also reads run manifest version 1, which the next Isoloom release writes, and refuses
+release. It also reads run manifest version 1, which Isoloom 2.0 writes, and refuses
 the version 0 that 1.x read. A 1.x record (`record.json`) still loads. This page lists what to
 change; [CHANGELOG.md](../CHANGELOG.md) has the detail of each item.
 

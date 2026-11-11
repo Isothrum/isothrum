@@ -262,9 +262,9 @@ dependencies = [
 
 [[package]]
 name = "isoloom-manifest"
-version = "1.0.9"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab4c522cafb18fa5fd3ea96f39ff0da35a2ad35b3eb8fb242732e04843080418"
+checksum = "479b6afd3928a7a38861d8656e765bcd4cb3efe8b599382232be9a23f55fd24f"
 dependencies = [
  "schemars",
  "serde",
@@ -275,11 +275,12 @@ dependencies = [
 
 [[package]]
 name = "isoloom-spec"
-version = "1.0.9"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c6c8d56398c94c76bc497b4eb4644348667ab92565ea8370aaf971efb65ffb8"
+checksum = "cb29ab84c5db26d8bf7a33601b7c017ddcce52d53a53955df9006e80b676f291"
 dependencies = [
  "indexmap",
+ "isoloom-manifest",
  "saphyr-parser",
  "schemars",
  "serde",
@@ -291,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-compiler"
-version = "1.0.5"
+version = "2.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -315,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "1.0.5"
+version = "2.0.0"
 dependencies = [
  "flate2",
  "getrandom",
