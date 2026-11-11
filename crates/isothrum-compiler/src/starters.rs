@@ -17,7 +17,7 @@ use isoloom_manifest::RelPath;
 use isoloom_manifest::ignore;
 use isoloom_spec::Spec;
 use isoloom_spec::net::NetworkBlock;
-use isoloom_spec::syntax::{Machine, Octets, OsRef, Step};
+use isoloom_spec::syntax::{Machine, Octets, OsRef, Step, has_extension};
 
 use crate::ProjectFile;
 use crate::controller::ControllerPlaybook;
@@ -35,7 +35,7 @@ pub(crate) fn add_starters(files: &mut Vec<ProjectFile>, spec: &Spec, blocks: &B
         };
         for step in &app.steps {
             let (path, contents) = match step {
-                Step::Run { script, .. } if is_ps1(script.as_str()) => (script.as_str(), powershell(blocks, name, m, os)),
+                Step::Run { script, .. } if has_extension(script.as_str(), "ps1") => (script.as_str(), powershell(blocks, name, m, os)),
                 Step::Run { script, .. } => (script.as_str(), shell(blocks, name, m, os)),
                 Step::Playbook(file) => (file.as_str(), playbook(name, PlaybookOn::Machine)),
                 _ => continue,
@@ -62,10 +62,6 @@ fn add(files: &mut Vec<ProjectFile>, path: &str, contents: String) {
             contents,
         });
     }
-}
-
-fn is_ps1(path: &str) -> bool {
-    std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("ps1"))
 }
 
 /// The machine's ports, by number, each once (a TCP and a UDP port may share one).

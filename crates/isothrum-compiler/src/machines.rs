@@ -7,7 +7,7 @@
 //! playbooks run from Isoloom's controller instead (see `controller`).
 
 use isoloom_spec::Appliance;
-use isoloom_spec::syntax::{OsRef, ProjectPath};
+use isoloom_spec::syntax::{OsRef, ProjectPath, is_yaml_file};
 
 use crate::controller::ControllerPlaybook;
 use crate::document::{AppDoc, MachineDoc, StepDoc};
@@ -93,12 +93,10 @@ fn vm_steps(name: &str, os: OsRef, provision: &[String]) -> Result<(Vec<StepDoc>
     Ok((steps, playbooks))
 }
 
-/// A provisioning step: an Ansible playbook (`.yml`, `.yaml`), else a script.
+/// A provisioning step: an Ansible playbook (`.yml`, `.yaml`, Isoloom's [`is_yaml_file`]), else a
+/// script.
 fn step(path: &str) -> StepDoc {
-    let playbook = std::path::Path::new(path)
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("yml") || e.eq_ignore_ascii_case("yaml"));
-    if playbook {
+    if is_yaml_file(path) {
         StepDoc::Playbook(path.to_owned())
     } else {
         StepDoc::Run(path.to_owned())
