@@ -5,12 +5,11 @@
 use std::num::NonZeroU32;
 use std::sync::LazyLock;
 
-use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool, Version};
+use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, capture_step};
-use crate::tool_output::version_in;
 
 /// The step id the probes report under.
 const STEP: &str = "tools";
@@ -66,7 +65,7 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
     let Some(min) = &tool.min_version else { return Ok(()) };
-    match found_version(&out) {
+    match crate::version_found(&out) {
         Some(found) if found < *min => Err(Error::ToolTooOld {
             tool: tool.name.to_string(),
             found: found.as_str().to_owned(),
@@ -74,20 +73,6 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
         }),
         _ => Ok(()),
     }
-}
-
-/// The version a probe's output `out` says, as Isoloom's [`Version`], to compare with the
-/// manifest's minimum in Isoloom's order (a pre-release before its release): its first word that
-/// is one (`v2.29.1`, `1.0.0-rc.1`), else its first `<major>.<minor>[.<patch>]` (`2.3.8.dev` is
-/// 2.3.8, a missing patch 0). None when it says none: nothing is held back then.
-fn found_version(out: &str) -> Option<Version> {
-    out.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
-        .map(|w| w.strip_prefix('v').unwrap_or(w))
-        .find_map(|w| Version::parse(w).ok())
-        .or_else(|| {
-            let (major, minor, patch) = version_in(out)?;
-            Version::parse(&format!("{major}.{minor}.{patch}")).ok()
-        })
 }
 
 /// The container engine, `docker`, answers, for a tool run from `image`.
@@ -130,14 +115,14 @@ mod tests {
 
     #[test]
     fn a_tools_version_is_read_and_ordered_as_isoloom_orders_versions() {
-        let v = |s: &str| Version::parse(s).unwrap();
-        assert_eq!(found_version("Docker Compose version v2.29.1"), Some(v("2.29.1")));
-        assert_eq!(found_version("Vagrant 2.3.8.dev"), Some(v("2.3.8")));
-        assert_eq!(found_version("2.4"), Some(v("2.4.0")));
-        assert_eq!(found_version("no version here"), None);
+        let v = |s: &str| isoloom_manifest::Version::parse(s).unwrap();
+        assert_eq!(crate::version_found("Docker Compose version v2.29.1"), Some(v("2.29.1")));
+        assert_eq!(crate::version_found("Vagrant 2.3.8.dev"), Some(v("2.3.8")));
+        assert_eq!(crate::version_found("2.4"), Some(v("2.4.0")));
+        assert_eq!(crate::version_found("no version here"), None);
         // Regression: the probe compared numbers only, so a release candidate passed for the
         // release it leads to.
-        let rc = found_version("Terraform v1.6.0-rc.1\non linux_amd64").unwrap();
+        let rc = crate::version_found("Terraform v1.6.0-rc.1\non linux_amd64").unwrap();
         assert_eq!(rc, v("1.6.0-rc.1"));
         assert!(rc < v("1.6.0"), "a pre-release is older than its release");
     }

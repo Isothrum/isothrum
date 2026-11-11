@@ -1,12 +1,30 @@
 //! What the host's tools say of themselves, read in one place for the runner and the
-//! machine-setup backend (`isothrum-machine`): whether the version a tool prints is recent
-//! enough, the plugins `vagrant plugin list --machine-readable` lists, and the error a
+//! machine-setup backend (`isothrum-machine`): the version a tool prints, in Isoloom's order, the
+//! plugins `vagrant plugin list --machine-readable` lists, and the error a
 //! machine-readable Vagrant call failed with.
 
-/// The first version in `text` (`v2.29.1`, `Docker Compose version 5.5.1`, `0.2.0-beta`), as its
-/// major, minor and patch numbers (a missing patch is 0); `None` when `text` holds no
-/// `<major>.<minor>`. Versions compare as these tuples do.
-pub(crate) fn version_in(text: &str) -> Option<(u64, u64, u64)> {
+use isoloom_manifest::Version;
+
+/// The version `text` says (what a tool prints: `Vagrant 2.4.1`, `v2.29.1`, `1.0.0-rc.1`), as
+/// Isoloom's [`Version`], so versions compare in its order (a pre-release before its release):
+/// its first word that is one, else its first `<major>.<minor>[.<patch>]` (`2.3.8.dev` is 2.3.8, a
+/// missing patch 0). `None` when it says none: nothing is held back then. The one reading of a
+/// version for the runner's tool probes and `isothrum-machine`'s minimums.
+#[must_use]
+pub fn version_found(text: &str) -> Option<Version> {
+    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
+        .map(|w| w.strip_prefix('v').unwrap_or(w))
+        .find_map(|w| Version::parse(w).ok())
+        .or_else(|| {
+            // Isoloom's Version is made from its text alone.
+            let (major, minor, patch) = numbers_in(text)?;
+            Version::parse(&format!("{major}.{minor}.{patch}")).ok()
+        })
+}
+
+/// The first `<major>.<minor>[.<patch>]` in `text` (`Docker Compose version 2.17`,
+/// `2.3.8.dev`), its suffix dropped and a missing patch 0.
+fn numbers_in(text: &str) -> Option<(u64, u64, u64)> {
     text.split(|c: char| !(c.is_ascii_digit() || c == '.')).find_map(|word| {
         let mut parts = word.split('.').filter(|p| !p.is_empty()).map(str::parse::<u64>);
         let major = parts.next()?.ok()?;
@@ -14,17 +32,6 @@ pub(crate) fn version_in(text: &str) -> Option<(u64, u64, u64)> {
         let patch = parts.next().and_then(Result::ok).unwrap_or(0);
         Some((major, minor, patch))
     })
-}
-
-/// Whether the version `found` prints is `min` or later: the first `<major>.<minor>[.<patch>]` in
-/// each (`v2.29.1`, `Docker Compose version 5.5.1`, a missing patch 0, a suffix dropped), compared
-/// in that order. A version that can't be read in either holds nothing back.
-#[must_use]
-pub fn version_at_least(found: &str, min: &str) -> bool {
-    match (version_in(found), version_in(min)) {
-        (Some(found), Some(min)) => found >= min,
-        _ => true,
-    }
 }
 
 /// Each plugin `vagrant plugin list --machine-readable` names (its `plugin-name` lines), with its
@@ -89,25 +96,23 @@ pub(crate) fn vagrant_fields(line: &str) -> Option<(&str, &str, &str)> {
 mod tests {
     use super::*;
 
+    /// A version as each tool prints it, compared in Isoloom's order: by its numbers (a missing
+    /// patch 0), a pre-release before its release.
     #[test]
-    fn versions_are_read_from_what_a_tool_prints() {
-        assert_eq!(version_in("5.5.1"), Some((5, 5, 1)));
-        assert_eq!(version_in("v2.29.1-desktop.1"), Some((2, 29, 1)));
-        assert_eq!(version_in("Docker Compose version 2.17"), Some((2, 17, 0)));
-        assert_eq!(version_in("29.8.1"), Some((29, 8, 1)));
-        assert_eq!(version_in("0.2.0-beta"), Some((0, 2, 0)), "a suffix after the numbers is dropped");
-        assert_eq!(version_in("no version here"), None);
-        assert!(version_in("2.16.9") < version_in("2.17.0"));
-        assert!(version_in("4.7") > version_in("4.6.5"), "a missing part is 0");
-    }
-
-    #[test]
-    fn an_older_version_falls_short_and_one_that_cant_be_read_holds_nothing_back() {
-        assert!(version_at_least("Vagrant 2.4.1", "2.4"));
-        assert!(version_at_least("v2.4.0", "2.4.0"));
-        assert!(!version_at_least("Vagrant 2.3.7", "2.4"));
-        assert!(version_at_least("unknown", "2.4"));
-        assert!(version_at_least("2.3", "latest"));
+    fn versions_are_read_from_what_a_tool_prints_in_isoloom_s_order() {
+        let v = |text: &str| version_found(text).unwrap();
+        let parsed = |text: &str| Version::parse(text).unwrap();
+        assert_eq!(v("5.5.1"), parsed("5.5.1"));
+        assert_eq!(v("Vagrant 2.4.1"), parsed("2.4.1"));
+        assert_eq!(v("v2.29.1-desktop.1"), parsed("2.29.1-desktop.1"));
+        assert_eq!(v("Docker Compose version 2.17"), parsed("2.17.0"));
+        assert_eq!(v("2.3.8.dev"), parsed("2.3.8"), "a suffix that isn't a pre-release is dropped");
+        assert_eq!(version_found("no version here"), None);
+        assert!(v("2.16.9") < v("2.17.0"));
+        assert!(v("4.7") > v("4.6.5"), "a missing part is 0");
+        assert!(v("4.7.5") > v("4.6.5") && v("4.6.5") >= v("4.6.5"));
+        assert!(v("0.1.6") < v("0.2.0"));
+        assert!(v("0.2.0-beta") < v("0.2.0"), "a pre-release comes before its release");
     }
 
     #[test]

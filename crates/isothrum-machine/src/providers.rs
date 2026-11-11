@@ -10,7 +10,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use isothrum_runner::{ProcessRunner, version_at_least};
+use isothrum_runner::{ProcessRunner, version_found};
 
 use crate::exec;
 
@@ -145,14 +145,20 @@ pub struct ProviderStatus {
 /// plugin has no minimum.
 fn plugin_too_old(provider: Provider, installed: Option<&str>) -> Option<(&str, &'static str)> {
     let (version, min) = installed.zip(plugin_minimum(provider))?;
-    (!version_at_least(version, min)).then_some((version, min))
+    older(version, min).then_some((version, min))
 }
 
 /// The version `installed` of `provider`'s hypervisor when it is older than the one its plugin
 /// drives (`hypervisor_minimum`), with the hypervisor's name and that minimum.
 fn hypervisor_too_old(provider: Provider, installed: Option<&str>) -> Option<(&'static str, &str, &'static str)> {
     let (version, (name, min)) = installed.zip(hypervisor_minimum(provider))?;
-    (!version_at_least(version, min)).then_some((name, version, min))
+    older(version, min).then_some((name, version, min))
+}
+
+/// Whether the version `installed` says is before `min`, in Isoloom's order (a pre-release before
+/// its release); not when either says no version.
+fn older(installed: &str, min: &str) -> bool {
+    version_found(installed).zip(version_found(min)).is_some_and(|(found, min)| found < min)
 }
 
 /// Whether `program` is installed: it is, as long as it could be started (a tool that prints usage
@@ -343,17 +349,6 @@ mod tests {
     }
 
     #[test]
-    fn versions_compare_by_their_numbers() {
-        assert!(version_at_least("4.7.5", "4.6.5"));
-        assert!(version_at_least("4.6.5", "4.6.5"));
-        assert!(!version_at_least("4.5.1", "4.6.5"));
-        assert!(version_at_least("4.7", "4.6.5"), "a missing part is 0");
-        assert!(!version_at_least("0.1.6", "0.2.0"));
-        assert!(version_at_least("0.2.0-beta", "0.2.0"), "a part's suffix after its number is dropped");
-        assert!(version_at_least("unknown", "0.2.0"), "no version to judge");
-    }
-
-    #[test]
     fn utm_and_its_plugin_are_held_to_a_version() {
         let detection = |hv: Option<&'static str>, pl: Option<&'static str>, installed: bool| Detection {
             hypervisor: Some(true),
@@ -366,6 +361,10 @@ mod tests {
             needs_admin: false,
         };
         assert_eq!(plugin_too_old(Provider::Utm, Some("0.1.6")), Some(("0.1.6", "0.2.0")));
+        // Regression: a suffix was dropped, so a pre-release of the minimum passed for it; it comes
+        // before its release, as the runner's tool probes (Isoloom's Version) order it.
+        assert_eq!(plugin_too_old(Provider::Utm, Some("0.2.0-beta")), Some(("0.2.0-beta", "0.2.0")));
+        assert_eq!(plugin_too_old(Provider::Utm, Some("unknown")), None, "no version to judge");
         assert_eq!(
             unavailable_reason(Provider::Utm, detection(Some("4.7.5"), Some("0.1.6"), true)).as_deref(),
             Some("Vagrant plugin `vagrant_utm` 0.1.6 is too old: 0.2.0 or later is needed. Install it again to update it")
