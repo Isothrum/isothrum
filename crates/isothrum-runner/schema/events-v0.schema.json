@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Isothrum runner event, version 0",
-  "description": "One event of an operation.",
+  "description": "One event of the stream.\n\nEvery event of an operation has `run` and `op`. An event written outside one ([`Event::new`])\nhas those its writer knows. The command line's own: a command line it refused has neither;\n`reap`'s closing `result` and `error` have neither; any other failure before an operation\nbegan has `op` when the command is an operation, and `run` when `--name` named it (a failure\nof `status`, `console`, `events` or `key` has no `op`).",
   "type": "object",
   "properties": {
     "v": {
@@ -21,14 +21,14 @@
       "type": "string"
     },
     "run": {
-      "description": "The run's name; absent only on an `error` an embedder wrote before it knew the run (the\ncommand line given a folder with no manifest).",
+      "description": "The run's name: on every event of an operation; outside one, when its writer knows it\n(see [`Event`]).",
       "type": [
         "string",
         "null"
       ]
     },
     "op": {
-      "description": "The operation; absent only on an `error` of a command that isn't one (`status`), or that\nfailed before it started one.",
+      "description": "The operation: on every event of an operation; outside one, when its writer knows it (see\n[`Event`]).",
       "anyOf": [
         {
           "$ref": "#/$defs/Op"

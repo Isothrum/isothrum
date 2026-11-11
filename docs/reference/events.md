@@ -22,13 +22,17 @@ The authoritative definition is the JSON Schema committed at
 | `op` | The operation: `up`, `down`, `park`, `resume`, `check`, `provision`, `attach`, `detach`, `update`, `retire`. |
 | `event` | The kind, below. |
 
-Every event an operation emits has `run` and `op`. They are absent only from an event written
-outside an operation: with `--json`, a failure before any operation began (code `usage`, for
-instance) is an `error` event too, and `isothrum reap --json` ends with a `result` whose `data`
-is the sweep (`cloud`, `destroyed`, `pending`, `failed`, `orphans`, `unread`), after the events of
-each run it destroyed; when the cloud couldn't be searched (a recorded run's state unreadable),
-`orphans` and `unread` are null and an `error` without `run` nor `op` follows it. So one stream
-carries every outcome, one event per line. `isothrum attach
+Every event of an operation has `run` and `op`. An event written outside one has those its
+writer knows. The command line's own: a command line it refused has neither; `reap`'s closing
+`result` and `error` have neither; any other failure before an operation began has `op` when the
+command is an operation, and `run` when `--name` named it (a failure of `status`, `console`,
+`events` or `key` has no `op`).
+
+With `--json`, a failure before any operation began (code `usage`, for instance) is an `error`
+event too, and `isothrum reap --json` ends with a `result` whose `data` is the sweep (`cloud`,
+`destroyed`, `pending`, `failed`, `orphans`, `unread`), after the events of each run it destroyed;
+when the cloud couldn't be searched (a recorded run's state unreadable), `orphans` and `unread`
+are null and an `error` follows it. So one stream carries every outcome, one event per line. `isothrum attach
 --json` says where the machine is in its `result`'s `data` (`machine`, `native`, `network`,
 `address`, `image`).
 

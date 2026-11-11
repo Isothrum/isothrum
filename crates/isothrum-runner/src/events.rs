@@ -167,7 +167,13 @@ pub struct EventLog {
     pub unreadable: usize,
 }
 
-/// One event of an operation.
+/// One event of the stream.
+///
+/// Every event of an operation has `run` and `op`. An event written outside one ([`Event::new`])
+/// has those its writer knows. The command line's own: a command line it refused has neither;
+/// `reap`'s closing `result` and `error` have neither; any other failure before an operation
+/// began has `op` when the command is an operation, and `run` when `--name` named it (a failure
+/// of `status`, `console`, `events` or `key` has no `op`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Event {
@@ -177,12 +183,12 @@ pub struct Event {
     pub seq: u64,
     /// When (`YYYY-MM-DDTHH:MM:SSZ`, UTC).
     pub time: String,
-    /// The run's name; absent only on an `error` an embedder wrote before it knew the run (the
-    /// command line given a folder with no manifest).
+    /// The run's name: on every event of an operation; outside one, when its writer knows it
+    /// (see [`Event`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
-    /// The operation; absent only on an `error` of a command that isn't one (`status`), or that
-    /// failed before it started one.
+    /// The operation: on every event of an operation; outside one, when its writer knows it (see
+    /// [`Event`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<Op>,
     /// What happened.
@@ -191,9 +197,9 @@ pub struct Event {
 }
 
 impl Event {
-    /// An event an embedder writes itself, timed now: the runner numbers and writes its own. For
-    /// a failure no operation reports, such as a command that couldn't start one (an `error` with
-    /// code `usage`).
+    /// An event an embedder writes itself, timed now, with the `run` and `op` it knows: the runner
+    /// numbers and writes its own. For what no operation reports, such as a command that couldn't
+    /// start one (an `error` with code `usage`).
     #[must_use]
     pub fn new(seq: u64, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
         Event {

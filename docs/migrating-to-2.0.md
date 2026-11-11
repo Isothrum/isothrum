@@ -33,8 +33,11 @@ and `--secret-from-env`.
 
 ## Event stream
 
-- An event's `run` and `op` are absent on an `error` written outside an operation (a usage error).
-  Every event of an operation still has both.
+- An event's `run` and `op` are optional. Every event of an operation still has both. An event
+  written outside one has those its writer knows. The command line's own: a command line it
+  refused has neither; `reap`'s closing `result` and `error` have neither; any other failure before
+  an operation began has `op` when the command is an operation, and `run` when `--name` named it (a
+  failure of `status`, `console`, `events` or `key` has no `op`).
 - The warning code `hook_failed` is gone.
 - New error codes: `cancelled`, `usage`, `machine_ambiguous`, `network_unknown`. New warning
   codes: `output_unformatted`, `record_not_saved`, `already_gone`, `cleanup_failed` (a clean-up the

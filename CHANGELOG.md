@@ -20,8 +20,8 @@ change.
   and `park`, `attach` and `detach` take the operation's options.
 - **Breaking, for the command line:** `isothrum shell` becomes `isothrum console <machine>`,
   `--ssh-jump` is taken by `up` only, and `attach` no longer stands up an ad-hoc box.
-- **Breaking, for event readers:** an event's `run` and `op` can be absent (an `error` outside an
-  operation), and the `hook_failed` warning is gone.
+- **Breaking, for event readers:** an event's `run` and `op` can be absent (on an event written
+  outside an operation), and the `hook_failed` warning is gone.
 - **Breaking, for every run:** Isothrum reads run manifest version 1, the frozen contract the next
   Isoloom release writes, and refuses the version 0 that 1.x read: regenerate the files first.
 - **New operations:** `update` (bring a running run up to date with its regenerated manifest),
@@ -657,9 +657,11 @@ change.
   counts them (below). [Policies](docs/policies.md#run-manifest-versions) pairs each release with
   the version it reads.
 - **Breaking: an event's `run` and `op` are optional.** `Event::run` is an `Option<String>` and
-  `Event::op` an `Option<Op>`, absent from the JSON only on an `error` written outside an
-  operation (a command line's usage error, a `status` that failed); the event schema no longer
-  requires them. Every event an operation emits has both.
+  `Event::op` an `Option<Op>`, and the event schema no longer requires them. Every event of an
+  operation has both. An event written outside one has those its writer knows. The command line's
+  own: a command line it refused has neither; `reap`'s closing `result` and `error` have neither;
+  any other failure before an operation began has `op` when the command is an operation, and `run`
+  when `--name` named it (a failure of `status`, `console`, `events` or `key` has no `op`).
 - **The exit codes 130 and 143.** A command cancelled by SIGINT exits 130, by SIGTERM
   143 (it was killed by the signal before). 0, 1 and 2 are unchanged.
 - **Breaking: an elevated session's files.** A request's variables are no longer in its
