@@ -257,3 +257,31 @@ fn two_lans_on_the_same_vlan_of_a_switch_are_refused() -> Outcome {
     accepted(&topo)?;
     Ok(())
 }
+
+/// Regression: a LAN with a switch but no VLAN id (or the reverse), or a device on a plain LAN,
+/// compiled as a plain LAN, the field dropped without a word.
+#[test]
+fn a_half_drawn_vlan_or_a_device_off_a_switch_is_refused() -> Outcome {
+    let half = |switch: Option<&str>, vlan: Option<u16>| -> Outcome<Error> {
+        let mut topo = two_lans()?;
+        topo.networks["office"].switch = switch.map(str::to_owned);
+        topo.networks["office"].vlan = vlan;
+        Ok(compile(&topo).unwrap_err())
+    };
+    assert_eq!(
+        half(Some("sw1"), None)?.to_string(),
+        "LAN `office` has a switch but no vlan: a VLAN needs both, a plain LAN neither"
+    );
+    assert!(matches!(
+        half(None, Some(10))?,
+        Error::VlanIncomplete {
+            given: "vlan",
+            missing: "switch",
+            ..
+        }
+    ));
+    let mut topo = two_lans()?;
+    topo.networks["office"].device = Some("sw1".into());
+    assert!(matches!(compile(&topo).unwrap_err(), Error::DeviceOffSwitch { lan } if lan == "office"));
+    Ok(())
+}

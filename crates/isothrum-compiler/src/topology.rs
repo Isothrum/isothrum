@@ -49,7 +49,8 @@ pub struct Lan {
     #[serde(default = "yes")]
     pub internet: bool,
     /// A VLAN of a switch: the switch (or the first of the switches a trunk joins) it belongs to.
-    /// In the spec it nests under that switch's LAN (`sw1.vlan10`).
+    /// In the spec it nests under that switch's LAN (`sw1.vlan10`). Given with [`Lan::vlan`], or
+    /// neither ([`Error::VlanIncomplete`](crate::Error::VlanIncomplete)).
     #[serde(default)]
     pub switch: Option<String>,
     /// A VLAN's id on its switch: one LAN per id of a switch
@@ -57,7 +58,8 @@ pub struct Lan {
     #[serde(default)]
     pub vlan: Option<u16>,
     /// The switch's machine when it runs a Cisco OS (a node of its own, with no networks):
-    /// Isoloom's `switch` on the LAN its VLANs nest under.
+    /// Isoloom's `switch` on the LAN its VLANs nest under. A VLAN's only
+    /// ([`Error::DeviceOffSwitch`](crate::Error::DeviceOffSwitch)).
     #[serde(default)]
     pub device: Option<String>,
     /// How the LAN behaves (a slow or lossy link): Isoloom's `tc`. A VLAN has none
@@ -111,13 +113,14 @@ pub enum Kind {
         /// The image, by tag or digest. Empty for `cisco-dynamips`, which Isoloom builds.
         image: String,
         /// The image runs no service of its own (a stock Linux image): it is kept running idle,
-        /// as a machine to work from.
+        /// as a machine to work from. Ignored for an appliance, which runs its network OS.
         #[serde(default)]
         idle: bool,
         /// A network OS Isoloom wires as its image expects (Cisco IOL, as vrnetlab builds it).
         #[serde(default)]
         appliance: Option<Appliance>,
         /// The appliance's own configuration (IOS commands), written to `configs/<name>.cfg`.
+        /// Ignored without an `appliance`: a plain container has no configuration file.
         #[serde(default)]
         config: Option<String>,
     },

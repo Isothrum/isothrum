@@ -147,6 +147,23 @@ pub enum Error {
         /// The other one.
         second: String,
     },
+    /// A LAN names a switch but no VLAN id, or a VLAN id but no switch: a VLAN needs both, a plain
+    /// LAN neither.
+    #[error("LAN `{lan}` has a {given} but no {missing}: a VLAN needs both, a plain LAN neither")]
+    VlanIncomplete {
+        /// The LAN.
+        lan: String,
+        /// What it gives: `switch` or `vlan`.
+        given: &'static str,
+        /// What it lacks.
+        missing: &'static str,
+    },
+    /// A plain LAN names a `device`, which only a switch's VLANs have (the switch's machine).
+    #[error("LAN `{lan}` names a device, which only a switch's VLAN takes; remove it or give the LAN a switch and a VLAN id")]
+    DeviceOffSwitch {
+        /// The LAN.
+        lan: String,
+    },
     /// A machine's provisioning step isn't a file of the project as Isoloom reads one: an
     /// absolute path, or one with a `..` that leaves the project.
     #[error("provisioning step `{path}` of `{node}`: {source}")]
