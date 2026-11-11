@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use isoloom_manifest::{HostOs, Manifest, Run, RunVar, Step, Template};
+use isoloom_manifest::{HostOs, Manifest, Provider, Run, RunVar, Step, Template};
 
 use crate::executor::plan;
 use crate::scope::Scope;
@@ -93,8 +93,8 @@ pub enum Planned {
 /// Every step of `manifest` (its lifecycle's and its checks' lists, in order), each with the list
 /// it is in, planned on `host` with the run's `provider` and `values`.
 #[must_use]
-pub fn plan(manifest: &Manifest, host: HostOs, provider: Option<&str>, values: &Values) -> Vec<(String, Planned)> {
-    let scope = Scope::new(host, provider.map(str::to_owned));
+pub fn plan(manifest: &Manifest, host: HostOs, provider: Option<Provider>, values: &Values) -> Vec<(String, Planned)> {
+    let scope = Scope::new(host, provider);
     lists(manifest)
         .into_iter()
         .flat_map(|(list, steps)| steps.into_iter().map(move |step| (list, step)))

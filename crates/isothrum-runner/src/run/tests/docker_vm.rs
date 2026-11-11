@@ -173,9 +173,12 @@ async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
     let run = runner.open(&folder.manifest, None).unwrap();
     let mut secrets = Secrets::new();
     secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    run.up(&RunOptions::new().with_provider("qemu").with_secrets(secrets), &Recorder::new())
-        .await
-        .unwrap();
+    run.up(
+        &RunOptions::new().with_provider(isoloom_manifest::Provider::Qemu).with_secrets(secrets),
+        &Recorder::new(),
+    )
+    .await
+    .unwrap();
     let up = fake.last("vagrant up").unwrap();
     assert_eq!(
         up.env("ISOLOOM_HOSTPORTS"),

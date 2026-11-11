@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use isoloom_manifest::Provider;
+
 use crate::secrets::Secrets;
 
 /// What `up` does when the run already exists.
@@ -20,7 +22,7 @@ pub enum Occupied {
 #[non_exhaustive]
 pub struct RunOptions {
     /// A Vagrant provider among the manifest's (`${run.provider}`).
-    pub provider: Option<String>,
+    pub provider: Option<Provider>,
     /// Non-secret values, by param name.
     pub params: BTreeMap<String, String>,
     /// Secret and input values, by slot name. Never stored: pass them again to an operation that
@@ -77,8 +79,8 @@ impl RunOptions {
 
     /// Runs with Vagrant provider `provider`.
     #[must_use]
-    pub fn with_provider(mut self, provider: impl Into<String>) -> RunOptions {
-        self.provider = Some(provider.into());
+    pub fn with_provider(mut self, provider: Provider) -> RunOptions {
+        self.provider = Some(provider);
         self
     }
 

@@ -77,13 +77,20 @@ impl Vagrant {
 
     /// The run's provider among the manifest's.
     fn provider(&self, cx: &Cx<'_>) -> Result<&VagrantProvider> {
-        let asked = cx.scope.provider.as_deref().ok_or_else(|| Error::Provider {
-            provider: String::new(),
-            reason: "a Vagrant run needs a provider: pass one of the manifest's (`virtualbox`, `libvirt`, …)".into(),
-        })?;
-        self.identity.providers.iter().find(|p| cx.scope.runs_on(p.id)).ok_or_else(|| Error::Provider {
-            provider: asked.to_owned(),
-            reason: "isn't one of this run's providers".into(),
+        let theirs = || {
+            self.identity
+                .providers
+                .iter()
+                .map(|p| format!("`{}`", wire_name(&p.id)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let Some(asked) = cx.scope.provider else {
+            return Err(Error::NoProvider { providers: theirs() });
+        };
+        self.identity.providers.iter().find(|p| p.id == asked).ok_or_else(|| Error::Provider {
+            provider: wire_name(&asked),
+            reason: format!("isn't one of this run's providers ({})", theirs()),
         })
     }
 
@@ -235,7 +242,7 @@ impl Driver for Vagrant {
                 ),
             });
         }
-        let provider = cx.scope.provider.as_ref().map(|p| format!("--provider={p}"));
+        let provider = cx.scope.provider.map(|p| format!("--provider={}", wire_name(&p)));
         let mut args = vec!["up", define];
         if let Some(flag) = &provider {
             args.push(flag);

@@ -1,9 +1,10 @@
 //! Encodings the runner writes itself: base64, for a PowerShell script handed to an elevated
 //! session and for the values of a guest delivery (one line each, whatever they hold); and a
-//! manifest value's name as the manifest writes it ([`wire_name`], the one helper every crate of
-//! the workspace names such a value with).
+//! manifest value's name as the manifest writes it, both ways ([`wire_name`], [`from_wire_name`],
+//! [`every_name`]: the helpers every crate of the workspace names and reads such a value with).
 
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// `value`'s name as the manifest and the event stream write it (a target, a provider, a
 /// machine's role: `vmware_desktop`), without JSON's quotes. It is meant for the unit enums serde
@@ -18,10 +19,16 @@ pub fn wire_name<T: Serialize + ?Sized>(value: &T) -> String {
     }
 }
 
+/// The value of the unit enum `T` that the manifest writes as `name` (`vmware_desktop`): the way
+/// back from [`wire_name`]. `None` when no value of `T` has that name.
+#[must_use]
+pub fn from_wire_name<T: DeserializeOwned>(name: &str) -> Option<T> {
+    serde_json::from_value(serde_json::Value::String(name.to_owned())).ok()
+}
+
 /// Every name the unit enum `T` is written as, from its JSON Schema (each variant's `const`, or
-/// the `enum` that lists them), in the schema's order (feature `fake`): what a test reads to keep
-/// a list of its own in step with a type of Isoloom's, a variant added there failing it.
-#[cfg(any(test, feature = "fake"))]
+/// the `enum` that lists them), in the schema's order: the values a command line offers for a type
+/// of Isoloom's, so a variant added there is offered without a list of its own to keep in step.
 #[must_use]
 pub fn every_name<T: schemars::JsonSchema>() -> Vec<String> {
     fn names(schema: &serde_json::Value, out: &mut Vec<String>) {
@@ -69,9 +76,22 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use isoloom_manifest::Provider;
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn a_name_reads_back_as_its_value_and_every_name_is_one() {
+        let names = every_name::<Provider>();
+        assert!(names.contains(&"vmware_esxi".to_owned()), "{names:?}");
+        for name in &names {
+            let provider: Provider = from_wire_name(name).unwrap();
+            assert_eq!(&wire_name(&provider), name);
+        }
+        assert_eq!(from_wire_name::<Provider>("VirtualBox"), None);
+        assert_eq!(from_wire_name::<Provider>(""), None);
+    }
 
     /// RFC 4648 decoding, for the tests: what `base64 -d` does.
     fn decoded(text: &str) -> Vec<u8> {

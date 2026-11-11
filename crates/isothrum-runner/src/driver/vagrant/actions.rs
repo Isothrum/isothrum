@@ -76,7 +76,7 @@ pub(super) fn recorded_providers(dotfile: &Path) -> std::io::Result<Vec<String>>
 /// its record dropped, so `vagrant up` doesn't refuse "a machine with a different provider".
 pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let dotfile = v.dotfile(cx)?;
-    let asked = cx.scope.provider.clone().unwrap_or_default();
+    let asked = cx.scope.provider.map(|p| crate::wire_name(&p)).unwrap_or_default();
     let recorded = recorded_providers(&dotfile).map_err(Error::io(dotfile.join("machines"), "read"))?;
     if !recorded.iter().any(|p| *p != asked) {
         return Ok(());

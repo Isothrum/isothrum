@@ -81,6 +81,7 @@ and `--secret-from-env`.
 | `Captured::exit: Option<Exit>`, `Captured: Default` | `Captured::exit: Exit` (a process that ran always has one); `Captured` no longer implements `Default`. |
 | `RunnerConfig::path: Option<String>` | `Option<OsString>`: a `PATH` that isn't UTF-8 is kept. |
 | `AccessPick`, `AttachReport` built with struct literals | Both are `#[non_exhaustive]`. |
+| `RunOptions::provider`, `RunRecord::provider`, `Status::provider`: `Option<String>`; `with_provider(impl Into<String>)` | `Option<isoloom_manifest::Provider>`; `with_provider(Provider)`. The JSON is the same wire name; `isothrum_runner::from_wire_name` reads a name back. |
 
 A tool an operation cut short (its future dropped, a step's timeout) is now asked to stop
 (SIGINT to its process group, on Unix) and ended once it has exited or 30 seconds later, on a

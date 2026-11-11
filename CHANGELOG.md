@@ -592,8 +592,9 @@ change.
   `isothrum_runner::vagrant_plugins` (each plugin of `vagrant plugin list --machine-readable`, with
   its version), which the runner and `isothrum-machine` share. `isothrum-machine` now reads `vagrant
   plugin list --machine-readable`, not the human list.
-- **`isothrum_runner::every_name`** (feature `fake`): every name a unit enum is written as, from
-  its JSON Schema, for a test that keeps a list of its own in step with a type of Isoloom's.
+- **`isothrum_runner::every_name` and `from_wire_name`**: every name a unit enum is written as,
+  from its JSON Schema, and the value a name reads back as (the way back from `wire_name`). The
+  command line offers Isoloom's clouds and providers from them, with no list of its own.
 - **`Topology::vlan_lan`** (`isothrum-compiler`): the topology's key for a switch's VLAN, what a
   network the spec nests under the switch's LAN came from.
 - **`Status::any_present`**: whether anything of the run is there (a machine that isn't absent),
@@ -601,6 +602,15 @@ change.
 
 ### Changed
 
+- **Breaking: the Vagrant provider is Isoloom's `Provider`, not a string.** `RunOptions::provider`,
+  `RunRecord::provider` and `Status::provider` are `Option<Provider>`, and
+  `RunOptions::with_provider` takes a `Provider`. Their JSON is the same wire name
+  (`vmware_esxi`), so a 1.x run's record still loads. `isothrum --provider` takes only a provider
+  Isoloom names, and says which on a typo, where any text was taken and refused deep in the Vagrant
+  driver. A Vagrant run asked for with no provider fails with the new `Error::NoProvider`
+  (`provider_refused`, as before), naming the run's own providers; it read ``provider ``: a Vagrant
+  run needs a provider…``, an empty name in backticks, and a list of its own. A provider that isn't
+  one of the run's names them too.
 - **Breaking, for embedders:** **`isothrum-machine`'s `providers::detect` works out whether the
   account may manage Hyper-V itself**, with the runner's `whoami /groups` check through the process
   runner it is given, now public as `isothrum_runner::may_manage_hyperv`. Its `may_manage_hyperv`

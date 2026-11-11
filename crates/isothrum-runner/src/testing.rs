@@ -185,7 +185,9 @@ pub(crate) fn no_ports() -> Arc<dyn HostPorts> {
 pub(crate) fn virtualbox_options(secret: &str) -> crate::RunOptions {
     let mut secrets = crate::secrets::Secrets::new();
     secrets.insert("DEMO_SECRET", crate::secrets::SecretValue::new(secret));
-    crate::RunOptions::new().with_provider("virtualbox").with_secrets(secrets)
+    crate::RunOptions::new()
+        .with_provider(isoloom_manifest::Provider::Virtualbox)
+        .with_secrets(secrets)
 }
 
 /// `run`'s access machine attached, as [`crate::Running::attach`] picks it, with no options.
@@ -264,10 +266,7 @@ pub(crate) async fn traced<T>(f: impl Future<Output = T>) -> (T, String) {
 /// Every variant of the unit enum `T`, read back from the names its JSON schema lists (serde's
 /// own): a list nobody keeps, so a variant added is in it.
 pub(crate) fn every_variant<T: schemars::JsonSchema + serde::de::DeserializeOwned>() -> Vec<T> {
-    crate::every_name::<T>()
-        .iter()
-        .map(|n| serde_json::from_value(serde_json::json!(n)).unwrap())
-        .collect()
+    crate::every_name::<T>().iter().map(|n| crate::from_wire_name(n).unwrap()).collect()
 }
 
 /// Every variant of `T` is written as `name` writes it (as serde does), reads back as itself, and

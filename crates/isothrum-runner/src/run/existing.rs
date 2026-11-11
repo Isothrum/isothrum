@@ -175,8 +175,8 @@ impl Running<'_> {
     pub(crate) async fn existing<'a>(&'a self, opts: &'a RunOptions, events: &'a Emitter<'a>) -> Result<(RunRecord, Cx<'a>)> {
         let record = self.record_or_fresh()?;
         self.refuse_elsewhere(&record, opts.host_label.as_deref())?;
-        let provider = record.provider.clone().or_else(|| opts.provider.clone());
-        let params = params_for_existing(self.manifest(), record.replayed_params(), &opts.params, &self.scope(provider.clone()))?;
+        let provider = record.provider.or(opts.provider);
+        let params = params_for_existing(self.manifest(), record.replayed_params(), &opts.params, &self.scope(provider))?;
         // An adopted run ([`crate::Runner::adopt`]), or one acted on from another home, may
         // name a key this runner hasn't made yet.
         self.ensure_ssh_key().await?;

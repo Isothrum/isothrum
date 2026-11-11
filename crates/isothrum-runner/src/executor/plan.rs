@@ -57,7 +57,7 @@ pub(crate) fn limit(step: &Step, scope: &Scope) -> Duration {
 
 /// [`limit`], `fallback` when the manifest gives the step none: an action's own default.
 pub(crate) fn limit_or(step: &Step, scope: &Scope, fallback: Duration) -> Duration {
-    let on_provider = scope.known_provider().and_then(|p| step.provider_timeout_s.get(&p).copied());
+    let on_provider = scope.provider.and_then(|p| step.provider_timeout_s.get(&p).copied());
     on_provider
         .or(step.timeout_s)
         .map_or(fallback, |limit| Duration::from_secs(u64::from(limit.get())))
@@ -110,7 +110,7 @@ mod tests {
     }
 
     fn scope(host: HostOs, provider: Option<&str>) -> Scope {
-        Scope::new(host, provider.map(str::to_owned))
+        Scope::new(host, provider.map(|p| crate::from_wire_name(p).unwrap()))
     }
 
     #[test]

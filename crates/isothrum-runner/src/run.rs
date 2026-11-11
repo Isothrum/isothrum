@@ -23,7 +23,7 @@ pub use attach::{AccessPick, AttachReport};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use isoloom_manifest::{Manifest, RunVar};
+use isoloom_manifest::{Manifest, Provider, RunVar};
 
 use crate::Result;
 use crate::driver::AnyDriver;
@@ -130,12 +130,12 @@ impl<'r> Running<'r> {
     /// defaults otherwise), so a way in is the run's: for the read-only queries. No lock.
     fn silent_cx<'a>(&'a self, events: &'a Emitter<'a>) -> Result<(Option<crate::store::RunRecord>, Cx<'a>)> {
         let record = self.runner.store.record(&self.name)?;
-        let provider = record.as_ref().and_then(|r| r.provider.clone());
+        let provider = record.as_ref().and_then(|r| r.provider);
         let params = params_for_existing(
             self.manifest(),
             record.as_ref().and_then(crate::store::RunRecord::replayed_params),
             &BTreeMap::new(),
-            &self.scope(provider.clone()),
+            &self.scope(provider),
         )?;
         let mut cx = self.cx(params, &self.connection, events, provider)?;
         if let Some(r) = &record {
@@ -172,7 +172,7 @@ impl<'r> Running<'r> {
     pub async fn status(&self) -> Result<Status> {
         let events = self.silent();
         let (record, mut cx) = self.silent_cx(&events)?;
-        let provider = cx.scope.provider.clone();
+        let provider = cx.scope.provider;
         let (state, mut observed, live) = if let Some(state) = self.while_held(record.as_ref())? {
             (state, self.last_seen(), false)
         } else {
@@ -228,7 +228,7 @@ impl<'r> Running<'r> {
         params: BTreeMap<String, String>,
         secrets: &'a Secrets,
         events: &'a Emitter<'a>,
-        provider: Option<String>,
+        provider: Option<Provider>,
     ) -> Result<Cx<'a>> {
         let state_dir = self.runner.store.run_dir_path(&self.name);
         let mut vars = crate::vars::Vars::default();
@@ -241,7 +241,7 @@ impl<'r> Running<'r> {
             vars.set_run(RunVar::SshPublicKey, key);
         }
         if let Some(p) = &provider {
-            vars.set_run(RunVar::Provider, p.clone());
+            vars.set_run(RunVar::Provider, crate::wire_name(p));
         }
         vars.set_params(params);
         let stale = self
@@ -324,7 +324,7 @@ impl<'r> Running<'r> {
     }
 
     /// This host, with `provider`.
-    pub(crate) fn scope(&self, provider: Option<String>) -> Scope {
+    pub(crate) fn scope(&self, provider: Option<Provider>) -> Scope {
         Scope::new(self.runner.config.host, provider)
     }
 

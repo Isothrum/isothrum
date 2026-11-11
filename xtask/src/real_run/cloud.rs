@@ -21,26 +21,23 @@ pub(crate) use phases::{Ran, Runs, execute, phases};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use isothrum_runner::isoloom_manifest::contract::OUTPUT_DIR;
 use isothrum_runner::isoloom_manifest::{Cloud, Target};
-use isothrum_runner::{MANIFEST_FILE, wire_name};
+use isothrum_runner::{MANIFEST_FILE, every_name, from_wire_name, wire_name};
 
 use crate::{Res, process, repo};
 
 /// The targets a real run on a cloud runs, in the order the help lists them.
 const TARGETS: [Target; 2] = [Target::CloudVm, Target::CloudDocker];
 
-/// Every cloud Isoloom's manifests name, in the order the help lists them (a test holds it to
-/// Isoloom's: a cloud added there fails it until it is here, and [`smallest`] until it has a size).
-const CLOUDS: [Cloud; 6] = [Cloud::Aws, Cloud::Azure, Cloud::Gcp, Cloud::Digitalocean, Cloud::Linode, Cloud::Oci];
-
-/// A cloud, by the name Isoloom's manifests give it (`digitalocean`), as the runner's command
-/// line takes it.
+/// A cloud, by the name Isoloom's manifests give it (`digitalocean`), every one Isoloom names
+/// offered, as the runner's command line takes it ([`smallest`] fails the build until a cloud
+/// added there has a size).
 fn cloud_parser() -> impl TypedValueParser<Value = Cloud> {
-    PossibleValuesParser::new(CLOUDS.map(|c| wire_name(&c))).try_map(|name| serde_json::from_value::<Cloud>(serde_json::Value::String(name)))
+    PossibleValuesParser::new(every_name::<Cloud>()).try_map(|name| from_wire_name::<Cloud>(&name).ok_or("not a cloud Isoloom names"))
 }
 
 /// A cloud target, by Isoloom's name (`cloud-vm`).
 fn target_parser() -> impl TypedValueParser<Value = Target> {
-    PossibleValuesParser::new(TARGETS.map(|t| wire_name(&t))).try_map(|name| serde_json::from_value::<Target>(serde_json::Value::String(name)))
+    PossibleValuesParser::new(TARGETS.map(|t| wire_name(&t))).try_map(|name| from_wire_name::<Target>(&name).ok_or("not a target Isoloom names"))
 }
 
 /// `cloud`'s smallest machine size, as the modules' size variables take it.

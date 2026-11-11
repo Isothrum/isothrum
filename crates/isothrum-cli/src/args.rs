@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
-use isothrum_runner::isoloom_manifest::Cloud;
-use isothrum_runner::wire_name;
+use isothrum_runner::isoloom_manifest::{Cloud, Provider};
+use isothrum_runner::{every_name, from_wire_name};
 
 /// Runs what Isoloom generates: the run manifest next to a target's files
 /// (`<run>/.isoloom/<target>/run.json`, or `<run>/.isoloom/<target>/<cloud>/run.json`).
@@ -153,19 +153,17 @@ pub(crate) enum Lifecycle {
     },
 }
 
-/// Every cloud Isoloom's manifests name, in the order the help lists them.
-const CLOUDS: [Cloud; 6] = [Cloud::Aws, Cloud::Azure, Cloud::Gcp, Cloud::Digitalocean, Cloud::Linode, Cloud::Oci];
-
-/// A cloud, by the name Isoloom's manifests give it (`digitalocean`).
-fn cloud_parser() -> impl TypedValueParser<Value = Cloud> {
-    PossibleValuesParser::new(CLOUDS.map(|c| wire_name(&c))).try_map(|name| serde_json::from_value::<Cloud>(serde_json::Value::String(name)))
+/// A value of Isoloom's enum `T` by the name its manifests give it (`digitalocean`,
+/// `vmware_esxi`), every one Isoloom names offered ([`every_name`]).
+fn wire_parser<T: serde::de::DeserializeOwned + schemars::JsonSchema + Clone + Send + Sync + 'static>() -> impl TypedValueParser<Value = T> {
+    PossibleValuesParser::new(every_name::<T>()).try_map(|name| from_wire_name::<T>(&name).ok_or("not a name Isoloom gives"))
 }
 
 /// What `reap` sweeps.
 #[derive(Debug, Args)]
 pub(crate) struct ReapArgs {
     /// The cloud.
-    #[arg(value_parser = cloud_parser())]
+    #[arg(value_parser = wire_parser::<Cloud>())]
     pub(crate) cloud: Cloud,
     /// Say what would be destroyed, destroying nothing.
     #[arg(long)]
@@ -223,10 +221,10 @@ pub(crate) struct OpArgs {
     /// What to call the place the run is on (recorded; a later operation elsewhere is refused).
     #[arg(long, value_name = "LABEL")]
     pub(crate) host_label: Option<String>,
-    /// The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps
-    /// the one it was started with.
-    #[arg(long, value_name = "PROVIDER")]
-    pub(crate) provider: Option<String>,
+    /// The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was
+    /// started with.
+    #[arg(long, value_name = "PROVIDER", value_parser = wire_parser::<Provider>())]
+    pub(crate) provider: Option<Provider>,
 }
 
 /// The completion script of `shell` for the whole grammar.
@@ -253,28 +251,32 @@ mod tests {
         Cli::command().debug_assert();
     }
 
+    /// `reap` takes every cloud Isoloom names (each variant its JSON Schema lists), by that name,
+    /// and only those.
     #[test]
     fn a_cloud_is_named_as_isoloom_writes_it() {
-        for cloud in CLOUDS {
-            let asked = Cli::parse_from(["isothrum", "reap", &wire_name(&cloud)]);
+        for name in every_name::<Cloud>() {
+            let asked = Cli::parse_from(["isothrum", "reap", &name]);
             assert!(
-                matches!(on_runner(asked.command), RunnerCommand::Reap(ReapArgs { cloud: c, .. }) if c == cloud),
-                "{cloud:?}"
+                matches!(on_runner(asked.command), RunnerCommand::Reap(ReapArgs { cloud, .. }) if isothrum_runner::wire_name(&cloud) == name),
+                "{name}"
             );
         }
         let unknown = Cli::try_parse_from(["isothrum", "reap", "Aws"]).unwrap_err().to_string();
         assert!(unknown.contains("[possible values: aws, azure, gcp, digitalocean, linode, oci]"), "{unknown}");
     }
 
-    /// `reap` takes every cloud Isoloom names (each variant its JSON Schema lists), and only
-    /// those: one added there fails this until [`CLOUDS`] lists it.
+    /// Regression: `--provider` took any text, and a typo was only refused deep in the Vagrant
+    /// driver. It takes a provider Isoloom names, by that name.
     #[test]
-    fn reap_takes_every_cloud_isoloom_names() {
-        let names = isothrum_runner::every_name::<Cloud>();
-        assert_eq!(names.len(), CLOUDS.len(), "{names:?}");
-        for name in names {
-            assert!(Cli::try_parse_from(["isothrum", "reap", &name]).is_ok(), "{name}");
+    fn a_provider_is_one_isoloom_names() {
+        let up = |provider: &str| Cli::try_parse_from(["isothrum", "up", "--provider", provider]);
+        for name in every_name::<Provider>() {
+            assert!(up(&name).is_ok(), "{name}");
         }
+        let typo = up("virtualbx").unwrap_err().to_string();
+        assert!(typo.contains("invalid value 'virtualbx' for '--provider <PROVIDER>'"), "{typo}");
+        assert!(typo.contains("virtualbox"), "{typo}");
     }
 
     #[test]
@@ -316,7 +318,7 @@ mod tests {
         let RunnerCommand::Lifecycle(Lifecycle::Up { op, replace, .. }) = on_runner(cli.command) else {
             panic!("not `up`")
         };
-        assert_eq!(op.provider.as_deref(), Some("virtualbox"));
+        assert_eq!(op.provider, Some(Provider::Virtualbox));
         assert_eq!(
             (op.run.path, op.params, op.secrets, replace, cli.json),
             (

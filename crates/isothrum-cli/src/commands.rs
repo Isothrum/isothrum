@@ -289,7 +289,7 @@ fn options(args: &OpArgs, var: &Var<'_>) -> Result<RunOptions> {
     if let Some(label) = &args.host_label {
         opts = opts.with_host_label(label);
     }
-    if let Some(provider) = &args.provider {
+    if let Some(provider) = args.provider {
         opts = opts.with_provider(provider);
     }
     Ok(opts)

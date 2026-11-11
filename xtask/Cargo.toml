@@ -15,7 +15,6 @@ serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
-isothrum-runner = { workspace = true, features = ["fake"] }
 tempfile.workspace = true
 
 [lints]

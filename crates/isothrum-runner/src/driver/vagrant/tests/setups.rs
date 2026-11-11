@@ -57,7 +57,7 @@ pub(super) fn esxi_secrets() -> Secrets {
 /// The options of a run on the ESXi host at 172.16.1.20, with `secrets`.
 pub(super) fn on_esxi(secrets: Secrets) -> RunOptions {
     RunOptions::new()
-        .with_provider("vmware_esxi")
+        .with_provider(isoloom_manifest::Provider::VmwareEsxi)
         .with_param("ESXI_HOSTNAME", "172.16.1.20")
         .with_secrets(secrets)
 }

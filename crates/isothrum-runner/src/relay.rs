@@ -302,7 +302,7 @@ mod tests {
         } else {
             isoloom_manifest::HostOs::Linux
         };
-        crate::scope::Scope::new(host, Some(provider.to_owned()))
+        crate::scope::Scope::new(host, Some(crate::from_wire_name(provider).unwrap()))
     }
 
     fn params(host: &str) -> BTreeMap<String, String> {

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Manifest, OutputRole, Protocol, Role};
+use isoloom_manifest::{Manifest, OutputRole, Protocol, Provider, Role};
 use serde::{Deserialize, Serialize};
 
 use crate::events::MASK;
@@ -157,7 +157,7 @@ pub struct Status {
     #[serde(default = "live_when_absent")]
     pub live: bool,
     /// The Vagrant provider it uses, when it has one.
-    pub provider: Option<String>,
+    pub provider: Option<Provider>,
     /// Every machine of the manifest.
     pub machines: Vec<MachineStatus>,
     /// The run's networks.

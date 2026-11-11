@@ -748,6 +748,7 @@ dependencies = [
  "isothrum-runner",
  "proptest",
  "schemars",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

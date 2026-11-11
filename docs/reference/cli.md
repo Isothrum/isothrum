@@ -29,7 +29,7 @@ isothrum up [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--replace`: Remove whatever of the run exists, then start afresh.
 - `--lifetime <MINUTES>`: How long a run that stops itself (a cloud run) may live, in minutes (default: its manifest's)
 - `--ssh-jump <USER@HOST>`: A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge this machine can't route to. Recorded when the run starts: every later operation (a resume through `up` too) goes the same way.
@@ -48,7 +48,7 @@ isothrum down [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum park`
 
@@ -64,7 +64,7 @@ isothrum park [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--mode <MODE>`: `pause` or `shutdown`. One of `pause`, `shutdown`. Default: `shutdown`.
 
 ## `isothrum resume`
@@ -81,7 +81,7 @@ isothrum resume [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum update`
 
@@ -97,7 +97,7 @@ isothrum update [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum retire`
 
@@ -116,7 +116,7 @@ isothrum retire [OPTIONS] <MACHINE> [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum status`
 
@@ -144,7 +144,7 @@ isothrum check [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum provision`
 
@@ -160,7 +160,7 @@ isothrum provision [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--machine <MACHINE>`: Only this machine.
 
 ## `isothrum attach`
@@ -177,7 +177,7 @@ isothrum attach [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
 - `--network <NETWORK>`: The run's network to attach it to (default: its first)
 - `--image <IMAGE>`: What to run it from (default: the run's): a container image for a Compose access service, the Vagrant box an access VM boots.
@@ -196,7 +196,7 @@ isothrum detach [OPTIONS] [PATH]
 - `--param <NAME=VALUE>`: A param's value (repeatable)
 - `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on (`virtualbox`, `libvirt`, `hyperv`, …); a run keeps the one it was started with.
+- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
 
 ## `isothrum console`

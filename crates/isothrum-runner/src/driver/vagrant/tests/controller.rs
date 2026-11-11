@@ -24,9 +24,14 @@ async fn on_esxi_a_controller_already_off_is_halted_without_an_error_in_the_log(
     connection.insert("ESXI_PASSWORD", SecretValue::new("pw"));
     let run = f.runner.open(&f.manifest, None).unwrap().with_connection(connection);
     let events = Recorder::new();
-    run.up(&opts().with_provider("vmware_esxi").with_param("ESXI_HOSTNAME", "172.16.1.20"), &events)
-        .await
-        .unwrap();
+    run.up(
+        &opts()
+            .with_provider(isoloom_manifest::Provider::VmwareEsxi)
+            .with_param("ESXI_HOSTNAME", "172.16.1.20"),
+        &events,
+    )
+    .await
+    .unwrap();
     let said = serde_json::to_string(&events.events()).unwrap();
     assert!(!said.contains("InvalidPowerState") && !said.contains("step_tolerated"), "{said}");
     assert!(said.contains("isoloom-controller was already off"), "{said}");

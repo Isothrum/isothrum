@@ -49,13 +49,13 @@ impl Running<'_> {
     }
 
     async fn up_work(&self, opts: &RunOptions, events: &Emitter<'_>) -> Result<Done<Started>> {
-        let scope = self.scope(opts.provider.clone());
+        let scope = self.scope(opts.provider);
         check_secrets(self.manifest(), &opts.secrets, &scope)?;
         let mut record = self.record_or_fresh()?;
         self.refuse_elsewhere(&record, opts.host_label.as_deref())?;
         let params = params_for_start(self.manifest(), &opts.params, &scope)?;
         self.ensure_ssh_key().await?;
-        let mut cx = self.acting(self.cx(params, &opts.secrets, events, opts.provider.clone())?)?;
+        let mut cx = self.acting(self.cx(params, &opts.secrets, events, opts.provider)?)?;
         // Leftovers are removed with the names they were made with.
         Self::bind_record(&mut cx, &record);
         self.relay(&mut cx).await?;
@@ -95,7 +95,7 @@ impl Running<'_> {
         record.params = cx.vars.params().clone();
         record.cloud = self.manifest().cloud;
         record.host_label.clone_from(&opts.host_label);
-        record.provider.clone_from(&opts.provider);
+        record.provider = opts.provider;
         record.started_at = Some(clock::rfc3339(self.runner.config.clock.now()));
         Ok(())
     }

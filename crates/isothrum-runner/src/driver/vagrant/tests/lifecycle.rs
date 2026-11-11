@@ -9,7 +9,7 @@ async fn a_vm_run_comes_up_is_checked_parked_resumed_and_goes() {
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(started.record.state, RunState::Ready);
-    assert_eq!(started.record.provider.as_deref(), Some("virtualbox"));
+    assert_eq!(started.record.provider, Some(isoloom_manifest::Provider::Virtualbox));
     assert_eq!(f.state(CONTROLLER), "poweroff", "the controller is halted once the run is built");
     // The published port is ephemeral: a free host port, picked at the first start.
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
@@ -91,7 +91,9 @@ async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty
             .all(|c| c.env("ESXI_PASSWORD").is_none() && c.env("ESXI_HOSTNAME").is_none())
     );
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
-    run.up(&RunOptions::new().with_provider("virtualbox"), &Recorder::new()).await.unwrap();
+    run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Virtualbox), &Recorder::new())
+        .await
+        .unwrap();
     assert_eq!(f.fake.last("vagrant up --provider").unwrap().env("DEMO_SECRET"), Some(""), "its default");
 }
 
@@ -102,11 +104,22 @@ async fn a_provider_that_cant_run_the_machines_is_refused_before_anything_runs()
     let code = |r: crate::Result<crate::Started>| r.map(drop).unwrap_err();
     let none = code(run.up(&RunOptions::new(), &Recorder::new()).await);
     assert_eq!(none.code(), ErrorCode::ProviderRefused);
-    assert!(none.to_string().contains("needs a provider"), "{none}");
+    // Regression: it said ``provider ``: a Vagrant run needs a provider…``, an empty name in
+    // backticks, and a list of its own; the run's providers are the manifest's.
+    assert_eq!(
+        none.to_string(),
+        "a Vagrant run needs a provider: pass one of this run's (`virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`)"
+    );
     // UTM gives a VM no private network: Isoloom's refusal, in its words.
-    let utm = code(run.up(&RunOptions::new().with_provider("utm"), &Recorder::new()).await);
+    let utm = code(
+        run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Utm), &Recorder::new())
+            .await,
+    );
     assert!(utm.to_string().contains("vagrant_utm gives a VM no private network"), "{utm}");
-    let libvirt = code(run.up(&RunOptions::new().with_provider("libvirt"), &Recorder::new()).await);
+    let libvirt = code(
+        run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Libvirt), &Recorder::new())
+            .await,
+    );
     assert!(libvirt.to_string().contains("doesn't exist on this host"), "{libvirt}");
     assert!(f.vagrant().is_empty(), "{:?}", f.vagrant());
 }
@@ -127,13 +140,18 @@ async fn a_vagrant_older_than_2_4_is_refused_before_anything_runs() {
 async fn a_providers_missing_plugin_is_named_with_its_install_command() {
     let f = fixture(HostOs::Linux);
     let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.up(&RunOptions::new().with_provider("libvirt"), &Recorder::new()).await.unwrap_err();
+    let err = run
+        .up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Libvirt), &Recorder::new())
+        .await
+        .unwrap_err();
     assert_eq!(
         err.to_string(),
         "provider `libvirt`: needs the Vagrant plugin `vagrant-libvirt`: `vagrant plugin install vagrant-libvirt`"
     );
     f.engine().plugins.push("vagrant-libvirt".into());
-    run.up(&RunOptions::new().with_provider("libvirt"), &Recorder::new()).await.unwrap();
+    run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Libvirt), &Recorder::new())
+        .await
+        .unwrap();
     assert_eq!(f.engine().provider.as_deref(), Some("libvirt"));
 }
 
@@ -170,7 +188,9 @@ async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
     f.engine().plugins.push("vagrant-parallels".into());
     f.engine().parallels = Some(["web-vm - web", "web-vm-web", "mine"].map(String::from).into());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+    run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
+        .await
+        .unwrap();
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
     assert!(calls.contains(&"prlctl stop web-vm - web --kill".to_owned()), "{calls:#?}");
@@ -183,7 +203,9 @@ async fn a_hypervisor_listing_that_fails_is_traced_and_removes_nothing() {
     let f = fixture(HostOs::Macos);
     f.engine().plugins.push("vagrant-parallels".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+    run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
+        .await
+        .unwrap();
     let (down, traced) = crate::testing::traced(run.down(&RunOptions::new(), &Recorder::new())).await;
     down.unwrap();
     assert!(!f.fake.lines().iter().any(|l| l.starts_with("prlctl delete")));
@@ -234,7 +256,9 @@ async fn an_orphan_parallels_wont_delete_is_warned_about_and_one_it_deletes_said
             f.engine().fails.insert(Fails::Delete);
         }
         let run = f.runner.open(&f.manifest, None).unwrap();
-        run.up(&opts().with_provider("parallels"), &Recorder::new()).await.unwrap();
+        run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
+            .await
+            .unwrap();
         let events = Recorder::new();
         run.down(&RunOptions::new(), &events).await.unwrap();
         let said = warnings(&events);

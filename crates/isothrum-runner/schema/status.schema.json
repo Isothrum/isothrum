@@ -15,9 +15,13 @@
     },
     "provider": {
       "description": "The Vagrant provider it uses, when it has one.",
-      "type": [
-        "string",
-        "null"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Provider"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "machines": {
@@ -98,6 +102,51 @@
           "description": "Nothing of it exists.",
           "type": "string",
           "const": "absent"
+        }
+      ]
+    },
+    "Provider": {
+      "description": "A Vagrant provider (`vagrant up --provider`).",
+      "oneOf": [
+        {
+          "description": "VirtualBox.",
+          "type": "string",
+          "const": "virtualbox"
+        },
+        {
+          "description": "VMware Workstation or Fusion.",
+          "type": "string",
+          "const": "vmware_desktop"
+        },
+        {
+          "description": "Hyper-V.",
+          "type": "string",
+          "const": "hyperv"
+        },
+        {
+          "description": "Parallels Desktop.",
+          "type": "string",
+          "const": "parallels"
+        },
+        {
+          "description": "libvirt (KVM).",
+          "type": "string",
+          "const": "libvirt"
+        },
+        {
+          "description": "QEMU.",
+          "type": "string",
+          "const": "qemu"
+        },
+        {
+          "description": "UTM.",
+          "type": "string",
+          "const": "utm"
+        },
+        {
+          "description": "An ESXi server.",
+          "type": "string",
+          "const": "vmware_esxi"
         }
       ]
     },

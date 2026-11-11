@@ -334,10 +334,16 @@ pub enum Error {
     /// The run's Vagrant provider can't run it.
     #[error("provider `{provider}`: {reason}")]
     Provider {
-        /// The provider asked for (empty when none was).
+        /// The provider asked for.
         provider: String,
         /// Why it can't run the run, and what to do.
         reason: String,
+    },
+    /// A Vagrant run was asked for with no provider.
+    #[error("a Vagrant run needs a provider: pass one of this run's ({providers})")]
+    NoProvider {
+        /// The run's providers, as the manifest names them (`` `virtualbox`, `libvirt` ``).
+        providers: String,
     },
     /// Every slot of the run's place is held by another run.
     #[error("no slot is free on `{place}`: {held} runs hold one; stop one first")]
@@ -408,7 +414,7 @@ impl Error {
             Error::SecretMissing { .. } => ErrorCode::SecretMissing,
             Error::Param { .. } => ErrorCode::ParamInvalid,
             Error::RunName { .. } => ErrorCode::RunName,
-            Error::Provider { .. } => ErrorCode::ProviderRefused,
+            Error::Provider { .. } | Error::NoProvider { .. } => ErrorCode::ProviderRefused,
             Error::Elevation { .. } => ErrorCode::ElevationFailed,
             Error::MachineUnknown { .. } => ErrorCode::MachineUnknown,
             Error::MachineAmbiguous { .. } => ErrorCode::MachineAmbiguous,

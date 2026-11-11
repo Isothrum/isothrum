@@ -32,7 +32,7 @@ mod lock;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use isoloom_manifest::{Cloud, Driver, Target};
+use isoloom_manifest::{Cloud, Driver, Provider, Target};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
@@ -116,7 +116,7 @@ pub struct RunRecord {
     pub cloud: Option<Cloud>,
     /// The Vagrant provider the run uses, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
+    pub provider: Option<Provider>,
     /// What the embedder calls the place the run is on (a server, an account).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
