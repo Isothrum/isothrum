@@ -17,6 +17,9 @@ pub(crate) enum Error {
     /// Isoloom finds problems in the spec: nothing is generated until they're fixed.
     #[error("fix the spec first: {}", .0.join("; "))]
     Problems(Vec<String>),
+    /// No target generates any file for the project.
+    #[error("no target generates any file for this project: the plan's `skipped` says why")]
+    NothingGenerated,
     /// The project generates nothing for that target.
     #[error("this project has no files for `{0}`")]
     NoFiles(String),

@@ -301,6 +301,9 @@ change.
   `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target
   cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
   cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
+- **The editor's whole-project download says when no target generates anything.** `bundle` on a
+  project no target generates a file for said ``this project has no files for `any target` ``; it
+  now says no target generates any file for the project, and that the plan's `skipped` says why.
 - **`isothrum reap --dry-run` fails when it would destroy a run.** A dry run that found expired
   runs and no leftover passed, though the runs it named are still standing; it now exits 1, as the
   docs say a sweep with something left does.
