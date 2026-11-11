@@ -17,7 +17,8 @@
 //!   guest-<machine>.in  a guest delivery's values, only while it is delivered
 //!   consoles.json       the graphical consoles the runner chose (VMware's VNC: port and
 //!                       password per machine); removed by a down
-//!   proxmox-console.curl  a Proxmox console request's credentials, only while curl runs
+//!   proxmox-console.curl  a Proxmox console request's credentials, only while curl runs (removed
+//!                       however the request ends)
 //!   elevated/<token>/   an elevated session's folder (Hyper-V): each request's `env-<n>.json`,
 //!                       its variables, until the broker starts the program
 //!   …                   what the manifest keeps in `${run.state_dir}`: Compose's pinned ports,
@@ -31,6 +32,7 @@
 mod acl;
 mod fs;
 mod lock;
+mod transient;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,6 +41,7 @@ use isoloom_manifest::{Cloud, Driver, Provider, Target};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
+pub(crate) use transient::Transient;
 
 /// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
 /// when that fails.

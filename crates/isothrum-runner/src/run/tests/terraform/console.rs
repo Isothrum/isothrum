@@ -31,26 +31,38 @@ fn proxmox_api(call: &Call, configs: &Mutex<Vec<String>>) -> Option<Reply> {
     Some(Reply::fail(22, "curl: (22) The requested URL returned error: 401"))
 }
 
+/// A server up with the fake Proxmox API, `api` answering its `curl`s.
+async fn up_with_api(api: impl Fn(&Call) -> Option<Reply> + Send + Sync + 'static) -> super::Server {
+    let s = scripted(HostOs::Linux, SOLO_WEB_PROXMOX, move |call| {
+        if call.line().contains(" apply ") {
+            let state = format!(
+                r#"{{"outputs":{{"ip":{{"value":"{ROUTER}"}},"ssh_user":{{"value":"isoloom"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"vm_id_web":{{"value":104}}}},"resources":[{{"instances":[{{}}]}}]}}"#
+            );
+            std::fs::write(state_dir(call).unwrap().join("terraform.tfstate"), state).unwrap();
+            return Some(Reply::ok("Apply complete!"));
+        }
+        api(call)
+    });
+    s.runner.open(&s.manifest, None).unwrap().up(&opts("pve-run"), &Recorder::new()).await.unwrap();
+    s
+}
+
+/// The run on `s`, its connection giving Proxmox's password.
+fn signed_in(s: &super::Server) -> crate::Running<'_> {
+    let mut connection = Secrets::new();
+    connection.insert("proxmox_password", SecretValue::new("pw-s3cret"));
+    s.runner.open(&s.manifest, None).unwrap().with_connection(connection)
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_proxmox_vms_console_is_proxmoxs_own_through_its_api() {
     let configs = Arc::new(Mutex::new(Vec::new()));
-    let s = scripted(HostOs::Linux, SOLO_WEB_PROXMOX, {
+    let s = up_with_api({
         let configs = Arc::clone(&configs);
-        move |call| {
-            if call.line().contains(" apply ") {
-                let state = format!(
-                    r#"{{"outputs":{{"ip":{{"value":"{ROUTER}"}},"ssh_user":{{"value":"isoloom"}},"ready_file":{{"value":"/var/lib/isoloom/ready"}},"vm_id_web":{{"value":104}}}},"resources":[{{"instances":[{{}}]}}]}}"#
-                );
-                std::fs::write(state_dir(call).unwrap().join("terraform.tfstate"), state).unwrap();
-                return Some(Reply::ok("Apply complete!"));
-            }
-            proxmox_api(call, &configs)
-        }
-    });
-    s.runner.open(&s.manifest, None).unwrap().up(&opts("pve-run"), &Recorder::new()).await.unwrap();
-    let mut connection = Secrets::new();
-    connection.insert("proxmox_password", SecretValue::new("pw-s3cret"));
-    let run = s.runner.open(&s.manifest, None).unwrap().with_connection(connection);
+        move |call| proxmox_api(call, &configs)
+    })
+    .await;
+    let run = signed_in(&s);
     let console = run.graphical_console("web").await.unwrap();
     let crate::Endpoint::ProxmoxVnc(vnc) = &console.endpoint else {
         panic!("{console:?}")
@@ -84,4 +96,23 @@ async fn a_proxmox_vms_console_is_proxmoxs_own_through_its_api() {
         err.to_string().ends_with("the run's connection gives no Proxmox API token or password"),
         "{err}"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_console_request_cut_short_leaves_no_credentials_on_disk() {
+    // Regression: the config was removed only once `curl` returned, so a request dropped while it
+    // ran (a cancel, Ctrl-C) left the password in the run's state folder.
+    let configs = Arc::new(Mutex::new(Vec::new()));
+    let s = up_with_api({
+        let configs = Arc::clone(&configs);
+        move |call| proxmox_api(call, &configs).map(|r| r.after(std::time::Duration::from_secs(3600)))
+    })
+    .await;
+    let run = signed_in(&s);
+    let cut = tokio::time::timeout(std::time::Duration::from_secs(10), run.graphical_console("web")).await;
+    assert!(cut.is_err(), "the request was still running");
+    let said = configs.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert!(said[0].contains("pw-s3cret"), "curl was given the password: {said:?}");
+    let config = s.runner.store.run_dir(run.name()).unwrap().join("proxmox-console.curl");
+    assert!(!config.exists(), "the credentials are gone");
 }

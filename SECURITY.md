@@ -61,7 +61,8 @@ The full model: [docs/explanation/security-model.md](docs/explanation/security-m
   `state_file` delivery's file, a guest delivery's input (`guest-<machine>.in`), an elevated
   Hyper-V session's request variables (`env-<n>.json`), the graphical consoles' passwords the
   runner chose for a VMware run (`consoles.json`) and a Proxmox console request's credentials
-  (`proxmox-console.curl`, only while `curl` runs)
+  (`proxmox-console.curl`, only while `curl` runs: removed however the request ends, a cancel
+  or Ctrl-C included)
   ([Security model](docs/explanation/security-model.md)).
 - **Signed releases.** Binaries come with checksums, a Sigstore signature and build provenance
   ([verify a release](docs/how-to/verify-a-release.md)); the crates forbid `unsafe` code.

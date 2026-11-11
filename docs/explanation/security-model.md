@@ -60,8 +60,9 @@ The manifest declares *slots* (secrets, inputs, connection credentials). Their v
   machine's VMware VNC console (made before the run's first Vagrant command, removed by a
   successful `down`; VMware itself writes the password in the VM's `.vmx`), and
   `proxmox-console.curl`, a Proxmox console request's credentials, which `curl` reads on its
-  standard input and the runner removes once it ran. The tools themselves may keep values: Terraform state can hold any
-  value a resource received.
+  standard input and the runner removes once it ran, or when the request is cut short (a cancel,
+  Ctrl-C; a removal that fails fails the request). The tools themselves may keep values:
+  Terraform state can hold any value a resource received.
 
 Terraform doesn't inherit the shell's cloud settings: `AWS_*`, `ARM_*`, `AZURE_*`, `GOOGLE_*`,
 `CLOUDSDK_*`, `GCLOUD_*`, `DIGITALOCEAN_*`, `LINODE_*`, `OCI_*`, `TF_VAR_*` and `TF_CLI_ARGS*`

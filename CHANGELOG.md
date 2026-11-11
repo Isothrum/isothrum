@@ -482,7 +482,7 @@ change.
   sign in with), reading the port where the hypervisor keeps it: `virsh domdisplay` for libvirt,
   `info vnc` on vagrant-qemu's monitor socket, `VBoxManage showvminfo` for VirtualBox's remote
   display, `vncproxy` over Proxmox's API (with `curl`, its credentials in an owner-only config file
-  piped into it and removed), or an SSH tunnel it opens from the loopback (`ssh -N -L`, held by the
+  piped into it and removed however the request ends, a cancel or Ctrl-C included), or an SSH tunnel it opens from the loopback (`ssh -N -L`, held by the
   `Console` until it is dropped). A console the hypervisor says listens off the loopback is
   refused. For VMware's VNC server, the runner chooses a free loopback port and an 8-character
   password per machine before the run's first Vagrant command, keeps them in the run's

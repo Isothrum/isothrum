@@ -17,7 +17,7 @@
 //!   `unreachable`; any other failure fails the step at once.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use isoloom_manifest::{Delivery, SecretSlot};
@@ -26,6 +26,7 @@ use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call, slot_value, stdout_of};
 use crate::ssh::{self, Login};
+use crate::store::Transient;
 use isoloom_manifest::contract::{DELIVERED, SECRETS_DIR};
 
 /// What runs as root on the machine: each `<name> <base64>` line of its input kept owner-only
@@ -106,57 +107,13 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
     let note = format!("Delivering {machine}'s secrets…");
     cx.events
         .stepped(&id, Some(&note), async {
-            let dir = cx.state_dir();
-            let input = Input::write(dir.join(format!("{id}.in")), lines)?;
+            // The file holds the values: it goes however the delivery ends, and one left behind
+            // fails the delivery, unless it failed already (that error stands).
+            let input = Transient::write(cx.state_dir().join(format!("{id}.in")), lines.as_bytes(), "a guest delivery's input file")?;
             let done = deliver_retrying(cx, &id, login, input.path()).await;
-            // The file holds the values: one left behind fails the delivery, unless it failed
-            // already (that error stands; the next delivery writes the file again).
-            let removed = input.remove();
-            if let (Err(_), Err(e)) = (&done, &removed) {
-                tracing::error!(error = %e, "a failed delivery's input file was left in the run's state folder");
-            }
-            done.and(removed)
+            input.remove_after(done)
         })
         .await
-}
-
-/// The owner-only file a delivery's values wait in, in the run's state folder. It goes when the
-/// delivery ends, however it ends: [`Input::remove`] once delivered or failed, and on drop when
-/// the operation is cut short mid-delivery (its future dropped).
-struct Input {
-    /// Where it is.
-    path: PathBuf,
-    /// Whether it is still to be removed.
-    held: bool,
-}
-
-impl Input {
-    /// `lines` written owner-only at `path`.
-    fn write(path: PathBuf, lines: &str) -> Result<Input> {
-        crate::store::write(&path, lines.as_bytes())?;
-        Ok(Input { path, held: true })
-    }
-
-    /// Where it is.
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Removes it; one that can't be removed is an error naming it.
-    fn remove(mut self) -> Result<()> {
-        self.held = false;
-        crate::store::remove(&self.path)
-    }
-}
-
-impl Drop for Input {
-    fn drop(&mut self) {
-        if self.held
-            && let Err(e) = crate::store::remove_path(&self.path)
-        {
-            tracing::error!(error = %e, path = %self.path.display(), "a cut-short delivery's input file was left in the run's state folder");
-        }
-    }
 }
 
 /// Pipes `input` into [`receive`], run as root at `login` for the step `id`: tried again while SSH

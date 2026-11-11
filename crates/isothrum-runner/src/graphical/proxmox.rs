@@ -2,7 +2,8 @@
 //! the VM with `curl`, signed in with the run's connection (an API token, else the user's
 //! password through a ticket), its answer turned into the API's VNC websocket and the ticket that
 //! opens it ([`ProxmoxVnc`]). The credentials reach `curl` in a config file the runner writes
-//! owner-only in the run's state folder, pipes into it, and removes: never on its command line.
+//! owner-only in the run's state folder, pipes into it, and removes however the request ends
+//! (a cancel, Ctrl-C included): never on its command line.
 
 use std::time::Duration;
 
@@ -14,11 +15,12 @@ use crate::error::Error;
 use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
 use crate::secrets::SecretValue;
+use crate::store::Transient;
 
 /// How long one API call may go without progress.
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// The config file `curl` reads, in the run's state folder, only while it runs.
+/// The config file `curl` reads, in the run's state folder, only while it runs ([`Transient`]).
 const CONFIG: &str = "proxmox-console.curl";
 
 /// Proxmox VE's VNC websocket for one VM, opened for one session: connect to `websocket` with
@@ -153,24 +155,21 @@ async fn sign_in(
 }
 
 /// The `data` of a POST to `url`, its `fields` (the config lines that sign it in and its form)
-/// in the config file `curl` reads, removed once it ran.
+/// in the config file `curl` reads, removed once it ran or the request is cut short.
 async fn api(cx: &Cx<'_>, machine: &Machine, url: &str, insecure: bool, fields: &[String]) -> Result<serde_json::Value> {
-    let config = cx.state_dir().join(CONFIG);
     let mut text = format!("url = {}\nrequest = \"POST\"\n", quoted(url));
     for f in fields {
         text.push_str(f);
         text.push('\n');
     }
-    crate::store::write(&config, text.as_bytes())?;
+    let config = Transient::write(cx.state_dir().join(CONFIG), text.as_bytes(), "a Proxmox console request's curl config")?;
     let mut args = vec!["--silent", "--show-error", "--fail-with-body", "--max-time", "25", "--config", "-"];
     if insecure {
         args.push("--insecure");
     }
     let mut spec = ProcessSpec::new("curl", args);
-    spec.stdin = Some(config.clone());
-    let out = call(cx, "console", &spec, LIMIT, Echo::Quiet).await;
-    crate::store::remove(&config)?;
-    let out = out?;
+    spec.stdin = Some(config.path().to_path_buf());
+    let out = config.remove_after(call(cx, "console", &spec, LIMIT, Echo::Quiet).await)?;
     if !out.success() {
         return Err(none(machine, format!("Proxmox's API refused: {}", cx.events.mask(&out.reason()))));
     }
