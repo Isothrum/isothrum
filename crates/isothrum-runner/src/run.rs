@@ -138,6 +138,9 @@ impl<'r> Running<'r> {
             &BTreeMap::new(),
             &self.scope(provider),
         )?;
+        // Nothing is emitted, but its errors say what a tool printed: the connection's secrets
+        // masked there, as an operation's are.
+        events.hide(crate::secrets::sensitive_values(self.manifest(), &self.connection));
         let mut cx = self.cx(params, &self.connection, events, provider)?;
         cx.query = true;
         if let Some(r) = &record {

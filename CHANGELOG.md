@@ -54,6 +54,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   still fails at once, as does a download that stalled, and an operation cut short stops waiting
   with it.
 
+- **A status read's errors mask the connection's secrets.** A status read emits nothing, so its
+  errors quoted what a tool printed of the connection's values as it was (a status step's failure,
+  and now a Proxmox API refusing the run's token or password): they are masked as an
+  operation's are.
+
 ## [2.0.0] — 2026-11-11
 
 ### Highlights

@@ -57,7 +57,9 @@ pub(crate) fn on_server(manifest: &Manifest, provider: Option<Provider>) -> bool
 pub(crate) fn server_of(params: &BTreeMap<String, String>) -> Option<String> {
     if let Some(endpoint) = params.get("proxmox_endpoint") {
         let rest = endpoint.split_once("://").map_or(endpoint.as_str(), |(_, r)| r);
-        let host = rest.split(['/', '?']).next().unwrap_or_default();
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        // A `user:password@` in the address is never part of the name.
+        let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
         // `[::1]:8006` keeps its brackets' address; `pve:8006` its name.
         let host = match host.strip_prefix('[') {
             Some(v6) => v6.split(']').next().unwrap_or_default(),
@@ -126,6 +128,11 @@ mod tests {
         );
         assert_eq!(server_of(&params("ESXI_HOSTNAME", "172.16.1.20")).as_deref(), Some("172.16.1.20"));
         assert_eq!(server_of(&params("esxi_hostname", "esxi.lab")).as_deref(), Some("esxi.lab"));
+        assert_eq!(
+            server_of(&params("proxmox_endpoint", "https://root%40pam:s3cret@pve.lab:8006/")).as_deref(),
+            Some("pve.lab"),
+            "an address's credentials are never the name"
+        );
         assert_eq!(server_of(&params("proxmox_endpoint", "")), None);
         assert_eq!(server_of(&BTreeMap::new()), None);
     }

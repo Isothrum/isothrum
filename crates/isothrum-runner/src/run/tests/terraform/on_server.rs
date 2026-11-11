@@ -22,6 +22,9 @@ enum Server {
     Removed,
     /// 401: the token revoked.
     Refuses,
+    /// 401, its answer quoting the password it was given (a proxy in front of the API that
+    /// echoes the form).
+    RefusesQuoting,
     /// Nothing answers.
     Unreachable,
 }
@@ -37,6 +40,7 @@ fn api(server: &Arc<Mutex<Server>>) -> impl Fn(&Call) -> Option<Reply> + Send + 
         let now = *server.lock().unwrap_or_else(PoisonError::into_inner);
         Some(match now {
             Server::Refuses => Reply::fail(22, "curl: (22) The requested URL returned error: 401"),
+            Server::RefusesQuoting => Reply::fail(22, "curl: (22) The requested URL returned error: 401 (password=pw-s3cret)"),
             Server::Unreachable => Reply::fail(7, "curl: (7) Failed to connect to 172.16.1.10 port 8006: Connection refused"),
             _ if config.contains("/access/ticket") => Reply::ok(r#"{"data":{"ticket":"PVE:t","CSRFPreventionToken":"c"}}"#),
             Server::Has(status) => Reply::ok(&format!(
@@ -89,6 +93,13 @@ async fn a_revoked_token_is_the_server_refusing_the_runs_credentials() {
         matches!(&err, crate::Error::ServerAuthFailed { step, server: Some(host), .. } if step == "status" && host == "172.16.1.10"),
         "{err:?}"
     );
+    // Regression: a status read's emitter masked nothing, so its errors showed what a tool
+    // printed of the connection's secrets.
+    *server.lock().unwrap_or_else(PoisonError::into_inner) = Server::RefusesQuoting;
+    let quoted = signed_in(&s).status().await.unwrap_err();
+    let (shown, debug) = (quoted.to_string(), format!("{quoted:?}"));
+    assert!(!shown.contains("pw-s3cret") && !debug.contains("pw-s3cret"), "{debug}");
+    assert!(shown.contains("(password=***)"), "{shown}");
 }
 
 #[tokio::test(start_paused = true)]
