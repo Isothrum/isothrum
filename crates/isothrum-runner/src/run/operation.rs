@@ -85,6 +85,7 @@ impl Running<'_> {
         // before the lock, a second op on the same run clobbered this entry, and this guard,
         // dropping after the lock was released, freed the second op's port reservations.
         let _flight = self.runner.enter(self.name(), op);
+        self.settle_cut_off()?;
         let before = store.record(self.name())?.map_or(RunState::Absent, |r| r.state);
         if let Some(during) = op.during() {
             emitter.emit(EventKind::State { from: before, to: during });
@@ -134,6 +135,31 @@ impl Running<'_> {
         });
         store.save(&record)?;
         Ok(Some(record.state))
+    }
+
+    /// Settles what an operation whose process died left in the run's record. Called with the
+    /// run locked, so no operation holds it: a record still in a moving state (`starting`,
+    /// `stopping`, ...) is one whose operation never recorded how it ended (its process killed,
+    /// the computer off), as [`Unfinished`] does for one cut short in this process. It is
+    /// recorded `failed`, cancelled, as that operation: what it left is a failed run's, which the
+    /// next `up` clears rather than calling it running.
+    fn settle_cut_off(&self) -> Result<()> {
+        let store = &self.runner.store;
+        let Some(mut record) = store.record(self.name())? else {
+            return Ok(());
+        };
+        let Some(op) = record.state.moved_by() else {
+            return Ok(());
+        };
+        tracing::warn!(state = %record.state, %op, "the run's last operation ended without recording how: taken as failed");
+        record.state = RunState::Failed;
+        record.last = Some(LastOp {
+            op,
+            ok: false,
+            code: Some(ErrorCode::Cancelled),
+            at: rfc3339(self.runner.config.clock.now()),
+        });
+        store.save(&record)
     }
 
     /// Records that `op` began acting on the run (the record moves to the operation's state).

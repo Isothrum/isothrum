@@ -110,7 +110,13 @@ impl RunState {
     /// Whether the run is in the middle of an operation that changes it: a state some operation
     /// holds while it runs ([`Op::during`]).
     pub(crate) fn is_moving(self) -> bool {
-        Op::ALL.iter().any(|op| op.during() == Some(self))
+        self.moved_by().is_some()
+    }
+
+    /// The operation that holds the run in this state while it runs ([`Op::during`]), if any:
+    /// the one a record left in it was cut short in, when no operation holds the run.
+    pub(crate) fn moved_by(self) -> Option<Op> {
+        Op::ALL.into_iter().find(|op| op.during() == Some(self))
     }
 
     /// The state as written in events (`ready`).

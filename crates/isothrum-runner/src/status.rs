@@ -214,10 +214,12 @@ pub struct Started {
     pub message: Option<String>,
 }
 
-/// The state of a run whose machines are `machines`, given its record. Absent when nothing is
-/// there; parked when its record says so and none runs ([`any_member_running`]: one up with a
-/// failing healthcheck runs); failed when its record says its start failed, whatever runs; ready
-/// when every member machine runs healthy; failed otherwise.
+/// The state of a run whose machines are `machines`, given its record, while no operation holds
+/// it. Absent when nothing is there; parked when its record says so and none runs
+/// ([`any_member_running`]: one up with a failing healthcheck runs); failed when its record says
+/// its start failed, or an operation never recorded how it ended (its record still moving: its
+/// process was killed), whatever runs; ready when every member machine runs healthy; failed
+/// otherwise.
 pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
     if !any_present(machines) {
         return RunState::Absent;
@@ -229,7 +231,8 @@ pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord
     let running = |m: &&MachineStatus| m.state == MachineState::Running;
     // A start that failed after its machines came up (a Terraform apply whose router never
     // reported its address, a set-up step that failed) left them running: the run isn't ready.
-    if record.is_some_and(|r| r.state == RunState::Failed) {
+    // So did one whose process died midway: its set-up may not have run.
+    if record.is_some_and(|r| r.state == RunState::Failed || r.state.is_moving()) {
         return RunState::Failed;
     }
     if !members.is_empty() && members.iter().all(running) {

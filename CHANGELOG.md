@@ -40,6 +40,13 @@ change.
 
 ### Fixed
 
+- **A run whose operation's process died is failed, not ready.** An operation killed midway
+  (SIGKILL, a crash, the computer switched off) never recorded how it ended: its record stayed
+  `starting` (or `stopping`, `parking`, `resuming`), so a run whose containers or VMs had come up
+  read as `ready` though its set-up never ran, and the next `up` was refused as
+  `already_running`. Such a run now reads as `failed`, and the next operation, once it holds the
+  run, records it `failed` (its `last` the killed operation, `cancelled`), so `up` clears what
+  it left and starts afresh.
 - **A Compose start pulls its images before its `up`, with no time limit while they move.** An
   11 GB image pulled through a slow connection was still downloading when the start's `up` step
   ran into its limit, and the embedder could only say the `up` took too long. Before a step that

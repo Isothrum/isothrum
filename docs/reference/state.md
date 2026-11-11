@@ -68,7 +68,7 @@ The run's record, written atomically. It holds no secret value.
 | `cloud` | The cloud, for a cloud run. |
 | `provider` | The Vagrant provider, for a Vagrant run. |
 | `host_label` | The place the run is on, when one was given (`--host-label`). |
-| `state` | Where the run stood after its last operation (`ready`, `parked`, `absent`, ...). |
+| `state` | Where the run stood after its last operation (`ready`, `parked`, `absent`, ...). An operation records a moving state (`starting`, `stopping`, `parking`, `resuming`) while it acts; one left so with no operation holding the run is one whose process died midway (killed, crashed, the computer off): its run reads as `failed`, and the next operation, once it holds the run, records it `failed` (its `last` cancelled), so the next `up` clears what it left. |
 | `params` | Every param the run was started with; later operations replay them, a param the record lacks taking the value given, else its default (a required one with neither is refused). |
 | `vm_host_ports` | The host ports a local VM run forwards, by `<machine>/<port>`. |
 | `vm_boot_digests` | Each VM's boot digest, which `update` compares to restart a VM whose boot-time settings changed. |
