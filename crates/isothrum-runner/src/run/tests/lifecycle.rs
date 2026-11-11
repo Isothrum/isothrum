@@ -48,7 +48,10 @@ async fn the_flag_reaches_only_the_steps_that_create_things_and_never_an_event()
     run.up(&opts(), &events).await.unwrap();
     for call in f.fake.calls() {
         let has = call.env("DEMO_SECRET").is_some();
-        let creates = call.line().contains(" up --detach ") || call.line().contains("--exit-code-from isoloom-init-web-1");
+        // The pull before a step reads the Compose files as the step does: with its variables.
+        let creates = [" up --detach ", "--exit-code-from isoloom-init-web-1", " pull --policy missing "]
+            .iter()
+            .any(|t| call.line().contains(t));
         assert_eq!(has, creates, "{}", call.line());
     }
     let text = serde_json::to_string(&events.events()).unwrap();

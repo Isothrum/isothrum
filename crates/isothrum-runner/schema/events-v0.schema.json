@@ -614,6 +614,16 @@
           "const": "timeout"
         },
         {
+          "description": "What a step downloads in its own phase before it runs (a Compose start's images) showed\nno progress for as long as a download may, and was stopped.",
+          "type": "string",
+          "const": "download_stalled"
+        },
+        {
+          "description": "What a step downloads in its own phase before it runs couldn't be downloaded: its tool\nfailed (the message says why: a registry refusing it, a name it doesn't know, the network).",
+          "type": "string",
+          "const": "download_failed"
+        },
+        {
           "description": "The run is already up.",
           "type": "string",
           "const": "already_running"

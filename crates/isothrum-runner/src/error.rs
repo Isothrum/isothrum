@@ -40,6 +40,12 @@ pub enum ErrorCode {
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
     /// and was stopped, with what it started (the `error` event's `timeout` says which).
     Timeout,
+    /// What a step downloads in its own phase before it runs (a Compose start's images) showed
+    /// no progress for as long as a download may, and was stopped.
+    DownloadStalled,
+    /// What a step downloads in its own phase before it runs couldn't be downloaded: its tool
+    /// failed (the message says why: a registry refusing it, a name it doesn't know, the network).
+    DownloadFailed,
     /// The run is already up.
     AlreadyRunning,
     /// The run is recorded on another place (server or account) than the one asked for.
@@ -107,6 +113,8 @@ impl ErrorCode {
             ErrorCode::ToolFailed => "tool_failed",
             ErrorCode::ToolTooOld => "tool_too_old",
             ErrorCode::Timeout => "timeout",
+            ErrorCode::DownloadStalled => "download_stalled",
+            ErrorCode::DownloadFailed => "download_failed",
             ErrorCode::AlreadyRunning => "already_running",
             ErrorCode::RunningElsewhere => "running_elsewhere",
             ErrorCode::PortInUse => "port_in_use",
@@ -219,6 +227,27 @@ pub enum Error {
         step: String,
         /// Which limit it ran into.
         timed_out: TimedOut,
+    },
+    /// What a step downloads in its own phase before it runs showed no progress for `after_s`
+    /// seconds, and was stopped. A download has no other limit: one still moving runs as long
+    /// as it moves.
+    #[error("step `{step}` showed no progress downloading for {after_s}s and was stopped{}", last_line.as_ref().map_or_else(String::new, |l| format!("; its last line: `{l}`")))]
+    DownloadStalled {
+        /// The download's step (`pull-up`, before the `up` it downloads for).
+        step: String,
+        /// How long it went without progress, in seconds.
+        after_s: u64,
+        /// The last line it printed (secrets masked, cut to 300 bytes); none when it printed
+        /// nothing.
+        last_line: Option<String>,
+    },
+    /// What a step downloads in its own phase before it runs couldn't be downloaded.
+    #[error("step `{step}` couldn't download what it needs: {reason}")]
+    DownloadFailed {
+        /// The download's step (`pull-up`).
+        step: String,
+        /// The tool's last error lines, or its exit status (secrets masked).
+        reason: String,
     },
     /// The run is already up.
     #[error("run `{run}` is already running")]
@@ -416,6 +445,8 @@ impl Error {
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
             Error::Timeout { .. } => ErrorCode::Timeout,
+            Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,
+            Error::DownloadFailed { .. } => ErrorCode::DownloadFailed,
             Error::AlreadyRunning { .. } => ErrorCode::AlreadyRunning,
             Error::RunningElsewhere { .. } => ErrorCode::RunningElsewhere,
             Error::PortInUse { .. } => ErrorCode::PortInUse,

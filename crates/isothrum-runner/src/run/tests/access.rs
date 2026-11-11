@@ -40,6 +40,21 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
         Some("myimage"),
         "the picked image is delivered"
     );
+    // Its image is pulled first, in a step of its own, not under the start's limit.
+    let pull = f.fake.last("--profile access pull").expect("its image is pulled first");
+    assert!(pull.line().ends_with(" pull --policy missing --ignore-buildable user"), "{}", pull.line());
+    assert_eq!(
+        pull.env(isoloom_manifest::contract::ACCESS_IMAGE),
+        Some("myimage"),
+        "the picked image is the one pulled"
+    );
+    let lines = f.fake.lines();
+    let at = |text: &str| lines.iter().position(|l| l.contains(text));
+    assert!(at("--profile access pull") < at("--profile access up"), "{lines:#?}");
+    assert!(kinds(&events).iter().any(|e| matches!(
+        e,
+        EventKind::Step { step, state: crate::StepState::Done, .. } if step == "pull-attach"
+    )));
     let joined = f.fake.last("network connect").expect("joined to the chosen network");
     assert_eq!(joined.line(), "docker network connect web-portal_lab c0ffee", "its rendered native name");
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));

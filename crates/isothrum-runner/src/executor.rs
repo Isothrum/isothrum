@@ -20,7 +20,9 @@ use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
 pub(crate) use progress::{Progress, within};
-pub(crate) use step::{Echo, Hold, call, call_ok, capture_output, capture_step, env_of, once, run_argv, stdin_of, stdout_of, with_delivered};
+pub(crate) use step::{
+    Echo, Hold, call, call_ok, capture_output, capture_step, download, env_of, once, run_argv, spec_for, stdin_of, stdout_of, with_delivered,
+};
 
 use crate::Result;
 use crate::error::Error;
@@ -239,9 +241,14 @@ async fn run_list(cx: &mut Cx<'_>, list: &str, steps: &[Step], after: AfterStep)
     failure.map_or(Ok(ran), Err)
 }
 
-/// Runs one step, with its `step` events: the driver's state read first when the step names
-/// what only it gives.
+/// Runs one step, with its `step` events: what its driver fetches for it first, in a phase of its
+/// own ([`AnyDriver::before_step`](crate::driver::AnyDriver::before_step): a Compose `up`'s
+/// images), then the step, the driver's state read first when the step names what only it gives
+/// (such a step has no phase before it: its command isn't known until then).
 async fn run_step(cx: &mut Cx<'_>, list: &str, step: &Step) -> Result<()> {
+    if !awaits_state(&cx.vars, step) {
+        cx.run.driver.before_step(cx, list, step).await?;
+    }
     let events = cx.events;
     let done = events.stepped(step.id.as_str(), step.note.as_deref(), step_work(cx, list, step)).await;
     match &done {

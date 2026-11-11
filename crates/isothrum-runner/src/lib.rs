@@ -85,7 +85,10 @@
 //! a tool shows no progress: it is stopped once it printed no new line for that long (a line, on
 //! either stream, that isn't blank and isn't one of its last distinct lines; from its start when
 //! it prints nothing), and at the latest six hours after its start, or at its limit when that is
-//! longer ([`TimedOut`] says which). Operations on one run in one [`Runner`] wait for each other;
+//! longer ([`TimedOut`] says which). The images a Compose `up` starts are pulled before it, in a
+//! step of their own (`pull-<step>`) with no such ceiling: a download still moving runs as long as
+//! it moves, and one that shows no progress for 15 minutes fails with `download_stalled` (a pull
+//! that fails, with `download_failed`). Operations on one run in one [`Runner`] wait for each other;
 //! an operation on it from another process (or another runner) fails with `locked` once it has
 //! waited a second for the run's lock. Operations on different runs run side by side. One
 //! exception to "no blocking call in async code": the run's state files (a record, a lock, the

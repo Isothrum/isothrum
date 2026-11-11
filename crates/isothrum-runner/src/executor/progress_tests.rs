@@ -13,6 +13,16 @@ async fn run(reply: Reply, limit: Duration) -> (Result<Captured>, Duration) {
     (out, started.elapsed())
 }
 
+/// [`run`], as a download ([`downloading`]): no ceiling, a stall its own error.
+async fn download(reply: Reply, stall: Duration) -> (Result<Captured>, Duration) {
+    let fake = FakeProcesses::new(move |_| reply.clone());
+    let spec = ProcessSpec::new("docker", ["compose", "pull"]);
+    let started = Instant::now();
+    let progress = Progress::new();
+    let out = downloading("pull-up", stall, &progress, progress.capture(&fake, &spec)).await;
+    (out, started.elapsed())
+}
+
 fn lines(make: impl Fn(usize) -> String, count: usize) -> String {
     (1..=count).map(make).collect::<Vec<_>>().join("\n")
 }
@@ -156,4 +166,29 @@ async fn a_line_long_forgotten_is_progress_again_and_a_quoted_line_is_cut() {
         panic!("{out:?}")
     };
     assert!(line.ends_with("...") && line.len() <= LAST_LINE_MAX, "{} bytes", line.len());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_download_moving_has_no_ceiling_and_one_stuck_is_a_stalled_download() {
+    // Eight hours of new lines, a minute apart: past the ceiling, to its end.
+    let moving = Reply::ok(&lines(|n| format!("36b0bafd7f97 Downloading {n}MB"), 480)).paced(MINUTE);
+    let (moved, moved_took) = download(moving, TEN_MINUTES).await;
+    assert!(moved.unwrap().success());
+    assert_eq!(moved_took, 480 * MINUTE);
+    // Stuck after its first line: stopped ten minutes after it, quoting it.
+    let stuck = Reply::ok(&lines(|_| "36b0bafd7f97 Downloading 1.283GB".to_owned(), 100)).paced(MINUTE);
+    let (stalled, stalled_took) = download(stuck, TEN_MINUTES).await;
+    assert_eq!(stalled_took, 11 * MINUTE);
+    let err = stalled.unwrap_err();
+    assert!(
+        matches!(&err, Error::DownloadStalled { step, after_s: 600, last_line: Some(l) } if step == "pull-up" && l == "36b0bafd7f97 Downloading 1.283GB"),
+        "{err:?}"
+    );
+    // Silent from its start: stopped at the stall limit, quoting nothing.
+    let (out, took) = download(Reply::ok("").after(Duration::from_secs(3600)), TEN_MINUTES).await;
+    assert_eq!(took, TEN_MINUTES);
+    assert_eq!(
+        out.unwrap_err().to_string(),
+        "step `pull-up` showed no progress downloading for 600s and was stopped"
+    );
 }

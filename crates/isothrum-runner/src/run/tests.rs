@@ -59,6 +59,18 @@ struct Engine {
     failing_job: bool,
     /// The calls that fail, by a text their line contains.
     failing: Vec<&'static str>,
+    /// Where the project's images are.
+    images: Images,
+}
+
+/// Whether the project's images are on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Images {
+    /// Not yet: whatever starts first downloads them.
+    #[default]
+    Missing,
+    /// Downloaded.
+    Here,
 }
 
 /// A test's runner and its fakes.

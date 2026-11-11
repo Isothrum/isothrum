@@ -8,7 +8,9 @@
 //! multi-layer pull cycling through the same few lines. The step's limit is the time it may go
 //! without progress, from its start; a step that prints nothing has its limit from its start,
 //! as before. A step that keeps making progress (a script looping on changing lines) still stops
-//! at [`CEILING`] from its start, or at its limit when that is longer.
+//! at [`CEILING`] from its start, or at its limit when that is longer. A download a step makes in
+//! its own phase before it runs (a Compose start's images, [`downloading`]) has no ceiling: it is
+//! stopped only once it shows no progress for as long as a download may.
 
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -94,33 +96,60 @@ impl Progress {
 /// for `limit`, or at the ceiling: a timeout and a tool that couldn't run to its end are the
 /// step's errors. `progress` is fed by `run`'s line handler.
 pub(crate) async fn within<T>(id: &str, limit: Duration, progress: &Progress, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
-    let ceiling = Instant::now() + limit.max(CEILING);
+    match watched(limit, Some(limit.max(CEILING)), progress, run).await {
+        Ok(done) => done.map_err(|e| process_error(id, e)),
+        Err(timed_out) => Err(Error::Timeout {
+            step: id.to_owned(),
+            timed_out,
+        }),
+    }
+}
+
+/// `run`, a download for step `id`, given up once `progress` shows none for `stall`, with no
+/// ceiling: a slow download still moving runs as long as it moves. A stall is the step's
+/// `download_stalled`, a tool that couldn't run to its end its error as for [`within`].
+pub(crate) async fn downloading<T>(id: &str, stall: Duration, progress: &Progress, run: impl Future<Output = Result<T, ProcessError>>) -> Result<T> {
+    match watched(stall, None, progress, run).await {
+        Ok(done) => done.map_err(|e| process_error(id, e)),
+        Err(TimedOut::NoProgress { after_s, last_line }) => Err(Error::DownloadStalled {
+            step: id.to_owned(),
+            after_s,
+            last_line,
+        }),
+        // No ceiling was set: only a stall ends it.
+        Err(other) => Err(Error::Timeout {
+            step: id.to_owned(),
+            timed_out: other,
+        }),
+    }
+}
+
+/// `run`, until it ends, or until `progress` shows none for `limit`, or until `ceiling` from now
+/// when one is set: which limit it ran into, then.
+async fn watched<T>(limit: Duration, ceiling: Option<Duration>, progress: &Progress, run: impl Future<Output = T>) -> Result<T, TimedOut> {
+    let deadline = ceiling.map(|c| (Instant::now() + c, c));
     tokio::pin!(run);
     loop {
         let stalled = progress.seen().at + limit;
+        let wake = deadline.map_or(stalled, |(at, _)| stalled.min(at));
         tokio::select! {
             biased;
-            done = &mut run => return done.map_err(|e| process_error(id, e)),
-            () = tokio::time::sleep_until(stalled.min(ceiling)) => {}
+            done = &mut run => return Ok(done),
+            () = tokio::time::sleep_until(wake) => {}
         }
         let now = Instant::now();
         let seen = progress.seen();
-        let timed_out = if seen.at + limit <= now {
-            TimedOut::NoProgress {
+        if seen.at + limit <= now {
+            return Err(TimedOut::NoProgress {
                 after_s: limit.as_secs(),
                 last_line: seen.last.as_deref().map(|l| cut(l, LAST_LINE_MAX)),
-            }
-        } else if now >= ceiling {
-            TimedOut::Ceiling {
-                after_s: limit.max(CEILING).as_secs(),
-            }
-        } else {
-            continue;
-        };
-        return Err(Error::Timeout {
-            step: id.to_owned(),
-            timed_out,
-        });
+            });
+        }
+        if let Some((at, after)) = deadline
+            && now >= at
+        {
+            return Err(TimedOut::Ceiling { after_s: after.as_secs() });
+        }
     }
 }
 

@@ -40,6 +40,18 @@ change.
 
 ### Fixed
 
+- **A Compose start pulls its images before its `up`, with no time limit while they move.** An
+  11 GB image pulled through a slow connection was still downloading when the start's `up` step
+  ran into its limit, and the embedder could only say the `up` took too long. Before a step that
+  runs `docker compose … up` (and before the access machine's hot-add), the runner now pulls what
+  that `up` starts in a step of its own, `pull-<step>`: `docker compose … pull --policy <the up's
+  --pull, missing by default> --ignore-buildable [--include-deps] <its services>`, with the
+  project, files, profiles and variables the `up` has, its lines that step's `log` events. A pull
+  still moving has no ceiling; one that shows no progress for 15 minutes is stopped with the new
+  `download_stalled` (its last line quoted), and one that fails ends the start with the new
+  `download_failed` and Compose's reason, before anything starts. The `up` then runs under its own
+  limit. An `up` the runner doesn't read whole (an option it doesn't know), one with `--pull
+  never`, and every `up` on a Compose that refuses `pull --policy` pull in the `up` as before.
 - **An engine's sensitive output never fills a later template.** A guest VM's read (`docker-vm`)
   and a Terraform run's guest login bound every engine output into `${outputs.*}` under the
   engine's names, sensitive ones included, for the rest of the operation; they now bind as the
@@ -512,6 +524,10 @@ change.
 
 ### Added
 
+- **`Error::DownloadStalled` and `Error::DownloadFailed`**, with the codes `download_stalled` and
+  `download_failed`: a download made before a step, in a step of its own (a Compose `up`'s images),
+  that showed no progress for as long as a download may (`after_s`, `last_line`), or whose tool
+  failed (`reason`).
 - **`isothrum key --json`** prints `{"public_key": …}`; `--json` ignored it. The policies list the
   `console`, `screen` and `key` JSON documents as stable machine output, with their fields, and the
   `--json` help says what each command prints.

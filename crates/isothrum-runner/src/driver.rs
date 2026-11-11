@@ -219,6 +219,16 @@ impl AnyDriver {
         }
     }
 
+    /// What step `step` of list `list` needs before it runs, in a phase of its own with its own
+    /// step events and limit: the images a Compose `up` starts, pulled.
+    /// Nothing for another step, nor for another driver.
+    pub(crate) async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+        match self {
+            AnyDriver::Compose(_) => compose::pull_before_step(cx, list, step).await,
+            AnyDriver::Vagrant(_) | AnyDriver::Terraform(_) => Ok(()),
+        }
+    }
+
     /// Runs argv step `step` of list `list` once ([`crate::executor::once`]), `observe` seeing
     /// each line; the Vagrant driver runs a `vagrant` command another Vagrant process's lock
     /// refused again, while that is safe ([`vagrant::run_step`]).

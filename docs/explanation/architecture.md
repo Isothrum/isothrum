@@ -53,7 +53,9 @@ WebAssembly build on the compiler. Each crate's Isoloom dependencies, as its `Ca
   (host OS, provider, `when`), its timeout, its environment and its deliveries. A step's timeout is
   the time it may go without new output.
 - **Drivers.** One per manifest driver: `compose`, `vagrant`, `terraform`. A driver implements its
-  own actions and how it reads status; the steps themselves are generic.
+  own actions and how it reads status; the steps themselves are generic. A driver may fetch what a
+  step needs before it, in a step of its own with no ceiling while the download moves: Compose
+  pulls the images of an `up` (`pull-<step>`), so a slow download isn't counted against the `up`.
 - **Ports.** Every outside effect goes through a trait: `ProcessRunner` (starting tools),
   `HostPorts` (the host's TCP and UDP ports) and `Events` (where events go). Tests use scripted fakes
   (the `fake` feature) and never start a real tool.

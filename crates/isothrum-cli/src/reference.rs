@@ -191,6 +191,12 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::Timeout => {
             "See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
         }
+        ErrorCode::DownloadStalled => {
+            "The download stopped moving: check the network (proxy, VPN, the registry's status) and the engine's free disk space, then retry: the layers it finished are kept."
+        }
+        ErrorCode::DownloadFailed => {
+            "Read the reason in the message: a registry refusing the image (its rate limit, a sign-in), a name it doesn't know, the network. Fix it, then retry."
+        }
         ErrorCode::AlreadyRunning => "Use it as it is, `down` it first, or `up --replace`.",
         ErrorCode::RunningElsewhere => "Act on the run with the `--host-label` it was started with.",
         ErrorCode::PortInUse => "Stop what holds the port, or start the run with other published ports.",

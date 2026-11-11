@@ -9,7 +9,7 @@ use isoloom_manifest::{Action, Run, Step};
 use regex::Regex;
 
 use super::delivery::step_env;
-use super::progress::{Progress, within};
+use super::progress::{Progress, downloading, within};
 use super::{Cx, plan};
 use crate::Result;
 use crate::error::Error;
@@ -156,12 +156,32 @@ pub(crate) async fn call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Durat
         .map_err(|e| masked(cx, e))
 }
 
-/// `e`, the last line a timeout quotes masked.
+/// Runs `spec`, a download for step `id` made before the step it is for, its lines shown as
+/// `log` events of `id`, until it shows no progress for `stall` ([`downloading`]: no ceiling).
+/// Its standard output and last error lines are kept, its exit status returned (a failure is the
+/// caller's to judge). A missing tool and a stall are errors.
+pub(crate) async fn download(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, stall: Duration) -> Result<Captured> {
+    let progress = Progress::new();
+    let mut shown = |stream: Stream, line: &str| {
+        progress.saw(line);
+        cx.events.log(id, stream, line);
+    };
+    downloading(id, stall, &progress, capture_echoing(cx.processes.as_ref(), spec, &mut shown))
+        .await
+        .map_err(|e| masked(cx, e))
+}
+
+/// `e`, the last line a timeout or a stalled download quotes masked.
 fn masked(cx: &Cx<'_>, e: Error) -> Error {
     match e {
         Error::Timeout { step, timed_out } => Error::Timeout {
             step,
             timed_out: timed_out.masked(|l| cx.events.mask(l)),
+        },
+        Error::DownloadStalled { step, after_s, last_line } => Error::DownloadStalled {
+            step,
+            after_s,
+            last_line: last_line.map(|l| cx.events.mask(&l)),
         },
         other => other,
     }

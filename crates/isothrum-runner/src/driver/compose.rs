@@ -6,6 +6,7 @@ mod actions;
 mod config;
 mod pins;
 mod ps;
+mod pull;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ use crate::process::ProcessSpec;
 use crate::state::Op;
 
 pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
+pub(crate) use pull::before_step as pull_before_step;
 
 /// The label Compose puts on each container naming its service, which finds a service's
 /// container whatever project and file started it.
@@ -47,8 +49,8 @@ const NO_PINS: &str = "services: {}\n";
 /// limit counts).
 const CALL_LIMIT: Duration = Duration::from_secs(120);
 
-/// How long hot-adding the access machine may go without progress: its image may still need
-/// pulling.
+/// How long hot-adding the access machine may go without progress, its image pulled first
+/// ([`pull`]): its container started and healthy.
 const ATTACH_LIMIT: Duration = Duration::from_secs(900);
 
 /// The `compose` driver of one manifest.
@@ -243,8 +245,11 @@ impl Compose {
         let mut rest = vec!["--profile", access::PROFILE, "up", "-d", "--wait", "--no-deps"];
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
-        // Its image may still need pulling, so this gets the long boot budget, not a call's.
-        call_ok(cx, Op::Attach.as_str(), &docker_spec(cx, args, env), ATTACH_LIMIT, Echo::Shown).await?;
+        let up = docker_spec(cx, args, env);
+        // Its image, pulled first in a phase of its own; then the start gets the long boot
+        // budget, not a call's.
+        pull::before_call(cx, Op::Attach.as_str(), &up).await?;
+        call_ok(cx, Op::Attach.as_str(), &up, ATTACH_LIMIT, Echo::Shown).await?;
         if let Some(network) = network {
             self.connect_network(cx, native, network).await?;
         }
