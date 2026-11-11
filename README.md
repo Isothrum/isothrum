@@ -68,7 +68,8 @@ isothrum check                     # run the checks: exit 0 when all pass
 isothrum down                      # remove everything the run created
 ```
 
-Add `--json` for one JSON event per line. Secrets come from the environment only:
+Add `--json` for machine-readable output: an operation's events, one JSON object per line
+(`status`, `console`, `screen` and `key` print one JSON document). Secrets come from the environment only:
 `--secret-from-env NAME[=VAR]`. The [tutorial](docs/tutorials/first-run.md) walks through a
 first run.
 

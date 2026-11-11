@@ -399,3 +399,23 @@ async fn a_malformed_name_is_a_usage_error() {
     assert!(matches!(&err, Error::Usage(why) if why.starts_with("--name: ")), "{err}");
     assert_eq!(crate::exit::code(&Err(err)), std::process::ExitCode::from(crate::exit::USAGE));
 }
+
+#[tokio::test]
+async fn key_prints_the_public_key_or_with_json_one_document() {
+    // Regression: `key` ignored `--json`, printing the bare key a script reading JSON can't parse.
+    let s = setup();
+    let ssh = s.home.path().join("ssh");
+    std::fs::create_dir_all(&ssh).unwrap();
+    std::fs::write(ssh.join("id_ed25519"), "private").unwrap();
+    std::fs::write(ssh.join("id_ed25519.pub"), "ssh-ed25519 AAAAfake isothrum\n").unwrap();
+    for (json, said) in [
+        (false, "ssh-ed25519 AAAAfake isothrum\n"),
+        (true, "{\"public_key\":\"ssh-ed25519 AAAAfake isothrum\"}\n"),
+    ] {
+        let line: &[&str] = if json { &["isothrum", "key", "--json"] } else { &["isothrum", "key"] };
+        let cli = Cli::parse_from(line);
+        let verdict = commands::run(&cli, || Ok(&s.runner), &s.term, &crate::term::Trail::default(), &|_| None).await;
+        assert_eq!(verdict.unwrap(), Verdict::Pass);
+        assert_eq!(s.out.take(), said);
+    }
+}

@@ -93,6 +93,8 @@ target Isoloom generates; a VM target adds `--provider` (`isothrum up --provider
 
 Next:
 
-- Add `--json` to any command to get the events as JSON lines: [Event stream](../reference/events.md).
+- Add `--json` to an operation (`up`, `check`, `down`…) to get its events as JSON lines:
+  [Event stream](../reference/events.md). `status`, `console`, `screen` and `key` print one JSON
+  document instead.
 - Run it in a pipeline: [Use isothrum in CI](../how-to/ci.md).
 - Every command and flag: [CLI reference](../reference/cli.md).

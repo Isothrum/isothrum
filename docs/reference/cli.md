@@ -13,7 +13,7 @@ Every command takes the global options. Exit codes: [exit-codes.md](exit-codes.m
 ## Global options
 
 - `--home <DIR>`: The runner's home, where runs are recorded (default: `$ISOTHRUM_HOME`, else `~/.isothrum`)
-- `--json`: Print the events as JSON, one per line, on standard output.
+- `--json`: Machine-readable output on standard output: an operation's events, and the ones `events` replays, one JSON object per line; `status`, `console`, `screen` and `key` print one JSON document; any failure is an `error` event. `completions` prints its script either way.
 
 ## `isothrum up`
 
@@ -255,7 +255,7 @@ isothrum reap [OPTIONS] <CLOUD>
 
 ## `isothrum key`
 
-Print the runner's SSH public key (made when it has none): authorize it where a run's SSH goes through (a Proxmox node, with `--ssh-jump`)
+Print the runner's SSH public key (made when it has none): authorize it where a run's SSH goes through (a Proxmox node, with `--ssh-jump`). With `--json`, `{"public_key": …}`.
 
 ```text
 isothrum key [OPTIONS]

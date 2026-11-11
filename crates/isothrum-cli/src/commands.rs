@@ -68,7 +68,12 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
         RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
         RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
         RunnerCommand::Key => {
-            term.out(&runner.ssh_public_key().await?);
+            let key = runner.ssh_public_key().await?;
+            if out.json {
+                term.out(&serde_json::json!({ "public_key": key }).to_string());
+            } else {
+                term.out(&key);
+            }
             Ok(Verdict::Pass)
         }
         RunnerCommand::Lifecycle(command) => lifecycle(command, runner, out, var).await,

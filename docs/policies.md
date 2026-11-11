@@ -18,12 +18,28 @@ marked **Breaking**.
 | **The re-exported `isoloom_manifest`** (`isothrum_runner::isoloom_manifest`) | As stable as the Isoloom release it pins. | Raising it to a new major of `isoloom-manifest` is a major release of Isothrum. |
 | **CLI**: commands, flags, exit codes | Names, meanings and exit codes ([Exit codes](reference/exit-codes.md)). | The crate version. New commands and flags may come in a minor release. |
 | **CLI output for machines**: `--json` events, `status --json` | The event schema and the status schema below. | As below. |
+| **CLI output for machines**: `console --json`, `screen --json`, `key --json` | Field names and meanings, as [One JSON document](#one-json-document) lists them. | Additions in minor releases; removals and renames in a major. |
 | **CLI output for people** (text without `--json`) | Not stable. | Don't parse it. |
 | **JSON event schema** ([`events-v0.schema.json`](../crates/isothrum-runner/schema/events-v0.schema.json)) | Event kinds, field names and meanings. | The event's `v` (0). Adding an event kind, an optional field or a code keeps `v`; removing or renaming one, or changing a meaning, raises `v` and is a major release. Read the stream as [Event stream](reference/events.md#reading-the-stream) says. |
 | **Status schema** ([`status.schema.json`](../crates/isothrum-runner/schema/status.schema.json)) | Field names and meanings. | Additions in minor releases; removals and renames in a major. |
 | **`ErrorCode` and `WarningCode` values** (`code` in events, `last.code` in the record) | A code's string and meaning. | A code is never renamed or reused within a major. New codes may come in a minor release, so handle an unknown code as a generic failure or warning. Removing a code is a major release. |
 | **`record.json`** ([State layout](reference/state.md#recordjson)) | Isothrum reads every record an earlier release of the same major wrote. | The record's `version` (0), raised when a release writes records an earlier one would misread. Going back to an earlier release after a newer one wrote the home is not supported. |
 | **The rest of the home** (the run's state folder, file names, the event log) | Not an interface. | The tools' own files (Terraform state, Vagrant's state) follow those tools' rules. |
+
+### One JSON document
+
+With `--json`, these commands print one JSON object on standard output (a failure is an `error`
+event, as for any command):
+
+- **`console`**: the command that opens the console, `ShellCommand`'s fields: `program`, `args`
+  (a list), `cwd` (the folder to run it in) and `env` (a list of `[name, value]` pairs to run it
+  with, besides the caller's own variables).
+- **`screen`**: `machine`; `protocol` (`vnc` or `rdp`); `address`, the loopback `host:port` a
+  viewer connects to, or `null`; `websocket`, Proxmox VE's VNC websocket URL (it holds the
+  session's ticket), or `null`; `user`, the account to sign in as, or `null`; `password`, only
+  with `--show-password`, else `null`; `tunnelled`, whether the command holds an SSH tunnel open
+  for it; `note`, what the manifest says of it, or `null`.
+- **`key`**: `public_key`, the runner's SSH public key, one line.
 
 ## Run manifest versions
 

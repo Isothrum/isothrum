@@ -18,7 +18,9 @@ pub(crate) struct Cli {
     /// The runner's home, where runs are recorded (default: `$ISOTHRUM_HOME`, else `~/.isothrum`).
     #[arg(long, global = true, value_name = "DIR")]
     pub(crate) home: Option<PathBuf>,
-    /// Print the events as JSON, one per line, on standard output.
+    /// Machine-readable output on standard output: an operation's events, and the ones `events`
+    /// replays, one JSON object per line; `status`, `console`, `screen` and `key` print one JSON
+    /// document; any failure is an `error` event. `completions` prints its script either way.
     #[arg(long, global = true)]
     pub(crate) json: bool,
 }
@@ -112,7 +114,7 @@ pub(crate) enum RunnerCommand {
     /// failed, something is left or the cloud couldn't be searched in full.
     Reap(ReapArgs),
     /// Print the runner's SSH public key (made when it has none): authorize it where a run's SSH
-    /// goes through (a Proxmox node, with `--ssh-jump`).
+    /// goes through (a Proxmox node, with `--ssh-jump`). With `--json`, `{"public_key": …}`.
     Key,
 }
 
