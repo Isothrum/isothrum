@@ -2,7 +2,7 @@
 //! the params it was applied with and the connection given here (`--secret-from-env`); then
 //! what the cloud still holds tagged past its expiry that no run covers, listed for a person to
 //! remove. A failed destroy doesn't stop the others; the command fails when one failed, when
-//! something is left, or when the cloud couldn't be searched or a query of it couldn't run
+//! something is left (a run `--dry-run` would destroy too), or when the cloud couldn't be searched or a query of it couldn't run
 //! (nothing says it's clean).
 
 use std::time::SystemTime;
@@ -50,7 +50,8 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &V
     }
     let orphans = runner.orphans(cloud, &Place::new(args.regions.clone(), args.project.clone()), now).await;
     let searched = orphans.as_ref().ok();
-    let clean = swept.failed.is_empty() && searched.is_some_and(|o| o.resources.is_empty() && o.unread.is_empty());
+    // A run a dry run would destroy is left too.
+    let clean = swept.failed.is_empty() && swept.pending.is_empty() && searched.is_some_and(|o| o.resources.is_empty() && o.unread.is_empty());
     // The sweep is no one run's operation: its events have no `run` nor `op`, numbered on a trail
     // of their own, and a search that failed is said after the sweep, not as the last destroyed
     // run's.

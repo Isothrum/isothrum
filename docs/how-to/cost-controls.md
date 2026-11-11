@@ -34,7 +34,8 @@ isothrum reap aws --region eu-west-3 \
 2. **lists** what the cloud still holds tagged past its expiry that no recorded run covers. These
    are never deleted: nothing says what they belong to, so a person removes them.
 
-It exits 1 when a destroy failed, when something is left, or when the cloud couldn't be queried
+It exits 1 when a destroy failed, when something is left (with `--dry-run`, a run it would destroy
+too), or when the cloud couldn't be queried
 (so a sweep that couldn't look never passes for a clean one). `--dry-run` destroys nothing and
 says what it would destroy. `--region` (AWS, repeatable) and `--project` (Google Cloud) say where to
 look for leftovers; the default is the cloud command line's own.

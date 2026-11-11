@@ -301,6 +301,9 @@ change.
   `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target
   cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
   cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
+- **`isothrum reap --dry-run` fails when it would destroy a run.** A dry run that found expired
+  runs and no leftover passed, though the runs it named are still standing; it now exits 1, as the
+  docs say a sweep with something left does.
 - **An instance's manifest is found from the run's folder.** `isoloom generate --instance <n>`
   writes to `.isoloom-<n>/`, but the command line looked only under `.isoloom/`, so `isothrum up
   <folder>` said nothing was generated. It now reads `.isoloom/` and every instance's

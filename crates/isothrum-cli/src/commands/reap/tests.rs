@@ -168,6 +168,28 @@ async fn a_dry_run_destroys_nothing() {
     assert!(s.fake.last("terraform destroy").is_none());
 }
 
+/// [`answer`], but the account holds nothing tagged.
+fn nothing_tagged(home: &Path, call: &Call) -> Reply {
+    if call.program == "aws" {
+        return Reply::ok(r#"{"ResourceTagMappingList": []}"#);
+    }
+    answer(home, call)
+}
+
+/// Regression: a dry run that found expired runs to destroy, and no orphan, passed, though they are
+/// left standing; the docs promise a failure then. With nothing expired, it passes.
+#[tokio::test]
+async fn a_dry_run_fails_on_a_run_it_would_destroy_with_no_orphan() {
+    let s = setup_answering(nothing_tagged);
+    assert_eq!(s.run(&["reap", "aws", "--dry-run"]).await, Verdict::Pass, "nothing to reap");
+    s.expired_run().await;
+    let verdict = s.run(&["reap", "aws", "--dry-run"]).await;
+    let said = s.out.take();
+    assert!(said.contains("would destroy solo-web (--dry-run)") && !said.contains("left "), "{said}");
+    assert_eq!(verdict, Verdict::Fail, "the expired run is left");
+    assert!(s.fake.last("terraform destroy").is_none());
+}
+
 #[tokio::test]
 async fn another_clouds_runs_are_left_alone() {
     let s = setup();
