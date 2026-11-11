@@ -9,6 +9,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Added
+
+- **`Error::ServerAuthFailed`**, code `server_auth_failed`: the server a run is on (Proxmox VE,
+  ESXi; the `proxmox` and `esxi` targets, Vagrant on `vmware_esxi`) refused the run's credentials,
+  an API token revoked or a password changed. A step whose tool failed in the server's words for
+  a refused sign-in (an HTTP 401 or 403 from its API, Terraform's Proxmox provider's
+  `authentication failure`, ovftool's `incorrect user name or password`, vagrant-vmware-esxi's
+  `ESXi host access` and `Authentication failed for user`) fails with it instead of
+  `tool_failed`, in an operation and in a status read, naming the server as the run's params do
+  (`server`: the API's host, the ESXi host), so an embedder can say which credentials to update.
+
 ## [2.0.0] — 2026-11-11
 
 ### Highlights

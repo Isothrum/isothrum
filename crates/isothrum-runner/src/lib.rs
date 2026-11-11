@@ -139,6 +139,7 @@ mod run;
 mod runner;
 mod scope;
 mod secrets;
+mod server_auth;
 mod slot;
 mod ssh;
 mod state;

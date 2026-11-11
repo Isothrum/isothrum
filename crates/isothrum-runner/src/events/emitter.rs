@@ -228,7 +228,8 @@ impl<'a> Emitter<'a> {
             | Error::ToolFailed { step, .. }
             | Error::Timeout { step, .. }
             | Error::DownloadStalled { step, .. }
-            | Error::DownloadFailed { step, .. } => Some(step.clone()),
+            | Error::DownloadFailed { step, .. }
+            | Error::ServerAuthFailed { step, .. } => Some(step.clone()),
             _ => None,
         };
         let timeout = match err {

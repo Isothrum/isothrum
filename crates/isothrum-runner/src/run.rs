@@ -178,7 +178,8 @@ impl<'r> Running<'r> {
         let events = self.silent();
         let (record, mut cx) = self.silent_cx(&events)?;
         let provider = cx.scope.provider;
-        let (state, mut observed, live) = self.read_for_query(&mut cx, record.as_ref()).await?;
+        let read = self.read_for_query(&mut cx, record.as_ref()).await;
+        let (state, mut observed, live) = read.map_err(|e| self.refused_sign_in(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
         let mut machines = std::mem::take(&mut observed.machines);
         let known = cx.scope.provider;
         for m in &mut machines {

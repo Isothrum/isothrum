@@ -223,6 +223,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         }
         ErrorCode::Cancelled => "Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left.",
         ErrorCode::Usage => "Fix the command line: `isothrum <command> --help`.",
+        ErrorCode::ServerAuthFailed => {
+            "The server took the run's credentials no more: give the run its new API token or password (its connection's slot), then retry."
+        }
         _ => return None,
     })
 }

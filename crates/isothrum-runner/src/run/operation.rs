@@ -97,7 +97,7 @@ impl Running<'_> {
             emitter,
             armed: true,
         };
-        let done = work(opts, emitter).await;
+        let done = work(opts, emitter).await.map_err(|e| self.refused_sign_in(e, opts));
         let code = done.as_ref().err().map(Error::code);
         let settled = unfinished.settle(code, done.as_ref().ok().and_then(|d| d.state), |e| {
             // The work's own failure is the operation's: the record's is said beside it.
@@ -111,6 +111,23 @@ impl Running<'_> {
         unfinished.disarm();
         settled?;
         done
+    }
+
+    /// `e` as the server refusing the run's credentials when it is a step's failure in the
+    /// server's words for one, on a run on a server ([`crate::server_auth`]), named by the
+    /// operation's params, else the ones its record replays.
+    pub(crate) fn refused_sign_in(&self, e: Error, opts: &RunOptions) -> Error {
+        if e.code() != ErrorCode::ToolFailed {
+            return e;
+        }
+        let record = self.runner.store.record(self.name()).ok().flatten();
+        let provider = opts.provider.or_else(|| record.as_ref().and_then(|r| r.provider));
+        if !crate::server_auth::on_server(self.manifest(), provider) {
+            return e;
+        }
+        let mut params = record.as_ref().and_then(RunRecord::replayed_params).cloned().unwrap_or_default();
+        params.extend(opts.params.iter().map(|(k, v)| (k.clone(), v.clone())));
+        crate::server_auth::refusal(e, crate::server_auth::server_of(&params))
     }
 
     /// Records how `op` ended and the state it left the run in: `state` when it succeeded; when

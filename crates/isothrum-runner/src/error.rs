@@ -98,6 +98,10 @@ pub enum ErrorCode {
     /// The machine has no graphical console to reach: its target or provider gives none (the
     /// error says why), it isn't running, or its hypervisor doesn't say where it is.
     NoConsole,
+    /// The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API
+    /// answered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password
+    /// changed).
+    ServerAuthFailed,
 }
 
 impl ErrorCode {
@@ -138,6 +142,7 @@ impl ErrorCode {
             ErrorCode::NoConsole => "no_console",
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Usage => "usage",
+            ErrorCode::ServerAuthFailed => "server_auth_failed",
         }
     }
 }
@@ -440,6 +445,17 @@ pub enum Error {
         /// Why.
         why: String,
     },
+    /// The server the run is on refused the run's credentials (a 401 or 403 from its API, its
+    /// tool's failed sign-in): an API token revoked, a password changed.
+    #[error("step `{step}`: {} refused the run's credentials: {reason}", server.as_ref().map_or_else(|| "the server".to_owned(), |s| format!("server `{s}`")))]
+    ServerAuthFailed {
+        /// The step (`up`; `status` for a status read).
+        step: String,
+        /// The server, as the run's params name it (its API's host, the ESXi host), when they do.
+        server: Option<String>,
+        /// What the server or its tool said (secrets masked).
+        reason: String,
+    },
 }
 
 impl Error {
@@ -478,6 +494,7 @@ impl Error {
             Error::Unreachable { .. } => ErrorCode::Unreachable,
             Error::Unsealed { .. } => ErrorCode::NotSealed,
             Error::NoConsole { .. } => ErrorCode::NoConsole,
+            Error::ServerAuthFailed { .. } => ErrorCode::ServerAuthFailed,
         }
     }
 

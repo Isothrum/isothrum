@@ -732,6 +732,11 @@
           "description": "The machine has no graphical console to reach: its target or provider gives none (the\nerror says why), it isn't running, or its hypervisor doesn't say where it is.",
           "type": "string",
           "const": "no_console"
+        },
+        {
+          "description": "The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API\nanswered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password\nchanged).",
+          "type": "string",
+          "const": "server_auth_failed"
         }
       ]
     },

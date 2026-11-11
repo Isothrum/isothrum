@@ -29,6 +29,13 @@ async fn goes(f: &Fixture, run: &crate::Running<'_>) {
     );
 }
 
+/// `run` reads its VM `web` gone (the run failed, not ready), and refuses a resume naming it.
+async fn web_reads_gone(run: &crate::Running<'_>) {
+    let status = run.status().await.unwrap();
+    assert_eq!((status.state, machine(&status, "web")), (RunState::Failed, MachineState::Absent));
+    crate::testing::refuses_to_resume_without(run, "web").await;
+}
+
 /// Whether a Vagrant call boots `vm` without provisioning it.
 fn booted_unprovisioned(f: &Fixture, vm: &str) -> bool {
     f.vagrant()
@@ -42,10 +49,7 @@ async fn a_vm_deleted_outside_shows_gone_and_a_resume_never_makes_it_again_unpro
     let run = started(&f).await;
     f.engine().states.remove("web");
 
-    let status = run.status().await.unwrap();
-    assert_eq!((status.state, machine(&status, "web")), (RunState::Failed, MachineState::Absent));
-
-    crate::testing::refuses_to_resume_without(&run, "web").await;
+    web_reads_gone(&run).await;
     assert!(
         !booted_unprovisioned(&f, "web"),
         "a bare VM from the box would read as ready: {:?}",
@@ -141,4 +145,85 @@ async fn a_down_of_a_run_whose_vms_were_all_deleted_outside_ends_absent() {
     assert_eq!(f.runner.store.record(run.name()).unwrap().unwrap().state, RunState::Absent);
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(f.state("web"), "running");
+}
+
+/// What vagrant-vmware-esxi prints when the ESXi host refuses its password.
+const ESXI_REFUSED: &str = "ESXi host access : Verify password in Vagrantfile is correct.\n\
+                            Unable to connect to ESXi host! Error: Authentication failed for user root@172.16.1.20";
+
+#[tokio::test]
+async fn a_vm_deleted_from_the_esxi_host_client_shows_gone() {
+    let f = with_esxi_plugin();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
+    // The ESXi host client's Delete: the plugin's `vim-cmd vmsvc/power.getstate` finds no VM, and
+    // Vagrant reads it `not_created`.
+    f.engine().states.remove("web");
+
+    web_reads_gone(&run).await;
+}
+
+#[tokio::test]
+async fn an_esxi_password_changed_is_the_server_refusing_the_runs_credentials() {
+    let f = with_esxi_plugin();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap();
+    f.engine().refusals.insert(
+        "status",
+        Refusal {
+            said: ESXI_REFUSED.into(),
+            ..Refusal::index(1, "web")
+        },
+    );
+
+    let err = run.status().await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::ServerAuthFailed);
+    assert!(
+        matches!(&err, crate::Error::ServerAuthFailed { server: Some(s), .. } if s == "172.16.1.20"),
+        "{err:?}"
+    );
+
+    // A stop is refused the same way, its record failed, nothing removed.
+    f.engine().refusals.insert(
+        "halt",
+        Refusal {
+            said: ESXI_REFUSED.into(),
+            ..Refusal::index(1, "web")
+        },
+    );
+    f.engine().refusals.insert(
+        "destroy",
+        Refusal {
+            said: ESXI_REFUSED.into(),
+            ..Refusal::index(1, "web")
+        },
+    );
+    let stop = run.down(&on_esxi(esxi_secrets()), &Recorder::new()).await.unwrap_err();
+    assert_eq!(stop.code(), ErrorCode::ServerAuthFailed, "{stop}");
+    assert_eq!(f.state("web"), "running");
+
+    // A Vagrant failure of any other kind is still the tool's.
+    f.engine().refusals.insert(
+        "status",
+        Refusal {
+            said: "Unable to get VM Power State!".into(),
+            ..Refusal::index(1, "web")
+        },
+    );
+    assert_eq!(run.status().await.unwrap_err().code(), ErrorCode::ToolFailed);
+}
+
+#[tokio::test]
+async fn a_local_vagrant_failure_in_the_same_words_is_no_servers() {
+    // VirtualBox on this computer: no server to refuse anything, whatever the tool says.
+    let f = fixture(crate::runner::this_host());
+    let run = started(&f).await;
+    f.engine().refusals.insert(
+        "status",
+        Refusal {
+            said: ESXI_REFUSED.into(),
+            ..Refusal::index(1, "web")
+        },
+    );
+    assert_eq!(run.status().await.unwrap_err().code(), ErrorCode::ToolFailed);
 }
