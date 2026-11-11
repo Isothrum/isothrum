@@ -18,17 +18,14 @@ use crate::exec;
 /// manifests name.
 pub use isoloom_manifest::Provider;
 
-/// Every provider.
-const ALL: [Provider; 8] = [
-    Provider::Virtualbox,
-    Provider::VmwareDesktop,
-    Provider::Hyperv,
-    Provider::Parallels,
-    Provider::Libvirt,
-    Provider::Qemu,
-    Provider::Utm,
-    Provider::VmwareEsxi,
-];
+/// Every provider Isoloom names, in its order: read from its type, so one Isoloom adds is
+/// detected without a list here to keep in step.
+fn all() -> Vec<Provider> {
+    isothrum_runner::every_name::<Provider>()
+        .iter()
+        .filter_map(|name| isothrum_runner::from_wire_name(name))
+        .collect()
+}
 
 /// Whether this provider can run on the current OS at all: local hypervisors are
 /// platform-specific, remote ones apply anywhere.
@@ -195,7 +192,7 @@ add this account to that group and sign out of Windows and back in, or run eleva
 /// and nothing is probed.
 pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
     if !vagrant_installed {
-        return ALL
+        return all()
             .into_iter()
             .filter(|p| applicable(*p))
             .map(|provider| ProviderStatus {
@@ -212,7 +209,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         Err(why) => (Vec::new(), Some(why)),
     };
     let mut statuses = Vec::new();
-    for provider in ALL {
+    for provider in all() {
         if !applicable(provider) {
             continue;
         }
@@ -344,14 +341,14 @@ mod tests {
     /// listed.
     #[test]
     fn every_provider_isoloom_names_is_listed() {
-        let mut listed: Vec<String> = ALL.iter().map(isothrum_runner::wire_name).collect();
+        let mut listed: Vec<String> = all().iter().map(isothrum_runner::wire_name).collect();
         listed.sort();
         assert_eq!(listed, isoloom_providers());
     }
 
     #[test]
     fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
-        let ids: Vec<String> = ALL.iter().map(isothrum_runner::wire_name).collect();
+        let ids: Vec<String> = all().iter().map(isothrum_runner::wire_name).collect();
         assert_eq!(
             ids,
             ["virtualbox", "vmware_desktop", "hyperv", "parallels", "libvirt", "qemu", "utm", "vmware_esxi"]
@@ -500,7 +497,7 @@ mod tests {
     async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
         let tools = FakeProcesses::rules(&[]);
         let statuses = detect(&tools, false).await;
-        assert_eq!(statuses.len(), ALL.iter().filter(|p| applicable(**p)).count());
+        assert_eq!(statuses.len(), all().iter().filter(|p| applicable(**p)).count());
         assert!(statuses.iter().all(|s| s.reason.as_deref() == Some(NO_VAGRANT)), "{statuses:?}");
         assert_eq!(tools.calls(), [], "no probe runs without Vagrant");
     }

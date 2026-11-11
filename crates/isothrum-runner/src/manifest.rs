@@ -44,12 +44,9 @@ pub fn load_manifest(path: &Path) -> Result<LoadedManifest> {
 /// folder ([`is_outputs_folder`]): `.isoloom/docker/run.json`, `.isoloom-2/cloud-vm/aws/run.json`.
 pub const MANIFEST_FILE: &str = "run.json";
 
-/// The highest instance number Isoloom writes a project's outputs for.
-const MAX_INSTANCE: u8 = 99;
-
 /// Whether a folder named `name`, at a project's top, is one Isoloom writes the project's outputs
-/// under: [`OUTPUT_DIR`] (`.isoloom`), or an instance's `.isoloom-<n>`, `n` from 1 to 99 as
-/// Isoloom writes it (no sign, no leading zero). Not `.isoloom-reach` nor any other `.isoloom*`
+/// under: [`OUTPUT_DIR`] (`.isoloom`), or an instance's `.isoloom-<n>`, `n` an instance Isoloom
+/// takes ([`isoloom_manifest::Instance::new`]: 1 to 99) as it writes it (no sign, no leading zero). Not `.isoloom-reach` nor any other `.isoloom*`
 /// name. Isoloom publishes the way there (`isoloom_spec::instance::output_dir`) but not this way
 /// back; a test holds this copy to the folders Isoloom generates.
 #[must_use]
@@ -60,7 +57,7 @@ pub fn is_outputs_folder(name: &str) -> bool {
     let Some(n) = rest.strip_prefix('-') else {
         return rest.is_empty();
     };
-    !n.starts_with('0') && n.bytes().all(|b| b.is_ascii_digit()) && n.parse::<u8>().is_ok_and(|n| (1..=MAX_INSTANCE).contains(&n))
+    !n.starts_with('0') && n.bytes().all(|b| b.is_ascii_digit()) && n.parse::<u8>().is_ok_and(|n| isoloom_manifest::Instance::new(n).is_ok())
 }
 
 /// Whether a template of `manifest` names a `${run.<var>}` that `wanted` takes.
@@ -91,13 +88,19 @@ mod tests {
                 .unwrap()
         };
         let mut paths = vec![manifest_of(isoloom_targets::generate(&lab, docker).unwrap())];
-        paths.extend((1..=MAX_INSTANCE).map(|n| manifest_of(isoloom_targets::generate_instance(&lab, docker, n).unwrap())));
+        let instances: Vec<u8> = (1..=u8::MAX).take_while(|n| isoloom_manifest::Instance::new(*n).is_ok()).collect();
+        paths.extend(
+            instances
+                .iter()
+                .map(|n| manifest_of(isoloom_targets::generate_instance(&lab, docker, *n).unwrap())),
+        );
         for path in &paths {
             let (folder, rest) = path.split_once('/').unwrap();
             assert!(is_outputs_folder(folder), "{path}");
             assert_eq!(rest, format!("docker/{MANIFEST_FILE}"), "{path}");
         }
-        for n in [0, MAX_INSTANCE + 1] {
+        for n in [0, instances.len() + 1] {
+            let n = u8::try_from(n).unwrap();
             assert!(isoloom_targets::generate_instance(&lab, docker, n).is_err(), "Isoloom makes no instance {n}");
         }
         for other in [
