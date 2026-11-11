@@ -194,12 +194,12 @@ pub(crate) enum Mode {
 /// Which run.
 #[derive(Debug, Args)]
 pub(crate) struct RunArgs {
-    /// The run's folder (the manifest Isoloom generated under its `.isoloom/` is read), or a
-    /// run.json.
+    /// The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's
+    /// `.isoloom-<n>/`, is read), or a run.json.
     #[arg(default_value = ".")]
     pub(crate) path: PathBuf,
-    /// The target whose manifest to run (`docker`, `cloud-vm/aws`), when the run was generated
-    /// for several.
+    /// The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's
+    /// `.isoloom-2/docker`), when the run was generated for several.
     #[arg(long)]
     pub(crate) target: Option<String>,
     /// The name to run it under, so one manifest can run several times side by side (default:

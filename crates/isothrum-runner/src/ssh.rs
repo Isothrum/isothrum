@@ -483,7 +483,10 @@ mod tests {
                     machines:\n  web-1: { os: debian@12, networks: { app: 10 } }\n  db-main-2: { os: debian@12, networks: { app: 11 } }\n";
         let lab = isoloom_targets::Lab::parse(spec).unwrap();
         let (files, _) = isoloom_targets::generate_all(&lab);
-        let clouds: Vec<_> = files.iter().filter(|f| f.path.starts_with(".isoloom/cloud-vm/") && f.path.ends_with("/run.json")).collect();
+        let clouds: Vec<_> = files
+            .iter()
+            .filter(|f| f.path.starts_with(".isoloom/cloud-vm/") && f.path.ends_with("/run.json"))
+            .collect();
         assert!(!clouds.is_empty(), "{:?}", files.iter().map(|f| &f.path).collect::<Vec<_>>());
         for file in clouds {
             let manifest = isoloom_manifest::parse(&file.contents).unwrap();

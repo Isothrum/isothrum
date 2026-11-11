@@ -19,8 +19,9 @@ pub(crate) use account::{Account, account};
 pub(crate) use phases::{Ran, Runs, execute, phases};
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
+use isothrum_runner::isoloom_manifest::contract::OUTPUT_DIR;
 use isothrum_runner::isoloom_manifest::{Cloud, Target};
-use isothrum_runner::wire_name;
+use isothrum_runner::{MANIFEST_FILE, wire_name};
 
 use crate::{Res, process, repo};
 
@@ -95,7 +96,11 @@ pub(crate) fn run(a: &CloudArgs, example: &str, isoloom: &Path) -> Res<()> {
         .join("real-run")
         .join(format!("{}-{}", wire_name(&a.target), wire_name(&a.cloud)));
     let run_dir = super::generate_example(&root, isoloom, example, &wire_name(&a.target), &out)?;
-    let manifest = run_dir.join(".isoloom").join(wire_name(&a.target)).join(wire_name(&a.cloud)).join("run.json");
+    let manifest = run_dir
+        .join(OUTPUT_DIR)
+        .join(wire_name(&a.target))
+        .join(wire_name(&a.cloud))
+        .join(MANIFEST_FILE);
     let declared = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let cidr = match var("ALLOWED_CIDR") {
         Some(c) => c,

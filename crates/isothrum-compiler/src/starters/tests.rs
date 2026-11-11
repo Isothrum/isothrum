@@ -207,17 +207,19 @@ fn a_package_two_ports_call_for_is_installed_once() {
 }
 
 /// Regression: the guard spelled `isoloom.yml` alone, so a step at `isoloom.yaml` (a name Isoloom
-/// also reads the spec from) got a starter over it.
+/// also reads the spec from) got a starter over it; and it took `.isoloom/` alone for Isoloom's
+/// outputs, so a step in an instance's `.isoloom-2/` got one, though Isoloom's rule for its
+/// outputs (`/.isoloom*`) keeps every such name out of each copy of the project.
 #[test]
 fn no_starter_goes_where_isoloom_reads_or_writes() {
-    for path in ["isoloom.yml", "isoloom.yaml", ".isoloom/docker/x.sh"] {
+    for path in ["isoloom.yml", "isoloom.yaml", ".isoloom/docker/x.sh", ".isoloom-2/x.sh", ".isoloomignore.sh"] {
         let mut files = Vec::new();
         add(&mut files, path, String::new());
         assert!(files.is_empty(), "{path}");
     }
     let mut files = Vec::new();
-    add(&mut files, ".isoloomignore.sh", String::new());
-    assert_eq!(files.len(), 1, "a name that only starts like the folder is the project's");
+    add(&mut files, "provision/.isoloom/x.sh", String::new());
+    assert_eq!(files.len(), 1, "the rule is for the project's top only");
 }
 
 /// Regression: a path holding `..` anywhere was taken for one leaving the project, so

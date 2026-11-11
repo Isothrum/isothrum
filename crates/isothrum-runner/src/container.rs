@@ -82,14 +82,12 @@ impl HostNetwork {
     }
 }
 
-/// The run folder a manifest's folder belongs to: the parent of its `.isoloom…` folder (the
-/// folder itself when it isn't under one). A module reads the run's files from there.
+/// The run folder a manifest's folder belongs to: the parent of its outputs folder
+/// ([`crate::is_outputs_folder`]: `.isoloom` or an instance's `.isoloom-<n>`), the folder itself
+/// when it isn't under one. A module reads the run's files from there.
 pub(crate) fn run_root(dir: &Path) -> &Path {
     dir.ancestors()
-        .find(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with(isoloom_manifest::contract::OUTPUT_DIR))
-        })
+        .find(|p| p.file_name().is_some_and(|n| crate::is_outputs_folder(&n.to_string_lossy())))
         .and_then(Path::parent)
         .unwrap_or(dir)
 }
@@ -154,6 +152,12 @@ mod tests {
         assert_eq!(run_root(Path::new("/l/x/.isoloom/proxmox")), Path::new("/l/x"));
         assert_eq!(run_root(Path::new("/l/x/.isoloom-2/docker-vm/proxmox")), Path::new("/l/x"));
         assert_eq!(run_root(Path::new("/tmp/m")), Path::new("/tmp/m"));
+        assert_eq!(
+            run_root(Path::new("/l/x/.isoloom-reach/m")),
+            Path::new("/l/x/.isoloom-reach/m"),
+            "not an outputs folder"
+        );
+        assert_eq!(run_root(Path::new("/l/x/.isoloomfoo/docker")), Path::new("/l/x/.isoloomfoo/docker"));
     }
 
     #[test]

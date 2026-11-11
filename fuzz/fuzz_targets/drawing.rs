@@ -6,9 +6,12 @@
 
 use isothrum_compiler::{Error, Topology, compile};
 use isothrum_runner::isoloom_manifest::RelPath;
+use isothrum_runner::isoloom_manifest::ignore::{OUTPUTS, Rules};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
+    // Isoloom's outputs (`.isoloom/`, an instance's `.isoloom-<n>/`, any `.isoloom*` at the top).
+    let outputs = Rules::parse(OUTPUTS);
     let Ok(topology) = serde_json::from_slice::<Topology>(data) else { return };
     match compile(&topology) {
         Ok(compiled) => {
@@ -18,8 +21,8 @@ fuzz_target!(|data: &[u8]| {
                 // segment (`a..b.sh` stays inside).
                 assert!(RelPath::parse(&file.path).is_ok(), "a file outside the project: {}", file.path);
                 assert!(
-                    file.path != "isoloom.yml" && !file.path.starts_with(".isoloom/"),
-                    "a file Isoloom writes: {}",
+                    !isoloom_spec::SPEC_FILES.contains(&file.path.as_str()) && !outputs.ignored(&file.path),
+                    "a file Isoloom reads the spec from or writes: {}",
                     file.path
                 );
                 assert!(file.contents.ends_with('\n'), "{} doesn't end with a line break", file.path);

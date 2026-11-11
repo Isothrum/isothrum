@@ -296,6 +296,22 @@ change.
   `.isoloom/<target>/run.json`: `isothrum up <folder>` said nothing was generated, and `--target
   cloud-vm` that it didn't exist. `--target cloud-vm/aws` now names the AWS one, `--target
   cloud-vm` the only cloud generated, and no `--target` the only manifest of any target.
+- **An instance's manifest is found from the run's folder.** `isoloom generate --instance <n>`
+  writes to `.isoloom-<n>/`, but the command line looked only under `.isoloom/`, so `isothrum up
+  <folder>` said nothing was generated. It now reads `.isoloom/` and every instance's
+  `.isoloom-<n>/` (`n` from 1 to 99, as Isoloom writes it): an instance's manifest is named with its
+  folder (`.isoloom-2/docker`), and its target alone names it too; `--target docker` still takes
+  `.isoloom/docker/` first. The rule is the runner's new `is_outputs_folder` (and `MANIFEST_FILE`,
+  the manifest's file name), held to the folders Isoloom generates.
+- **A run's folder is the one above an outputs folder only.** The project a
+  `terraform.copy_module` copies from, and the folder a tool run in a container gets mounted, is
+  the folder above the manifest's outputs folder; any folder whose name starts with `.isoloom`
+  (`.isoloom-reach`, `.isoloomfoo`) was taken for one. It is now `.isoloom` or an instance's
+  `.isoloom-<n>`.
+- **No starter goes in an instance's outputs folder.** The compiler took `.isoloom/` alone for
+  Isoloom's outputs, so a step file at `.isoloom-2/x.sh` or `.isoloomignore.sh` got a starter
+  that no copy of the project holds; it now asks Isoloom's rule for its outputs
+  (`ignore::OUTPUTS`, `/.isoloom*` at the project's top).
 - **An event log cut mid-character no longer stops the run.** The run's `events.jsonl` was read
   as UTF-8 text, so a log cut short inside a character (a full disk, a killed process) failed
   every later operation of the run with `io`, and `isothrum events` with it. Such a line now
@@ -483,6 +499,9 @@ change.
   account, SYSTEM, Administrators) that everything under it inherits, set with `icacls`; a home in
   the profile keeps the profile's.
 - `ProcessSpec::env(name)`: the value a process is given for a variable.
+- `is_outputs_folder(name)` and `MANIFEST_FILE`: whether a folder at a project's top is one Isoloom
+  writes the project's outputs under (`.isoloom`, an instance's `.isoloom-<n>`), and the file a
+  target's run manifest is in (`run.json`).
 - `AccessPick::{with_machine, with_network, with_image}`: an `AccessPick` is built from
   `AccessPick::default()` with them.
 - `Running::console_command(machine, user)`: the command that opens a console into any machine of

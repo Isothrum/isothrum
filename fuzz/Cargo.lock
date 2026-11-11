@@ -306,6 +306,7 @@ name = "isothrum-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
+ "isoloom-spec",
  "isothrum-compiler",
  "isothrum-runner",
  "libfuzzer-sys",

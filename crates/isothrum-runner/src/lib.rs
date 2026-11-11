@@ -157,7 +157,7 @@ pub(crate) use events::Recorder;
 pub use events::{Event, EventKind, EventLog, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
 pub use future::BoxFuture;
 pub use isoloom_manifest;
-pub use manifest::{LoadedManifest, load_manifest};
+pub use manifest::{LoadedManifest, MANIFEST_FILE, is_outputs_folder, load_manifest};
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
