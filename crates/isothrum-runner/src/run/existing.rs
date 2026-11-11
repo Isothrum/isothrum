@@ -18,7 +18,8 @@ use crate::store::RunRecord;
 use crate::{ready, tools};
 
 impl Running<'_> {
-    /// Removes everything the run created (containers, networks, volumes).
+    /// Removes everything the run created, through its `down` steps: containers, networks and
+    /// volumes, VMs, a module's resources.
     ///
     /// # Errors
     ///
