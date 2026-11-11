@@ -13,7 +13,9 @@ it reaches the tool through its environment, as the run manifest's deliveries sa
 | `ISOTHRUM_LOG` | Turns on the runner's tracing on standard error: a level (`info`, `debug`, `trace`) or filter directives (`isothrum_runner=debug,warn`, as `tracing-subscriber`'s `EnvFilter` reads them). Unset: no tracing. The traces name programs and arguments, never a value. |
 | `ISOTHRUM_LOG_FORMAT` | `text` (the default) or `json`: one JSON object per trace line, for a log collector. Read only with `ISOTHRUM_LOG`. |
 | The variable each `--secret-from-env NAME[=VAR]` names | A secret or input slot's value (`VAR`, else the slot's own `NAME`). |
-| `HOME` (`USERPROFILE` on Windows) | Where the default home (`~/.isothrum`) and the Docker CLI's config (`~/.docker`) are. |
+| `HOME` (`USERPROFILE` on Windows) | Where the default home (`~/.isothrum`) and the Docker CLI's config (`~/.docker`) are, and Vagrant's own folder (`~/.vagrant.d`) when `VAGRANT_HOME` is unset. |
+| `VAGRANT_HOME` | Vagrant's own folder: where a vagrant-qemu VM's monitor socket is, for its graphical console, when its run folder records none. Handed on as Vagrant's (below). |
+| `LIBVIRT_DEFAULT_URI` | The libvirt connection a libvirt VM's graphical console is asked on: when it is set, `virsh` inherits it and reads it itself; unset, `virsh -c qemu:///system` (vagrant-libvirt's default). |
 | `DOCKER_CONFIG` | Where the Docker CLI's `config.json` is (default `~/.docker`): when it names a current context, `docker` follows it (see `DOCKER_HOST` below). |
 | `PATH` | Where the tools are found, and the `PATH` the macOS ESXi relay's `ovftool` wrapper is put in front of. |
 | `TF_PLUGIN_CACHE_DIR` | Terraform's plugin cache. When it is set, every run uses it as it is (the runner neither creates nor changes it); unset, the runs share `<home>/terraform-plugins`. |
@@ -29,8 +31,9 @@ text, it is refused by name: a secret's variable is a usage error (exit 2), and 
 or `ISOTHRUM_LOG_FORMAT` a warning, with no tracing. A `PATH` is handed on as text: one that isn't
 UTF-8 is left out of an elevated session's variables (and traced), and fails the macOS relay's
 set-up when its `ovftool` wrapper must go first on it. The variables handed on below (the proxies,
-the CA bundles, `TF_CLI_CONFIG_FILE`, Vagrant's, `USERPROFILE`) are read as they are too: one that
-isn't UTF-8 still counts as set (a `VAGRANT_HOME` is never replaced by the profile's), and where it
+the CA bundles, `TF_CLI_CONFIG_FILE`, Vagrant's, `USERPROFILE`) and the ones a graphical console
+reads (`HOME`, `LIBVIRT_DEFAULT_URI`) are read as they are too, once, when the runner is
+configured: one that isn't UTF-8 still counts as set (a `VAGRANT_HOME` is never replaced by the profile's), and where it
 must be handed on as text (an elevated session's variables, a containerised Terraform's) it is
 left out, and traced by name.
 
@@ -47,6 +50,7 @@ Each tool inherits the environment `isothrum` runs in, with these changes:
 | `DOCKER_HOST`, `DOCKER_CONTEXT` | `docker` | Not inherited when the Docker CLI's config names a current context of the user's own: a stale socket (another engine's) would send the run where the user never looks. |
 | `VAGRANT_DOTFILE_PATH` | `vagrant` | The run's Vagrant state, in the run's state folder (also in the command `isothrum console` prints). |
 | `ISOLOOM_HOSTPORTS` | `vagrant`, a local VM run | The host ports pinned for its forwarded ports, as JSON. |
+| `ISOLOOM_CONSOLES` | `vagrant`, a VMware run | The graphical consoles the runner chose (each machine's loopback port and VNC password), as JSON: set for the run's own Vagrant processes only, never in a command an embedder is handed (`isothrum console`). |
 
 ### Tools started elsewhere
 

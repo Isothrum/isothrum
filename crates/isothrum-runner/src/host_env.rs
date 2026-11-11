@@ -2,9 +2,11 @@
 //! an elevated Hyper-V session and a containerised tool inherit nothing, so they are handed the
 //! proxies, the CA bundles, Terraform's CLI configuration and Vagrant's variables by name; the
 //! macOS relays keep the hosts the user sends around a proxy; a home in the user's profile needs
-//! no ACL of its own. Read once, when the runner is configured ([`crate::RunnerConfig::new`]), so
-//! no operation reads the process's environment itself. A tool the runner starts as its child
-//! inherits the environment as it is, never this copy.
+//! no ACL of its own; and a graphical console finds libvirt's connection (`LIBVIRT_DEFAULT_URI`)
+//! and Vagrant's own folder (`VAGRANT_HOME`, else `HOME`'s `.vagrant.d`). Read once, when the
+//! runner is configured ([`crate::RunnerConfig::new`]), so no operation reads the process's
+//! environment itself. A tool the runner starts as its child inherits the environment as it is,
+//! never this copy.
 
 use std::ffi::{OsStr, OsString};
 
@@ -13,7 +15,10 @@ use crate::network_env::is_network_var;
 /// Terraform's CLI configuration file (a provider mirror, credentials).
 pub(crate) const TF_CLI_CONFIG_FILE: &str = "TF_CLI_CONFIG_FILE";
 
-/// The variables of the runner's environment it hands on, as read when it was configured. A
+/// The libvirt connection `virsh` and vagrant-libvirt use when nothing names another.
+pub(crate) const LIBVIRT_DEFAULT_URI: &str = "LIBVIRT_DEFAULT_URI";
+
+/// The variables of the runner's environment it hands on or reads, as read when it was configured. A
 /// value is kept as it is, UTF-8 or not: one that isn't is still set (a `VAGRANT_HOME` that isn't
 /// UTF-8 is never replaced by a default), and only where it must be handed on as text is it left
 /// out, and traced ([`HostEnv::text`]).
@@ -110,11 +115,12 @@ impl std::fmt::Debug for HostEnv {
     }
 }
 
-/// Whether the runner hands `name` on: a network variable, Terraform's CLI configuration, a
-/// Vagrant variable, or the user's profile folder (Windows).
+/// Whether the runner keeps `name`: one it hands on (a network variable, Terraform's CLI
+/// configuration, a Vagrant variable, the user's profile folder on Windows), or one it reads
+/// itself (`HOME`, libvirt's default connection).
 fn handed_on(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    is_network_var(name) || upper == TF_CLI_CONFIG_FILE || is_vagrant_var(name) || upper == "USERPROFILE"
+    is_network_var(name) || upper == TF_CLI_CONFIG_FILE || is_vagrant_var(name) || ["USERPROFILE", "HOME", LIBVIRT_DEFAULT_URI].contains(&upper.as_str())
 }
 
 /// Whether `name` is one of Vagrant's own variables (`VAGRANT_HOME`, `VAGRANT_LOG`…), whatever

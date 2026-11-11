@@ -10,6 +10,7 @@ use isoloom_manifest::{Identity, Machine, Native, Provider};
 use super::{Endpoint, none, on_loopback};
 use crate::Result;
 use crate::executor::{Cx, Echo, call};
+use crate::host_env::{HostEnv, LIBVIRT_DEFAULT_URI};
 use crate::process::ProcessSpec;
 
 /// How long a read of the hypervisor may go without progress.
@@ -33,14 +34,11 @@ fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
 }
 
 /// libvirt's display of `machine`'s domain: `virsh domdisplay`, on the connection
-/// `LIBVIRT_DEFAULT_URI` names, else vagrant-libvirt's default.
+/// `LIBVIRT_DEFAULT_URI` names (which `virsh` inherits and reads itself, UTF-8 or not), else
+/// vagrant-libvirt's default.
 pub(super) async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     let domain = vm_name(machine, Provider::Libvirt)?;
-    let uri = std::env::var("LIBVIRT_DEFAULT_URI")
-        .ok()
-        .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| LIBVIRT_URI.to_owned());
-    let spec = ProcessSpec::new("virsh", ["-c", uri.as_str(), "domdisplay", domain]);
+    let spec = virsh_domdisplay(&cx.run.runner.config.host_env, domain);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
         return Err(none(machine, format!("libvirt didn't say where its display is: {}", out.reason())));
@@ -52,6 +50,16 @@ pub(super) async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> 
             machine,
             format!("libvirt gives it no VNC display (`virsh domdisplay` said `{}`)", said.trim()),
         )),
+    }
+}
+
+/// `virsh domdisplay <domain>`, on vagrant-libvirt's default connection unless `env` sets
+/// `LIBVIRT_DEFAULT_URI`.
+fn virsh_domdisplay(env: &HostEnv, domain: &str) -> ProcessSpec {
+    if env.get(LIBVIRT_DEFAULT_URI).is_some_and(|u| !u.is_empty()) {
+        ProcessSpec::new("virsh", ["domdisplay", domain])
+    } else {
+        ProcessSpec::new("virsh", ["-c", LIBVIRT_URI, "domdisplay", domain])
     }
 }
 
@@ -103,11 +111,14 @@ fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
     if let Some(recorded) = options.as_deref().and_then(recorded_socket) {
         return Ok(recorded);
     }
-    let home = std::env::var_os("VAGRANT_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".vagrant.d")))
-        .ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
+    let home = vagrant_home(&cx.run.runner.config.host_env).ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
     Ok(home.join("tmp").join("vagrant-qemu").join(id).join("qemu_socket"))
+}
+
+/// Vagrant's own folder, as the runner's environment says: `VAGRANT_HOME`, else `~/.vagrant.d`.
+fn vagrant_home(env: &HostEnv) -> Option<PathBuf> {
+    let set = |name: &str| env.get(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    set("VAGRANT_HOME").or_else(|| set("HOME").map(|h| h.join(".vagrant.d")))
 }
 
 /// The text of `path`; none when there is no file there, an error naming it when it can't be read.
@@ -264,6 +275,19 @@ mod tests {
         );
         assert_eq!(vnc_display("spice://127.0.0.1:5930"), None);
         assert_eq!(vnc_display(""), None);
+    }
+
+    #[test]
+    fn libvirt_and_vagrant_are_found_where_the_runners_environment_says() {
+        // Regression: read from the process's environment mid-operation, a non-UTF-8 value as unset.
+        assert_eq!(virsh_domdisplay(&HostEnv::default(), "d").args, ["-c", "qemu:///system", "domdisplay", "d"]);
+        let session = HostEnv::of([(LIBVIRT_DEFAULT_URI, "qemu:///session")]);
+        assert_eq!(virsh_domdisplay(&session, "d").args, ["domdisplay", "d"], "virsh reads it itself");
+        assert_eq!(vagrant_home(&HostEnv::default()), None);
+        let home = HostEnv::of([("HOME", "/home/u")]);
+        assert_eq!(vagrant_home(&home), Some(PathBuf::from("/home/u/.vagrant.d")));
+        let both = HostEnv::of([("HOME", "/home/u"), ("VAGRANT_HOME", "/v")]);
+        assert_eq!(vagrant_home(&both), Some(PathBuf::from("/v")));
     }
 
     #[test]
