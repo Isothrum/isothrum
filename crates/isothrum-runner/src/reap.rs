@@ -46,7 +46,7 @@ pub struct Orphans {
 impl Orphans {
     /// Adds what of `found`, a query's answer, no recorded run covers (`covered`): a resource
     /// past its expiry at `now`, and one whose expiry can't be read.
-    fn sort(&mut self, found: Vec<tags::Found>, now: u64, covered: &BTreeSet<String>) {
+    fn classify(&mut self, found: Vec<tags::Found>, now: u64, covered: &BTreeSet<String>) {
         for item in found {
             match item {
                 Ok(t) if orphaned(&t, now, covered) => self.resources.push(t),
@@ -88,7 +88,7 @@ impl Runner {
         for spec in tags::queries(cloud, place) {
             let answer = query(self.config.processes.as_ref(), &spec).await.and_then(|text| tags::parse(cloud, &text));
             match answer {
-                Ok(found) => out.sort(found, now, &covered),
+                Ok(found) => out.classify(found, now, &covered),
                 Err(why) => out.unread.push(format!("`{}`: {why}", spec.line())),
             }
         }
