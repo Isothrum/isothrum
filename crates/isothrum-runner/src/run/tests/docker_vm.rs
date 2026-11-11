@@ -36,6 +36,8 @@ struct Engine {
     reloads: u32,
     /// Whether a restart fails (the VM left as it was).
     reload_fails: bool,
+    /// What pulling the images in the VM does.
+    pull: downloads::Pull,
 }
 
 /// `docker compose ps --all --format json` of the started run, one object a line.
@@ -47,6 +49,9 @@ const PS: &str = r#"{"Service":"web","State":"running","Health":"healthy","Publi
 fn compose(e: &mut Engine, command: &str, call: &Call) -> Reply {
     if e.vm.as_deref() != Some("running") {
         return Reply::fail(255, "ssh: connect to host: Connection refused");
+    }
+    if command.contains(" pull --policy ") {
+        return downloads::pulled(e.pull);
     }
     if command.contains(" up --detach ") {
         e.up = true;
@@ -376,7 +381,7 @@ async fn retiring_a_service_in_the_vm_removes_it_there() {
 }
 
 /// The VM's boot digest in the fixture.
-const BOOTED: &str = "sha256:cbdf81b7dc8bc0d4bfce020378b0335c7cf166d3edf70b4b300cb2317c34b758";
+const BOOTED: &str = "sha256:5287ee9cf9a9dbf65c880529e7d490c7e0fb5036ee8fd50eb57f16502ef18e44";
 
 /// The steps `events` show, with their states.
 fn steps(events: &Recorder) -> Vec<(String, StepState)> {
@@ -479,3 +484,5 @@ async fn an_unknown_boot_digest_restarts_nothing_and_is_recorded_for_the_next_up
     l.runner.open(&l.manifest, None).unwrap().update(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(l.engine.lock().unwrap().reloads, 1);
 }
+
+mod downloads;

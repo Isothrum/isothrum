@@ -7,7 +7,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use isoloom_manifest::{HostOs, Protocol};
+use isoloom_manifest::{Arch, HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
@@ -50,6 +50,8 @@ pub struct RunnerConfig {
     /// The variables of the runner's environment it hands on where they aren't inherited (the
     /// proxies, the CA bundles: [`HostEnv`]).
     pub(crate) host_env: HostEnv,
+    /// The host's CPU architecture: which build of a Vagrant box counts as there already.
+    pub(crate) arch: Arch,
 }
 
 impl RunnerConfig {
@@ -67,6 +69,7 @@ impl RunnerConfig {
             path: std::env::var_os("PATH"),
             tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
             host_env: HostEnv::capture(),
+            arch: this_arch(),
         }
     }
 }
@@ -90,6 +93,13 @@ pub(crate) fn this_host() -> HostOs {
     } else {
         HostOs::Linux
     }
+}
+
+/// This build's CPU architecture, as Vagrant names a box's build (an x86-64 build reads as
+/// `amd64`, an ARM one as `arm64`).
+#[must_use]
+pub(crate) fn this_arch() -> Arch {
+    if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::Amd64 }
 }
 
 /// The runner.

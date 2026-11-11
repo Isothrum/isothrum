@@ -224,12 +224,13 @@ impl AnyDriver {
     }
 
     /// What step `step` of list `list` needs before it runs, in a phase of its own with its own
-    /// step events and limit: the images a Compose `up` starts, pulled.
-    /// Nothing for another step, nor for another driver.
+    /// step events and limit: the images a Compose `up` starts, pulled; the boxes a `vagrant up`
+    /// boots, downloaded. Nothing for another step, nor for another driver.
     pub(crate) async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
         match self {
             AnyDriver::Compose(_) => compose::pull_before_step(cx, list, step).await,
-            AnyDriver::Vagrant(_) | AnyDriver::Terraform(_) => Ok(()),
+            AnyDriver::Vagrant(d) => vagrant::boxes_before_step(d, cx, list, step).await,
+            AnyDriver::Terraform(_) => Ok(()),
         }
     }
 

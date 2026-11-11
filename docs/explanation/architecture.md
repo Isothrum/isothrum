@@ -55,7 +55,10 @@ WebAssembly build on the compiler. Each crate's Isoloom dependencies, as its `Ca
 - **Drivers.** One per manifest driver: `compose`, `vagrant`, `terraform`. A driver implements its
   own actions and how it reads status; the steps themselves are generic. A driver may fetch what a
   step needs before it, in a step of its own with no ceiling while the download moves: Compose
-  pulls the images of an `up` (`pull-<step>`), so a slow download isn't counted against the `up`.
+  pulls the images of an `up` (`pull-<step>`), Vagrant downloads the boxes a `vagrant up` boots
+  (`boxes-<step>`, those the manifest lists that aren't there yet), so a slow download isn't
+  counted against the `up`. A step the manifest marks `download` (Compose's pull in a VM) runs
+  under the same rule.
 - **Ports.** Every outside effect goes through a trait: `ProcessRunner` (starting tools),
   `HostPorts` (the host's TCP and UDP ports) and `Events` (where events go). Tests use scripted fakes
   (the `fake` feature) and never start a real tool.

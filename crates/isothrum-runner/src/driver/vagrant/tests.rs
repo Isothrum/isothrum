@@ -2,6 +2,7 @@
 //! from a small model of a Vagrantfile's VMs (the `web-vm` fixture's `web` and controller),
 //! which keeps Vagrant's record where the call's `VAGRANT_DOTFILE_PATH` says, as Vagrant does.
 
+mod boxes;
 mod controller;
 mod disruptions;
 mod failures;
@@ -90,6 +91,24 @@ struct Engine {
     fails: std::collections::BTreeSet<Fails>,
     /// VirtualBox's default machine folder (`VBoxManage list systemproperties`), if it has one.
     machine_folder: Option<PathBuf>,
+    /// The boxes Vagrant has: name, provider, version, build.
+    boxes: Vec<[String; 4]>,
+    /// What `vagrant box add` does.
+    box_add: BoxAdd,
+}
+
+/// What `vagrant box add` does in a test.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum BoxAdd {
+    /// Adds the box: its version `1.0.0`, its build the one asked, else the host's (`arm64`).
+    #[default]
+    Adds,
+    /// Prints a progress line, then the same one every minute, for a day.
+    Stuck,
+    /// Fails, the catalog refusing it.
+    Fails,
+    /// Fails, Vagrant having the box already (another process added it meanwhile).
+    ThereAlready,
 }
 
 /// A call of a clean-up that fails in a test.
@@ -342,6 +361,9 @@ fn vagrant(e: &mut Engine, call: &Call, args: &[&str]) -> Reply {
     let dotfile = PathBuf::from(call.env("VAGRANT_DOTFILE_PATH").unwrap_or_default());
     if let Some(reply) = one_vm(e, &dotfile, args) {
         return reply;
+    }
+    if let ["box", rest @ ..] = args {
+        return boxes::answer(e, rest);
     }
     match args {
         ["up", "--provider", provider] => {

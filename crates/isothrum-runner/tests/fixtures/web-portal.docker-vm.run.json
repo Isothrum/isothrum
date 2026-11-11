@@ -378,7 +378,38 @@
           "utm": "web-portal - isoloom-docker-host",
           "vmware_esxi": "web-portal-isoloom-docker-host"
         },
-        "boot_digest": "sha256:cbdf81b7dc8bc0d4bfce020378b0335c7cf166d3edf70b4b300cb2317c34b758"
+        "boot_digest": "sha256:5287ee9cf9a9dbf65c880529e7d490c7e0fb5036ee8fd50eb57f16502ef18e44",
+        "boxes": [
+          {
+            "provider": "virtualbox",
+            "box": "bento/debian-12"
+          },
+          {
+            "provider": "vmware_desktop",
+            "box": "bento/debian-12"
+          },
+          {
+            "provider": "parallels",
+            "box": "bento/debian-12"
+          },
+          {
+            "provider": "libvirt",
+            "box": "generic/debian12"
+          },
+          {
+            "provider": "qemu",
+            "box": "cloud-image/debian-12"
+          },
+          {
+            "provider": "utm",
+            "box": "utm/bookworm"
+          },
+          {
+            "provider": "vmware_esxi",
+            "box": "bento/debian-12",
+            "architecture": "amd64"
+          }
+        ]
       }
     },
     {
@@ -542,6 +573,20 @@
         "timeout_s": 3600
       },
       {
+        "id": "pull-start",
+        "note": "Pulling the environment's images in the VM…",
+        "argv": [
+          "vagrant",
+          "ssh",
+          "--no-tty",
+          "--command",
+          "cd /opt/isoloom && sudo -E env ISOLOOM_PUBLISH_ADDRESS=0.0.0.0 ISOLOOM_PUBLISH_FIXED=1 docker compose --project-name web-portal --file .isoloom/docker/compose.yml pull --policy missing --ignore-buildable --include-deps db isoloom-routes-db web isoloom-routes-web isoloom-probe-amd64",
+          "default"
+        ],
+        "timeout_s": 900,
+        "download": true
+      },
+      {
         "id": "start",
         "note": "Starting the environment's containers in the VM…",
         "argv": [
@@ -553,6 +598,20 @@
           "default"
         ],
         "timeout_s": 1800
+      },
+      {
+        "id": "pull-job-isoloom-init-web-1",
+        "note": "Pulling the environment's images in the VM…",
+        "argv": [
+          "vagrant",
+          "ssh",
+          "--no-tty",
+          "--command",
+          "cd /opt/isoloom && sudo -E env ISOLOOM_PUBLISH_ADDRESS=0.0.0.0 ISOLOOM_PUBLISH_FIXED=1 docker compose --project-name web-portal --file .isoloom/docker/compose.yml pull --policy missing --ignore-buildable isoloom-init-web-1",
+          "default"
+        ],
+        "timeout_s": 900,
+        "download": true
       },
       {
         "id": "job-isoloom-init-web-1",

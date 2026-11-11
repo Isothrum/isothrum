@@ -1,6 +1,7 @@
 //! One argv step: the command filled in for this host and run, its lines streamed as `log`
 //! events (masked), stopped with everything it started once it shows no progress for its time
-//! limit ([`super::progress`]).
+//! limit ([`super::progress`]). A download (a step the manifest marks `download`) has no ceiling,
+//! and its stall and failure are `download_stalled` and `download_failed`.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -54,15 +55,17 @@ pub(crate) struct Ended {
 
 impl Ended {
     /// The step's outcome: its failure with the verdict, else why it failed
-    /// ([`Captured::reason`]).
+    /// ([`Captured::reason`]); a download's ([`Step::download`]) is `download_failed`.
     pub(crate) fn result(self, cx: &Cx<'_>, step: &Step) -> Result<()> {
         if self.last.success() {
             return Ok(());
         }
-        let reason = self.lead.unwrap_or_else(|| self.last.reason());
-        Err(Error::ToolFailed {
-            step: step.id.to_string(),
-            reason: cx.events.mask(&reason),
+        let reason = cx.events.mask(&self.lead.unwrap_or_else(|| self.last.reason()));
+        let id = step.id.to_string();
+        Err(if step.download {
+            Error::DownloadFailed { step: id, reason }
+        } else {
+            Error::ToolFailed { step: id, reason }
         })
     }
 
@@ -116,9 +119,14 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
             lead = Some(found);
         }
     };
-    let exit = timed(step, &cx.scope, &progress, cx.processes.run(&spec, &mut on_line))
-        .await
-        .map_err(|e| masked(cx, e))?;
+    let run = cx.processes.run(&spec, &mut on_line);
+    // A download runs while it makes progress, with no ceiling.
+    let exit = if step.download {
+        downloading(id, plan::limit(step, &cx.scope), &progress, run).await
+    } else {
+        timed(step, &cx.scope, &progress, run).await
+    }
+    .map_err(|e| masked(cx, e))?;
     Ok(Ended {
         last: Captured {
             exit,

@@ -19,7 +19,7 @@ use std::sync::{Mutex, PoisonError};
 use isoloom_manifest::{Action, Failure, Run, Step, When};
 use tracing::Instrument;
 
-pub(crate) use progress::{Progress, within};
+pub(crate) use progress::{DOWNLOAD_STALL, Progress, within};
 pub(crate) use step::{
     Echo, Hold, call, call_ok, capture_output, capture_step, download, env_of, once, run_argv, spec_for, stdin_of, stdout_of, with_delivered,
 };

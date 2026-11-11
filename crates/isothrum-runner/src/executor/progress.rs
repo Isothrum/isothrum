@@ -29,6 +29,10 @@ use crate::process::{Captured, ProcessError, ProcessRunner, ProcessSpec, capture
 /// up`), so no step stops sooner than it did when its limit counted from its start.
 pub(crate) const CEILING: Duration = Duration::from_secs(6 * 3600);
 
+/// How long a download may go without progress before it counts as stuck: a Compose start's
+/// images, a Vagrant run's boxes.
+pub(crate) const DOWNLOAD_STALL: Duration = Duration::from_secs(15 * 60);
+
 /// How many of the last distinct lines a step printed a new line is compared with: enough for a
 /// pull of many layers taking turns, few enough to keep nothing large.
 const RECENT: usize = 64;

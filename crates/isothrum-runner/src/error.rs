@@ -40,11 +40,12 @@ pub enum ErrorCode {
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
     /// and was stopped, with what it started (the `error` event's `timeout` says which).
     Timeout,
-    /// What a step downloads in its own phase before it runs (a Compose start's images) showed
-    /// no progress for as long as a download may, and was stopped.
+    /// A download (what a step needs, fetched in a phase of its own before it: a Compose start's
+    /// images, a Vagrant start's boxes; or a step the manifest marks a download) showed no
+    /// progress for as long as a download may, and was stopped.
     DownloadStalled,
-    /// What a step downloads in its own phase before it runs couldn't be downloaded: its tool
-    /// failed (the message says why: a registry refusing it, a name it doesn't know, the network).
+    /// A download couldn't be made: its tool failed (the message says why: a registry or a box
+    /// catalog refusing it, a name it doesn't know, the network).
     DownloadFailed,
     /// The run is already up.
     AlreadyRunning,
@@ -228,12 +229,13 @@ pub enum Error {
         /// Which limit it ran into.
         timed_out: TimedOut,
     },
-    /// What a step downloads in its own phase before it runs showed no progress for `after_s`
-    /// seconds, and was stopped. A download has no other limit: one still moving runs as long
-    /// as it moves.
+    /// A download (what a step downloads in its own phase before it runs, or a step the manifest
+    /// marks a download) showed no progress for `after_s` seconds, and was stopped. A download
+    /// has no other limit: one still moving runs as long as it moves.
     #[error("step `{step}` showed no progress downloading for {after_s}s and was stopped{}", last_line.as_ref().map_or_else(String::new, |l| format!("; its last line: `{l}`")))]
     DownloadStalled {
-        /// The download's step (`pull-up`, before the `up` it downloads for).
+        /// The download's step (`pull-up` or `boxes-up`, before the `up` it downloads for; a
+        /// manifest's own, `pull-start`).
         step: String,
         /// How long it went without progress, in seconds.
         after_s: u64,
@@ -241,10 +243,10 @@ pub enum Error {
         /// nothing.
         last_line: Option<String>,
     },
-    /// What a step downloads in its own phase before it runs couldn't be downloaded.
+    /// A download couldn't be made.
     #[error("step `{step}` couldn't download what it needs: {reason}")]
     DownloadFailed {
-        /// The download's step (`pull-up`).
+        /// The download's step (`pull-up`, `boxes-up`, `pull-start`).
         step: String,
         /// The tool's last error lines, or its exit status (secrets masked).
         reason: String,

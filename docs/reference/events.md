@@ -48,7 +48,7 @@ are null and an `error` follows it. So one stream carries every outcome, one eve
 | `check` | `runner`, `from`, `name`, `ok`, `detail` | One check's result. |
 | `warning` | `code`, `message` | Something worth showing that didn't fail the operation. |
 | `result` | `ok`, `data` | The operation ran to its end. |
-| `error` | `code`, `message`, `step`, `timeout` | The operation failed. `timeout` is set for a step stopped for no progress (`no_progress`, with its last line) or at its ceiling (`ceiling`). A download made before a step in a step of its own (`pull-<step>`: a Compose `up`'s images) has no ceiling: stopped for no progress, its code is `download_stalled`, the message quoting its last line; failed, `download_failed`. |
+| `error` | `code`, `message`, `step`, `timeout` | The operation failed. `timeout` is set for a step stopped for no progress (`no_progress`, with its last line) or at its ceiling (`ceiling`). A download made before a step in a step of its own (`pull-<step>`: a Compose `up`'s images; `boxes-<step>`: the boxes a `vagrant up` boots), or a step the manifest marks `download`, has no ceiling: stopped for no progress, its code is `download_stalled`, the message quoting its last line; failed, `download_failed`. |
 
 ## Rules
 

@@ -25,7 +25,7 @@ use crate::executor::{Cx, download, spec_for};
 use crate::process::ProcessSpec;
 
 /// How long pulling a project's images may go without progress before it counts as stuck.
-pub(crate) const STALL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const STALL: Duration = crate::executor::DOWNLOAD_STALL;
 
 /// What the pull's step says when it starts.
 const NOTE: &str = "Pulling the environment's images…";

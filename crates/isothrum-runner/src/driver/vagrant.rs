@@ -7,11 +7,13 @@
 //! process holding a machine's lock refuses it ([`lock`]).
 
 mod actions;
+mod boxes;
 pub(super) mod forwarded;
 mod lock;
 mod orphans;
 mod status;
 
+pub(in crate::driver) use boxes::before_step as boxes_before_step;
 pub(super) use lock::run_step;
 
 use std::collections::BTreeMap;

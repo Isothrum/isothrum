@@ -164,6 +164,7 @@ pub(crate) fn runner_config(home: &Path, processes: Arc<dyn ProcessRunner>, port
         host,
         path: None,
         tf_plugin_cache: None,
+        arch: crate::runner::this_arch(),
         host_env: crate::host_env::HostEnv::default(),
     }
 }

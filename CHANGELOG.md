@@ -40,6 +40,25 @@ change.
 
 ### Fixed
 
+- **A step the run manifest marks a download runs with a download's rule.** A Compose start in a
+  VM (`docker-vm`, `cloud-docker`) pulled its images inside the start's command, run through
+  `vagrant ssh` or `ssh.run` under the start's limit, so a large image on a slow connection could
+  time the start out. Isoloom now writes that pull as a step of its own (`pull-<step>`) marked
+  `"download": true`: the runner lets it run while it makes progress, with no ceiling, stops it
+  once it shows none for its `timeout_s` with `download_stalled` (its last line quoted), and
+  reports its failure as `download_failed`, as it does for a Compose start's pull on this
+  computer.
+- **A Vagrant start downloads its VMs' boxes before `vagrant up`, with a download's rule.** A box
+  downloaded by `vagrant up` counted against the `up`'s own limit. Before a `vagrant up` that
+  creates the run's VMs, the runner reads each machine's boxes from the manifest
+  (`native.boxes`, for the run's provider and this computer's architecture; the access machine's
+  left to its hot-add), skips those Vagrant has already (`vagrant box list`, the same provider,
+  version when exact and build), and adds the others in a step of their own, `boxes-<step>`:
+  `vagrant box add <box> --provider <p> [--box-version <v>] [--architecture <a>]`, stopped with
+  `download_stalled` once it shows no progress for 15 minutes, `download_failed` with Vagrant's
+  reason when refused (Vagrant saying it has the box already is no failure). A manifest that
+  lists no boxes starts as before.
+
 - **A run whose operation's process died is failed, not ready.** An operation killed midway
   (SIGKILL, a crash, the computer switched off) never recorded how it ended: its record stayed
   `starting` (or `stopping`, `parking`, `resuming`), so a run whose containers or VMs had come up
