@@ -260,7 +260,7 @@ pub enum WarningCode {
     /// dropped from the run's state, and the destroy runs again.
     AlreadyGone,
     /// A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its
-    /// folder, the run on another Vagrant provider): what it would have removed may still be
+    /// folder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be
     /// there, and the start goes on.
     CleanupFailed,
 }

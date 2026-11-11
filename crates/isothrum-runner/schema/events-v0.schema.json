@@ -559,7 +559,7 @@
           "const": "already_gone"
         },
         {
-          "description": "A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its\nfolder, the run on another Vagrant provider): what it would have removed may still be\nthere, and the start goes on.",
+          "description": "A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its\nfolder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be\nthere, and the start goes on.",
           "type": "string",
           "const": "cleanup_failed"
         }

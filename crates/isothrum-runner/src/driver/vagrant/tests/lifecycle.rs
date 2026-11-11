@@ -197,18 +197,28 @@ async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
     assert_eq!(f.engine().parallels.clone().unwrap(), ["mine", "web-vm-web"].map(String::from).into());
 }
 
-/// Regression: a `prlctl list` that failed skipped the clean-up without a word.
+/// Regression: a `prlctl list` that failed skipped the clean-up without a word; then it was only
+/// traced, which an embedder with no subscriber never sees. It is a `cleanup_failed` warning, as a
+/// removal that fails is.
 #[tokio::test]
-async fn a_hypervisor_listing_that_fails_is_traced_and_removes_nothing() {
+async fn a_hypervisor_listing_that_fails_is_a_cleanup_warning_and_removes_nothing() {
     let f = fixture(HostOs::Macos);
     f.engine().plugins.push("vagrant-parallels".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
         .await
         .unwrap();
-    let (down, traced) = crate::testing::traced(run.down(&RunOptions::new(), &Recorder::new())).await;
+    let events = Recorder::new();
+    let (down, traced) = crate::testing::traced(run.down(&RunOptions::new(), &events)).await;
     down.unwrap();
     assert!(!f.fake.lines().iter().any(|l| l.starts_with("prlctl delete")));
+    assert_eq!(
+        warnings(&events),
+        [
+            "cleanup_failed: what earlier runs left couldn't be listed (`prlctl list -a --no-header -o name`), so none of it is removed: \
+          Failed to get the list of VMs: the Parallels service isn't running (exited with code 1)"
+        ]
+    );
     assert!(
         traced.contains("WARN") && traced.contains("couldn't be read") && traced.contains("the Parallels service isn't running"),
         "{traced}"

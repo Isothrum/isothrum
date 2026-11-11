@@ -441,9 +441,9 @@ change.
   silence; a VirtualBox machine folder that couldn't be read read as one with nothing left; and the
   destroy of the run left on another provider only had to start, its exit status unchecked.
   `orphan_removed` now says a VM or folder once it is removed ("removed a VM an earlier run left
-  (<name>)"); a removal the hypervisor or the file system refuses, a machine folder that can't be
-  listed and a failed destroy on the other provider are each a `cleanup_failed` warning (new in the
-  event schema) with why, and the operation goes on; a failed listing is traced with why.
+  (<name>)"); a removal the hypervisor or the file system refuses, a hypervisor listing or a machine
+  folder that can't be read and a failed destroy on the other provider are each a `cleanup_failed`
+  warning (new in the event schema) with why, and the operation goes on.
   `step_tolerated` is a tolerated manifest step's alone.
 - **A starter file is written for every path Isoloom accepts, and only for one.** A step whose file
   name held `..` (`provision/a..b.sh`) got no starter, though only a `..` segment leaves the

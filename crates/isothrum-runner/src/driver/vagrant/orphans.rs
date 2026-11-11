@@ -65,12 +65,20 @@ fn not_removed(cx: &Cx<'_>, what: &str, reason: &str) {
 }
 
 /// What `spec`, a listing of the hypervisor's VMs or settings, prints; `None` when it fails,
-/// with a warning: no orphan it would have found is removed.
+/// with a `cleanup_failed` warning, as every clean-up that fails has: no orphan it would have
+/// found is removed.
 async fn listed(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<String>> {
     let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
     Ok(out
         .output()
-        .inspect_err(|reason| tracing::warn!(call = spec.line(), reason, "the hypervisor couldn't be read: no orphan it lists is removed"))
+        .inspect_err(|reason| {
+            tracing::warn!(call = spec.line(), reason, "the hypervisor couldn't be read: no orphan it lists is removed");
+            let said = format!(
+                "what earlier runs left couldn't be listed (`{}`), so none of it is removed: {reason}",
+                spec.line()
+            );
+            cx.events.warning(WarningCode::CleanupFailed, &said);
+        })
         .ok())
 }
 
