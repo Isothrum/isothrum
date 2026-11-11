@@ -225,21 +225,24 @@ mod tests {
     fn a_machine_offers_its_providers_console_or_says_why_not() {
         let m = machine(&serde_json::json!([
             { "providers": ["libvirt"], "protocol": "vnc", "source": { "from": "libvirt" } },
-            { "providers": ["utm"], "protocol": "none", "note": "SPICE only" },
+            { "providers": ["parallels"], "protocol": "none", "note": "no console set up" },
         ]));
         assert_eq!(offered(&m, Some(Provider::Libvirt)).unwrap().protocol, ConsoleProtocol::Vnc);
-        let utm = offered(&m, Some(Provider::Utm)).unwrap_err();
+        let parallels = offered(&m, Some(Provider::Parallels)).unwrap_err();
         assert_eq!(
-            (utm.code(), utm.to_string()),
-            (crate::ErrorCode::NoConsole, "machine `web` has no graphical console: SPICE only".to_owned())
+            (parallels.code(), parallels.to_string()),
+            (
+                crate::ErrorCode::NoConsole,
+                "machine `web` has no graphical console: no console set up".to_owned()
+            )
         );
         let other = offered(&m, Some(Provider::Hyperv)).unwrap_err();
         assert!(other.to_string().ends_with("the run's manifest lists no graphical console for it"), "{other}");
         assert_eq!(
-            ConsoleOffer::of(&m, Some(Provider::Utm)),
+            ConsoleOffer::of(&m, Some(Provider::Parallels)),
             Some(ConsoleOffer {
                 protocol: ConsoleProtocol::None,
-                note: Some("SPICE only".into())
+                note: Some("no console set up".into())
             })
         );
         assert_eq!(ConsoleOffer::of(&machine(&serde_json::json!([])), None), None, "a container says nothing");

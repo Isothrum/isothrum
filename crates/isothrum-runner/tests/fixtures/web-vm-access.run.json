@@ -144,15 +144,6 @@
           "refusal": null
         },
         {
-          "id": "utm",
-          "hosts": [
-            "macos"
-          ],
-          "plugin": "vagrant_utm",
-          "elevation": "none",
-          "refusal": "`web` is on a network, and vagrant_utm gives a VM no private network (it only forwards ports)"
-        },
-        {
           "id": "vmware_esxi",
           "hosts": [
             "linux",
@@ -192,7 +183,7 @@
     },
     {
       "name": "ISOLOOM_PUBLISH_FIXED",
-      "description": "Forward each published port from its own `publish` number on the host, instead of a free port the runner picks.",
+      "description": "Set: each published port takes its own `publish` number on the host, instead of a free one.",
       "values": [
         "1"
       ],
@@ -427,7 +418,7 @@
           "utm": "web-vm - web",
           "vmware_esxi": "web-vm-web"
         },
-        "boot_digest": "sha256:b162da8dbc43dafc214bdb2f11a4da169d72f4659a4b60d298d745ef83d03ea8"
+        "boot_digest": "sha256:3c9c85001389ea1b9c2f855d99043eac2dcf39637096bdbceccb5b6e44acce59"
       },
       "ports": [
         {
@@ -440,6 +431,66 @@
             "preferred": 8086,
             "address": "127.0.0.1"
           }
+        }
+      ],
+      "consoles": [
+        {
+          "providers": [
+            "virtualbox"
+          ],
+          "protocol": "rdp",
+          "source": {
+            "from": "vrde"
+          },
+          "note": "on only when the Oracle VM VirtualBox Extension Pack is installed as the VM boots (VirtualBox has no remote display server without it)"
+        },
+        {
+          "providers": [
+            "vmware_desktop"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "runner"
+          }
+        },
+        {
+          "providers": [
+            "hyperv"
+          ],
+          "protocol": "none",
+          "note": "Hyper-V has no VNC or remote display server of its own; a Windows machine's own Remote Desktop is the way, when the spec opens its port"
+        },
+        {
+          "providers": [
+            "parallels"
+          ],
+          "protocol": "none",
+          "note": "Isoloom sets up no graphical console on Parallels Desktop (its VNC server stays off)"
+        },
+        {
+          "providers": [
+            "libvirt"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "libvirt"
+          }
+        },
+        {
+          "providers": [
+            "qemu"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "qemu_monitor"
+          }
+        },
+        {
+          "providers": [
+            "vmware_esxi"
+          ],
+          "protocol": "none",
+          "note": "an ESXi VM's console goes through ESXi's own API (a WebMKS ticket), which Isoloom doesn't use"
         }
       ]
     },
@@ -467,8 +518,68 @@
           "utm": "web-vm - user",
           "vmware_esxi": "web-vm-user"
         },
-        "boot_digest": "sha256:b6052fbbb1647f0d816d6531ce084abc1e82a6e88829ef418c81cce889a4d1f7"
-      }
+        "boot_digest": "sha256:3c7ecfb4f03eefe734507ec21fdaecc4b3b1c294181ee45ffb5436e53cfa2eb6"
+      },
+      "consoles": [
+        {
+          "providers": [
+            "virtualbox"
+          ],
+          "protocol": "rdp",
+          "source": {
+            "from": "vrde"
+          },
+          "note": "on only when the Oracle VM VirtualBox Extension Pack is installed as the VM boots (VirtualBox has no remote display server without it)"
+        },
+        {
+          "providers": [
+            "vmware_desktop"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "runner"
+          }
+        },
+        {
+          "providers": [
+            "hyperv"
+          ],
+          "protocol": "none",
+          "note": "Hyper-V has no VNC or remote display server of its own; a Windows machine's own Remote Desktop is the way, when the spec opens its port"
+        },
+        {
+          "providers": [
+            "parallels"
+          ],
+          "protocol": "none",
+          "note": "Isoloom sets up no graphical console on Parallels Desktop (its VNC server stays off)"
+        },
+        {
+          "providers": [
+            "libvirt"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "libvirt"
+          }
+        },
+        {
+          "providers": [
+            "qemu"
+          ],
+          "protocol": "vnc",
+          "source": {
+            "from": "qemu_monitor"
+          }
+        },
+        {
+          "providers": [
+            "vmware_esxi"
+          ],
+          "protocol": "none",
+          "note": "an ESXi VM's console goes through ESXi's own API (a WebMKS ticket), which Isoloom doesn't use"
+        }
+      ]
     }
   ],
   "lifecycle": {

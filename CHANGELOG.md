@@ -689,6 +689,10 @@ change.
 - **A `.isoloom-reach` folder is the project's own.** Isoloom no longer writes a machine's login
   there, and its copy rules no longer name it, so `project.archive` and `terraform.copy_module`
   copy one below the project's top as any other folder.
+- **A Vagrant run offers no UTM.** Isoloom's `vagrant` run manifest no longer lists `utm` among its
+  providers (vagrant_utm gives a VM no private network), nor a UTM entry among a machine's
+  graphical consoles: `--provider utm` on such a run is refused as not one of the run's providers.
+  A `docker-vm` run still runs on UTM.
 - **Breaking: the Vagrant provider is Isoloom's `Provider`, not a string.** `RunOptions::provider`,
   `RunRecord::provider` and `Status::provider` are `Option<Provider>`, and
   `RunOptions::with_provider` takes a `Provider`. Their JSON is the same wire name

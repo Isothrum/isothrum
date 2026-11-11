@@ -99,7 +99,12 @@ async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty
 
 #[tokio::test]
 async fn a_provider_that_cant_run_the_machines_is_refused_before_anything_runs() {
-    let f = fixture(HostOs::Macos);
+    // Isoloom refuses a provider the run's machines can't use in the manifest: Parallels here.
+    let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
+    let providers = m["identity"]["vagrant"]["providers"].as_array_mut().unwrap();
+    let parallels = providers.iter_mut().find(|p| p["id"] == "parallels").unwrap();
+    parallels["refusal"] = "`web` needs something Parallels doesn't give".into();
+    let f = fixture_from(HostOs::Macos, &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let code = |r: crate::Result<crate::Started>| r.map(drop).unwrap_err();
     let none = code(run.up(&RunOptions::new(), &Recorder::new()).await);
@@ -108,14 +113,20 @@ async fn a_provider_that_cant_run_the_machines_is_refused_before_anything_runs()
     // backticks, and a list of its own; the run's providers are the manifest's.
     assert_eq!(
         none.to_string(),
-        "a Vagrant run needs a provider: pass one of this run's (`virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`)"
+        "a Vagrant run needs a provider: pass one of this run's (`virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `vmware_esxi`)"
     );
-    // UTM gives a VM no private network: Isoloom's refusal, in its words.
+    // Isoloom's refusal, in its words.
+    let refused = code(
+        run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Parallels), &Recorder::new())
+            .await,
+    );
+    assert!(refused.to_string().contains("needs something Parallels doesn't give"), "{refused}");
+    // UTM isn't a VM run's provider: Isoloom offers it to docker-vm only.
     let utm = code(
         run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Utm), &Recorder::new())
             .await,
     );
-    assert!(utm.to_string().contains("vagrant_utm gives a VM no private network"), "{utm}");
+    assert!(utm.to_string().contains("isn't one of this run's providers"), "{utm}");
     let libvirt = code(
         run.up(&RunOptions::new().with_provider(isoloom_manifest::Provider::Libvirt), &Recorder::new())
             .await,
