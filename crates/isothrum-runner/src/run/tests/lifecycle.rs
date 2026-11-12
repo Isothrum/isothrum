@@ -284,7 +284,7 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run.retire("isoloom-routes-db", &RunOptions::new(), &Recorder::new()).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service taken out is removed");
-    assert!(rm.line().ends_with(" rm -sf isoloom-routes-db"), "{}", rm.line());
+    assert!(rm.line().ends_with(" rm -sfv isoloom-routes-db"), "{}", rm.line());
 
     std::fs::write(&f.manifest, regenerated()).unwrap();
     let before = f.fake.calls().len();
@@ -431,4 +431,94 @@ async fn a_down_forgets_the_runs_ssh_files_whatever_the_driver() {
     for file in ["known_hosts", "ssh_config"] {
         assert!(!state.join(file).exists(), "{file} is forgotten");
     }
+}
+
+/// The volumes on `f`'s engine, by name.
+fn volumes(f: &Fixture) -> Vec<&'static str> {
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).volumes.iter().map(|v| v.name).collect()
+}
+
+/// A run's containers that Compose recreated mount their anonymous volumes by name, which Docker
+/// keeps when they go, whatever `down --volumes` says: `down` removes them itself, read while the
+/// containers were there. Never a named volume (the environment's kept `evidence`), and never an
+/// anonymous volume of another project's. Regression (the Cyber CTF launcher's rig, Ubuntu 24.04
+/// e2e:shell): a lab's first containers' two anonymous volumes were left after the attack box went
+/// in (a recreate) and the lab went down.
+#[tokio::test]
+async fn down_removes_the_anonymous_volumes_its_containers_mounted_and_no_other() {
+    let f = fixture();
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).volumes = vec![
+        Volume {
+            name: "3f1ca7",
+            anonymous: true,
+            mounted: true,
+        },
+        Volume {
+            name: "9a7e02",
+            anonymous: true,
+            mounted: true,
+        },
+        Volume {
+            name: "web-portal_evidence",
+            anonymous: false,
+            mounted: true,
+        },
+        Volume {
+            name: "d41c55",
+            anonymous: true,
+            mounted: false,
+        },
+    ];
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let down = Recorder::new();
+    run.down(&RunOptions::default(), &down).await.unwrap();
+    assert_eq!(volumes(&f), ["web-portal_evidence", "d41c55"], "the named one and another project's stay");
+    let rm = f.fake.last("docker volume rm").expect("the anonymous volumes are removed");
+    assert_eq!(rm.line(), "docker volume rm --force 3f1ca7 9a7e02");
+    let read = f
+        .fake
+        .lines()
+        .iter()
+        .position(|l| l.starts_with("docker inspect --format "))
+        .expect("read first");
+    let down_at = f.fake.lines().iter().position(|l| l.contains(" down --volumes")).expect("the down step ran");
+    assert!(read < down_at, "the volumes are read while the containers are there");
+    assert!(kinds(&down).contains(&EventKind::Step {
+        step: "left-volumes".into(),
+        state: StepState::Done,
+        note: None
+    }));
+    assert!(matches!(kinds(&down).last(), Some(EventKind::Result { ok: true, .. })));
+}
+
+/// With no anonymous volume to remove, `down` removes none and reports no step of its own.
+#[tokio::test]
+async fn a_down_with_no_anonymous_volume_removes_none() {
+    let f = fixture();
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).volumes = vec![Volume {
+        name: "web-portal_evidence",
+        anonymous: false,
+        mounted: true,
+    }];
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let down = Recorder::new();
+    run.down(&RunOptions::default(), &down).await.unwrap();
+    assert!(f.fake.last("docker volume rm").is_none(), "nothing removed");
+    assert_eq!(volumes(&f), ["web-portal_evidence"]);
+    assert!(!kinds(&down).iter().any(|k| matches!(k, EventKind::Step { step, .. } if step == "left-volumes")));
+}
+
+/// The project's containers a failed Compose `down` left, which `down`'s cleanup removes by hand,
+/// go with their anonymous volumes (`docker rm -f -v`: never a named one).
+#[tokio::test]
+async fn containers_removed_by_hand_take_their_anonymous_volumes() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.engine.lock().unwrap_or_else(PoisonError::into_inner).failing.push(" down --volumes");
+    run.down(&RunOptions::default(), &Recorder::new()).await.unwrap_err();
+    let rm = f.fake.last("docker rm -f").expect("the containers are removed by hand");
+    assert_eq!(rm.line(), "docker rm -f -v c1 c2");
 }

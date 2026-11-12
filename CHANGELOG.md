@@ -9,6 +9,22 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Compose run's `down` removes the anonymous volumes its containers mounted, even after a
+  recreate.** When Compose recreates a container (an update that changed it, a machine joining or
+  leaving), the new container mounts its predecessor's anonymous volumes (an image's own
+  `VOLUME`, MySQL's data directory) by their names. Docker keeps a volume mounted by name when its
+  container goes, so `down --volumes` and `rm --volumes` left those volumes behind. The Cyber CTF
+  launcher's rig counted two after one lab's tests.
+
+  `down` now reads them while the containers are there and removes them once the containers are
+  gone, as the runner's own step `left-volumes` (`docker volume rm --force`). It removes only
+  volumes Docker labels anonymous (`com.docker.volume.anonymous`) that this run's containers
+  mount: never a named volume, kept or not, and never another project's. The service a retire or
+  a detach removes (`rm -sfv`, and in a run's VM `docker rm -f -v`) and the containers `down`'s
+  cleanup removes by hand (`docker rm -f -v`) now take their anonymous volumes with them.
+
 ## [2.1.3] — 2026-11-12
 
 ### Fixed

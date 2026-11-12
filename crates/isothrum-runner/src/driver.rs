@@ -286,6 +286,24 @@ impl AnyDriver {
         }
     }
 
+    /// The anonymous volumes `down` removes once its steps are done, read before them while the
+    /// run's containers are there ([`compose::Compose::anonymous_volumes`]); none for a driver
+    /// whose containers run in no Docker of this computer.
+    pub(crate) async fn anonymous_volumes(&self, cx: &Cx<'_>) -> Vec<String> {
+        match self {
+            AnyDriver::Compose(d) => d.anonymous_volumes(cx).await,
+            AnyDriver::Vagrant(_) | AnyDriver::Terraform(_) => Vec::new(),
+        }
+    }
+
+    /// Removes `volumes` ([`AnyDriver::anonymous_volumes`]) after `down`'s steps.
+    pub(crate) async fn remove_anonymous_volumes(&self, cx: &Cx<'_>, volumes: &[String]) -> Result<()> {
+        match self {
+            AnyDriver::Compose(d) => d.remove_volumes(cx, volumes).await,
+            AnyDriver::Vagrant(_) | AnyDriver::Terraform(_) => Ok(()),
+        }
+    }
+
     pub(crate) fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         match self {
             AnyDriver::Compose(d) => d.after_down(cx),

@@ -7,6 +7,7 @@ mod config;
 mod pins;
 mod ps;
 mod pull;
+mod volumes;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -257,12 +258,12 @@ impl Compose {
     }
 
     /// Stops and removes `native` with the services in its namespace, through `profile`, its
-    /// calls reported under `id`:
-    /// `docker compose [--profile <profile>] rm -sf <service> <its sidecars>`.
+    /// calls reported under `id`, with their anonymous volumes (an image's own `VOLUME`; never a
+    /// named one): `docker compose [--profile <profile>] rm -sfv <service> <its sidecars>`.
     async fn remove(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<()> {
         let services = self.with_namespace(cx, id, profile, native).await?;
         let mut rest = profiled(profile);
-        rest.extend(["rm", "-sf"]);
+        rest.extend(["rm", "-sfv"]);
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
         call_ok(cx, id, &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Shown).await?;

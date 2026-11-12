@@ -88,7 +88,8 @@ pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, list: &str, step
     if ids.is_empty() {
         return Ok(());
     }
-    let rm = ["rm", "-f"].map(String::from).into_iter().chain(ids).collect();
+    // `-v`: their anonymous volumes go with them (never a named one).
+    let rm = ["rm", "-f", "-v"].map(String::from).into_iter().chain(ids).collect();
     docker(cx, step, rm, &[]).await.map(drop)
 }
 

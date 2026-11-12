@@ -62,6 +62,19 @@ struct Engine {
     failing: Vec<&'static str>,
     /// Where the project's images are.
     images: Images,
+    /// The volumes on this Docker. `down --volumes` leaves them all, as Docker does for a
+    /// recreated container's anonymous volumes (mounted by name).
+    volumes: Vec<Volume>,
+}
+
+/// A volume on the fake engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Volume {
+    name: &'static str,
+    /// Labelled `com.docker.volume.anonymous`: made by Docker for a container's anonymous mount.
+    anonymous: bool,
+    /// Mounted by one of the project's containers (while they exist).
+    mounted: bool,
 }
 
 /// Whether the project's images are on this computer.
@@ -205,6 +218,19 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     }
     if line.starts_with("docker network ls ") {
         return Reply::ok(&e.networks.join("\n"));
+    }
+    if line.starts_with("docker inspect --format ") && e.containers != Containers::None {
+        let mounted: Vec<&str> = e.volumes.iter().filter(|v| v.mounted).map(|v| v.name).collect();
+        return Reply::ok(&mounted.join("\n"));
+    }
+    if line == "docker volume ls -q --filter label=com.docker.volume.anonymous" {
+        let anonymous: Vec<&str> = e.volumes.iter().filter(|v| v.anonymous).map(|v| v.name).collect();
+        return Reply::ok(&anonymous.join("\n"));
+    }
+    if let Some(names) = line.strip_prefix("docker volume rm --force ") {
+        let gone: Vec<&str> = names.split(' ').collect();
+        e.volumes.retain(|v| !gone.contains(&v.name));
+        return Reply::ok("");
     }
     if line.contains("--profile check run") {
         return check_runner(&e, &line);

@@ -29,7 +29,11 @@ impl Running<'_> {
         self.operate(Op::Down, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let (mut record, mut cx) = self.existing(connected, e).await?;
             self.begin(&mut record, Op::Down)?;
+            // Read while the containers are there: Docker keeps a recreated container's anonymous
+            // volumes when it goes, whatever `down` asks (compose::volumes).
+            let anonymous = self.driver.anonymous_volumes(&cx).await;
             crate::executor::run_down_steps(&mut cx).await?;
+            self.driver.remove_anonymous_volumes(&cx, &anonymous).await?;
             self.driver.after_down(&cx)?;
             crate::executor::state_files::forget(&cx)?;
             crate::ssh::forget(&cx)?;

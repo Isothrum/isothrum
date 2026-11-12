@@ -197,14 +197,15 @@ fn into_service(service: &str, user: Option<&str>) -> String {
 
 /// Run inside the VM: Compose service `service`'s container removed, with every container in its
 /// network namespace (`network_mode: service:<service>`: part of the same machine), found by its
-/// Compose label as [`into_service`] finds it. Nothing to do when it isn't there.
+/// Compose label as [`into_service`] finds it, each with its anonymous volumes (`-v`: an image's
+/// own `VOLUME`, never a named one). Nothing to do when it isn't there.
 fn remove_service(service: &str) -> String {
     let filter = sh_quote(&format!("label={COMPOSE_SERVICE_LABEL}={service}"));
     format!(
         "set -e; id=$(sudo docker ps -aq --no-trunc --filter {filter} | head -n 1); [ -n \"$id\" ] || exit 0; \
 for c in $(sudo docker ps -aq --no-trunc); do \
-if [ \"$(sudo docker inspect -f '{{{{.HostConfig.NetworkMode}}}}' \"$c\")\" = \"container:$id\" ]; then sudo docker rm -f \"$c\" >/dev/null; fi; done; \
-sudo docker rm -f \"$id\" >/dev/null"
+if [ \"$(sudo docker inspect -f '{{{{.HostConfig.NetworkMode}}}}' \"$c\")\" = \"container:$id\" ]; then sudo docker rm -f -v \"$c\" >/dev/null; fi; done; \
+sudo docker rm -f -v \"$id\" >/dev/null"
     )
 }
 
@@ -233,8 +234,12 @@ mod tests {
     fn a_service_in_a_vm_is_removed_with_what_shares_its_namespace() {
         let script = remove_service("user");
         assert!(script.contains("--filter 'label=com.docker.compose.service=user'"), "{script}");
-        assert!(script.contains("= \"container:$id\" ]; then sudo docker rm -f"), "its sidecars: {script}");
-        assert!(script.ends_with("sudo docker rm -f \"$id\" >/dev/null"), "{script}");
+        assert!(
+            script.contains("= \"container:$id\" ]; then sudo docker rm -f -v \"$c\""),
+            "its sidecars: {script}"
+        );
+        // `-v`: their anonymous volumes go with them.
+        assert!(script.ends_with("sudo docker rm -f -v \"$id\" >/dev/null"), "{script}");
         assert!(script.contains("[ -n \"$id\" ] || exit 0"), "nothing there: nothing to do");
     }
 }
