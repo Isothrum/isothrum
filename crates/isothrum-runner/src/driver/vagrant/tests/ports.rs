@@ -113,6 +113,21 @@ async fn in_fixed_mode_a_vm_forwards_the_labs_own_port() {
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:8086/"));
 }
 
+/// Regression (#74): with `ISOLOOM_PUBLISH_FIXED`, a VM's preferred port the host already holds
+/// (another lab's VM forwarding 8080, on the rig's studio) failed the start `port_in_use` at the
+/// forwarded-port check. The number is preferred, not fixed: it moves to a free port, which the VM
+/// forwards and the outputs give.
+#[tokio::test]
+async fn in_fixed_mode_a_preferred_port_the_host_holds_moves_to_a_free_one() {
+    let ports = FakePorts::new([41000, 41001]);
+    ports.take(8086, isoloom_manifest::Protocol::Tcp);
+    let f = fixture_with(HostOs::Linux, WEB_VM, ports);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let started = run.up(&opts().with_param("ISOLOOM_PUBLISH_FIXED", "1"), &Recorder::new()).await.unwrap();
+    assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":41000}"#));
+    assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
+}
+
 /// A VM with only fixed ports (Isoloom before this change, or a run that pins a port) picks
 /// nothing and sets no `ISOLOOM_HOSTPORTS`; it forwards each port at its own number.
 #[tokio::test]

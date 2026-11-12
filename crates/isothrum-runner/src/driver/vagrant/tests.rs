@@ -181,9 +181,14 @@ fn fixture(host: HostOs) -> Fixture {
 }
 
 fn fixture_from(host: HostOs, manifest: &str) -> Fixture {
+    fixture_with(host, manifest, FakePorts::new([41000, 41001]))
+}
+
+/// [`fixture_from`] on the host's `ports`.
+fn fixture_with(host: HostOs, manifest: &str, ports: FakePorts) -> Fixture {
     let folder = RunFolder::new("vagrant", manifest);
     let (engine, fake) = modelled(answer);
-    let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([41000, 41001]));
+    let ports: Arc<dyn crate::HostPorts> = Arc::new(ports);
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, host)).unwrap();
     Fixture {
         manifest: folder.manifest.clone(),

@@ -9,6 +9,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A published port's preferred number that the computer already holds moves to a free port.**
+  With `ISOLOOM_PUBLISH_FIXED` (a lab's own ports), a published port took its `preferred` number
+  whenever no other run of this runner had reserved it. A number some other process held (another
+  lab's VM already forwarding 8080, any program) then failed the start `port_in_use` at its
+  forwarded-port check, though Isoloom calls the number preferred, not fixed. The pick now passes
+  over a number the host holds and gives the port a free one, as an ephemeral port gets; the run's
+  outputs give that address. Compose and Vagrant pick the same way. Two starts in two processes
+  that pick the same free number at the same moment can still collide; that's #74's second part.
+
 ## [2.1.2] — 2026-11-12
 
 ### Fixed

@@ -63,10 +63,14 @@ impl<'c, 'a> PortPick<'c, 'a> {
         })
     }
 
-    /// `preferred` over `protocol`, when this pick hasn't taken it and no other run reserved it:
-    /// reserved for this run.
+    /// `preferred` over `protocol`, when this pick hasn't taken it, the host doesn't hold it and no
+    /// other run reserved it: reserved for this run. The number is preferred, not fixed (Isoloom's
+    /// spec): one the host holds (another lab's VM forwarding it, any program) moves to a free
+    /// port, where the start failed `port_in_use` at its forwarded-port check.
     fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
-        let free = !self.taken.contains(&(preferred, protocol)) && self.cx.run.runner.reserve(self.cx.run.name(), preferred, protocol);
+        let free = !self.taken.contains(&(preferred, protocol))
+            && !self.cx.run.runner.config.ports.in_use(preferred, protocol)
+            && self.cx.run.runner.reserve(self.cx.run.name(), preferred, protocol);
         free.then(|| {
             self.taken.insert((preferred, protocol));
             preferred
