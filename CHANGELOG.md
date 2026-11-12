@@ -9,6 +9,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.4] — 2026-11-12
+
 ### Fixed
 
 - **A Compose run's `down` removes the anonymous volumes its containers mounted, even after a
