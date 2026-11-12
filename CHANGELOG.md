@@ -9,6 +9,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.3] — 2026-11-12
+
 ### Fixed
 
 - **A published port's preferred number that the computer already holds moves to a free port.**
