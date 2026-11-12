@@ -84,17 +84,17 @@ jobs:
       PROXMOX_VE_API_TOKEN: ${{ secrets.PROXMOX_VE_API_TOKEN }}
     steps:
       - name: Check out Isothrum (the runner)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out Isoloom (the generator)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: isoloom/isoloom
           ref: ${{ env.ISOLOOM_REF }}
           path: .isoloom-src
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           # The release the macOS Proxmox targets run from Terraform's image.
           terraform_version: 1.16.7
@@ -196,7 +196,7 @@ jobs:
         run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-cert-proxmox-${{ env.EXAMPLE }}
           path: ${{ runner.temp }}/record
@@ -220,11 +220,11 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - name: Check out Isothrum (the runner)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out Isoloom (the generator)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: isoloom/isoloom
@@ -232,11 +232,11 @@ jobs:
           path: .isoloom-src
       - name: Assume the AWS role (OIDC)
         if: ${{ vars.REAL_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.REAL_AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           # The release the macOS Proxmox targets run from Terraform's image.
           terraform_version: 1.16.7
@@ -342,7 +342,7 @@ jobs:
         run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
       - name: Upload the runner cert record
         if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-cert-aws-${{ env.EXAMPLE }}
           path: ${{ runner.temp }}/record
