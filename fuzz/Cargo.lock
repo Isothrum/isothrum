@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-compiler"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "flate2",
  "getrandom",

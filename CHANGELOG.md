@@ -9,6 +9,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.2] — 2026-11-12
+
 ### Fixed
 
 - **The Windows binary starts on a Windows without the Visual C++ Redistributable.** The release's

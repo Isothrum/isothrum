@@ -20,7 +20,7 @@ Targets: `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` (static Linux
 ## Download
 
 ```sh
-VERSION=2.1.1                      # the release you want
+VERSION=2.1.2                      # the release you want
 TARGET=x86_64-unknown-linux-musl   # your platform
 BASE="https://github.com/Isothrum/isothrum/releases/download/v${VERSION}"
 curl -fsSLO "${BASE}/isothrum-${VERSION}-${TARGET}.tar.gz"
