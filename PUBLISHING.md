@@ -89,7 +89,10 @@ needs this manual first publish.
    - `publish-crates.yml` publishes the five crates in order and skips any version already on
      crates.io (idempotent, safe to re-run);
    - `release.yml` checks the tag is the workspace version, builds the `isothrum` binaries (Linux
-     x86_64/aarch64 musl, macOS arm64/x86_64, Windows x86_64), and publishes a GitHub release with
+     x86_64/aarch64 musl, macOS arm64/x86_64, Windows x86_64: its C runtime linked in,
+     `-C target-feature=+crt-static`, the build failing when `isothrum.exe` still imports
+     `VCRUNTIME*.dll` or `MSVCP*.dll`, which CI's `windows-binary` job checks on every push too),
+     and publishes a GitHub release with
      the archives, a CycloneDX SBOM, `SHA256SUMS`, its keyless cosign signature and build
      provenance attestations. Its `release` job runs in the `release` environment.
 7. To publish the crates without a tag, run the **Publish crates** workflow from the Actions tab
