@@ -29,18 +29,32 @@ const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 /// Records the anonymous volumes of `project`'s containers in the run's state folder; a listing
 /// that fails records none and says so (the `down` steps answer for the engine).
 pub(super) async fn record(project: &str, cx: &Cx<'_>) -> Result<()> {
-    let names = match listed(project, cx).await {
-        Ok(names) => names,
-        Err(e) => {
-            tracing::warn!(project, error = %e, "the run's anonymous volumes couldn't be listed before its down");
-            Vec::new()
-        }
+    let path = cx.state_dir().join(RECORD);
+    // A record still here means the last operation was cut before its end (the app quit, a
+    // signal; the launch-ui spec closed the app three seconds into an attach, 2026-11-13): the
+    // volumes it recorded are still the run's, so they stay recorded, and what that operation
+    // orphaned goes with what this one orphans.
+    let mut names: BTreeSet<String> = match std::fs::read_to_string(&path) {
+        Ok(text) => text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
+        Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
     };
-    let mut text = names.join("\n");
+    let carried_over = names.len();
+    match listed(project, cx).await {
+        Ok(held) => names.extend(held),
+        Err(e) => tracing::warn!(project, error = %e, "the run's anonymous volumes couldn't be listed before the operation"),
+    }
+    tracing::info!(
+        project,
+        recorded = names.len(),
+        carried_over,
+        "the run's anonymous volumes, recorded before the operation"
+    );
+    let mut text = names.iter().cloned().collect::<Vec<_>>().join("\n");
     if !text.is_empty() {
         text.push('\n');
     }
-    crate::store::write(&cx.state_dir().join(RECORD), text.as_bytes())
+    crate::store::write(&path, text.as_bytes())
 }
 
 /// Removes the volumes [`record`] kept that the `down` steps left; one the engine still holds
@@ -52,6 +66,10 @@ pub(super) async fn remove_recorded(cx: &Cx<'_>) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
     };
+    tracing::info!(
+        recorded = names.len(),
+        "the run's anonymous volumes after its down: every recorded one is removed"
+    );
     if !names.is_empty() {
         let mut args: Vec<String> = ["volume", "rm", "--force"].map(String::from).to_vec();
         args.extend(names.iter().cloned());
@@ -77,6 +95,11 @@ pub(super) async fn remove_recorded_dangling(cx: &Cx<'_>) -> Result<()> {
         match call_ok(cx, "anonymous-volumes", &docker_spec(cx, ls, Vec::new()), LIMIT, Echo::Quiet).await {
             Ok(listed) => {
                 let orphaned: Vec<String> = listed.split_whitespace().filter(|v| recorded.contains(*v)).map(str::to_owned).collect();
+                tracing::info!(
+                    recorded = recorded.len(),
+                    orphaned = orphaned.len(),
+                    "the run's anonymous volumes after the operation: the orphaned ones are removed"
+                );
                 if !orphaned.is_empty() {
                     let mut rm = ["volume", "rm", "--force"].map(String::from).to_vec();
                     rm.extend(orphaned);

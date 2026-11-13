@@ -9,7 +9,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.7] — 2026-11-13
+
 ### Fixed
+
+- **An operation cut before its end doesn't lose the run's anonymous volumes.** The record a
+  Compose operation keeps of them was overwritten by the next operation, so the volumes an
+  attach orphaned before the app quit three seconds in (the rig's launch-ui spec, 2026-11-13)
+  stayed forever; the next operation carries a leftover record forward and removes what
+  dangles among its names. The runner logs what it records and removes.
 
 - **A Docker that answers no server version fails the start as a stopped one does.** Docker 26
   and older exit 0 with an empty line when the daemon doesn't answer, so the tools probe passed
