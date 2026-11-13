@@ -32,41 +32,91 @@ fn applicable(provider: Provider) -> bool {
     applicable_on(provider, std::env::consts::OS, std::env::consts::ARCH)
 }
 
+/// How this computer tells a provider's hypervisor is installed.
+#[derive(Debug, Clone, Copy)]
+enum Check {
+    /// A tool that proves it: installed as long as it starts.
+    Tool(&'static str, &'static [&'static str]),
+    /// QEMU's system emulator for this machine's CPU ([`qemu_binary`]).
+    Qemu,
+    /// UTM's app bundle, which also says its version.
+    UtmApp,
+    /// The Hyper-V Windows feature.
+    HypervFeature,
+    /// Nothing local to check: a remote hypervisor.
+    Remote,
+}
+
+/// What detection knows of one provider, one row each ([`facts`]): a provider Isoloom adds is
+/// one row here, not an arm in each check.
+#[derive(Debug, Clone, Copy)]
+struct Facts {
+    /// The OSes it runs on, as [`std::env::consts::OS`] names them; empty for any.
+    oses: &'static [&'static str],
+    /// Whether it runs on Windows on Arm (VirtualBox and VMware Workstation don't).
+    windows_arm: bool,
+    /// How its hypervisor is found.
+    check: Check,
+    /// The oldest version of its plugin that works: `vagrant_utm` before 0.2.0 reads a VM's
+    /// forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started`
+    /// state.
+    plugin_minimum: Option<&'static str>,
+    /// Its hypervisor's name and the oldest version its plugin drives: `vagrant_utm` refuses a
+    /// UTM before 4.6.5 (no import of a box, no registry for its shared folders).
+    hypervisor_minimum: Option<(&'static str, &'static str)>,
+}
+
+/// A remote provider's facts: it applies anywhere, with nothing local to check.
+const REMOTE: Facts = Facts {
+    oses: &[],
+    windows_arm: true,
+    check: Check::Remote,
+    plugin_minimum: None,
+    hypervisor_minimum: None,
+};
+
+/// A local hypervisor's facts: it runs on `oses` (any, when empty), found by `check`.
+const fn local(oses: &'static [&'static str], check: Check) -> Facts {
+    Facts { oses, check, ..REMOTE }
+}
+
+/// What detection knows of `provider`: a provider Isoloom adds fails to compile here until it
+/// has its row.
+fn facts(provider: Provider) -> Facts {
+    match provider {
+        Provider::Virtualbox => Facts {
+            windows_arm: false,
+            ..local(&[], Check::Tool("VBoxManage", &["--version"]))
+        },
+        Provider::VmwareDesktop => Facts {
+            windows_arm: false,
+            ..local(&[], Check::Tool("vmrun", &[]))
+        },
+        Provider::Hyperv => local(&["windows"], Check::HypervFeature),
+        Provider::Parallels => local(&["macos"], Check::Tool("prlctl", &["--version"])),
+        Provider::Utm => Facts {
+            plugin_minimum: Some("0.2.0"),
+            hypervisor_minimum: Some(("UTM", "4.6.5")),
+            ..local(&["macos"], Check::UtmApp)
+        },
+        Provider::Libvirt => local(&["linux"], Check::Tool("virsh", &["--version"])),
+        Provider::Qemu => local(&[], Check::Qemu),
+        Provider::VmwareEsxi => REMOTE,
+    }
+}
+
 /// Whether `provider` can run on OS `os` and CPU `arch` (as [`std::env::consts`] names them):
 /// local hypervisors are platform-specific, remote ones apply anywhere.
 fn applicable_on(provider: Provider, os: &str, arch: &str) -> bool {
-    match provider {
-        Provider::Virtualbox | Provider::VmwareDesktop if os == "windows" && arch == "aarch64" => false,
-        Provider::Hyperv => os == "windows",
-        Provider::Parallels | Provider::Utm => os == "macos",
-        Provider::Libvirt => os == "linux",
-        _ => true,
-    }
-}
-
-/// The oldest version of the provider's plugin that works: `vagrant_utm` before 0.2.0 reads
-/// a VM's forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started`
-/// state.
-fn plugin_minimum(provider: Provider) -> Option<&'static str> {
-    match provider {
-        Provider::Utm => Some("0.2.0"),
-        _ => None,
-    }
-}
-
-/// The hypervisor's name and the oldest version its plugin drives: `vagrant_utm` refuses a
-/// UTM before 4.6.5 (no import of a box, no registry for its shared folders).
-fn hypervisor_minimum(provider: Provider) -> Option<(&'static str, &'static str)> {
-    match provider {
-        Provider::Utm => Some(("UTM", "4.6.5")),
-        _ => None,
-    }
+    let f = facts(provider);
+    let windows_arm = os == "windows" && arch == "aarch64";
+    (f.oses.is_empty() || f.oses.contains(&os)) && (f.windows_arm || !windows_arm)
 }
 
 /// The hypervisor's own version, when it is installed and says it: UTM's app bundle
 /// (`CFBundleShortVersionString`); the others aren't held to a version yet.
 async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> Option<String> {
-    if provider != Provider::Utm {
+    if !matches!(facts(provider).check, Check::UtmApp) {
         return None;
     }
     let plist = format!("{UTM_APP}/Contents/Info.plist");
@@ -77,23 +127,20 @@ async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> O
 
 /// The local tool that proves the hypervisor itself is installed, if there is one.
 fn probe(provider: Provider) -> Option<(&'static str, &'static [&'static str])> {
-    match provider {
-        Provider::Virtualbox => Some(("VBoxManage", &["--version"])),
-        Provider::VmwareDesktop => Some(("vmrun", &[])),
-        Provider::Parallels => Some(("prlctl", &["--version"])),
-        Provider::Libvirt => Some(("virsh", &["--version"])),
-        Provider::Qemu => Some((qemu_binary(), &["--version"])),
-        _ => None,
+    match facts(provider).check {
+        Check::Tool(program, args) => Some((program, args)),
+        Check::Qemu => Some((qemu_binary(), &["--version"])),
+        Check::UtmApp | Check::HypervFeature | Check::Remote => None,
     }
 }
 
 /// Whether the hypervisor itself is installed here, `None` when there is nothing local to
 /// check (remote providers). UTM is an app bundle; Hyper-V is a Windows feature.
 async fn hypervisor_installed(provider: Provider, runner: &dyn ProcessRunner) -> Option<bool> {
-    match provider {
-        Provider::Utm => Some(Path::new(UTM_APP).exists()),
-        Provider::Hyperv => Some(hyperv_enabled()),
-        _ => {
+    match facts(provider).check {
+        Check::UtmApp => Some(Path::new(UTM_APP).exists()),
+        Check::HypervFeature => Some(hyperv_enabled()),
+        Check::Tool(..) | Check::Qemu | Check::Remote => {
             let (program, args) = probe(provider)?;
             Some(tool_present(runner, program, args).await)
         }
@@ -150,17 +197,17 @@ pub struct ProviderStatus {
 }
 
 /// The version `installed` of `provider`'s plugin when it is older than the one that works
-/// (`plugin_minimum`), with that minimum; `None` when it is recent enough, unknown, or the
+/// ([`Facts::plugin_minimum`]), with that minimum; `None` when it is recent enough, unknown, or the
 /// plugin has no minimum.
 fn plugin_too_old(provider: Provider, installed: Option<&str>) -> Option<(&str, &'static str)> {
-    let (version, min) = installed.zip(plugin_minimum(provider))?;
+    let (version, min) = installed.zip(facts(provider).plugin_minimum)?;
     older(version, min).then_some((version, min))
 }
 
 /// The version `installed` of `provider`'s hypervisor when it is older than the one its plugin
-/// drives (`hypervisor_minimum`), with the hypervisor's name and that minimum.
+/// drives ([`Facts::hypervisor_minimum`]), with the hypervisor's name and that minimum.
 fn hypervisor_too_old(provider: Provider, installed: Option<&str>) -> Option<(&'static str, &str, &'static str)> {
-    let (version, (name, min)) = installed.zip(hypervisor_minimum(provider))?;
+    let (version, (name, min)) = installed.zip(facts(provider).hypervisor_minimum)?;
     older(version, min).then_some((name, version, min))
 }
 
