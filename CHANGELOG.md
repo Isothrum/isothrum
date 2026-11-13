@@ -53,6 +53,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   in between left it suspended in no job, never run and never ended. Its creation is now recorded
   in the run's tools ledger until it is in its job, and the next operation, finding its creator
   dead, ends it.
+- **One elevated request cut short no longer ends the Hyper-V session.** A request that timed
+  out (a `vagrant ssh -c` probe while the controller halts) ended the elevated broker, and every
+  later call of the operation failed with `elevation`. The broker now runs each request in a
+  process of its own and cancels that request alone (`cancel-<n>`): one in flight has its process
+  tree ended, one not yet taken is skipped, and the session goes on with the next, under the same
+  UAC prompt. (#115)
+
 - **A run rebuilt at the same addresses no longer meets its old machines' SSH host keys.** The
   leftovers an `up` clears and a recovery's steps removed the machines but kept their pinned host
   keys, so every SSH connection to the machines made again failed; every way a run's machines go

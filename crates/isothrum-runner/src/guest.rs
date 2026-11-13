@@ -26,7 +26,7 @@ use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call, slot_value, stdout_of_step};
 use crate::ssh::{self, Login};
-use crate::store::Transient;
+use crate::store::TempFile;
 use isoloom_manifest::contract::{DELIVERED, SECRETS_DIR};
 
 /// What runs as root on the machine: each `<name> <base64>` line of its input kept owner-only
@@ -109,7 +109,7 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
         .stepped(&id, Some(&note), async {
             // The file holds the values: it goes however the delivery ends, and one left behind
             // fails the delivery, unless it failed already (that error stands).
-            let input = Transient::write(cx.state_dir().join(format!("{id}.in")), lines.as_bytes(), "a guest delivery's input file")?;
+            let input = TempFile::create_new_in(cx.state_dir(), (id.as_str(), "in"), lines.as_bytes(), "a guest delivery's input file")?;
             let done = deliver_retrying(cx, &id, login, input.path()).await;
             input.remove_after(done)
         })

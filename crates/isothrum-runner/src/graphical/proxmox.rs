@@ -18,14 +18,14 @@ use crate::error::Error;
 use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
 use crate::secrets::SecretValue;
-use crate::store::Transient;
+use crate::store::TempFile;
 
 mod answer;
 
 /// How long one API call may go without progress.
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// The config file `curl` reads, in the run's state folder, only while it runs ([`Transient`]):
+/// The config file `curl` reads, in the run's state folder, only while it runs ([`TempFile`]):
 /// `proxmox-console-<random>.curl`, one per request, since a status read takes no run lock and
 /// may run beside a console request.
 const CONFIG: (&str, &str) = ("proxmox-console", "curl");
@@ -194,7 +194,7 @@ async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Method), insecur
         text.push_str(f);
         text.push('\n');
     }
-    let config = Transient::write_unique(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
+    let config = TempFile::create_new_in(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
     let mut args = vec!["--silent", "--show-error", "--fail-with-body", "--max-time", "25", "--config", "-"];
     if insecure {
         args.push("--insecure");
