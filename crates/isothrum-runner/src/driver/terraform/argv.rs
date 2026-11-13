@@ -16,7 +16,7 @@ pub(crate) fn subcommand(argv: &Argv) -> Option<(usize, String)> {
 }
 
 /// Whether `e` is the failure of a step of `up` that runs `terraform apply`.
-pub(crate) fn applied(up: &[Step], e: &Error) -> bool {
+pub(crate) fn failed_in_apply(up: &[Step], e: &Error) -> bool {
     let Error::ToolFailed { step, .. } = e else { return false };
     up.iter().filter(|s| s.id.as_str() == step).any(|s| match &s.run {
         Run::Argv(argv) => argv_applies(argv),

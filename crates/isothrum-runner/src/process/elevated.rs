@@ -185,10 +185,10 @@ impl Elevated {
             if let Some(code) = done {
                 log_reader.finish(on_line);
                 guard.armed = false;
-                answered(dir, n).map_err(io)?;
+                remove_request_files(dir, n).map_err(io)?;
                 return exit_code(&code).map(|c| Exit::new(Some(c))).map_err(io);
             }
-            if let Some(reason) = ended(dir).map_err(io)? {
+            if let Some(reason) = session_end_reason(dir).map_err(io)? {
                 // Nothing is left to cancel: the later calls fail with why.
                 guard.armed = false;
                 self.set(Session::Failed(reason.clone()));
@@ -243,7 +243,7 @@ fn read_if_there(file: &Path) -> std::io::Result<Option<String>> {
 
 /// Why the session in `dir` ended, once it has: the reason its broker gave (in `ended`, written
 /// when it stops other than at `done`), or its folder gone.
-fn ended(dir: &Path) -> std::io::Result<Option<String>> {
+fn session_end_reason(dir: &Path) -> std::io::Result<Option<String>> {
     if let Some(reason) = read_if_there(&dir.join("ended"))? {
         return Ok(Some(format!("the elevated session ended: {}", reason.trim())));
     }
@@ -267,7 +267,7 @@ fn fresh_session_dir(root: &Path, dir: &Path) -> std::io::Result<()> {
 
 /// Deletes what request `n` left in `dir` once its answer is read: its output, its exit code, and
 /// its variables (the broker deleted them already, unless it refused the request).
-fn answered(dir: &Path, n: u64) -> std::io::Result<()> {
+fn remove_request_files(dir: &Path, n: u64) -> std::io::Result<()> {
     for file in [format!("out-{n}.log"), format!("exit-{n}"), format!("env-{n}.json")] {
         crate::store::remove_path(&dir.join(file))?;
     }

@@ -10,7 +10,7 @@ use isothrum_runner::{Captured, ProcessError, ProcessRunner, ProcessSpec, captur
 /// # Errors
 ///
 /// [`ProcessError`] when the tool is not installed or the OS refuses to start it.
-pub(crate) async fn read(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, ProcessError> {
+pub(crate) async fn read_any_exit(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, ProcessError> {
     run(runner, program, args).await.map(|out| out.stdout.join("\n"))
 }
 
@@ -36,13 +36,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn read_returns_the_output_whatever_the_exit() {
+    async fn read_any_exit_returns_the_output_whatever_the_exit() {
         let fake = FakeProcesses::rules(&[("tool one", Reply::ok("line-a\nline-b"))]);
-        let out = read(&fake, "tool", &["one"]).await.unwrap();
+        let out = read_any_exit(&fake, "tool", &["one"]).await.unwrap();
         assert!(out.contains("line-a") && out.contains("line-b"), "{out}");
 
         let failing = FakeProcesses::rules(&[("tool two", Reply::fail(2, "the reason"))]);
-        assert!(read(&failing, "tool", &["two"]).await.is_ok());
+        assert!(read_any_exit(&failing, "tool", &["two"]).await.is_ok());
     }
 
     #[tokio::test]
@@ -63,6 +63,6 @@ mod tests {
     #[tokio::test]
     async fn read_fails_when_the_tool_is_missing() {
         let fake = FakeProcesses::rules(&[("tool", Reply::missing())]);
-        assert!(read(&fake, "tool", &[]).await.is_err());
+        assert!(read_any_exit(&fake, "tool", &[]).await.is_err());
     }
 }

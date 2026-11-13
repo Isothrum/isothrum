@@ -306,7 +306,7 @@ impl AnyDriver {
     /// driver.
     pub(crate) fn reapplies(&self, up: &[Step], e: &Error) -> bool {
         match self {
-            AnyDriver::Terraform(_) => terraform::argv::applied(up, e),
+            AnyDriver::Terraform(_) => terraform::argv::failed_in_apply(up, e),
             AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => false,
         }
     }

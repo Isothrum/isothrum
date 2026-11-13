@@ -84,11 +84,12 @@ fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::ReadyFileWait>
     })
 }
 
-/// Whether step `step` of the start succeeded (`ran`): its success said with what it `means`, its
+/// Whether step `step` of the start succeeded, or doesn't apply on this host or provider
+/// (`ran`): its success said with what it `means`, its
 /// failure said the same way in its `ready` event and its error.
 fn step_ok(cx: &Cx<'_>, ran: &Ran, step: &str, means: Option<&str>) -> Result<()> {
     let condition = format!("step_ok {step}");
-    if ran.ok.contains(step) {
+    if ran.succeeded_or_not_applicable(step) {
         cx.events.ready(&condition, ReadyState::Ok, means.unwrap_or_default());
         return Ok(());
     }
