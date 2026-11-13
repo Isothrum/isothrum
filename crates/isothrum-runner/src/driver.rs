@@ -57,7 +57,7 @@ impl Observed {
             published: self
                 .published
                 .iter()
-                .map(|((machine, port), host)| (machine.clone(), port.clone(), *host))
+                .map(|(key, host)| (key.machine.clone(), key.port.clone(), *host))
                 .collect(),
             hosts: self.hosts.clone(),
         }
@@ -67,7 +67,11 @@ impl Observed {
     pub(crate) fn from_seen(seen: crate::store::LastObserved) -> Observed {
         Observed {
             machines: seen.machines,
-            published: seen.published.into_iter().map(|(machine, port, host)| ((machine, port), host)).collect(),
+            published: seen
+                .published
+                .into_iter()
+                .map(|(machine, port, host)| (PortKey { machine, port }, host))
+                .collect(),
             hosts: seen.hosts,
             ..Observed::default()
         }

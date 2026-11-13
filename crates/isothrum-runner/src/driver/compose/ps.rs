@@ -132,7 +132,7 @@ pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<Machine
         // Each by its name in the manifest (`${published.<machine>.<name>}`).
         for p in &ports {
             if let Some(port) = super::machine_port(m, p.port, p.protocol) {
-                published.insert((m.name.to_string(), port.name.to_string()), p.host_port);
+                published.insert(PortKey::new(m.name.as_str(), port.name.as_str()), p.host_port);
             }
         }
         out.push(MachineStatus {
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(state("isoloom-init-web-1"), MachineState::Exited(0));
         assert_eq!(state("isoloom-check"), MachineState::Absent, "a one-off isn't the machine");
         assert!(machines.iter().all(|m| m.name != "stranger"));
-        assert_eq!(published, BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
+        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!((web.published.len(), web.addresses["lab"].as_str()), (1, "10.30.0.10"));
     }
@@ -259,7 +259,7 @@ mod tests {
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"},
             {"PublishedPort":41875,"TargetPort":8443,"Protocol":"tcp"}]}]"#;
         let (machines, published) = machines(&docker_manifest(), &read(ps));
-        assert_eq!(published, BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
+        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!(web.published.len(), 3, "every published port is shown, named or not");
     }

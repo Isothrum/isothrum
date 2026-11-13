@@ -98,11 +98,11 @@ fn overlay_containers(manifest: &isoloom_manifest::Manifest, observed: &mut Obse
 /// The host port each container's `published` port got, into `observed`, each such machine
 /// answering at `host` (the VM's) when there is one.
 fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, u16>, host: Option<&str>) {
-    for ((machine, port), host_port) in published {
+    for (key, host_port) in published {
         if let Some(host) = host {
-            observed.hosts.insert(machine.clone(), host.to_owned());
+            observed.hosts.insert(key.machine.clone(), host.to_owned());
         }
-        observed.published.insert((machine, port), host_port);
+        observed.published.insert(key, host_port);
     }
 }
 

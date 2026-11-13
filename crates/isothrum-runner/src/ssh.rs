@@ -287,7 +287,7 @@ pub(crate) fn unreachable(exit: Exit, printed: bool) -> bool {
 #[derive(Debug)]
 pub(crate) struct Retrying<'w> {
     /// The login and how long it waits.
-    wait: &'w Wait,
+    wait: &'w SshWait,
     /// When the tries stop.
     deadline: tokio::time::Instant,
     /// Whether a retry was made yet.
@@ -296,7 +296,7 @@ pub(crate) struct Retrying<'w> {
 
 impl<'w> Retrying<'w> {
     /// Tries for `wait`'s limit, from now.
-    pub(crate) fn new(wait: &'w Wait) -> Retrying<'w> {
+    pub(crate) fn new(wait: &'w SshWait) -> Retrying<'w> {
         Retrying {
             wait,
             deadline: tokio::time::Instant::now() + wait.limit,
@@ -361,7 +361,7 @@ impl Try for crate::process::Captured {
 
 /// How long an `ssh.run` waits for its host to answer, and the login it tries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Wait {
+pub(crate) struct SshWait {
     /// `wait_s`.
     pub(crate) limit: std::time::Duration,
     /// `user@host`, for the message when it never answers.
@@ -370,7 +370,7 @@ pub(crate) struct Wait {
 
 /// The wait of `step` when it is an `ssh.run` with a `wait_s` above 0: refused above
 /// [`WAIT_MAX`] or when it isn't a number of seconds.
-pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wait>> {
+pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<SshWait>> {
     let isoloom_manifest::Run::Action {
         action: isoloom_manifest::Action::SshRun,
         with,
@@ -393,7 +393,7 @@ pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wai
         return Err(malformed(format!("{secs} is over the {WAIT_MAX} seconds a step may wait")));
     }
     let login = with_login(cx, &arg("host")?, arg)?.target;
-    Ok((secs > 0).then(|| Wait {
+    Ok((secs > 0).then(|| SshWait {
         limit: std::time::Duration::from_secs(secs),
         login,
     }))
@@ -416,7 +416,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_unreachable_host_is_tried_again_every_retry_until_the_deadline() {
         let start = tokio::time::Instant::now();
-        let wait = |limit| Wait {
+        let wait = |limit| SshWait {
             limit,
             login: "root@web".to_owned(),
         };

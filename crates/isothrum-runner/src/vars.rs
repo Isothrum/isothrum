@@ -9,7 +9,23 @@ use crate::Result;
 use crate::error::Error;
 
 /// A published port: the machine, and the port's name on it.
-pub(crate) type PortKey = (String, String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct PortKey {
+    /// The machine's name.
+    pub(crate) machine: String,
+    /// The port's name on it.
+    pub(crate) port: String,
+}
+
+impl PortKey {
+    /// `port` on `machine`, each by its name (a `Name`, a `str`).
+    pub(crate) fn new(machine: impl std::fmt::Display, port: impl std::fmt::Display) -> PortKey {
+        PortKey {
+            machine: machine.to_string(),
+            port: port.to_string(),
+        }
+    }
+}
 
 /// The values an operation's placeholders take.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -149,7 +165,7 @@ impl Vars {
             Placeholder::Run(var) => self.run.get(var).cloned(),
             Placeholder::Param(name) => self.params.get(name.as_str()).cloned(),
             Placeholder::Output(name) => self.outputs.get(name.as_str()).cloned(),
-            Placeholder::Published { machine, port } => self.published.get(&(machine.to_string(), port.to_string())).map(u16::to_string),
+            Placeholder::Published { machine, port } => self.published.get(&PortKey::new(machine, port)).map(u16::to_string),
             Placeholder::Host(machine) => self.hosts.get(machine.as_str()).cloned(),
             Placeholder::Value => value.map(str::to_owned),
             Placeholder::Machine => self.machine.clone(),
@@ -170,7 +186,7 @@ mod tests {
         v.set_run(RunVar::Name, "web-portal");
         v.set_run(RunVar::StateDir, "/home/u/.isothrum/runs/web-portal");
         v.set_params(BTreeMap::from([("ISOLOOM_DERIVED".to_owned(), "1".to_owned())]));
-        v.set_published(BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
+        v.set_published(BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
         v.set_hosts(BTreeMap::from([("web".to_owned(), "127.0.0.1".to_owned())]));
         v.set_output("secret_token", "s3cr3t".into());
         v
@@ -255,7 +271,7 @@ mod proptests {
             let template = Template::parse(&format!("{text}${{published.web.portal}}")).unwrap();
             let mut vars = Vars::default();
             prop_assert_eq!(vars.render_lenient(&template, &BTreeSet::new()), format!("{text}${{published.web.portal}}"));
-            vars.set_published(BTreeMap::from([(("web".to_owned(), "portal".to_owned()), port)]));
+            vars.set_published(BTreeMap::from([(PortKey::new("web", "portal"), port)]));
             prop_assert_eq!(vars.render_lenient(&template, &BTreeSet::new()), format!("{text}{port}"));
         }
     }
