@@ -25,7 +25,8 @@ pub(super) struct TfState {
     /// The outputs the module marks sensitive (`sensitive = true`): never shown, whatever the
     /// manifest says of them.
     pub(super) sensitive: BTreeSet<String>,
-    /// It holds resources (anything that may cost, or hold a server's names).
+    /// It holds resources (anything that may cost, or hold a server's names); data sources don't
+    /// count.
     pub(super) resources: bool,
     /// A resource instance is tainted: a create or a provisioner failed.
     pub(super) tainted: bool,
@@ -69,10 +70,15 @@ fn of(v: &Value) -> TfState {
             }
         }
     }
-    let resources = array(v, "resources");
+    // A data source (`data "aws_ami"`) is read, never created: it costs nothing and holds no
+    // server, so a state of data sources only is a run with nothing up.
+    let resources: Vec<&Value> = array(v, "resources")
+        .iter()
+        .filter(|r| r.get("mode").and_then(Value::as_str) != Some("data"))
+        .collect();
     state.resources = !resources.is_empty();
     state.tainted = resources
-        .iter()
+        .into_iter()
         .flat_map(|r| array(r, "instances"))
         .any(|i| i.get("status").and_then(Value::as_str) == Some("tainted"));
     state
@@ -118,6 +124,17 @@ mod tests {
         assert_eq!(secret.sensitive.iter().collect::<Vec<_>>(), ["db_password"]);
         let empty = parse(r#"{"version":4,"outputs":{},"resources":[]}"#).unwrap();
         assert!(!empty.resources && !empty.tainted && empty.outputs.is_empty());
+    }
+
+    #[test]
+    fn data_sources_are_not_resources() {
+        let read_only = parse(r#"{"resources":[{"mode":"data","type":"aws_ami","name":"debian","instances":[{"status":"tainted"}]}]}"#).unwrap();
+        assert!(!read_only.resources && !read_only.tainted);
+        let managed = parse(
+            r#"{"resources":[{"mode":"data","type":"aws_ami","instances":[{}]},{"mode":"managed","type":"aws_instance","instances":[{"status":"tainted"}]}]}"#,
+        )
+        .unwrap();
+        assert!(managed.resources && managed.tainted);
     }
 
     #[test]
