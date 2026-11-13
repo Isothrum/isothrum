@@ -109,6 +109,7 @@ impl Vagrant {
             env,
             stdin: None,
             tools: None,
+            container: None,
         })
     }
 

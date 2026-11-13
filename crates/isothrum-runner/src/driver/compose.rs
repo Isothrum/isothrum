@@ -339,5 +339,6 @@ fn docker_spec(cx: &Cx<'_>, args: Vec<String>, env: Vec<(String, String)>) -> Pr
         env,
         stdin: None,
         tools: None,
+        container: None,
     }
 }

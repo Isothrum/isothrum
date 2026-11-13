@@ -51,21 +51,25 @@ impl Stopping {
 
     /// Asks `child`'s tree to stop, and ends it once it has, or after the grace. Where it can't
     /// be asked (Windows, a tree already gone), it is ended at once.
-    pub(super) fn stop(self: &Arc<Self>, mut child: Box<dyn ChildWrapper>, recorded: Option<super::ledger::Recorded>) {
+    /// `removal` removes the container the tool runs in once the tool has ended: ending the
+    /// `docker` client leaves its container running.
+    pub(super) fn stop(self: &Arc<Self>, mut child: Box<dyn ChildWrapper>, recorded: Option<super::ledger::Recorded>, removal: Option<Removal>) {
         if !interrupt(child.as_ref()) {
             end(child.as_mut());
+            removal.inspect(Removal::run);
             return;
         }
         self.count.fetch_add(1, Ordering::SeqCst);
         let since = self.epoch.load(Ordering::SeqCst);
         let slot: Slot = Arc::new(Mutex::new(Some(child)));
-        let (stopping, theirs) = (Arc::clone(self), Arc::clone(&slot));
-        // Its entry in the run's tools goes once it has ended, not before: this process killed
-        // meanwhile, the next operation ends it.
+        let (stopping, theirs, their_removal) = (Arc::clone(self), Arc::clone(&slot), removal.clone());
+        // Its entry in the run's tools goes once it has ended and its container is removed, not
+        // before: this process killed meanwhile, the next operation ends it.
         let spawned = std::thread::Builder::new().name("isothrum-stop".into()).spawn(move || {
             if let Some(mut tool) = take(&theirs) {
                 stopping.end_when_stopped(tool.as_mut(), since);
             }
+            their_removal.inspect(Removal::run);
             drop(recorded);
             stopping.count.fetch_sub(1, Ordering::SeqCst);
             stopping.done.notify_waiters();
@@ -75,6 +79,7 @@ impl Stopping {
             if let Some(mut tool) = take(&slot) {
                 end(tool.as_mut());
             }
+            removal.inspect(Removal::run);
             self.count.fetch_sub(1, Ordering::SeqCst);
             self.done.notify_waiters();
         }
@@ -146,6 +151,66 @@ fn interrupt(child: &dyn ChildWrapper) -> bool {
 fn interrupt(_child: &dyn ChildWrapper) -> bool {
     false
 }
+
+/// The removal of the container a tool runs in (`docker rm -f <name>`), run with the tool's own
+/// environment so it reaches the same engine: ending the `docker` client leaves its container
+/// running, and the tool in it.
+#[derive(Debug, Clone)]
+pub(super) struct Removal {
+    /// The Docker CLI the tool ran.
+    pub(super) program: String,
+    /// The container's name.
+    pub(super) name: String,
+    /// The inherited variables the tool didn't get.
+    pub(super) withheld: Vec<String>,
+    /// The variables the tool was given.
+    pub(super) env: Vec<(String, String)>,
+    /// The engine overrides dropped after those (the user picked a context).
+    pub(super) stripped: Vec<String>,
+}
+
+impl Removal {
+    /// Removes the container, waiting for it. One its client removed already (it exited when
+    /// asked), or no engine answering, is traced only.
+    pub(super) fn run(&self) {
+        let mut cmd = std::process::Command::new(&self.program);
+        cmd.args(["rm", "-f", &self.name])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        for var in &self.withheld {
+            cmd.env_remove(var);
+        }
+        cmd.envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        for var in &self.stripped {
+            cmd.env_remove(var);
+        }
+        headless(&mut cmd);
+        match cmd.status() {
+            Ok(status) if status.success() => {
+                tracing::debug!(container = %self.name, "removed the container of a tool that was ended");
+            }
+            Ok(status) => {
+                tracing::debug!(container = %self.name, code = ?status.code(), "the container of a tool that was ended wasn't removed (gone already, or no engine)");
+            }
+            Err(e) => {
+                tracing::warn!(container = %self.name, error = %e, "the container of a tool that was ended couldn't be removed: it may still run");
+            }
+        }
+    }
+}
+
+/// No console window for a removal.
+#[cfg(windows)]
+fn headless(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+    cmd.creation_flags(CREATE_NO_WINDOW.0);
+}
+
+/// Nothing to hide outside Windows.
+#[cfg(not(windows))]
+fn headless(_cmd: &mut std::process::Command) {}
 
 /// SIGKILL to the process group, or the job object terminated: nothing the tool started outlives
 /// it. Already gone is fine.

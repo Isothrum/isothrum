@@ -24,6 +24,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A tool run from its image no longer outlives being ended.** A Terraform run in a container
+  (`tools[].container`) ran as `docker run` with no name, so a timeout, a cancel, an embedder's
+  exit or the next operation's clean-up after a killed one ended the `docker` client only: the
+  Terraform in the container kept writing the state while the next operation cleared its lock.
+  Each such container is now named, and removed (`docker rm -f`) wherever its tool is ended.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or

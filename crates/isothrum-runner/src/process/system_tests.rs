@@ -118,6 +118,38 @@ async fn a_tool_cut_short_is_asked_to_stop_before_it_is_ended() {
     assert!(gone(&pid_in(&pid)).await);
 }
 
+/// A tool run in a container (a `docker run` client) that is ended has its container removed:
+/// ending the client alone left the container, and the Terraform in it, running.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tool_ended_has_its_container_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (pid, log, docker) = (dir.path().join("pid"), dir.path().join("log"), dir.path().join("docker"));
+    // A `docker` that, run, ignores the request to stop; asked to remove, says what it was asked.
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = rm ]; then echo "$*" >> '{}'; exit 0; fi
+trap '' INT; echo $$ > '{}'; while :; do sleep 0.1; done
+"#,
+        log.display(),
+        pid.display()
+    );
+    std::fs::write(&docker, script).unwrap();
+    std::fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut job = spec(&docker.display().to_string(), &["run", "--rm", "-i", "--name", "isothrum-tool-1", "img"]);
+    job.container = Some("isothrum-tool-1".into());
+    let runner = SystemProcesses {
+        stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
+        ..SystemProcesses::default()
+    };
+    assert!(tokio::time::timeout(Duration::from_secs(2), capture(&runner, &job)).await.is_err(), "cut short");
+    tokio::time::timeout(Duration::from_secs(10), runner.stopped())
+        .await
+        .expect("ended after its grace");
+    assert!(gone(&pid_in(&pid)).await);
+    assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "rm -f isothrum-tool-1");
+}
+
 /// A tool that doesn't stop when asked is ended once its grace is over.
 #[cfg(unix)]
 #[tokio::test]

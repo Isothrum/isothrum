@@ -16,7 +16,9 @@
 //!   owner's lock can be taken is a dead process's.
 //! - [`end_orphans`], with the run locked at the start of every operation, ends each tool a dead
 //!   process left (its process group asked to stop, as a cut-short tool is, then killed; on
-//!   Windows its tree, `taskkill /T /F`), and removes the entries. It ends only the very process
+//!   Windows its tree, `taskkill /T /F`), removes the container it ran in when its entry names
+//!   one (`docker rm -f`: ending the `docker` client leaves its container running), and removes
+//!   the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
 
@@ -83,13 +85,13 @@ impl Start {
 pub(crate) struct Recorded(PathBuf);
 
 impl Recorded {
-    /// Records the tool `pid` just started in `dir`. A record that can't be written is traced:
-    /// the tool runs unrecorded.
-    pub(crate) fn write(dir: &Path, pid: u32) -> Option<Recorded> {
+    /// Records the tool `pid` just started in `dir`, with the `container` it runs in, if any. A
+    /// record that can't be written is traced: the tool runs unrecorded.
+    pub(crate) fn write(dir: &Path, pid: u32, container: Option<&str>) -> Option<Recorded> {
         let start = recorded_start(pid)?;
         let written = owner_token(dir).and_then(|token| {
             let path = dir.join(format!("{token}-{pid}.tool"));
-            std::fs::write(&path, format!("{pid} {}\n", start.word()))?;
+            std::fs::write(&path, entry_text(pid, &start, container))?;
             Ok(path)
         });
         match written {
@@ -171,19 +173,64 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
     ended
 }
 
-/// Ends the tool `path` records, when it is still the very process recorded: its id.
+/// An entry's text: the tool's id, its start, and the container it runs in, if any.
+fn entry_text(pid: u32, start: &Start, container: Option<&str>) -> String {
+    match container {
+        Some(name) => format!("{pid} {} {name}\n", start.word()),
+        None => format!("{pid} {}\n", start.word()),
+    }
+}
+
+/// An entry's text read back ([`entry_text`]).
+fn parse_entry(text: &str) -> Option<(u32, Start, Option<String>)> {
+    let mut words = text.split_whitespace();
+    let pid = words.next()?.parse().ok()?;
+    let start = Start::parse(words.next()?)?;
+    Some((pid, start, words.next().map(str::to_owned)))
+}
+
+/// Ends the tool `path` records, when it is still the very process recorded (its id), then
+/// removes the container it ran in, which its name marks as this tool's whatever became of the
+/// process.
 async fn end_entry(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).ok()?;
-    let (pid, start) = text.trim().split_once(' ')?;
-    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::parse(start)?);
+    let (pid, start, container) = parse_entry(&text)?;
     let now = os_start(pid).await;
-    if !now.as_ref().is_some_and(|now| start.is(now)) {
+    let ended = if now.as_ref().is_some_and(|now| start.is(now)) {
+        tracing::warn!(pid, "ending a tool a killed operation left running");
+        end_group(pid).await;
+        true
+    } else {
         tracing::debug!(pid, "a tool a killed operation recorded is gone, or its id names another process: left alone");
-        return None;
+        false
+    };
+    if let Some(name) = container {
+        remove_container(&name).await;
     }
-    tracing::warn!(pid, "ending a tool a killed operation left running");
-    end_group(pid).await;
-    Some(pid)
+    ended.then_some(pid)
+}
+
+/// Removes the container `name` a killed operation's tool ran in (`docker rm -f`); one already
+/// gone is traced only.
+async fn remove_container(name: &str) {
+    let mut cmd = tokio::process::Command::new("docker");
+    cmd.args(["rm", "-f", name])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    headless(&mut cmd);
+    match cmd.status().await {
+        Ok(status) if status.success() => {
+            tracing::warn!(container = name, "removed the container of a tool a killed operation left running");
+        }
+        Ok(status) => {
+            tracing::debug!(container = name, code = ?status.code(), "the container of a tool a killed operation recorded wasn't removed (gone already, or no engine)");
+        }
+        Err(e) => {
+            tracing::warn!(container = name, error = %e, "the container of a tool a killed operation recorded couldn't be removed: it may still run");
+        }
+    }
 }
 
 /// The start to record for the tool `pid` that was just started.

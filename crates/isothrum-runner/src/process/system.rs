@@ -10,7 +10,7 @@ use std::sync::Arc;
 use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
-use super::stopping::{GRACE, Stopping};
+use super::stopping::{GRACE, Removal, Stopping};
 use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, shim};
 use crate::BoxFuture;
 
@@ -28,8 +28,9 @@ pub struct SystemProcesses {
     strip_engine_overrides: bool,
     /// The tools cut short that are still stopping.
     stopping: Arc<Stopping>,
-    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid.
-    running: Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>,
+    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid, each
+    /// with the removal of the container it runs in, if any.
+    running: Arc<std::sync::Mutex<RunningSet>>,
 }
 
 impl Default for SystemProcesses {
@@ -89,8 +90,11 @@ impl SystemProcesses {
     pub fn end_all_now(&self) {
         self.stopping.end_now();
         let running = std::mem::take(&mut *self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for pid in running {
+        for (pid, removal) in running {
             kill_tree(pid);
+            if let Some(removal) = removal {
+                removal.run();
+            }
         }
     }
 
@@ -111,9 +115,14 @@ impl SystemProcesses {
         let mut cmd = self.command(spec).map_err(io)?;
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
-        let _running = child.id().map(|pid| Running::enter(&self.running, pid));
-        let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
-        let mut tree = Tree(Some(child), Arc::clone(&self.stopping), recorded);
+        let removal = self.removal(spec);
+        let _running = child.id().map(|pid| Running::enter(&self.running, pid, removal.clone()));
+        let recorded = spec
+            .tools
+            .as_deref()
+            .zip(child.id())
+            .and_then(|(dir, pid)| ledger::Recorded::write(dir, pid, spec.container.as_deref()));
+        let mut tree = Tree(Some(child), Arc::clone(&self.stopping), recorded, removal);
         let status = match tree.0.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
             None => return Err(io(std::io::Error::other("the process went away"))),
@@ -125,6 +134,27 @@ impl SystemProcesses {
             return Err(ProcessError::Missing { program: spec.program.clone() });
         }
         Ok(Exit { code: status.code() })
+    }
+
+    /// The removal of the container `spec`'s tool runs in, when it names one, with the
+    /// environment the tool gets, so it reaches the same engine.
+    fn removal(&self, spec: &ProcessSpec) -> Option<Removal> {
+        let name = spec.container.as_deref()?;
+        let inherited = std::env::vars_os().filter_map(|(k, _)| k.into_string().ok());
+        let withheld = shim::withheld(&spec.program, inherited);
+        let strip = self.strip_engine_overrides && shim::uses_engine(&spec.program);
+        let stripped = if strip {
+            shim::ENGINE_OVERRIDES.iter().map(|v| (*v).to_owned()).collect()
+        } else {
+            Vec::new()
+        };
+        Some(Removal {
+            program: spec.program.clone(),
+            name: name.to_owned(),
+            withheld,
+            env: spec.env.clone(),
+            stripped,
+        })
     }
 
     /// The command for `spec`: its own group or job, its output piped, headless.
@@ -165,24 +195,27 @@ impl ProcessRunner for SystemProcesses {
 }
 
 /// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
-/// cancellation), with its entry in the run's tools when it was recorded: removed once the tool
-/// ended.
-struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>, Option<ledger::Recorded>);
+/// cancellation), with its entry in the run's tools when it was recorded (removed once the tool
+/// ended) and the removal of the container it runs in, if any.
+struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>, Option<ledger::Recorded>, Option<Removal>);
 
 impl Drop for Tree {
     fn drop(&mut self) {
         if let Some(child) = self.0.take() {
-            self.1.stop(child, self.2.take());
+            self.1.stop(child, self.2.take(), self.3.take());
         }
     }
 }
 
+/// The tools running now, by leader pid, each with the removal of its container, if any.
+type RunningSet = std::collections::BTreeMap<u32, Option<Removal>>;
+
 /// A tool in [`SystemProcesses`]'s running set while this lives.
-struct Running(Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, u32);
+struct Running(Arc<std::sync::Mutex<RunningSet>>, u32);
 
 impl Running {
-    fn enter(set: &Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, pid: u32) -> Running {
-        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid);
+    fn enter(set: &Arc<std::sync::Mutex<RunningSet>>, pid: u32, removal: Option<Removal>) -> Running {
+        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid, removal);
         Running(Arc::clone(set), pid)
     }
 }
