@@ -296,7 +296,7 @@ fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its
         crate::runner::this_host(),
     );
     config.host_env = crate::host_env::HostEnv::of([("HTTPS_PROXY", "http://proxy.corp:3128"), ("VAGRANT_HOME", "D:\\boxes")]);
-    config.path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
+    config.search_path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
     let runner = Runner::new(config).unwrap();
     let run = runner.open(&folder.manifest, None).unwrap();
     let handed = run.elevated_env();

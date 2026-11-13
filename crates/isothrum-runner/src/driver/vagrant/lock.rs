@@ -71,7 +71,12 @@ const ACTING: &str = "==> ";
 /// Whether `out`, a failed Vagrant call, was refused because another process held a machine's
 /// lock.
 pub(super) fn refused(out: &Captured) -> bool {
-    !out.success() && out.stdout.iter().chain(&out.stderr).any(|line| LOCKED.iter().any(|said| line.contains(said)))
+    !out.success()
+        && out
+            .stdout
+            .iter()
+            .chain(&out.stderr_tail)
+            .any(|line| LOCKED.iter().any(|said| line.contains(said)))
 }
 
 /// What a `vagrant` command does when it is run a second time: the one reading of its verb, for
@@ -126,7 +131,7 @@ fn announces(line: &str) -> bool {
 /// Whether `out`, a refused try, announced an action on a machine on either stream (the one rule
 /// [`run_step`] applies to every line it watches).
 fn acted(out: &Captured) -> bool {
-    out.stdout.iter().chain(&out.stderr).any(|line| announces(line))
+    out.stdout.iter().chain(&out.stderr_tail).any(|line| announces(line))
 }
 
 /// When a call refused for a lock stops being tried again: its patience ([`PATIENCE`], a
@@ -231,7 +236,7 @@ pub(super) async fn read_status_output(cx: &Cx<'_>) -> Result<String> {
 /// '<define>'`, the index lock's `Name: <define>`, on either stream, each once.
 pub(super) fn locked_machines(out: &Captured) -> Vec<String> {
     let mut named = Vec::new();
-    for line in out.stdout.iter().chain(&out.stderr) {
+    for line in out.stdout.iter().chain(&out.stderr_tail) {
         // A machine-readable record keeps the message on one line, its newlines written `\n`.
         for part in line.split("\\n") {
             let found = part
@@ -322,7 +327,7 @@ mod tests {
         Captured {
             exit: Exit::new(Some(code)),
             stdout: lines(stdout),
-            stderr: lines(stderr),
+            stderr_tail: lines(stderr),
         }
     }
 

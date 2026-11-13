@@ -135,7 +135,7 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
         cwd: spec.cwd,
         env,
         stdin: spec.stdin,
-        tools: spec.tools,
+        ledger_dir: spec.ledger_dir,
     }
 }
 
