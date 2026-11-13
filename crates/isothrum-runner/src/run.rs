@@ -357,9 +357,12 @@ impl<'r> Running<'r> {
     /// Starts the macOS relays `cx`'s run needs (Vagrant on an ESXi host), for the operation.
     pub(crate) async fn relay(&self, cx: &mut Cx<'_>) -> Result<()> {
         let config = &self.runner.config;
-        let vagrant = self.manifest().driver == isoloom_manifest::Driver::Vagrant;
+        // Only Vagrant drives an ESXi host through the relays.
+        if self.manifest().driver != isoloom_manifest::Driver::Vagrant {
+            return Ok(());
+        }
         let params = cx.vars.params();
-        let Some((host, port)) = crate::relay::esxi_host(&cx.scope, vagrant, params)? else {
+        let Some((host, port)) = crate::relay::esxi_host(&cx.scope, params)? else {
             return Ok(());
         };
         let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));

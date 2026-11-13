@@ -167,12 +167,8 @@ where
 /// # Errors
 ///
 /// [`crate::Error::Param`] when the run needs the relays and `ESXI_HOSTPORT` isn't a port.
-pub(crate) fn esxi_host<'a>(
-    scope: &crate::scope::Scope,
-    vagrant: bool,
-    params: &'a std::collections::BTreeMap<String, String>,
-) -> crate::Result<Option<(&'a str, u16)>> {
-    let relayed = vagrant && scope.host == isoloom_manifest::HostOs::Macos && scope.runs_on(isoloom_manifest::Provider::VmwareEsxi);
+pub(crate) fn esxi_host<'a>(scope: &crate::scope::Scope, params: &'a std::collections::BTreeMap<String, String>) -> crate::Result<Option<(&'a str, u16)>> {
+    let relayed = scope.host == isoloom_manifest::HostOs::Macos && scope.runs_on(isoloom_manifest::Provider::VmwareEsxi);
     let host = params.get(ESXI_HOSTNAME).map(String::as_str).filter(|h| !h.is_empty() && !is_this_machine(h));
     let Some(host) = host.filter(|_| relayed) else {
         return Ok(None);
@@ -320,15 +316,14 @@ mod tests {
     #[test]
     fn only_vagrant_on_an_esxi_host_from_macos_is_relayed() {
         let p = params("10.0.0.5");
-        let host = |macos: bool, vagrant, provider: &str, params| esxi_host(&on(macos, provider), vagrant, params).unwrap();
-        assert_eq!(host(true, true, "vmware_esxi", &p), Some(("10.0.0.5", 22)));
+        let host = |macos: bool, provider: &str, params| esxi_host(&on(macos, provider), params).unwrap();
+        assert_eq!(host(true, "vmware_esxi", &p), Some(("10.0.0.5", 22)));
         let mut on_2222 = p.clone();
         on_2222.insert(ESXI_HOSTPORT.to_owned(), "2222".to_owned());
-        assert_eq!(host(true, true, "vmware_esxi", &on_2222), Some(("10.0.0.5", 2222)));
-        assert_eq!(host(false, true, "vmware_esxi", &p), None, "not on Linux or Windows");
-        assert_eq!(host(true, false, "vmware_esxi", &p), None, "not Terraform");
-        assert_eq!(host(true, true, "virtualbox", &p), None);
-        assert_eq!(host(true, true, "vmware_esxi", &BTreeMap::new()), None);
+        assert_eq!(host(true, "vmware_esxi", &on_2222), Some(("10.0.0.5", 2222)));
+        assert_eq!(host(false, "vmware_esxi", &p), None, "not on Linux or Windows");
+        assert_eq!(host(true, "virtualbox", &p), None);
+        assert_eq!(host(true, "vmware_esxi", &BTreeMap::new()), None);
     }
 
     /// Regression: a port that didn't parse was 22, and the relays pointed at the wrong port.
@@ -336,15 +331,15 @@ mod tests {
     fn an_ssh_port_that_isnt_a_port_is_a_param_error() {
         let mut p = params("10.0.0.5");
         p.insert(ESXI_HOSTPORT.to_owned(), "22a".to_owned());
-        let err = esxi_host(&on(true, "vmware_esxi"), true, &p).unwrap_err();
+        let err = esxi_host(&on(true, "vmware_esxi"), &p).unwrap_err();
         assert_eq!(err.to_string(), "param `ESXI_HOSTPORT`: `22a` isn't a port");
-        assert_eq!(esxi_host(&on(true, "virtualbox"), true, &p).unwrap(), None, "unread when no relay is needed");
+        assert_eq!(esxi_host(&on(true, "virtualbox"), &p).unwrap(), None, "unread when no relay is needed");
     }
 
     #[test]
     fn a_host_on_this_machine_is_never_relayed() {
         for host in ["127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]", "0.0.0.0", ""] {
-            assert_eq!(esxi_host(&on(true, "vmware_esxi"), true, &params(host)).unwrap(), None, "{host}");
+            assert_eq!(esxi_host(&on(true, "vmware_esxi"), &params(host)).unwrap(), None, "{host}");
         }
         assert!(!is_this_machine("10.0.0.5") && !is_this_machine("esxi.lan") && !is_this_machine("[fd00::5]"));
     }

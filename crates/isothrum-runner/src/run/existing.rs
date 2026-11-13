@@ -202,7 +202,7 @@ impl Running<'_> {
         Self::bind_record(&mut cx, &record);
         self.driver.prepare(&cx)?;
         crate::graphical::chosen::ensure(&cx)?;
-        crate::executor::state_files::write(&cx, false)?;
+        crate::executor::state_files::write_missing(&cx)?;
         self.relay(&mut cx).await?;
         Ok((record, cx))
     }

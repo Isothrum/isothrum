@@ -54,7 +54,7 @@ impl Running<'_> {
         self.runs_from_this(&mut record);
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
-        crate::executor::state_files::write(&cx, true)?;
+        crate::executor::state_files::write_all(&cx)?;
         self.driver.before_change(&cx).await?;
         self.converge(&mut cx).await?;
         self.driver.after_change(&cx).await?;

@@ -35,13 +35,31 @@ fn files(cx: &Cx<'_>) -> BTreeMap<String, File> {
     files
 }
 
-/// Writes the state files of `cx`'s operation: every one on a start (`fresh`), else only those
-/// missing.
-pub(crate) fn write(cx: &Cx<'_>, fresh: bool) -> Result<()> {
+/// Writes every state file of `cx`'s operation: a start's, which begins from the manifest.
+pub(crate) fn write_all(cx: &Cx<'_>) -> Result<()> {
+    write(cx, Keep::Nothing)
+}
+
+/// Writes the state files of `cx`'s operation that are missing, keeping the ones there: an
+/// operation on an existing run, whose files may carry what the run was started with.
+pub(crate) fn write_missing(cx: &Cx<'_>) -> Result<()> {
+    write(cx, Keep::Existing)
+}
+
+/// What [`write`] leaves as it is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keep {
+    /// Every file is written.
+    Nothing,
+    /// A file already there stays.
+    Existing,
+}
+
+fn write(cx: &Cx<'_>, keep: Keep) -> Result<()> {
     let dir = cx.state_dir();
     for (path, file) in files(cx) {
         let target = dir.join(&path);
-        if !fresh && target.exists() {
+        if keep == Keep::Existing && target.exists() {
             continue;
         }
         if let Some(parent) = target.parent() {
