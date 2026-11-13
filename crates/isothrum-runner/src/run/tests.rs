@@ -8,6 +8,7 @@ mod checks;
 mod cloud;
 mod disruptions;
 mod docker_vm;
+mod engine;
 mod event_log;
 mod graphical;
 mod leaks;
