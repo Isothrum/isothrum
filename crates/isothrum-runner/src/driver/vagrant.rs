@@ -272,7 +272,7 @@ impl Driver for Vagrant {
     /// detach, a machine's at its retire, before its define leaves the Vagrantfile (once it has,
     /// Vagrant no longer knows the VM).
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
-        let op = cx.events.call_id();
+        let op = cx.events.operation_name();
         let spec = self.vagrant(cx, op, &["destroy", "-f", define_of(machine, "taking out")?])?;
         lock::call_ok_retrying(cx, op, &spec, super::REMOVE_LIMIT, Echo::Shown).await.map(drop)
     }
@@ -296,7 +296,7 @@ impl Driver for Vagrant {
         let args = ["ssh", define_of(vm, "running a script in")?, "-c", script];
         match use_ {
             GuestUse::Console => self.console(cx, &args),
-            GuestUse::Step => self.vagrant(cx, cx.events.call_id(), &args),
+            GuestUse::Step => self.vagrant(cx, cx.events.operation_name(), &args),
         }
     }
 }

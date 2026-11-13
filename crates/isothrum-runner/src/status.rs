@@ -162,7 +162,7 @@ pub struct Status {
     /// refuses to read a VM's state while a `vagrant up` provisions it): they are then as the
     /// runner last read them (none before it ever did), and the outputs the engine itself gives
     /// are left out.
-    #[serde(default = "live_when_absent")]
+    #[serde(default = "default_live")]
     pub live: bool,
     /// The Vagrant provider it uses, when it has one.
     pub provider: Option<Provider>,
@@ -190,9 +190,9 @@ impl Status {
     }
 }
 
-/// [`Status::live`] in a status written before it existed: every status was read from the
-/// engine then.
-fn live_when_absent() -> bool {
+/// [`Status::live`]'s default, for a status written before the field existed: every status was
+/// read from the engine then.
+fn default_live() -> bool {
     true
 }
 
