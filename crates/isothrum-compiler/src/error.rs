@@ -24,13 +24,13 @@ pub enum Error {
     SelfLink {
         /// The cable's index.
         link: usize,
-        /// The node.
+        /// The node's name, as drawn.
         node: String,
     },
     /// Two cables share a port.
     #[error("port `{port}` of `{node}` already has a cable")]
     PortInUse {
-        /// The node.
+        /// The node's name, as drawn.
         node: String,
         /// Its port.
         port: String,
@@ -41,7 +41,7 @@ pub enum Error {
     /// A node is on a LAN the project doesn't have.
     #[error("`{node}` is on LAN `{lan}`, which the project doesn't have")]
     UnknownLan {
-        /// The node.
+        /// The node's name, as drawn.
         node: String,
         /// The LAN it names.
         lan: String,
@@ -54,7 +54,7 @@ pub enum Error {
     /// and a /24 to a /29.
     #[error("LAN `{lan}`: `{cidr}` isn't a block like 10.10.1.0/24 (the network's own address, a /24 to a /29)")]
     BadCidr {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
         /// Its block as drawn.
         cidr: String,
@@ -62,7 +62,7 @@ pub enum Error {
     /// Two nodes ask for the same address on a LAN.
     #[error("on LAN `{lan}`, `{first}` and `{second}` both ask for .{octet}")]
     AddressTaken {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
         /// The address's last octet.
         octet: u8,
@@ -75,9 +75,9 @@ pub enum Error {
     /// keeps (the network's own, the gateway, the two last usable ones, the broadcast).
     #[error("on LAN `{lan}` ({cidr}), `{node}` asks for .{octet}, which no machine can take there")]
     AddressOutside {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
-        /// The node.
+        /// The node's name, as drawn.
         node: String,
         /// The address's last octet.
         octet: u8,
@@ -88,9 +88,9 @@ pub enum Error {
     /// gateway's address, which no machine asks for.
     #[error("on LAN `{lan}`, `{node}` is the gateway (the first Cisco router on it), at .{gateway}: leave its address there unset rather than .{octet}")]
     GatewayAddress {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
-        /// The router.
+        /// The router's node name.
         node: String,
         /// The address it asks for.
         octet: u8,
@@ -100,7 +100,7 @@ pub enum Error {
     /// A LAN has more machines than free addresses.
     #[error("LAN `{lan}` ({cidr}) has no free address left; use a larger block")]
     LanFull {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
         /// Its block.
         cidr: String,
@@ -108,7 +108,7 @@ pub enum Error {
     /// A switch has the name of a LAN: its VLANs nest under a LAN of that name in the spec.
     #[error("switch `{switch}` has the name of a LAN; rename one of them")]
     SwitchNameTaken {
-        /// The switch.
+        /// The switch's name, as drawn.
         switch: String,
     },
     /// A VLAN has a `tc`: Isoloom shapes a LAN's or a cable's traffic, never one VLAN's.
@@ -120,9 +120,9 @@ pub enum Error {
     /// A port name the compiler made breaks Isoloom's rule (a bug: the names are generated).
     #[error("the name of port {port} of `{node}`: {source}")]
     PortName {
-        /// The node.
+        /// The node's name, as drawn.
         node: String,
-        /// The port.
+        /// The port's number.
         port: u16,
         /// Why the name was refused.
         #[source]
@@ -138,7 +138,7 @@ pub enum Error {
     /// Two LANs are the same VLAN of the same switch: the spec holds one block per VLAN id.
     #[error("LANs `{first}` and `{second}` are both VLAN {vlan} of switch `{switch}`; give one another VLAN id")]
     VlanTaken {
-        /// The switch.
+        /// The switch's name, as drawn.
         switch: String,
         /// The VLAN id.
         vlan: u16,
@@ -151,7 +151,7 @@ pub enum Error {
     /// LAN neither.
     #[error("LAN `{lan}` has a {given} but no {missing}: a VLAN needs both, a plain LAN neither")]
     VlanIncomplete {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
         /// What it gives: `switch` or `vlan`.
         given: &'static str,
@@ -161,14 +161,14 @@ pub enum Error {
     /// A plain LAN names a `device`, which only a switch's VLANs have (the switch's machine).
     #[error("LAN `{lan}` names a device, which only a switch's VLAN takes; remove it or give the LAN a switch and a VLAN id")]
     DeviceOffSwitch {
-        /// The LAN.
+        /// The LAN's name, as drawn.
         lan: String,
     },
     /// A machine's provisioning step isn't a file of the project as Isoloom reads one: an
     /// absolute path, or one with a `..` that leaves the project.
     #[error("provisioning step `{path}` of `{node}`: {source}")]
     StepPath {
-        /// The machine.
+        /// The machine's node name.
         node: String,
         /// The step's path as drawn.
         path: String,
