@@ -133,8 +133,8 @@ where
 
 /// Accepts connections on `listener` until the task is aborted, each served by `serve` on a task
 /// of its own, owned by the accept task: when the relay goes, its open connections and their
-/// `nc` children go with it, instead of outliving the operation (Clean Code ch.13, shutdown;
-/// 2026-11-13). A refused handshake or fd exhaustion must not end a relay while a tool is still
+/// `nc` children go with it, instead of outliving the operation. A refused handshake or fd
+/// exhaustion must not end a relay while a tool is still
 /// pointed at it (nor spin hot): it waits a moment and keeps accepting.
 fn serve<F, Fut>(listener: TcpListener, serve: F) -> JoinHandle<()>
 where

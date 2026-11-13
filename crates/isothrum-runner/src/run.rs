@@ -203,7 +203,7 @@ impl<'r> Running<'r> {
 
     /// Each machine's console offer, as it stands now: what its declaration offers on this
     /// provider, and for a running machine whether the console is there and answering. Its own
-    /// step of a status read (Clean Code ch.3, one level of abstraction; 2026-11-13).
+    /// step of a status read.
     async fn offer_consoles(&self, cx: &Cx<'_>, machines: &mut [crate::MachineStatus]) {
         let known = cx.scope.provider;
         for m in machines {

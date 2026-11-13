@@ -7,7 +7,7 @@
 //! The order, everywhere: the run's lock first, the home's slots lock second (a start holds the run
 //! while it waits for a slot, `run/up.rs`, `adopt.rs`), and the `std` mutexes (the runner's flight
 //! and reservations, an emitter's log, a watch's state) last and never across an `.await`. No
-//! path takes them in another order, so no circular wait (Clean Code appendix A, 2026-11-13).
+//! path takes them in another order, so no circular wait (Clean Code appendix A).
 //!
 //! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
 //! that carries on without it would allow what the lock is there to prevent (Terraform's own state lock is cleared on the assumption that this one is held).

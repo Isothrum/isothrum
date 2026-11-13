@@ -114,8 +114,7 @@ impl Drop for Recorded {
 /// Process-wide on purpose, where the runner keeps its other state per instance: an OS file lock
 /// belongs to the process, not to a `Runner`, so two runners in one process are one owner and
 /// must share one token per folder (a second token would read the first's entries as a dead
-/// process's). The map's lock is held while an owner file is made, a few local file operations
-/// (Clean Code G18, said rather than changed; the inventory of 2026-11-13, CC-01).
+/// process's). The map's lock is held while an owner file is made, a few local file operations.
 static OWNED: Mutex<BTreeMap<PathBuf, (String, File)>> = Mutex::new(BTreeMap::new());
 
 /// This process's token in `dir`: its `<token>.owner` made and locked the first time, held until

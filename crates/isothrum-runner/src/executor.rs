@@ -86,7 +86,7 @@ impl<'a> Cx<'a> {
     }
 
     /// The runner's configuration (what a step reaches through `run.runner.config` otherwise:
-    /// Clean Code G36, transitive navigation, 2026-11-13).
+    /// Clean Code G36, transitive navigation).
     pub(crate) fn config(&self) -> &'a crate::runner::RunnerConfig {
         &self.run.runner.config
     }

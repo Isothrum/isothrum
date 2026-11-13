@@ -92,7 +92,7 @@ fn arch_id(a: Arch) -> &'static str {
 /// but vagrant-qemu's, which boots libvirt-format boxes (its `box_format`), and vagrant-vmware-esxi's,
 /// which boots `vmware_desktop` builds (no box on the registry carries a `vmware_esxi` build: asked
 /// for one, `bento/debian-12`'s download ended with "find an alternate box or use an alternate
-/// provider", 2026-11-12). Added as the qemu format, a box was downloaded twice: once by the
+/// provider"). Added as the qemu format, a box was downloaded twice: once by the
 /// download, then again by `vagrant up`, which found no libvirt build of it.
 fn wire(b: &VagrantBox) -> &'static str {
     match b.provider {
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn an_esxi_box_is_the_vmware_desktop_build_the_esxi_plugin_boots() {
         // Regression: the ESXi lab asked the registry for a `vmware_esxi` build of
-        // `bento/debian-12`, which no box carries (2026-11-12).
+        // `bento/debian-12`, which no box carries.
         assert_eq!(wire(&wanted("bento/debian-12", Provider::VmwareEsxi, None, None)), "vmware_desktop");
     }
 

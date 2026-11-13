@@ -276,7 +276,7 @@ impl Compose {
 
     /// Stops and removes `native` with the services in its namespace, through `profile`, its
     /// calls reported under `id`, their anonymous volumes with them (an image's `VOLUME`s: the
-    /// attack box's, which a retire left behind, two a lab, 2026-11-13):
+    /// attack box's, which a retire left behind, two a lab):
     /// `docker compose [--profile <profile>] rm -sfv <service> <its sidecars>`.
     async fn remove(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<()> {
         let services = self.with_namespace(cx, id, profile, native).await?;

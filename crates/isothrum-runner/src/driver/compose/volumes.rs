@@ -3,8 +3,8 @@
 //! that got them is the one that made them. An update that recreates a service's container
 //! inherits them into the new container as volumes named by their id (Compose keeps a service's
 //! data across a recreate), and the engine then counts them named: a `down --volumes` after that
-//! removes the containers and leaves them (the Cyber CTF rig's leftover audit, two a lab, on
-//! every E2E group of 2026-11-13). So the `down` operation records them before its steps, from
+//! removes the containers and leaves them (two a lab, in the Cyber CTF rig's leftover audit of
+//! every E2E group). So the `down` operation records them before its steps, from
 //! the containers the project still has, and removes what the steps left after them. An update
 //! orphans them too, at once: a recreate that makes new anonymous volumes for the new container
 //! (the fixture lab's, three a lab after three updates) leaves the old ones dangling, and no
@@ -31,7 +31,7 @@ const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 pub(super) async fn record(project: &str, cx: &Cx<'_>) -> Result<()> {
     let path = cx.state_dir().join(RECORD);
     // A record still here means the last operation was cut before its end (the app quit, a
-    // signal; the launch-ui spec closed the app three seconds into an attach, 2026-11-13): the
+    // signal; the launch-ui spec closed the app three seconds into an attach): the
     // volumes it recorded are still the run's, so they stay recorded, and what that operation
     // orphaned goes with what this one orphans.
     let mut names: BTreeSet<String> = match std::fs::read_to_string(&path) {

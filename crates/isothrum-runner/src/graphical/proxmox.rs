@@ -207,8 +207,8 @@ pub(crate) async fn vm_states(cx: &Cx<'_>, vars: &crate::vars::Vars) -> Result<s
     let mut out = std::collections::BTreeMap::new();
     let vms = proxmox_vms(cx, vars)?;
     let Some((_, first)) = vms.first() else { return Ok(out) };
-    // Each way the API's answer is missing is said (Clean Code ch.7: an empty map that hid why,
-    // 2026-11-13): the run's own state then stands.
+    // Each way the API's answer is missing is said (an empty map hid why): the run's own state
+    // then stands.
     let Some(sign_in) = status_sign_in(cx, vars, first).await? else {
         tracing::debug!("no Proxmox credentials among the secrets: the VMs' states aren't asked, the run's own stand");
         return Ok(out);

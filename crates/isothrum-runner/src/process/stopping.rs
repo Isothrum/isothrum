@@ -86,7 +86,7 @@ impl Stopping {
     }
 
     /// Once no tool is stopping any more: woken by the last tool's end, not by polling (Clean
-    /// Code ch.13, 2026-11-13). The wait is armed before the count is read, so an end between the
+    /// Code ch.13). The wait is armed before the count is read, so an end between the
     /// two isn't missed.
     pub(super) async fn stopped(&self) {
         loop {
