@@ -73,7 +73,7 @@ impl Terraform {
             return Ok(Vec::new());
         }
         let dir = cx.state_dir();
-        Ok(state::read_json(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
+        Ok(state::read_doc(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
     }
 
     /// Drops from the state each instance it still holds whose text, among `seen`, its failed

@@ -234,7 +234,7 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
 async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
     let console = run.graphical_console(machine).await?;
-    let protocol = serde_json::to_value(console.protocol)?.as_str().unwrap_or_default().to_owned();
+    let protocol = isothrum_runner::wire_name(&console.protocol);
     let (address, websocket) = match &console.endpoint {
         Endpoint::Loopback(at) => (Some(at.to_string()), None),
         Endpoint::ProxmoxVnc(vnc) => (None, Some(vnc.websocket.expose().to_owned())),

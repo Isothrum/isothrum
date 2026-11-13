@@ -199,10 +199,6 @@ fn halting_probe() -> String {
     format!("if test -e {HALTING}; then echo halting; else echo {STAYS_UP}; fi")
 }
 
-/// What vagrant-vmware-esxi says when the VM it is asked to halt is already off: ESXi refuses the
-/// guest shutdown (`vim.fault.InvalidPowerState`, the VM `poweredOff`).
-const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the current state (Powered off)"];
-
 /// `vagrant.park_controller`: the controller (`with.machine`, else Isoloom's) halted. After `up`
 /// it powers itself off at the end of its play, and a `vagrant halt` racing that fails: on ESXi,
 /// which refuses to shut down a VM already off, that is done at once; elsewhere (libvirt can no
@@ -245,10 +241,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
 
 /// Whether a failed halt says the VM was already off (ESXi's refusal).
 fn already_off(halt: &Captured) -> bool {
-    halt.stdout
-        .iter()
-        .chain(&halt.stderr_tail)
-        .any(|line| ESXI_ALREADY_OFF.iter().any(|said| line.contains(said)))
+    crate::tool_output::esxi_already_off(halt.stdout.iter().chain(&halt.stderr_tail))
 }
 
 /// The controller step `step` of list `list` names (`with.machine`), else Isoloom's.
