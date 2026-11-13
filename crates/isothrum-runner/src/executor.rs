@@ -55,6 +55,8 @@ pub(crate) struct Cx<'a> {
     pub(crate) stale: LineWatch,
     /// What the steps' lines say of resources already gone, while a `down` watches for them.
     pub(crate) gone: LineWatch,
+    /// The embedder's variables for the operation's tools ([`crate::RunOptions::env`]).
+    pub(crate) env: std::collections::BTreeMap<String, String>,
     /// The login every SSH of the run goes through first, when it has one.
     pub(crate) ssh_jump: Option<String>,
     /// When the run stops itself (seconds since the Unix epoch), for a manifest with an `expiry`.

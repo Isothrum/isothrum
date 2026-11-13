@@ -163,6 +163,15 @@ pub(crate) enum AnyDriver {
     Terraform(terraform::Terraform),
 }
 
+/// What every tool of a run runs with, whatever its driver: the run's key
+/// ([`crate::RUN_KEY_VAR`]), then the embedder's variables for the operation
+/// ([`crate::RunOptions::with_env`]).
+pub(crate) fn run_env(cx: &Cx<'_>) -> Vec<(String, String)> {
+    let mut env = vec![(crate::RUN_KEY_VAR.to_owned(), crate::copy_key(cx.home(), cx.run.name()))];
+    env.extend(cx.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env
+}
+
 impl AnyDriver {
     /// The driver for `manifest`, refusing what this runner doesn't run yet.
     pub(crate) fn for_manifest(manifest: &Manifest) -> Result<AnyDriver> {
@@ -215,12 +224,16 @@ impl AnyDriver {
         }
     }
 
+    /// What every tool of the run runs with: [`run_env`], then the driver's own, a later variable
+    /// winning.
     pub(crate) fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
-        match self {
+        let mut env = run_env(cx);
+        env.extend(match self {
             AnyDriver::Compose(d) => d.env(cx),
             AnyDriver::Vagrant(d) => d.env(cx),
             AnyDriver::Terraform(d) => d.env(cx),
-        }
+        }?);
+        Ok(env)
     }
 
     /// The host ports a fresh start pins for a driver that chooses its own (Vagrant, locally: a

@@ -312,6 +312,7 @@ impl<'r> Running<'r> {
             stale,
             gone: LineWatch::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
+            env: std::collections::BTreeMap::new(),
             ssh_jump: None,
             expires_at: None,
             relayed: None,

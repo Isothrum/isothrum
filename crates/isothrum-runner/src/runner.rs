@@ -137,6 +137,29 @@ pub struct Runner {
     reservations: PortReservations,
 }
 
+/// The variable every tool of a run gets its run's key in ([`copy_key`]): Isothrum's, set for
+/// every command of every driver, for a project that names what it makes on the host after it
+/// (two copies of one project then never share a VM, a network or a domain name).
+pub const RUN_KEY_VAR: &str = "ISOTHRUM_RUN_KEY";
+
+/// The key of run `name`'s copy on the runner whose home is `home`: six lowercase letters and
+/// digits (FNV-1a of the home and the name, in base 36), the same at every operation of the run.
+/// Every tool of the run gets it in [`RUN_KEY_VAR`]; an embedder hands it on under the name a
+/// project reads (`RunOptions::with_env`). The runner's clean-up only ever takes a VM whose name
+/// carries it. For an embedder that finds its runs' VMs by name.
+#[must_use]
+pub fn copy_key(home: &Path, name: &RunName) -> String {
+    let seed = format!("{}\n{name}", home.display());
+    let mut hash = seed.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+    let mut digits = Vec::with_capacity(7);
+    while hash > 0 {
+        digits.push(char::from_digit(hash % 36, 36).unwrap_or('0'));
+        hash /= 36;
+    }
+    digits.resize(digits.len().max(6), '0');
+    digits.iter().take(6).rev().collect()
+}
+
 impl Runner {
     /// A runner with `config`; its home (with its missing parents) and the home's `runs/` and
     /// `ports/` folders are created, owner-only (on Windows, a home outside the user's profile
@@ -195,6 +218,12 @@ impl Runner {
     /// Fails with `io` when the record is there and can't be read.
     pub fn run_record(&self, name: &RunName) -> Result<Option<RunRecord>> {
         self.store.record(name)
+    }
+
+    /// The key of run `name`'s copy on this runner ([`copy_key`]).
+    #[must_use]
+    pub fn copy_key(&self, name: &RunName) -> String {
+        copy_key(&self.config.home, name)
     }
 
     /// Run `name`'s logged events, oldest first, with how many of its lines it couldn't read as
@@ -317,6 +346,16 @@ mod tests {
 
     fn runner(home: &Path) -> Runner {
         Runner::new(RunnerConfig::new(home)).unwrap()
+    }
+
+    #[test]
+    fn a_copys_key_is_its_homes_and_its_names() {
+        let name = RunName::new("web-vm").unwrap();
+        assert_eq!(copy_key(Path::new("/h"), &name), "r7hhts");
+        assert_eq!(copy_key(Path::new("/other"), &name), "1imar2", "another home, another key");
+        assert_eq!(copy_key(Path::new("/h"), &RunName::new("web-vm-2").unwrap()), "yjcqv3", "another run");
+        let key = copy_key(Path::new("/h"), &name);
+        assert!(key.len() == 6 && key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()), "{key}");
     }
 
     #[test]
