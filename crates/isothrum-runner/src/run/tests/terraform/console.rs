@@ -98,6 +98,10 @@ async fn a_proxmox_vms_console_is_proxmoxs_own_through_its_api() {
     let curls: Vec<Call> = s.fake.calls().into_iter().filter(|c| c.program == "curl").collect();
     assert!(curls.iter().all(|c| !c.line().contains("s3cret") && !c.line().contains("PVE:")), "{curls:?}");
     assert!(!curls[curls_before].stdin.as_ref().unwrap().exists(), "the config is removed");
+    // Regression: every request shared one config file, so a status read beside a console request
+    // read, replaced or removed the other's credentials. Each request has its own.
+    let files: std::collections::BTreeSet<_> = curls.iter().filter_map(|c| c.stdin.clone()).collect();
+    assert_eq!(files.len(), curls.len(), "{curls:?}");
     // With no credential, no request: why instead.
     let bare = s.runner.open(&s.manifest, None).unwrap();
     let err = bare.graphical_console("web").await.unwrap_err();
@@ -123,7 +127,7 @@ async fn a_console_request_cut_short_leaves_no_credentials_on_disk() {
     assert!(cut.is_err(), "the request was still running");
     let said = configs.lock().unwrap_or_else(PoisonError::into_inner).clone();
     assert!(said[0].contains("pw-s3cret"), "curl was given the password: {said:?}");
-    let config = s.runner.store.run_dir(run.name()).unwrap().join("proxmox-console.curl");
+    let config = s.fake.calls().into_iter().rev().find(|c| c.program == "curl").and_then(|c| c.stdin).unwrap();
     assert!(!config.exists(), "the credentials are gone");
 }
 

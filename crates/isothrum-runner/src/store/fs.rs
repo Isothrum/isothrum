@@ -64,6 +64,20 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Writes `contents` to a new file at `path`, owner-only: fails with `AlreadyExists` when
+/// something is there, so no other writer's file is ever replaced. A failed write leaves nothing.
+pub(crate) fn write_new_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut f = open(path, std::fs::OpenOptions::new().write(true).create_new(true))?;
+    let written = f.write_all(contents).and_then(|()| f.sync_all());
+    if written.is_err() {
+        drop(f);
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::debug!(error = %e, path = %path.display(), "a file whose write failed was left behind");
+        }
+    }
+    written
+}
+
 /// Opens `path` to append to it, owner-only: created when missing.
 pub(crate) fn append_private(path: &Path) -> io::Result<File> {
     open(path, std::fs::OpenOptions::new().append(true).create(true))

@@ -24,6 +24,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **Each Proxmox API request has a curl config file of its own.** Every request wrote the same
+  `proxmox-console.curl`, and a status read takes no run lock, so one beside a console request
+  could read the other's sign-in, replace it or find it gone; each is now
+  `proxmox-console-<random>.curl`, created new.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or
