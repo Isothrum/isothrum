@@ -205,6 +205,33 @@ async fn leftovers_are_removed_before_a_start() {
     );
 }
 
+/// The engine, a volume `vol-cut` dangling: what an operation cut before its end left behind.
+fn a_volume_dangles(engine: &std::sync::Mutex<Engine>, call: &crate::process::fake::Call) -> crate::process::fake::Reply {
+    if call.line().contains("volume ls --quiet --filter dangling=true") {
+        return crate::process::fake::Reply::ok("vol-cut\n");
+    }
+    answer(engine, call)
+}
+
+/// An operation cut before its end (the app quit three seconds into an attach, 2026-11-13) leaves
+/// its record of the run's anonymous volumes; the next operation carries the record forward and
+/// removes what dangles among them after its own steps.
+#[tokio::test]
+async fn an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_orphaned() {
+    let f = fixture_answering(crate::testing::WEB_PORTAL, a_volume_dangles);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let record = f.runner.store.run_dir_path(run.name()).join("anonymous-volumes");
+    std::fs::write(&record, "vol-cut\n").unwrap();
+    run.update(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    let removed = f.fake.lines().into_iter().filter(|l| l.contains("volume rm --force")).collect::<Vec<_>>();
+    assert!(
+        removed.iter().any(|l| l.contains("vol-cut")),
+        "the cut operation's volume is removed: {removed:?}"
+    );
+    assert!(!record.exists(), "the record is consumed");
+}
+
 #[tokio::test]
 async fn a_park_of_a_run_that_isnt_there_is_refused() {
     let f = fixture();
