@@ -42,7 +42,7 @@ pub struct ProcessSpec {
     /// The folder the tool is recorded in while it runs (its process group; its process tree on
     /// Windows), so the next operation can end it if the process that started it is killed first
     /// (default: not recorded). An operation's tools are recorded in the run's state folder.
-    pub tools: Option<PathBuf>,
+    pub ledger_dir: Option<PathBuf>,
 }
 
 impl ProcessSpec {
@@ -146,7 +146,7 @@ pub trait ProcessRunner: Send + Sync {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>>;
 }
 
-/// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::tools`]): an
+/// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::ledger_dir`]): an
 /// operation's tools, in its run's state folder.
 pub(crate) struct Recording {
     inner: std::sync::Arc<dyn ProcessRunner>,
@@ -164,7 +164,7 @@ impl ProcessRunner for Recording {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
         Box::pin(async move {
             let recorded = ProcessSpec {
-                tools: Some(self.dir.clone()),
+                ledger_dir: Some(self.dir.clone()),
                 ..spec.clone()
             };
             self.inner.run(&recorded, on_line).await
@@ -190,7 +190,7 @@ pub struct Captured {
     pub stdout: Vec<String>,
     /// Its last standard error lines (a Ruby backtrace's frames and known-harmless warnings left
     /// out).
-    pub stderr: Vec<String>,
+    pub stderr_tail: Vec<String>,
 }
 
 impl Captured {
@@ -208,11 +208,11 @@ impl Captured {
     #[must_use]
     pub fn reason(&self) -> String {
         let cause = crate::tool_output::vagrant_error(&self.stdout).unwrap_or_else(|| {
-            let quiet = self.stderr.iter().all(|l| l.trim().is_empty());
+            let quiet = self.stderr_tail.iter().all(|l| l.trim().is_empty());
             let said = if quiet {
                 self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
             } else {
-                &self.stderr[..]
+                &self.stderr_tail[..]
             };
             said.join("\n")
         });
@@ -257,7 +257,7 @@ pub(crate) async fn capture_echoing(runner: &dyn ProcessRunner, spec: &ProcessSp
     Ok(Captured {
         exit,
         stdout,
-        stderr: tail.into_lines(),
+        stderr_tail: tail.into_lines(),
     })
 }
 
@@ -274,7 +274,7 @@ mod tests {
         Captured {
             exit: Exit::new(code),
             stdout: lines(stdout),
-            stderr: lines(stderr),
+            stderr_tail: lines(stderr),
         }
     }
 

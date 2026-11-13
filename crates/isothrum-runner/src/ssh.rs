@@ -355,7 +355,7 @@ impl Try for crate::process::Captured {
     }
 
     fn said(&self) -> String {
-        self.stderr.join(" ")
+        self.stderr_tail.join(" ")
     }
 }
 

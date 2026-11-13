@@ -112,7 +112,11 @@ impl SystemProcesses {
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
         let _running = child.id().map(|pid| Running::enter(&self.running, pid));
-        let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
+        let recorded = spec
+            .ledger_dir
+            .as_deref()
+            .zip(child.id())
+            .and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
         let mut tree = Tree {
             child: Some(child),
             stopping: Arc::clone(&self.stopping),

@@ -314,7 +314,7 @@ pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> Option<bool> {
     match capture(processes, &whoami).await {
         Ok(out) if out.success() => Some(may_manage(&out.stdout.join("\n"))),
         Ok(out) => {
-            tracing::warn!(stderr = %out.stderr.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
+            tracing::warn!(stderr = %out.stderr_tail.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
             None
         }
         Err(e) => {
@@ -361,7 +361,7 @@ fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, Strin
 /// What a failed elevation's error says: declining the prompt is said plainly.
 fn declined(out: &Captured) -> String {
     let cancelled = |l: &String| l.contains("canceled by the user") || l.contains("cancelled by the user");
-    if out.stderr.iter().any(cancelled) {
+    if out.stderr_tail.iter().any(cancelled) {
         "the Windows permission prompt was declined".into()
     } else {
         format!("the elevated session didn't start: {}", out.reason())

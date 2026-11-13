@@ -224,7 +224,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
         .stdout
         .iter()
         .map(|l| (Stream::Stdout, l))
-        .chain(halt.stderr.iter().map(|l| (Stream::Stderr, l)));
+        .chain(halt.stderr_tail.iter().map(|l| (Stream::Stderr, l)));
     for (stream, line) in said {
         cx.events.log(id, stream, line);
     }
@@ -247,7 +247,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
 fn already_off(halt: &Captured) -> bool {
     halt.stdout
         .iter()
-        .chain(&halt.stderr)
+        .chain(&halt.stderr_tail)
         .any(|line| ESXI_ALREADY_OFF.iter().any(|said| line.contains(said)))
 }
 
