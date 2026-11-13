@@ -231,12 +231,12 @@ impl Driver for Vagrant {
     }
 
     /// Nothing: a VM's volumes are its own.
-    fn before_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn before_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         std::future::ready(Ok(()))
     }
 
     /// Nothing: a VM's volumes are its own.
-    fn after_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn after_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         std::future::ready(Ok(()))
     }
 

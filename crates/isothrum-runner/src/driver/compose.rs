@@ -178,12 +178,13 @@ impl Driver for Compose {
     }
 
     /// Records the project's anonymous volumes ([`volumes::record`]): an update's recreate
-    /// orphans the old container's, which go after the steps.
-    async fn before_update(&self, cx: &Cx<'_>) -> Result<()> {
+    /// orphans the old container's, a retire's removal can leave one it inherited; they go after
+    /// the steps.
+    async fn before_change(&self, cx: &Cx<'_>) -> Result<()> {
         volumes::record(&self.project(cx)?, cx).await
     }
 
-    async fn after_update(&self, cx: &Cx<'_>) -> Result<()> {
+    async fn after_change(&self, cx: &Cx<'_>) -> Result<()> {
         volumes::remove_recorded_dangling(cx).await
     }
 
@@ -274,12 +275,13 @@ impl Compose {
     }
 
     /// Stops and removes `native` with the services in its namespace, through `profile`, its
-    /// calls reported under `id`:
-    /// `docker compose [--profile <profile>] rm -sf <service> <its sidecars>`.
+    /// calls reported under `id`, their anonymous volumes with them (an image's `VOLUME`s: the
+    /// attack box's, which a retire left behind, two a lab, 2026-11-13):
+    /// `docker compose [--profile <profile>] rm -sfv <service> <its sidecars>`.
     async fn remove(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<()> {
         let services = self.with_namespace(cx, id, profile, native).await?;
         let mut rest = profiled(profile);
-        rest.extend(["rm", "-sf"]);
+        rest.extend(["rm", "-sfv"]);
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
         call_ok(cx, id, &docker_spec(cx, args, Vec::new()), CALL_LIMIT, Echo::Shown).await?;

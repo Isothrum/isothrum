@@ -95,12 +95,13 @@ pub(crate) trait Driver {
     /// Clears the run's state after a successful `down` (Compose: no pins left, the recorded
     /// anonymous volumes removed).
     async fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
-    /// Reads what an update must know before its steps run (Compose: the containers' anonymous
-    /// volumes, which a recreate orphans).
-    async fn before_update(&self, cx: &Cx<'_>) -> Result<()>;
-    /// Clears what an update's steps left (Compose: the recorded anonymous volumes no container
+    /// Reads what a change of the running run (an update, a retire, a detach) must know before
+    /// its steps run (Compose: the containers' anonymous volumes, which a recreate orphans and a
+    /// removal can leave).
+    async fn before_change(&self, cx: &Cx<'_>) -> Result<()>;
+    /// Clears what the change's steps left (Compose: the recorded anonymous volumes no container
     /// holds any more).
-    async fn after_update(&self, cx: &Cx<'_>) -> Result<()>;
+    async fn after_change(&self, cx: &Cx<'_>) -> Result<()>;
     /// Restarts `machine`, running, as step `id`, so it boots with the settings its engine
     /// applies only at boot (an update, when its boot digest changed: [`Native::Vagrant`]'s
     /// `boot_digest`). Nothing for a driver whose machines carry no boot digest.
@@ -305,21 +306,21 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) async fn before_update(&self, cx: &Cx<'_>) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = "before_update");
+    pub(crate) async fn before_change(&self, cx: &Cx<'_>) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = "before_change");
         match self {
-            AnyDriver::Compose(d) => d.before_update(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.before_update(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.before_update(cx).instrument(span).await,
+            AnyDriver::Compose(d) => d.before_change(cx).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.before_change(cx).instrument(span).await,
+            AnyDriver::Terraform(d) => d.before_change(cx).instrument(span).await,
         }
     }
 
-    pub(crate) async fn after_update(&self, cx: &Cx<'_>) -> Result<()> {
-        let span = tracing::debug_span!("driver", driver = self.name(), op = "after_update");
+    pub(crate) async fn after_change(&self, cx: &Cx<'_>) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = "after_change");
         match self {
-            AnyDriver::Compose(d) => d.after_update(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.after_update(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.after_update(cx).instrument(span).await,
+            AnyDriver::Compose(d) => d.after_change(cx).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.after_change(cx).instrument(span).await,
+            AnyDriver::Terraform(d) => d.after_change(cx).instrument(span).await,
         }
     }
 

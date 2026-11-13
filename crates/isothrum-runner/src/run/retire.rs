@@ -52,9 +52,14 @@ impl Running<'_> {
     /// Takes `target` out of the running run: a Compose service in the run's VM there
     /// ([`crate::in_vm::retire`]), anything else through its driver.
     pub(crate) async fn take_out(&self, cx: &Cx<'_>, target: &Machine) -> Result<()> {
-        match (&self.manifest().guest, &target.native) {
+        // The machine's anonymous volumes: recorded before its removal, what the removal left of
+        // them removed after (the attack box's two, left by every retire on 2026-11-13).
+        self.driver.before_change(cx).await?;
+        let taken = match (&self.manifest().guest, &target.native) {
             (Some(guest), Some(Native::Compose { service })) => crate::in_vm::retire(cx, &self.driver, guest, service.as_str()).await,
             _ => self.driver.retire(cx, target).await,
-        }
+        };
+        taken?;
+        self.driver.after_change(cx).await
     }
 }

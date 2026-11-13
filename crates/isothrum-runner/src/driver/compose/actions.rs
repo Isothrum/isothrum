@@ -88,7 +88,9 @@ pub(super) async fn remove_containers(c: &Compose, cx: &Cx<'_>, list: &str, step
     if ids.is_empty() {
         return Ok(());
     }
-    let rm = ["rm", "-f"].map(String::from).into_iter().chain(ids).collect();
+    // `-v`: a removed container's anonymous volumes go with it (the ones Compose's `down`
+    // leaves of a one-off, and what a leftover's image declared).
+    let rm = ["rm", "-fv"].map(String::from).into_iter().chain(ids).collect();
     docker(cx, step, rm, &[]).await.map(drop)
 }
 

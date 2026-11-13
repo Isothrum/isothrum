@@ -6,7 +6,7 @@ members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "2.1.5"
+version = "2.1.6"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -23,8 +23,8 @@ isoloom-spec = "2.0.0"
 isoloom-targets = "2.0.0"
 isoloom-manifest = "2.0.0"
 isoloom-plan = "2.0.0"
-isothrum-compiler = { path = "crates/isothrum-compiler", version = "2.1.5" }
-isothrum-runner = { path = "crates/isothrum-runner", version = "2.1.5" }
+isothrum-compiler = { path = "crates/isothrum-compiler", version = "2.1.6" }
+isothrum-runner = { path = "crates/isothrum-runner", version = "2.1.6" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
