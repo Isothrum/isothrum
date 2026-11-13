@@ -3,7 +3,6 @@
 //! so a missing tool or a stopped engine fails before anything is created.
 
 use std::num::NonZeroU32;
-use std::sync::LazyLock;
 
 use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 
@@ -14,18 +13,15 @@ use crate::executor::{Cx, capture_step};
 /// The step id the probes report under.
 const STEP: &str = "tools";
 
-/// [`STEP`] and the container engine's program, as Isoloom's types, parsed once for the process:
-/// literals a test holds to Isoloom's rules, so the error each keeps can't happen.
-static CONSTANTS: LazyLock<std::result::Result<(StepId, Program), String>> = LazyLock::new(|| {
-    Ok((
-        StepId::parse(STEP).map_err(|e| e.to_string())?,
-        Program::parse("docker").map_err(|e| e.to_string())?,
-    ))
-});
-
-/// The probes' step id and the container engine's program ([`CONSTANTS`]).
+/// The probes' step id and the container engine's program, as Isoloom's types: literals a test
+/// holds to Isoloom's rules, so the error each keeps can't happen. Parsed where they are used, not
+/// kept in a process-wide lazy value: two short literals cost nothing to parse.
 fn constants() -> Result<(StepId, Program)> {
-    CONSTANTS.clone().map_err(|what| Error::Unsupported { what })
+    let unsupported = |what: String| Error::Unsupported { what };
+    Ok((
+        StepId::parse(STEP).map_err(|e| unsupported(e.to_string()))?,
+        Program::parse("docker").map_err(|e| unsupported(e.to_string()))?,
+    ))
 }
 
 /// How long a probe may take.
