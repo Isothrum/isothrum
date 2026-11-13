@@ -2,11 +2,13 @@
 //! [`crate::Runner`], never a process-wide static), then an OS lock on the run's `lock` file across
 //! processes, which the OS releases when its holder dies. And one slot pick per home at a time:
 //! an OS lock on the home's `slots.lock`, held while a start picks its slot and records it, so
-//! two starts in one home (two processes, two runners) never take the same slot.
+//! two starts in one home (two processes, two runners) never take the same slot. And one maker of
+//! the home's SSH key at a time ([`hold`] on its lock file, `crate::ssh`).
 //!
 //! The order, everywhere: the run's lock first, the home's slots lock second (a start holds the run
 //! while it waits for a slot, `run/up.rs`, `adopt.rs`), and the `std` mutexes (the runner's flight
-//! and reservations, an emitter's log, a watch's state) last and never across an `.await`. No
+//! and reservations, an emitter's log, a watch's state) last and never across an `.await`. The
+//! SSH key's lock is taken under the run's alone (or none), and let go before the slots' is. No
 //! path takes them in another order, so no circular wait (Clean Code appendix A).
 //!
 //! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
@@ -133,6 +135,20 @@ pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
         }),
         Err(e) => Err(Error::io(path, "locked")(e)),
     }
+}
+
+/// A lock file held for one short job on the home that two operations must not do at once (its
+/// SSH key made); released when dropped.
+#[derive(Debug)]
+pub(crate) struct HomeLock {
+    _file: Held,
+}
+
+/// Holds the OS lock on `path`, waiting up to `wait` while another handle holds it (another
+/// process, another runner, another operation of this one); `None` when it was held all along.
+pub(crate) async fn hold(path: &Path, wait: Duration) -> std::io::Result<Option<HomeLock>> {
+    let file = fs::lock_file(path)?;
+    Ok(locked_within(&file, wait).await?.then(|| HomeLock { _file: Held(file) }))
 }
 
 /// Locks `file`, trying again until `wait` has passed while another handle holds it: whether it

@@ -60,7 +60,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
 pub(crate) fn remove(path: &Path) -> Result<()> {
     remove_path(path).map_err(Error::io(path, "removed"))
 }
-pub(crate) use lock::{RunLocks, SlotsLock};
+pub(crate) use lock::{RunLocks, SlotsLock, hold};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};
