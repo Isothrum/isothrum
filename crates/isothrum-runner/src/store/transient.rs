@@ -62,13 +62,7 @@ impl Transient {
 
 /// 64 random bits, as lowercase hex.
 fn suffix() -> Result<String> {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).map_err(|e| Error::io("the OS's random source", "read")(std::io::Error::other(e.to_string())))?;
-    Ok(bytes.iter().fold(String::with_capacity(16), |mut hex, b| {
-        hex.extend(char::from_digit(u32::from(b >> 4), 16));
-        hex.extend(char::from_digit(u32::from(b & 15), 16));
-        hex
-    }))
+    crate::encoding::random_hex::<8>().map_err(|e| Error::io("the OS's random source", "read")(std::io::Error::other(e.to_string())))
 }
 
 impl Drop for Transient {

@@ -112,9 +112,15 @@ impl Recorded {
 
 impl Drop for Recorded {
     fn drop(&mut self) {
-        if let Err(e) = crate::store::if_there(std::fs::remove_file(&self.0)) {
-            tracing::warn!(error = %e, path = %self.0.display(), "a tool's entry couldn't be removed");
-        }
+        remove_entry(&self.0);
+    }
+}
+
+/// Removes a tool's entry (a running tool's, or one being created) once its use ended; one that
+/// can't be removed is traced.
+fn remove_entry(path: &Path) {
+    if let Err(e) = crate::store::if_there(std::fs::remove_file(path)) {
+        tracing::warn!(error = %e, path = %path.display(), "a tool's entry couldn't be removed");
     }
 }
 

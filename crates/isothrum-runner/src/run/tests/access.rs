@@ -63,24 +63,10 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-/// A container already on the chosen network is where it should be; any other failure to join
-/// it fails the attach, and a network the run doesn't have is refused before anything starts.
+/// Any failure to join the chosen network fails the attach, and a network the run doesn't have is
+/// refused before anything starts.
 #[tokio::test]
-async fn attach_to_a_network_tolerates_only_already_being_on_it() {
-    let already = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
-        joining(
-            e,
-            c,
-            Reply::fail(
-                1,
-                "Error response from daemon: endpoint with name user already exists in network web-portal_lab",
-            ),
-        )
-    });
-    already.set(Containers::Up);
-    let on_it = already.runner.open(&already.manifest, None).unwrap();
-    attach(&on_it, None, Some("lab"), None, &Recorder::new()).await.unwrap();
-
+async fn attach_to_a_network_fails_on_a_refused_join_and_refuses_an_unknown_network() {
     let refused = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
         joining(e, c, Reply::fail(1, "Error response from daemon: network web-portal_lab not found"))
     });
@@ -97,9 +83,6 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
     assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
 }
 
-/// An access service with no container once it is up has nothing to join to the chosen network:
-/// the attach fails saying so; and a network whose native name the manifest doesn't give can't be
-/// joined (`unsupported`).
 /// Regression: a container already on the network was known by Docker's English wording of the
 /// refused join, which Podman words otherwise.
 #[tokio::test]
@@ -124,6 +107,9 @@ async fn a_container_already_on_the_network_isnt_joined_again() {
     assert!(f.fake.last("network connect").is_none(), "already there: not joined again");
 }
 
+/// An access service with no container once it is up has nothing to join to the chosen network:
+/// the attach fails saying so; and a network whose native name the manifest doesn't give can't be
+/// joined (`unsupported`).
 #[tokio::test]
 async fn attach_to_a_network_needs_the_container_and_the_networks_native_name() {
     let empty = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {

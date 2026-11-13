@@ -11,7 +11,9 @@ use crate::Result;
 use crate::executor::{Cx, Echo, call};
 use crate::host_env::{HostEnv, LIBVIRT_DEFAULT_URI};
 use crate::process::ProcessSpec;
-use crate::tool_output::qemu::{recorded_socket, vnc_server};
+use crate::tool_output::qemu::recorded_socket;
+#[cfg(unix)]
+use crate::tool_output::qemu::vnc_server;
 use crate::tool_output::vboxmanage::{Vrde, remote_display};
 use crate::tool_output::virsh::vnc_display;
 

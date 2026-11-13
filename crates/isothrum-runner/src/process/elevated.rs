@@ -276,13 +276,7 @@ fn remove_request_files(dir: &Path, n: u64) -> std::io::Result<()> {
 
 /// A random session token: 128 bits, as lowercase hex.
 fn token() -> Result<String, getrandom::Error> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)?;
-    Ok(bytes.iter().fold(String::with_capacity(32), |mut hex, b| {
-        hex.extend(char::from_digit(u32::from(b >> 4), 16));
-        hex.extend(char::from_digit(u32::from(b & 15), 16));
-        hex
-    }))
+    crate::encoding::random_hex::<16>()
 }
 
 /// Why the broker can't carry `spec` as asked, if it can't: an argument PowerShell would mangle,

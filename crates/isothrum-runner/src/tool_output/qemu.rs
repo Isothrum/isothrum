@@ -1,6 +1,7 @@
 //! What QEMU says, read: its monitor's `info vnc`, and the monitor socket vagrant-qemu records in
 //! its `options.yml`.
 
+#[cfg(any(unix, test))]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 

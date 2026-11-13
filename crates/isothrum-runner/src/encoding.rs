@@ -6,6 +6,18 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// `N` bytes from the OS's random source, as lowercase hex (`2 * N` characters): a token, a
+/// file name no other writer picks.
+pub(crate) fn random_hex<const N: usize>() -> Result<String, getrandom::Error> {
+    let mut bytes = [0u8; N];
+    getrandom::fill(&mut bytes)?;
+    Ok(bytes.iter().fold(String::with_capacity(2 * N), |mut hex, b| {
+        hex.extend(char::from_digit(u32::from(b >> 4), 16));
+        hex.extend(char::from_digit(u32::from(b & 15), 16));
+        hex
+    }))
+}
+
 /// `value`'s name as the manifest and the event stream write it (a target, a provider, a
 /// machine's role: `vmware_desktop`), without JSON's quotes. It is meant for the unit enums serde
 /// writes as a string; any other value is named by its JSON text (`3`), and one serde can't write

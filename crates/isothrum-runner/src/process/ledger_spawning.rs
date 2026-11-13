@@ -41,9 +41,7 @@ impl Spawning {
 
 impl Drop for Spawning {
     fn drop(&mut self) {
-        if let Err(e) = crate::store::if_there(std::fs::remove_file(&self.0)) {
-            tracing::warn!(error = %e, path = %self.0.display(), "a tool's entry couldn't be removed");
-        }
+        super::remove_entry(&self.0);
     }
 }
 
