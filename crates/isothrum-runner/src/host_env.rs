@@ -15,6 +15,14 @@ use crate::network_env::is_network_var;
 /// Terraform's CLI configuration file (a provider mirror, credentials).
 pub(crate) const TF_CLI_CONFIG_FILE: &str = "TF_CLI_CONFIG_FILE";
 
+/// What starts the name of a variable Terraform reads as one of the module's input variables.
+pub(crate) const TF_VAR_PREFIX: &str = "TF_VAR_";
+
+/// The environment variable that sets the module's input variable `var` (`TF_VAR_<var>`).
+pub(crate) fn tf_var(var: &str) -> String {
+    format!("{TF_VAR_PREFIX}{var}")
+}
+
 /// The libvirt connection `virsh` and vagrant-libvirt use when nothing names another.
 pub(crate) const LIBVIRT_DEFAULT_URI: &str = "LIBVIRT_DEFAULT_URI";
 
