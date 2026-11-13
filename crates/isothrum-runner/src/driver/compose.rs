@@ -7,6 +7,7 @@ mod config;
 mod pins;
 mod ps;
 mod pull;
+mod volumes;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -170,12 +171,18 @@ impl Driver for Compose {
         })
     }
 
-    fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
+    /// Records the project's anonymous volumes ([`volumes::record`]): the `down` steps remove
+    /// the containers, and what they leave of those goes after them.
+    async fn before_down(&self, cx: &Cx<'_>) -> Result<()> {
+        volumes::record(&self.project(cx)?, cx).await
+    }
+
+    async fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         // The next start is a new run: it picks its ports again.
         if let Some(pins) = self.pins(cx)? {
             crate::store::write(&pins, NO_PINS.as_bytes())?;
         }
-        Ok(())
+        volumes::remove_recorded(cx).await
     }
 
     /// Nothing: a service carries no boot digest; `up`'s steps recreate a changed one.

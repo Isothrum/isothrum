@@ -89,8 +89,12 @@ pub(crate) trait Driver {
     async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()>;
     /// The run as the engine reports it, from the manifest's `lifecycle.status`.
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
-    /// Clears the run's state after a successful `down` (Compose: no pins left).
-    fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
+    /// Reads what a `down` must know before its steps run (Compose: the containers' anonymous
+    /// volumes, which the steps leave once a recreate inherited them).
+    async fn before_down(&self, cx: &Cx<'_>) -> Result<()>;
+    /// Clears the run's state after a successful `down` (Compose: no pins left, the recorded
+    /// anonymous volumes removed).
+    async fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
     /// Restarts `machine`, running, as step `id`, so it boots with the settings its engine
     /// applies only at boot (an update, when its boot digest changed: [`Native::Vagrant`]'s
     /// `boot_digest`). Nothing for a driver whose machines carry no boot digest.
@@ -286,11 +290,21 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
+    pub(crate) async fn before_down(&self, cx: &Cx<'_>) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = "before_down");
         match self {
-            AnyDriver::Compose(d) => d.after_down(cx),
-            AnyDriver::Vagrant(d) => d.after_down(cx),
-            AnyDriver::Terraform(d) => d.after_down(cx),
+            AnyDriver::Compose(d) => d.before_down(cx).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.before_down(cx).instrument(span).await,
+            AnyDriver::Terraform(d) => d.before_down(cx).instrument(span).await,
+        }
+    }
+
+    pub(crate) async fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
+        let span = tracing::debug_span!("driver", driver = self.name(), op = "after_down");
+        match self {
+            AnyDriver::Compose(d) => d.after_down(cx).instrument(span).await,
+            AnyDriver::Vagrant(d) => d.after_down(cx).instrument(span).await,
+            AnyDriver::Terraform(d) => d.after_down(cx).instrument(span).await,
         }
     }
 

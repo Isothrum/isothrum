@@ -9,6 +9,20 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Compose run's `down` removes the anonymous volumes an update's recreate inherited.** The
+  engine makes a volume for each `VOLUME` of a container's image (MySQL's data directory) and
+  removes it with the container on `down --volumes` or `rm --volumes`, as long as that container
+  is the one it made it for. An update that recreates a service's container (a port pinned, an
+  image rebuilt) inherits those volumes into the new container by their ids, as Compose keeps a
+  service's data across a recreate, and the engine then counts them named: a `down --volumes`
+  after that removed the containers and left them, two a lab on every start, update and stop
+  (the Cyber CTF rig's leftover audit, 2026-11-13). The `down` operation now records the
+  project's containers' anonymous volumes (the engine's label, or an older engine's unlabelled
+  id-named one) before its steps and removes what they left after them; a volume something else
+  still holds is said, not failed on. A VM's or a module's `down` records nothing.
+
 ## [2.1.3] — 2026-11-12
 
 ### Fixed

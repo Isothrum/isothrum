@@ -29,8 +29,9 @@ impl Running<'_> {
         self.operate(Op::Down, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let (mut record, mut cx) = self.existing(connected, e).await?;
             self.begin(&mut record, Op::Down)?;
+            self.driver.before_down(&cx).await?;
             crate::executor::run_down_steps(&mut cx).await?;
-            self.driver.after_down(&cx)?;
+            self.driver.after_down(&cx).await?;
             crate::executor::state_files::forget(&cx)?;
             crate::ssh::forget(&cx)?;
             self.forget_seal()?;

@@ -90,7 +90,7 @@ fn arch_id(a: Arch) -> &'static str {
 
 /// The box format Vagrant looks a box up by when its provider boots it: the provider's own name,
 /// but vagrant-qemu's, which boots libvirt-format boxes (its `box_format`), and vagrant-vmware-esxi's,
-/// which boots vmware_desktop builds (no box on the registry carries a `vmware_esxi` build: asked
+/// which boots `vmware_desktop` builds (no box on the registry carries a `vmware_esxi` build: asked
 /// for one, `bento/debian-12`'s download ended with "find an alternate box or use an alternate
 /// provider", 2026-11-12). Added as the qemu format, a box was downloaded twice: once by the
 /// download, then again by `vagrant up`, which found no libvirt build of it.
