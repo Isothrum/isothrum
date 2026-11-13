@@ -291,21 +291,11 @@ fn lstart(text: &str) -> Option<u64> {
     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let words: Vec<&str> = text.split_whitespace().collect();
     let [_, month, day, time, year] = words.as_slice() else { return None };
-    let month = u64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
-    let (day, year): (u64, u64) = (day.parse().ok()?, year.parse().ok()?);
+    let month = i64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
+    let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
     let mut hms = time.split(':').map(|p| p.parse::<u64>().ok());
     let (h, m, s) = (hms.next()??, hms.next()??, hms.next()??);
-    Some(days_since_epoch(year, month, day)? * 86_400 + h * 3600 + m * 60 + s)
-}
-
-/// Days from 1970-01-01 to the date `year`-`month`-`day` (proleptic Gregorian, from 1970).
-#[cfg(any(unix, test))]
-fn days_since_epoch(year: u64, month: u64, day: u64) -> Option<u64> {
-    let leap = |y: u64| (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let before_year: u64 = (1970..year).map(|y| if leap(y) { 366 } else { 365 }).sum();
-    let lengths = [31, if leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let before_month: u64 = lengths.iter().take(usize::try_from(month.checked_sub(1)?).ok()?).sum();
-    Some(before_year + before_month + day.checked_sub(1)?)
+    Some(crate::clock::days_from_civil(year, month, day)? * 86_400 + h * 3600 + m * 60 + s)
 }
 
 /// Asks the process group `pid` leads to stop (SIGINT, as a tool cut short is asked), and kills
