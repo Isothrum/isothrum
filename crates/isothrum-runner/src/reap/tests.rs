@@ -71,7 +71,7 @@ async fn a_recorded_state_that_doesnt_parse_fails_the_sweep() {
     record(&r, "live", RunState::Ready, Some(TEST_TIME + 60), Some("{ cut short"));
     let place = Place::new(vec!["eu-west-3".into()], None);
     let err = r.orphans(Cloud::Aws, &place, now()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert_eq!(err.code(), crate::ErrorCode::Corrupt, "{err}");
     assert!(err.to_string().contains("terraform.tfstate"), "{err}");
 }
 

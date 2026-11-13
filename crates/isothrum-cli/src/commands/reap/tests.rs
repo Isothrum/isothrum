@@ -217,7 +217,7 @@ async fn a_search_that_fails_after_a_failed_destroy_still_says_the_sweep() {
     assert!(!said.contains("nothing to reap"), "the cloud wasn't searched: {said}");
     let last = errors.lines().last().unwrap();
     assert!(
-        last.starts_with("error: ") && last.ends_with("record.json couldn't be read: expected ident at line 1 column 2"),
+        last.starts_with("error: ") && last.ends_with("record.json holds no JSON this runner reads: expected ident at line 1 column 2"),
         "{errors}"
     );
 }
@@ -242,7 +242,7 @@ async fn a_search_that_fails_after_a_destroy_is_no_runs_error() {
     );
     assert_eq!(
         (error["event"].as_str(), error["code"].as_str(), error["seq"].as_u64()),
-        (Some("error"), Some("io"), Some(2))
+        (Some("error"), Some("corrupt"), Some(2))
     );
     assert!(error.get("run").is_none() && error.get("op").is_none(), "no one run's operation: {error}");
 }

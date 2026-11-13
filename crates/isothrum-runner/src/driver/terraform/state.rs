@@ -125,7 +125,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read(dir.path()).unwrap(), TfState::default());
         std::fs::write(dir.path().join(STATE_FILE), "{").unwrap();
-        assert_eq!(read(dir.path()).unwrap_err().code(), crate::ErrorCode::Io);
+        assert_eq!(read(dir.path()).unwrap_err().code(), crate::ErrorCode::Corrupt);
     }
 
     #[test]

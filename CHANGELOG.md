@@ -9,6 +9,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Changed
+
+- **A file of the runner's own that doesn't parse is `corrupt`, not `io`.** A record, a ledger
+  entry or a Terraform state that is there but isn't what the runner wrote (not JSON, another
+  version's shape) fails with the new `corrupt` code and names the file; `io` stays the OS's
+  reasons (missing, unreadable).
+
 ### Fixed
 
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
