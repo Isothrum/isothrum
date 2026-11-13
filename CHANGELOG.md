@@ -11,18 +11,16 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
+  Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
+  service listens behind; the check now needs the peer to keep the connection half a second, or
+  to speak first.
 - **One unreadable `docker compose ps` line fails the listing instead of hiding a container.** A
   container left out read as its machine absent, and the operations acted on that (a start made
   again, a stop skipped); the listing is now unreadable as a whole, traced by the line's number.
-
-### Fixed
-
 - **On Windows, VirtualBox and VMware Workstation are found where they install.** Neither
   installer adds its folder to PATH; the runner adds `VBOX_MSI_INSTALL_PATH`, Program Files'
   `Oracle\VirtualBox` and `VMware\VMware Workstation` to the PATH its tools run with.
-
-### Fixed
-
 - **An event's sequence number is taken under the log's lock.** Two events emitted at once could
   be written to `events.jsonl` out of order.
 - **Two first elevated calls at once start one broker, not two.** The session was decided by a
