@@ -220,9 +220,16 @@ impl Driver for Vagrant {
             lock::StatusRead::Busy(defines) => return Ok(busy(cx.manifest(), &defines)),
         };
         let read = status::parse(&out);
-        let at_vm = cx.scope.runs_on(Provider::VmwareEsxi);
-        let hosts = if at_vm { self.guest_addresses(cx, &read).await } else { local_hosts(cx)? };
-        Ok(machines(cx.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
+        let forwarding = if cx.scope.runs_on(Provider::VmwareEsxi) {
+            Forwarding::AtVm
+        } else {
+            Forwarding::Local(cx.vars.vm_pins())
+        };
+        let hosts = match forwarding {
+            Forwarding::AtVm => self.guest_addresses(cx, &read).await,
+            Forwarding::Local(_) => local_hosts(cx)?,
+        };
+        Ok(machines(cx.manifest(), &read, &hosts, forwarding))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
@@ -332,14 +339,8 @@ fn local_hosts(cx: &Cx<'_>) -> Result<BTreeMap<String, String>> {
 /// Every machine of the manifest as Vagrant reports it, by its define name, each answering at its
 /// address among `hosts` while that address is known. Locally a published port is forwarded to
 /// this computer at the number `chosen` for it (keyed `"<machine>/<port>"`), else its `preferred`
-/// fallback. `at_vm` (ESXi, which forwards nothing), it answers on the VM's own port.
-fn machines(
-    manifest: &isoloom_manifest::Manifest,
-    read: &status::Reading,
-    hosts: &BTreeMap<String, String>,
-    at_vm: bool,
-    chosen: &BTreeMap<String, u16>,
-) -> Observed {
+/// fallback. At the VM (ESXi, which forwards nothing), it answers on the VM's own port.
+fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts: &BTreeMap<String, String>, forwarding: Forwarding<'_>) -> Observed {
     let mut out = Observed::default();
     for m in &manifest.machines {
         let define = native_name(m);
@@ -353,7 +354,7 @@ fn machines(
         }
         let mut published = Vec::new();
         if host.is_some() {
-            for (name, port) in published_ports(m, at_vm, chosen) {
+            for (name, port) in published_ports(m, forwarding) {
                 out.published.insert((m.name.to_string(), name), port.host_port);
                 published.push(port);
             }
@@ -385,18 +386,27 @@ fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observed {
     }
 }
 
-/// The ports `m` publishes, by name, each with its host port: on a VM that answers at its own address
-/// (`at_vm`, ESXi), the port itself; locally, the one it is forwarded from, the runner's pick for
-/// it among `chosen` first ([`forwarded::host_port`]). An ephemeral port with no `publish:`
-/// number of its own is kept: its host port is the pick.
-fn published_ports(m: &Machine, at_vm: bool, chosen: &BTreeMap<String, u16>) -> Vec<(String, PublishedPort)> {
+/// Where a VM's published ports answer: at the VM's own address (ESXi, which forwards nothing),
+/// or on this computer, forwarded at the number chosen for each (keyed `"<machine>/<port>"`),
+/// else its `preferred` fallback.
+#[derive(Clone, Copy)]
+enum Forwarding<'a> {
+    /// The VM answers at its own address, on the port itself.
+    AtVm,
+    /// Forwarded to this computer, at the runner's pick among these first.
+    Local(&'a BTreeMap<String, u16>),
+}
+
+/// The ports `m` publishes, by name, each with its host port ([`Forwarding`]; locally,
+/// [`forwarded::host_port`]). An ephemeral port with no `publish:` number of its own is kept:
+/// its host port is the pick.
+fn published_ports(m: &Machine, forwarding: Forwarding<'_>) -> Vec<(String, PublishedPort)> {
     m.ports
         .iter()
         .filter_map(|p| {
-            let host_port = if at_vm {
-                p.publish.as_ref().map(|_| p.port.get())?
-            } else {
-                forwarded::host_port(m, p, chosen)?
+            let host_port = match forwarding {
+                Forwarding::AtVm => p.publish.as_ref().map(|_| p.port.get())?,
+                Forwarding::Local(chosen) => forwarded::host_port(m, p, chosen)?,
             };
             let port = PublishedPort {
                 port: p.port.get(),

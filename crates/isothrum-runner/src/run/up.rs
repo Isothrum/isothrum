@@ -80,7 +80,7 @@ impl Running<'_> {
         Self::bind_record(&mut cx, &record);
         self.begin(&mut record, Op::Up)?;
         drop(slot);
-        crate::executor::state_files::write(&cx, true)?;
+        crate::executor::state_files::write_all(&cx)?;
         self.converge(&mut cx).await?;
         self.seal(&mut cx, &mut record).await?;
         self.ready(&mut cx, record).await
