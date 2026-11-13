@@ -168,12 +168,7 @@ impl Running<'_> {
             (None, Some(_)) if moving => record.state = RunState::Failed,
             _ => {}
         }
-        record.last = Some(LastOp {
-            op,
-            ok: code.is_none(),
-            code,
-            at: rfc3339(self.runner.config.clock.now()),
-        });
+        record.last = Some(LastOp::ended(op, code, rfc3339(self.runner.config.clock.now())));
         store.save(&record)?;
         Ok(Some(record.state))
     }
@@ -194,12 +189,7 @@ impl Running<'_> {
         };
         tracing::warn!(state = %record.state, %op, "the run's last operation ended without recording how: taken as failed");
         record.state = RunState::Failed;
-        record.last = Some(LastOp {
-            op,
-            ok: false,
-            code: Some(ErrorCode::Cancelled),
-            at: rfc3339(self.runner.config.clock.now()),
-        });
+        record.last = Some(LastOp::ended(op, Some(ErrorCode::Cancelled), rfc3339(self.runner.config.clock.now())));
         store.save(&record)
     }
 

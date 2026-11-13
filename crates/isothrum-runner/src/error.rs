@@ -479,6 +479,27 @@ pub enum Error {
 }
 
 impl Error {
+    /// The step the failure happened in, when it names one.
+    pub(crate) fn step(&self) -> Option<&str> {
+        match self {
+            Error::ToolMissing { step, .. }
+            | Error::ToolFailed { step, .. }
+            | Error::Timeout { step, .. }
+            | Error::DownloadStalled { step, .. }
+            | Error::DownloadFailed { step, .. }
+            | Error::ServerAuthFailed { step, .. } => Some(step),
+            _ => None,
+        }
+    }
+
+    /// What ran out of time, for a step that did.
+    pub(crate) fn timed_out(&self) -> Option<&TimedOut> {
+        match self {
+            Error::Timeout { timed_out, .. } => Some(timed_out),
+            _ => None,
+        }
+    }
+
     /// The failure's stable code.
     #[must_use]
     pub fn code(&self) -> ErrorCode {

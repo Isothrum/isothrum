@@ -235,7 +235,7 @@ pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<Sn
 /// The login of an `ssh.run` at `host`, its other `with` arguments read by `arg`: its `user`
 /// (root otherwise), through the run's jump then its `via`.
 pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<String>) -> Result<Login> {
-    Login::new(&arg("user")?, host, cx.ssh_jump.as_deref(), &arg("via")?)
+    Login::new(&arg("user")?, host, cx.ssh_jump(), &arg("via")?)
 }
 
 /// A machine's name as Isoloom writes it in the name of one of its outputs: a Terraform

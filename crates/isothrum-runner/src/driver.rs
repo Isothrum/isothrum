@@ -43,10 +43,17 @@ pub(crate) struct Observed {
     pub(crate) outputs: BTreeMap<String, String>,
     /// The engine's outputs it marks sensitive itself (a Terraform output's `sensitive`).
     pub(crate) sensitive: std::collections::BTreeSet<String>,
+}
+
+/// What a driver's status read gives: the run as read, or, for a query, nothing read.
+#[derive(Debug)]
+pub(crate) enum Observation {
+    /// The run as the engine reports it.
+    Read(Observed),
     /// Not read, for a query: another process acts on these machines (by the manifest's names;
     /// none when the engine named none), and the engine refused the read for as long as a query
-    /// waits ([`Cx::query`]). Nothing else is filled then.
-    pub(crate) busy: Option<Vec<String>>,
+    /// waits ([`Cx::is_query`]).
+    Busy(Vec<String>),
 }
 
 impl Observed {
@@ -92,7 +99,7 @@ pub(crate) trait Driver {
     /// errors name it by ([`crate::executor::plan::at`]), with its arguments ([`with_of`]).
     async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()>;
     /// The run as the engine reports it, from the manifest's `lifecycle.status`.
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation>;
     /// Reads what a `down` must know before its steps run (Compose: the containers' anonymous
     /// volumes, which the steps leave once a recreate inherited them). Nothing, for a driver
     /// whose machines own their storage (a VM's disks, a module's resources): the defaults of
@@ -281,7 +288,7 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let span = tracing::debug_span!("driver", driver = self.name(), read = "status");
         match self {
             AnyDriver::Compose(d) => d.observe(cx).instrument(span).await,

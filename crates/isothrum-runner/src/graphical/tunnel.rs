@@ -61,7 +61,7 @@ impl Drop for Tunnel {
 
 /// `ssh`'s process for a tunnel from `local` (a loopback port) to `to`.
 pub(super) fn spec(cx: &Cx<'_>, to: &To, local: u16) -> Result<ProcessSpec> {
-    let login = crate::ssh::Login::new(&to.user, &to.via, cx.ssh_jump.as_deref(), "")?;
+    let login = crate::ssh::Login::new(&to.user, &to.via, cx.ssh_jump(), "")?;
     if !to.host.chars().all(|c| c.is_ascii_alphanumeric() || ".:-".contains(c)) || to.host.is_empty() {
         return Err(Error::Malformed {
             at: "a console's tunnel".to_owned(),

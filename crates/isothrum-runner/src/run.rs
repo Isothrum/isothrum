@@ -116,6 +116,39 @@ impl<'r> Running<'r> {
         &self.name
     }
 
+    /// Reserves `port` over `protocol` for this run while it starts; false when another run
+    /// holds it.
+    pub(crate) fn reserve(&self, port: u16, protocol: isoloom_manifest::Protocol) -> bool {
+        self.runner.reserve(&self.name, port, protocol)
+    }
+
+    /// A free loopback port over `protocol`, reserved for this run.
+    ///
+    /// # Errors
+    ///
+    /// The loopback couldn't be bound.
+    pub(crate) fn pick_reserved(&self, protocol: isoloom_manifest::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.runner.pick_reserved(&self.name, protocol)
+    }
+
+    /// Each `ports` entry must be free before this run starts.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
+    pub(crate) fn ensure_ports_free(&self, ports: impl IntoIterator<Item = (u16, isoloom_manifest::Protocol)>) -> Result<()> {
+        self.runner.ensure_ports_free(&self.name, ports)
+    }
+
+    /// Whether an operation (this process's or another's) holds this run's lock now.
+    ///
+    /// # Errors
+    ///
+    /// The lock file couldn't be read.
+    pub(crate) fn held(&self) -> Result<bool> {
+        self.runner.store.held(&self.name)
+    }
+
     /// The manifest's file.
     pub(crate) fn path(&self) -> &Path {
         &self.loaded.path
@@ -141,10 +174,9 @@ impl<'r> Running<'r> {
         // Nothing is emitted, but its errors say what a tool printed: the connection's secrets
         // masked there, as an operation's are.
         events.hide(crate::secrets::sensitive_values(self.manifest(), &self.connection));
-        let mut cx = self.cx(params, &self.connection, events, provider)?;
-        cx.query = true;
+        let mut cx = self.cx(params, &self.connection, events, provider)?.into_query();
         if let Some(r) = &record {
-            Self::bind_record(&mut cx, r);
+            cx.bind_record(r);
         }
         Ok((record, cx))
     }
@@ -223,7 +255,7 @@ impl<'r> Running<'r> {
     /// Where the run stands, its machines and whether they were read now, for a query (`cx`, a
     /// silent context, `record` its run's record): while an operation holds the run, its state
     /// and the machines as last read; else as the engine reads them, unless another process
-    /// acting on some of them refuses the read ([`crate::driver::Observed::busy`]): then those
+    /// acting on some of them refuses the read ([`crate::driver::Observation::Busy`]): then those
     /// are busy, the others as last read, and the run where an operation holding it now, or its
     /// record, says.
     pub(crate) async fn read_for_query(
@@ -237,9 +269,9 @@ impl<'r> Running<'r> {
         create_state_dir(cx)?;
         self.driver.prepare(cx)?;
         self.relay(cx).await?;
-        let observed = self.observe(cx).await?;
-        let Some(busy) = &observed.busy else {
-            return Ok((status::derive_state(&observed.machines, record), observed, true));
+        let busy = match self.observe_now(cx).await? {
+            crate::driver::Observation::Read(observed) => return Ok((status::derive_state(&observed.machines, record), observed, true)),
+            crate::driver::Observation::Busy(busy) => busy,
         };
         let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
         let state = self.state_while_held(record)?.unwrap_or(recorded);
@@ -259,7 +291,7 @@ impl<'r> Running<'r> {
         if let Some(op) = self.runner.op_of(&self.name) {
             return Ok(Some(op.during().unwrap_or(recorded)));
         }
-        Ok(self.runner.store.held(&self.name)?.then_some(recorded))
+        Ok(self.held()?.then_some(recorded))
     }
 
     /// The run as the runner last read it ([`crate::store::LastObserved`]); nothing before it ever did,
@@ -312,11 +344,7 @@ impl<'r> Running<'r> {
             stale,
             gone: LineWatch::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
-            ssh_jump: None,
-            expires_at: None,
-            relayed: None,
-            set_up: std::collections::BTreeSet::new(),
-            query: false,
+            bound: crate::executor::Bound::default(),
         })
     }
 
@@ -367,21 +395,8 @@ impl<'r> Running<'r> {
         };
         let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));
         let relayed = crate::relay::prepare(host, port, &config.home, config.search_path.as_deref(), no_proxy).await;
-        cx.relayed = Some(relayed?);
+        cx.relay_through(relayed?);
         Ok(())
-    }
-
-    /// Binds what `record` keeps of the run into `cx`: its slot (`${run.slot}`), its SSH jump and
-    /// its expiry.
-    pub(crate) fn bind_record(cx: &mut Cx<'_>, record: &crate::store::RunRecord) {
-        if let Some(slot) = record.slot {
-            cx.vars.set_run(RunVar::Slot, slot.to_string());
-        }
-        cx.ssh_jump.clone_from(&record.ssh_jump);
-        cx.expires_at = record.expires_at;
-        // The host ports a fresh start pinned: a resume forwards the same ones, and status reads
-        // them back (the Vagrant driver reports its forwards from here, not the manifest's number).
-        cx.vars.set_vm_pins(record.vm_host_ports.clone());
     }
 
     /// This host, with `provider`.
@@ -400,18 +415,28 @@ impl<'r> Running<'r> {
     /// run inside one of its VMs (`docker-vm`'s guest), those containers as read in the VM.
     /// What it read is kept as what the runner last saw of the run ([`crate::store::LastObserved`]).
     pub(crate) async fn observe(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
-        let mut observed = self.driver.observe(cx).await?;
-        if observed.busy.is_some() {
-            // Nothing was read: what the runner last saw stands.
-            return Ok(observed);
+        match self.observe_now(cx).await? {
+            crate::driver::Observation::Read(observed) => Ok(observed),
+            // Only a query is refused a read: an operation holds the run, so this never happens
+            // to one; said as the run held, never as machines absent.
+            crate::driver::Observation::Busy(_) => Err(Error::Locked { run: self.name().to_string() }),
         }
+    }
+
+    /// [`Running::observe`], or, for a query another process's lock refused, the machines it
+    /// acts on: nothing read, what the runner last saw stands.
+    async fn observe_now(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observation> {
+        let mut observed = match self.driver.observe(cx).await? {
+            crate::driver::Observation::Read(observed) => observed,
+            busy @ crate::driver::Observation::Busy(_) => return Ok(busy),
+        };
         if let Some(guest) = &self.manifest().guest {
             crate::in_vm::observe(cx, &self.driver, guest, &mut observed).await;
         }
         if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
             tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
         }
-        Ok(observed)
+        Ok(crate::driver::Observation::Read(observed))
     }
 
     /// [`Running::observe`], refused with `not_running` when no member machine runs.

@@ -55,20 +55,28 @@ pub(crate) struct Cx<'a> {
     pub(crate) stale: LineWatch,
     /// What the steps' lines say of resources already gone, while a `down` watches for them.
     pub(crate) gone: LineWatch,
+    /// What the context learns of the run once made: set through its methods only.
+    pub(crate) bound: Bound,
+}
+
+/// What a [`Cx`] learns of its run after it is made (its record, its relays, what was set up
+/// before), each set once through the context's methods, never written from outside.
+#[derive(Default)]
+pub(crate) struct Bound {
     /// The login every SSH of the run goes through first, when it has one.
-    pub(crate) ssh_jump: Option<String>,
+    ssh_jump: Option<String>,
     /// When the run stops itself (seconds since the Unix epoch), for a manifest with an `expiry`.
-    pub(crate) expires_at: Option<u64>,
+    expires_at: Option<u64>,
     /// The macOS relays this operation's tools go through, when its run needs them.
-    pub(crate) relayed: Option<crate::relay::Relayed>,
+    relayed: Option<crate::relay::Relayed>,
     /// The machines that were set up before this operation (an update's running machines): they
     /// keep what they were given, so no guest delivery goes to them again.
-    pub(crate) set_up: std::collections::BTreeSet<String>,
+    set_up: BTreeSet<String>,
     /// A read-only query's (a status, a console's), never an operation's: a read another
     /// process's machine lock refuses waits only briefly, gives up once an operation holds the
     /// run, and is then no failure but machines said busy
     /// ([`Observed::busy`](crate::driver::Observed::busy)).
-    pub(crate) query: bool,
+    query: bool,
 }
 
 impl<'a> Cx<'a> {
@@ -109,6 +117,60 @@ impl<'a> Cx<'a> {
     /// The host's CPU architecture.
     pub(crate) fn arch(&self) -> isoloom_manifest::Arch {
         self.run.runner.config.arch
+    }
+
+    /// This context, for a read-only query (a status, a console's), never an operation.
+    pub(crate) fn into_query(mut self) -> Self {
+        self.bound.query = true;
+        self
+    }
+
+    /// Whether it serves a read-only query ([`Bound::query`]).
+    pub(crate) fn is_query(&self) -> bool {
+        self.bound.query
+    }
+
+    /// Binds what `record` keeps of the run: its slot (`${run.slot}`), its SSH jump, its expiry
+    /// and the host ports a fresh start pinned.
+    pub(crate) fn bind_record(&mut self, record: &crate::store::RunRecord) {
+        if let Some(slot) = record.slot {
+            self.vars.set_run(isoloom_manifest::RunVar::Slot, slot.to_string());
+        }
+        self.bound.ssh_jump.clone_from(&record.ssh_jump);
+        self.bound.expires_at = record.expires_at;
+        // A resume forwards the same ports, and status reads them back (the Vagrant driver
+        // reports its forwards from here, not the manifest's number).
+        self.vars.set_vm_pins(record.vm_host_ports.clone());
+    }
+
+    /// The login every SSH of the run goes through first, when it has one.
+    pub(crate) fn ssh_jump(&self) -> Option<&str> {
+        self.bound.ssh_jump.as_deref()
+    }
+
+    /// When the run stops itself (seconds since the Unix epoch), for a manifest with an `expiry`.
+    pub(crate) fn expires_at(&self) -> Option<u64> {
+        self.bound.expires_at
+    }
+
+    /// The macOS relays this operation's tools go through, once started.
+    pub(crate) fn relayed(&self) -> Option<&crate::relay::Relayed> {
+        self.bound.relayed.as_ref()
+    }
+
+    /// This operation's tools go through `relayed`.
+    pub(crate) fn relay_through(&mut self, relayed: crate::relay::Relayed) {
+        self.bound.relayed = Some(relayed);
+    }
+
+    /// `machines` were set up before this operation: they keep what they were given.
+    pub(crate) fn keep_set_up(&mut self, machines: impl IntoIterator<Item = String>) {
+        self.bound.set_up = machines.into_iter().collect();
+    }
+
+    /// Whether machine `name` was set up before this operation.
+    pub(crate) fn was_set_up(&self, name: &str) -> bool {
+        self.bound.set_up.contains(name)
     }
 }
 

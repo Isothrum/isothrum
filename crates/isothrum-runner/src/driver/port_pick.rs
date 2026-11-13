@@ -69,9 +69,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// spec): one the host holds (another lab's VM forwarding it, any program) moves to a free
     /// port, where the start failed `port_in_use` at its forwarded-port check.
     fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
-        let free = !self.taken.contains(&(preferred, protocol))
-            && !self.cx.ports().in_use(preferred, protocol)
-            && self.cx.run.runner.reserve(self.cx.run.name(), preferred, protocol);
+        let free = !self.taken.contains(&(preferred, protocol)) && !self.cx.ports().in_use(preferred, protocol) && self.cx.run.reserve(preferred, protocol);
         free.then(|| {
             self.taken.insert((preferred, protocol));
             preferred
@@ -81,7 +79,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// A free loopback port over `protocol`, reserved for this run and held until the pick is
     /// dropped; none when none is left.
     fn free(&mut self, protocol: Protocol) -> std::io::Result<Option<u16>> {
-        let Some(port) = self.cx.run.runner.pick_reserved(self.cx.run.name(), protocol)? else {
+        let Some(port) = self.cx.run.pick_reserved(protocol)? else {
             return Ok(None);
         };
         let number = port.port;

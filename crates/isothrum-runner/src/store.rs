@@ -105,6 +105,19 @@ pub struct LastOp {
     pub at: String,
 }
 
+impl LastOp {
+    /// Operation `op`, ended at `at` with failure `code`, or succeeded without one: the one place
+    /// `ok` is derived, so it never disagrees with `code`.
+    pub(crate) fn ended(op: Op, code: Option<ErrorCode>, at: String) -> LastOp {
+        LastOp {
+            op,
+            ok: code.is_none(),
+            code,
+            at,
+        }
+    }
+}
+
 /// What the runner keeps about a run (never a secret's value).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

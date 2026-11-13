@@ -23,7 +23,7 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Res
         return Err(crate::driver::no_vm_for("a console into", machine));
     }
     let outputs = state::read(cx.state_dir())?.outputs;
-    let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump.as_deref())?.ok_or_else(|| Error::NotRunning {
+    let login = ssh::machine_login(|name| outputs.get(name).cloned(), machine.name.as_str(), cx.ssh_jump())?.ok_or_else(|| Error::NotRunning {
         run: cx.run.name().to_string(),
     })?;
     let shell = user.map_or_else(|| shells::LOGIN_SHELL.to_owned(), shells::login_shell_as);
