@@ -42,6 +42,9 @@ pub(crate) struct Tunnel {
     pub(super) local: SocketAddr,
     /// Its `ssh`, killed when the tunnel is dropped.
     ssh: tokio::process::Child,
+    /// The reader of its `ssh`'s standard error, owned so it ends with the tunnel (Clean Code
+    /// ch.13, shutdown; 2026-11-13: it was spawned detached).
+    drain: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for Tunnel {
@@ -49,6 +52,9 @@ impl Drop for Tunnel {
         // `kill_on_drop` too: the tunnel ends with its holder, whatever drops it.
         if let Err(e) = self.ssh.start_kill() {
             tracing::debug!(error = %e, "a console's tunnel had ended already");
+        }
+        if let Some(drain) = self.drain.take() {
+            drain.abort();
         }
     }
 }
@@ -130,7 +136,11 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
     }
-    Ok(Tunnel { local, ssh: command.spawn()? })
+    Ok(Tunnel {
+        local,
+        ssh: command.spawn()?,
+        drain: None,
+    })
 }
 
 impl Tunnel {
@@ -162,13 +172,13 @@ impl Tunnel {
     /// a full pipe never stalls it.
     fn drain(&mut self) {
         let Some(stderr) = self.ssh.stderr.take() else { return };
-        tokio::spawn(async move {
+        self.drain = Some(tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut lines = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 tracing::debug!(%line, "a console's tunnel's ssh said");
             }
-        });
+        }));
     }
 }
 
