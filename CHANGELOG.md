@@ -80,6 +80,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `proxmox-console.curl`, and a status read takes no run lock, so one beside a console request
   could read the other's sign-in, replace it or find it gone; each is now
   `proxmox-console-<random>.curl`, created new.
+- **On macOS, a port another program holds on all interfaces is in use.** The check bound the
+  loopback only, which macOS allows beside a socket listening on `0.0.0.0` or `::`, so such a port
+  read free and the start failed later with Docker's or Vagrant's bind error instead of
+  `port_in_use`; outside Windows the check now also binds both, without listening.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or
