@@ -39,7 +39,7 @@ use isoloom_manifest::{Run, Step};
 use crate::Result;
 use crate::driver::STATUS;
 use crate::events::WarningCode;
-use crate::executor::{Cx, Echo, Hold, call, capture_output, once, plan, stdout_of};
+use crate::executor::{Cx, Echo, Hold, call, capture_output, once, plan, stdout_of_call, stdout_of_step};
 use crate::process::{Captured, ProcessSpec};
 
 /// How long, after the first refusal, a call refused for another process's lock keeps being
@@ -204,7 +204,7 @@ pub(super) async fn read_status(cx: &Cx<'_>) -> Result<StatusRead> {
     if cx.query && refused(&out) {
         return Ok(StatusRead::Busy(locked_machines(&out)));
     }
-    stdout_of(cx, step.id.as_str(), None, &out).map(StatusRead::Read)
+    stdout_of_step(cx, step.id.as_str(), &out).map(StatusRead::Read)
 }
 
 /// [`read_status`] for an operation: Vagrant's answer, or its refusal as the read's failure.
@@ -257,7 +257,7 @@ pub(super) async fn call_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, lim
 /// [`call_ok`](crate::executor::call_ok)).
 pub(super) async fn call_ok_retrying(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
     let out = call_retrying(cx, id, spec, limit, echo).await?;
-    stdout_of(cx, id, Some(spec), &out)
+    stdout_of_call(cx, id, spec, &out)
 }
 
 /// Argv step `step` of list `list`, its lines shown and `observe`d as any step's: a `vagrant`
