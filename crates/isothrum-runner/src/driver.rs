@@ -90,22 +90,32 @@ pub(crate) trait Driver {
     /// The run as the engine reports it, from the manifest's `lifecycle.status`.
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
     /// Reads what a `down` must know before its steps run (Compose: the containers' anonymous
-    /// volumes, which the steps leave once a recreate inherited them).
-    async fn before_down(&self, cx: &Cx<'_>) -> Result<()>;
+    /// volumes, which the steps leave once a recreate inherited them). Nothing, for a driver
+    /// whose machines own their storage (a VM's disks, a module's resources): the defaults of
+    /// the hooks say so once, not in every driver (Clean Code G5, 2026-11-13).
+    async fn before_down(&self, _cx: &Cx<'_>) -> Result<()> {
+        Ok(())
+    }
     /// Clears the run's state after a successful `down` (Compose: no pins left, the recorded
     /// anonymous volumes removed).
     async fn after_down(&self, cx: &Cx<'_>) -> Result<()>;
     /// Reads what a change of the running run (an update, a retire, a detach) must know before
     /// its steps run (Compose: the containers' anonymous volumes, which a recreate orphans and a
-    /// removal can leave).
-    async fn before_change(&self, cx: &Cx<'_>) -> Result<()>;
+    /// removal can leave). Nothing by default.
+    async fn before_change(&self, _cx: &Cx<'_>) -> Result<()> {
+        Ok(())
+    }
     /// Clears what the change's steps left (Compose: the recorded anonymous volumes no container
-    /// holds any more).
-    async fn after_change(&self, cx: &Cx<'_>) -> Result<()>;
+    /// holds any more). Nothing by default.
+    async fn after_change(&self, _cx: &Cx<'_>) -> Result<()> {
+        Ok(())
+    }
     /// Restarts `machine`, running, as step `id`, so it boots with the settings its engine
     /// applies only at boot (an update, when its boot digest changed: [`Native::Vagrant`]'s
     /// `boot_digest`). Nothing for a driver whose machines carry no boot digest.
-    async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()>;
+    async fn restart(&self, _cx: &Cx<'_>, _machine: &Machine, _id: &str) -> Result<()> {
+        Ok(())
+    }
     /// Hot-adds `machine`, an on-demand access machine the initial `up` left down, into the
     /// running run: brought up with the picked `image`, else its baked default, and joined to the
     /// network whose native name is `network` when one is given. Refused where the driver can't.
