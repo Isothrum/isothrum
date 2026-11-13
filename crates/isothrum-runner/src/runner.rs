@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn a_copys_key_is_its_homes_and_its_names() {
+    fn a_copy_key_is_made_of_its_home_and_its_name() {
         let name = RunName::new("web-vm").unwrap();
         assert_eq!(copy_key(Path::new("/h"), &name), "r7hhts");
         assert_eq!(copy_key(Path::new("/other"), &name), "1imar2", "another home, another key");

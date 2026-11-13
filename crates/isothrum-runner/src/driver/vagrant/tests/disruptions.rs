@@ -14,7 +14,7 @@ fn machine(status: &crate::Status, name: &str) -> MachineState {
 }
 
 /// The fixture's run, started.
-async fn started(f: &Fixture) -> crate::Running<'_> {
+pub(super) async fn started(f: &Fixture) -> crate::Running<'_> {
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run
