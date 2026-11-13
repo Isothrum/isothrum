@@ -51,7 +51,7 @@ impl Running<'_> {
         // What runs now keeps what it was given: only a machine new to the run gets its secrets.
         cx.set_up = observed.machines.iter().filter(|m| m.state.runs()).map(|m| m.name.clone()).collect();
         self.reload_changed(&cx, &record.vm_boot_digests, &observed).await?;
-        self.runs_from_this(&mut record);
+        self.point_record_at_this_manifest(&mut record);
         self.begin(&mut record, Op::Update)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write(&cx, true)?;

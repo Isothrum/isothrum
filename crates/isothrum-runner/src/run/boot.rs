@@ -7,7 +7,7 @@
 //! run again, which then provision it and start what runs in it (a `docker-vm`'s containers). A
 //! VM with no recorded digest (a run recorded before the runner kept them) or none in the
 //! manifest is left running: an unknown digest never reloads. Either way the update records the
-//! manifest's digests ([`Running::runs_from_this`]).
+//! manifest's digests ([`Running::point_record_at_this_manifest`]).
 
 use std::collections::BTreeMap;
 

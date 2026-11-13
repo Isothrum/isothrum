@@ -28,9 +28,9 @@ use crate::name::RunName;
 /// How long a lock another process holds is waited for before the run reads as busy: a holder
 /// that just finished, or a process started meanwhile that briefly shares the lock's handle
 /// between its fork and its exec, lets go within it.
-const GRACE: Duration = Duration::from_secs(1);
+const LOCK_WAIT: Duration = Duration::from_secs(1);
 
-/// How often a held lock is tried again within [`GRACE`].
+/// How often a held lock is tried again within [`LOCK_WAIT`].
 const RETRY: Duration = Duration::from_millis(50);
 
 /// How long a start waits for another one's slot pick: a pick takes a few file reads and one
@@ -74,7 +74,7 @@ impl RunLocks {
         let mutex = Arc::clone(self.0.lock().unwrap_or_else(PoisonError::into_inner).entry(run.clone()).or_default());
         let here = mutex.lock_owned().await;
         let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
-        match locked_within(&file, GRACE).await {
+        match locked_within(&file, LOCK_WAIT).await {
             Ok(true) => Ok(RunLock {
                 _file: Held(file),
                 _here: here,
@@ -88,7 +88,7 @@ impl RunLocks {
 /// Whether an operation holds the run whose lock file is `path`: another handle has its OS lock
 /// (another process's operation, or one of this process). Read-only queries ask, never wait: the
 /// lock is taken for an instant to find out and let go at once, so an operation acquiring the run
-/// meanwhile has it within its [`GRACE`]. No lock file: no operation ever held the run.
+/// meanwhile has it within its [`LOCK_WAIT`]. No lock file: no operation ever held the run.
 pub(crate) fn held(path: &Path) -> std::io::Result<bool> {
     let Some(file) = fs::if_there(std::fs::OpenOptions::new().read(true).open(path))? else {
         return Ok(false);

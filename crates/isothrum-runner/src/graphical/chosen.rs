@@ -114,7 +114,10 @@ pub(crate) fn var(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 pub(crate) fn of(cx: &Cx<'_>, machine: &Machine) -> Result<(u16, SecretValue)> {
     match read(cx)?.remove(machine.name.as_str()) {
         Some(c) => Ok((c.port, SecretValue::new(c.password))),
-        None => Err(super::none(machine, "the runner chose none for it: it boots with one at the run's next start")),
+        None => Err(super::no_console(
+            machine,
+            "the runner chose none for it: it boots with one at the run's next start",
+        )),
     }
 }
 

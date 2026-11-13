@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use isoloom_manifest::{ConsoleSource, Driver, HostOs, Machine, Provider};
 use serde::{Deserialize, Serialize};
 
-use super::{none, vagrant};
+use super::{no_console, vagrant};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call};
@@ -202,7 +202,7 @@ fn program<'a>(program: &str, args: impl IntoIterator<Item = &'a str>) -> Native
 /// an option, a control character, a line break).
 fn argument<'a>(machine: &Machine, value: &'a str) -> Result<&'a str> {
     if value.trim().is_empty() || value.starts_with('-') || value.chars().any(char::is_control) {
-        return Err(none(
+        return Err(no_console(
             machine,
             format!("its VM's name or file `{}` can't be handed to its app", value.escape_debug()),
         ));
@@ -221,7 +221,7 @@ fn recorded(cx: &Cx<'_>, machine: &Machine, provider_dir: &str) -> Result<String
     vagrant::read_if_there(&path)?
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| none(machine, "Vagrant records no VM for it: it isn't up"))
+        .ok_or_else(|| no_console(machine, "Vagrant records no VM for it: it isn't up"))
 }
 
 /// libvirt's viewers: `virt-viewer` on the domain, over the run's connection; else
@@ -245,7 +245,7 @@ async fn parallels_bundle(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
     let spec = ProcessSpec::new("prlctl", ["list", "--info", "--json", uuid]);
     let out = call(cx, "console", &spec, std::time::Duration::from_secs(30), Echo::Quiet).await?;
     if !out.success() {
-        return Err(none(machine, format!("Parallels didn't say where its VM is: {}", out.reason())));
+        return Err(no_console(machine, format!("Parallels didn't say where its VM is: {}", out.reason())));
     }
     let said: serde_json::Value = serde_json::from_str(&out.stdout.join("\n")).unwrap_or_default();
     let home = said
@@ -253,7 +253,7 @@ async fn parallels_bundle(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
         .and_then(|vms| vms.first())
         .and_then(|vm| vm.get("Home"))
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| none(machine, "Parallels didn't say where its VM is"))?;
+        .ok_or_else(|| no_console(machine, "Parallels didn't say where its VM is"))?;
     Ok(argument(machine, home.trim_end_matches('/'))?.to_owned())
 }
 
@@ -264,10 +264,10 @@ fn esxi_url(cx: &Cx<'_>, machine: &Machine) -> Result<NativeOpen> {
         .params()
         .get(isoloom_manifest::contract::ESXI_HOSTNAME)
         .filter(|h| host_name(h))
-        .ok_or_else(|| none(machine, "the run names no ESXi host"))?;
+        .ok_or_else(|| no_console(machine, "the run names no ESXi host"))?;
     let id = recorded(cx, machine, "vmware_esxi")?;
     if !id.chars().all(|c| c.is_ascii_digit()) {
-        return Err(none(machine, format!("its ESXi VM id `{}` isn't one", id.escape_debug())));
+        return Err(no_console(machine, format!("its ESXi VM id `{}` isn't one", id.escape_debug())));
     }
     Ok(NativeOpen::Url {
         url: format!("https://{host}/ui/#/console/{id}"),
@@ -281,7 +281,7 @@ fn proxmox_url(cx: &Cx<'_>, machine: &Machine) -> Result<NativeOpen> {
         .iter()
         .find_map(|c| c.source.as_ref().filter(|s| matches!(s, ConsoleSource::ProxmoxApi { .. })))
     else {
-        return Err(none(machine, "it isn't a Proxmox VE VM"));
+        return Err(no_console(machine, "it isn't a Proxmox VE VM"));
     };
     let at = |field: &str| format!("machines.{}.consoles.source.{field}", machine.name);
     let endpoint = cx.vars.render(endpoint, &at("endpoint"))?;
@@ -294,13 +294,13 @@ fn proxmox_url(cx: &Cx<'_>, machine: &Machine) -> Result<NativeOpen> {
         .and_then(|(_, rest)| rest.split_once(':'))
         .is_none_or(|(_, p)| p.parse::<u16>().is_ok());
     if server.is_none() || !port_ok {
-        return Err(none(
+        return Err(no_console(
             machine,
             format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug()),
         ));
     }
     if !vm_id.chars().all(|c| c.is_ascii_digit()) || vm_id.is_empty() || !host_name(&node) {
-        return Err(none(machine, "its Proxmox VE node or VM id isn't one"));
+        return Err(no_console(machine, "its Proxmox VE node or VM id isn't one"));
     }
     Ok(NativeOpen::Url {
         url: format!("{base}/?console=kvm&novnc=1&vmid={vm_id}&node={node}"),
@@ -324,7 +324,7 @@ fn percent(s: &str) -> String {
 
 /// The error a machine whose run has no app gets.
 pub(crate) fn no_app(machine: &Machine) -> Error {
-    none(machine, "its hypervisor has no app of its own to show it in")
+    no_console(machine, "its hypervisor has no app of its own to show it in")
 }
 
 #[cfg(test)]
