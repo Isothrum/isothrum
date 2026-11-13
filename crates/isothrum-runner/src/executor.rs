@@ -196,10 +196,22 @@ impl LineWatch {
     }
 }
 
-/// The steps of a list that ran and succeeded, or that don't apply on this host or provider.
+/// The steps of a list that ran and succeeded, and those that don't apply on this host or
+/// provider.
 #[derive(Debug, Default)]
 pub(crate) struct Ran {
-    pub(crate) ok: BTreeSet<String>,
+    /// The steps that ran and succeeded.
+    pub(crate) succeeded: BTreeSet<String>,
+    /// The steps the host or provider filter left out.
+    pub(crate) not_applicable: BTreeSet<String>,
+}
+
+impl Ran {
+    /// Whether `step` succeeded, or doesn't apply here (a readiness check on a step left out
+    /// for this host or provider doesn't fail the start).
+    pub(crate) fn succeeded_or_not_applicable(&self, step: &str) -> bool {
+        self.succeeded.contains(step) || self.not_applicable.contains(step)
+    }
 }
 
 /// The start's list, as messages name it.
@@ -266,7 +278,7 @@ async fn run_list(cx: &mut Cx<'_>, list: &str, steps: &[Step], after: AfterStep)
     for step in steps {
         let id = step.id.as_str();
         if !plan::applies(&cx.scope, step) {
-            ran.ok.insert(id.to_owned());
+            ran.not_applicable.insert(id.to_owned());
             continue;
         }
         if failure.is_some() && step.when == When::IfOk {
@@ -281,7 +293,7 @@ async fn run_list(cx: &mut Cx<'_>, list: &str, steps: &[Step], after: AfterStep)
         };
         match done {
             Ok(()) => {
-                ran.ok.insert(id.to_owned());
+                ran.succeeded.insert(id.to_owned());
             }
             Err(e) if step.failure == Failure::Tolerate => {
                 cx.events.warning(WarningCode::StepTolerated, &e.to_string());

@@ -49,16 +49,16 @@ enum Start {
 }
 
 impl Start {
-    /// The entry's word for it.
-    fn word(&self) -> String {
+    /// The start as the ledger entry writes it.
+    fn entry_text(&self) -> String {
         match self {
             Start::Boot { boot, ticks } => format!("boot:{boot}:{ticks}"),
             Start::At(secs) => format!("at:{secs}"),
         }
     }
 
-    /// [`Start::word`] read back.
-    fn parse(word: &str) -> Option<Start> {
+    /// [`Start::entry_text`] read back.
+    fn from_entry_text(word: &str) -> Option<Start> {
         if let Some(rest) = word.strip_prefix("boot:") {
             let (boot, ticks) = rest.rsplit_once(':')?;
             return Some(Start::Boot {
@@ -69,8 +69,9 @@ impl Start {
         word.strip_prefix("at:")?.parse().ok().map(Start::At)
     }
 
-    /// Whether `now`, the start the OS has for the process, is this one.
-    fn is(&self, now: &Start) -> bool {
+    /// Whether `now`, the start the OS has for the process, is this one (seconds within
+    /// [`SLACK`]): the same process, not another that got the id later.
+    fn same_process_as(&self, now: &Start) -> bool {
         match (self, now) {
             (Start::At(a), Start::At(b)) => a.abs_diff(*b) <= SLACK,
             (a, b) => a == b,
@@ -89,7 +90,7 @@ impl Recorded {
         let start = recorded_start(pid)?;
         let written = owner_token(dir).and_then(|token| {
             let path = dir.join(format!("{token}-{pid}.tool"));
-            std::fs::write(&path, format!("{pid} {}\n", start.word()))?;
+            std::fs::write(&path, format!("{pid} {}\n", start.entry_text()))?;
             Ok(path)
         });
         match written {
@@ -139,9 +140,9 @@ fn owner_token(dir: &Path) -> io::Result<String> {
     Ok(token)
 }
 
-/// Whether the owner whose lock is `path` is gone: its lock can be taken (and is, until `path`
-/// goes). A lock held by this process, or another live one, can't.
-fn owner_gone(path: &Path) -> Option<File> {
+/// Takes the lock `path` when its owner is gone, and returns it (held until `path` goes); `None`
+/// while this process, or another live one, holds it.
+fn lock_if_owner_gone(path: &Path) -> Option<File> {
     let file = File::options().read(true).write(true).open(path).ok()?;
     file.try_lock().ok().map(|()| file)
 }
@@ -153,7 +154,7 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
     let names: Vec<String> = read.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
     for token in names.iter().filter_map(|n| n.strip_suffix(".owner")) {
         let owner = dir.join(format!("{token}.owner"));
-        let Some(lock) = owner_gone(&owner) else { continue };
+        let Some(lock) = lock_if_owner_gone(&owner) else { continue };
         let prefix = format!("{token}-");
         for entry in names
             .iter()
@@ -179,9 +180,9 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
 async fn end_entry(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).ok()?;
     let (pid, start) = text.trim().split_once(' ')?;
-    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::parse(start)?);
+    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::from_entry_text(start)?);
     let now = os_start(pid).await;
-    if !now.as_ref().is_some_and(|now| start.is(now)) {
+    if !now.as_ref().is_some_and(|now| start.same_process_as(now)) {
         tracing::debug!(pid, "a tool a killed operation recorded is gone, or its id names another process: left alone");
         return None;
     }
@@ -320,7 +321,7 @@ pub(crate) fn left_by_a_killed_process(dir: &Path, pid: u32) -> io::Result<()> {
     crate::store::private_dir(dir)?;
     std::fs::write(dir.join("dead.owner"), "")?;
     let start = recorded_start(pid).ok_or_else(|| io::Error::other("no such process"))?;
-    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.word()))
+    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.entry_text()))
 }
 
 #[cfg(test)]

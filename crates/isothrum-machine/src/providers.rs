@@ -70,7 +70,9 @@ async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> O
         return None;
     }
     let plist = format!("{UTM_APP}/Contents/Info.plist");
-    let out = exec::read(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"]).await.ok()?;
+    let out = exec::read_any_exit(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"])
+        .await
+        .ok()?;
     let version = out.trim().to_owned();
     (!version.is_empty()).then_some(version)
 }
@@ -95,7 +97,7 @@ async fn hypervisor_installed(provider: Provider, runner: &dyn ProcessRunner) ->
         Provider::Hyperv => Some(hyperv_enabled()),
         _ => {
             let (program, args) = probe(provider)?;
-            Some(tool_present(runner, program, args).await)
+            Some(tool_starts(runner, program, args).await)
         }
     }
 }
@@ -172,8 +174,8 @@ fn older(installed: &str, min: &str) -> bool {
 
 /// Whether `program` is installed: it is, as long as it could be started (a tool that prints usage
 /// and exits non-zero, like `vmrun`, still exists).
-async fn tool_present(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> bool {
-    exec::read(runner, program, args).await.is_ok()
+async fn tool_starts(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> bool {
+    exec::read_any_exit(runner, program, args).await.is_ok()
 }
 
 /// The Vagrant plugins installed, each with its version when it says one
@@ -264,7 +266,7 @@ async fn needs_admin(provider: Provider, hypervisor: Option<bool>, runner: &dyn 
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so
 /// ask it something that does and see whether that times out.
 async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
-    let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"]);
+    let probe = exec::read_any_exit(runner, "VBoxManage", &["list", "runningvms"]);
     tokio::time::timeout(VBOX_PROBE, probe).await.is_err()
 }
 

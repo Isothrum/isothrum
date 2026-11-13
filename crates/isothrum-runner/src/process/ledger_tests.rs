@@ -9,15 +9,15 @@ fn a_start_reads_back_and_is_its_process_within_the_second_the_os_rounds_to() {
         },
         Start::At(1_794_415_415),
     ] {
-        assert_eq!(Start::parse(&start.word()), Some(start.clone()));
-        assert!(start.is(&start));
+        assert_eq!(Start::from_entry_text(&start.entry_text()), Some(start.clone()));
+        assert!(start.same_process_as(&start));
     }
-    assert!(Start::At(100).is(&Start::At(102)) && Start::At(102).is(&Start::At(100)));
-    assert!(!Start::At(100).is(&Start::At(103)), "another process that got the id later");
+    assert!(Start::At(100).same_process_as(&Start::At(102)) && Start::At(102).same_process_as(&Start::At(100)));
+    assert!(!Start::At(100).same_process_as(&Start::At(103)), "another process that got the id later");
     let boot = |ticks| Start::Boot { boot: "b".into(), ticks };
-    assert!(!boot(1).is(&boot(2)) && !boot(1).is(&Start::At(1)));
+    assert!(!boot(1).same_process_as(&boot(2)) && !boot(1).same_process_as(&Start::At(1)));
     for bad in ["", "at:", "at:x", "boot:1", "boot:b:x", "time:1"] {
-        assert_eq!(Start::parse(bad), None, "{bad:?}");
+        assert_eq!(Start::from_entry_text(bad), None, "{bad:?}");
     }
 }
 

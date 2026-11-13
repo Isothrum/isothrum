@@ -270,7 +270,7 @@ impl Store {
     }
 
     /// What the runner last saw of run `name`, when it ever read it.
-    pub(crate) fn seen(&self, name: &RunName) -> Result<Option<LastObserved>> {
+    pub(crate) fn last_observed(&self, name: &RunName) -> Result<Option<LastObserved>> {
         read_json(&self.seen_path(name))
     }
 

@@ -111,7 +111,7 @@ pub(crate) fn var(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 }
 
 /// The port and password chosen for `machine`.
-pub(crate) fn of(cx: &Cx<'_>, machine: &Machine) -> Result<(u16, SecretValue)> {
+pub(crate) fn port_and_password(cx: &Cx<'_>, machine: &Machine) -> Result<(u16, SecretValue)> {
     match read(cx)?.remove(machine.name.as_str()) {
         Some(c) => Ok((c.port, SecretValue::new(c.password))),
         None => Err(super::no_console(

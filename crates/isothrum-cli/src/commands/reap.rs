@@ -58,7 +58,7 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &V
     let sweep = Trail::default();
     if json {
         let data = summary(args, &swept, searched);
-        term.json(&sweep.follow(None, None, EventKind::Result { ok: clean, data }));
+        term.json(&sweep.append(None, None, EventKind::Result { ok: clean, data }));
     } else {
         for line in lines(args, &swept, searched) {
             term.out(&line);
@@ -66,7 +66,7 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &V
     }
     if let Err(e) = &orphans {
         if json {
-            term.json(&sweep.follow(None, None, failure(e.code(), e.to_string())));
+            term.json(&sweep.append(None, None, failure(e.code(), e.to_string())));
         } else {
             term.err(&format!("error: {e}"));
         }

@@ -147,7 +147,7 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
             let started = open(runner, &op.run)?
                 .up(&start_opts(op, *replace, *lifetime, ssh_jump.as_deref(), var)?, events)
                 .await;
-            Ok(said(json, started.ok(), "The run is up.", term))
+            Ok(report_came_up(json, started.ok(), "The run is up.", term))
         }
         Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
         Lifecycle::Park { op, mode } => {
@@ -156,11 +156,11 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
         }
         Lifecycle::Resume(op) => {
             let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
-            Ok(said(json, resumed.ok(), "The run is up again.", term))
+            Ok(report_came_up(json, resumed.ok(), "The run is up again.", term))
         }
         Lifecycle::Update(op) => {
             let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
-            Ok(said(json, updated.ok(), "The run is up to date.", term))
+            Ok(report_came_up(json, updated.ok(), "The run is up to date.", term))
         }
         Lifecycle::Retire { op, machine } => {
             let retired = open(runner, &op.run)?.retire(machine, &options(op, var)?, events).await;
@@ -179,7 +179,7 @@ fn park_mode(mode: Mode) -> Park {
 
 /// A run that came up (a start, a resume, an update): its message, or `done`, unless the output is JSON
 /// (its events said it); failed when it didn't come up.
-fn said(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
+fn report_came_up(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
     let Some(run) = run else { return Verdict::Fail };
     if !json {
         term.out(run.message.as_deref().unwrap_or(done).trim_end());

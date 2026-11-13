@@ -265,7 +265,7 @@ impl<'r> Running<'r> {
     /// The run as the runner last read it ([`crate::store::LastObserved`]); nothing before it ever did,
     /// or when what it kept can't be read (traced).
     fn last_seen(&self) -> crate::driver::Observed {
-        match self.runner.store.seen(&self.name) {
+        match self.runner.store.last_observed(&self.name) {
             Ok(seen) => crate::driver::Observed::from_seen(seen.unwrap_or_default()),
             Err(e) => {
                 tracing::warn!(error = %e, "what the runner last saw of the run can't be read: no machine is shown");
