@@ -227,7 +227,7 @@ fn vagrant_access(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (R
     let folder = RunFolder::new("vagrant", WEB_VM_ACCESS);
     let fake = Arc::new(FakeProcesses::new(answer));
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(std::iter::empty::<u16>()));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::testing::TEST_HOST)).unwrap();
     (folder, fake, runner)
 }
 
@@ -315,7 +315,7 @@ async fn a_status_while_an_attach_provisions_the_access_vm_reports_the_run_as_la
     // The embedder's worker, which attaches, and its app, polling the run from another process.
     let [runner, app] = [vec![41000], vec![]].map(|free: Vec<u16>| {
         let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(free));
-        Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap()
+        Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::testing::TEST_HOST)).unwrap()
     });
     let run = runner.open(&folder.manifest, None).unwrap();
     run.up(&crate::testing::virtualbox_options("token"), &Recorder::new()).await.unwrap();

@@ -69,7 +69,7 @@ async fn the_controllers_halt_takes_the_steps_limit_on_the_runs_provider() {
 
 #[tokio::test]
 async fn a_controller_halts_with_its_lines_in_the_log() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
@@ -83,7 +83,7 @@ async fn a_controller_halts_with_its_lines_in_the_log() {
 
 /// The start's events when `vagrant halt <controller>` fails and leaves it in `state`.
 async fn up_with_a_halt_that_leaves(state: &'static str) -> String {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().halt_fails = Some(state);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
@@ -124,7 +124,7 @@ async fn checks_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> Vec<
 /// A check run on a started run whose controller still reads as running, after `set`: how it
 /// ended (its error with its events' text), the calls, and how long it took.
 async fn check_with_a_running_controller(set: impl FnOnce(&mut Engine)) -> (std::result::Result<crate::CheckReport, String>, Vec<String>, std::time::Duration) {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     {

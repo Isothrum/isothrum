@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
-use isoloom_manifest::{HostOs, Manifest};
+use isoloom_manifest::{Arch, HostOs, Manifest};
 
 use crate::clock::FixedClock;
 use crate::net::FakePorts;
@@ -58,6 +58,13 @@ pub(crate) const IPSET_LEFT: &str = r#"{"version":4,"terraform_version":"1.16.7"
 
 /// When the tests' clock stands: 2026-10-15T12:00:00Z.
 pub(crate) const TEST_TIME: u64 = 1_792_065_600;
+
+/// The host the tests' runner is on, whatever the machine running them: a test takes the same
+/// branch on every OS, and one about another host says which.
+pub(crate) const TEST_HOST: HostOs = HostOs::Linux;
+
+/// The CPU architecture the tests' runner is on, whatever the machine running them.
+pub(crate) const TEST_ARCH: Arch = Arch::Amd64;
 
 /// The solo-web `proxmox` manifest.
 pub(crate) fn proxmox_manifest() -> Manifest {
@@ -164,7 +171,7 @@ pub(crate) fn runner_config(home: &Path, processes: Arc<dyn ProcessRunner>, port
         host,
         path: None,
         tf_plugin_cache: None,
-        arch: crate::runner::this_arch(),
+        arch: TEST_ARCH,
         host_env: crate::host_env::HostEnv::default(),
     }
 }

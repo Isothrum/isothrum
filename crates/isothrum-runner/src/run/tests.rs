@@ -108,7 +108,7 @@ fn fixture_of(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply, free: 
     let (engine, fake) = modelled(answer);
     let ports = Arc::new(FakePorts::new(free));
     let host_ports: Arc<dyn crate::HostPorts> = Arc::<FakePorts>::clone(&ports);
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::runner::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::testing::TEST_HOST)).unwrap();
     Fixture {
         manifest: folder.manifest.clone(),
         folder,
@@ -293,7 +293,7 @@ fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its
         folder.home.path(),
         processes(&Arc::new(FakeProcesses::rules(&[]))),
         crate::testing::no_ports(),
-        crate::runner::this_host(),
+        crate::testing::TEST_HOST,
     );
     config.host_env = crate::host_env::HostEnv::of([("HTTPS_PROXY", "http://proxy.corp:3128"), ("VAGRANT_HOME", "D:\\boxes")]);
     config.path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
