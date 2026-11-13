@@ -9,6 +9,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Added
+
+- **`Runner::run_record`: one run's record, read alone.** An embedder asking after one run read
+  every record (`runs`) and failed on another run's record it couldn't read.
+
 ### Fixed
 
 - **One unreadable `docker compose ps` line fails the listing instead of hiding a container.** A
