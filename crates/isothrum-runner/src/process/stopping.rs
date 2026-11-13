@@ -31,6 +31,8 @@ pub(super) struct Stopping {
     count: AtomicUsize,
     /// Raised by [`Stopping::end_now`]: a tool asked to stop before it is ended at once.
     epoch: AtomicU64,
+    /// Woken when a stopping tool ended (the count went down).
+    done: tokio::sync::Notify,
 }
 
 /// A spawned tool, handed to the thread that stops it.
@@ -43,6 +45,7 @@ impl Stopping {
             grace,
             count: AtomicUsize::new(0),
             epoch: AtomicU64::new(0),
+            done: tokio::sync::Notify::new(),
         }
     }
 
@@ -65,6 +68,7 @@ impl Stopping {
             }
             drop(recorded);
             stopping.count.fetch_sub(1, Ordering::SeqCst);
+            stopping.done.notify_waiters();
         });
         if let Err(e) = spawned {
             tracing::warn!(error = %e, "no thread to wait for a tool to stop: it is ended at once");
@@ -72,6 +76,7 @@ impl Stopping {
                 end(tool.as_mut());
             }
             self.count.fetch_sub(1, Ordering::SeqCst);
+            self.done.notify_waiters();
         }
     }
 
@@ -80,10 +85,18 @@ impl Stopping {
         self.count.load(Ordering::SeqCst) > 0
     }
 
-    /// Once no tool is stopping any more.
+    /// Once no tool is stopping any more: woken by the last tool's end, not by polling (Clean
+    /// Code ch.13, 2026-11-13). The wait is armed before the count is read, so an end between the
+    /// two isn't missed.
     pub(super) async fn stopped(&self) {
-        while self.any() {
-            tokio::time::sleep(POLL).await;
+        loop {
+            let notified = self.done.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if !self.any() {
+                return;
+            }
+            notified.await;
         }
     }
 
