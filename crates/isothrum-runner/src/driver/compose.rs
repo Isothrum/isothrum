@@ -158,7 +158,7 @@ impl Driver for Compose {
             .manifest()
             .machines
             .iter()
-            .filter(|m| published.keys().any(|(name, _)| m.name.as_str() == name));
+            .filter(|m| published.keys().any(|key| m.name.as_str() == key.machine));
         let mut hosts = BTreeMap::new();
         for m in publishing {
             hosts.insert(m.name.to_string(), super::publish_host(cx, m)?);

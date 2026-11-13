@@ -31,7 +31,7 @@ pub(crate) fn read(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, S
         .outputs
         .iter()
         .map(|o| match &o.from {
-            OutputSource::PublishedPort { machine, port } => vars.published().get(&(machine.to_string(), port.to_string())).map(u16::to_string),
+            OutputSource::PublishedPort { machine, port } => vars.published().get(&crate::vars::PortKey::new(machine, port)).map(u16::to_string),
             OutputSource::TerraformOutput { name, default } => engine.get(name.as_str()).cloned().or_else(|| default.clone()),
         })
         .collect();
@@ -113,7 +113,7 @@ mod tests {
         let none = BTreeMap::new();
         let marked = BTreeSet::new();
         assert_eq!(read(&m, &vars, &none, &marked).values[0].value, None, "not published yet");
-        vars.set_published(BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
+        vars.set_published(BTreeMap::from([(crate::vars::PortKey::new("web", "portal"), 41873)]));
         let Read { values: outputs, unformatted } = read(&m, &vars, &none, &marked);
         assert!(unformatted.is_empty(), "{unformatted:?}");
         assert_eq!(
@@ -128,7 +128,7 @@ mod tests {
     fn a_format_that_cant_be_filled_leaves_its_output_without_a_value_and_says_why() {
         let m = isoloom_manifest::parse(&crate::testing::unfillable_format()).unwrap();
         let mut vars = Vars::default();
-        vars.set_published(BTreeMap::from([(("web".to_owned(), "portal".to_owned()), 41873)]));
+        vars.set_published(BTreeMap::from([(crate::vars::PortKey::new("web", "portal"), 41873)]));
         let read = read(&m, &vars, &BTreeMap::new(), &BTreeSet::new());
         assert_eq!((read.values[0].value.as_deref(), read.values[1].value.as_deref()), (None, Some("***")));
         let said: Vec<String> = read.unformatted.iter().map(ToString::to_string).collect();

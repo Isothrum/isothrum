@@ -354,7 +354,13 @@ fn machines(
         let mut published = Vec::new();
         if host.is_some() {
             for (name, port) in published_ports(m, at_vm, chosen) {
-                out.published.insert((m.name.to_string(), name), port.host_port);
+                out.published.insert(
+                    crate::vars::PortKey {
+                        machine: m.name.to_string(),
+                        port: name,
+                    },
+                    port.host_port,
+                );
                 published.push(port);
             }
         }

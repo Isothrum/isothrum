@@ -11,7 +11,7 @@ use super::Cx;
 use super::step::{Ended, Hold, once};
 use crate::Result;
 use crate::events::WarningCode;
-use crate::ssh::{self, Wait};
+use crate::ssh::{self, SshWait};
 
 impl ssh::Try for Ended {
     fn unreachable(&self) -> bool {
@@ -24,7 +24,7 @@ impl ssh::Try for Ended {
 }
 
 /// Runs `step` until its host answers within `wait`, then as any step.
-pub(crate) async fn run(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send), wait: &Wait) -> Result<()> {
+pub(crate) async fn run(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send), wait: &SshWait) -> Result<()> {
     let note = format!("{} doesn't answer over SSH yet; trying again for up to {}s", wait.login, wait.limit.as_secs());
     let mut retrying = ssh::Retrying::new(wait);
     let ended = loop {

@@ -98,13 +98,17 @@ impl SystemProcesses {
         let mut cmd = self.command(spec).map_err(io)?;
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
         let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
-        let mut tree = Tree(Some(child), Arc::clone(&self.stopping), recorded);
-        let status = match tree.0.as_deref_mut() {
+        let mut tree = Tree {
+            child: Some(child),
+            stopping: Arc::clone(&self.stopping),
+            recorded,
+        };
+        let status = match tree.child.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
             None => return Err(io(std::io::Error::other("the process went away"))),
         };
         // It exited on its own: what it left running is its business.
-        tree.0 = None;
+        tree.child = None;
         tracing::debug!(program = %spec.program, code = ?status.code(), "process exited");
         if shim::missing_behind_cmd(&spec.program, status.code()) {
             return Err(ProcessError::Missing { program: spec.program.clone() });
@@ -152,12 +156,19 @@ impl ProcessRunner for SystemProcesses {
 /// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
 /// cancellation), with its entry in the run's tools when it was recorded: removed once the tool
 /// ended.
-struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>, Option<ledger::Recorded>);
+struct Tree {
+    /// The process, until it is waited for.
+    child: Option<Box<dyn ChildWrapper>>,
+    /// What stops it (and its group) when it is dropped unwaited.
+    stopping: Arc<Stopping>,
+    /// Its ledger entry, taken by the stop.
+    recorded: Option<ledger::Recorded>,
+}
 
 impl Drop for Tree {
     fn drop(&mut self) {
-        if let Some(child) = self.0.take() {
-            self.1.stop(child, self.2.take());
+        if let Some(child) = self.child.take() {
+            self.stopping.stop(child, self.recorded.take());
         }
     }
 }

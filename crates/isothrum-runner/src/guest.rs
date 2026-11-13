@@ -122,7 +122,7 @@ async fn to_machine(cx: &Cx<'_>, machine: &str, login: &Login, lines: &str) -> R
 async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) -> Result<()> {
     let mut spec = ssh::spec(cx, login, &format!("sudo sh -c {}", crate::console::sh_quote(&receive())), Vec::new())?;
     spec.stdin = Some(input.to_path_buf());
-    let wait = ssh::Wait {
+    let wait = ssh::SshWait {
         limit: PATIENCE,
         login: login.target.clone(),
     };
