@@ -60,6 +60,8 @@ fn setup_with(manifest: &str) -> Setup {
             () if line.contains(" ps --all ") && now == STOPPED => Reply::ok(&web("exited")),
             () if line.contains(" ps ") && !line.contains(" ps -q ") => Reply::ok(if now == UP { web("running") } else { String::new() }.as_str()),
             () if line.contains(" ps -q user") => Reply::ok("c0ffee"),
+            // The access container's networks, as `docker inspect` prints them: the default one only.
+            () if line.starts_with("docker inspect --format") => Reply::ok("{\"web-portal_default\":{}}"),
             () if line.contains("--profile access up") => Reply::ok(&format!("user from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
             () if line.contains(" up --detach ") => {
                 state.store(UP, Ordering::SeqCst);

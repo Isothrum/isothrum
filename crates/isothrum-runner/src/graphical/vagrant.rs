@@ -1,7 +1,6 @@
 //! A Vagrant VM's console where its hypervisor keeps it: libvirt's display, QEMU's monitor,
 //! VirtualBox's remote display. Each is read where the provider keeps it, never guessed.
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 

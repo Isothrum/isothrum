@@ -63,24 +63,11 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-/// A container already on the chosen network is where it should be; any other failure to join
-/// it fails the attach, and a network the run doesn't have is refused before anything starts.
+/// A failure to join the chosen network fails the attach (a container already on it isn't joined
+/// again: `a_container_already_on_the_network_isnt_joined_again`), and a network the run doesn't
+/// have is refused before anything starts.
 #[tokio::test]
-async fn attach_to_a_network_tolerates_only_already_being_on_it() {
-    let already = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
-        joining(
-            e,
-            c,
-            Reply::fail(
-                1,
-                "Error response from daemon: endpoint with name user already exists in network web-portal_lab",
-            ),
-        )
-    });
-    already.set(Containers::Up);
-    let on_it = already.runner.open(&already.manifest, None).unwrap();
-    attach(&on_it, None, Some("lab"), None, &Recorder::new()).await.unwrap();
-
+async fn attach_to_a_network_fails_on_a_refused_join() {
     let refused = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
         joining(e, c, Reply::fail(1, "Error response from daemon: network web-portal_lab not found"))
     });
