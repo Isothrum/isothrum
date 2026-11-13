@@ -11,13 +11,11 @@ use isoloom_manifest::{Arch, HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
-use crate::encoding::wire_name;
-use crate::error::Error;
 use crate::events::EventLog;
 use crate::host_env::HostEnv;
 use crate::manifest::load_manifest;
 use crate::name::RunName;
-use crate::net::{HostPorts, LoopbackPorts};
+use crate::net::{HostPorts, LoopbackPorts, PortReservations};
 use crate::process::{ProcessRunner, SystemProcesses};
 use crate::run::Running;
 use crate::state::Op;
@@ -108,7 +106,8 @@ pub struct Runner {
     pub(crate) store: Store,
     pub(crate) locks: RunLocks,
     flight: Mutex<BTreeMap<RunName, Op>>,
-    reserved: Mutex<BTreeMap<(u16, Protocol), RunName>>,
+    /// The host ports its runs hold while they start.
+    reservations: PortReservations,
 }
 
 impl Runner {
@@ -122,12 +121,13 @@ impl Runner {
     /// can't be read or its DACL set), or its `runs/` folder can't be created.
     pub fn new(config: RunnerConfig) -> Result<Runner> {
         let store = Store::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
+        let reservations = PortReservations::new(Arc::clone(&config.ports));
         Ok(Runner {
             config,
             store,
             locks: RunLocks::default(),
             flight: Mutex::default(),
-            reserved: Mutex::default(),
+            reservations,
         })
     }
 
@@ -205,81 +205,47 @@ impl Runner {
 
     /// Reserves `port` for `name` while it starts; false when another run holds it.
     pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
-        let mut reserved = self.reserved.lock().unwrap_or_else(PoisonError::into_inner);
-        let holder = reserved.entry((port, protocol)).or_insert_with(|| name.clone());
-        holder == name
+        self.reservations.reserve(name, port, protocol)
     }
 
-    /// A free loopback port over `protocol` that no run of this runner holds, reserved for `name`
-    /// until this operation ends. The returned socket keeps it bound until dropped, so a port is
-    /// never handed out twice; a port another run holds is refused and held meanwhile so it isn't
-    /// offered again. None when none is left.
+    /// A free loopback port over `protocol` reserved for `name` ([`PortReservations::pick_reserved`]).
     ///
     /// # Errors
     ///
     /// The loopback couldn't be bound.
     pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
-        self.pick_where(protocol, |port| self.reserve(name, port, protocol))
+        self.reservations.pick_reserved(name, protocol)
     }
 
-    /// A free loopback port over `protocol` that no run of this runner but `name` holds, not
-    /// reserved: for a query, which holds no reservation past its end (a console's tunnel, whose
-    /// `ssh` binds it at once). None when none is left.
+    /// A free loopback port over `protocol` no other run holds, not reserved
+    /// ([`PortReservations::pick_unreserved`]).
     ///
     /// # Errors
     ///
     /// The loopback couldn't be bound.
     pub(crate) fn pick_unreserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
-        self.pick_where(protocol, |port| !self.reserved_elsewhere(name, port, protocol))
+        self.reservations.pick_unreserved(name, protocol)
     }
 
-    /// A free loopback port over `protocol` that `take` accepts; one it refuses is held meanwhile
-    /// so it isn't offered again. None when none is left.
-    fn pick_where(&self, protocol: Protocol, take: impl Fn(u16) -> bool) -> std::io::Result<Option<crate::net::HeldPort>> {
-        let mut refused = Vec::new();
-        for _ in 0..64 {
-            let Some(port) = self.config.ports.pick_free(protocol)? else {
-                return Ok(None);
-            };
-            if take(port.port) {
-                return Ok(Some(port));
-            }
-            refused.push(port);
-        }
-        Ok(None)
-    }
-
-    /// Whether another run than `name` holds `port`.
-    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
-        self.reserved
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&(port, protocol))
-            .is_some_and(|h| h != name)
-    }
-
-    /// Each `ports` entry (a host port and its protocol) must be free before run `name` starts:
-    /// not reserved by another run of this runner starting meanwhile, and not already bound on
-    /// this computer.
+    /// Each `ports` entry must be free before run `name` starts ([`PortReservations::ensure_free`]).
     ///
     /// # Errors
     ///
     /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
     pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (u16, Protocol)>) -> Result<()> {
-        for (port, protocol) in ports {
-            if self.reserved_elsewhere(name, port, protocol) || self.config.ports.in_use(port, protocol) {
-                return Err(Error::PortInUse {
-                    port,
-                    protocol: wire_name(&protocol),
-                });
-            }
-        }
-        Ok(())
+        self.reservations.ensure_free(name, ports)
+    }
+
+    /// Whether another run than `name` holds `port` (the tests read it; the operations go
+    /// through the picks).
+    #[cfg(test)]
+    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
+        self.reservations.reserved_elsewhere(name, port, protocol)
     }
 
     /// Frees every port `name` reserved.
     pub(crate) fn release(&self, name: &RunName) {
-        self.reserved.lock().unwrap_or_else(PoisonError::into_inner).retain(|_, holder| holder != name);
+        self.reservations.release(name);
     }
 }
 
