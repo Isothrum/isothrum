@@ -113,5 +113,5 @@ pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
         tracing::debug!(step = %step.id, "the run's VMs exist: their forwards are its own");
         return Ok(());
     }
-    cx.run.runner.ensure_ports_free(cx.run.name(), host_ports(cx))
+    cx.run.ensure_ports_free(host_ports(cx))
 }

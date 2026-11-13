@@ -74,7 +74,7 @@ fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::ReadyFileWait>
     let secs = |n: NonZeroU32| Duration::from_secs(u64::from(n.get()));
     Ok(file::ReadyFileWait {
         condition: format!("ready_file {host}"),
-        login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
+        login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump(), &via)?,
         path: render(path, "path")?,
         log: log.as_ref().map(|l| render(l, "log")).transpose()?,
         grammar: *grammar,

@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, contract};
 
-use super::{Driver, GuestUse, Observed, native_name};
+use super::{Driver, GuestUse, Observation, Observed, native_name};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::encoding::wire_name;
@@ -214,7 +214,7 @@ impl Driver for Vagrant {
         }
     }
 
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let out = match lock::read_status(cx).await? {
             lock::StatusRead::Read(out) => out,
             lock::StatusRead::Busy(defines) => return Ok(busy(cx.manifest(), &defines)),
@@ -229,7 +229,7 @@ impl Driver for Vagrant {
             Forwarding::AtVm => self.guest_addresses(cx, &read).await,
             Forwarding::Local(_) => local_hosts(cx)?,
         };
-        Ok(machines(cx.manifest(), &read, &hosts, forwarding))
+        Ok(Observation::Read(machines(cx.manifest(), &read, &hosts, forwarding)))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
@@ -355,7 +355,13 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts
         let mut published = Vec::new();
         if host.is_some() {
             for (name, port) in published_ports(m, forwarding) {
-                out.published.insert(crate::vars::PortKey { machine: m.name.to_string(), port: name }, port.host_port);
+                out.published.insert(
+                    crate::vars::PortKey {
+                        machine: m.name.to_string(),
+                        port: name,
+                    },
+                    port.host_port,
+                );
                 published.push(port);
             }
         }
@@ -373,17 +379,14 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts
 
 /// A query's read another process's lock refused: the manifest's machines Vagrant named
 /// (`defines`, by define name) busy, by their names; nothing else is read.
-fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observed {
+fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observation {
     let named = manifest
         .machines
         .iter()
         .filter(|m| defines.iter().any(|d| d == native_name(m)))
         .map(|m| m.name.to_string())
         .collect();
-    Observed {
-        busy: Some(named),
-        ..Observed::default()
-    }
+    Observation::Busy(named)
 }
 
 /// Where a VM's published ports answer: at the VM's own address (ESXi, which forwards nothing),

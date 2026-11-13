@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access, contract};
 
-use super::{Driver, GuestUse, Observed};
+use super::{Driver, GuestUse, Observation, Observed};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::error::Error;
@@ -149,12 +149,11 @@ impl Driver for Compose {
         }
     }
 
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let out = super::status_report(cx).await?;
         let (machines, published) = read_ps(cx.manifest(), &out).ok_or_else(|| ps::unreadable(super::STATUS))?;
         // Compose publishes on this computer, at the address the manifest binds.
         let publishing = cx
-            .run
             .manifest()
             .machines
             .iter()
@@ -163,12 +162,12 @@ impl Driver for Compose {
         for m in publishing {
             hosts.insert(m.name.to_string(), super::publish_host(cx, m)?);
         }
-        Ok(Observed {
+        Ok(Observation::Read(Observed {
             machines,
             published,
             hosts,
             ..Observed::default()
-        })
+        }))
     }
 
     /// Records the project's anonymous volumes ([`volumes::record`]): the `down` steps remove

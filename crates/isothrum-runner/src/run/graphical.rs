@@ -34,7 +34,7 @@ impl Running<'_> {
         runs_now(target, &observed)?;
         super::create_state_dir(&cx)?;
         self.driver.prepare(&cx)?;
-        if cx.relayed.is_none() {
+        if cx.relayed().is_none() {
             self.relay(&mut cx).await?;
         }
         let outputs = self.bind_observed(&mut cx, observed).values;

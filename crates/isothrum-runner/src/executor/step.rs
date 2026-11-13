@@ -318,7 +318,7 @@ pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String
 /// relays point the tools at loopback ports in place of the LAN host).
 pub(crate) fn with_delivered(cx: &Cx<'_>, id: &str, mut env: Vec<(String, String)>) -> Vec<(String, String)> {
     env.extend(step_env(cx, id));
-    env.extend(cx.relayed.iter().flat_map(|r| r.env.iter().cloned()));
+    env.extend(cx.relayed().into_iter().flat_map(|r| r.env.iter().cloned()));
     env
 }
 
