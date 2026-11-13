@@ -263,6 +263,11 @@ async fn needs_admin(provider: Provider, hypervisor: Option<bool>, runner: &dyn 
 
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so
 /// ask it something that does and see whether that times out.
+///
+/// A probe that times out is dropped, not awaited to its end: the process runner stops the hung
+/// `VBoxManage` in the background (`SystemProcesses`: asked, then killed 30 s later), so it may
+/// outlive this answer. An embedder that exits at once should await the runner's `stopped()`
+/// first, as after any operation cut short.
 async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
     let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"]);
     tokio::time::timeout(VBOX_PROBE, probe).await.is_err()

@@ -111,10 +111,12 @@ impl Drop for Recorded {
 }
 
 /// The locks this process holds as the owner of each folder's entries, with its token.
-/// Process-wide on purpose, where the runner keeps its other state per instance: an OS file lock
-/// belongs to the process, not to a `Runner`, so two runners in one process are one owner and
-/// must share one token per folder (a second token would read the first's entries as a dead
-/// process's). The map's lock is held while an owner file is made, a few local file operations.
+/// Process-wide on purpose, where the runner keeps its other state per instance: the token stands
+/// for the process, whose death is what its owner file's lock tells, so two runners in one
+/// process are one owner, with one token and one locked file per folder. The map's lock is held
+/// while an owner file is made, a few local file operations (the runner's exception for its state
+/// files): only tools of different runs ever wait for it, since a run's folder is used by the one
+/// operation holding the run.
 static OWNED: Mutex<BTreeMap<PathBuf, (String, File)>> = Mutex::new(BTreeMap::new());
 
 /// This process's token in `dir`: its `<token>.owner` made and locked the first time, held until
