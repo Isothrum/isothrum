@@ -88,7 +88,7 @@ async fn a_start_cut_short_at_any_point_leaves_a_settled_record_a_free_run_and_o
         let f = fixture_answering(WEB_PORTAL, each_call_yields);
         let run = f.runner.open(&f.manifest, None).unwrap();
         let events = Recorder::new();
-        let Some(done) = cut_after(polls, run.up(&opts(), &events)).await else {
+        let Some(done) = Box::pin(cut_after(polls, run.up(&opts(), &events))).await else {
             let k = kinds(&events);
             let ends = k.iter().filter(|e| matches!(e, EventKind::Result { .. } | EventKind::Error { .. })).count();
             assert_eq!(ends, 1, "cut after {polls} polls: {k:?}");
