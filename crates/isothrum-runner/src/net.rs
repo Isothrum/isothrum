@@ -2,6 +2,9 @@
 //! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's `FakePorts` answers
 //! from a test's setup.
 
+mod reservations;
+pub(crate) use reservations::PortReservations;
+
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, UdpSocket};
 use std::time::Duration;
 
