@@ -5,7 +5,7 @@
 mod actions;
 mod config;
 mod pins;
-mod ps;
+pub(crate) mod ps;
 mod pull;
 mod volumes;
 

@@ -111,6 +111,11 @@
 mod adopt;
 mod archive;
 mod checks;
+#[expect(
+    dead_code,
+    reason = "the per-format drivers (no-manifest N4-N6) are the adapters' callers; until they land, only tests call them"
+)]
+mod cli;
 mod clock;
 mod console;
 mod container;
