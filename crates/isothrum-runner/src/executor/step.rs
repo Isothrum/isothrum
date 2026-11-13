@@ -66,9 +66,9 @@ pub(crate) struct Ended {
     /// Whether its command printed anything on its standard output.
     pub(crate) printed: bool,
     /// Its verdict line, when the step's verdict found one.
-    lead: Option<String>,
+    verdict_line: Option<String>,
     /// The error lines held back (with [`Hold::UntilOutput`]), not shown yet.
-    held: Vec<String>,
+    held_errors: Vec<String>,
 }
 
 impl Ended {
@@ -78,7 +78,7 @@ impl Ended {
         if self.last.success() {
             return Ok(());
         }
-        let reason = cx.events.mask(&self.lead.unwrap_or_else(|| self.last.reason()));
+        let reason = cx.events.mask(&self.verdict_line.unwrap_or_else(|| self.last.reason()));
         let id = step.id.to_string();
         Err(if step.download {
             Error::DownloadFailed { step: id, reason }
@@ -89,7 +89,7 @@ impl Ended {
 
     /// Shows the lines held back, to `observe` too.
     pub(crate) fn show_held(&mut self, cx: &Cx<'_>, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) {
-        for line in std::mem::take(&mut self.held) {
+        for line in std::mem::take(&mut self.held_errors) {
             cx.events.log(step.id.as_str(), Stream::Stderr, &line);
             observe(&line);
         }
@@ -152,8 +152,8 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
             stderr: tail.into_lines(),
         },
         printed,
-        lead,
-        held: kept_back,
+        verdict_line: lead,
+        held_errors: kept_back,
     })
 }
 

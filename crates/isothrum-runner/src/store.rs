@@ -193,7 +193,7 @@ impl RunRecord {
 /// machines, and where their ports answer. Never an output's value, which may be secret. What a
 /// status shows while an operation holds the run, whose tools it then doesn't ask.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Seen {
+pub(crate) struct LastObserved {
     /// Every machine of the manifest, as read.
     pub(crate) machines: Vec<MachineStatus>,
     /// The host port each published machine port got: its machine, its port's name, the port.
@@ -261,18 +261,18 @@ impl Store {
         lock::held(&path).map_err(Error::io(&path, "read"))
     }
 
-    /// Run `name`'s [`Seen`] file (its folder not made).
+    /// Run `name`'s [`LastObserved`] file (its folder not made).
     fn seen_path(&self, name: &RunName) -> PathBuf {
         self.run_dir_path(name).join(SEEN_FILE)
     }
 
     /// What the runner last saw of run `name`, when it ever read it.
-    pub(crate) fn seen(&self, name: &RunName) -> Result<Option<Seen>> {
+    pub(crate) fn seen(&self, name: &RunName) -> Result<Option<LastObserved>> {
         read_json(&self.seen_path(name))
     }
 
     /// Keeps `seen` as what the runner last saw of run `name`, whole.
-    pub(crate) fn keep_seen(&self, name: &RunName, seen: &Seen) -> Result<()> {
+    pub(crate) fn keep_seen(&self, name: &RunName, seen: &LastObserved) -> Result<()> {
         self.run_dir(name)?;
         write_json(&self.seen_path(name), seen)
     }

@@ -43,10 +43,10 @@ const LAST_LINE_MAX: usize = 300;
 /// What a running step printed, as far as its time limit goes: when it last made progress, and
 /// its last line. Shared by the step's line handler and its timer.
 #[derive(Debug)]
-pub(crate) struct Progress(Mutex<Seen>);
+pub(crate) struct Progress(Mutex<ProgressSeen>);
 
 #[derive(Debug)]
-struct Seen {
+struct ProgressSeen {
     /// When it last made progress (its start, until it does).
     at: Instant,
     /// Hashes of its last distinct lines, oldest first.
@@ -58,7 +58,7 @@ struct Seen {
 impl Progress {
     /// A step starting now.
     pub(crate) fn new() -> Progress {
-        Progress(Mutex::new(Seen {
+        Progress(Mutex::new(ProgressSeen {
             at: Instant::now(),
             recent: VecDeque::with_capacity(RECENT),
             last: None,
@@ -91,7 +91,7 @@ impl Progress {
         capture_echoing(runner, spec, &mut |_, line| self.saw(line)).await
     }
 
-    fn seen(&self) -> std::sync::MutexGuard<'_, Seen> {
+    fn seen(&self) -> std::sync::MutexGuard<'_, ProgressSeen> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
