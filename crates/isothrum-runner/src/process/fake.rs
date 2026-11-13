@@ -91,10 +91,21 @@ impl std::fmt::Debug for FakeProcesses {
 }
 
 impl FakeProcesses {
-    /// Each call answered by `script`.
+    /// Each call answered by `script`. One answer is the fake's own: the engine probe (`docker
+    /// info --format {{.ServerVersion}}`), which a script answers with a success that prints
+    /// nothing (its catch-all), prints a version, as a running Docker does; the runner reads an
+    /// empty answer as a daemon down (Docker 26 and older exit 0 then), so a script that means a
+    /// down engine answers the probe itself, with a failure or an empty line (`"\n"`).
     pub fn new(script: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> FakeProcesses {
         FakeProcesses {
-            script: Box::new(script),
+            script: Box::new(move |call| {
+                let reply = script(call);
+                let silent_success = reply.code == 0 && !reply.missing && reply.stdout.is_empty();
+                if silent_success && call.program == "docker" && call.args.first().map(String::as_str) == Some("info") {
+                    return Reply::ok("29.0.0");
+                }
+                reply
+            }),
             calls: Mutex::new(Vec::new()),
         }
     }
