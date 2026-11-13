@@ -262,7 +262,7 @@ impl<'r> Running<'r> {
         Ok(self.runner.store.held(&self.name)?.then_some(recorded))
     }
 
-    /// The run as the runner last read it ([`crate::store::Seen`]); nothing before it ever did,
+    /// The run as the runner last read it ([`crate::store::LastObserved`]); nothing before it ever did,
     /// or when what it kept can't be read (traced).
     fn last_seen(&self) -> crate::driver::Observed {
         match self.runner.store.seen(&self.name) {
@@ -398,7 +398,7 @@ impl<'r> Running<'r> {
 
     /// The run as its engine reports it: the driver's machines, then, when the run's containers
     /// run inside one of its VMs (`docker-vm`'s guest), those containers as read in the VM.
-    /// What it read is kept as what the runner last saw of the run ([`crate::store::Seen`]).
+    /// What it read is kept as what the runner last saw of the run ([`crate::store::LastObserved`]).
     pub(crate) async fn observe(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
         let mut observed = self.driver.observe(cx).await?;
         if observed.busy.is_some() {

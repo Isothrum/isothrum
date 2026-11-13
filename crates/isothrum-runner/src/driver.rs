@@ -51,8 +51,8 @@ pub(crate) struct Observed {
 
 impl Observed {
     /// What of it the runner keeps as what it last saw: everything but the engine's outputs.
-    pub(crate) fn seen(&self) -> crate::store::Seen {
-        crate::store::Seen {
+    pub(crate) fn seen(&self) -> crate::store::LastObserved {
+        crate::store::LastObserved {
             machines: self.machines.clone(),
             published: self
                 .published
@@ -64,7 +64,7 @@ impl Observed {
     }
 
     /// What the runner last saw, as an observation with no engine output.
-    pub(crate) fn from_seen(seen: crate::store::Seen) -> Observed {
+    pub(crate) fn from_seen(seen: crate::store::LastObserved) -> Observed {
         Observed {
             machines: seen.machines,
             published: seen.published.into_iter().map(|(machine, port, host)| ((machine, port), host)).collect(),
