@@ -22,6 +22,7 @@ fake = []
 fuzzing = []
 
 [dependencies]
+indexmap = { workspace = true }
 flate2.workspace = true
 # The random token of an elevated session (`process/elevated.rs`).
 getrandom.workspace = true

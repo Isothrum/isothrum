@@ -1,19 +1,74 @@
 //! Reading `docker compose config --format json`, and writing the pinned-ports override.
 
+use indexmap::IndexMap;
 use isoloom_manifest::Protocol;
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::encoding::wire_name;
 use crate::error::Error;
 
+/// What this runner reads of `docker compose config --format json`: parsed once, at the boundary,
+/// into the fields it uses (Clean Code ch.8; the inventory of 2026-11-13: four readers walked
+/// the JSON by hand). Unknown fields are skipped.
+#[derive(Debug, Deserialize)]
+struct ComposeConfig {
+    /// In the config's order, as Compose prints them.
+    services: IndexMap<String, Service>,
+    #[serde(default)]
+    networks: IndexMap<String, Network>,
+}
+
+/// A service of the config: its published ports and whose network namespace it shares.
+#[derive(Debug, Default, Deserialize)]
+struct Service {
+    #[serde(default)]
+    ports: Vec<PortEntry>,
+    network_mode: Option<String>,
+}
+
+/// A published port as the config writes it (numbers, or strings holding them).
+#[derive(Debug, Deserialize)]
+struct PortEntry {
+    target: Option<PortNumber>,
+    protocol: Option<String>,
+    host_ip: Option<String>,
+    published: Option<PortNumber>,
+}
+
+/// A port number the config writes as a number or as a string.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PortNumber {
+    Number(u64),
+    Text(String),
+}
+
+impl PortNumber {
+    /// The port, when it is one.
+    fn as_u16(&self) -> Option<u16> {
+        let n = match self {
+            PortNumber::Number(n) => *n,
+            PortNumber::Text(s) => s.parse().ok()?,
+        };
+        u16::try_from(n).ok()
+    }
+}
+
+/// A network of the config: its Docker name, when the config gives one.
+#[derive(Debug, Deserialize)]
+struct Network {
+    name: Option<String>,
+}
+
 /// The config printed by `docker compose config --format json`, or why it isn't that JSON (not
 /// JSON at all, no `services` object): what it holds is then unknown, never empty.
-fn read(config: &str) -> Result<Value, String> {
+fn read(config: &str) -> Result<ComposeConfig, String> {
     let v: Value = serde_json::from_str(config).map_err(|e| format!("not JSON: {e}"))?;
     if !v.get("services").is_some_and(Value::is_object) {
         return Err("no `services` object".to_owned());
     }
-    Ok(v)
+    serde_json::from_value(v).map_err(|e| format!("not the config Compose prints: {e}"))
 }
 
 /// The failure of `step` whose config couldn't be read, `why` saying how ([`read`], [`ports`]):
@@ -41,34 +96,26 @@ pub(super) struct ConfigPort {
 /// prints, or a port has no readable target or protocol, which makes the whole config unreadable
 /// (no half override).
 pub(super) fn ports(config: &str) -> Result<Vec<ConfigPort>, String> {
-    let v = read(config)?;
+    let read = read(config)?;
     let mut out = Vec::new();
-    for (service, svc) in services(&v) {
-        for p in svc.get("ports").and_then(Value::as_array).into_iter().flatten() {
-            let said = p.get("protocol").and_then(Value::as_str).unwrap_or_default();
+    for (service, svc) in &read.services {
+        for p in &svc.ports {
+            let said = p.protocol.as_deref().unwrap_or_default();
             out.push(ConfigPort {
                 service: service.clone(),
-                target: number(p.get("target"))
+                target: p
+                    .target
+                    .as_ref()
+                    .and_then(PortNumber::as_u16)
                     .filter(|t| *t > 0)
                     .ok_or_else(|| format!("a port of `{service}` has no target"))?,
                 protocol: super::protocol(said).ok_or_else(|| format!("a port of `{service}` has the protocol `{said}`, neither tcp nor udp"))?,
-                host_ip: p.get("host_ip").and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_owned),
-                published: number(p.get("published")).filter(|n| *n > 0),
+                host_ip: p.host_ip.as_deref().filter(|i| !i.is_empty()).map(str::to_owned),
+                published: p.published.as_ref().and_then(PortNumber::as_u16).filter(|n| *n > 0),
             });
         }
     }
     Ok(out)
-}
-
-/// The services of a config [`read`] gave (it has the object).
-fn services(v: &Value) -> impl Iterator<Item = (&String, &Value)> {
-    v.get("services").and_then(Value::as_object).into_iter().flatten()
-}
-
-/// A port field: a number, or a string holding one.
-fn number(v: Option<&Value>) -> Option<u16> {
-    v.and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
-        .and_then(|n| u16::try_from(n).ok())
 }
 
 /// The host ports the config publishes, each with its protocol, or why the config can't be read
@@ -81,10 +128,12 @@ pub(super) fn host_ports(config: &str) -> Result<Vec<(u16, Protocol)>, String> {
 /// part of that machine (its routes, a sidecar), started and removed with it. In name order; or
 /// why the config isn't the JSON Compose prints ([`read`]): unknown, not none.
 pub(super) fn sharing_namespace(config: &str, service: &str) -> Result<Vec<String>, String> {
-    let v = read(config)?;
+    let read = read(config)?;
     let mode = format!("service:{service}");
-    let mut names: Vec<String> = services(&v)
-        .filter(|(_, s)| s.get("network_mode").and_then(Value::as_str) == Some(mode.as_str()))
+    let mut names: Vec<String> = read
+        .services
+        .iter()
+        .filter(|(_, s)| s.network_mode.as_deref() == Some(mode.as_str()))
         .map(|(name, _)| name.clone())
         .collect();
     names.sort();
@@ -94,10 +143,11 @@ pub(super) fn sharing_namespace(config: &str, service: &str) -> Result<Vec<Strin
 /// The networks the config defines, by their Docker names (`name:`, else `<project>_<key>`), or
 /// why the config can't be read ([`read`]): unknown, not none.
 pub(super) fn networks(config: &str, project: &str) -> Result<Vec<String>, String> {
-    let v = read(config)?;
-    let defined = v.get("networks").and_then(Value::as_object).into_iter().flatten();
-    Ok(defined
-        .map(|(k, n)| n.get("name").and_then(Value::as_str).map_or_else(|| format!("{project}_{k}"), str::to_owned))
+    let read = read(config)?;
+    Ok(read
+        .networks
+        .iter()
+        .map(|(k, n)| n.name.clone().unwrap_or_else(|| format!("{project}_{k}")))
         .collect())
 }
 

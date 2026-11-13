@@ -794,6 +794,7 @@ version = "2.1.7"
 dependencies = [
  "flate2",
  "getrandom",
+ "indexmap",
  "isoloom-manifest",
  "isoloom-targets",
  "nix",
