@@ -10,9 +10,8 @@
 use std::collections::BTreeSet;
 
 use isoloom_manifest::{Argv, GoneError, HostArgv, HostOs, Run, Step, Template};
-use serde_json::Value;
 
-use super::state::array;
+use super::state::{IndexKey, InstanceDoc, ResourceDoc, StateDoc};
 use crate::Result;
 use crate::events::WarningCode;
 use crate::executor::Cx;
@@ -29,17 +28,12 @@ pub(crate) struct Gone {
 /// Each managed instance of `state` whose type `errors` names, with that error filled with its
 /// attributes; an instance the error can't name (an attribute it lacks, or an empty one) is left
 /// out.
-pub(super) fn in_state(state: &Value, errors: &[GoneError]) -> Vec<Gone> {
+pub(super) fn in_state(state: &StateDoc, errors: &[GoneError]) -> Vec<Gone> {
     let mut out = Vec::new();
-    for resource in array(state, "resources") {
-        if resource.get("mode").and_then(Value::as_str) != Some("managed") {
-            continue;
-        }
-        let kind = resource.get("type").and_then(Value::as_str);
-        for error in errors.iter().filter(|e| Some(e.resource.as_str()) == kind) {
-            for instance in array(resource, "instances") {
-                let attributes = instance.get("attributes");
-                let text = error.error.fill(|name| attributes.and_then(|a| a.get(name)).and_then(super::state::scalar));
+    for resource in state.resources.iter().filter(|r| r.mode.as_deref() == Some("managed")) {
+        for error in errors.iter().filter(|e| Some(e.resource.as_str()) == resource.kind.as_deref()) {
+            for instance in &resource.instances {
+                let text = error.error.fill(|name| instance.attribute(name));
                 if let (Some(text), Some(address)) = (text, address(resource, instance)) {
                     out.push(Gone { address, text });
                 }
@@ -51,16 +45,15 @@ pub(super) fn in_state(state: &Value, errors: &[GoneError]) -> Vec<Gone> {
 
 /// An instance's address as Terraform writes it: its module's (`module.lab.`), its resource's
 /// `<type>.<name>`, then its key (`[0]`, `["web"]`); none for a key of another kind.
-fn address(resource: &Value, instance: &Value) -> Option<String> {
-    let field = |key| resource.get(key).and_then(Value::as_str);
-    let module = field("module").map(|m| format!("{m}.")).unwrap_or_default();
-    let key = match instance.get("index_key") {
-        None | Some(Value::Null) => String::new(),
-        Some(n @ Value::Number(_)) => format!("[{n}]"),
-        Some(s @ Value::String(_)) => format!("[{s}]"),
-        Some(_) => return None,
+fn address(resource: &ResourceDoc, instance: &InstanceDoc) -> Option<String> {
+    let module = resource.module.as_ref().map(|m| format!("{m}.")).unwrap_or_default();
+    let key = match &instance.index_key {
+        None => String::new(),
+        Some(IndexKey::Number(n)) => format!("[{n}]"),
+        Some(IndexKey::Text(s)) => format!("[{}]", serde_json::Value::String(s.clone())),
+        Some(IndexKey::Other(_)) => return None,
     };
-    Some(format!("{module}{}.{}{key}", field("type")?, field("name")?))
+    Some(format!("{module}{}.{}{key}", resource.kind.as_deref()?, resource.name.as_deref()?))
 }
 
 /// Drops from the state each of `held` (the instances it holds now) whose text is among `seen`,

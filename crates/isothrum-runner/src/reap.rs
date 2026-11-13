@@ -102,7 +102,7 @@ impl Runner {
         let mut out = BTreeSet::new();
         for record in self.store.records()?.into_iter().filter(|r| r.cloud == Some(cloud)) {
             let dir = self.store.run_dir(&record.name)?;
-            if let Some(state) = crate::driver::terraform::state::read_json(&dir)? {
+            if let Some(state) = crate::driver::terraform::state::read_doc(&dir)? {
                 tags::instances_in_state(&state, &mut out);
             }
         }

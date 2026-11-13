@@ -179,7 +179,7 @@ fn an_expiry_that_isnt_a_time_is_said_on_every_kind_of_tag() {
 
 #[test]
 fn a_state_names_its_environment_by_tag_or_by_word() {
-    let state: serde_json::Value = serde_json::from_str(
+    let state: crate::driver::terraform::state::StateDoc = serde_json::from_str(
         r#"{"resources":[{"instances":[{"attributes":{"tags":{"isoloom-instance":"isoloom-a-1"}}},{"attributes":{"tags":["isoloom","a","isoloom-b-2","isoloom-expires-1"]}},{"attributes":{"tags":["isoloom-not-ours"]}}]}]}"#,
     )
     .unwrap();
