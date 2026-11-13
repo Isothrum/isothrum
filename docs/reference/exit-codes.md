@@ -38,7 +38,7 @@ An operation that fails ends its event stream with an `error` event whose `code`
 | `not_ready` | A ready condition didn't hold. | Read the `ready` events: the service the condition waits for didn't come up. `status`, then `down` and `up` again. |
 | `secret_missing` | A required secret or input has no value. | Give the value: `--secret-from-env NAME[=VAR]`, with the variable set. |
 | `param_invalid` | A param is unknown, missing or holds a value it doesn't allow. | Fix the `--param NAME=VALUE` the message names (a value the manifest allows). |
-| `run_name` | A run name that can't name a run. | Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit. |
+| `run_name` | A run name that can't name a run. | Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…). |
 | `provider_refused` | The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or lacks its plugin. | Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed. |
 | `elevation_failed` | The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt declined or unanswered, the elevated session not started or ended before the operation (the message says which). | Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session. |
 | `machine_unknown` | A machine the run doesn't have. | Name a machine of the manifest. |

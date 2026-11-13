@@ -438,7 +438,9 @@ pub enum Error {
         reason: String,
     },
     /// A run name that can't name a run.
-    #[error("`{value}` can't name a run: use 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit")]
+    #[error(
+        "`{value}` can't name a run: use 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)"
+    )]
     RunName {
         /// The name as given.
         value: String,
