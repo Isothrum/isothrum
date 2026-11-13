@@ -63,7 +63,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
 pub(crate) fn remove(path: &Path) -> Result<()> {
     remove_path(path).map_err(Error::io(path, "removed"))
 }
-pub(crate) use lock::{FileLock, RunLocks, SlotsLock, held as lock_held, try_hold};
+pub(crate) use lock::{FileLock, RunLocks, SlotsLock, held as lock_held, hold, try_hold};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};

@@ -220,7 +220,11 @@ impl Drop for Elevated {
     }
 }
 
-/// A request in flight: dropped while armed (its future cut short), it ends the broker's tree.
+/// A request in flight: dropped while armed (its future cut short), it ends the broker's tree,
+/// and with it the session: every later call of the operation fails with
+/// [`ProcessError::Elevation`] rather than prompting again. The broker takes requests in order
+/// only, so it can't skip the one cut short; a second prompt mid-operation, unasked, is worse
+/// than an operation that stops.
 struct Cancel<'a> {
     dir: &'a Path,
     armed: bool,

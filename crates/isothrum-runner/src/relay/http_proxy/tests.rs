@@ -226,3 +226,26 @@ async fn a_client_that_closes_its_side_closes_it_at_the_origin() {
     let got = tokio::time::timeout(std::time::Duration::from_secs(5), seen).await;
     assert_eq!(got.expect("the origin saw the close").unwrap(), b"GET /wsman HTTP/1.1\r\nHost: x\r\n\r\n");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_connection_dropped_before_its_end_takes_its_pump_and_nc_with_it() {
+    // Regression: the pump was detached when its connection went other than by its end (a
+    // refused request, a failed write, the relay dropped), and held the client's connection and
+    // `nc` open for as long as the origin's side stayed open.
+    use tokio::io::AsyncReadExt as _;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+    let (accepted, _) = listener.accept().await.unwrap();
+    let (_read_half, write_half) = accepted.into_split();
+    // An origin that never answers nor closes, behind a stand-in for `nc`.
+    let (origin_side, ours) = tokio::io::duplex(64);
+    let (from_origin, to_origin) = tokio::io::split(ours);
+    let nc = tokio::process::Command::new("sleep").arg("3600").kill_on_drop(true).spawn().unwrap();
+    let upstream = Upstream::start("h:5985".into(), (Box::new(from_origin), Box::new(to_origin), nc), write_half);
+    drop(upstream);
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(std::time::Duration::from_secs(10), client.read(&mut buf)).await;
+    assert!(matches!(read, Ok(Ok(0))), "the client's connection is closed: {read:?}");
+    drop(origin_side);
+}

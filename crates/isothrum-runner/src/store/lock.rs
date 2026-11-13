@@ -4,11 +4,13 @@
 //! an OS lock on the home's `slots.lock`, held while a start picks its slot and records it, so
 //! two starts in one home (two processes, two runners) never take the same slot. And a host port
 //! reserved across processes: an OS lock on its file under the home's `ports/`, held without
-//! waiting by the start that reserved it ([`try_hold`]).
+//! waiting by the start that reserved it ([`try_hold`]). And one maker of the home's SSH key at a
+//! time ([`hold`] on its lock file, `crate::ssh`).
 //!
 //! The order, everywhere: the run's lock first, the home's slots lock second (a start holds the run
 //! while it waits for a slot, `run/up.rs`, `adopt.rs`), and the `std` mutexes (the runner's flight
-//! and reservations, an emitter's log, a watch's state) last and never across an `.await`. No
+//! and reservations, an emitter's log, a watch's state) last and never across an `.await`. The
+//! SSH key's lock is taken under the run's alone (or none), and let go before the slots' is. No
 //! path takes them in another order, so no circular wait (Clean Code appendix A).
 //!
 //! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
@@ -39,7 +41,9 @@ const RETRY: Duration = Duration::from_millis(50);
 /// write, so a lock held this long is held by a process that hangs.
 const SLOTS_WAIT: Duration = Duration::from_secs(30);
 
-/// The per-run locks of one runner.
+/// The per-run locks of one runner. An entry lives while an operation holds or waits for its run:
+/// the next acquire drops the ones nobody holds, so a long-lived runner touching many runs keeps
+/// only those in use.
 #[derive(Debug, Default)]
 pub(crate) struct RunLocks(Mutex<BTreeMap<RunName, Arc<tokio::sync::Mutex<()>>>>);
 
@@ -73,7 +77,14 @@ impl RunLocks {
     /// Holds `run`: waits for this runner's other operation on it, then takes the OS lock at
     /// `path`, failing with [`Error::Locked`] while another process holds it.
     pub(crate) async fn acquire(&self, run: &RunName, path: &Path) -> Result<RunLock> {
-        let mutex = Arc::clone(self.0.lock().unwrap_or_else(PoisonError::into_inner).entry(run.clone()).or_default());
+        let mutex = {
+            let mut runs = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            // Only the map holds an entry nobody holds or waits for: dropped, it is made afresh
+            // when its run is next acquired. Counted under the map's lock, which every clone is
+            // taken under, so no acquire can be cloning it meanwhile.
+            runs.retain(|_, held| Arc::strong_count(held) > 1);
+            Arc::clone(runs.entry(run.clone()).or_default())
+        };
         let here = mutex.lock_owned().await;
         let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
         match locked_within(&file, LOCK_WAIT).await {
@@ -161,6 +172,20 @@ pub(crate) fn try_hold(path: &Path) -> std::io::Result<Option<FileLock>> {
     Ok(None)
 }
 
+/// A lock file held for one short job on the home that two operations must not do at once (its
+/// SSH key made); released when dropped.
+#[derive(Debug)]
+pub(crate) struct HomeLock {
+    _file: Held,
+}
+
+/// Holds the OS lock on `path`, waiting up to `wait` while another handle holds it (another
+/// process, another runner, another operation of this one); `None` when it was held all along.
+pub(crate) async fn hold(path: &Path, wait: Duration) -> std::io::Result<Option<HomeLock>> {
+    let file = fs::lock_file(path)?;
+    Ok(locked_within(&file, wait).await?.then(|| HomeLock { _file: Held(file) }))
+}
+
 /// Locks `file`, trying again until `wait` has passed while another handle holds it: whether it
 /// was locked.
 async fn locked_within(file: &File, wait: Duration) -> std::io::Result<bool> {
@@ -245,6 +270,52 @@ mod tests {
         assert!(!waiting.is_finished(), "waits while the first holds the run");
         drop(first);
         waiting.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_runs_no_operation_holds_are_let_go() {
+        // Regression: the map kept an entry per run ever acquired, for the runner's lifetime.
+        let dir = tempfile::tempdir().unwrap();
+        let locks = RunLocks::default();
+        for name in ["one", "two", "three"] {
+            let name = RunName::new(name).unwrap();
+            drop(locks.acquire(&name, &dir.path().join(format!("{name}.lock"))).await.unwrap());
+        }
+        let held = locks.acquire(&run(), &dir.path().join("lock")).await.unwrap();
+        let kept: Vec<String> = locks.0.lock().unwrap().keys().map(ToString::to_string).collect();
+        assert_eq!(kept, ["demo"], "only the run held now");
+        drop(held);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn many_operations_on_a_few_runs_from_several_threads_hold_each_run_one_at_a_time() {
+        // More tasks than threads, on runs whose entries come and go: each run is held by one
+        // operation at a time, and every operation gets its turn.
+        let dir = tempfile::tempdir().unwrap();
+        let locks = Arc::new(RunLocks::default());
+        let inside: Arc<[std::sync::atomic::AtomicUsize; 3]> = Arc::default();
+        let mut ops = tokio::task::JoinSet::new();
+        for i in 0..64 {
+            let (locks, inside, dir) = (Arc::clone(&locks), Arc::clone(&inside), dir.path().to_path_buf());
+            ops.spawn(async move {
+                let which = i % 3;
+                let name = RunName::new(&format!("run-{which}")).unwrap();
+                let path = dir.join(format!("{name}.lock"));
+                // Another operation of this runner may hold the run past the OS lock's wait:
+                // waiting for this runner's own is unbounded, so it is never `locked`.
+                let held = locks.acquire(&name, &path).await.unwrap();
+                let now = inside[which].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(now, 0, "two operations held {name} at once");
+                tokio::time::sleep(Duration::from_millis(2)).await;
+                inside[which].fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                drop(held);
+            });
+        }
+        while let Some(done) = ops.join_next().await {
+            done.unwrap();
+        }
+        let left = locks.0.lock().unwrap().values().filter(|m| Arc::strong_count(m) > 1).count();
+        assert_eq!(left, 0, "nothing holds a run once every operation ended");
     }
 
     /// A copy of `held`'s handle, as a process spawned while it was held has until it execs.

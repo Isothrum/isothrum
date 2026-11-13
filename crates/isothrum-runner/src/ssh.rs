@@ -35,6 +35,9 @@ pub(crate) const KNOWN_HOSTS: &str = "known_hosts";
 /// How long making the key may take.
 const KEYGEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// The home's lock file held while its key is made ([`ensure_key`]).
+const KEY_LOCK: &str = "ssh-key.lock";
+
 /// The id a failure to make the key reads as.
 const KEY_STEP: &str = "ssh-key";
 
@@ -60,8 +63,24 @@ pub(crate) fn public_key(home: &Path) -> Result<Option<String>> {
 }
 
 /// Makes the runner's key when it has none (`ssh-keygen`, no passphrase), and returns its public
-/// half.
+/// half. One maker at a time per home, under [`KEY_LOCK`]: two operations making it at once (two
+/// runs started together, in one process or two) each wrote a key over the other's, and one of
+/// them handed its machines a public half whose private one was gone (or failed on
+/// `ssh-keygen`'s overwrite prompt).
 pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Result<String> {
+    if let Some(key) = public_key(home)? {
+        return Ok(key);
+    }
+    let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
+    let lock = home.join(KEY_LOCK);
+    let wait = KEYGEN_LIMIT * 2;
+    let Some(_making) = crate::store::hold(&lock, wait).await.map_err(Error::io(&lock, "locked"))? else {
+        return Err(failed(format!(
+            "another operation has been making the runner's SSH key for {} s",
+            wait.as_secs()
+        )));
+    };
+    // Made meanwhile by the one this waited for.
     if let Some(key) = public_key(home)? {
         return Ok(key);
     }
@@ -77,7 +96,6 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
     );
     let progress = crate::executor::Progress::new();
     let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, &progress, progress.capture(processes, &spec)).await?;
-    let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
     if !out.success() {
         return Err(failed(out.reason()));
     }
@@ -466,6 +484,53 @@ mod tests {
         assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
         assert!(fake.calls().is_empty(), "no ssh-keygen: {:?}", fake.lines());
         assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
+    }
+
+    /// `ssh-keygen` as it runs: a while to make the key, then the private half, then the public
+    /// one, each pair its own; over a key already there it fails on its overwrite prompt.
+    struct SlowKeygen {
+        home: std::path::PathBuf,
+        made: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ProcessRunner for SlowKeygen {
+        fn run<'a>(
+            &'a self,
+            _spec: &'a ProcessSpec,
+            _on_line: crate::process::OnLine<'a>,
+        ) -> crate::BoxFuture<'a, std::result::Result<crate::process::Exit, crate::process::ProcessError>> {
+            Box::pin(async move {
+                let key = key_path(&self.home);
+                if key.exists() {
+                    return Ok(crate::process::Exit::new(Some(1)));
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let n = self.made.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::fs::write(&key, format!("private {n}")).unwrap();
+                std::fs::write(key.with_extension("pub"), format!("ssh-ed25519 AAAA{n} isothrum\n")).unwrap();
+                Ok(crate::process::Exit::new(Some(0)))
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn two_operations_needing_the_key_at_once_make_one_and_both_get_it() {
+        // Regression: each saw no key and ran `ssh-keygen`; the second wrote its key over the
+        // first's, which had already handed its public half on.
+        let home = tempfile::tempdir().unwrap();
+        let keygen = SlowKeygen {
+            home: home.path().to_path_buf(),
+            made: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let (a, b) = tokio::join!(ensure_key(&keygen, home.path()), ensure_key(&keygen, home.path()));
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_eq!(keygen.made.load(std::sync::atomic::Ordering::SeqCst), 1, "one key made");
+        assert_eq!(a, b);
+        assert_eq!(
+            public_key(home.path()).unwrap().as_deref(),
+            Some(a.as_str()),
+            "the key handed on is the one kept"
+        );
     }
 
     #[test]
