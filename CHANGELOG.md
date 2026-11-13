@@ -17,6 +17,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Changed
 
+- **Three public fields say what they hold.** **Breaking, for embedders:** `Captured::stderr` is
+  `Captured::stderr_tail` (it holds the last standard error lines, filtered, not the whole
+  stream); `ProcessSpec::tools` is `ProcessSpec::ledger_dir` (the folder the tool is recorded in,
+  not a list of tools); `RunnerConfig::path` is `RunnerConfig::search_path` (the `PATH` search
+  list handed on, not a file path). Rename the field at each use; the values are the same.
 - **A file of the runner's own that doesn't parse is `corrupt`, not `io`.** A record, a ledger
   entry or a Terraform state that is there but isn't what the runner wrote (not JSON, another
   version's shape) fails with the new `corrupt` code and names the file; `io` stays the OS's

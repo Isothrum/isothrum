@@ -149,7 +149,7 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
         last: Captured {
             exit,
             stdout: last_out.into(),
-            stderr: tail.into_lines(),
+            stderr_tail: tail.into_lines(),
         },
         printed,
         verdict_line: lead,
@@ -289,7 +289,7 @@ pub(crate) fn spec_for(cx: &Cx<'_>, list: &str, step: &Step) -> Result<ProcessSp
         cwd: Some(step.cwd.as_ref().map_or_else(|| dir.to_path_buf(), |c| dir.join(c.as_str()))),
         env: env_of(cx, list, step)?,
         stdin: stdin_of(cx, list, step)?,
-        tools: None,
+        ledger_dir: None,
     };
     Ok(crate::container::wrap(cx, spec))
 }

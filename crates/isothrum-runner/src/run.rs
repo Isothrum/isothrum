@@ -342,7 +342,7 @@ impl<'r> Running<'r> {
     /// configured ([`RunnerConfig::host_env`](crate::RunnerConfig) and its `PATH`).
     pub(crate) fn elevated_env(&self) -> Vec<(String, String)> {
         let config = &self.runner.config;
-        config.host_env.for_elevation(config.path.as_deref())
+        config.host_env.for_elevation(config.search_path.as_deref())
     }
 
     /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet
@@ -366,7 +366,7 @@ impl<'r> Running<'r> {
             return Ok(());
         };
         let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));
-        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy).await;
+        let relayed = crate::relay::prepare(host, port, &config.home, config.search_path.as_deref(), no_proxy).await;
         cx.relayed = Some(relayed?);
         Ok(())
     }

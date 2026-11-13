@@ -246,10 +246,10 @@ async fn an_operations_tools_are_recorded_in_the_runs_state_and_a_reads_are_not(
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let tools = f.runner.store.run_dir_path(run.name()).join(crate::process::ledger::DIR);
     let calls = f.fake.calls();
-    assert!(!calls.is_empty() && calls.iter().all(|c| c.tools.as_ref() == Some(&tools)), "{calls:?}");
+    assert!(!calls.is_empty() && calls.iter().all(|c| c.ledger_dir.as_ref() == Some(&tools)), "{calls:?}");
     let before = f.fake.calls().len();
     run.status().await.unwrap();
-    assert!(f.fake.calls()[before..].iter().all(|c| c.tools.is_none()));
+    assert!(f.fake.calls()[before..].iter().all(|c| c.ledger_dir.is_none()));
 }
 
 /// Regression (tests/resilience.md A4): a start killed with its worker left its tools running (a
