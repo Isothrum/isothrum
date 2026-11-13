@@ -46,7 +46,19 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> ProcessSpec {
     let home = &cx.home();
     let mounts = mounts(&[run_root(cx.run.dir()), state, &crate::ssh::dir(home), &crate::driver::plugin_cache(cx.config())]);
     let network = HostNetwork::read(cx.host_env());
-    docker_run(image.as_str(), &mounts, &network, spec)
+    docker_run(image.as_str(), &container_name(), &mounts, &network, spec)
+}
+
+/// A name of its own for one tool's container (`isothrum-tool-<16 hex digits>`), so whoever ends
+/// the tool can remove its container by name.
+fn container_name() -> String {
+    let mut bytes = [0u8; 8];
+    if let Err(e) = getrandom::fill(&mut bytes) {
+        tracing::debug!(error = %e, "no random bytes for a container's name: the clock's are taken");
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        bytes = (now.as_secs() ^ u64::from(now.subsec_nanos()) ^ u64::from(std::process::id())).to_le_bytes();
+    }
+    format!("isothrum-tool-{:016x}", u64::from_le_bytes(bytes))
 }
 
 /// What a container needs of this host's network settings: the variables it gets by name, and
@@ -97,11 +109,11 @@ fn mounts(folders: &[&Path]) -> Vec<PathBuf> {
     all
 }
 
-/// `spec` as `docker run` of `image`: in its folder, with `mounts` at their own paths, its
-/// environment and the host's `network` settings by name (their files mounted read-only), its
-/// input piped.
-fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: ProcessSpec) -> ProcessSpec {
-    let mut args: Vec<String> = vec!["run".into(), "--rm".into(), "-i".into()];
+/// `spec` as `docker run` of `image`, its container named `container`: in its folder, with `mounts` at
+/// their own paths, its environment and the host's `network` settings by name (their files
+/// mounted read-only), its input piped.
+fn docker_run(image: &str, container: &str, mounts: &[PathBuf], network: &HostNetwork, spec: ProcessSpec) -> ProcessSpec {
+    let mut args: Vec<String> = vec!["run".into(), "--rm".into(), "-i".into(), "--name".into(), container.to_owned()];
     if let Some(cwd) = &spec.cwd {
         args.extend(["-w".into(), cwd.display().to_string()]);
     }
@@ -136,6 +148,7 @@ fn docker_run(image: &str, mounts: &[PathBuf], network: &HostNetwork, spec: Proc
         env,
         stdin: spec.stdin,
         ledger_dir: spec.ledger_dir,
+        container: Some(container.to_owned()),
     }
 }
 
@@ -173,17 +186,21 @@ mod tests {
         };
         let run = docker_run(
             "hashicorp/terraform:1.9.8@sha256:00",
+            "isothrum-tool-1",
             &[PathBuf::from("/l/x"), PathBuf::from("/h")],
             &HostNetwork::default(),
             spec,
         );
         assert_eq!(run.program, "docker");
+        assert_eq!(run.container.as_deref(), Some("isothrum-tool-1"), "whoever ends the tool removes its container");
         assert_eq!(
             run.args,
             [
                 "run",
                 "--rm",
                 "-i",
+                "--name",
+                "isothrum-tool-1",
                 "-w",
                 "/l/x/.isoloom/proxmox",
                 "-v",
@@ -229,7 +246,7 @@ mod tests {
 
         let mut spec = ProcessSpec::new("terraform", ["init"]);
         spec.env = vec![("HTTPS_PROXY".into(), "http://step:8080".into())];
-        let run = docker_run("terraform:1", &[], &network, spec);
+        let run = docker_run("terraform:1", "isothrum-tool-1", &[], &network, spec);
         let line = run.args.join(" ");
         assert!(
             line.contains(&format!("-v {0}:{0}:ro", bundle.display())) && line.contains(&format!("-v {0}:{0}:ro", cli_config.display())),

@@ -103,6 +103,7 @@ impl Vagrant {
             env,
             stdin: None,
             ledger_dir: None,
+            container: None,
         })
     }
 

@@ -44,6 +44,10 @@ pub struct ProcessSpec {
     /// Windows), so the next operation can end it if the process that started it is killed first
     /// (default: not recorded). An operation's tools are recorded in the run's state folder.
     pub ledger_dir: Option<PathBuf>,
+    /// The container the tool runs in, by name, when `program` is the Docker CLI running it
+    /// (`docker run --name`): removed (`docker rm -f`) wherever the tool is ended before its end,
+    /// since ending the `docker` client leaves its container running (default: none).
+    pub container: Option<String>,
 }
 
 impl ProcessSpec {

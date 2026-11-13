@@ -22,6 +22,15 @@ fn a_start_reads_back_and_is_its_process_within_the_second_the_os_rounds_to() {
 }
 
 #[test]
+fn an_entry_names_the_container_its_tool_runs_in() {
+    let start = Start::At(1_794_415_415);
+    let named = entry_text(4242, &start, Some("isothrum-tool-1"));
+    assert_eq!(parse_entry(&named), Some((4242, start.clone(), Some("isothrum-tool-1".to_owned()))));
+    assert_eq!(parse_entry(&entry_text(4242, &start, None)), Some((4242, start, None)));
+    assert_eq!(parse_entry("4242"), None);
+}
+
+#[test]
 fn the_oss_start_reads_from_proc_and_from_ps() {
     let stat = "4242 (sh) deploy (x)) S 1 4242 4242 0 -1 4194560 120 0 0 0 0 0 0 0 20 0 1 0 987654 2240512 210";
     assert_eq!(stat_ticks(stat), Some(987_654));
@@ -57,7 +66,7 @@ async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
     let (reaped, reaping) = std::sync::mpsc::channel();
     std::thread::spawn(move || reaped.send(orphan.wait().is_ok()));
     // This process's own tool: its owner (this process) holds its lock.
-    let mine = Recorded::write(&dir, owned.id()).unwrap();
+    let mine = Recorded::write(&dir, owned.id(), None).unwrap();
     // An id that names another process now: recorded as started at the epoch.
     let me = std::process::id();
     std::fs::write(dir.join(format!("dead-{me}.tool")), format!("{me} at:1\n")).unwrap();
@@ -96,10 +105,10 @@ fn a_folder_made_again_gets_its_owner_again() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(DIR);
     let pid = std::process::id();
-    let first = Recorded::write(&dir, pid).unwrap();
+    let first = Recorded::write(&dir, pid, None).unwrap();
     drop(first);
     std::fs::remove_dir_all(&dir).unwrap();
-    let again = Recorded::write(&dir, pid).expect("recorded in the folder made again");
+    let again = Recorded::write(&dir, pid, None).expect("recorded in the folder made again");
     let names: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()

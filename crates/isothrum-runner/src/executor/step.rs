@@ -286,6 +286,7 @@ pub(crate) fn spec_for(cx: &Cx<'_>, list: &str, step: &Step) -> Result<ProcessSp
         env: env_of(cx, list, step)?,
         stdin: stdin_of(cx, list, step)?,
         ledger_dir: None,
+        container: None,
     };
     Ok(crate::container::wrap(cx, spec))
 }
