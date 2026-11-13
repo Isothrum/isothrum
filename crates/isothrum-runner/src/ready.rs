@@ -7,7 +7,7 @@ mod file;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use isoloom_manifest::{Condition, ReadyGrammar, Role, Template};
+use isoloom_manifest::{Condition, Role, Template};
 
 use crate::Result;
 use crate::driver::Observed;
@@ -40,64 +40,47 @@ pub(crate) async fn check(cx: &mut Cx<'_>, ran: Option<&Ran>) -> Result<()> {
                 let port = cx.vars.render(port, "ready.tcp.port")?;
                 tcp(cx, &address, &port, Duration::from_secs(u64::from(timeout_s.get()))).await?;
             }
-            Condition::ReadyFile {
-                host,
-                user,
-                path,
-                log,
-                grammar,
-                via,
-                timeout_s,
-                unreachable_timeout_s,
-                interval_s,
-            } => {
-                let asked = ReadyFile {
-                    host,
-                    user,
-                    path,
-                    log: log.as_ref(),
-                    grammar: *grammar,
-                    via: via.as_ref(),
-                    timeout_s: *timeout_s,
-                    unreachable_timeout_s: *unreachable_timeout_s,
-                    interval_s: *interval_s,
-                };
-                file::wait(cx, &ready_file(cx, &asked)?).await?;
+            ready @ Condition::ReadyFile { .. } => {
+                file::wait(cx, &ready_file(cx, ready)?).await?;
             }
         }
     }
     Ok(())
 }
 
-/// A `ready_file` condition's fields, as the manifest gives them (every one: a field Isoloom adds
-/// fails to compile where the condition is read, until the runner reads it).
-struct ReadyFile<'m> {
-    host: &'m Template,
-    user: &'m Template,
-    path: &'m Template,
-    log: Option<&'m Template>,
-    grammar: ReadyGrammar,
-    via: Option<&'m Template>,
-    timeout_s: NonZeroU32,
-    unreachable_timeout_s: Option<NonZeroU32>,
-    interval_s: NonZeroU32,
-}
-
-/// The wait of a `ready_file` condition, its templates filled.
-fn ready_file(cx: &Cx<'_>, asked: &ReadyFile<'_>) -> Result<file::Wait> {
+/// The wait of a `ready_file` condition, its templates filled. The condition's every field is
+/// named here (no `..`): a field Isoloom adds fails to compile until the runner reads it.
+fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::Wait> {
+    let Condition::ReadyFile {
+        host,
+        user,
+        path,
+        log,
+        grammar,
+        via,
+        timeout_s,
+        unreachable_timeout_s,
+        interval_s,
+    } = condition
+    else {
+        return Err(Error::Malformed {
+            at: "ready".to_owned(),
+            reason: format!("not a ready_file condition: {condition:?}"),
+        });
+    };
     let render = |t: &Template, what: &str| cx.vars.render(t, &format!("ready.ready_file.{what}"));
-    let host = render(asked.host, "host")?;
-    let via = asked.via.map(|v| render(v, "via")).transpose()?.unwrap_or_default();
+    let host = render(host, "host")?;
+    let via = via.as_ref().map(|v| render(v, "via")).transpose()?.unwrap_or_default();
     let secs = |n: NonZeroU32| Duration::from_secs(u64::from(n.get()));
     Ok(file::Wait {
         condition: format!("ready_file {host}"),
-        login: crate::ssh::Login::new(&render(asked.user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
-        path: render(asked.path, "path")?,
-        log: asked.log.map(|l| render(l, "log")).transpose()?,
-        grammar: asked.grammar,
-        within: secs(asked.timeout_s),
-        unreachable: asked.unreachable_timeout_s.map(secs),
-        every: secs(asked.interval_s),
+        login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
+        path: render(path, "path")?,
+        log: log.as_ref().map(|l| render(l, "log")).transpose()?,
+        grammar: *grammar,
+        within: secs(*timeout_s),
+        unreachable: unreachable_timeout_s.map(secs),
+        every: secs(*interval_s),
     })
 }
 
