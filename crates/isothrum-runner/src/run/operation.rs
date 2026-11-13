@@ -51,7 +51,7 @@ impl Done<()> {
 
 impl Running<'_> {
     /// Runs `work`, the body of `op`, with the run locked and its events going to `events`. `work`
-    /// gets `opts` with the run's connection values ([`Running::connected`]); no event shows a
+    /// gets `opts` with the run's connection values ([`Running::with_connection_secrets`]); no event shows a
     /// sensitive value of the manifest or of those secrets.
     pub(crate) async fn operate<T>(
         &self,
@@ -61,7 +61,7 @@ impl Running<'_> {
         work: impl AsyncFnOnce(&RunOptions, &Emitter<'_>) -> Result<Done<T>>,
     ) -> Result<T> {
         let runner = self.runner;
-        let opts = self.connected(opts);
+        let opts = self.with_connection_secrets(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         let emitter = Emitter::new(self.name().as_str(), op, runner.config.clock.as_ref(), events).masking(mask);
         let emitter = match runner.store.event_log(self.name()) {
@@ -121,7 +121,7 @@ impl Running<'_> {
             emitter,
             armed: true,
         };
-        let done = work(opts, emitter).await.map_err(|e| self.refused_sign_in(e, opts));
+        let done = work(opts, emitter).await.map_err(|e| self.classify_server_refusal(e, opts));
         let code = done.as_ref().err().map(Error::code);
         let settled = unfinished.settle(code, done.as_ref().ok().and_then(|d| d.state), |e| {
             // The work's own failure is the operation's: the record's is said beside it.
@@ -140,7 +140,7 @@ impl Running<'_> {
     /// `e` as the server refusing the run's credentials when it is a step's failure in the
     /// server's words for one, on a run on a server ([`crate::server_auth`]), named by the
     /// operation's params, else the ones its record replays.
-    pub(crate) fn refused_sign_in(&self, e: Error, opts: &RunOptions) -> Error {
+    pub(crate) fn classify_server_refusal(&self, e: Error, opts: &RunOptions) -> Error {
         if e.code() != ErrorCode::ToolFailed {
             return e;
         }
@@ -225,7 +225,7 @@ impl Running<'_> {
     /// Records in `record` that the run now runs from this manifest: its file, which a later
     /// operation that has only the record (a sweep's `down`) reopens, and the boot digest of each
     /// VM, which the next update compares.
-    pub(crate) fn runs_from_this(&self, record: &mut RunRecord) {
+    pub(crate) fn point_record_at_this_manifest(&self, record: &mut RunRecord) {
         record.manifest = self.path().to_path_buf();
         record.vm_boot_digests = super::boot::digests(self.manifest());
     }

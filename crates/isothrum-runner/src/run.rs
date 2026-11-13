@@ -63,7 +63,7 @@ impl std::fmt::Debug for Running<'_> {
 
 /// Makes the run's state folder of `cx`, owner-only, for what an operation (or a status read)
 /// writes there; a query that writes nothing leaves no folder behind.
-fn made(cx: &Cx<'_>) -> Result<()> {
+fn create_state_dir(cx: &Cx<'_>) -> Result<()> {
     crate::store::create_dir(cx.state_dir())
 }
 
@@ -94,7 +94,7 @@ impl<'r> Running<'r> {
     }
 
     /// `opts` with the connection's values its secrets lack.
-    pub(crate) fn connected(&self, opts: &RunOptions) -> RunOptions {
+    pub(crate) fn with_connection_secrets(&self, opts: &RunOptions) -> RunOptions {
         let mut out = opts.clone();
         for (name, value) in self.connection.iter() {
             if out.secrets.get(name).is_none() {
@@ -182,7 +182,7 @@ impl<'r> Running<'r> {
         let (record, mut cx) = self.silent_cx(&events)?;
         let provider = cx.scope.provider;
         let read = self.read_for_query(&mut cx, record.as_ref()).await;
-        let (state, mut observed, live) = read.map_err(|e| self.refused_sign_in(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
+        let (state, mut observed, live) = read.map_err(|e| self.classify_server_refusal(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
         let mut machines = std::mem::take(&mut observed.machines);
         self.offer_consoles(&cx, &mut machines).await;
         let outputs = self.bind_observed(&mut cx, observed).values;
@@ -231,10 +231,10 @@ impl<'r> Running<'r> {
         cx: &mut Cx<'_>,
         record: Option<&crate::store::RunRecord>,
     ) -> Result<(crate::RunState, crate::driver::Observed, bool)> {
-        if let Some(state) = self.while_held(record)? {
+        if let Some(state) = self.state_while_held(record)? {
             return Ok((state, self.last_seen(), false));
         }
-        made(cx)?;
+        create_state_dir(cx)?;
         self.driver.prepare(cx)?;
         self.relay(cx).await?;
         let observed = self.observe(cx).await?;
@@ -242,7 +242,7 @@ impl<'r> Running<'r> {
             return Ok((status::derive_state(&observed.machines, record), observed, true));
         };
         let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
-        let state = self.while_held(record)?.unwrap_or(recorded);
+        let state = self.state_while_held(record)?.unwrap_or(recorded);
         let mut seen = self.last_seen();
         for m in seen.machines.iter_mut().filter(|m| busy.contains(&m.name)) {
             m.state = crate::MachineState::Busy;
@@ -254,7 +254,7 @@ impl<'r> Running<'r> {
     /// runner's operation on it (`starting` from the first instant of an `up`), else what its
     /// record says (another process's operation records its moving state once it begins acting;
     /// an update leaves the run `ready`).
-    fn while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {
+    fn state_while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {
         let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
         if let Some(op) = self.runner.op_of(&self.name) {
             return Ok(Some(op.during().unwrap_or(recorded)));
@@ -323,8 +323,8 @@ impl<'r> Running<'r> {
     /// `cx` for an operation that acts on the run (never a status read): on a provider whose
     /// management commands need elevation (Hyper-V on Windows), its tools run through one
     /// elevated session, kept in the run's state folder.
-    pub(crate) fn acting<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
-        made(&cx)?;
+    pub(crate) fn with_operation_processes<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
+        create_state_dir(&cx)?;
         // Its tools recorded in the run's state folder while they run: this process killed, the
         // next operation ends them ([`crate::process::ledger`]).
         let tools = cx.state_dir().join(crate::process::ledger::DIR);

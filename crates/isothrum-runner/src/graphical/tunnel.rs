@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Machine, Protocol};
 
-use super::{LOOPBACK, none};
+use super::{LOOPBACK, no_console};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
@@ -85,14 +85,14 @@ pub(super) async fn open(cx: &Cx<'_>, machine: &Machine, to: &To) -> Result<Tunn
         .runner
         .pick_unreserved(cx.run.name(), Protocol::Tcp)
         .map_err(Error::io("a tcp port on 127.0.0.1", "bound"))?
-        .ok_or_else(|| none(machine, "no free port on this computer's loopback for its tunnel"))?;
+        .ok_or_else(|| no_console(machine, "no free port on this computer's loopback for its tunnel"))?;
     let local = free.port;
     drop(free);
     let mut tunnel = started(machine, &spec(cx, to, local)?, SocketAddr::new(LOOPBACK, local))?;
     if !cx.ports().reachable(&LOOPBACK.to_string(), local, OPENING).await {
         let said = tunnel.why_closed().await;
         let because = said.map_or_else(String::new, |line| format!(": ssh said `{}`", cx.events.mask(&line)));
-        return Err(none(
+        return Err(no_console(
             machine,
             format!(
                 "its tunnel through {} didn't open (SSH refused or {}:{} doesn't answer){because}",
@@ -112,7 +112,7 @@ fn started(machine: &Machine, spec: &ProcessSpec, local: SocketAddr) -> Result<T
             step: STEP.to_owned(),
             tool: spec.program.clone(),
         },
-        _ => none(machine, format!("its tunnel's `{}` didn't start: {e}", spec.program)),
+        _ => no_console(machine, format!("its tunnel's `{}` didn't start: {e}", spec.program)),
     })
 }
 

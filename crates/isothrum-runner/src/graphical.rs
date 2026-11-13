@@ -125,7 +125,7 @@ impl Console {
 pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
 /// [`Error::NoConsole`] for `machine`, saying `why`.
-pub(crate) fn none(machine: &Machine, why: impl Into<String>) -> Error {
+pub(crate) fn no_console(machine: &Machine, why: impl Into<String>) -> Error {
     Error::NoConsole {
         machine: machine.name.to_string(),
         why: why.into(),
@@ -136,10 +136,10 @@ pub(crate) fn none(machine: &Machine, why: impl Into<String>) -> Error {
 /// says it has none (why, its note).
 pub(crate) fn offered(machine: &Machine, provider: Option<Provider>) -> Result<&isoloom_manifest::Console> {
     let Some(console) = machine.console(provider) else {
-        return Err(none(machine, "the run's manifest lists no graphical console for it"));
+        return Err(no_console(machine, "the run's manifest lists no graphical console for it"));
     };
     if console.protocol == ConsoleProtocol::None || console.source.is_none() {
-        return Err(none(machine, console.note.clone().unwrap_or_else(|| "it has none".to_owned())));
+        return Err(no_console(machine, console.note.clone().unwrap_or_else(|| "it has none".to_owned())));
     }
     Ok(console)
 }
@@ -150,7 +150,7 @@ pub(crate) fn on_loopback(machine: &Machine, at: SocketAddr) -> Result<Endpoint>
     if at.ip().is_loopback() {
         Ok(Endpoint::Loopback(at))
     } else {
-        Err(none(
+        Err(no_console(
             machine,
             format!("its console listens on {at}, not on this computer's loopback: the runner refuses it"),
         ))
@@ -168,7 +168,7 @@ async fn answering(cx: &Cx<'_>, machine: &Machine, at: SocketAddr) -> Result<End
     if ports.reachable(&at.ip().to_string(), at.port(), ANSWER_LIMIT).await {
         Ok(Endpoint::Loopback(at))
     } else {
-        Err(none(machine, format!("its screen didn't answer at {at}")))
+        Err(no_console(machine, format!("its screen didn't answer at {at}")))
     }
 }
 
@@ -178,7 +178,7 @@ async fn answering(cx: &Cx<'_>, machine: &Machine, at: SocketAddr) -> Result<End
 async fn local(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console) -> Option<Result<(SocketAddr, Option<SecretValue>)>> {
     let at = |endpoint: Result<Endpoint>| match endpoint {
         Ok(Endpoint::Loopback(at)) => Ok((at, None)),
-        Ok(Endpoint::ProxmoxVnc(_)) => Err(none(machine, "its hypervisor gives no port of this computer")),
+        Ok(Endpoint::ProxmoxVnc(_)) => Err(no_console(machine, "its hypervisor gives no port of this computer")),
         Err(e) => Err(e),
     };
     Some(match console.source.as_ref()? {
@@ -216,9 +216,9 @@ pub(crate) async fn reach(cx: &Cx<'_>, machine: &Machine, console: &isoloom_mani
         return with_account(cx, machine, console, outputs, c);
     }
     let reached = match console.source.as_ref() {
-        None => return Err(none(machine, "it has none")),
+        None => return Err(no_console(machine, "it has none")),
         Some(ConsoleSource::Libvirt {} | ConsoleSource::QemuMonitor {} | ConsoleSource::Vrde {} | ConsoleSource::Runner {}) => {
-            return Err(none(machine, "its hypervisor didn't say where it is"));
+            return Err(no_console(machine, "its hypervisor didn't say where it is"));
         }
         Some(ConsoleSource::ProxmoxApi { .. }) => {
             let vnc = proxmox::vnc(cx, machine, console).await?;

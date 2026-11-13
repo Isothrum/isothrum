@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Identity, Machine, Native, Provider};
 
-use super::{Endpoint, none, on_loopback};
+use super::{Endpoint, no_console, on_loopback};
 use crate::Result;
 use crate::executor::{Cx, Echo, call};
 use crate::host_env::{HostEnv, LIBVIRT_DEFAULT_URI};
@@ -28,8 +28,8 @@ pub(super) fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
         Some(Native::Vagrant { vm_names, .. }) => vm_names
             .get(&provider)
             .map(String::as_str)
-            .ok_or_else(|| none(machine, format!("the manifest names no {} VM for it", provider.id()))),
-        _ => Err(none(machine, "it isn't a Vagrant VM")),
+            .ok_or_else(|| no_console(machine, format!("the manifest names no {} VM for it", provider.id()))),
+        _ => Err(no_console(machine, "it isn't a Vagrant VM")),
     }
 }
 
@@ -41,12 +41,12 @@ pub(super) async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> 
     let spec = virsh_domdisplay(cx.host_env(), domain);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
-        return Err(none(machine, format!("libvirt didn't say where its display is: {}", out.reason())));
+        return Err(no_console(machine, format!("libvirt didn't say where its display is: {}", out.reason())));
     }
     let said = out.stdout.join("\n");
     match vnc_display(&said) {
         Some(at) => on_loopback(machine, at),
-        None => Err(none(
+        None => Err(no_console(
             machine,
             format!("libvirt gives it no VNC display (`virsh domdisplay` said `{}`)", said.trim()),
         )),
@@ -102,7 +102,7 @@ pub(super) fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
 pub(super) fn define(machine: &Machine) -> Result<&str> {
     match &machine.native {
         Some(Native::Vagrant { vagrant, .. }) => Ok(vagrant.as_str()),
-        _ => Err(none(machine, "it isn't a Vagrant VM")),
+        _ => Err(no_console(machine, "it isn't a Vagrant VM")),
     }
 }
 
@@ -113,13 +113,13 @@ fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
     let data = dotfile(cx)?.join("machines").join(define(machine)?).join("qemu");
     let id = read_if_there(&data.join("id"))?.map(|s| s.trim().to_owned()).unwrap_or_default();
     if id.is_empty() {
-        return Err(none(machine, "Vagrant records no QEMU VM for it: it isn't up"));
+        return Err(no_console(machine, "Vagrant records no QEMU VM for it: it isn't up"));
     }
     let options = read_if_there(&data.join(&id).join("run").join("options.yml"))?;
     if let Some(recorded) = options.as_deref().and_then(recorded_socket) {
         return Ok(recorded);
     }
-    let home = vagrant_home(cx.host_env()).ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
+    let home = vagrant_home(cx.host_env()).ok_or_else(|| no_console(machine, "no Vagrant home to find its QEMU monitor in"))?;
     Ok(home.join("tmp").join("vagrant-qemu").join(id).join("qemu_socket"))
 }
 
@@ -148,10 +148,10 @@ pub(super) async fn qemu(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     let socket = monitor_socket(cx, machine)?;
     let said = ask_monitor(&socket, "info vnc")
         .await
-        .map_err(|e| none(machine, format!("its QEMU monitor didn't answer ({}): {e}", socket.display())))?;
+        .map_err(|e| no_console(machine, format!("its QEMU monitor didn't answer ({}): {e}", socket.display())))?;
     match vnc_server(&said) {
         Some(at) => on_loopback(machine, at),
-        None => Err(none(
+        None => Err(no_console(
             machine,
             "its VM was started without a screen (its QEMU has no VNC display): restart it to get one",
         )),
@@ -163,7 +163,10 @@ pub(super) async fn qemu(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
 #[cfg(not(unix))]
 pub(super) fn qemu(cx: &Cx<'_>, machine: &Machine) -> std::future::Ready<Result<Endpoint>> {
     let _ = (monitor_socket, cx);
-    std::future::ready(Err(none(machine, "vagrant-qemu's monitor is a Unix socket, which this host doesn't have")))
+    std::future::ready(Err(no_console(
+        machine,
+        "vagrant-qemu's monitor is a Unix socket, which this host doesn't have",
+    )))
 }
 
 /// What QEMU's human monitor at `socket` answers `command`: its text up to the next prompt.
@@ -216,15 +219,18 @@ pub(super) async fn vrde(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     let spec = ProcessSpec::new("VBoxManage", ["showvminfo", name, "--machinereadable"]);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
-        return Err(none(machine, format!("VirtualBox didn't say how its VM is: {}", out.reason())));
+        return Err(no_console(machine, format!("VirtualBox didn't say how its VM is: {}", out.reason())));
     }
     match remote_display(&out.stdout) {
-        Vrde::Off => Err(none(
+        Vrde::Off => Err(no_console(
             machine,
             "VirtualBox's remote display is off: it needs the Oracle VM VirtualBox Extension Pack, installed before the VM boots (then restart the VM)",
         )),
-        Vrde::NotListening => Err(none(machine, "VirtualBox's remote display isn't listening: the VM isn't running")),
-        Vrde::Unreadable(address) => Err(none(machine, format!("VirtualBox's remote display address `{address}` isn't an IP address"))),
+        Vrde::NotListening => Err(no_console(machine, "VirtualBox's remote display isn't listening: the VM isn't running")),
+        Vrde::Unreadable(address) => Err(no_console(
+            machine,
+            format!("VirtualBox's remote display address `{address}` isn't an IP address"),
+        )),
         Vrde::At(at) => on_loopback(machine, at),
     }
 }

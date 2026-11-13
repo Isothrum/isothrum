@@ -183,7 +183,7 @@ impl Running<'_> {
         // An adopted run ([`crate::Runner::adopt`]), or one acted on from another home, may
         // name a key this runner hasn't made yet.
         self.ensure_ssh_key().await?;
-        let mut cx = self.acting(self.cx(params, &opts.secrets, events, provider)?)?;
+        let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, provider)?)?;
         Self::bind_record(&mut cx, &record);
         self.driver.prepare(&cx)?;
         crate::graphical::chosen::ensure(&cx)?;
