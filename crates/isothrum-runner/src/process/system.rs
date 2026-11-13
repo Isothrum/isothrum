@@ -112,7 +112,7 @@ impl SystemProcesses {
         let mut cmd = self.command(spec).map_err(io)?;
         // Windows: recorded until it is in its job, which `spawn` returns with.
         let creating = if cfg!(windows) {
-            spec.tools.as_deref().and_then(|dir| ledger::Spawning::write(dir, wrapped(spec).0))
+            spec.ledger_dir.as_deref().and_then(|dir| ledger::Spawning::write(dir, wrapped(spec).0))
         } else {
             None
         };

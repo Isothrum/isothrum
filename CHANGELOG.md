@@ -31,6 +31,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **On Windows, a tool being created as the runner's process is killed is ended by the next
+  operation.** A tool is created suspended, put in its job object, then resumed; a process killed
+  in between left it suspended in no job, never run and never ended. Its creation is now recorded
+  in the run's tools ledger until it is in its job, and the next operation, finding its creator
+  dead, ends it.
 - **A run rebuilt at the same addresses no longer meets its old machines' SSH host keys.** The
   leftovers an `up` clears and a recovery's steps removed the machines but kept their pinned host
   keys, so every SSH connection to the machines made again failed; every way a run's machines go
