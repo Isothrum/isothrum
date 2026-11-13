@@ -184,20 +184,7 @@ impl<'r> Running<'r> {
         let read = self.read_for_query(&mut cx, record.as_ref()).await;
         let (state, mut observed, live) = read.map_err(|e| self.refused_sign_in(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
         let mut machines = std::mem::take(&mut observed.machines);
-        let known = cx.scope.provider;
-        for m in &mut machines {
-            let Some(declared) = self.manifest().machines.iter().find(|x| x.name.as_str() == m.name) else {
-                continue;
-            };
-            m.console = crate::graphical::ConsoleOffer::of(declared, known);
-            // A running machine's console is offered as it stands now: there, and answering.
-            if m.state.runs()
-                && let Some(offer) = m.console.as_mut()
-                && let Some(console) = declared.console(known).filter(|c| c.source.is_some())
-            {
-                offer.unavailable = crate::graphical::unavailable(&cx, declared, console).await;
-            }
-        }
+        self.offer_consoles(&cx, &mut machines).await;
         let outputs = self.bind_observed(&mut cx, observed).values;
         let message = (state == crate::RunState::Ready)
             .then(|| outputs::message(self.manifest(), &cx.vars, &outputs))
@@ -212,6 +199,25 @@ impl<'r> Running<'r> {
             message,
             native: crate::graphical::native::app(self.manifest(), provider, cx.scope.host),
         })
+    }
+
+    /// Each machine's console offer, as it stands now: what its declaration offers on this
+    /// provider, and for a running machine whether the console is there and answering. Its own
+    /// step of a status read (Clean Code ch.3, one level of abstraction; 2026-11-13).
+    async fn offer_consoles(&self, cx: &Cx<'_>, machines: &mut [crate::MachineStatus]) {
+        let known = cx.scope.provider;
+        for m in machines {
+            let Some(declared) = self.manifest().machines.iter().find(|x| x.name.as_str() == m.name) else {
+                continue;
+            };
+            m.console = crate::graphical::ConsoleOffer::of(declared, known);
+            if m.state.runs()
+                && let Some(offer) = m.console.as_mut()
+                && let Some(console) = declared.console(known).filter(|c| c.source.is_some())
+            {
+                offer.unavailable = crate::graphical::unavailable(cx, declared, console).await;
+            }
+        }
     }
 
     /// Where the run stands, its machines and whether they were read now, for a query (`cx`, a
