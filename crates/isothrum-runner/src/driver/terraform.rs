@@ -158,29 +158,9 @@ impl Driver for Terraform {
         Ok(seen)
     }
 
-    /// Nothing: a module's resources are the state's, which its destroy reads.
-    fn before_down(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
-    /// Nothing: a module's resources are the state's.
-    fn before_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
-    /// Nothing: a module's resources are the state's.
-    fn after_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         let state_dir = cx.state_dir();
         std::future::ready(FORGOTTEN.iter().try_for_each(|f| remove(&state_dir.join(f))))
-    }
-
-    /// Nothing: a module's machine carries no boot digest; the update's apply changes it.
-    fn restart(&self, _cx: &Cx<'_>, _machine: &Machine, _id: &str) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
     }
 
     /// Refused: the module makes every machine it has at `up`, none is brought up later.

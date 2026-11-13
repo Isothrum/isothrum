@@ -225,21 +225,6 @@ impl Driver for Vagrant {
         Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
     }
 
-    /// Nothing: a VM's volumes are its own, and go with it.
-    fn before_down(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
-    /// Nothing: a VM's volumes are its own.
-    fn before_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
-    /// Nothing: a VM's volumes are its own.
-    fn after_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
-        std::future::ready(Ok(()))
-    }
-
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder; the
         // consoles the runner chose go with the run.
