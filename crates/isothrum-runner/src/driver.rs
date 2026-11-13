@@ -430,7 +430,6 @@ const LOOPBACK: &str = "127.0.0.1";
 ///
 /// As [`crate::vars::Vars::render`]: an address naming a value the run doesn't have.
 pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
-    let at = cx.manifest().machines.iter().position(|m| m.name == machine.name).unwrap_or_default();
     let address = machine
         .ports
         .iter()
@@ -439,7 +438,12 @@ pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
     let Some((j, address)) = address else {
         return Ok(LOOPBACK.to_owned());
     };
-    let address = cx.vars.render(address, &format!("machines[{at}].ports[{j}].publish.address"))?;
+    // The machine is the manifest's; one that isn't is named, not given another's index.
+    let at = match cx.manifest().machines.iter().position(|m| m.name == machine.name) {
+        Some(i) => format!("machines[{i}]"),
+        None => format!("machine `{}`", machine.name),
+    };
+    let address = cx.vars.render(address, &format!("{at}.ports[{j}].publish.address"))?;
     let bound = address.trim();
     let every_interface = crate::relay::bare_host(bound).parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_unspecified());
     Ok(if bound.is_empty() || every_interface {

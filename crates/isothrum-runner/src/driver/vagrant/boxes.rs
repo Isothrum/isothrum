@@ -148,6 +148,7 @@ pub(in crate::driver) async fn before_step(vagrant: &Vagrant, cx: &Cx<'_>, list:
     let list_spec = vagrant.vagrant(cx, &id, &["box", "list", "--machine-readable"])?;
     let there = call(cx, &id, &list_spec, READ_LIMIT, Echo::Quiet)
         .await
+        .inspect_err(|e| tracing::warn!(error = %e, "`vagrant box list` couldn't run: every box is added"))
         .ok()
         .filter(crate::process::Captured::success)
         .map(|out| listed(&out.stdout.join("\n")))

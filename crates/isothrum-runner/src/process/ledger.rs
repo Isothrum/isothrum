@@ -150,7 +150,14 @@ fn lock_if_owner_gone(path: &Path) -> Option<File> {
 /// Ends each tool a dead process recorded in `dir` and removes its entries; the ids it ended.
 pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
     let mut ended = Vec::new();
-    let Ok(read) = std::fs::read_dir(dir) else { return ended };
+    let read = match std::fs::read_dir(dir) {
+        Ok(read) => read,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ended,
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %dir.display(), "the tools' ledger couldn't be read: no orphan is ended");
+            return ended;
+        }
+    };
     let names: Vec<String> = read.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
     for token in names.iter().filter_map(|n| n.strip_suffix(".owner")) {
         let owner = dir.join(format!("{token}.owner"));
