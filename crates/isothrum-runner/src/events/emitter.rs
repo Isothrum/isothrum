@@ -296,4 +296,36 @@ mod tests {
         let lines: Vec<Event> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(lines, sink.events());
     }
+
+    #[test]
+    fn events_emitted_from_several_threads_at_once_reach_the_log_in_their_order() {
+        // More threads than an operation ever has, each emitting at once, again and again: the
+        // log's numbers rise line by line, none missing, none twice.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let clock = FixedClock(UNIX_EPOCH);
+        let sink = Recorder::new();
+        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(File::create(&path).unwrap());
+        let (threads, each) = (8, 250);
+        let start = std::sync::Barrier::new(threads);
+        std::thread::scope(|s| {
+            for t in 0..threads {
+                let (e, start) = (&e, &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..each {
+                        e.log("up", Stream::Stdout, &format!("thread {t} line {i}"));
+                    }
+                });
+            }
+        });
+        drop(e);
+        let seqs: Vec<u64> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str::<Event>(l).unwrap().seq)
+            .collect();
+        let expected: Vec<u64> = (1..=u64::try_from(threads * each).unwrap()).collect();
+        assert_eq!(seqs, expected);
+    }
 }
