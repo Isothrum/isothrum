@@ -117,7 +117,7 @@ fn forwarded(cx: &Cx<'_>, driver: &AnyDriver, inside: &mut [MachineStatus], publ
     for m in &cx.manifest().machines {
         for p in &m.ports {
             let Some(host_port) = driver.forwarded_port(cx, m, p) else { continue };
-            if let Some(at) = published.get_mut(&(m.name.to_string(), p.name.to_string())) {
+            if let Some(at) = published.get_mut(&PortKey::new(&m.name, &p.name)) {
                 *at = host_port;
             }
             let ports = inside.iter_mut().filter(|s| s.name == m.name.as_str()).flat_map(|s| s.published.iter_mut());
