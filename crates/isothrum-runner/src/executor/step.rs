@@ -146,11 +146,7 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
     }
     .map_err(|e| masked(cx, e))?;
     Ok(Ended {
-        last: Captured {
-            exit,
-            stdout: last_out.into(),
-            stderr: tail.into_lines(),
-        },
+        last: Captured::new(&spec.program, exit, last_out.into(), tail.into_lines()),
         printed,
         verdict_line: lead,
         held_errors: kept_back,

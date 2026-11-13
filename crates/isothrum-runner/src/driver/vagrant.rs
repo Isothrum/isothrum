@@ -11,7 +11,6 @@ mod boxes;
 pub(super) mod forwarded;
 mod lock;
 mod orphans;
-mod status;
 
 pub(in crate::driver) use boxes::before_step as boxes_before_step;
 pub(super) use lock::run_step;
@@ -31,6 +30,7 @@ use crate::executor::{Cx, Echo, call_ok, with_delivered};
 use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::status::{MachineStatus, PublishedPort};
+use crate::tool_output::vagrant as status;
 
 /// The variable Vagrant reads its state folder from.
 const DOTFILE_VAR: &str = "VAGRANT_DOTFILE_PATH";
@@ -151,7 +151,7 @@ impl Vagrant {
     async fn plugins(&self, cx: &Cx<'_>) -> Result<Vec<String>> {
         let spec = self.vagrant(cx, PLUGINS, &["plugin", "list", "--machine-readable"])?;
         let out = call_ok(cx, PLUGINS, &spec, READ_LIMIT, Echo::Quiet).await?;
-        Ok(crate::vagrant_plugins(&out).into_iter().map(|(name, _)| name).collect())
+        Ok(status::plugins(&out).into_iter().map(|(name, _)| name).collect())
     }
 }
 

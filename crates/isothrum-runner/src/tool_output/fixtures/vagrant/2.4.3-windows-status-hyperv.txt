@@ -1,0 +1,4 @@
+1794305819,dc01,metadata,provider,hyperv
+1794305819,dc01,provider-name,hyperv
+1794305819,dc01,state,off
+1794305819,ws01,state,not_created

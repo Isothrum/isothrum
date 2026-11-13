@@ -1,0 +1,1 @@
+{"web-portal_lab":{"EndpointID":"","Gateway":"10.30.0.1","IPAddress":"10.30.0.99","IPPrefixLen":24,"IPv6Gateway":"","GlobalIPv6Address":"","GlobalIPv6PrefixLen":0,"MacAddress":"5e:2b:9c:41:0d:7a","NetworkID":"web-portal_lab","DriverOpts":null,"IPAMConfig":null,"Links":null,"Aliases":["c0ffee","user"]}}

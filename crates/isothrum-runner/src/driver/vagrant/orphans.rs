@@ -16,6 +16,7 @@ use crate::events::WarningCode;
 use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
 use crate::store::if_there;
+use crate::tool_output::vboxmanage::{machine_folder, vms as parse_vms};
 
 /// Removes the run's orphaned VMs on its provider.
 pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
@@ -131,27 +132,6 @@ async fn parallels(cx: &Cx<'_>, step: &Step) -> Result<()> {
     Ok(())
 }
 
-/// `(name, uuid)` of each VM `VBoxManage list vms` prints (`"<name>" {<uuid>}` per line).
-pub(super) fn parse_vms(out: &str) -> Vec<(String, String)> {
-    out.lines()
-        .filter_map(|line| {
-            let line = line.trim_end_matches('\r');
-            let (head, tail) = line.rsplit_once('{')?;
-            let uuid = tail.strip_suffix('}')?;
-            Some((head.trim().trim_matches('"').to_owned(), uuid.to_owned()))
-        })
-        .collect()
-}
-
-/// The `Default machine folder:` of `VBoxManage list systemproperties`.
-pub(super) fn machine_folder(out: &str) -> Option<PathBuf> {
-    out.lines()
-        .find_map(|l| l.trim_end_matches('\r').strip_prefix("Default machine folder:"))
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-}
-
 /// The folder names VirtualBox gives a VM named `name`: as it is, and with the middot made a
 /// dash (`run · dc01` is in `run - dc01`). Exact forms only.
 pub(super) fn folder_candidates(name: &str) -> [String; 2] {
@@ -184,28 +164,6 @@ pub(super) fn leftover_folders(base: &Path, wanted: &BTreeSet<String>) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn virtualbox_listings_keep_braces_and_unicode_inside_a_name() {
-        let out = "\"run · {odd} name\" {1111-aaaa}\r\n\"日本語 · dc01\" {2222}\ngarbage\n\"<inaccessible>\" {3333}\n";
-        assert_eq!(
-            parse_vms(out),
-            [
-                ("run · {odd} name".to_owned(), "1111-aaaa".to_owned()),
-                ("日本語 · dc01".to_owned(), "2222".to_owned()),
-                ("<inaccessible>".to_owned(), "3333".to_owned())
-            ]
-        );
-    }
-
-    #[test]
-    fn reads_virtualboxs_machine_folder() {
-        let out = "API version: 7_0\nDefault machine folder:          /Users/a/VirtualBox VMs\nVRDE auth library: x\n";
-        assert_eq!(machine_folder(out), Some(PathBuf::from("/Users/a/VirtualBox VMs")));
-        assert_eq!(machine_folder("Default machine folder:  D:\\VMs\r\n"), Some(PathBuf::from("D:\\VMs")));
-        assert_eq!(machine_folder("Default machine folder:   \n"), None);
-        assert_eq!(machine_folder(""), None);
-    }
 
     #[test]
     fn folder_candidates_cover_virtualbox_sanitization_exactly() {

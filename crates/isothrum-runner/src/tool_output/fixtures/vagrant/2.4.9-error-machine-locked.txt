@@ -1,0 +1,2 @@
+1794342958,,ui,error,Vagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant process is currently reading or modifying\nthe machine.\n\nName: probe\nProvider: libvirt
+1794342958,,error-exit,Vagrant::Errors::MachineLocked,Vagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant process is currently reading or modifying\nthe machine.\n\nName: probe\nProvider: libvirt

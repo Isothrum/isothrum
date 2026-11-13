@@ -1,7 +1,47 @@
-//! What the host's tools say of themselves, read in one place for the runner and the
-//! machine-setup backend (`isothrum-machine`): the version a tool prints, in Isoloom's order, the
-//! plugins `vagrant plugin list --machine-readable` lists, and the error a
-//! machine-readable Vagrant call failed with.
+//! What the tools the runner runs print, read in one place per tool, so no driver matches a
+//! tool's words where it acts on them: each reader returns a typed value (an enum with an
+//! explicit `Other` or `Unknown`, an `Option` or a `Result` that says why it couldn't read), and
+//! each wording it knows is backed by a fixture of the text as a named version of the tool prints
+//! it (`tool_output/fixtures/<tool>/<version>-<case>`): a release that rewords a line then fails
+//! one test, not a run. The tools are spawned with their messages in the C locale
+//! (`process::locale`), so what they say is in the words these readers know.
+//!
+//! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, the `error-exit`
+//!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
+//! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
+//! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.
+//! - [`docker`]: the networks `docker inspect` says a container is on.
+//! - [`download`]: a failed download's network error that passes, as Docker, Vagrant and curl
+//!   print it. [`sign_in`]: a server refusing the run's sign-in, in each server tool's words.
+//! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
+//!
+//! Tools whose whole answer is a document are read beside their driver, each in one module of
+//! its own: Compose's `ps` and `config` (`driver::compose::{ps, config}`), Terraform's state
+//! (`driver::terraform::state`), the clouds' CLIs (`reap::tags`) and Proxmox's API
+//! (`graphical::proxmox::answer`).
+
+pub(crate) mod docker;
+pub(crate) mod download;
+pub(crate) mod qemu;
+pub(crate) mod ruby;
+pub(crate) mod sign_in;
+pub(crate) mod vagrant;
+pub(crate) mod vboxmanage;
+pub(crate) mod virsh;
+
+pub use vagrant::plugins as vagrant_plugins;
+
+/// The failure `program` printed as a record of its own among its standard output (`stdout`),
+/// for the tools that print one: Vagrant's `error-exit` (with `--machine-readable`, Vagrant prints
+/// its error there, and nothing of it on standard error). What a failed tool's reason leads with
+/// ([`Captured::reason`](crate::Captured::reason)).
+pub(crate) fn failure_record(program: &str, stdout: &[String]) -> Option<String> {
+    let name = std::path::Path::new(program).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
+    match name.as_deref() {
+        Some("vagrant") => vagrant::error(stdout),
+        _ => None,
+    }
+}
 
 use isoloom_manifest::Version;
 
@@ -34,94 +74,6 @@ fn numbers_in(text: &str) -> Option<(u64, u64, u64)> {
     })
 }
 
-/// Each plugin `vagrant plugin list --machine-readable` names (its `plugin-name` lines), with its
-/// version when a `plugin-version` line gives one (`0.12.2%!(VAGRANT_COMMA) global`: the version
-/// before Vagrant's escaped comma).
-#[must_use]
-pub fn vagrant_plugins(out: &str) -> Vec<(String, Option<String>)> {
-    let lines: Vec<(&str, &str, &str)> = out.lines().filter_map(vagrant_fields).collect();
-    let version = |name: &str| {
-        lines
-            .iter()
-            .find(|(target, kind, _)| *target == name && *kind == "plugin-version")
-            .and_then(|(_, _, data)| {
-                let v = data.split("%!(VAGRANT_COMMA)").next().unwrap_or_default().trim();
-                (!v.is_empty()).then(|| v.to_owned())
-            })
-    };
-    lines
-        .iter()
-        .filter(|(_, kind, data)| *kind == "plugin-name" && !data.is_empty())
-        .map(|(_, _, name)| ((*name).to_owned(), version(name)))
-        .collect()
-}
-
-/// The error a Vagrant call printed as its `--machine-readable` `error-exit` record among `stdout`
-/// (its last, when there are more): its message as Vagrant words it for a person, followed by
-/// its class (`… because it is locked! … (Vagrant::Errors::MachineLocked)`). With
-/// `--machine-readable`, Vagrant prints its error there, on standard output, and nothing of it on
-/// standard error.
-pub(crate) fn vagrant_error(stdout: &[String]) -> Option<String> {
-    let data = stdout
-        .iter()
-        .rev()
-        .filter_map(|line| vagrant_fields(line))
-        .find_map(|(_, kind, data)| (kind == "error-exit").then_some(data))?;
-    let (class, message) = data.split_once(',').unwrap_or((data, ""));
-    let (class, message) = (unescape(class), unescape(message));
-    match (class.trim(), message.trim()) {
-        ("", "") => None,
-        (class, "") => Some(class.to_owned()),
-        ("", message) => Some(message.to_owned()),
-        (class, message) => Some(format!("{message} ({class})")),
-    }
-}
-
-/// What Vagrant says when another process holds a machine's lock, its action lock or its index
-/// lock: each error's class, which `--machine-readable` prints in its `error-exit` record, and its
-/// message, which a human-readable call prints on standard error (the record repeats it too).
-const VAGRANT_LOCKED: [&str; 4] = [
-    "Vagrant::Errors::MachineActionLockedError",
-    "another process is already executing an action on the machine",
-    "Vagrant::Errors::MachineLocked,",
-    "Vagrant can't use the requested machine because it is locked!",
-];
-
-/// Whether `lines`, what a failed Vagrant call printed, say another process held a machine's lock.
-pub(crate) fn vagrant_locked<'a>(lines: impl IntoIterator<Item = &'a String>) -> bool {
-    said_any(lines, &VAGRANT_LOCKED)
-}
-
-/// What vagrant-vmware-esxi says when the VM it is asked to halt is already off: ESXi refuses the
-/// guest shutdown (`vim.fault.InvalidPowerState`, the VM `poweredOff`).
-const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the current state (Powered off)"];
-
-/// Whether `lines`, what a failed `vagrant halt` printed, say ESXi refused it as the VM was
-/// already off.
-pub(crate) fn esxi_already_off<'a>(lines: impl IntoIterator<Item = &'a String>) -> bool {
-    said_any(lines, &ESXI_ALREADY_OFF)
-}
-
-/// Whether any of `lines` holds any of `wordings`.
-fn said_any<'a>(lines: impl IntoIterator<Item = &'a String>, wordings: &[&str]) -> bool {
-    lines.into_iter().any(|line| wordings.iter().any(|said| line.contains(said)))
-}
-
-/// A `--machine-readable` field as Vagrant wrote it, its escapes undone: a comma written as
-/// `%!(VAGRANT_COMMA)`, a line break as `\n`, a carriage return as `\r`.
-fn unescape(field: &str) -> String {
-    field.replace("%!(VAGRANT_COMMA)", ",").replace("\\r", "").replace("\\n", "\n")
-}
-
-/// One line of Vagrant's `--machine-readable` output: its target, type and data (the rest of the
-/// line). Lines are `timestamp,target,type,data…`; Vagrant writes a comma in a field as
-/// `%!(VAGRANT_COMMA)`, so the data is kept whole as printed.
-pub(crate) fn vagrant_fields(line: &str) -> Option<(&str, &str, &str)> {
-    let mut parts = line.trim_end_matches('\r').splitn(4, ',');
-    let (_ts, target, kind, data) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
-    Some((target, kind, data))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,84 +95,5 @@ mod tests {
         assert!(v("4.7.5") > v("4.6.5") && v("4.6.5") >= v("4.6.5"));
         assert!(v("0.1.6") < v("0.2.0"));
         assert!(v("0.2.0-beta") < v("0.2.0"), "a pre-release comes before its release");
-    }
-
-    #[test]
-    fn a_held_lock_is_read_in_each_of_vagrant_s_wordings() {
-        // As Vagrant 2.4 prints them: the action lock (machine-readable, then human), the index lock.
-        let action = lines(
-            "1794307174,,error-exit,Vagrant::Errors::MachineActionLockedError,An action 'read_state' was attempted on the machine 'web'%!(VAGRANT_COMMA)\\nbut another process is already executing an action on the machine.",
-        );
-        let human = lines(
-            "An action 'read_state' was attempted on the machine 'web',\nbut another process is already executing an action on the machine.\nVagrant locks each machine for access by only one process at a time.",
-        );
-        let index = lines("1794342958,,error-exit,Vagrant::Errors::MachineLocked,Vagrant can't use the requested machine because it is locked! This");
-        assert!(vagrant_locked(&action) && vagrant_locked(&human) && vagrant_locked(&index));
-        assert!(!vagrant_locked(&lines(
-            "VBoxManage: error: Cannot unregister the machine 'web-vm - web' while it is locked"
-        )));
-        assert!(!vagrant_locked(&[]));
-    }
-
-    #[test]
-    fn esxi_refusing_to_halt_a_vm_already_off_is_read() {
-        // As vagrant-vmware-esxi prints it.
-        let off = lines(
-            "There was an error talking to ESXi.\n  Unable to shutdown the VM:\n    (vim.fault.InvalidPowerState) {\n   existingState = \"poweredOff\"\n   msg = \"shutdownGuest\nThe attempted operation cannot be performed in the current state (Powered off).\"\n}",
-        );
-        assert!(esxi_already_off(&off));
-        assert!(!esxi_already_off(&lines(
-            "There was an error talking to ESXi.\n  Unable to shutdown the VM: timed out"
-        )));
-    }
-
-    #[test]
-    fn plugins_are_read_by_name_with_their_versions() {
-        // As Vagrant 2.4 prints them (a `ui` line repeats the human list).
-        let out = "1794305819,,ui,info,vagrant-qemu (0.7.0%!(VAGRANT_COMMA) global)\n\
-                   1794305819,,plugin-name,vagrant-qemu\n\
-                   1794305819,vagrant-qemu,plugin-version,0.7.0%!(VAGRANT_COMMA) global\n\
-                   1794305819,,plugin-name,vagrant-vmware-esxi\r\n\
-                   1794305819,,plugin-name,vagrant_utm\n\
-                   1794305819,vagrant_utm,plugin-version,0.2.0\n";
-        assert_eq!(
-            vagrant_plugins(out),
-            [
-                ("vagrant-qemu".to_owned(), Some("0.7.0".to_owned())),
-                ("vagrant-vmware-esxi".to_owned(), None),
-                ("vagrant_utm".to_owned(), Some("0.2.0".to_owned())),
-            ]
-        );
-        assert_eq!(vagrant_plugins(""), Vec::<(String, Option<String>)>::new());
-    }
-
-    fn lines(text: &str) -> Vec<String> {
-        text.lines().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn a_machine_readable_error_is_read_whole_with_its_class() {
-        // As Vagrant 2.4.9 prints it on libvirt while another process holds the machine's lock.
-        let said = "Vagrant can't use the requested machine because it is locked! This\\nmeans that another Vagrant \
-                    process is currently reading or modifying\\nthe machine.\\n\\nName: probe\\nProvider: libvirt";
-        let out = lines(&format!(
-            "1794342958,,ui,error,{said}\n1794342958,,error-exit,Vagrant::Errors::MachineLocked,{said}\n"
-        ));
-        assert_eq!(
-            vagrant_error(&out).as_deref(),
-            Some(
-                "Vagrant can't use the requested machine because it is locked! This\nmeans that another Vagrant \
-                 process is currently reading or modifying\nthe machine.\n\nName: probe\nProvider: libvirt \
-                 (Vagrant::Errors::MachineLocked)"
-            )
-        );
-        let commas = lines("1,,error-exit,Vagrant::Errors::VagrantError,a%!(VAGRANT_COMMA) b\\r\\n");
-        assert_eq!(vagrant_error(&commas).as_deref(), Some("a, b (Vagrant::Errors::VagrantError)"));
-        assert_eq!(
-            vagrant_error(&lines("1,,error-exit,Vagrant::Errors::X,")).as_deref(),
-            Some("Vagrant::Errors::X")
-        );
-        assert_eq!(vagrant_error(&lines("1,web,state,running\n==> web: up")), None);
-        assert_eq!(vagrant_error(&lines("1,,error-exit,")), None);
     }
 }
