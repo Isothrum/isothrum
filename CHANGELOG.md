@@ -9,8 +9,16 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.4] — 2026-11-13
+
 ### Fixed
 
+- **A box for the `vmware_esxi` provider is downloaded as its `vmware_desktop` build.** The
+  vagrant-vmware-esxi plugin boots `vmware_desktop` builds (no box on the registry carries a
+  `vmware_esxi` one), so a run on ESXi asked the registry for a build that doesn't exist and its
+  download ended with "find an alternate box or use an alternate provider" (`bento/debian-12`,
+  2026-11-12). The download now asks for the build the plugin boots, as a run on vagrant-qemu asks
+  for the `libvirt` build it boots.
 - **A Compose run's `down` removes the anonymous volumes an update's recreate inherited.** The
   engine makes a volume for each `VOLUME` of a container's image (MySQL's data directory) and
   removes it with the container on `down --volumes` or `rm --volumes`, as long as that container
