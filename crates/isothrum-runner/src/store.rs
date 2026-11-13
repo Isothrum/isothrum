@@ -17,7 +17,8 @@
 //!                       an operation holds the run; removed by a down
 //!   ssh_config          the run's SSH settings, with its `known_hosts`, for a run reached over
 //!                       SSH
-//!   guest-<machine>.in  a guest delivery's values, only while it is delivered
+//!   guest-<machine>-<random>.in  a guest delivery's values, one file per delivery, only while
+//!                       it is delivered
 //!   consoles.json       the graphical consoles the runner chose (VMware's VNC: port and
 //!                       password per machine); removed by a down
 //!   proxmox-console-<random>.curl  a Proxmox API request's credentials, one file per request,
@@ -35,7 +36,7 @@
 mod acl;
 mod fs;
 mod lock;
-mod transient;
+mod temp_file;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,7 +45,7 @@ use isoloom_manifest::{Cloud, Driver, Provider, Target};
 use serde::{Deserialize, Serialize};
 
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_new_private, write_private};
-pub(crate) use transient::Transient;
+pub(crate) use temp_file::TempFile;
 
 /// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
 /// when that fails.
