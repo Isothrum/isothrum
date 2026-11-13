@@ -130,7 +130,7 @@ async fn a_virtualbox_vm_whose_state_cant_be_read_is_skipped_and_traced() {
     f.engine().vbox_wedged = true;
     let run = f.runner.open(&f.manifest, None).unwrap();
     record_id(&f.runner.store.run_dir(run.name()).unwrap().join("vagrant"), "web", "virtualbox", VBOX_ID);
-    let (started, traced) = crate::testing::traced(run.up(&opts(), &Recorder::new())).await;
+    let (started, traced) = crate::testing::traced(Box::pin(run.up(&opts(), &Recorder::new()))).await;
     started.unwrap();
     assert!(
         !f.fake.lines().iter().any(|l| l.starts_with("VBoxManage discardstate")),
