@@ -1,9 +1,7 @@
 //! What the Docker CLI prints, read: the networks `docker inspect` says a container is on. Its
 //! fixtures are in `fixtures/docker/`.
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use serde::de::IgnoredAny;
+use std::collections::BTreeSet;
 
 /// The `--format` that makes `docker inspect <container>` print the container's networks as one
 /// JSON object keyed by network name (Docker and Podman alike).
@@ -12,9 +10,9 @@ pub(crate) const NETWORKS_FORMAT: &str = "{{json .NetworkSettings.Networks}}";
 /// The names of the networks a container is on, from `docker inspect --format`
 /// [`NETWORKS_FORMAT`]'s output (`null` when it is on none); why not when that isn't the object.
 pub(crate) fn networks(out: &str) -> Result<BTreeSet<String>, String> {
-    let on: Option<BTreeMap<String, IgnoredAny>> =
+    let on: Option<serde_json::Map<String, serde_json::Value>> =
         serde_json::from_str(out.trim()).map_err(|e| format!("its networks aren't the JSON object `docker inspect` prints: {e}"))?;
-    Ok(on.unwrap_or_default().into_keys().collect())
+    Ok(on.unwrap_or_default().into_iter().map(|(name, _)| name).collect())
 }
 
 #[cfg(test)]
