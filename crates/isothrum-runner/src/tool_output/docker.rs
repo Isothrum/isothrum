@@ -10,6 +10,7 @@ pub(crate) const NETWORKS_FORMAT: &str = "{{json .NetworkSettings.Networks}}";
 /// The names of the networks a container is on, from `docker inspect --format`
 /// [`NETWORKS_FORMAT`]'s output (`null` when it is on none); why not when that isn't the object.
 pub(crate) fn networks(out: &str) -> Result<BTreeSet<String>, String> {
+    // Each network's settings are read and dropped: only the names are kept.
     let on: Option<serde_json::Map<String, serde_json::Value>> =
         serde_json::from_str(out.trim()).map_err(|e| format!("its networks aren't the JSON object `docker inspect` prints: {e}"))?;
     Ok(on.unwrap_or_default().into_iter().map(|(name, _)| name).collect())
