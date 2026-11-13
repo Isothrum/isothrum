@@ -15,9 +15,13 @@
 //! files before it starts the program, and answers in `out-<n>.log` and `exit-<n>`, which the
 //! runner deletes once read. When the session ends, its folder goes. A broker that stops other
 //! than at the session's end (its watcher ending it, its loop broken) says why in `ended`: the
-//! request in flight fails with that reason at once, and so does every later call. So does a
-//! request that fails before its answer is read (its file not written, its answer unreadable),
-//! since the broker would wait for it and take no later one.
+//! request in flight fails with that reason at once, and so does every later call.
+//!
+//! One request failing or cut short never ends the session: a request whose future is dropped
+//! (its step's timeout, a probe given up on) or that fails before its answer is read (its file
+//! not written, its answer unreadable) writes `cancel-<n>`. The broker ends that request's
+//! process tree, or skips it if its turn hasn't come, and takes the next: the requests waiting
+//! behind it, and every later one, run in the same session (one UAC prompt per operation).
 //!
 //! Why a file for the values, and not a pipe: the elevated broker is started by the shell (the
 //! UAC prompt), which hands it no handle of its parent, so no inherited pipe; and a named pipe
@@ -154,9 +158,8 @@ impl Elevated {
 
     /// One request through the broker in `dir`: its lines as they come, then its exit code, its
     /// answer's files deleted once read. Dropped before it ends (a timeout), or failed before its
-    /// answer (a request file that couldn't be written, the broker ended), it ends the broker's
-    /// tree and the session with it: the broker waits for this request's turn, and would take no
-    /// later one.
+    /// answer (a request file that couldn't be written, an answer that couldn't be read), it
+    /// cancels itself alone ([`Cancel`]): the session and the requests behind it go on.
     async fn request(&self, dir: &Path, token: &str, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
         if let Some(why) = refusal(spec) {
             return Err(ProcessError::Refused {
@@ -164,12 +167,8 @@ impl Elevated {
                 why,
             });
         }
-        let mut guard = Cancel {
-            dir,
-            armed: true,
-            session: &self.session,
-        };
         let n = self.next.fetch_add(1, Ordering::SeqCst);
+        let mut guard = Cancel { dir, n, armed: true };
         let io = |source| ProcessError::Io {
             program: spec.program.clone(),
             source,
@@ -189,7 +188,7 @@ impl Elevated {
                 return exit_code(&code).map(|c| Exit::new(Some(c))).map_err(io);
             }
             if let Some(reason) = session_end_reason(dir).map_err(io)? {
-                // Nothing is left to cancel: the later calls fail with why.
+                // The broker is gone, nothing is left to cancel: the later calls fail with why.
                 guard.armed = false;
                 self.set(Session::Failed(reason.clone()));
                 return Err(ProcessError::Elevation { reason });
@@ -220,18 +219,27 @@ impl Drop for Elevated {
     }
 }
 
-/// A request in flight: dropped while armed (its future cut short), it ends the broker's tree.
+/// Request `n` in flight: dropped while armed (its future cut short, or failed before its answer
+/// was read), it cancels that request alone through `cancel-<n>`. The broker ends its process
+/// tree, or skips it unrun, and deletes its files; the session stays open for the next request.
 struct Cancel<'a> {
     dir: &'a Path,
+    n: u64,
     armed: bool,
-    session: &'a Mutex<Session>,
 }
 
 impl Drop for Cancel<'_> {
     fn drop(&mut self) {
         if self.armed {
-            signal(self.dir, "cancel");
-            *self.session.lock().unwrap_or_else(PoisonError::into_inner) = Session::Failed("the elevated session was ended".into());
+            let cancel = format!("cancel-{}", self.n);
+            signal(self.dir, &cancel);
+            // An answer that came just before the cancel: the broker has moved on and won't read
+            // `cancel-<n>`, so the request's files are this guard's to remove.
+            if self.dir.join(format!("exit-{}", self.n)).exists()
+                && let Err(e) = remove_request_files(self.dir, self.n).and_then(|()| crate::store::remove_path(&self.dir.join(&cancel)))
+            {
+                tracing::warn!(error = %e, "a cancelled elevated request's answer couldn't be removed");
+            }
         }
     }
 }
@@ -250,7 +258,7 @@ fn session_end_reason(dir: &Path) -> std::io::Result<Option<String>> {
     Ok((!dir.try_exists()?).then(|| "the elevated session ended: its folder is gone".to_owned()))
 }
 
-/// Tells the broker `what` (`done`, `cancel`) through its file in the session's folder. A broker
+/// Tells the broker `what` (`done`, `cancel-<n>`) through its file in the session's folder. A broker
 /// already gone can't be told anything, and a drop has no one to report to: it is traced.
 fn signal(dir: &Path, what: &str) {
     if let Err(e) = std::fs::write(dir.join(what), "") {

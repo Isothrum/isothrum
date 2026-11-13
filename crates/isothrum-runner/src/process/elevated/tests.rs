@@ -24,14 +24,32 @@ async fn session_dir(root: &Path) -> PathBuf {
 
 /// Plays the broker as the PowerShell one does, in the session the runner opens under `root`:
 /// once `ready`, each request of the session (its token, its turn) answered with `lines` and
-/// `code`, its files read and deleted first; any other request deleted unrun.
+/// `code`, its files read and deleted first; any other request deleted unrun. A request whose
+/// turn comes with its `cancel-<n>` there is skipped unrun; one whose program is `hang` runs
+/// until its `cancel-<n>` comes, then gets no answer; one whose program is `slow` is answered
+/// after 600 ms.
 async fn broker(root: PathBuf, lines: &'static str, code: i32) {
+    broker_after(root, |_| {}, lines, code).await;
+}
+
+/// [`broker`], once `obstacle` is set in the session's folder.
+async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, code: i32) {
     let dir = session_dir(&root).await;
+    obstacle(&dir);
     let token = dir.file_name().unwrap().to_string_lossy().into_owned();
     std::fs::write(dir.join("ready"), "").unwrap();
     let mut n = 1;
-    while dir.exists() && !dir.join("done").exists() {
+    let over = |d: &Path| !d.exists() || d.join("done").exists();
+    while !over(&dir) {
         let req = dir.join(format!("req-{n}.json"));
+        let cancel = dir.join(format!("cancel-{n}"));
+        if cancel.exists() {
+            for f in [&req, &dir.join(format!("env-{n}.json")), &cancel] {
+                crate::store::remove_path(f).unwrap();
+            }
+            n += 1;
+            continue;
+        }
         if let Ok(text) = std::fs::read_to_string(&req) {
             std::fs::remove_file(&req).unwrap();
             let r: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -41,6 +59,18 @@ async fn broker(root: PathBuf, lines: &'static str, code: i32) {
             let env_file = dir.join(format!("env-{n}.json"));
             let e: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&env_file).unwrap()).unwrap();
             std::fs::remove_file(&env_file).unwrap();
+            match r["program"].as_str().unwrap() {
+                "hang" => {
+                    while !cancel.exists() && !over(&dir) {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                    crate::store::remove_path(&cancel).unwrap();
+                    n += 1;
+                    continue;
+                }
+                "slow" => tokio::time::sleep(Duration::from_millis(600)).await,
+                _ => {}
+            }
             let env: Vec<String> = e["env"]
                 .as_array()
                 .unwrap()
@@ -249,22 +279,56 @@ async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_
     broker.await.unwrap();
 }
 
+/// Regression: a request cut short (a probe's timeout) ended the broker's whole tree and the
+/// session: every later call of the operation failed with `elevation`.
 #[tokio::test]
-async fn a_request_cut_short_ends_the_broker() {
-    let (_home, _fake, e) = session("", Reply::ok(""));
+async fn a_request_cut_short_cancels_itself_alone_and_the_session_goes_on() {
+    let (_home, fake, e) = session("", Reply::ok(""));
     let root = e.root.clone();
-    // A broker that starts, then never answers.
-    let started = tokio::spawn(async move { std::fs::write(session_dir(&root).await.join("ready"), "").unwrap() });
-    let spec = ProcessSpec::new("vagrant", ["up"]);
-    let cut = tokio::time::timeout(Duration::from_millis(600), lines_of(&e, &spec)).await;
+    let broker = tokio::spawn(broker(root.clone(), "ran", 0));
+    let cut = tokio::time::timeout(Duration::from_millis(600), lines_of(&e, &ProcessSpec::new("hang", ["ssh"]))).await;
     assert!(cut.is_err(), "nobody answered");
-    started.await.unwrap();
-    assert!(session_dir(&e.root).await.join("cancel").exists());
-    let (exit, _) = lines_of(&e, &spec).await;
-    assert!(matches!(exit, Err(ProcessError::Elevation { .. })));
-    let folder = e.root.clone();
+    let dir = session_dir(&root).await;
+    // The broker ends request 1 alone and deletes its files.
+    let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
+    assert!(exit.unwrap().success(), "{lines:?}");
+    assert_eq!(lines[0], "vagrant halt");
+    assert!(!dir.join("cancel-1").exists() && !dir.join("out-1.log").exists());
+    assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
     drop(e);
-    assert!(!folder.exists(), "the cut session's files (its values) are gone");
+    assert!(!root.exists(), "the session's files (its values) are gone");
+    broker.await.unwrap();
+}
+
+/// Two requests at once in one session: the one waiting behind the other is cut short (its
+/// step's limit), and neither the one running nor any later one is touched.
+#[tokio::test]
+async fn two_requests_at_once_one_cut_short_leave_the_other_answered() {
+    let (_home, fake, e) = session("", Reply::ok(""));
+    let root = e.root.clone();
+    let broker = tokio::spawn(broker(root.clone(), "ran", 0));
+    let (opened, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
+    assert!(opened.unwrap().success());
+    let (slow, ssh) = (ProcessSpec::new("slow", ["up"]), ProcessSpec::new("vagrant", ["ssh"]));
+    let running = lines_of(&e, &slow);
+    let behind = tokio::time::timeout(Duration::from_millis(200), lines_of(&e, &ssh));
+    let ((ran, lines), cut) = tokio::join!(running, behind);
+    assert!(ran.unwrap().success(), "{lines:?}");
+    assert_eq!(lines[..2], ["slow up".to_owned(), "ran".to_owned()]);
+    assert!(cut.is_err(), "the request behind was cut short");
+    let (later, later_lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
+    assert!(later.unwrap().success(), "{later_lines:?}");
+    assert_eq!(later_lines[0], "vagrant halt");
+    let dir = session_dir(&root).await;
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|f| f.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["ready"], "the cut request's files went too");
+    assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
+    drop(e);
+    broker.await.unwrap();
 }
 
 /// A broker that starts, then sets `obstacle` (given the session's folder) instead of answering.
@@ -306,20 +370,23 @@ async fn a_broker_that_ends_mid_request_fails_it_at_once_and_the_session_with_it
 }
 
 #[tokio::test]
-async fn a_request_that_cant_be_written_ends_the_session() {
+async fn a_request_that_cant_be_written_cancels_itself_alone() {
     // Regression: request 1 failed to be written, and the broker went on waiting for it: every
-    // later request (2, 3, …) waited for an answer that never came.
+    // later request (2, 3, …) waited for an answer that never came. Then its failure ended the
+    // whole session instead.
     let (_home, _fake, e) = session("", Reply::ok(""));
-    let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
-        std::fs::create_dir_all(dir.join("req-1.json").join("in-the-way")).unwrap();
-    }));
-    let spec = ProcessSpec::new("vagrant", ["up"]);
-    let first = within_5s(&e, &spec).await.unwrap_err();
+    let broker = tokio::spawn(broker_after(
+        e.root.clone(),
+        |dir| std::fs::create_dir_all(dir.join("req-1.json").join("in-the-way")).unwrap(),
+        "ran",
+        0,
+    ));
+    let first = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert!(matches!(first, ProcessError::Io { .. }), "{first}");
+    let second = within_5s(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
+    assert!(second.unwrap().success(), "the broker skipped request 1 and took request 2");
+    drop(e);
     broker.await.unwrap();
-    let second = within_5s(&e, &spec).await.unwrap_err();
-    assert!(matches!(second, ProcessError::Elevation { .. }), "{second}");
-    assert!(session_dir(&e.root).await.join("cancel").exists(), "the broker is told");
 }
 
 #[tokio::test]
@@ -429,4 +496,80 @@ async fn a_real_broker_runs_a_command_elevated_and_reads_back_its_exit() {
     assert!(lines.iter().any(|l| l.contains("S-1-16-12288")), "high integrity: {lines:?}");
     drop(e);
     assert!(!home.path().join("elevated").exists());
+}
+
+/// The real processes, the broker's launch run by PowerShell 7 (`pwsh`) unelevated and the
+/// broker given a stand-in `taskkill.exe` on `path` (it ends a process and its children), so the
+/// broker's own PowerShell runs here; `whoami` says the account may not manage Hyper-V.
+#[cfg(unix)]
+struct Pwsh {
+    system: crate::process::SystemProcesses,
+    path: String,
+}
+
+#[cfg(unix)]
+impl ProcessRunner for Pwsh {
+    fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
+        if spec.program == "whoami" {
+            return Box::pin(async { Ok(Exit::new(Some(0))) });
+        }
+        let mut spec = spec.clone();
+        if spec.program == "powershell" {
+            spec.program = "pwsh".into();
+            spec.args[3] = spec.args[3].replacen("-FilePath powershell.exe -Verb RunAs -WindowStyle Hidden", "-FilePath pwsh", 1);
+            spec.env.push(("PATH".into(), self.path.clone()));
+        }
+        Box::pin(async move { self.system.run(&spec, on_line).await })
+    }
+}
+
+/// The PowerShell broker itself, run by `pwsh`: a request answered with its variables, output
+/// and exit code; a request cut short ended alone (its process tree), the session going on with
+/// the next; the session ended with its operation. By hand where `pwsh` is on PATH:
+/// `cargo test -p isothrum-runner pwsh_broker -- --ignored`.
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "runs the PowerShell broker: needs pwsh (PowerShell 7) on PATH"]
+async fn a_pwsh_broker_cancels_a_request_cut_short_and_takes_the_next() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let taskkill = bin.join("taskkill.exe");
+    std::fs::write(
+        &taskkill,
+        "#!/bin/sh\neval pid=\\${$#}\nend() { for c in $(pgrep -P \"$1\"); do end \"$c\"; done; kill -9 \"$1\" 2>/dev/null; }\nend \"$pid\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&taskkill, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let processes = Arc::new(Pwsh {
+        system: crate::process::SystemProcesses::default(),
+        path,
+    });
+    let e = Elevated::new(processes, home.path().join("elevated"), Vec::new());
+    let mut first = ProcessSpec::new("sh", ["-c", "echo $DEMO; exit 3"]);
+    first.env = vec![("DEMO".into(), "from-the-request".into())];
+    let (exit, lines) = lines_of(&e, &first).await;
+    assert_eq!(exit.unwrap().code, Some(3), "{lines:?}");
+    assert_eq!(lines, ["from-the-request"]);
+    let started = std::time::Instant::now();
+    let cut = tokio::time::timeout(Duration::from_secs(4), lines_of(&e, &ProcessSpec::new("sleep", ["300"]))).await;
+    assert!(cut.is_err(), "a request cut short");
+    let dir = session_dir(&e.root).await;
+    let (after, after_lines) = within_30s(&e, &ProcessSpec::new("sh", ["-c", "echo after; echo ${DEMO:-unset}"])).await;
+    assert!(after.unwrap().success(), "{after_lines:?}");
+    assert_eq!(after_lines, ["after", "unset"], "the next request ran, without the earlier one's variables");
+    assert!(started.elapsed() < Duration::from_secs(60), "the cut request didn't run to its end");
+    assert!(!dir.join("ended").exists() && !dir.join("cancel-2").exists() && !dir.join("out-2.log").exists());
+    drop(e);
+    assert!(!home.path().join("elevated").exists());
+}
+
+/// What a call through `e` gives within 30 s (a call that waits longer fails the test).
+#[cfg(unix)]
+async fn within_30s(e: &Elevated, spec: &ProcessSpec) -> (Result<Exit, ProcessError>, Vec<String>) {
+    tokio::time::timeout(Duration::from_secs(30), lines_of(e, spec))
+        .await
+        .expect("the call waited for an answer that won't come")
 }
