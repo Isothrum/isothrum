@@ -5,7 +5,7 @@ use super::*;
 
 #[tokio::test]
 async fn provisioning_again_runs_on_the_running_machines_with_the_values_given_again() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let not_up = run.provision(None, &opts(), &Recorder::new()).await.unwrap_err();
     assert_eq!(not_up.code(), ErrorCode::NotRunning);
@@ -82,7 +82,7 @@ async fn an_update_of_an_esxi_run_needs_the_hosts_password_with_no_provider_give
 /// brings the new VM up beside the running ones; the run stays ready.
 #[tokio::test]
 async fn an_update_brings_a_vm_added_to_the_run_up() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     std::fs::write(&f.manifest, with_vm_added("extra")).unwrap();
@@ -104,7 +104,7 @@ async fn an_update_brings_a_vm_added_to_the_run_up() {
 async fn a_console_as_an_account_into_a_windows_machine_is_refused() {
     let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
     m["machines"][0]["windows"] = serde_json::json!(true);
-    let f = fixture_from(crate::runner::this_host(), &m.to_string());
+    let f = fixture_from(crate::testing::TEST_HOST, &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.console_command("web", Some("user")).unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
@@ -118,7 +118,7 @@ async fn a_console_as_an_account_into_a_windows_machine_is_refused() {
 async fn a_machine_with_no_native_name_has_no_console() {
     let mut m: serde_json::Value = serde_json::from_str(WEB_VM).unwrap();
     m["machines"][0].as_object_mut().unwrap().remove("native");
-    let f = fixture_from(crate::runner::this_host(), &m.to_string());
+    let f = fixture_from(crate::testing::TEST_HOST, &m.to_string());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.console_command("web", None).unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported, "{err}");
@@ -134,7 +134,7 @@ async fn a_machine_with_no_native_name_has_no_console() {
 /// when it next boots.
 #[tokio::test]
 async fn an_update_restarts_only_the_running_vm_whose_boot_settings_changed() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!((f.state("web").as_str(), f.state(CONTROLLER).as_str()), ("running", "poweroff"));

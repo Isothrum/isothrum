@@ -33,6 +33,32 @@ async fn gone(pid: &str) -> bool {
     false
 }
 
+/// Runs `job` until it wrote a pid to `file`, then cancels it (drops the run), however long it
+/// took to get there: the pid it wrote.
+async fn cancelled_once_started(runner: &SystemProcesses, job: &ProcessSpec, file: &std::path::Path) -> String {
+    let mut run = Box::pin(capture(runner, job));
+    let started = async {
+        loop {
+            if let Some(pid) = std::fs::read_to_string(file)
+                .ok()
+                .map(|s| s.trim().to_owned())
+                .filter(|s| s.parse::<u32>().is_ok())
+            {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(300), async {
+        tokio::select! {
+            out = &mut run => panic!("the tool ended before it was cancelled: {out:?}"),
+            pid = started => pid,
+        }
+    })
+    .await
+    .expect("the tool never started")
+}
+
 #[tokio::test]
 async fn a_missing_tool_is_named() {
     let err = capture(&SystemProcesses::default(), &spec("isothrum-no-such-tool", &[])).await.unwrap_err();
@@ -60,29 +86,7 @@ async fn a_tool_cancelled_takes_what_it_started_with_it() {
     let runner = SystemProcesses::default();
     // Cancelled once its child runs (its pid written), however long the tool took to get there:
     // a PowerShell's cold start on a busy Windows runner took longer than any fixed wait.
-    let mut run = Box::pin(capture(&runner, &job));
-    let started = async {
-        loop {
-            if let Some(pid) = std::fs::read_to_string(&file)
-                .ok()
-                .map(|s| s.trim().to_owned())
-                .filter(|s| s.parse::<u32>().is_ok())
-            {
-                return pid;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    };
-    let pid = tokio::time::timeout(Duration::from_secs(300), async {
-        tokio::select! {
-            out = &mut run => panic!("the tool ended before it was cancelled: {out:?}"),
-            pid = started => pid,
-        }
-    })
-    .await
-    .expect("the tool never started its child");
-    // Dropped: the cancel.
-    drop(run);
+    let pid = cancelled_once_started(&runner, &job, &file).await;
     assert!(gone(&pid).await, "the tool's child {pid} was left running");
 }
 
@@ -109,7 +113,7 @@ async fn a_tool_cut_short_is_asked_to_stop_before_it_is_ended() {
     let (pid, said) = (dir.path().join("pid"), dir.path().join("said"));
     let job = looping(&pid, &format!("\"echo stopped > '{}'; exit 0\"", said.display()));
     let runner = SystemProcesses::default();
-    assert!(tokio::time::timeout(Duration::from_secs(2), capture(&runner, &job)).await.is_err(), "cut short");
+    cancelled_once_started(&runner, &job, &pid).await;
     tokio::time::timeout(Duration::from_secs(10), runner.stopped())
         .await
         .expect("it stopped on its own");
@@ -128,11 +132,7 @@ async fn a_tool_that_ignores_the_request_is_ended_after_its_grace() {
         stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
         ..SystemProcesses::default()
     };
-    assert!(
-        tokio::time::timeout(Duration::from_secs(2), capture(&runner, &looping(&pid, "''")))
-            .await
-            .is_err()
-    );
+    cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
     assert!(runner.is_stopping(), "given its grace");
     tokio::time::timeout(Duration::from_secs(10), runner.stopped())
         .await
@@ -147,11 +147,7 @@ async fn the_tools_still_stopping_can_be_ended_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
     let runner = SystemProcesses::default();
-    assert!(
-        tokio::time::timeout(Duration::from_secs(2), capture(&runner, &looping(&pid, "''")))
-            .await
-            .is_err()
-    );
+    cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
     runner.end_stopping();
     tokio::time::timeout(Duration::from_secs(5), runner.stopped())
         .await
@@ -305,7 +301,7 @@ async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(crate::process::ledger::DIR);
     // The entry is written once the tool started: it waits for it (5 s at most), then lists.
-    let script = "echo \"$$\"; i=0; while [ $i -lt 50 ] && ! ls \"$0\" | grep -q \"-$$.tool\"; do sleep 0.1; i=$((i+1)); done; ls \"$0\"";
+    let script = "echo \"$$\"; i=0; while [ $i -lt 50 ] && ! ls \"$0\" | grep -q -e \"-$$.tool\"; do sleep 0.1; i=$((i+1)); done; ls \"$0\"";
     let mut listing = spec("sh", &["-c", script, dir.to_str().unwrap()]);
     listing.ledger_dir = Some(dir.clone());
     let out = capture(&SystemProcesses::default(), &listing).await.unwrap();
@@ -322,8 +318,4 @@ async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
         .filter(|e| e.path().extension().is_some_and(|x| x == "tool"))
         .collect();
     assert!(tools.is_empty(), "{tools:?}");
-    // Unrecorded: nothing is written.
-    let other = tempfile::tempdir().unwrap();
-    capture(&SystemProcesses::default(), &spec("true", &[])).await.unwrap();
-    assert_eq!(std::fs::read_dir(other.path()).unwrap().count(), 0);
 }

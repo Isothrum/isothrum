@@ -24,7 +24,7 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
 fn fixtures() -> Outcome<PathBuf> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let out = Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--manifest-path"])
+        .args(["metadata", "--format-version", "1", "--offline", "--manifest-path"])
         .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
         .output()?;
     if !out.status.success() {

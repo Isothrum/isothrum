@@ -420,7 +420,7 @@ async fn an_update_with_an_unreadable_config_removes_no_network() {
 #[test]
 fn a_target_not_run_on_this_host_is_refused_by_its_name() {
     use isoloom_manifest::HostOs;
-    let here = crate::runner::this_host();
+    let here = crate::testing::TEST_HOST;
     let others: Vec<String> = [HostOs::Linux, HostOs::Macos, HostOs::Windows]
         .iter()
         .filter(|h| **h != here)

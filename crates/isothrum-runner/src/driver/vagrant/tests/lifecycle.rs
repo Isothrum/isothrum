@@ -5,7 +5,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_vm_run_comes_up_is_checked_parked_resumed_and_goes() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let started = run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(started.record.state, RunState::Ready);
@@ -47,7 +47,7 @@ async fn a_vm_run_comes_up_is_checked_parked_resumed_and_goes() {
 /// to the running environment, and nothing is booted.
 #[tokio::test]
 async fn a_vm_run_that_declares_no_access_machine_has_none_to_attach() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     crate::testing::refuses_a_box_it_has_none_of(&run, &f.fake).await;
@@ -55,7 +55,7 @@ async fn a_vm_run_that_declares_no_access_machine_has_none_to_attach() {
 
 #[tokio::test]
 async fn vagrants_record_lives_in_the_runs_state_folder() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
@@ -70,7 +70,7 @@ async fn vagrants_record_lives_in_the_runs_state_folder() {
 
 #[tokio::test]
 async fn the_flag_reaches_the_start_and_never_an_event_and_an_unset_one_is_empty() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
@@ -138,7 +138,7 @@ async fn a_provider_that_cant_run_the_machines_is_refused_before_anything_runs()
 #[tokio::test]
 async fn a_vagrant_older_than_2_4_is_refused_before_anything_runs() {
     // Debian's packaged 2.3.8 ignores a box's architecture: it booted a ppc64le Debian on amd64.
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().version = Some("2.3.8.dev".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
@@ -170,7 +170,7 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
 /// VirtualBox (`web-vm - web`). VirtualBox prints `VERR_ALREADY_EXISTS` in capitals; the
 /// manifest's markers are lower case.
 fn tripped_over_an_orphan() -> Fixture {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
@@ -314,7 +314,7 @@ async fn virtualbox_leftover_folders_are_said_removed_once_gone_and_an_unreadabl
             ),
         ),
     ] {
-        let f = fixture(crate::runner::this_host());
+        let f = fixture(crate::testing::TEST_HOST);
         f.engine().machine_folder = Some(folder);
         let run = f.runner.open(&f.manifest, None).unwrap();
         run.up(&opts(), &Recorder::new()).await.unwrap();

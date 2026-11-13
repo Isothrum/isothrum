@@ -45,7 +45,7 @@ fn booted_unprovisioned(f: &Fixture, vm: &str) -> bool {
 
 #[tokio::test]
 async fn a_vm_deleted_outside_shows_gone_and_a_resume_never_makes_it_again_unprovisioned() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     f.engine().states.remove("web");
 
@@ -69,7 +69,7 @@ async fn a_vm_deleted_outside_shows_gone_and_a_resume_never_makes_it_again_unpro
 
 #[tokio::test]
 async fn a_vm_powered_off_outside_shows_off_and_a_resume_boots_it_again() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     // VirtualBox's Power Off, a closed hypervisor window: the VM is there, off.
     f.engine().states.insert("web".into(), "poweroff".into());
@@ -83,7 +83,7 @@ async fn a_vm_powered_off_outside_shows_off_and_a_resume_boots_it_again() {
 
 #[tokio::test]
 async fn a_vm_deleted_while_the_start_provisions_it_fails_the_start_and_the_next_one_clears_it() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().ups = vec![("The VM 'web' couldn't be found: it was deleted while it booted.".into(), true)];
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
@@ -101,7 +101,7 @@ async fn a_vm_deleted_while_the_start_provisions_it_fails_the_start_and_the_next
 
 #[tokio::test]
 async fn a_start_killed_while_it_provisions_is_failed_and_the_next_start_clears_it() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     // The process running the start was killed: its record stays `starting`, its VMs up.
     let mut record = f.runner.store.record(run.name()).unwrap().unwrap();
@@ -118,7 +118,7 @@ async fn a_start_killed_while_it_provisions_is_failed_and_the_next_start_clears_
 
 #[tokio::test]
 async fn vagrant_uninstalled_mid_run_refuses_and_a_down_once_it_is_back_still_works() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     let mut config = f.runner.config.clone();
     config.processes = Arc::new(FakeProcesses::rules(&[("vagrant", Reply::missing())]));
@@ -137,7 +137,7 @@ async fn vagrant_uninstalled_mid_run_refuses_and_a_down_once_it_is_back_still_wo
 
 #[tokio::test]
 async fn a_down_of_a_run_whose_vms_were_all_deleted_outside_ends_absent() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     f.engine().states.clear();
     assert_eq!(run.status().await.unwrap().state, RunState::Absent);
@@ -216,7 +216,7 @@ async fn an_esxi_password_changed_is_the_server_refusing_the_runs_credentials() 
 #[tokio::test]
 async fn a_local_vagrant_failure_in_the_same_words_is_no_servers() {
     // VirtualBox on this computer: no server to refuse anything, whatever the tool says.
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = started(&f).await;
     f.engine().refusals.insert(
         "status",
