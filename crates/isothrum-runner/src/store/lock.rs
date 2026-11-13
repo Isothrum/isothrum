@@ -2,7 +2,9 @@
 //! [`crate::Runner`], never a process-wide static), then an OS lock on the run's `lock` file across
 //! processes, which the OS releases when its holder dies. And one slot pick per home at a time:
 //! an OS lock on the home's `slots.lock`, held while a start picks its slot and records it, so
-//! two starts in one home (two processes, two runners) never take the same slot.
+//! two starts in one home (two processes, two runners) never take the same slot. And a host port
+//! reserved across processes: an OS lock on its file under the home's `ports/`, held without
+//! waiting by the start that reserved it ([`try_hold`]).
 //!
 //! The order, everywhere: the run's lock first, the home's slots lock second (a start holds the run
 //! while it waits for a slot, `run/up.rs`, `adopt.rs`), and the `std` mutexes (the runner's flight
@@ -124,6 +126,39 @@ pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
         }),
         Err(e) => Err(Error::io(path, "locked")(e)),
     }
+}
+
+/// A lock file held by this process without waiting for it ([`try_hold`]); released when dropped,
+/// or by the OS when the process dies, however it dies.
+#[derive(Debug)]
+pub(crate) struct FileLock {
+    _file: Held,
+}
+
+/// How many times [`try_hold`] tries a lock another handle holds: a reader asking whether it is
+/// held ([`held`]) takes it for an instant, and must not read as its holder.
+const TRY_HOLD_TRIES: u32 = 4;
+
+/// How long [`try_hold`] waits between two tries.
+const TRY_HOLD_PAUSE: Duration = Duration::from_millis(5);
+
+/// Takes the OS lock at `path` now, creating its file: None while another handle (another process,
+/// or another reservation of this one) holds it.
+///
+/// # Errors
+///
+/// The lock file couldn't be opened or locked.
+pub(crate) fn try_hold(path: &Path) -> std::io::Result<Option<FileLock>> {
+    let file = fs::lock_file(path)?;
+    for attempt in 1..=TRY_HOLD_TRIES {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(FileLock { _file: Held(file) })),
+            Err(TryLockError::WouldBlock) if attempt < TRY_HOLD_TRIES => std::thread::sleep(TRY_HOLD_PAUSE),
+            Err(TryLockError::WouldBlock) => return Ok(None),
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+    }
+    Ok(None)
 }
 
 /// Locks `file`, trying again until `wait` has passed while another handle holds it: whether it
@@ -266,5 +301,18 @@ mod tests {
         assert_eq!(stuck.code(), crate::ErrorCode::Locked, "busy, not an I/O failure: {stuck}");
         assert_eq!(stuck.to_string(), "another start has held this home's slot pick for 30 s; it may hang");
         drop(held);
+    }
+
+    #[test]
+    fn a_lock_held_without_waiting_is_refused_to_another_handle_until_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tcp-8080.lock");
+        let first = try_hold(&path).unwrap().expect("free: taken");
+        assert!(try_hold(&path).unwrap().is_none(), "another handle holds it");
+        assert!(held(&path).unwrap(), "reads as held");
+        assert!(try_hold(&path).unwrap().is_none(), "reading it took nothing from its holder");
+        drop(first);
+        assert!(!held(&path).unwrap());
+        assert!(try_hold(&path).unwrap().is_some(), "free once dropped");
     }
 }

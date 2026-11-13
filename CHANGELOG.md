@@ -39,6 +39,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **A Windows device name (`con`, `nul`, `aux`, `com1`, `lpt1`…) can't name a run.** Windows can't
   create a folder so named, so every operation of such a run failed with an `io` error; the name
   now fails at once with `run_name`.
+- **Two starts at once in two processes no longer both take a published port's number.** A
+  host port a start reserves is now held across the processes of one home: an OS lock on its
+  file under the home's new `ports/` folder, held until the start's operation ends and freed by
+  the OS when its process dies. A start in another process finds it reserved and moves to a free
+  port, where both took a preferred 8080 and the second failed at the hypervisor (#101).
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or

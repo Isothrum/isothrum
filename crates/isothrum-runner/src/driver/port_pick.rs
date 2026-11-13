@@ -1,9 +1,10 @@
 //! One fresh start's pick of the host ports it pins, shared by the drivers that publish on this
 //! computer (Compose, Vagrant), one rule for both ([`PortPick::pin`]): a port's `preferred` number
-//! when `ISOLOOM_PUBLISH_FIXED` asks for it and no other run of this runner reserved it, else a
-//! free loopback port; with none left (or a loopback that can't be bound), the start fails. Each pick is reserved in the runner until
-//! the start ends, so another run of this runner starting meanwhile can't take it, and each free
-//! port's socket is held until the whole pick is done, so the OS doesn't hand one out twice.
+//! when `ISOLOOM_PUBLISH_FIXED` asks for it and no other run of this home reserved it, else a
+//! free loopback port; with none left (or a loopback that can't be bound), the start fails. Each
+//! pick is reserved in the home until the start ends, so another run starting meanwhile, in any
+//! process, can't take it, and each free port's socket is held until the whole pick is done, so
+//! the OS doesn't hand one out twice.
 
 use std::collections::BTreeSet;
 
@@ -48,7 +49,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     ///
     /// `tool_failed` for `step` when no free host port another run starting hasn't reserved is
     /// found (on this computer: every port the OS offered was reserved by another run of this
-    /// runner, or held on the IPv6 loopback): the run would otherwise start on ports nobody pinned,
+    /// home, or held on the IPv6 loopback): the run would otherwise start on ports nobody pinned,
     /// and a resume would get new addresses. `io` when the loopback couldn't be bound to find one
     /// (no file descriptor left, a loopback that is down).
     pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<u16>, protocol: Protocol) -> Result<u16> {
