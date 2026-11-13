@@ -33,7 +33,7 @@ const PROBE_TIMEOUT_S: u32 = 25;
 
 /// Probes every tool of the manifest this run uses.
 pub(crate) async fn probe(cx: &Cx<'_>) -> Result<()> {
-    let tools: Vec<&Tool> = cx.run.manifest().tools.iter().filter(|t| used(cx, t)).collect();
+    let tools: Vec<&Tool> = cx.manifest().tools.iter().filter(|t| used(cx, t)).collect();
     if tools.is_empty() {
         return Ok(());
     }

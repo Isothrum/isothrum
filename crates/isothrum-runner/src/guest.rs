@@ -71,7 +71,7 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
 /// Each machine's input lines (`<slot> <base64>`) due after `after`, each slot's value as every
 /// delivery has it ([`slot_value`]: given, else its default; none for another provider's slot).
 fn due(cx: &Cx<'_>, after: Option<&str>) -> BTreeMap<String, String> {
-    due_lines(&cx.run.manifest().secrets, |slot| slot_value(cx, slot), after)
+    due_lines(&cx.manifest().secrets, |slot| slot_value(cx, slot), after)
 }
 
 /// [`due`] over `slots`, each slot's value from `value`. A machine with a delivery due gets its

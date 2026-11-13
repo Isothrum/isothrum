@@ -36,7 +36,7 @@ const RETRY: Duration = Duration::from_secs(1);
 /// ([`crate::outputs::with_engine`]: sensitive ones left out): the VM's address may be one
 /// (`${outputs.ip}`). The operation's own values are as they were after.
 pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Observed) {
-    let bound = crate::outputs::with_engine(cx.run.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
+    let bound = crate::outputs::with_engine(cx.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
     let own = std::mem::replace(&mut cx.vars, bound);
     read_in(cx, guest, observed).await;
     cx.vars = own;
@@ -55,7 +55,7 @@ async fn read_in(cx: &Cx<'_>, guest: &Guest, observed: &mut Observed) {
     } else {
         Inside::VmDown
     };
-    overlay_containers(cx.run.manifest(), observed, &read, &vm);
+    overlay_containers(cx.manifest(), observed, &read, &vm);
     if let Inside::Read(_, published) = read {
         merge_published(observed, published, host.as_deref());
     }
@@ -127,7 +127,7 @@ async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
             tokio::time::sleep(RETRY).await;
         }
         match capture_step(cx, "guest.status", &guest.status).await {
-            Ok(out) => match crate::driver::read_ps(cx.run.manifest(), &out) {
+            Ok(out) => match crate::driver::read_ps(cx.manifest(), &out) {
                 Some((inside, published)) => return Inside::Read(inside, published),
                 None => crate::driver::UNREADABLE_PS.clone_into(&mut failed),
             },

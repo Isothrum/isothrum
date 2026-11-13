@@ -54,7 +54,7 @@ pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
         return Ok(chosen);
     }
     let mut pick = PortPick::new(cx);
-    for m in &cx.run.manifest().machines {
+    for m in &cx.manifest().machines {
         for p in m.ports.iter().filter(|p| ephemeral(p)) {
             let what = format!("machine `{}`'s port `{}`", m.name, p.name);
             chosen.insert(key(m, p), pick.pin(PICK_STEP, &what, port_pick::preferred(p), p.kind.transport())?);
@@ -65,7 +65,7 @@ pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
     // failed start — collide on it. Give it a free host port of its own, the same way a published
     // port gets one; only QEMU needs it (every other provider manages its own SSH access).
     if cx.scope.runs_on(Provider::Qemu)
-        && let Some(ssh) = ssh_key(cx.run.manifest())
+        && let Some(ssh) = ssh_key(cx.manifest())
     {
         let port = pick.pin(PICK_STEP, "the helper VM's SSH forward", None, Protocol::Tcp)?;
         chosen.insert(ssh, port);
@@ -88,7 +88,7 @@ pub(super) fn host_port(m: &Machine, p: &Port, forwards: &BTreeMap<String, u16>)
 fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
     let forwards = cx.vars.vm_pins();
     let mut ports = Vec::new();
-    for m in &cx.run.manifest().machines {
+    for m in &cx.manifest().machines {
         for p in &m.ports {
             if let Some(port) = host_port(m, p, forwards) {
                 ports.push((port, p.kind.transport()));
@@ -96,7 +96,7 @@ fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
         }
     }
     // The helper VM's SSH forward (chosen in `pick`, present only on a QEMU docker-vm run).
-    if let Some(ssh) = ssh_key(cx.run.manifest())
+    if let Some(ssh) = ssh_key(cx.manifest())
         && let Some(port) = forwards.get(&ssh)
     {
         ports.push((*port, Protocol::Tcp));

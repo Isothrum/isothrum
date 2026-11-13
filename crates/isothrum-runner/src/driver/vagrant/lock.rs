@@ -196,7 +196,7 @@ pub(super) enum StatusRead {
 /// fails with Vagrant's refusal; a query's ([`Cx::query`]) is tried for [`QUERY_PATIENCE`], not
 /// again once an operation holds the run, and is then [`StatusRead::Busy`].
 pub(super) async fn read_status(cx: &Cx<'_>) -> Result<StatusRead> {
-    let step: &Step = &cx.run.manifest().lifecycle.status;
+    let step: &Step = &cx.manifest().lifecycle.status;
     let patience = Patience::of(if cx.query { QUERY_PATIENCE } else { PATIENCE });
     // An operation that holds the run meanwhile holds its VMs for as long as it acts.
     let still = |_: &Captured| !cx.query || !cx.run.runner.store.held(cx.run.name()).unwrap_or(false);

@@ -144,7 +144,7 @@ fn proxmox(m: &Machine) -> bool {
 pub(crate) async fn console(cx: &Cx<'_>, machine: &Machine, app: &NativeApp) -> Result<NativeConsole> {
     let provider = cx.scope.provider;
     let ways = match provider {
-        _ if cx.run.manifest().driver == Driver::Terraform => vec![proxmox_url(cx, machine)?],
+        _ if cx.manifest().driver == Driver::Terraform => vec![proxmox_url(cx, machine)?],
         Some(Provider::Virtualbox) => {
             let vm = argument(machine, vagrant::vm_name(machine, Provider::Virtualbox)?)?;
             vec![program("VBoxManage", ["startvm", vm, "--type", "separate"])]
@@ -228,7 +228,7 @@ fn recorded(cx: &Cx<'_>, machine: &Machine, provider_dir: &str) -> Result<String
 /// `remote-viewer` on the display libvirt says, when it says one.
 async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Vec<NativeOpen>> {
     let domain = argument(machine, vagrant::vm_name(machine, Provider::Libvirt)?)?;
-    let uri = vagrant::libvirt_uri(&cx.run.runner.config.host_env);
+    let uri = vagrant::libvirt_uri(cx.host_env());
     let mut ways = vec![program("virt-viewer", ["--connect", argument(machine, &uri)?, domain])];
     if let Ok(super::Endpoint::Loopback(at)) = vagrant::libvirt(cx, machine).await {
         let display = at.port().saturating_sub(5900);

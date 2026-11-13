@@ -195,7 +195,7 @@ pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
 /// The process running `command` at `login` for `cx`'s run, the variables of `env` carried into
 /// the session: its configuration written first, in the run's state folder, where it runs.
 pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
-    let home = &cx.run.runner.config.home;
+    let home = &cx.home();
     let state = cx.state_dir();
     crate::store::create_dir(state)?;
     let path = state.join(CONFIG_FILE);

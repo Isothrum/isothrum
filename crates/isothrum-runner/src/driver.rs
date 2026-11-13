@@ -399,7 +399,7 @@ const LOOPBACK: &str = "127.0.0.1";
 ///
 /// As [`crate::vars::Vars::render`]: an address naming a value the run doesn't have.
 pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
-    let at = cx.run.manifest().machines.iter().position(|m| m.name == machine.name).unwrap_or_default();
+    let at = cx.manifest().machines.iter().position(|m| m.name == machine.name).unwrap_or_default();
     let address = machine
         .ports
         .iter()
@@ -448,7 +448,7 @@ pub(crate) const STATUS: &str = "lifecycle.status";
 
 /// What the manifest's `lifecycle.status` prints: the engine's own report of the run.
 pub(crate) async fn status_report(cx: &Cx<'_>) -> Result<String> {
-    crate::executor::capture_step(cx, STATUS, &cx.run.manifest().lifecycle.status).await
+    crate::executor::capture_step(cx, STATUS, &cx.manifest().lifecycle.status).await
 }
 
 /// A machine's static addresses as the status shows them: each of the run's networks, by name, to the address

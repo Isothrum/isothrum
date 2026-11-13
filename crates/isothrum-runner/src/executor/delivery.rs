@@ -55,7 +55,7 @@ pub(crate) fn slot_value<'a>(cx: &'a Cx<'_>, slot: &'a SecretSlot) -> Option<&'a
 
 /// The params and slots this operation has a value for ([`slot_value`]), with where each goes.
 pub(super) fn valued<'a>(cx: &'a Cx<'_>) -> Vec<(&'a str, String, &'a NonEmpty<Delivery>)> {
-    let manifest = cx.run.manifest();
+    let manifest = cx.manifest();
     let params = manifest
         .params
         .iter()

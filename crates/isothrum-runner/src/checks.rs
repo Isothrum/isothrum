@@ -46,7 +46,7 @@ pub struct CheckReport {
 
 /// Runs the run's checks.
 pub(crate) async fn run(cx: &mut Cx<'_>) -> Result<CheckReport> {
-    let checks = &cx.run.manifest().checks;
+    let checks = &cx.manifest().checks;
     let mut report = CheckReport::default();
     let setup = run_steps(cx, "checks.setup", &checks.setup).await;
     if setup.is_ok() {

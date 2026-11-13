@@ -15,13 +15,13 @@ use super::state::TfState;
 /// when its guest is reached other than by `ssh.run`, and not running while its outputs give no
 /// address.
 pub(super) fn login(cx: &Cx<'_>, state: &TfState) -> Result<Option<Login>> {
-    let Some(g) = &cx.run.manifest().guest else { return Ok(None) };
+    let Some(g) = &cx.manifest().guest else { return Ok(None) };
     let Run::Action { action: Action::SshRun, with } = &g.status.run else {
         return Err(Error::Unsupported {
             what: "a guest VM whose status isn't an `ssh.run` step: the runner has no way into it".to_owned(),
         });
     };
-    let vars = crate::outputs::with_engine(cx.run.manifest(), &cx.vars, &state.outputs, &state.sensitive);
+    let vars = crate::outputs::with_engine(cx.manifest(), &cx.vars, &state.outputs, &state.sensitive);
     let arg = |name: &str| vars.with_text(with, "guest.status", name);
     let host = arg("host")?;
     if host.is_empty() {

@@ -106,7 +106,7 @@ fn wire(b: &VagrantBox) -> &'static str {
 /// manifest's order; the access machine's left out.
 fn wanted(cx: &Cx<'_>) -> Vec<VagrantBox> {
     let Some(provider) = cx.scope.provider else { return Vec::new() };
-    let host = cx.run.runner.config.arch;
+    let host = cx.arch();
     let mut seen = BTreeSet::new();
     cx.run
         .manifest()
@@ -152,7 +152,7 @@ pub(in crate::driver) async fn before_step(vagrant: &Vagrant, cx: &Cx<'_>, list:
         .filter(crate::process::Captured::success)
         .map(|out| listed(&out.stdout.join("\n")))
         .unwrap_or_default();
-    let host = cx.run.runner.config.arch;
+    let host = cx.arch();
     let missing: Vec<&VagrantBox> = wanted.iter().filter(|b| !is_there(b, host, &there)).collect();
     if missing.is_empty() {
         return Ok(());

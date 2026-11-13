@@ -89,7 +89,7 @@ pub(super) async fn open(cx: &Cx<'_>, machine: &Machine, to: &To) -> Result<Tunn
     let local = free.port;
     drop(free);
     let mut tunnel = started(machine, &spec(cx, to, local)?, SocketAddr::new(LOOPBACK, local))?;
-    if !cx.run.runner.config.ports.reachable(&LOOPBACK.to_string(), local, OPENING).await {
+    if !cx.ports().reachable(&LOOPBACK.to_string(), local, OPENING).await {
         let said = tunnel.why_closed().await;
         let because = said.map_or_else(String::new, |line| format!(": ssh said `{}`", cx.events.mask(&line)));
         return Err(none(
