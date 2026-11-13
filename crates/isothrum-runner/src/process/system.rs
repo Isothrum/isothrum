@@ -1,7 +1,8 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
 //! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
-//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]).
+//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]). Each tool speaks in the C
+//! locale ([`super::locale`]).
 
 use std::path::Path;
 use std::process::Stdio;
@@ -11,7 +12,7 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
 use super::stopping::{GRACE, Stopping};
-use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, shim};
+use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, locale, shim};
 use crate::BoxFuture;
 
 /// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
@@ -109,7 +110,14 @@ impl SystemProcesses {
         // which is never logged.
         tracing::debug!(program = %spec.program, args = ?spec.args, "starting a process");
         let mut cmd = self.command(spec).map_err(io)?;
+        // Windows: recorded until it is in its job, which `spawn` returns with.
+        let creating = if cfg!(windows) {
+            spec.ledger_dir.as_deref().and_then(|dir| ledger::Spawning::write(dir, wrapped(spec).0))
+        } else {
+            None
+        };
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
+        drop(creating);
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
         let _running = child.id().map(|pid| Running::enter(&self.running, pid));
         let recorded = spec
@@ -150,6 +158,12 @@ impl SystemProcesses {
             // Before the spec's own: what the run delivers is set again after.
             for var in &withheld {
                 c.env_remove(var);
+            }
+            for (var, value) in locale::settings(|name| std::env::var_os(name)) {
+                match value {
+                    Some(value) => c.env(var, value),
+                    None => c.env_remove(var),
+                };
             }
             c.envs(spec.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
             if let Some(dir) = &spec.cwd {

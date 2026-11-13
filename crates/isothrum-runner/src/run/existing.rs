@@ -32,12 +32,7 @@ impl Running<'_> {
             self.driver.before_down(&cx).await?;
             crate::executor::run_down_steps(&mut cx).await?;
             self.driver.after_down(&cx).await?;
-            crate::executor::state_files::forget(&cx)?;
-            crate::ssh::forget(&cx)?;
-            self.forget_seal()?;
-            crate::archive::forget(&cx)?;
-            // A status while the next start holds the run shows no machine of this one.
-            self.runner.store.forget_seen(self.name())?;
+            self.run_gone(&cx)?;
             Ok(Done::moved(RunState::Absent))
         })
         .await
@@ -194,7 +189,7 @@ impl Running<'_> {
         // name a key this runner hasn't made yet.
         self.ensure_ssh_key().await?;
         let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, provider)?)?;
-        Self::bind_record(&mut cx, &record);
+        cx.bind_record(&record);
         self.driver.prepare(&cx)?;
         crate::graphical::chosen::ensure(&cx)?;
         crate::executor::state_files::write_missing(&cx)?;

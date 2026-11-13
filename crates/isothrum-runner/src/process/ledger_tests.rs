@@ -9,15 +9,15 @@ fn a_start_reads_back_and_is_its_process_within_the_second_the_os_rounds_to() {
         },
         Start::At(1_794_415_415),
     ] {
-        assert_eq!(Start::parse(&start.word()), Some(start.clone()));
-        assert!(start.is(&start));
+        assert_eq!(Start::from_entry_text(&start.entry_text()), Some(start.clone()));
+        assert!(start.same_process_as(&start));
     }
-    assert!(Start::At(100).is(&Start::At(102)) && Start::At(102).is(&Start::At(100)));
-    assert!(!Start::At(100).is(&Start::At(103)), "another process that got the id later");
+    assert!(Start::At(100).same_process_as(&Start::At(102)) && Start::At(102).same_process_as(&Start::At(100)));
+    assert!(!Start::At(100).same_process_as(&Start::At(103)), "another process that got the id later");
     let boot = |ticks| Start::Boot { boot: "b".into(), ticks };
-    assert!(!boot(1).is(&boot(2)) && !boot(1).is(&Start::At(1)));
+    assert!(!boot(1).same_process_as(&boot(2)) && !boot(1).same_process_as(&Start::At(1)));
     for bad in ["", "at:", "at:x", "boot:1", "boot:b:x", "time:1"] {
-        assert_eq!(Start::parse(bad), None, "{bad:?}");
+        assert_eq!(Start::from_entry_text(bad), None, "{bad:?}");
     }
 }
 
@@ -108,4 +108,19 @@ fn a_folder_made_again_gets_its_owner_again() {
     let owner = names.iter().find_map(|n| n.strip_suffix(".owner")).expect("an owner beside the entry");
     assert!(names.contains(&format!("{owner}-{pid}.tool")), "{names:?}");
     drop(again);
+}
+
+/// A dead process's record of a tool it was creating goes with its owner; off Windows nothing is
+/// created suspended, so nothing is ended for it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dead_owners_tool_being_created_goes_with_it() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(DIR);
+    crate::store::private_dir(&dir).unwrap();
+    std::fs::write(dir.join("dead.owner"), "").unwrap();
+    std::fs::write(dir.join(format!("dead-spawn0.{}", spawning::EXT)), "1 1 docker\n").unwrap();
+    let none: [u32; 0] = [];
+    assert_eq!(end_orphans(&dir).await, none);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the entry and its owner's lock went");
 }

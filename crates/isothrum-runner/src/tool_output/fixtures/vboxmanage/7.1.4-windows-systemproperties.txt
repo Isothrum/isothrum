@@ -1,0 +1,4 @@
+API version:                     7_1
+Minimum guest RAM size:          4 Megabytes
+Default machine folder:          C:\Users\ada\VirtualBox VMs
+VRDE auth library:               VBoxAuth

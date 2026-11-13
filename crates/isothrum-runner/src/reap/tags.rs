@@ -118,21 +118,34 @@ pub(crate) fn queries(cloud: Cloud, place: &Place) -> Vec<ProcessSpec> {
 ///
 /// The answer isn't JSON, or isn't the shape the cloud's command line gives.
 pub(crate) fn parse(cloud: Cloud, json: &str) -> Result<Vec<Found>, String> {
-    let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let shape = || format!("not the shape {} gives", cloud_cli(cloud));
-    let items: Vec<Found> = match cloud {
-        Cloud::Aws => list(v.get("ResourceTagMappingList")).ok_or_else(shape)?.iter().filter_map(aws).collect(),
-        Cloud::Azure => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(azure).collect(),
-        Cloud::Gcp => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(gcp).collect(),
-        Cloud::Digitalocean => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(|d| words(d, "id", "droplet")).collect(),
-        Cloud::Linode => list(Some(&v)).ok_or_else(shape)?.iter().filter_map(|l| words(l, "id", "linode")).collect(),
-        Cloud::Oci => list(v.get("data").and_then(|d| d.get("items")))
-            .ok_or_else(shape)?
-            .iter()
-            .filter_map(oci)
-            .collect(),
+    let shape = |e: serde_json::Error| {
+        if e.is_data() {
+            format!("not the shape {} gives: {e}", cloud_cli(cloud))
+        } else {
+            e.to_string()
+        }
     };
-    Ok(items)
+    let read = |text: &str| -> Result<Vec<Found>, serde_json::Error> {
+        Ok(match cloud {
+            Cloud::Aws => serde_json::from_str::<answer::Aws>(text)?
+                .resource_tag_mapping_list
+                .iter()
+                .filter_map(aws)
+                .collect(),
+            Cloud::Azure => serde_json::from_str::<Vec<answer::Azure>>(text)?.iter().filter_map(azure).collect(),
+            Cloud::Gcp => serde_json::from_str::<Vec<answer::Gcp>>(text)?.iter().filter_map(gcp).collect(),
+            Cloud::Digitalocean => serde_json::from_str::<Vec<answer::Worded>>(text)?
+                .iter()
+                .filter_map(|d| words(d, "droplet"))
+                .collect(),
+            Cloud::Linode => serde_json::from_str::<Vec<answer::Worded>>(text)?
+                .iter()
+                .filter_map(|l| words(l, "linode"))
+                .collect(),
+            Cloud::Oci => serde_json::from_str::<answer::Oci>(text)?.data.items.iter().filter_map(oci).collect(),
+        })
+    };
+    read(json).map_err(shape)
 }
 
 /// The command line `cloud`'s query runs.
@@ -147,21 +160,111 @@ pub(super) fn cloud_cli(cloud: Cloud) -> &'static str {
     }
 }
 
-fn list(v: Option<&Value>) -> Option<&Vec<Value>> {
-    v?.as_array()
-}
+/// What each cloud's command line answers its query, parsed once, here, into the fields the
+/// sweep reads. Unknown fields are skipped; a resource missing one the sweep needs is left out.
+mod answer {
+    use std::collections::BTreeMap;
 
-fn text(v: Option<&Value>) -> Option<String> {
-    match v? {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
+    use serde::Deserialize;
+
+    /// A tag's value, or an id: a string, or a number some clouds write; anything else isn't one.
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    pub(super) enum Scalar {
+        Text(String),
+        Number(serde_json::Number),
+        Other(serde::de::IgnoredAny),
+    }
+
+    impl Scalar {
+        /// Its text, when it is a string or a number.
+        pub(super) fn text(&self) -> Option<String> {
+            match self {
+                Scalar::Text(s) => Some(s.clone()),
+                Scalar::Number(n) => Some(n.to_string()),
+                Scalar::Other(_) => None,
+            }
+        }
+    }
+
+    /// Key-value tags (Azure's `tags`, Google Cloud's `labels`, OCI's `freeform-tags`).
+    pub(super) type Keyed = BTreeMap<String, Scalar>;
+
+    /// `aws resourcegroupstaggingapi get-resources`.
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct Aws {
+        pub(super) resource_tag_mapping_list: Vec<AwsResource>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct AwsResource {
+        #[serde(rename = "ResourceARN")]
+        pub(super) resource_arn: Option<Scalar>,
+        pub(super) tags: Option<Vec<AwsTag>>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct AwsTag {
+        pub(super) key: Option<Scalar>,
+        pub(super) value: Option<Scalar>,
+    }
+
+    /// `az resource list`.
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Azure {
+        pub(super) id: Option<Scalar>,
+        #[serde(rename = "type")]
+        pub(super) kind: Option<Scalar>,
+        pub(super) tags: Option<Keyed>,
+    }
+
+    /// `gcloud compute instances list`.
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct Gcp {
+        pub(super) self_link: Option<Scalar>,
+        pub(super) name: Option<Scalar>,
+        pub(super) labels: Option<Keyed>,
+    }
+
+    /// `doctl compute droplet list` and `linode-cli linodes list`: tags as words.
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Worded {
+        pub(super) id: Option<Scalar>,
+        pub(super) tags: Option<Vec<Scalar>>,
+    }
+
+    /// `oci search resource structured-search`.
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Oci {
+        pub(super) data: OciData,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub(super) struct OciData {
+        pub(super) items: Vec<OciItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub(super) struct OciItem {
+        pub(super) identifier: Option<Scalar>,
+        pub(super) resource_type: Option<Scalar>,
+        pub(super) freeform_tags: Option<Keyed>,
     }
 }
 
-/// A resource from its id, kind and key-value tags (an object of strings).
-fn keyed(id: Option<String>, kind: String, tags: Option<&Value>) -> Option<Found> {
-    let tags = tags?.as_object()?;
+/// `scalar`'s text, when there is one that is a string or a number.
+fn text(scalar: Option<&answer::Scalar>) -> Option<String> {
+    scalar?.text()
+}
+
+/// A resource from its id, kind and key-value tags.
+fn keyed(id: Option<String>, kind: String, tags: Option<&answer::Keyed>) -> Option<Found> {
+    let tags = tags?;
     let tagged = Tagged {
         id: id?,
         kind,
@@ -190,43 +293,45 @@ fn expiring(tagged: Tagged, at: &str) -> Found {
 }
 
 /// An AWS resource: its ARN, its service and type (`ec2 instance`), its `Tags` list.
-fn aws(r: &Value) -> Option<Found> {
-    let arn = text(r.get("ResourceARN"))?;
-    let tags: serde_json::Map<String, Value> = list(r.get("Tags"))?
+fn aws(r: &answer::AwsResource) -> Option<Found> {
+    let arn = text(r.resource_arn.as_ref())?;
+    let tags: answer::Keyed = r
+        .tags
+        .as_ref()?
         .iter()
-        .filter_map(|t| Some((text(t.get("Key"))?, t.get("Value")?.clone())))
+        .filter_map(|t| Some((text(t.key.as_ref())?, answer::Scalar::Text(text(t.value.as_ref())?))))
         .collect();
     let mut parts = arn.split(':');
     let service = parts.nth(2).unwrap_or_default().to_owned();
     let kind = parts.nth(2).and_then(|resource| resource.split(['/', ':']).next()).unwrap_or_default();
-    keyed(Some(arn.clone()), format!("{service} {kind}").trim().to_owned(), Some(&Value::Object(tags)))
+    keyed(Some(arn.clone()), format!("{service} {kind}").trim().to_owned(), Some(&tags))
 }
 
-fn azure(r: &Value) -> Option<Found> {
-    keyed(text(r.get("id")), text(r.get("type")).unwrap_or_default(), r.get("tags"))
+fn azure(r: &answer::Azure) -> Option<Found> {
+    keyed(text(r.id.as_ref()), text(r.kind.as_ref()).unwrap_or_default(), r.tags.as_ref())
 }
 
-fn gcp(r: &Value) -> Option<Found> {
-    let id = text(r.get("selfLink")).or_else(|| text(r.get("name")));
-    keyed(id, "compute instance".into(), r.get("labels"))
+fn gcp(r: &answer::Gcp) -> Option<Found> {
+    let id = text(r.self_link.as_ref()).or_else(|| text(r.name.as_ref()));
+    keyed(id, "compute instance".into(), r.labels.as_ref())
 }
 
-fn oci(r: &Value) -> Option<Found> {
+fn oci(r: &answer::OciItem) -> Option<Found> {
     keyed(
-        text(r.get("identifier")),
-        text(r.get("resource-type")).unwrap_or_default(),
-        r.get("freeform-tags"),
+        text(r.identifier.as_ref()),
+        text(r.resource_type.as_ref()).unwrap_or_default(),
+        r.freeform_tags.as_ref(),
     )
 }
 
 /// A resource whose tags are words (DigitalOcean, Linode): its expiry from
 /// `isoloom-expires-<time>`, its environment the other `isoloom-…` word; none without the
 /// expiry word.
-fn words(r: &Value, id: &str, kind: &str) -> Option<Found> {
-    let tags: Vec<String> = list(r.get("tags"))?.iter().filter_map(|t| text(Some(t))).collect();
+fn words(r: &answer::Worded, kind: &str) -> Option<Found> {
+    let tags: Vec<String> = r.tags.as_ref()?.iter().filter_map(answer::Scalar::text).collect();
     let expires = tags.iter().find_map(|t| t.strip_prefix(EXPIRES_WORD))?;
     let tagged = Tagged {
-        id: text(r.get(id))?,
+        id: text(r.id.as_ref())?,
         kind: kind.to_owned(),
         expires_at: None,
         instance: tags.iter().find(|t| is_instance_word(t)).cloned(),
@@ -236,14 +341,22 @@ fn words(r: &Value, id: &str, kind: &str) -> Option<Found> {
 
 /// The environments a Terraform state's resources carry (their `isoloom-instance` tag, or the
 /// `isoloom-…` word beside an expiry word): what a record covers.
-pub(crate) fn instances_in_state(state: &Value, out: &mut std::collections::BTreeSet<String>) {
-    match state {
+pub(crate) fn instances_in_state(state: &crate::driver::terraform::state::StateDoc, out: &mut std::collections::BTreeSet<String>) {
+    for written in state.written() {
+        instances_in(written, out);
+    }
+}
+
+/// The environments `v`, something the module or a provider wrote into a state, names in its tags
+/// at any depth (the tags' place is each provider's own).
+fn instances_in(v: &Value, out: &mut std::collections::BTreeSet<String>) {
+    match v {
         Value::Object(o) => {
             if let Some(Value::String(i)) = o.get(INSTANCE_TAG) {
                 out.insert(i.clone());
             }
-            for v in o.values() {
-                instances_in_state(v, out);
+            for field in o.values() {
+                instances_in(field, out);
             }
         }
         Value::Array(a) => {
@@ -251,8 +364,8 @@ pub(crate) fn instances_in_state(state: &Value, out: &mut std::collections::BTre
             if words.iter().any(|w| w.starts_with(EXPIRES_WORD)) {
                 out.extend(words.iter().filter(|w| is_instance_word(w)).map(|w| (*w).to_owned()));
             }
-            for v in a {
-                instances_in_state(v, out);
+            for item in a {
+                instances_in(item, out);
             }
         }
         _ => {}

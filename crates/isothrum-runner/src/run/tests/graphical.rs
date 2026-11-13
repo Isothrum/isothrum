@@ -99,7 +99,7 @@ const RUNNING: Hypervisor = Hypervisor {
     vminfo: "name=\"web-vm - web\"\nvrde=\"on\"\nvrdeport=3391\nvrdeaddress=\"127.0.0.1\"\n",
 };
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn libvirts_display_is_read_from_libvirt_and_shown_in_the_status() {
     let (folder, fake, _, runner) = up_on(Provider::Libvirt, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -116,7 +116,7 @@ async fn libvirts_display_is_read_from_libvirt_and_shown_in_the_status() {
     assert_eq!(controller.console, None, "Isoloom's own VM lists none");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_display_off_the_loopback_is_refused() {
     let lan = Hypervisor {
         display: "vnc://0.0.0.0:0\n",
@@ -129,7 +129,7 @@ async fn a_display_off_the_loopback_is_refused() {
     assert!(err.to_string().contains("0.0.0.0:5900, not on this computer's loopback"), "{err}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn virtualbox_without_its_extension_pack_says_so() {
     let (folder, _, _, runner) = up_on(Provider::Virtualbox, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -150,7 +150,7 @@ async fn virtualbox_without_its_extension_pack_says_so() {
     assert!(err.to_string().contains("needs the Oracle VM VirtualBox Extension Pack"), "{err}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn vmwares_console_is_the_runners_choice_handed_to_vagrant_alone() {
     let (folder, fake, _, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931]).await;
     let up = fake.last("vagrant up").expect("the VMs booted");
@@ -176,7 +176,7 @@ async fn vmwares_console_is_the_runners_choice_handed_to_vagrant_alone() {
     assert!(!state.exists(), "down forgets the run's consoles");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn no_console_where_the_manifest_says_none_nor_on_a_stopped_vm() {
     let (folder, _, _, runner) = up_on(Provider::Parallels, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -204,7 +204,7 @@ async fn no_console_where_the_manifest_says_none_nor_on_a_stopped_vm() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_query_never_chooses_a_console_only_an_operation_does() {
     // Regression: the Vagrant driver's prepare chose them, so an unlocked `status` or
     // `graphical_console` generated passwords and wrote `consoles.json`, racing a start in another
@@ -226,7 +226,7 @@ async fn a_query_never_chooses_a_console_only_an_operation_does() {
 /// A console where its hypervisor says it is, that doesn't answer there, is offered as it stands:
 /// the status says why it can't be shown now, and the viewer is refused it, saying where it
 /// didn't answer.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_console_that_doesnt_answer_where_its_hypervisor_says_is_said_unavailable() {
     let silent = Hypervisor {
         display: "vnc://127.0.0.1:7\n",
@@ -253,7 +253,7 @@ async fn a_console_that_doesnt_answer_where_its_hypervisor_says_is_said_unavaila
 
 /// A running machine whose console answers is offered with nothing against it; a stopped one
 /// isn't looked at.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_console_that_answers_is_offered_and_a_stopped_machines_isnt_looked_at() {
     let (folder, fake, h, runner) = up_on(Provider::Libvirt, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -288,7 +288,7 @@ fn qemu_monitor(socket: &std::path::Path, said: &'static str) -> tokio::task::Jo
 /// says so (`info vnc`: `None`): the status says it can't be shown and why, and so does the
 /// console; one started with its display is offered once it answers.
 #[cfg(unix)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_qemu_vm_started_without_a_vnc_display_says_to_restart_it() {
     let (folder, _, _, runner) = up_on(Provider::Qemu, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -335,7 +335,7 @@ fn program(program: &str, args: &[&str]) -> NativeOpen {
 
 /// VirtualBox's app opens a running VM as a window on it (`startvm --type separate`); the status
 /// names it, and the program it needs.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn virtualbox_opens_a_running_vm_in_a_window_of_its_own() {
     let (folder, _, _, runner) = up_on(Provider::Virtualbox, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -349,7 +349,7 @@ async fn virtualbox_opens_a_running_vm_in_a_window_of_its_own() {
 }
 
 /// libvirt's VM opens in `virt-viewer` on its domain, else `remote-viewer` on its display.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn libvirt_opens_a_running_vm_in_virt_viewer_else_remote_viewer() {
     let (folder, _, _, runner) = up_on(Provider::Libvirt, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -364,7 +364,7 @@ async fn libvirt_opens_a_running_vm_in_virt_viewer_else_remote_viewer() {
 }
 
 /// VMware's VM opens in Workstation (on Linux) on the `.vmx` Vagrant records.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn vmware_opens_a_running_vm_on_its_vmx() {
     let (folder, _, _, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931]).await;
     vagrant_records(&folder, "vmware_desktop", "/vms/web-vm - web/web.vmx\n");
@@ -377,7 +377,7 @@ async fn vmware_opens_a_running_vm_on_its_vmx() {
 }
 
 /// Parallels' VM opens in Parallels Desktop on its bundle, where `prlctl` says it is.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn parallels_opens_a_running_vm_on_its_bundle() {
     let (folder, fake, _, runner) = up_on(Provider::Parallels, RUNNING, &[]).await;
     vagrant_records(&folder, "parallels", "{b1}");
@@ -397,7 +397,7 @@ async fn parallels_opens_a_running_vm_on_its_bundle() {
 }
 
 /// vagrant-qemu has no app of its own: none is named, and none opens.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn qemu_has_no_app_to_open_a_vm_in() {
     let (folder, _, _, runner) = up_on(Provider::Qemu, RUNNING, &[]).await;
     let run = runner.open(&folder.manifest, None).unwrap();
@@ -411,7 +411,7 @@ async fn qemu_has_no_app_to_open_a_vm_in() {
 
 /// A VM that isn't running, or whose record would be read as more than one argument (an option
 /// a name begins with), opens nothing.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_stopped_vm_or_one_its_record_makes_an_option_of_opens_nothing() {
     let (folder, _, h, runner) = up_on(Provider::VmwareDesktop, RUNNING, &[5931]).await;
     vagrant_records(&folder, "vmware_desktop", "--gui");

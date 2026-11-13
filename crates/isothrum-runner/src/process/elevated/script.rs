@@ -109,11 +109,22 @@ pub(super) fn encoded(script: &str) -> Vec<String> {
         .collect()
 }
 
-/// The command that starts `script` elevated: one UAC prompt, the broker hidden.
+/// The command that starts `script` elevated: one UAC prompt, the broker hidden. A start Windows
+/// refuses exits with the Win32 error's own code (the prompt declined is
+/// [`ERROR_CANCELLED`]), found among the exception's causes, not with its message, which Windows
+/// words in its display language.
 pub(super) fn launcher(script: &str) -> String {
     let args = encoded(script).iter().map(|a| ps_quote(a)).collect::<Vec<_>>().join(",");
-    format!("Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList {args}")
+    format!(
+        "try {{ Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ErrorAction Stop -ArgumentList {args} }} \
+         catch {{ $e = $_.Exception; while ($e -and -not ($e -is [System.ComponentModel.Win32Exception])) {{ $e = $e.InnerException }}; \
+         if ($e) {{ exit $e.NativeErrorCode }}; throw }}"
+    )
 }
+
+/// The Win32 error a declined UAC prompt fails `Start-Process -Verb RunAs` with
+/// (`ERROR_CANCELLED`), which [`launcher`] exits with.
+pub(super) const ERROR_CANCELLED: i32 = 1223;
 
 #[cfg(test)]
 mod tests {
@@ -191,6 +202,14 @@ mod tests {
     fn the_script_travels_encoded() {
         let args = encoded("echo 1");
         assert_eq!(args.last().map(String::as_str), Some("ZQBjAGgAbwAgADEA"));
-        assert!(launcher("echo 1").starts_with("Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile',"));
+        let start = launcher("echo 1");
+        assert!(
+            start.starts_with("try { Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ErrorAction Stop -ArgumentList '-NoProfile',"),
+            "{start}"
+        );
+        assert!(
+            start.contains("[System.ComponentModel.Win32Exception]") && start.contains("exit $e.NativeErrorCode"),
+            "{start}"
+        );
     }
 }

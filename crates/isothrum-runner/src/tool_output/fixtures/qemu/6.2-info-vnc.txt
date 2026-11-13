@@ -1,0 +1,4 @@
+Server:
+     address: 127.0.0.1:5900
+        auth: none
+Client: none

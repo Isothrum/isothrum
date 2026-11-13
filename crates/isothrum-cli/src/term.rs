@@ -129,16 +129,16 @@ impl Trail {
     }
 
     /// The event of `kind` that follows the last one: its run and operation, else `run` and `op`.
-    pub(crate) fn next(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+    pub(crate) fn next_event(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
         match self.last() {
             Some(last) => Event::new(last.seq + 1, last.run, last.op, kind),
             None => Event::new(1, run, op, kind),
         }
     }
 
-    /// [`Trail::next`], kept as the last event: for a command that writes its own events.
-    pub(crate) fn follow(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
-        let event = self.next(run, op, kind);
+    /// [`Trail::next_event`], kept as the last event: for a command that writes its own events.
+    pub(crate) fn append(&self, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+        let event = self.next_event(run, op, kind);
         self.keep(&event);
         event
     }

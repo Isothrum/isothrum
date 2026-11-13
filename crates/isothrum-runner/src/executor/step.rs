@@ -146,11 +146,7 @@ pub(crate) async fn once(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dy
     }
     .map_err(|e| masked(cx, e))?;
     Ok(Ended {
-        last: Captured {
-            exit,
-            stdout: last_out.into(),
-            stderr_tail: tail.into_lines(),
-        },
+        last: Captured::new(&spec.program, exit, last_out.into(), tail.into_lines()),
         printed,
         verdict_line: lead,
         held_errors: kept_back,
@@ -318,7 +314,7 @@ pub(crate) fn env_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Vec<(String
 /// relays point the tools at loopback ports in place of the LAN host).
 pub(crate) fn with_delivered(cx: &Cx<'_>, id: &str, mut env: Vec<(String, String)>) -> Vec<(String, String)> {
     env.extend(step_env(cx, id));
-    env.extend(cx.relayed.iter().flat_map(|r| r.env.iter().cloned()));
+    env.extend(cx.relayed().into_iter().flat_map(|r| r.env.iter().cloned()));
     env
 }
 

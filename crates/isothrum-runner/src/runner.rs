@@ -110,7 +110,7 @@ impl std::fmt::Debug for RunnerConfig {
 
 /// This build's host operating system.
 #[must_use]
-pub(crate) fn this_host() -> HostOs {
+pub fn this_host() -> HostOs {
     if cfg!(windows) {
         HostOs::Windows
     } else if cfg!(target_os = "macos") {
@@ -123,7 +123,7 @@ pub(crate) fn this_host() -> HostOs {
 /// This build's CPU architecture, as Vagrant names a box's build (an x86-64 build reads as
 /// `amd64`, an ARM one as `arm64`).
 #[must_use]
-pub(crate) fn this_arch() -> Arch {
+pub fn this_arch() -> Arch {
     if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::Amd64 }
 }
 

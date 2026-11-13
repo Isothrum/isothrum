@@ -54,16 +54,6 @@ pub(super) const QUERY_PATIENCE: Duration = Duration::from_secs(10);
 /// How long between two tries.
 const POLL: Duration = Duration::from_secs(2);
 
-/// What Vagrant says when another process holds a machine's lock, its action lock or its index
-/// lock: each error's class, which `--machine-readable` prints in its `error-exit` record, and its
-/// message, which a human-readable call prints on standard error (the record repeats it too).
-const LOCKED: [&str; 4] = [
-    "Vagrant::Errors::MachineActionLockedError",
-    "another process is already executing an action on the machine",
-    "Vagrant::Errors::MachineLocked,",
-    "Vagrant can't use the requested machine because it is locked!",
-];
-
 /// How Vagrant's human output starts each line it says for a machine (`==> web: Removing
 /// domain...`): what it does to the machine is announced so, before it is done.
 const ACTING: &str = "==> ";
@@ -71,12 +61,7 @@ const ACTING: &str = "==> ";
 /// Whether `out`, a failed Vagrant call, was refused because another process held a machine's
 /// lock.
 pub(super) fn refused(out: &Captured) -> bool {
-    !out.success()
-        && out
-            .stdout
-            .iter()
-            .chain(&out.stderr_tail)
-            .any(|line| LOCKED.iter().any(|said| line.contains(said)))
+    !out.success() && crate::tool_output::vagrant::Failure::of(out.stdout.iter().chain(&out.stderr_tail)) == crate::tool_output::vagrant::Failure::Locked
 }
 
 /// What a `vagrant` command does when it is run a second time: the one reading of its verb, for
@@ -203,19 +188,19 @@ pub(super) enum StatusRead {
 /// again once an operation holds the run, and is then [`StatusRead::Busy`].
 pub(super) async fn read_status(cx: &Cx<'_>) -> Result<StatusRead> {
     let step: &Step = &cx.manifest().lifecycle.status;
-    let patience = Patience::of(if cx.query { QUERY_PATIENCE } else { PATIENCE });
+    let patience = Patience::of(if cx.is_query() { QUERY_PATIENCE } else { PATIENCE });
     // An operation that holds the run meanwhile holds its VMs for as long as it acts.
     // A lock file that can't be read says nothing about the run: traced, read as not held, so
     // the query goes on trying rather than giving up on a read error (Clean Code ch.7, 2026-11-13).
     let still = |_: &Captured| {
-        !cx.query
-            || !cx.run.runner.store.held(cx.run.name()).unwrap_or_else(|e| {
+        !cx.is_query()
+            || !cx.run.held().unwrap_or_else(|e| {
                 tracing::warn!(error = %e, run = %cx.run.name(), "the run's lock couldn't be read; read as not held");
                 false
             })
     };
     let out = waiting(STATUS, patience, still, || {}, || capture_output(cx, STATUS, step)).await?;
-    if cx.query && refused(&out) {
+    if cx.is_query() && refused(&out) {
         return Ok(StatusRead::Busy(locked_machines(&out)));
     }
     stdout_of_step(cx, step.id.as_str(), &out).map(StatusRead::Read)
@@ -324,11 +309,7 @@ mod tests {
 
     fn ended(code: i32, stdout: &[&str], stderr: &[&str]) -> Captured {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
-        Captured {
-            exit: Exit::new(Some(code)),
-            stdout: lines(stdout),
-            stderr_tail: lines(stderr),
-        }
+        Captured::new("vagrant", Exit::new(Some(code)), lines(stdout), lines(stderr))
     }
 
     #[test]

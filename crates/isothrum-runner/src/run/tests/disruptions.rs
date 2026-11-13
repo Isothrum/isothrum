@@ -152,7 +152,7 @@ fn fixture() -> Fixture {
     let (project, fake) = modelled(answer);
     // The fake hands each free port out once: enough for every start of a long sequence.
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(41_000..42_000));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::testing::TEST_HOST)).unwrap();
     Fixture { folder, fake, project, runner }
 }
 

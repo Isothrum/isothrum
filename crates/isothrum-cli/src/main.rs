@@ -113,7 +113,7 @@ fn report(e: &Error, cli: &Cli, term: &Term, trail: &Trail) {
     }
     let kind = failure(e.code(), e.to_string());
     let run = commands::run_named(&cli.command).map(str::to_owned);
-    let event = trail.next(run, commands::op_of(&cli.command), kind);
+    let event = trail.next_event(run, commands::op_of(&cli.command), kind);
     term.json(&event);
 }
 
@@ -126,6 +126,6 @@ fn refused(e: &clap::Error, term: &Term) -> ExitCode {
         e.exit()
     }
     let kind = failure(isothrum_runner::ErrorCode::Usage, e.render().to_string().trim_end().to_owned());
-    term.json(&Trail::default().next(None, None, kind));
+    term.json(&Trail::default().next_event(None, None, kind));
     ExitCode::from(exit::USAGE)
 }

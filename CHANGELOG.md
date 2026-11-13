@@ -51,6 +51,16 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **On Windows, a tool being created as the runner's process is killed is ended by the next
+  operation.** A tool is created suspended, put in its job object, then resumed; a process killed
+  in between left it suspended in no job, never run and never ended. Its creation is now recorded
+  in the run's tools ledger until it is in its job, and the next operation, finding its creator
+  dead, ends it.
+- **A run rebuilt at the same addresses no longer meets its old machines' SSH host keys.** The
+  leftovers an `up` clears and a recovery's steps removed the machines but kept their pinned host
+  keys, so every SSH connection to the machines made again failed; every way a run's machines go
+  now forgets what was learned from them, and a `down` everything the run kept (the consoles the
+  runner chose included, whatever the driver).
 - **A Terraform state holding only data sources no longer reads as machines running.** An
   apply that read a `data` source (an AMI lookup) and then failed to create anything left a
   state the runner took as a run with resources: status said every machine ran, and park, check
@@ -64,6 +74,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   file under the home's new `ports/` folder, held until the start's operation ends and freed by
   the OS when its process dies. A start in another process finds it reserved and moves to a free
   port, where both took a preferred 8080 and the second failed at the hypervisor (#101).
+- **docker-vm: a port Compose publishes in a local VM is reported at this computer's forward.**
+  An ephemeral port is forwarded from the host port the runner pinned, but status, the outputs,
+  `${published.…}` and the ready conditions named the VM's own port on this computer, where
+  another program may answer (and a ready check pass against it). A port a local VM forwards is
+  now reported at its forward's host port; at ESXi and on a server, at the VM's.
+- **Each Proxmox API request has a curl config file of its own.** Every request wrote the same
+  `proxmox-console.curl`, and a status read takes no run lock, so one beside a console request
+  could read the other's sign-in, replace it or find it gone; each is now
+  `proxmox-console-<random>.curl`, created new.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or

@@ -15,13 +15,14 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access, contract};
 
-use super::{Driver, GuestUse, Observed};
+use super::{Driver, GuestUse, Observation, Observed};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok};
 use crate::process::ProcessSpec;
 use crate::state::Op;
+use crate::tool_output::docker as docker_said;
 
 pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
 pub(crate) use pull::before_step as pull_before_step;
@@ -149,12 +150,11 @@ impl Driver for Compose {
         }
     }
 
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let out = super::status_report(cx).await?;
         let (machines, published) = read_ps(cx.manifest(), &out).ok_or_else(|| ps::unreadable(super::STATUS))?;
         // Compose publishes on this computer, at the address the manifest binds.
         let publishing = cx
-            .run
             .manifest()
             .machines
             .iter()
@@ -163,12 +163,12 @@ impl Driver for Compose {
         for m in publishing {
             hosts.insert(m.name.to_string(), super::publish_host(cx, m)?);
         }
-        Ok(Observed {
+        Ok(Observation::Read(Observed {
             machines,
             published,
             hosts,
             ..Observed::default()
-        })
+        }))
     }
 
     /// Records the project's anonymous volumes ([`volumes::record`]): the `down` steps remove
@@ -304,8 +304,8 @@ impl Compose {
     }
 
     /// Plugs the just-started access machine's container into the network natively named
-    /// `network`. A container already on it is where it should be; any other failure fails the
-    /// attach.
+    /// `network`, unless `docker inspect` says it is already on it (where it should be); a
+    /// failure to read its networks or to plug it fails the attach.
     async fn connect_network(&self, cx: &Cx<'_>, native: &str, network: &str) -> Result<()> {
         let step = Op::Attach.as_str();
         let id_args = self.compose_args(cx, &["ps", "-q", native])?;
@@ -314,16 +314,21 @@ impl Compose {
             step: step.to_owned(),
             reason: format!("`{native}` has no container to join to network `{network}`"),
         })?;
-        let connect = ["network", "connect", network, container].map(String::from).to_vec();
-        match call_ok(cx, step, &docker_spec(cx, connect, Vec::new()), CALL_LIMIT, Echo::Quiet).await {
-            Err(Error::ToolFailed { reason, .. }) if reason.contains(ALREADY_CONNECTED) => Ok(()),
-            done => done.map(drop),
+        let inspect = ["inspect", "--format", docker_said::NETWORKS_FORMAT, container].map(String::from).to_vec();
+        let said = call_ok(cx, step, &docker_spec(cx, inspect, Vec::new()), CALL_LIMIT, Echo::Quiet).await?;
+        let on = docker_said::networks(&said).map_err(|why| Error::ToolFailed {
+            step: step.to_owned(),
+            reason: format!("`{native}`'s container `{container}`: {why}"),
+        })?;
+        if on.contains(network) {
+            return Ok(());
         }
+        let connect = ["network", "connect", network, container].map(String::from).to_vec();
+        call_ok(cx, step, &docker_spec(cx, connect, Vec::new()), CALL_LIMIT, Echo::Quiet)
+            .await
+            .map(drop)
     }
 }
-
-/// What Docker says when a container is already on the network it is connected to.
-const ALREADY_CONNECTED: &str = "already exists in network";
 
 /// `--profile <profile>`, when one is named.
 fn profiled(profile: Option<&str>) -> Vec<&str> {

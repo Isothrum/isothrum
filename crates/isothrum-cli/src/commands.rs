@@ -4,7 +4,7 @@ use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName,
 
 use std::borrow::Borrow;
 
-use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand};
+use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
@@ -84,7 +84,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
 pub(crate) fn op_of(command: &Command) -> Option<Op> {
     let Command::Runner(command) = command else { return None };
     Some(match &**command {
-        RunnerCommand::Lifecycle(Lifecycle::Up { .. }) => Op::Up,
+        RunnerCommand::Lifecycle(Lifecycle::Up(_)) => Op::Up,
         RunnerCommand::Lifecycle(Lifecycle::Down(_)) => Op::Down,
         RunnerCommand::Lifecycle(Lifecycle::Park { .. }) => Op::Park,
         RunnerCommand::Lifecycle(Lifecycle::Resume(_)) => Op::Resume,
@@ -110,7 +110,7 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
     let Command::Runner(command) = command else { return None };
     let target = match &**command {
         RunnerCommand::Lifecycle(
-            Lifecycle::Up { op, .. }
+            Lifecycle::Up(UpArgs { op, .. })
             | Lifecycle::Down(op)
             | Lifecycle::Park { op, .. }
             | Lifecycle::Resume(op)
@@ -138,16 +138,9 @@ struct Out<'a> {
 async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     match command {
-        Lifecycle::Up {
-            op,
-            replace,
-            lifetime,
-            ssh_jump,
-        } => {
-            let started = open(runner, &op.run)?
-                .up(&start_opts(op, *replace, *lifetime, ssh_jump.as_deref(), var)?, events)
-                .await;
-            Ok(said(json, started.ok(), "The run is up.", term))
+        Lifecycle::Up(up) => {
+            let started = open(runner, &up.op.run)?.up(&start_opts(up, var)?, events).await;
+            Ok(report_came_up(json, started.ok(), "The run is up.", term))
         }
         Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
         Lifecycle::Park { op, mode } => {
@@ -156,11 +149,11 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
         }
         Lifecycle::Resume(op) => {
             let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
-            Ok(said(json, resumed.ok(), "The run is up again.", term))
+            Ok(report_came_up(json, resumed.ok(), "The run is up again.", term))
         }
         Lifecycle::Update(op) => {
             let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
-            Ok(said(json, updated.ok(), "The run is up to date.", term))
+            Ok(report_came_up(json, updated.ok(), "The run is up to date.", term))
         }
         Lifecycle::Retire { op, machine } => {
             let retired = open(runner, &op.run)?.retire(machine, &options(op, var)?, events).await;
@@ -179,7 +172,7 @@ fn park_mode(mode: Mode) -> Park {
 
 /// A run that came up (a start, a resume, an update): its message, or `done`, unless the output is JSON
 /// (its events said it); failed when it didn't come up.
-fn said(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
+fn report_came_up(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
     let Some(run) = run else { return Verdict::Fail };
     if !json {
         term.out(run.message.as_deref().unwrap_or(done).trim_end());
@@ -234,7 +227,7 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
 async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
     let console = run.graphical_console(machine).await?;
-    let protocol = serde_json::to_value(console.protocol)?.as_str().unwrap_or_default().to_owned();
+    let protocol = isothrum_runner::wire_name(&console.protocol);
     let (address, websocket) = match &console.endpoint {
         Endpoint::Loopback(at) => (Some(at.to_string()), None),
         Endpoint::ProxmoxVnc(vnc) => (None, Some(vnc.websocket.expose().to_owned())),
@@ -315,17 +308,17 @@ fn open<'r>(runner: &'r Runner, args: &RunArgs) -> Result<Running<'r>> {
     Ok(runner.open(&manifest, name)?)
 }
 
-/// The start options: `args`, plus `replace` (remove leftovers first), a `lifetime` in minutes
-/// and the SSH jump the run records.
-fn start_opts(args: &OpArgs, replace: bool, lifetime: Option<u64>, ssh_jump: Option<&str>, var: &Var<'_>) -> Result<RunOptions> {
-    let mut opts = options(args, var)?;
-    if let Some(jump) = ssh_jump {
+/// The start options `up` gives: its operation's, plus `replace` (remove leftovers first), a
+/// `lifetime` in minutes and the SSH jump the run records.
+fn start_opts(up: &UpArgs, var: &Var<'_>) -> Result<RunOptions> {
+    let mut opts = options(&up.op, var)?;
+    if let Some(jump) = &up.ssh_jump {
         opts = opts.with_ssh_jump(jump);
     }
-    if replace {
+    if up.replace {
         opts = opts.with_occupied(Occupied::Replace);
     }
-    if let Some(minutes) = lifetime {
+    if let Some(minutes) = up.lifetime {
         opts = opts.with_lifetime(std::time::Duration::from_secs(minutes.saturating_mul(60)));
     }
     Ok(opts)

@@ -65,7 +65,7 @@ pub(crate) async fn choose(store: &Home, manifest: &Manifest, me: &RunName, plac
     let taken = taken(&store.records()?, me, place);
     let slot = match asked {
         Asked::Own(own) => pick(own, &taken, place)?,
-        Asked::Applied(Some(slot)) => applied(slot, &taken, place).map_err(|reason| Error::Adopt { run: me.to_string(), reason })?,
+        Asked::Applied(Some(slot)) => reuse_applied_slot(slot, &taken, place).map_err(|reason| Error::Adopt { run: me.to_string(), reason })?,
         Asked::Applied(None) => pick(None, &taken, place)?,
     };
     Ok(Chosen {
@@ -75,7 +75,7 @@ pub(crate) async fn choose(store: &Home, manifest: &Manifest, me: &RunName, plac
 }
 
 /// `slot`, the one a deployment was applied in, when it is free on `place`; why not otherwise.
-fn applied(slot: u8, taken: &BTreeSet<u8>, place: Option<&str>) -> std::result::Result<u8, String> {
+fn reuse_applied_slot(slot: u8, taken: &BTreeSet<u8>, place: Option<&str>) -> std::result::Result<u8, String> {
     if !(1..=LAST).contains(&slot) {
         return Err(format!("its slot {slot} isn't one of 1 to {LAST}"));
     }
@@ -146,10 +146,13 @@ mod tests {
     #[test]
     fn a_deployments_slot_is_taken_as_it_was_applied_or_refused() {
         let taken = BTreeSet::from([1, 3]);
-        assert_eq!(applied(2, &taken, Some("pve")), Ok(2));
-        assert_eq!(applied(3, &taken, Some("pve")), Err("its slot 3 is held by another run on `pve`".to_owned()));
-        assert_eq!(applied(0, &taken, None), Err("its slot 0 isn't one of 1 to 99".to_owned()));
-        assert_eq!(applied(100, &taken, None), Err("its slot 100 isn't one of 1 to 99".to_owned()));
+        assert_eq!(reuse_applied_slot(2, &taken, Some("pve")), Ok(2));
+        assert_eq!(
+            reuse_applied_slot(3, &taken, Some("pve")),
+            Err("its slot 3 is held by another run on `pve`".to_owned())
+        );
+        assert_eq!(reuse_applied_slot(0, &taken, None), Err("its slot 0 isn't one of 1 to 99".to_owned()));
+        assert_eq!(reuse_applied_slot(100, &taken, None), Err("its slot 100 isn't one of 1 to 99".to_owned()));
     }
 
     #[test]

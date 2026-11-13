@@ -73,6 +73,16 @@ pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
     Ok(chosen)
 }
 
+/// The host port `m`'s published port `p` is forwarded from on this computer when the run's VMs
+/// forward their ports here ([`host_port`] among the ports the run pinned); `None` on ESXi, whose
+/// VMs forward nothing (a port answers at the VM's own address), or when `p` isn't published.
+pub(in crate::driver) fn local_host_port(cx: &Cx<'_>, m: &Machine, p: &Port) -> Option<u16> {
+    if cx.scope.runs_on(Provider::VmwareEsxi) {
+        return None;
+    }
+    host_port(m, p, cx.vars.vm_pins())
+}
+
 /// The host port `m`'s published port `p` is forwarded from on this computer, as the
 /// Vagrantfile reads it (`ISOLOOM_HOSTPORTS`, else the port's publish number): the one the runner
 /// pinned for it among `forwards`, else its `preferred` number, else its own, whatever its mode.
@@ -113,5 +123,5 @@ pub(super) async fn check(cx: &Cx<'_>, step: &Step) -> Result<()> {
         tracing::debug!(step = %step.id, "the run's VMs exist: their forwards are its own");
         return Ok(());
     }
-    cx.run.runner.ensure_ports_free(cx.run.name(), host_ports(cx))
+    cx.run.ensure_ports_free(host_ports(cx))
 }

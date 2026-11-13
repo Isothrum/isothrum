@@ -18,12 +18,13 @@ use crate::{Res, process, repo};
 const SCOPE: [(&str, &[&str]); 2] = [("isothrum-compiler", &[]), ("isothrum-runner", &RUNNER_FILES)];
 
 /// The runner's files mutated: the executor, and what reads the engines' answers.
-const RUNNER_FILES: [&str; 6] = [
+const RUNNER_FILES: [&str; 7] = [
     "crates/isothrum-runner/src/executor.rs",
     "crates/isothrum-runner/src/executor/**",
     "crates/isothrum-runner/src/driver/compose/config.rs",
     "crates/isothrum-runner/src/driver/compose/ps.rs",
-    "crates/isothrum-runner/src/driver/vagrant/status.rs",
+    "crates/isothrum-runner/src/tool_output.rs",
+    "crates/isothrum-runner/src/tool_output/**",
     "crates/isothrum-runner/src/driver/terraform/state.rs",
 ];
 

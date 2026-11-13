@@ -244,24 +244,11 @@ impl<'a> Emitter<'a> {
 
     /// The operation's failure.
     pub(crate) fn error(&self, err: &Error) {
-        let step = match err {
-            Error::ToolMissing { step, .. }
-            | Error::ToolFailed { step, .. }
-            | Error::Timeout { step, .. }
-            | Error::DownloadStalled { step, .. }
-            | Error::DownloadFailed { step, .. }
-            | Error::ServerAuthFailed { step, .. } => Some(step.clone()),
-            _ => None,
-        };
-        let timeout = match err {
-            Error::Timeout { timed_out, .. } => Some(timed_out.clone()),
-            _ => None,
-        };
         self.emit(EventKind::Error {
             code: err.code(),
             message: err.to_string(),
-            step,
-            timeout,
+            step: err.step().map(str::to_owned),
+            timeout: err.timed_out().cloned(),
         });
     }
 }

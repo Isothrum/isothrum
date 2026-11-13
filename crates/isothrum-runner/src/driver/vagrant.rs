@@ -11,7 +11,6 @@ mod boxes;
 pub(super) mod forwarded;
 mod lock;
 mod orphans;
-mod status;
 
 pub(in crate::driver) use boxes::before_step as boxes_before_step;
 pub(super) use lock::run_step;
@@ -22,7 +21,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, contract};
 
-use super::{Driver, GuestUse, Observed, native_name};
+use super::{Driver, GuestUse, Observation, Observed, native_name};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::encoding::wire_name;
@@ -31,6 +30,7 @@ use crate::executor::{Cx, Echo, call_ok, with_delivered};
 use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::status::{MachineStatus, PublishedPort};
+use crate::tool_output::vagrant as status;
 
 /// The variable Vagrant reads its state folder from.
 const DOTFILE_VAR: &str = "VAGRANT_DOTFILE_PATH";
@@ -151,7 +151,7 @@ impl Vagrant {
     async fn plugins(&self, cx: &Cx<'_>) -> Result<Vec<String>> {
         let spec = self.vagrant(cx, PLUGINS, &["plugin", "list", "--machine-readable"])?;
         let out = call_ok(cx, PLUGINS, &spec, READ_LIMIT, Echo::Quiet).await?;
-        Ok(crate::vagrant_plugins(&out).into_iter().map(|(name, _)| name).collect())
+        Ok(status::plugins(&out).into_iter().map(|(name, _)| name).collect())
     }
 }
 
@@ -214,7 +214,7 @@ impl Driver for Vagrant {
         }
     }
 
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let out = match lock::read_status(cx).await? {
             lock::StatusRead::Read(out) => out,
             lock::StatusRead::Busy(defines) => return Ok(busy(cx.manifest(), &defines)),
@@ -229,13 +229,13 @@ impl Driver for Vagrant {
             Forwarding::AtVm => self.guest_addresses(cx, &read).await,
             Forwarding::Local(_) => local_hosts(cx)?,
         };
-        Ok(machines(cx.manifest(), &read, &hosts, forwarding))
+        Ok(Observation::Read(machines(cx.manifest(), &read, &hosts, forwarding)))
     }
 
-    fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn after_down(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder; the
-        // consoles the runner chose go with the run.
-        std::future::ready(crate::graphical::chosen::forget(cx))
+        // consoles the runner chose go with the run, as everything it keeps (`run::kept`).
+        std::future::ready(Ok(()))
     }
 
     /// `vagrant reload <define> --no-provision`: the VM boots with what the Vagrantfile now says,
@@ -379,17 +379,14 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts
 
 /// A query's read another process's lock refused: the manifest's machines Vagrant named
 /// (`defines`, by define name) busy, by their names; nothing else is read.
-fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observed {
+fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observation {
     let named = manifest
         .machines
         .iter()
         .filter(|m| defines.iter().any(|d| d == native_name(m)))
         .map(|m| m.name.to_string())
         .collect();
-    Observed {
-        busy: Some(named),
-        ..Observed::default()
-    }
+    Observation::Busy(named)
 }
 
 /// Where a VM's published ports answer: at the VM's own address (ESXi, which forwards nothing),

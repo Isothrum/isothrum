@@ -49,7 +49,7 @@ impl Orphans {
     fn classify(&mut self, found: Vec<tags::Found>, now: u64, covered: &BTreeSet<String>) {
         for item in found {
             match item {
-                Ok(t) if orphaned(&t, now, covered) => self.resources.push(t),
+                Ok(t) if is_orphaned(&t, now, covered) => self.resources.push(t),
                 Err(e) if !is_covered(e.instance.as_ref(), covered) => self.unread.push(e.to_string()),
                 Ok(_) | Err(_) => {}
             }
@@ -102,7 +102,7 @@ impl Runner {
         let mut out = BTreeSet::new();
         for record in self.store.records()?.into_iter().filter(|r| r.cloud == Some(cloud)) {
             let dir = self.store.run_dir(&record.name)?;
-            if let Some(state) = crate::driver::terraform::state::read_json(&dir)? {
+            if let Some(state) = crate::driver::terraform::state::read_doc(&dir)? {
                 tags::instances_in_state(&state, &mut out);
             }
         }
@@ -111,7 +111,7 @@ impl Runner {
 }
 
 /// Whether `t` is past its expiry at `now` and no recorded run covers its environment.
-fn orphaned(t: &Tagged, now: u64, covered: &BTreeSet<String>) -> bool {
+fn is_orphaned(t: &Tagged, now: u64, covered: &BTreeSet<String>) -> bool {
     t.expires_at.is_some_and(|at| at <= now) && !is_covered(t.instance.as_ref(), covered)
 }
 

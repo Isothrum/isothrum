@@ -51,7 +51,7 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     let mut by_machine = due(cx, after);
     // A machine set up before this operation keeps what it was given (an update carries no
     // launch's values: delivering again would overwrite them).
-    by_machine.retain(|machine, _| !cx.set_up.contains(machine));
+    by_machine.retain(|machine, _| !cx.was_set_up(machine));
     if by_machine.is_empty() {
         return Ok(());
     }
@@ -59,7 +59,7 @@ pub(crate) async fn deliver(cx: &mut Cx<'_>, after: Option<&str>) -> Result<()> 
     // The login itself, though the module or the manifest keeps it secret.
     let output = |name: &str| outputs.iter().find(|o| o.name == name).and_then(|o| o.revealed().map(str::to_owned));
     for (machine, lines) in by_machine {
-        let login = ssh::machine_login(output, &machine, cx.ssh_jump.as_deref())?.ok_or_else(|| Error::Malformed {
+        let login = ssh::machine_login(output, &machine, cx.ssh_jump())?.ok_or_else(|| Error::Malformed {
             at: format!("the guest delivery to `{machine}`"),
             reason: format!("no `{}` output gives the machine's address", ssh::address_output(&machine)),
         })?;

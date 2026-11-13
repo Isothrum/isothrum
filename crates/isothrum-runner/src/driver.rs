@@ -43,10 +43,17 @@ pub(crate) struct Observed {
     pub(crate) outputs: BTreeMap<String, String>,
     /// The engine's outputs it marks sensitive itself (a Terraform output's `sensitive`).
     pub(crate) sensitive: std::collections::BTreeSet<String>,
+}
+
+/// What a driver's status read gives: the run as read, or, for a query, nothing read.
+#[derive(Debug)]
+pub(crate) enum Observation {
+    /// The run as the engine reports it.
+    Read(Observed),
     /// Not read, for a query: another process acts on these machines (by the manifest's names;
     /// none when the engine named none), and the engine refused the read for as long as a query
-    /// waits ([`Cx::query`]). Nothing else is filled then.
-    pub(crate) busy: Option<Vec<String>>,
+    /// waits ([`Cx::is_query`]).
+    Busy(Vec<String>),
 }
 
 impl Observed {
@@ -92,7 +99,7 @@ pub(crate) trait Driver {
     /// errors name it by ([`crate::executor::plan::at`]), with its arguments ([`with_of`]).
     async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()>;
     /// The run as the engine reports it, from the manifest's `lifecycle.status`.
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed>;
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation>;
     /// Reads what a `down` must know before its steps run (Compose: the containers' anonymous
     /// volumes, which the steps leave once a recreate inherited them). Nothing, for a driver
     /// whose machines own their storage (a VM's disks, a module's resources): the defaults of
@@ -239,6 +246,16 @@ impl AnyDriver {
         }
     }
 
+    /// The host port this computer reaches `m`'s published port `p` at, where the run's VMs
+    /// forward it here (Vagrant, but on ESXi); `None` where a VM's ports answer at its own address
+    /// (ESXi, a Terraform server or cloud) and for Compose, which reads its own.
+    pub(crate) fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
+        match self {
+            AnyDriver::Vagrant(_) => vagrant::forwarded::local_host_port(cx, m, p),
+            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => None,
+        }
+    }
+
     pub(crate) async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), action = ?action);
         match self {
@@ -271,7 +288,7 @@ impl AnyDriver {
         }
     }
 
-    pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let span = tracing::debug_span!("driver", driver = self.name(), read = "status");
         match self {
             AnyDriver::Compose(d) => d.observe(cx).instrument(span).await,
@@ -306,7 +323,7 @@ impl AnyDriver {
     /// driver.
     pub(crate) fn reapplies(&self, up: &[Step], e: &Error) -> bool {
         match self {
-            AnyDriver::Terraform(_) => terraform::argv::applied(up, e),
+            AnyDriver::Terraform(_) => terraform::argv::failed_in_apply(up, e),
             AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => false,
         }
     }
@@ -413,7 +430,6 @@ const LOOPBACK: &str = "127.0.0.1";
 ///
 /// As [`crate::vars::Vars::render`]: an address naming a value the run doesn't have.
 pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
-    let at = cx.manifest().machines.iter().position(|m| m.name == machine.name).unwrap_or_default();
     let address = machine
         .ports
         .iter()
@@ -422,7 +438,12 @@ pub(crate) fn publish_host(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
     let Some((j, address)) = address else {
         return Ok(LOOPBACK.to_owned());
     };
-    let address = cx.vars.render(address, &format!("machines[{at}].ports[{j}].publish.address"))?;
+    // The machine is the manifest's; one that isn't is named, not given another's index.
+    let at = match cx.manifest().machines.iter().position(|m| m.name == machine.name) {
+        Some(i) => format!("machines[{i}]"),
+        None => format!("machine `{}`", machine.name),
+    };
+    let address = cx.vars.render(address, &format!("{at}.ports[{j}].publish.address"))?;
     let bound = address.trim();
     let every_interface = crate::relay::bare_host(bound).parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_unspecified());
     Ok(if bound.is_empty() || every_interface {

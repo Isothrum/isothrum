@@ -74,7 +74,7 @@ fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::ReadyFileWait>
     let secs = |n: NonZeroU32| Duration::from_secs(u64::from(n.get()));
     Ok(file::ReadyFileWait {
         condition: format!("ready_file {host}"),
-        login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
+        login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump(), &via)?,
         path: render(path, "path")?,
         log: log.as_ref().map(|l| render(l, "log")).transpose()?,
         grammar: *grammar,
@@ -84,11 +84,12 @@ fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::ReadyFileWait>
     })
 }
 
-/// Whether step `step` of the start succeeded (`ran`): its success said with what it `means`, its
+/// Whether step `step` of the start succeeded, or doesn't apply on this host or provider
+/// (`ran`): its success said with what it `means`, its
 /// failure said the same way in its `ready` event and its error.
 fn step_ok(cx: &Cx<'_>, ran: &Ran, step: &str, means: Option<&str>) -> Result<()> {
     let condition = format!("step_ok {step}");
-    if ran.ok.contains(step) {
+    if ran.succeeded_or_not_applicable(step) {
         cx.events.ready(&condition, ReadyState::Ok, means.unwrap_or_default());
         return Ok(());
     }
@@ -96,12 +97,12 @@ fn step_ok(cx: &Cx<'_>, ran: &Ran, step: &str, means: Option<&str>) -> Result<()
         Some(means) => format!("the step didn't succeed, so not: {means}"),
         None => "the step didn't succeed".to_owned(),
     };
-    Err(not_ready(cx, condition, detail))
+    Err(report_not_ready(cx, condition, detail))
 }
 
-/// Condition `condition` failed with `detail`: said in its `ready` event, then the error, which
-/// says the same.
-fn not_ready(cx: &Cx<'_>, condition: String, detail: String) -> Error {
+/// Reports that condition `condition` failed with `detail`: said in its `ready` event, then the
+/// error, which says the same.
+fn report_not_ready(cx: &Cx<'_>, condition: String, detail: String) -> Error {
     cx.events.ready(&condition, ReadyState::Failed, &detail);
     Error::NotReady { condition, detail }
 }
@@ -121,7 +122,7 @@ async fn machines_running(cx: &mut Cx<'_>, names: &[&str]) -> Result<()> {
         cx.events.ready(condition, ReadyState::Ok, "");
         return Ok(());
     }
-    Err(not_ready(cx, condition.into(), format!("not running: {}", down.join(", "))))
+    Err(report_not_ready(cx, condition.into(), format!("not running: {}", down.join(", "))))
 }
 
 async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result<()> {
@@ -140,7 +141,7 @@ async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(not_ready(cx, condition, format!("no answer within {}s", within.as_secs())));
+            return Err(report_not_ready(cx, condition, format!("no answer within {}s", within.as_secs())));
         }
         if !said_waiting {
             let detail = format!("no answer yet; trying every {}s for {}s", TCP_RETRY.as_secs(), within.as_secs());

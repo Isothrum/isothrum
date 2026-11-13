@@ -5,7 +5,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_genuine_failure_is_never_retried_and_leads_with_ansibles_verdict() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let play = "    isoloom-controller: fatal: [web]: UNREACHABLE! => {\"msg\": \"timed out\"}\nThe SSH command responded with a non-zero exit status.";
     f.engine().ups.push((play.into(), true));
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -17,7 +17,7 @@ async fn a_genuine_failure_is_never_retried_and_leads_with_ansibles_verdict() {
 #[tokio::test]
 async fn a_vagrant_crash_leads_with_its_error_not_its_backtrace() {
     // Seen on libvirt: Vagrant prints the error, then dozens of Ruby frames.
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let error = "/gems/fog-core/wait_for.rb:9:in `block in wait_for': The specified wait_for timeout (2 seconds) was exceeded (Fog::Errors::TimeoutError)";
     let frames = (0..30).map(|n| format!("\tfrom /gems/vagrant/action/builder.rb:{n}:in `call'"));
     let crash = std::iter::once(error.to_owned()).chain(frames).collect::<Vec<_>>().join("\n");
@@ -34,7 +34,7 @@ async fn a_vagrant_crash_leads_with_its_error_not_its_backtrace() {
 /// a failed start's error before Vagrant's own.
 #[tokio::test]
 async fn a_failed_start_leads_with_vagrants_error_not_fogs_warnings() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let said = format!("{FOG_WARNING}\n{FOG_WARNING}\nThe SSH command responded with a non-zero exit status.");
     f.engine().ups.push((said, true));
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -47,7 +47,7 @@ async fn a_failed_start_leads_with_vagrants_error_not_fogs_warnings() {
 
 #[tokio::test]
 async fn a_record_on_another_provider_is_cleared_before_the_start() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
     record(&dotfile, "web", "vmware_desktop");
@@ -68,7 +68,7 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
     assert!(logged.iter().any(|l| l.contains("Destroying VM")), "{logged:?}");
     assert!(!logged.iter().any(|l| l.contains("plugin-name")), "{logged:?}");
     // On its own provider, nothing is cleared.
-    let again = fixture(crate::runner::this_host());
+    let again = fixture(crate::testing::TEST_HOST);
     let same = again.runner.open(&again.manifest, None).unwrap();
     record(&again.runner.store.run_dir(same.name()).unwrap().join("vagrant"), "web", "virtualbox");
     same.up(&opts().with_occupied(crate::Occupied::Replace), &Recorder::new()).await.unwrap();
@@ -79,7 +79,7 @@ async fn a_record_on_another_provider_is_cleared_before_the_start() {
 /// was said as a tolerated step's failure when it failed.
 #[tokio::test]
 async fn a_failed_destroy_of_the_run_on_another_provider_is_a_failed_clean_up() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().fails.insert(Fails::Destroy);
     let run = f.runner.open(&f.manifest, None).unwrap();
     record(&f.runner.store.run_dir(run.name()).unwrap().join("vagrant"), "web", "vmware_desktop");
@@ -101,7 +101,7 @@ async fn a_failed_destroy_of_the_run_on_another_provider_is_a_failed_clean_up() 
 /// provider was never cleared first. A file among the machines' folders is no machine.
 #[tokio::test]
 async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     let dotfile = f.runner.store.run_dir(run.name()).unwrap().join("vagrant");
     std::fs::create_dir_all(&dotfile).unwrap();
@@ -111,7 +111,7 @@ async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
     assert!(err.to_string().contains("machines"), "{err}");
     assert!(f.vagrant().is_empty(), "nothing ran: {:?}", f.vagrant());
 
-    let again = fixture(crate::runner::this_host());
+    let again = fixture(crate::testing::TEST_HOST);
     let same = again.runner.open(&again.manifest, None).unwrap();
     let kept = again.runner.store.run_dir(same.name()).unwrap().join("vagrant");
     record(&kept, "web", "virtualbox");
@@ -122,7 +122,7 @@ async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
 /// A VM whose state VirtualBox can't tell is skipped with why in a trace, not in silence.
 #[tokio::test]
 async fn a_virtualbox_vm_whose_state_cant_be_read_is_skipped_and_traced() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
     f.engine().vbox_wedged = true;
     let run = f.runner.open(&f.manifest, None).unwrap();
@@ -137,7 +137,7 @@ async fn a_virtualbox_vm_whose_state_cant_be_read_is_skipped_and_traced() {
 
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();

@@ -19,6 +19,9 @@
 //!   Windows its tree, `taskkill /T /F`), and removes the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
+//! - On Windows a tool is also recorded while it is being created, before its pid is known
+//!   ([`Spawning`]): one created as its process was killed stays suspended outside its job, and
+//!   is ended the same way.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -27,6 +30,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::time::Duration;
+
+#[path = "ledger_spawning.rs"]
+mod spawning;
+pub(crate) use spawning::Spawning;
 
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
@@ -49,16 +56,16 @@ enum Start {
 }
 
 impl Start {
-    /// The entry's word for it.
-    fn word(&self) -> String {
+    /// The start as the ledger entry writes it.
+    fn entry_text(&self) -> String {
         match self {
             Start::Boot { boot, ticks } => format!("boot:{boot}:{ticks}"),
             Start::At(secs) => format!("at:{secs}"),
         }
     }
 
-    /// [`Start::word`] read back.
-    fn parse(word: &str) -> Option<Start> {
+    /// [`Start::entry_text`] read back.
+    fn from_entry_text(word: &str) -> Option<Start> {
         if let Some(rest) = word.strip_prefix("boot:") {
             let (boot, ticks) = rest.rsplit_once(':')?;
             return Some(Start::Boot {
@@ -69,8 +76,9 @@ impl Start {
         word.strip_prefix("at:")?.parse().ok().map(Start::At)
     }
 
-    /// Whether `now`, the start the OS has for the process, is this one.
-    fn is(&self, now: &Start) -> bool {
+    /// Whether `now`, the start the OS has for the process, is this one (seconds within
+    /// [`SLACK`]): the same process, not another that got the id later.
+    fn same_process_as(&self, now: &Start) -> bool {
         match (self, now) {
             (Start::At(a), Start::At(b)) => a.abs_diff(*b) <= SLACK,
             (a, b) => a == b,
@@ -89,7 +97,7 @@ impl Recorded {
         let start = recorded_start(pid)?;
         let written = owner_token(dir).and_then(|token| {
             let path = dir.join(format!("{token}-{pid}.tool"));
-            std::fs::write(&path, format!("{pid} {}\n", start.word()))?;
+            std::fs::write(&path, format!("{pid} {}\n", start.entry_text()))?;
             Ok(path)
         });
         match written {
@@ -104,9 +112,15 @@ impl Recorded {
 
 impl Drop for Recorded {
     fn drop(&mut self) {
-        if let Err(e) = crate::store::if_there(std::fs::remove_file(&self.0)) {
-            tracing::warn!(error = %e, path = %self.0.display(), "a tool's entry couldn't be removed");
-        }
+        remove_entry(&self.0);
+    }
+}
+
+/// Removes a tool's entry (a running tool's, or one being created) once its use ended; one that
+/// can't be removed is traced.
+fn remove_entry(path: &Path) {
+    if let Err(e) = crate::store::if_there(std::fs::remove_file(path)) {
+        tracing::warn!(error = %e, path = %path.display(), "a tool's entry couldn't be removed");
     }
 }
 
@@ -139,9 +153,9 @@ fn owner_token(dir: &Path) -> io::Result<String> {
     Ok(token)
 }
 
-/// Whether the owner whose lock is `path` is gone: its lock can be taken (and is, until `path`
-/// goes). A lock held by this process, or another live one, can't.
-fn owner_gone(path: &Path) -> Option<File> {
+/// Takes the lock `path` when its owner is gone, and returns it (held until `path` goes); `None`
+/// while this process, or another live one, holds it.
+fn lock_if_owner_gone(path: &Path) -> Option<File> {
     let file = File::options().read(true).write(true).open(path).ok()?;
     file.try_lock().ok().map(|()| file)
 }
@@ -149,19 +163,33 @@ fn owner_gone(path: &Path) -> Option<File> {
 /// Ends each tool a dead process recorded in `dir` and removes its entries; the ids it ended.
 pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
     let mut ended = Vec::new();
-    let Ok(read) = std::fs::read_dir(dir) else { return ended };
+    let read = match std::fs::read_dir(dir) {
+        Ok(read) => read,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ended,
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %dir.display(), "the tools' ledger couldn't be read: no orphan is ended");
+            return ended;
+        }
+    };
     let names: Vec<String> = read.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
     for token in names.iter().filter_map(|n| n.strip_suffix(".owner")) {
         let owner = dir.join(format!("{token}.owner"));
-        let Some(lock) = owner_gone(&owner) else { continue };
+        let Some(lock) = lock_if_owner_gone(&owner) else { continue };
         let prefix = format!("{token}-");
-        for entry in names
-            .iter()
-            .filter(|n| n.starts_with(&prefix) && Path::new(n).extension().is_some_and(|x| x == "tool"))
-        {
+        for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            if let Some(pid) = end_entry(&path).await {
-                ended.push(pid);
+            match Path::new(entry).extension().and_then(|x| x.to_str()) {
+                Some("tool") => ended.extend(end_entry(&path).await),
+                #[cfg(windows)]
+                Some(spawning::EXT) => {
+                    if let Some(spawned) = std::fs::read_to_string(&path).ok().and_then(|t| spawning::Entry::parse(&t)) {
+                        ended.extend(spawning::end(&spawned).await);
+                    }
+                }
+                // Off Windows nothing is created suspended: the entry only goes.
+                #[cfg(not(windows))]
+                Some(spawning::EXT) => {}
+                _ => continue,
             }
             if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
                 tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
@@ -179,9 +207,9 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
 async fn end_entry(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).ok()?;
     let (pid, start) = text.trim().split_once(' ')?;
-    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::parse(start)?);
+    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::from_entry_text(start)?);
     let now = os_start(pid).await;
-    if !now.as_ref().is_some_and(|now| start.is(now)) {
+    if !now.as_ref().is_some_and(|now| start.same_process_as(now)) {
         tracing::debug!(pid, "a tool a killed operation recorded is gone, or its id names another process: left alone");
         return None;
     }
@@ -195,7 +223,12 @@ fn recorded_start(pid: u32) -> Option<Start> {
     if cfg!(target_os = "linux") {
         return proc_start(pid);
     }
-    Some(Start::At(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()))
+    now_secs().map(Start::At)
+}
+
+/// This computer's clock now, in seconds since the epoch.
+fn now_secs() -> Option<u64> {
+    Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
 }
 
 /// Process `pid`'s start on Linux: field 22 of `/proc/<pid>/stat` (after its name, which may
@@ -320,7 +353,7 @@ pub(crate) fn left_by_a_killed_process(dir: &Path, pid: u32) -> io::Result<()> {
     crate::store::private_dir(dir)?;
     std::fs::write(dir.join("dead.owner"), "")?;
     let start = recorded_start(pid).ok_or_else(|| io::Error::other("no such process"))?;
-    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.word()))
+    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.entry_text()))
 }
 
 #[cfg(test)]

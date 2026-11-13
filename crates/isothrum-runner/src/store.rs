@@ -16,8 +16,8 @@
 //!   guest-<machine>.in  a guest delivery's values, only while it is delivered
 //!   consoles.json       the graphical consoles the runner chose (VMware's VNC: port and
 //!                       password per machine); removed by a down
-//!   proxmox-console.curl  a Proxmox console request's credentials, only while curl runs (removed
-//!                       however the request ends)
+//!   proxmox-console-<random>.curl  a Proxmox API request's credentials, one file per request,
+//!                       only while its curl runs (removed however the request ends)
 //!   elevated/<token>/   an elevated session's folder (Hyper-V): each request's `env-<n>.json`,
 //!                       its variables, until the broker starts the program
 //!   …                   what the manifest keeps in `${run.state_dir}`: Compose's pinned ports,
@@ -46,7 +46,7 @@ pub use db::{
     CopyName, Ended, EventCursor, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner, PortReservation, Reserver,
     ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
 };
-pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
+pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_new_private, write_private};
 pub(crate) use transient::Transient;
 
 /// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
@@ -97,6 +97,19 @@ pub struct LastOp {
     pub code: Option<ErrorCode>,
     /// When it ended.
     pub at: String,
+}
+
+impl LastOp {
+    /// Operation `op`, ended at `at` with failure `code`, or succeeded without one: the one place
+    /// `ok` is derived, so it never disagrees with `code`.
+    pub(crate) fn ended(op: Op, code: Option<ErrorCode>, at: String) -> LastOp {
+        LastOp {
+            op,
+            ok: code.is_none(),
+            code,
+            at,
+        }
+    }
 }
 
 /// What the runner keeps about a run (never a secret's value).
@@ -259,7 +272,7 @@ impl Home {
     }
 
     /// What the runner last saw of run `name`, when it ever read it.
-    pub(crate) fn seen(&self, name: &RunName) -> Result<Option<LastObserved>> {
+    pub(crate) fn last_observed(&self, name: &RunName) -> Result<Option<LastObserved>> {
         Ok(self.db.read(|tx| tx.run(name))?.and_then(|r| r.observed))
     }
 
@@ -313,9 +326,8 @@ impl Home {
     }
 
     /// Every run's record, by name.
-    #[expect(clippy::redundant_closure, reason = "`Tx::runs` as a path isn't general over the transaction's lifetime")]
     pub(crate) fn records(&self) -> Result<Vec<RunRecord>> {
-        Ok(self.db.read(|tx| tx.runs())?.into_iter().map(|r| r.record).collect())
+        self.db.read(|tx| tx.runs().map(|rows| rows.into_iter().map(|r| r.record).collect()))
     }
 
     /// Trims run `name`'s events to the newer half once they are many.

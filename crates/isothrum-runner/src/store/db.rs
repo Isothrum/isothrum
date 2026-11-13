@@ -62,7 +62,7 @@ pub struct Tx<'c> {
 impl Store {
     /// The home's store, `<home>/state.db`: created owner-only when missing, migrated to this
     /// runner's schema, and, the first time a home a 2.x runner wrote is opened, imported from
-    /// its files (`runs/<name>/record.json`, `seen.json`, `events.jsonl`, the tools ledger, the
+    /// its files (`runs/<name>/record.json`, `seen.json`, `events.jsonl`, the
     /// anonymous volumes), which are then left read-only beside it.
     ///
     /// # Errors

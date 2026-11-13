@@ -172,12 +172,7 @@ impl Running<'_> {
                 return Ok(None);
             };
             let mut record = row.record;
-            record.last = Some(LastOp {
-                op,
-                ok: code.is_none(),
-                code,
-                at,
-            });
+            record.last = Some(LastOp::ended(op, code, at));
             tx.save_record(&record, row.desired)?;
             let moved = begun.map(|b| match code {
                 None => Transition::succeed(b),
@@ -215,12 +210,11 @@ impl Running<'_> {
                 tracing::warn!(state = %run.state, "the run's last operation ended without recording how: taken as failed");
                 tx.apply(name, recovered)?;
                 let mut record = run.record;
-                record.last = Some(LastOp {
-                    op: run.state.moved_by().unwrap_or(op),
-                    ok: false,
-                    code: Some(ErrorCode::Cancelled),
-                    at: rfc3339(self.runner.config.clock.now()),
-                });
+                record.last = Some(LastOp::ended(
+                    run.state.moved_by().unwrap_or(op),
+                    Some(ErrorCode::Cancelled),
+                    rfc3339(self.runner.config.clock.now()),
+                ));
                 tx.save_record(&record, run.desired)?;
             }
             Ok(row.id)

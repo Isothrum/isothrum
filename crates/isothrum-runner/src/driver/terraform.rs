@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Action, ExpiryUnit, Machine, Step, TerraformIdentity};
 
-use super::{Driver, GuestUse, Observed};
+use super::{Driver, GuestUse, Observation, Observed};
 use crate::console::ShellCommand;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
@@ -73,7 +73,7 @@ impl Terraform {
             return Ok(Vec::new());
         }
         let dir = cx.state_dir();
-        Ok(state::read_json(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
+        Ok(state::read_doc(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
     }
 
     /// Drops from the state each instance it still holds whose text, among `seen`, its failed
@@ -149,13 +149,13 @@ impl Driver for Terraform {
 
     /// The run as its state says it is, then, for a run with resources, each VM as its server
     /// says it stands ([`on_server`]).
-    async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
+    async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let tf = state::read(cx.state_dir())?;
         let mut seen = observed(cx.manifest(), &tf);
         if tf.resources {
             on_server(cx, &mut seen).await?;
         }
-        Ok(seen)
+        Ok(Observation::Read(seen))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
@@ -239,7 +239,6 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
         hosts: BTreeMap::new(),
         outputs: tf.outputs.clone(),
         sensitive: tf.sensitive.clone(),
-        busy: None,
     }
 }
 
@@ -305,7 +304,7 @@ fn copied_from(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 /// The manifest's expiry variable, as the module takes it, when the run has an expiry.
 fn expiry_var(cx: &Cx<'_>) -> Option<(String, String)> {
     let expiry = cx.manifest().expiry.as_ref()?;
-    let at = cx.expires_at?;
+    let at = cx.expires_at()?;
     let value = match expiry.unit {
         ExpiryUnit::UnixSeconds => at.to_string(),
     };

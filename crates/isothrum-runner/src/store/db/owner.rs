@@ -30,12 +30,11 @@ impl Owner {
         Owner {
             pid: std::process::id(),
             boot: this_boot(),
-            token: bytes.iter().fold(String::new(), |mut hex, b| {
-                use std::fmt::Write;
-                // Writing to a String can't fail.
-                drop(write!(hex, "{b:02x}"));
-                hex
-            }),
+            token: bytes
+                .iter()
+                .flat_map(|b| [b >> 4, b & 0x0f])
+                .map(|nibble| char::from_digit(u32::from(nibble), 16).unwrap_or('0'))
+                .collect(),
         }
     }
 
@@ -94,13 +93,16 @@ fn pid_alive(_pid: u32) -> bool {
     true
 }
 
-/// The pid of a process that ran and exited.
+/// What the store's tests share about processes.
 #[cfg(all(test, unix))]
-pub(crate) fn dead_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    child.wait().unwrap();
-    pid
+pub(crate) mod test_pids {
+    /// The pid of a process that ran and exited.
+    pub(crate) fn dead_pid() -> u32 {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
+    }
 }
 
 #[cfg(test)]
@@ -119,7 +121,7 @@ mod tests {
         #[cfg(unix)]
         {
             let mut gone = me.clone();
-            gone.pid = dead_pid();
+            gone.pid = super::test_pids::dead_pid();
             assert!(!gone.is_alive());
         }
     }

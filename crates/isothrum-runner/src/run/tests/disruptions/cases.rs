@@ -261,20 +261,21 @@ async fn the_tools_a_killed_start_left_running_are_ended_by_the_next_operation()
     use std::os::unix::process::CommandExt;
     let f = fixture();
     let run = f.killed_start().await;
-    let mut left = std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
+    let left = std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
     let tools = f.runner.store.run_dir_path(run.name()).join(crate::process::ledger::DIR);
     crate::process::ledger::left_by_a_killed_process(&tools, left.id()).unwrap();
+    // The killed start's tool is no child of the next operation's process: init reaps it once it
+    // exits. Here the test's process started it, so a thread reaps it as init would (else it
+    // lingers as a zombie, still in its group, and the operation waits out the whole grace).
+    let (exited, reaped) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut left = left;
+        exited.send(left.wait().map(|status| status.code())).ok();
+    });
 
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
-    let mut ended = false;
-    for _ in 0..100 {
-        if left.try_wait().unwrap().is_some() {
-            ended = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    assert!(ended, "the tool the killed start left is ended");
+    let ended = reaped.recv_timeout(std::time::Duration::from_secs(5));
+    assert!(matches!(ended, Ok(Ok(None))), "the tool the killed start left is ended by a signal: {ended:?}");
     let entries: Vec<_> = std::fs::read_dir(&tools).unwrap().flatten().map(|e| e.file_name()).collect();
     assert!(entries.iter().all(|n| !n.to_string_lossy().starts_with("dead")), "{entries:?}");
     assert_eq!(f.record().state, RunState::Absent);

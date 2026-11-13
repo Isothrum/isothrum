@@ -10,7 +10,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use isothrum_runner::{ProcessRunner, version_found};
+use isoloom_manifest::{Arch, HostOs};
+use isothrum_runner::{ProcessRunner, this_arch, this_host, version_found};
 
 use crate::exec;
 
@@ -29,17 +30,17 @@ fn all() -> Vec<Provider> {
 
 /// Whether this provider can run on the current OS and CPU at all ([`applicable_on`]).
 fn applicable(provider: Provider) -> bool {
-    applicable_on(provider, std::env::consts::OS, std::env::consts::ARCH)
+    applicable_on(provider, this_host(), this_arch())
 }
 
-/// Whether `provider` can run on OS `os` and CPU `arch` (as [`std::env::consts`] names them):
-/// local hypervisors are platform-specific, remote ones apply anywhere.
-fn applicable_on(provider: Provider, os: &str, arch: &str) -> bool {
+/// Whether `provider` can run on OS `os` and CPU `arch` (the runner's [`this_host`] and
+/// [`this_arch`]): local hypervisors are platform-specific, remote ones apply anywhere.
+fn applicable_on(provider: Provider, os: HostOs, arch: Arch) -> bool {
     match provider {
-        Provider::Virtualbox | Provider::VmwareDesktop if os == "windows" && arch == "aarch64" => false,
-        Provider::Hyperv => os == "windows",
-        Provider::Parallels | Provider::Utm => os == "macos",
-        Provider::Libvirt => os == "linux",
+        Provider::Virtualbox | Provider::VmwareDesktop => !(os == HostOs::Windows && arch == Arch::Arm64),
+        Provider::Hyperv => os == HostOs::Windows,
+        Provider::Parallels | Provider::Utm => os == HostOs::Macos,
+        Provider::Libvirt => os == HostOs::Linux,
         _ => true,
     }
 }
@@ -70,7 +71,9 @@ async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> O
         return None;
     }
     let plist = format!("{UTM_APP}/Contents/Info.plist");
-    let out = exec::read(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"]).await.ok()?;
+    let out = exec::read_any_exit(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"])
+        .await
+        .ok()?;
     let version = out.trim().to_owned();
     (!version.is_empty()).then_some(version)
 }
@@ -95,7 +98,7 @@ async fn hypervisor_installed(provider: Provider, runner: &dyn ProcessRunner) ->
         Provider::Hyperv => Some(hyperv_enabled()),
         _ => {
             let (program, args) = probe(provider)?;
-            Some(tool_present(runner, program, args).await)
+            Some(tool_starts(runner, program, args).await)
         }
     }
 }
@@ -131,12 +134,15 @@ fn kvm_problem(dev: &Path) -> Option<String> {
 
 /// The QEMU binary for this machine's CPU.
 fn qemu_binary() -> &'static str {
-    qemu_binary_on(std::env::consts::ARCH)
+    qemu_binary_on(this_arch())
 }
 
-/// The QEMU binary for a CPU `arch` (as [`std::env::consts::ARCH`] names it).
-fn qemu_binary_on(arch: &str) -> &'static str {
-    if arch == "aarch64" { "qemu-system-aarch64" } else { "qemu-system-x86_64" }
+/// The QEMU binary for a CPU `arch`.
+fn qemu_binary_on(arch: Arch) -> &'static str {
+    match arch {
+        Arch::Arm64 => "qemu-system-aarch64",
+        Arch::Amd64 => "qemu-system-x86_64",
+    }
 }
 
 /// One provider's readiness on this machine.
@@ -172,8 +178,8 @@ fn older(installed: &str, min: &str) -> bool {
 
 /// Whether `program` is installed: it is, as long as it could be started (a tool that prints usage
 /// and exits non-zero, like `vmrun`, still exists).
-async fn tool_present(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> bool {
-    exec::read(runner, program, args).await.is_ok()
+async fn tool_starts(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> bool {
+    exec::read_any_exit(runner, program, args).await.is_ok()
 }
 
 /// The Vagrant plugins installed, each with its version when it says one
@@ -264,7 +270,7 @@ async fn needs_admin(provider: Provider, hypervisor: Option<bool>, runner: &dyn 
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so
 /// ask it something that does and see whether that times out.
 async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
-    let probe = exec::read(runner, "VBoxManage", &["list", "runningvms"]);
+    let probe = exec::read_any_exit(runner, "VBoxManage", &["list", "runningvms"]);
     tokio::time::timeout(VBOX_PROBE, probe).await.is_err()
 }
 
@@ -378,12 +384,12 @@ mod tests {
     #[test]
     fn a_provider_applies_where_its_hypervisor_runs() {
         let platforms = [
-            ("linux", "x86_64"),
-            ("linux", "aarch64"),
-            ("macos", "aarch64"),
-            ("macos", "x86_64"),
-            ("windows", "x86_64"),
-            ("windows", "aarch64"),
+            (HostOs::Linux, Arch::Amd64),
+            (HostOs::Linux, Arch::Arm64),
+            (HostOs::Macos, Arch::Arm64),
+            (HostOs::Macos, Arch::Amd64),
+            (HostOs::Windows, Arch::Amd64),
+            (HostOs::Windows, Arch::Arm64),
         ];
         let table = [
             (Provider::Virtualbox, [true, true, true, true, true, false]),
@@ -398,11 +404,11 @@ mod tests {
         assert_eq!(table.len(), all().len(), "every provider is in the table");
         for (provider, expected) in table {
             for ((os, arch), applies) in platforms.iter().zip(expected) {
-                assert_eq!(applicable_on(provider, os, arch), applies, "{provider:?} on {os} {arch}");
+                assert_eq!(applicable_on(provider, *os, *arch), applies, "{provider:?} on {os:?} {arch:?}");
             }
         }
-        assert_eq!(qemu_binary_on("aarch64"), "qemu-system-aarch64");
-        assert_eq!(qemu_binary_on("x86_64"), "qemu-system-x86_64");
+        assert_eq!(qemu_binary_on(Arch::Arm64), "qemu-system-aarch64");
+        assert_eq!(qemu_binary_on(Arch::Amd64), "qemu-system-x86_64");
     }
 
     #[test]

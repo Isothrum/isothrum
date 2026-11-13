@@ -483,7 +483,7 @@ fn vboxmanage(e: &mut Engine, args: &[&str]) -> Reply {
 
 /// A start once `set` made the engine so: it succeeds, with no step tolerated.
 async fn starts_without_a_tolerated_step(set: impl FnOnce(&mut Engine)) -> Fixture {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     set(&mut f.engine());
     let run = f.runner.open(&f.manifest, None).unwrap();
     let events = Recorder::new();

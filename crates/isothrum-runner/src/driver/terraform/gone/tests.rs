@@ -17,7 +17,7 @@ fn ipset() -> Vec<GoneError> {
 
 #[test]
 fn an_instance_of_a_named_type_gets_its_error_filled_with_its_attributes() {
-    let state: Value = serde_json::from_str(LEFT).unwrap();
+    let state: StateDoc = serde_json::from_str(LEFT).unwrap();
     assert_eq!(
         in_state(&state, &ipset()),
         [Gone {
@@ -36,23 +36,24 @@ fn an_instance_of_a_named_type_gets_its_error_filled_with_its_attributes() {
 #[test]
 fn an_instance_the_error_cant_name_is_left_out() {
     // `node_name` is null: the text would name no node, so no instance.
-    let state: Value = serde_json::from_str(LEFT).unwrap();
+    let state: StateDoc = serde_json::from_str(LEFT).unwrap();
     let by_node = errors(&[("proxmox_virtual_environment_firewall_ipset", "no such IPSet '{name}' on {node_name}")]);
     assert_eq!(in_state(&state, &by_node), Vec::<Gone>::new());
-    let empty: Value = serde_json::from_str(&LEFT.replace(r#""id":"iso1n0""#, r#""id":"""#)).unwrap();
+    let empty: StateDoc = serde_json::from_str(&LEFT.replace(r#""id":"iso1n0""#, r#""id":"""#)).unwrap();
     assert_eq!(in_state(&empty, &ipset()), Vec::<Gone>::new(), "an empty id names nothing");
-    let data: Value = serde_json::from_str(&LEFT.replace(r#""mode":"managed""#, r#""mode":"data""#)).unwrap();
+    let data: StateDoc = serde_json::from_str(&LEFT.replace(r#""mode":"managed""#, r#""mode":"data""#)).unwrap();
     assert_eq!(in_state(&data, &ipset()), Vec::<Gone>::new(), "a data source is never destroyed");
 }
 
 #[test]
 fn an_address_has_its_module_and_its_key() {
-    let state = serde_json::json!({ "resources": [
+    let state: StateDoc = serde_json::from_value(serde_json::json!({ "resources": [
         { "mode": "managed", "module": "module.lab", "type": "proxmox_virtual_environment_vm", "name": "m",
           "instances": [{ "index_key": 0, "attributes": { "id": "101", "node_name": "pve" } },
                         { "index_key": "web", "attributes": { "id": "102", "node_name": "pve" } },
                         { "index_key": true, "attributes": { "id": "103", "node_name": "pve" } }] }
-    ]});
+    ]}))
+    .unwrap();
     let vm = errors(&[(
         "proxmox_virtual_environment_vm",
         "Configuration file 'nodes/{node_name}/qemu-server/{id}.conf' does not exist",

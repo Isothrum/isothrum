@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::Result;
@@ -32,65 +33,128 @@ pub(super) struct TfState {
     pub(super) tainted: bool,
 }
 
-/// Reads the state in `dir`; an empty one when there is none.
-pub(super) fn read(dir: &Path) -> Result<TfState> {
-    Ok(read_json(dir)?.map(|v| of(&v)).unwrap_or_default())
+/// A state file as Terraform writes it (format version 4), parsed once, here, into what the
+/// runner reads of it: its outputs and its resources' instances. Unknown fields are skipped. What
+/// a provider writes of an instance (its `attributes`) and what a module outputs stay JSON: their
+/// shape is the provider's and the module's.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct StateDoc {
+    #[serde(default)]
+    outputs: BTreeMap<String, OutputDoc>,
+    #[serde(default)]
+    pub(super) resources: Vec<ResourceDoc>,
 }
 
-/// The state file in `dir` as JSON; `None` when there is none.
+/// An output of the state: its value and whether the module marks it sensitive.
+#[derive(Debug, Deserialize)]
+struct OutputDoc {
+    #[serde(default)]
+    value: Value,
+    #[serde(default)]
+    sensitive: bool,
+}
+
+/// A resource of the state: a managed one or a data source, of a type, in a module.
+#[derive(Debug, Deserialize)]
+pub(super) struct ResourceDoc {
+    /// `managed` or `data`.
+    #[serde(default)]
+    pub(super) mode: Option<String>,
+    /// Its module's address (`module.lab`); none at the root.
+    #[serde(default)]
+    pub(super) module: Option<String>,
+    /// Its type (`proxmox_virtual_environment_vm`).
+    #[serde(rename = "type", default)]
+    pub(super) kind: Option<String>,
+    #[serde(default)]
+    pub(super) name: Option<String>,
+    #[serde(default)]
+    pub(super) instances: Vec<InstanceDoc>,
+}
+
+/// An instance of a resource: its key, its status and what its provider wrote of it.
+#[derive(Debug, Deserialize)]
+pub(super) struct InstanceDoc {
+    /// Its `count` or `for_each` key; none for a single instance.
+    #[serde(default)]
+    pub(super) index_key: Option<IndexKey>,
+    /// `tainted` when a create or a provisioner failed.
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    attributes: Value,
+}
+
+/// An instance's key: a `count` index or a `for_each` key; anything else Terraform doesn't write.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(super) enum IndexKey {
+    Number(serde_json::Number),
+    Text(String),
+    Other(serde::de::IgnoredAny),
+}
+
+impl InstanceDoc {
+    /// Its attribute `name`, when it is a scalar ([`scalar`]).
+    pub(super) fn attribute(&self, name: &str) -> Option<String> {
+        self.attributes.get(name).and_then(scalar)
+    }
+}
+
+impl StateDoc {
+    /// Every value the module and the providers wrote into the state: each output's value, each
+    /// instance's attributes.
+    pub(crate) fn written(&self) -> impl Iterator<Item = &Value> {
+        let outputs = self.outputs.values().map(|o| &o.value);
+        outputs.chain(self.resources.iter().flat_map(|r| r.instances.iter().map(|i| &i.attributes)))
+    }
+}
+
+/// Reads the state in `dir`; an empty one when there is none.
+pub(super) fn read(dir: &Path) -> Result<TfState> {
+    Ok(read_doc(dir)?.map(|doc| of(&doc)).unwrap_or_default())
+}
+
+/// The state file in `dir`; `None` when there is none.
 ///
 /// # Errors
 ///
-/// It exists but can't be read, or isn't JSON (`InvalidData`).
-pub(crate) fn read_json(dir: &Path) -> Result<Option<Value>> {
+/// It exists but can't be read, or isn't the JSON Terraform writes (`Corrupt`).
+pub(crate) fn read_doc(dir: &Path) -> Result<Option<StateDoc>> {
     crate::store::read_json(&dir.join(STATE_FILE))
 }
 
 /// A state file's text, read.
 #[cfg(test)]
 pub(super) fn parse(text: &str) -> std::result::Result<TfState, serde_json::Error> {
-    serde_json::from_str(text).map(|v: Value| of(&v))
+    serde_json::from_str(text).map(|doc: StateDoc| of(&doc))
 }
 
-/// What state `v` says.
-fn of(v: &Value) -> TfState {
+/// What state `doc` says.
+fn of(doc: &StateDoc) -> TfState {
     let mut state = TfState::default();
-    if let Some(outputs) = v.get("outputs").and_then(Value::as_object) {
-        for (name, o) in outputs {
-            let value = o.get("value").unwrap_or(&Value::Null);
-            if o.get("sensitive").and_then(Value::as_bool) == Some(true) {
-                state.sensitive.insert(name.clone());
-            }
-            if let Some(map) = value.as_object() {
-                let scalars = map.iter().filter_map(|(key, field)| Some((key.clone(), scalar(field)?)));
-                state.maps.insert(name.clone(), scalars.collect());
-            }
-            if let Some(s) = scalar(value) {
-                state.outputs.insert(name.clone(), s);
-            }
+    for (name, o) in &doc.outputs {
+        if o.sensitive {
+            state.sensitive.insert(name.clone());
+        }
+        if let Some(map) = o.value.as_object() {
+            let scalars = map.iter().filter_map(|(key, field)| Some((key.clone(), scalar(field)?)));
+            state.maps.insert(name.clone(), scalars.collect());
+        }
+        if let Some(s) = scalar(&o.value) {
+            state.outputs.insert(name.clone(), s);
         }
     }
     // A data source (`data "aws_ami"`) is read, never created: it costs nothing and holds no
     // server, so a state of data sources only is a run with nothing up.
-    let resources: Vec<&Value> = array(v, "resources")
-        .iter()
-        .filter(|r| r.get("mode").and_then(Value::as_str) != Some("data"))
-        .collect();
-    state.resources = !resources.is_empty();
-    state.tainted = resources
-        .into_iter()
-        .flat_map(|r| array(r, "instances"))
-        .any(|i| i.get("status").and_then(Value::as_str) == Some("tainted"));
+    let managed: Vec<&ResourceDoc> = doc.resources.iter().filter(|r| r.mode.as_deref() != Some("data")).collect();
+    state.resources = !managed.is_empty();
+    state.tainted = managed.iter().flat_map(|r| &r.instances).any(|i| i.status.as_deref() == Some("tainted"));
     state
 }
 
-/// `v[key]` as a list; empty when it isn't one (a state's `resources`, a resource's `instances`).
-pub(super) fn array<'a>(v: &'a Value, key: &str) -> &'a [Value] {
-    v.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
-}
-
 /// A scalar value as text (a string as it is); none for null, an object or a list.
-pub(super) fn scalar(v: &Value) -> Option<String> {
+fn scalar(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
@@ -142,6 +206,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read(dir.path()).unwrap(), TfState::default());
         std::fs::write(dir.path().join(STATE_FILE), "{").unwrap();
+        assert_eq!(read(dir.path()).unwrap_err().code(), crate::ErrorCode::Corrupt);
+    }
+
+    #[test]
+    fn a_state_terraform_wouldnt_write_is_refused_not_read_empty() {
+        assert!(parse(r#"{"resources":{}}"#).is_err(), "resources not a list");
+        assert!(parse(r#"{"outputs":{"ip":{"value":"x","sensitive":"yes"}}}"#).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(STATE_FILE), r#"{"resources":[{"instances":7}]}"#).unwrap();
         assert_eq!(read(dir.path()).unwrap_err().code(), crate::ErrorCode::Corrupt);
     }
 

@@ -58,7 +58,7 @@ impl Running<'_> {
         self.ensure_ssh_key().await?;
         let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, opts.provider)?)?;
         // Leftovers are removed with the names they were made with.
-        Self::bind_record(&mut cx, &record);
+        cx.bind_record(&record);
         self.relay(&mut cx).await?;
         self.driver.preflight(&cx).await?;
         self.driver.prepare(&cx)?;
@@ -77,7 +77,7 @@ impl Running<'_> {
         let slot = crate::slot::choose(&self.runner.store, self.manifest(), self.name(), place, Asked::Own(record.slot)).await?;
         slot.keep_in(&mut record);
         self.place(&mut record, opts);
-        Self::bind_record(&mut cx, &record);
+        cx.bind_record(&record);
         self.begin(&mut record, Op::Up)?;
         drop(slot);
         crate::executor::state_files::write_all(&cx)?;
@@ -174,7 +174,8 @@ impl Running<'_> {
         }
         let cleared = crate::executor::run_down_steps(cx).await.map(drop);
         cx.vars.set_params(fresh);
-        cleared
+        cleared?;
+        self.machines_gone(cx)
     }
 
     /// Where the run goes on its place, kept in `record` beside its slot: its SSH jump, and its
@@ -210,6 +211,7 @@ impl Running<'_> {
                     cx.events
                         .warning(WarningCode::Recovering, &format!("clearing stale state, then starting again: {e}"));
                     run_steps(cx, "recovery.steps", &recovery.steps).await?;
+                    self.machines_gone(cx)?;
                 }
                 // A module that converges on a later apply (a cloud's eventual consistency); any
                 // other step's failure is the start's.

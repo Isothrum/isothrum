@@ -10,7 +10,7 @@ use super::*;
 /// The read is tried again until the lock is free.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_another_vagrant_process_locked_out_is_read_again() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().locked_reads = 3;
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -23,7 +23,7 @@ async fn a_status_read_another_vagrant_process_locked_out_is_read_again() {
 /// own error, having asked a bounded number of times.
 #[tokio::test(start_paused = true)]
 async fn a_lock_held_past_the_patience_still_fails_the_read() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().locked_reads = u32::MAX;
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
@@ -39,7 +39,7 @@ async fn a_lock_held_past_the_patience_still_fails_the_read() {
 /// holds the run, status doesn't ask Vagrant: the run is starting, its machines as last read.
 #[tokio::test(start_paused = true)]
 async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().up_takes = std::time::Duration::from_secs(600);
     let run = f.runner.open(&f.manifest, None).unwrap();
     // The embedder's app, polling the run from another process than the start's.
@@ -47,7 +47,7 @@ async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
         f.folder.home.path(),
         processes(&f.fake),
         Arc::new(FakePorts::new([])),
-        crate::runner::this_host(),
+        crate::testing::TEST_HOST,
     ))
     .unwrap();
     let watched = app.open(&f.manifest, None).unwrap();
@@ -79,7 +79,7 @@ async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
 /// last read (running), not Vagrant's refusal while the update's `vagrant up` holds the VMs.
 #[tokio::test(start_paused = true)]
 async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_read() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert!(run.status().await.unwrap().live);
@@ -113,7 +113,7 @@ async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_r
 /// busy, after a short, bounded wait.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_locked_out_past_a_query_patience_says_the_machine_busy() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     f.engine().locked_reads = u32::MAX;
@@ -134,7 +134,7 @@ async fn a_status_read_locked_out_past_a_query_patience_says_the_machine_busy() 
 /// last read.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_refused_as_an_operation_takes_the_run_gives_up_at_once() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     f.engine().locked_reads = u32::MAX;
@@ -173,7 +173,7 @@ async fn a_status_read_after_the_park_another_process_index_locked_is_read_again
 /// error, which it printed on standard output, never fog's warnings.
 #[tokio::test(start_paused = true)]
 async fn an_index_lock_held_past_the_patience_fails_with_vagrants_error() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     f.engine().index_locks_after_halt = u32::MAX;
     let run = f.runner.open(&f.manifest, None).unwrap();
     let err = run.up(&opts(), &Recorder::new()).await.unwrap_err().to_string();
@@ -220,7 +220,7 @@ fn calls(f: &Fixture, call: &str) -> usize {
 /// destroys what is left.
 #[tokio::test(start_paused = true)]
 async fn a_destroy_refused_by_a_machines_index_lock_after_removing_a_vm_runs_again() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let removed = "==> isoloom-controller: Domain is not created. Please run `vagrant up` first.\n\
@@ -243,7 +243,7 @@ async fn a_destroy_refused_by_a_machines_index_lock_after_removing_a_vm_runs_aga
 /// recovery, nothing destroyed.
 #[tokio::test(start_paused = true)]
 async fn an_up_refused_by_a_machines_lock_runs_again_and_is_no_leftover() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let booted = "==> web: Machine booted and ready!\n==> web: Running provisioner: setup (shell)...";
     let refusal = Refusal {
         took: std::time::Duration::from_secs(600),
@@ -266,7 +266,7 @@ async fn an_up_refused_by_a_machines_lock_runs_again_and_is_no_leftover() {
 /// not: a second run would provision that VM twice.
 #[tokio::test(start_paused = true)]
 async fn a_provision_refused_before_it_acted_runs_again_never_after() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     f.engine().refusals.insert("provision", Refusal::action(2, "provision", "web"));
@@ -288,7 +288,7 @@ async fn a_provision_refused_before_it_acted_runs_again_never_after() {
 /// before it acted runs again.
 #[tokio::test(start_paused = true)]
 async fn a_restart_refused_before_it_acted_runs_again() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     std::fs::write(&f.manifest, with_boot_digest(WEB_VM, "web", Some("sha256:web-2"))).unwrap();
@@ -304,7 +304,7 @@ async fn a_restart_refused_before_it_acted_runs_again() {
 /// after a bounded number of tries.
 #[tokio::test(start_paused = true)]
 async fn a_destroy_locked_out_past_the_patience_still_fails_with_vagrants_error() {
-    let f = fixture(crate::runner::this_host());
+    let f = fixture(crate::testing::TEST_HOST);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     f.engine().refusals.insert("destroy", Refusal::index(u32::MAX, "web"));
@@ -332,7 +332,7 @@ const ATTACKBOX_LOCKED: &str = "An action 'read_state' was attempted on the mach
 /// not live; once the lock is gone, it is read again.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_refused_for_another_process_acting_on_a_machine_says_it_busy() {
-    let f = fixture_from(crate::runner::this_host(), &with_vm_added("attackbox"));
+    let f = fixture_from(crate::testing::TEST_HOST, &with_vm_added("attackbox"));
     f.engine().added.push("attackbox".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -359,7 +359,7 @@ async fn a_status_read_refused_for_another_process_acting_on_a_machine_says_it_b
 /// the machine is as last read, and its hypervisor is asked where its screen is.
 #[tokio::test(start_paused = true)]
 async fn a_screen_asked_for_while_another_process_acts_on_its_machine_is_refused_saying_so() {
-    let f = fixture_from(crate::runner::this_host(), &with_vm_added("attackbox"));
+    let f = fixture_from(crate::testing::TEST_HOST, &with_vm_added("attackbox"));
     f.engine().added.push("attackbox".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();

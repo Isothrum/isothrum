@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{ReadyGrammar, ReadyLine};
 
-use super::not_ready;
+use super::report_not_ready;
 use crate::Result;
 use crate::error::Error;
 use crate::events::ReadyState;
@@ -127,13 +127,13 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &ReadyFileWait) -> Result<()> {
                 }
                 if !reached && started.elapsed() >= unreachable {
                     let detail = format!("{} didn't answer over SSH within {}s: {why}", w.login.target, unreachable.as_secs());
-                    return Err(not_ready(cx, w.condition.clone(), detail));
+                    return Err(report_not_ready(cx, w.condition.clone(), detail));
                 }
                 failed = Some(why);
             }
         }
         if started.elapsed() >= w.within {
-            return Err(not_ready(cx, w.condition.clone(), out_of_time(w, &last, failed.as_deref())));
+            return Err(report_not_ready(cx, w.condition.clone(), out_of_time(w, &last, failed.as_deref())));
         }
         tokio::time::sleep(w.every).await;
     }
@@ -166,7 +166,7 @@ fn settle(cx: &Cx<'_>, w: &ReadyFileWait, now: ReadyProgress, tail: &[String], l
             if !tail.is_empty() {
                 detail = format!("{detail}\n{}", tail.join("\n"));
             }
-            return Some(Err(not_ready(cx, w.condition.clone(), cx.events.mask(&detail))));
+            return Some(Err(report_not_ready(cx, w.condition.clone(), cx.events.mask(&detail))));
         }
         ReadyProgress::Running(step) if *last != now => cx.events.ready(&w.condition, ReadyState::Waiting, &format!("running: {step}")),
         _ => {}

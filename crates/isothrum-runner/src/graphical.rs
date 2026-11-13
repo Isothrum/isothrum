@@ -185,7 +185,7 @@ async fn local(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Conso
         ConsoleSource::Libvirt {} => at(vagrant::libvirt(cx, machine).await),
         ConsoleSource::QemuMonitor {} => at(vagrant::qemu(cx, machine).await),
         ConsoleSource::Vrde {} => at(vagrant::vrde(cx, machine).await),
-        ConsoleSource::Runner {} => chosen::of(cx, machine).map(|(port, password)| (SocketAddr::new(LOOPBACK, port), Some(password))),
+        ConsoleSource::Runner {} => chosen::port_and_password(cx, machine).map(|(port, password)| (SocketAddr::new(LOOPBACK, port), Some(password))),
         ConsoleSource::ProxmoxApi { .. } | ConsoleSource::SshTunnel { .. } => return None,
     })
 }

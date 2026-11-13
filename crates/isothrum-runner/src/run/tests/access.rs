@@ -6,12 +6,15 @@ use super::*;
 use crate::testing::{WEB_PORTAL_ACCESS, WEB_VM_ACCESS, attach, detach};
 use crate::{ErrorCode, MachineState, RunState};
 
-/// The run's Docker, the access service's container `c0ffee` once it is up; `connect` answers
-/// its join to a network.
+/// The run's Docker, the access service's container `c0ffee` once it is up, on the project's
+/// default network only; `connect` answers its join to a network.
 fn joining(engine: &Mutex<Engine>, call: &Call, connect: Reply) -> Reply {
     let line = call.line();
     if line.ends_with(" ps -q user") {
         return Reply::ok("c0ffee\n");
+    }
+    if line.starts_with("docker inspect --format") {
+        return Reply::ok("{\"web-portal_default\":{\"IPAddress\":\"172.19.0.3\"}}\n");
     }
     if line.starts_with("docker network connect") {
         return connect;
@@ -60,24 +63,10 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-/// A container already on the chosen network is where it should be; any other failure to join
-/// it fails the attach, and a network the run doesn't have is refused before anything starts.
+/// Any failure to join the chosen network fails the attach, and a network the run doesn't have is
+/// refused before anything starts.
 #[tokio::test]
-async fn attach_to_a_network_tolerates_only_already_being_on_it() {
-    let already = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
-        joining(
-            e,
-            c,
-            Reply::fail(
-                1,
-                "Error response from daemon: endpoint with name user already exists in network web-portal_lab",
-            ),
-        )
-    });
-    already.set(Containers::Up);
-    let on_it = already.runner.open(&already.manifest, None).unwrap();
-    attach(&on_it, None, Some("lab"), None, &Recorder::new()).await.unwrap();
-
+async fn attach_to_a_network_fails_on_a_refused_join_and_refuses_an_unknown_network() {
     let refused = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
         joining(e, c, Reply::fail(1, "Error response from daemon: network web-portal_lab not found"))
     });
@@ -92,6 +81,30 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
     assert_eq!(unknown.code(), ErrorCode::NetworkUnknown, "{unknown}");
     assert_eq!(unknown.to_string(), "run `web-portal` has no network `nope`");
     assert_eq!(refused.fake.calls().len(), calls, "nothing ran");
+}
+
+/// Regression: a container already on the network was known by Docker's English wording of the
+/// refused join, which Podman words otherwise.
+#[tokio::test]
+async fn a_container_already_on_the_network_isnt_joined_again() {
+    let f = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
+        if c.line().starts_with("docker inspect --format") {
+            return Reply::ok("{\"web-portal_lab\":{}}\n");
+        }
+        joining(
+            e,
+            c,
+            Reply::fail(
+                1,
+                "Error response from daemon: endpoint with name user already exists in network web-portal_lab",
+            ),
+        )
+    });
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let report = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap();
+    assert_eq!(report.network.as_deref(), Some("lab"));
+    assert!(f.fake.last("network connect").is_none(), "already there: not joined again");
 }
 
 /// An access service with no container once it is up has nothing to join to the chosen network:
@@ -227,7 +240,7 @@ fn vagrant_access(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (R
     let folder = RunFolder::new("vagrant", WEB_VM_ACCESS);
     let fake = Arc::new(FakeProcesses::new(answer));
     let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(std::iter::empty::<u16>()));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap();
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::testing::TEST_HOST)).unwrap();
     (folder, fake, runner)
 }
 
@@ -315,7 +328,7 @@ async fn a_status_while_an_attach_provisions_the_access_vm_reports_the_run_as_la
     // The embedder's worker, which attaches, and its app, polling the run from another process.
     let [runner, app] = [vec![41000], vec![]].map(|free: Vec<u16>| {
         let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new(free));
-        Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::runner::this_host())).unwrap()
+        Runner::new(runner_config(folder.home.path(), processes(&fake), ports, crate::testing::TEST_HOST)).unwrap()
     });
     let run = runner.open(&folder.manifest, None).unwrap();
     run.up(&crate::testing::virtualbox_options("token"), &Recorder::new()).await.unwrap();

@@ -59,8 +59,8 @@ The manifest declares *slots* (secrets, inputs, connection credentials). Their v
   goes when the session ends), `consoles.json`, the port and password the runner chose for each
   machine's VMware VNC console (made before the run's first Vagrant command, removed by a
   successful `down`; VMware itself writes the password in the VM's `.vmx`), and
-  `proxmox-console.curl`, a Proxmox console request's credentials, which `curl` reads on its
-  standard input and the runner removes once it ran, or when the request is cut short (a cancel,
+  `proxmox-console-<random>.curl`, a Proxmox API request's credentials (a file per request),
+  which `curl` reads on its standard input and the runner removes once it ran, or when the request is cut short (a cancel,
   Ctrl-C; a removal that fails fails the request). The tools themselves may keep values:
   Terraform state can hold any value a resource received.
 

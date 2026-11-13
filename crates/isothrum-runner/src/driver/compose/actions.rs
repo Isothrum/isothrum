@@ -43,7 +43,7 @@ pub(super) async fn check_ports_free(c: &Compose, cx: &Cx<'_>, list: &str, step:
     }
     let config = c.compose(cx, step, &["config", "--format", "json"], &env).await?;
     let ports = config::host_ports(&config).map_err(|why| config::unreadable(step.id.as_str(), "the host ports it publishes are", &why))?;
-    cx.run.runner.ensure_ports_free(cx.run.name(), ports)
+    cx.run.ensure_ports_free(ports)
 }
 
 /// `compose.remove_stale_networks`: the project's networks its Compose files no longer define

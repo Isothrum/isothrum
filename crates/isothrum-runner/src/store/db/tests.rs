@@ -369,7 +369,7 @@ fn a_lease_is_refused_while_its_holder_lives_and_taken_over_from_a_dead_one() {
 fn a_lease_whose_holder_died_is_taken_over() {
     let (_home, store) = store();
     let mut dead = Owner::this_process();
-    dead.pid = owner::dead_pid();
+    dead.pid = owner::test_pids::dead_pid();
     let me = Owner::this_process();
     store
         .write(|tx| {
@@ -444,7 +444,7 @@ fn a_port_a_dead_process_reserved_is_taken_over() {
     let a = run_with_operation(&store, "one", Op::Up);
     let b = run_with_operation(&store, "two", Op::Up);
     let mut dead = Owner::this_process();
-    dead.pid = owner::dead_pid();
+    dead.pid = owner::test_pids::dead_pid();
     let me = Owner::this_process();
     store
         .write(|tx| {

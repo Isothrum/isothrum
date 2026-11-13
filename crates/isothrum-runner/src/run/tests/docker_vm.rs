@@ -122,9 +122,14 @@ fn local() -> Running {
 
 /// [`local`] of `manifest`.
 fn local_with(manifest: &str) -> Running {
+    local_on(manifest, &[])
+}
+
+/// [`local_with`], `free` the host ports this computer offers.
+fn local_on(manifest: &str, free: &[u16]) -> Running {
     let folder = RunFolder::new("docker-vm", manifest);
     let (engine, fake) = modelled(vagrant);
-    let ports = Arc::new(FakePorts::new([]));
+    let ports = Arc::new(FakePorts::new(free.iter().copied()));
     let held: Arc<FakePorts> = Arc::clone(&ports);
     let as_port: Arc<dyn crate::HostPorts> = held;
     let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), as_port, HostOs::Macos)).unwrap();
@@ -162,62 +167,6 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
         (state(HOST), state("web"), state("isoloom-init-web-1")),
         (MachineState::Running, MachineState::Running, MachineState::Exited(0))
     );
-}
-
-/// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with
-/// weak auto-correct, so two local docker-vm runs — or a half-created VM left behind — collide on
-/// it. The runner gives the helper VM's SSH forward a free host port of its own, carried to the
-/// Vagrantfile in `ISOLOOM_HOSTPORTS` under `<host>/ssh` ([`HOST`], the guest machine's name); the run's own
-/// `web/portal` is fixed, so that is the only entry.
-#[tokio::test(start_paused = true)]
-async fn on_qemu_the_helper_vms_ssh_forward_takes_a_free_host_port() {
-    let folder = RunFolder::new("docker-vm", DOCKER_VM);
-    let (_engine, fake) = modelled(vagrant);
-    let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([50123]));
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Macos)).unwrap();
-    let run = runner.open(&folder.manifest, None).unwrap();
-    let mut secrets = Secrets::new();
-    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    run.up(
-        &RunOptions::new().with_provider(isoloom_manifest::Provider::Qemu).with_secrets(secrets),
-        &Recorder::new(),
-    )
-    .await
-    .unwrap();
-    let up = fake.last("vagrant up").unwrap();
-    assert_eq!(
-        up.env("ISOLOOM_HOSTPORTS"),
-        Some(format!(r#"{{"{HOST}/ssh":50123}}"#).as_str()),
-        "the chosen SSH port reaches the Vagrantfile"
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_made() {
-    let l = local();
-    l.ports.take(8080, Protocol::Tcp);
-    let run = l.runner.open(&l.manifest, None).unwrap();
-    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), ErrorCode::PortInUse);
-    assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
-}
-
-/// An ephemeral port no free host port is left for fails the start, naming the port, as Compose's
-/// pick does: it was left out in silence, and the VM forwarded it at its `preferred` number, which
-/// a resume needn't get again.
-#[tokio::test(start_paused = true)]
-async fn an_ephemeral_port_with_no_free_host_port_left_fails_the_start() {
-    let ephemeral = DOCKER_VM.replace(r#""mode": "fixed""#, r#""mode": "ephemeral""#);
-    assert_ne!(ephemeral, DOCKER_VM, "the fixture's port is fixed");
-    let l = local_with(&ephemeral);
-    let run = l.runner.open(&l.manifest, None).unwrap();
-    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert!(
-        matches!(&err, crate::Error::ToolFailed { step, reason } if step == "host-ports"
-            && reason.starts_with("no free host port over tcp that another run starting hasn't reserved could be found to pin machine `")),
-        "{err}"
-    );
-    assert!(l.fake.last("vagrant up").is_none(), "nothing was made");
 }
 
 /// The run up in its VM, then paused.
@@ -486,3 +435,4 @@ async fn an_unknown_boot_digest_restarts_nothing_and_is_recorded_for_the_next_up
 }
 
 mod downloads;
+mod ports;
