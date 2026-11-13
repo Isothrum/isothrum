@@ -19,6 +19,9 @@
 //!   Windows its tree, `taskkill /T /F`), and removes the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
+//! - On Windows a tool is also recorded while it is being created, before its pid is known
+//!   ([`Spawning`]): one created as its process was killed stays suspended outside its job, and
+//!   is ended the same way.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -27,6 +30,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::time::Duration;
+
+#[path = "ledger_spawning.rs"]
+mod spawning;
+pub(crate) use spawning::Spawning;
 
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
@@ -163,13 +170,20 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
         let owner = dir.join(format!("{token}.owner"));
         let Some(lock) = lock_if_owner_gone(&owner) else { continue };
         let prefix = format!("{token}-");
-        for entry in names
-            .iter()
-            .filter(|n| n.starts_with(&prefix) && Path::new(n).extension().is_some_and(|x| x == "tool"))
-        {
+        for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            if let Some(pid) = end_entry(&path).await {
-                ended.push(pid);
+            match Path::new(entry).extension().and_then(|x| x.to_str()) {
+                Some("tool") => ended.extend(end_entry(&path).await),
+                #[cfg(windows)]
+                Some(spawning::EXT) => {
+                    if let Some(spawned) = std::fs::read_to_string(&path).ok().and_then(|t| spawning::Entry::parse(&t)) {
+                        ended.extend(spawning::end(&spawned).await);
+                    }
+                }
+                // Off Windows nothing is created suspended: the entry only goes.
+                #[cfg(not(windows))]
+                Some(spawning::EXT) => {}
+                _ => continue,
             }
             if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
                 tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
@@ -203,7 +217,12 @@ fn recorded_start(pid: u32) -> Option<Start> {
     if cfg!(target_os = "linux") {
         return proc_start(pid);
     }
-    Some(Start::At(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()))
+    now_secs().map(Start::At)
+}
+
+/// This computer's clock now, in seconds since the epoch.
+fn now_secs() -> Option<u64> {
+    Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
 }
 
 /// Process `pid`'s start on Linux: field 22 of `/proc/<pid>/stat` (after its name, which may

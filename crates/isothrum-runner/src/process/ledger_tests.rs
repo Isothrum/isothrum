@@ -109,3 +109,18 @@ fn a_folder_made_again_gets_its_owner_again() {
     assert!(names.contains(&format!("{owner}-{pid}.tool")), "{names:?}");
     drop(again);
 }
+
+/// A dead process's record of a tool it was creating goes with its owner; off Windows nothing is
+/// created suspended, so nothing is ended for it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dead_owners_tool_being_created_goes_with_it() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(DIR);
+    crate::store::private_dir(&dir).unwrap();
+    std::fs::write(dir.join("dead.owner"), "").unwrap();
+    std::fs::write(dir.join(format!("dead-spawn0.{}", spawning::EXT)), "1 1 docker\n").unwrap();
+    let none: [u32; 0] = [];
+    assert_eq!(end_orphans(&dir).await, none);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the entry and its owner's lock went");
+}
