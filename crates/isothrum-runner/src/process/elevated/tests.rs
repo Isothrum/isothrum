@@ -196,9 +196,11 @@ async fn the_broker_runs_no_request_of_another_session() {
 
 #[tokio::test]
 async fn a_declined_prompt_fails_every_call_plainly() {
+    // Regression: the prompt declined was known by Windows' English wording; a French Windows
+    // says `L'opération a été annulée par l'utilisateur`.
     let declined = Reply::fail(
-        1,
-        "Start-Process : This command cannot be run due to the error: The operation was canceled by the user.",
+        super::script::ERROR_CANCELLED,
+        "Start-Process : Impossible d'exécuter cette commande en raison de l'erreur : L'opération a été annulée par l'utilisateur.",
     );
     let (_home, _fake, e) = session("", declined);
     let (exit, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["up"])).await;
