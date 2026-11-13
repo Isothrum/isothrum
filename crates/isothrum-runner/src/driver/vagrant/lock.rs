@@ -200,7 +200,15 @@ pub(super) async fn read_status(cx: &Cx<'_>) -> Result<StatusRead> {
     let step: &Step = &cx.manifest().lifecycle.status;
     let patience = Patience::of(if cx.query { QUERY_PATIENCE } else { PATIENCE });
     // An operation that holds the run meanwhile holds its VMs for as long as it acts.
-    let still = |_: &Captured| !cx.query || !cx.run.runner.store.held(cx.run.name()).unwrap_or(false);
+    // A lock file that can't be read says nothing about the run: traced, read as not held, so
+    // the query goes on trying rather than giving up on a read error (Clean Code ch.7, 2026-11-13).
+    let still = |_: &Captured| {
+        !cx.query
+            || !cx.run.runner.store.held(cx.run.name()).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, run = %cx.run.name(), "the run's lock couldn't be read; read as not held");
+                false
+            })
+    };
     let out = waiting(STATUS, patience, still, || {}, || capture_output(cx, STATUS, step)).await?;
     if cx.query && refused(&out) {
         return Ok(StatusRead::Busy(locked_machines(&out)));

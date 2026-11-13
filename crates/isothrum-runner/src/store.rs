@@ -300,7 +300,12 @@ impl Store {
         let mut names = Vec::new();
         for entry in entries {
             let entry = entry.map_err(Error::io(&self.runs, "read"))?;
-            names.extend(RunName::new(&entry.file_name().to_string_lossy()).ok());
+            let folder = entry.file_name().to_string_lossy().into_owned();
+            match RunName::new(&folder) {
+                Ok(name) => names.push(name),
+                // Not a run's folder (a file put there by hand, an older runner's): skipped, said.
+                Err(e) => tracing::debug!(folder, error = %e, "a folder among the runs isn't a run's"),
+            }
         }
         names.sort();
         let mut records = Vec::new();
