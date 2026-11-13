@@ -230,6 +230,16 @@ impl Driver for Vagrant {
         std::future::ready(Ok(()))
     }
 
+    /// Nothing: a VM's volumes are its own.
+    fn before_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
+    /// Nothing: a VM's volumes are its own.
+    fn after_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder; the
         // consoles the runner chose go with the run.

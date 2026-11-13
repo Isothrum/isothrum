@@ -177,6 +177,16 @@ impl Driver for Compose {
         volumes::record(&self.project(cx)?, cx).await
     }
 
+    /// Records the project's anonymous volumes ([`volumes::record`]): an update's recreate
+    /// orphans the old container's, which go after the steps.
+    async fn before_update(&self, cx: &Cx<'_>) -> Result<()> {
+        volumes::record(&self.project(cx)?, cx).await
+    }
+
+    async fn after_update(&self, cx: &Cx<'_>) -> Result<()> {
+        volumes::remove_recorded_dangling(cx).await
+    }
+
     async fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         // The next start is a new run: it picks its ports again.
         if let Some(pins) = self.pins(cx)? {

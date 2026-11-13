@@ -163,6 +163,16 @@ impl Driver for Terraform {
         std::future::ready(Ok(()))
     }
 
+    /// Nothing: a module's resources are the state's.
+    fn before_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
+    /// Nothing: a module's resources are the state's.
+    fn after_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+        std::future::ready(Ok(()))
+    }
+
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         let state_dir = cx.state_dir();
         std::future::ready(FORGOTTEN.iter().try_for_each(|f| remove(&state_dir.join(f))))

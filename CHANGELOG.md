@@ -9,6 +9,17 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.5] — 2026-11-13
+
+### Fixed
+
+- **A Compose run's `update` removes the anonymous volumes its recreate orphaned.** 2.1.4 removed
+  at `down` the anonymous volumes the containers still held; an update whose recreate makes new
+  anonymous volumes for the new container (the Cyber CTF fixture lab's: three left after three
+  updates, 2026-11-13) orphans the old ones at once, and no later `down` sees them attached. The
+  `update` operation now records the containers' anonymous volumes before its steps and removes,
+  after them, the recorded ones no container holds any more.
+
 ## [2.1.4] — 2026-11-13
 
 ### Fixed

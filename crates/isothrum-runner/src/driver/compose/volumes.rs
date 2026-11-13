@@ -5,7 +5,11 @@
 //! data across a recreate), and the engine then counts them named: a `down --volumes` after that
 //! removes the containers and leaves them (the Cyber CTF rig's leftover audit, two a lab, on
 //! every E2E group of 2026-11-13). So the `down` operation records them before its steps, from
-//! the containers the project still has, and removes what the steps left after them.
+//! the containers the project still has, and removes what the steps left after them. An update
+//! orphans them too, at once: a recreate that makes new anonymous volumes for the new container
+//! (the fixture lab's, three a lab after three updates) leaves the old ones dangling, and no
+//! later `down` sees them attached. So the `update` operation records them before its steps and
+//! removes, after them, the recorded ones no container holds any more.
 
 use std::collections::BTreeSet;
 
@@ -53,6 +57,35 @@ pub(super) async fn remove_recorded(cx: &Cx<'_>) -> Result<()> {
         args.extend(names.iter().cloned());
         if let Err(e) = call_ok(cx, "anonymous-volumes", &docker_spec(cx, args, Vec::new()), LIMIT, Echo::Quiet).await {
             tracing::warn!(error = %e, "the run's anonymous volumes weren't all removed after its down");
+        }
+    }
+    crate::store::remove(&path)
+}
+
+/// Removes the volumes [`record`] kept that no container holds after an update's steps (the
+/// engine's dangling ones among them): the old container's, orphaned by a recreate that made
+/// new ones. One still held stays, and the record goes.
+pub(super) async fn remove_recorded_dangling(cx: &Cx<'_>) -> Result<()> {
+    let path = cx.state_dir().join(RECORD);
+    let recorded: BTreeSet<String> = match std::fs::read_to_string(&path) {
+        Ok(text) => text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
+        Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
+    };
+    if !recorded.is_empty() {
+        let ls = ["volume", "ls", "--quiet", "--filter", "dangling=true"].map(String::from).to_vec();
+        match call_ok(cx, "anonymous-volumes", &docker_spec(cx, ls, Vec::new()), LIMIT, Echo::Quiet).await {
+            Ok(listed) => {
+                let orphaned: Vec<String> = listed.split_whitespace().filter(|v| recorded.contains(*v)).map(str::to_owned).collect();
+                if !orphaned.is_empty() {
+                    let mut rm = ["volume", "rm", "--force"].map(String::from).to_vec();
+                    rm.extend(orphaned);
+                    if let Err(e) = call_ok(cx, "anonymous-volumes", &docker_spec(cx, rm, Vec::new()), LIMIT, Echo::Quiet).await {
+                        tracing::warn!(error = %e, "the anonymous volumes an update orphaned weren't all removed");
+                    }
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "the dangling volumes couldn't be listed after the update"),
         }
     }
     crate::store::remove(&path)
