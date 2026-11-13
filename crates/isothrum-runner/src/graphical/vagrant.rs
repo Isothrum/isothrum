@@ -110,12 +110,12 @@ pub(super) fn define(machine: &Machine) -> Result<&str> {
 /// (`<dotfile>/machines/<define>/qemu/<id>/run/options.yml`, `:monitor_socket:`), else its
 /// default under Vagrant's own folder (`$VAGRANT_HOME/tmp/vagrant-qemu/<id>/qemu_socket`).
 fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
-    let data = dotfile(cx)?.join("machines").join(define(machine)?).join("qemu");
-    let id = read_if_there(&data.join("id"))?.map(|s| s.trim().to_owned()).unwrap_or_default();
+    let qemu_dir = dotfile(cx)?.join("machines").join(define(machine)?).join("qemu");
+    let id = read_if_there(&qemu_dir.join("id"))?.map(|s| s.trim().to_owned()).unwrap_or_default();
     if id.is_empty() {
         return Err(no_console(machine, "Vagrant records no QEMU VM for it: it isn't up"));
     }
-    let options = read_if_there(&data.join(&id).join("run").join("options.yml"))?;
+    let options = read_if_there(&qemu_dir.join(&id).join("run").join("options.yml"))?;
     if let Some(recorded) = options.as_deref().and_then(recorded_socket) {
         return Ok(recorded);
     }
