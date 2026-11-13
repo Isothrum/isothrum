@@ -38,12 +38,7 @@ impl Running<'_> {
             crate::archive::forget(&cx)?;
             // A status while the next start holds the run shows no machine of this one.
             self.runner.store.forget_seen(self.name())?;
-            Ok(Done {
-                value: (),
-                ok: true,
-                data: json!({ "state": RunState::Absent }),
-                state: Some(RunState::Absent),
-            })
+            Ok(Done::moved(RunState::Absent))
         })
         .await
     }
@@ -71,12 +66,7 @@ impl Running<'_> {
             }
             self.begin(&mut record, Op::Park)?;
             run_steps(&mut cx, "lifecycle.park", steps).await?;
-            Ok(Done {
-                value: (),
-                ok: true,
-                data: json!({ "state": RunState::Parked }),
-                state: Some(RunState::Parked),
-            })
+            Ok(Done::moved(RunState::Parked))
         })
         .await
     }
@@ -141,7 +131,7 @@ impl Running<'_> {
             self.bind_observed(&mut cx, observed);
             let report = checks::run(&mut cx).await?;
             let data = json!({ "passed": report.results.iter().filter(|r| r.ok).count(), "failed": report.results.iter().filter(|r| !r.ok).count(), "unfinished": report.unfinished });
-            Ok(Done { ok: report.ok, value: report, data, state: None })
+            Ok(Done::checked(report.ok, report, data))
         })
         .await
     }
@@ -178,12 +168,7 @@ impl Running<'_> {
                 None => ("lifecycle.provision.all", &provision.all),
             };
             run_steps(&mut cx, list, steps).await?;
-            Ok(Done {
-                value: (),
-                ok: true,
-                data: json!({ "machine": machine }),
-                state: None,
-            })
+            Ok(Done::settled((), None, json!({ "machine": machine })))
         })
         .await
     }

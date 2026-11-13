@@ -26,6 +26,29 @@ pub(crate) struct Done<T> {
     pub(crate) state: Option<RunState>,
 }
 
+impl<T> Done<T> {
+    /// An operation that reached its goal, returning `value`, its `result` event carrying `data`,
+    /// the run left where `state` says (or where it was). One constructor for the seven literals
+    /// that spelled `ok: true` by hand (Clean Code G5, 2026-11-13).
+    pub(crate) fn settled(value: T, state: Option<RunState>, data: serde_json::Value) -> Done<T> {
+        Done { value, ok: true, data, state }
+    }
+
+    /// An operation whose checks decide whether it reached its goal: `ok` is the report's, read
+    /// before the report moves in.
+    pub(crate) fn checked(ok: bool, value: T, data: serde_json::Value) -> Done<T> {
+        Done { value, ok, data, state: None }
+    }
+}
+
+impl Done<()> {
+    /// An operation that moved the run to `state` and returns nothing else: its event says the
+    /// state.
+    pub(crate) fn moved(state: RunState) -> Done<()> {
+        Done::settled((), Some(state), serde_json::json!({ "state": state }))
+    }
+}
+
 impl Running<'_> {
     /// Runs `work`, the body of `op`, with the run locked and its events going to `events`. `work`
     /// gets `opts` with the run's connection values ([`Running::connected`]); no event shows a

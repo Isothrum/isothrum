@@ -101,12 +101,7 @@ impl Running<'_> {
             let report = report(target, network, image);
             // The whole report: `isothrum attach --json` says where it is with this event alone.
             let data = report.data();
-            Ok(Done {
-                value: report,
-                ok: true,
-                data,
-                state: None,
-            })
+            Ok(Done::settled(report, None, data))
         })
         .await
     }
@@ -125,12 +120,11 @@ impl Running<'_> {
             let target = self.access_machine(machine)?;
             let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
-            Ok(Done {
-                value: (),
-                ok: true,
-                data: json!({ "machine": target.name.as_str(), "native": driver::native_name(target) }),
-                state: None,
-            })
+            Ok(Done::settled(
+                (),
+                None,
+                json!({ "machine": target.name.as_str(), "native": driver::native_name(target) }),
+            ))
         })
         .await
     }

@@ -239,10 +239,5 @@ const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
     let shown: Vec<serde_json::Value> = outputs.iter().map(|o| json!({ "name": o.name, "role": o.role, "value": o.value })).collect();
     let data = json!({ "state": RunState::Ready, "outputs": shown, "message": message });
-    Done {
-        value: Started { record, outputs, message },
-        ok: true,
-        data,
-        state: Some(RunState::Ready),
-    }
+    Done::settled(Started { record, outputs, message }, Some(RunState::Ready), data)
 }
