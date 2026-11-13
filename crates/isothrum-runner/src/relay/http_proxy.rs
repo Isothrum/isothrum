@@ -11,8 +11,8 @@
 //! responses are already its origin's.
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use super::{Relay, pump, serve};

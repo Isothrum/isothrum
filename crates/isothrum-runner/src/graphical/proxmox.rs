@@ -113,7 +113,7 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         return Err(no_console(machine, "it has no Proxmox console"));
     };
     let at = |f: &str| format!("machines.{}.consoles.source.{f}", machine.name);
-    let (base, insecure) = api_target(&cx.vars, (endpoint, insecure), &at)?;
+    let (base, insecure) = api_target(&cx.vars, (endpoint, insecure), at)?;
     let (node, vm_id) = (cx.vars.render(node, &at("node"))?, cx.vars.render(vm_id, &at("vm_id"))?);
     let host = base
         .strip_prefix("https://")
@@ -301,7 +301,7 @@ fn proxmox_vms<'m>(cx: &Cx<'m>, vars: &crate::vars::Vars) -> Result<Vec<(String,
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
-        let (base, insecure) = api_target(vars, (endpoint, insecure), &at)?;
+        let (base, insecure) = api_target(vars, (endpoint, insecure), at)?;
         out.push((
             m.name.to_string(),
             ApiVm {

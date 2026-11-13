@@ -23,7 +23,7 @@ mod proxmox;
 mod tunnel;
 mod vagrant;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use isoloom_manifest::{ConsoleProtocol, ConsoleSource, Machine, Provider};
 use serde::{Deserialize, Serialize};
