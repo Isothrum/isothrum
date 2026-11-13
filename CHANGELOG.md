@@ -9,6 +9,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **An event's sequence number is taken under the log's lock.** Two events emitted at once could
+  be written to `events.jsonl` out of order.
+- **Two first elevated calls at once start one broker, not two.** The session was decided by a
+  check-then-act, so two concurrent calls could each prompt and leak a session.
+- **A step's watched texts and what it saw change together.** They were two locks, so a line
+  printed between a change of the texts and the forgetting could count against the old texts.
+
 ## [2.1.7] — 2026-11-13
 
 ### Fixed
