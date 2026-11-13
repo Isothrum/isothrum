@@ -64,6 +64,14 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
     let out = capture_step(cx, STEP, &step)
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
+    // Docker 26 and older exit 0 with an empty line when the daemon doesn't answer: an empty
+    // answer from its probe is a daemon down, as an exit 1 is (the review of 2026-11-13).
+    if tool.name.as_str() == "docker" && out.trim().is_empty() {
+        return Err(Error::ToolFailed {
+            step: STEP.to_owned(),
+            reason: "`docker` doesn't answer: its probe printed nothing (its daemon isn't running)".to_owned(),
+        });
+    }
     let Some(min) = &tool.min_version else { return Ok(()) };
     new_enough(tool.name.as_str(), min, &out)
 }
@@ -85,16 +93,25 @@ fn new_enough(tool: &str, min: &isoloom_manifest::Version, said: &str) -> Result
     }
 }
 
-/// The container engine, `docker`, answers, for a tool run from `image`.
+/// The container engine, `docker`, answers, for a tool run from `image`: its server's version
+/// printed. Docker 26 and older exit 0 with an empty line when the daemon doesn't answer, so
+/// the answer is read, not the exit code alone (the review of 2026-11-13).
 async fn engine(cx: &Cx<'_>, id: StepId, docker: Program, image: &str) -> Result<()> {
     let probe = HostArgv::Every(Argv::new(docker, ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into()));
-    let mut step = Step::argv(id, probe);
+    let mut step = Step::argv(id.clone(), probe);
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    capture_step(cx, STEP, &step).await.map(drop).map_err(|e| {
+    let version = capture_step(cx, STEP, &step).await.map_err(|e| {
         named(e, "docker", |reason| {
             format!("Docker, which runs `{image}` on this host, doesn't answer: {reason}")
         })
-    })
+    })?;
+    if version.trim().is_empty() {
+        return Err(Error::ToolFailed {
+            step: id.to_string(),
+            reason: format!("Docker, which runs `{image}` on this host, doesn't answer: `docker info` printed no server version (its daemon isn't running)"),
+        });
+    }
+    Ok(())
 }
 
 /// A probe's failure, said of the tool it probes: missing under its manifest name, failing with

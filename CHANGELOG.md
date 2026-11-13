@@ -9,6 +9,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Docker that answers no server version fails the start as a stopped one does.** Docker 26
+  and older exit 0 with an empty line when the daemon doesn't answer, so the tools probe passed
+  and the start died later in the pull with a worse error.
+- **ESXi's `powered_on` VM state reads as running.** The plugin calls a VM `powered_on` until it
+  has its SSH address and `running` after; the first read as unknown, never ready, its address
+  skipped (a Windows guest before its tools report one).
+
 ## [2.1.6] — 2026-11-13
 
 ### Fixed

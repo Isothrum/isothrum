@@ -87,6 +87,7 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
 #[cfg(unix)]
 const FAKE_DOCKER: &str = r#"#!/bin/sh
 case " $* " in
+  *" info --format "*) echo 29.0.0 ;;
   *" compose version "*) echo 2.29.0 ;;
   *" config --format json "*) echo '{"services":{"web":{},"db":{}}}' ;;
   *" up --detach "*)
