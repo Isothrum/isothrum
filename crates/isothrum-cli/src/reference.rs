@@ -184,6 +184,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::Io => {
             "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`); for a port, the open-file limit (`ulimit -n`) and the loopback."
         }
+        ErrorCode::Corrupt => {
+            "The file the message names is the runner's own and isn't what it wrote: another version's, or damaged. Remove it (a record: the run's folder), or regenerate the run."
+        }
         ErrorCode::Locked => "Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it.",
         ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
         ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",

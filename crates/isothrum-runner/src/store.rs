@@ -375,12 +375,16 @@ fn read_lines(path: &Path) -> Result<Vec<Vec<u8>>> {
 ///
 /// # Errors
 ///
-/// It exists but can't be read, or doesn't hold a `T` (`InvalidData`).
+/// It exists but can't be read (`io`), or doesn't hold a `T` (`corrupt`).
 pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
     let Some(bytes) = if_there(std::fs::read(path)).map_err(Error::io(path, "read"))? else {
         return Ok(None);
     };
-    serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::io(path, "read")(e.into()))
+    serde_json::from_slice(&bytes).map(Some).map_err(|source| Error::Corrupt {
+        path: path.to_path_buf(),
+        what: "JSON",
+        source,
+    })
 }
 
 /// Writes `value` as the JSON file at `path`, whole and owner-only: [`read_json`]'s counterpart.
