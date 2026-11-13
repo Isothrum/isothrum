@@ -31,7 +31,7 @@ async fn a_stopped_engine_fails_the_start_before_anything_is_created() {
 }
 
 /// Docker 26 and older exit 0 with an empty line when the daemon doesn't answer: the probe reads
-/// the version printed, not the exit code alone (the review of 2026-11-13). The reply is an
+/// the version printed, not the exit code alone. The reply is an
 /// empty line, which the fake passes through (a bare empty success it answers as a running engine).
 #[tokio::test]
 async fn an_engine_answering_no_version_fails_the_start_as_a_stopped_one_does() {

@@ -1,6 +1,6 @@
 //! The host ports the runs of one runner hold while they start: a port one run reserved is
 //! refused to another starting meanwhile, before either binds it. Its own type, out of the
-//! runner (Clean Code ch.10, one responsibility; the inventory of 2026-11-13), and the place a
+//! runner (Clean Code ch.10, one responsibility), and the place a
 //! cross-process reservation goes when it comes.
 
 use std::collections::BTreeMap;

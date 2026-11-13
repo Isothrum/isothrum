@@ -238,9 +238,8 @@ pub(crate) fn stdout_of_step(cx: &Cx<'_>, id: &str, out: &Captured) -> Result<St
 }
 
 /// The standard output of one of a driver's own calls, `spec`, made for the step `id` and ended
-/// as `out`; unless it exited 0, the step's failure, led by the call's command line (two
-/// functions where one took an `Option<&ProcessSpec>` every caller filled or not: Clean Code
-/// ch.7, don't pass null; 2026-11-13).
+/// as `out`; unless it exited 0, the step's failure, led by the call's command line. Two
+/// functions where one took an `Option<&ProcessSpec>` every caller filled or left empty.
 pub(crate) fn stdout_of_call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Result<String> {
     out.output().map_err(|why| tool_failed(cx, id, &format!("`{}` failed: {why}", spec.line())))
 }

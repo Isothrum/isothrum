@@ -65,7 +65,7 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
         .await
         .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
     // Docker 26 and older exit 0 with an empty line when the daemon doesn't answer: an empty
-    // answer from its probe is a daemon down, as an exit 1 is (the review of 2026-11-13).
+    // answer from its probe is a daemon down, as an exit 1 is.
     if tool.name.as_str() == "docker" && out.trim().is_empty() {
         return Err(Error::ToolFailed {
             step: STEP.to_owned(),
@@ -95,7 +95,7 @@ fn new_enough(tool: &str, min: &isoloom_manifest::Version, said: &str) -> Result
 
 /// The container engine, `docker`, answers, for a tool run from `image`: its server's version
 /// printed. Docker 26 and older exit 0 with an empty line when the daemon doesn't answer, so
-/// the answer is read, not the exit code alone (the review of 2026-11-13).
+/// the answer is read, not the exit code alone.
 async fn engine(cx: &Cx<'_>, id: StepId, docker: Program, image: &str) -> Result<()> {
     let probe = HostArgv::Every(Argv::new(docker, ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into()));
     let mut step = Step::argv(id.clone(), probe);

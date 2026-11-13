@@ -92,7 +92,7 @@ pub(crate) trait Driver {
     /// Reads what a `down` must know before its steps run (Compose: the containers' anonymous
     /// volumes, which the steps leave once a recreate inherited them). Nothing, for a driver
     /// whose machines own their storage (a VM's disks, a module's resources): the defaults of
-    /// the hooks say so once, not in every driver (Clean Code G5, 2026-11-13).
+    /// the hooks say so once, not in every driver (Clean Code G5).
     async fn before_down(&self, _cx: &Cx<'_>) -> Result<()> {
         Ok(())
     }

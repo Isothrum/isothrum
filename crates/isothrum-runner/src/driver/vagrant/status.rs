@@ -40,7 +40,7 @@ pub(crate) fn host_name(out: &str) -> Option<String> {
 /// VM `started`: it has no running state of its own, so `started` is what it reports once the
 /// VM answers. ESXi (`vagrant-vmware-esxi`) calls a VM `powered_on` until it has its SSH
 /// address, `running` after: both run (a Windows guest before its tools report an address read as
-/// unknown and never ready; the review of 2026-11-13).
+/// unknown and never ready).
 pub(crate) fn machine_state(label: &str) -> MachineState {
     match label {
         "running" | "started" | "powered_on" => MachineState::Running,

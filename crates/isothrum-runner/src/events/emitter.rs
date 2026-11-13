@@ -104,7 +104,7 @@ impl<'a> Emitter<'a> {
     pub(crate) fn emit(&self, kind: EventKind) {
         let kind = self.masked(kind);
         // The sequence number is taken under the log's lock: taken before it, two emits at once
-        // could write N+1 before N to the log (Clean Code appendix A, 2026-11-13).
+        // could write N+1 before N to the log (Clean Code appendix A).
         let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
         let event = Event {
             v: EVENTS_VERSION,

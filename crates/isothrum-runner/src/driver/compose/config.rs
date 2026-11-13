@@ -9,8 +9,8 @@ use crate::encoding::wire_name;
 use crate::error::Error;
 
 /// What this runner reads of `docker compose config --format json`: parsed once, at the boundary,
-/// into the fields it uses (Clean Code ch.8; the inventory of 2026-11-13: four readers walked
-/// the JSON by hand). Unknown fields are skipped.
+/// into the fields it uses, where four readers walked the JSON by hand. Unknown fields are
+/// skipped.
 #[derive(Debug, Deserialize)]
 struct ComposeConfig {
     /// In the config's order, as Compose prints them.

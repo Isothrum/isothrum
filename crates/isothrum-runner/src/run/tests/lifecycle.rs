@@ -213,7 +213,7 @@ fn a_volume_dangles(engine: &std::sync::Mutex<Engine>, call: &crate::process::fa
     answer(engine, call)
 }
 
-/// An operation cut before its end (the app quit three seconds into an attach, 2026-11-13) leaves
+/// An operation cut before its end (the app quit three seconds into an attach) leaves
 /// its record of the run's anonymous volumes; the next operation carries the record forward and
 /// removes what dangles among them after its own steps.
 #[tokio::test]
