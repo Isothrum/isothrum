@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-test-support", "xtask"]
+members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-client", "crates/isothrum-service", "crates/isothrum-test-support", "xtask"]
 # The fuzz targets are their own workspace: they build with nightly and libFuzzer
 # (`cargo run -p xtask -- fuzz`).
 exclude = ["fuzz"]
@@ -26,6 +26,8 @@ isoloom-plan = "2.0.0"
 isothrum-compiler = { path = "crates/isothrum-compiler", version = "3.0.0" }
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
+isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
+isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
@@ -57,6 +59,10 @@ socket2 = "0.6"
 # The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
 # the same version, so one `libsqlite3-sys` serves both.
 rusqlite = { version = "0.41", features = ["bundled"] }
+# The runner service's local endpoint: a Unix domain socket, a Windows named pipe (with its ACL).
+interprocess = { version = "2.4", features = ["tokio"] }
+# The client's event stream is a `Stream`.
+futures-core = "0.3"
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now
