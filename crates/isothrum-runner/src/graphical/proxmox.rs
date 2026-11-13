@@ -331,7 +331,7 @@ fn asked(done: Result<crate::process::Captured>) -> Option<crate::process::Captu
 fn data_of<T: DeserializeOwned>(cx: &Cx<'_>, vars: &crate::vars::Vars, answer: &crate::process::Captured) -> Result<Option<T>> {
     if !answer.success() {
         let reason = cx.events.mask(&answer.reason());
-        if crate::server_auth::refused(&reason) {
+        if crate::tool_output::sign_in::refused(&reason) {
             return Err(Error::ServerAuthFailed {
                 step: "status".into(),
                 server: crate::server_auth::server_of(vars.params()),

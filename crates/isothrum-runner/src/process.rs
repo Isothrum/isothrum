@@ -9,6 +9,7 @@ mod elevated;
 pub mod fake;
 pub(crate) mod ledger;
 mod lines;
+mod locale;
 mod shim;
 mod stopping;
 mod system;
@@ -191,9 +192,24 @@ pub struct Captured {
     /// Its last standard error lines (a Ruby backtrace's frames and known-harmless warnings left
     /// out).
     pub stderr_tail: Vec<String>,
+    /// The failure it printed as a record of its own, for a tool that prints one
+    /// ([`crate::tool_output::failure_record`]).
+    record: Option<String>,
 }
 
 impl Captured {
+    /// What `program` printed, kept: its failure record read from `stdout` where it prints one
+    /// ([`crate::tool_output::failure_record`]).
+    pub(crate) fn new(program: &str, exit: Exit, stdout: Vec<String>, stderr: Vec<String>) -> Captured {
+        let record = crate::tool_output::failure_record(program, &stdout);
+        Captured {
+            exit,
+            stdout,
+            stderr_tail: stderr,
+            record,
+        }
+    }
+
     /// Whether it exited 0 ([`Exit::success`]).
     #[must_use]
     pub fn success(&self) -> bool {
@@ -201,13 +217,13 @@ impl Captured {
     }
 
     /// Why it failed, the one wording every failed tool's error uses: the error it printed as a
-    /// machine-readable record on its standard output (Vagrant's `error-exit`, with
-    /// `--machine-readable`), else its last error lines, else its last output lines (a tool, or a
+    /// record of its own (Vagrant's `error-exit`, with `--machine-readable`, read where it was
+    /// captured), else its last error lines, else its last output lines (a tool, or a
     /// cloud image refusing a login, may print its refusal there), with how it ended (`denied
     /// (exited with code 1)`, `exited with a signal`).
     #[must_use]
     pub fn reason(&self) -> String {
-        let cause = crate::tool_output::vagrant_error(&self.stdout).unwrap_or_else(|| {
+        let cause = self.record.clone().unwrap_or_else(|| {
             let quiet = self.stderr_tail.iter().all(|l| l.trim().is_empty());
             let said = if quiet {
                 self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
@@ -254,11 +270,7 @@ pub(crate) async fn capture_echoing(runner: &dyn ProcessRunner, spec: &ProcessSp
         }
     };
     let exit = runner.run(spec, &mut keep).await?;
-    Ok(Captured {
-        exit,
-        stdout,
-        stderr_tail: tail.into_lines(),
-    })
+    Ok(Captured::new(&spec.program, exit, stdout, tail.into_lines()))
 }
 
 #[cfg(test)]
@@ -271,11 +283,7 @@ mod tests {
 
     fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
-        Captured {
-            exit: Exit::new(code),
-            stdout: lines(stdout),
-            stderr_tail: lines(stderr),
-        }
+        Captured::new("vagrant", Exit::new(code), lines(stdout), lines(stderr))
     }
 
     #[test]

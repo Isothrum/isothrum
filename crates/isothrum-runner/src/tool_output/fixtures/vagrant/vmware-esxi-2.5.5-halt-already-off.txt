@@ -1,0 +1,10 @@
+There was an error talking to ESXi.
+  Unable to shutdown the VM:
+    (vim.fault.InvalidPowerState) {
+   faultCause = (vmodl.MethodFault) null, 
+   faultMessage = (vmodl.LocalizableMessage) [], 
+   requestedState = "poweredOn", 
+   existingState = "poweredOff"
+   msg = "shutdownGuest
+The attempted operation cannot be performed in the current state (Powered off)."
+}

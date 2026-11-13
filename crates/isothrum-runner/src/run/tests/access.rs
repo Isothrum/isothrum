@@ -6,12 +6,15 @@ use super::*;
 use crate::testing::{WEB_PORTAL_ACCESS, WEB_VM_ACCESS, attach, detach};
 use crate::{ErrorCode, MachineState, RunState};
 
-/// The run's Docker, the access service's container `c0ffee` once it is up; `connect` answers
-/// its join to a network.
+/// The run's Docker, the access service's container `c0ffee` once it is up, on the project's
+/// default network only; `connect` answers its join to a network.
 fn joining(engine: &Mutex<Engine>, call: &Call, connect: Reply) -> Reply {
     let line = call.line();
     if line.ends_with(" ps -q user") {
         return Reply::ok("c0ffee\n");
+    }
+    if line.starts_with("docker inspect --format") {
+        return Reply::ok("{\"web-portal_default\":{\"IPAddress\":\"172.19.0.3\"}}\n");
     }
     if line.starts_with("docker network connect") {
         return connect;
@@ -97,6 +100,30 @@ async fn attach_to_a_network_tolerates_only_already_being_on_it() {
 /// An access service with no container once it is up has nothing to join to the chosen network:
 /// the attach fails saying so; and a network whose native name the manifest doesn't give can't be
 /// joined (`unsupported`).
+/// Regression: a container already on the network was known by Docker's English wording of the
+/// refused join, which Podman words otherwise.
+#[tokio::test]
+async fn a_container_already_on_the_network_isnt_joined_again() {
+    let f = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
+        if c.line().starts_with("docker inspect --format") {
+            return Reply::ok("{\"web-portal_lab\":{}}\n");
+        }
+        joining(
+            e,
+            c,
+            Reply::fail(
+                1,
+                "Error response from daemon: endpoint with name user already exists in network web-portal_lab",
+            ),
+        )
+    });
+    f.set(Containers::Up);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let report = attach(&run, None, Some("lab"), None, &Recorder::new()).await.unwrap();
+    assert_eq!(report.network.as_deref(), Some("lab"));
+    assert!(f.fake.last("network connect").is_none(), "already there: not joined again");
+}
+
 #[tokio::test]
 async fn attach_to_a_network_needs_the_container_and_the_networks_native_name() {
     let empty = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {

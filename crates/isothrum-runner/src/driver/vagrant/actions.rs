@@ -241,7 +241,7 @@ pub(super) async fn park_controller(v: &Vagrant, cx: &Cx<'_>, list: &str, step: 
 
 /// Whether a failed halt says the VM was already off (ESXi's refusal).
 fn already_off(halt: &Captured) -> bool {
-    crate::tool_output::esxi_already_off(halt.stdout.iter().chain(&halt.stderr_tail))
+    status::Failure::of(halt.stdout.iter().chain(&halt.stderr_tail)) == status::Failure::AlreadyOff
 }
 
 /// The controller step `step` of list `list` names (`with.machine`), else Isoloom's.

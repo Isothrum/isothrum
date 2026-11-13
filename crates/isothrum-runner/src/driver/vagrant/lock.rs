@@ -61,7 +61,7 @@ const ACTING: &str = "==> ";
 /// Whether `out`, a failed Vagrant call, was refused because another process held a machine's
 /// lock.
 pub(super) fn refused(out: &Captured) -> bool {
-    !out.success() && crate::tool_output::vagrant_locked(out.stdout.iter().chain(&out.stderr_tail))
+    !out.success() && crate::tool_output::vagrant::Failure::of(out.stdout.iter().chain(&out.stderr_tail)) == crate::tool_output::vagrant::Failure::Locked
 }
 
 /// What a `vagrant` command does when it is run a second time: the one reading of its verb, for
@@ -309,11 +309,7 @@ mod tests {
 
     fn ended(code: i32, stdout: &[&str], stderr: &[&str]) -> Captured {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
-        Captured {
-            exit: Exit::new(Some(code)),
-            stdout: lines(stdout),
-            stderr_tail: lines(stderr),
-        }
+        Captured::new("vagrant", Exit::new(Some(code)), lines(stdout), lines(stderr))
     }
 
     #[test]

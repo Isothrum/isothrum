@@ -22,7 +22,7 @@ use super::{READ_LIMIT, Vagrant};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, DOWNLOAD_STALL, Echo, call, download, spec_for};
-use crate::tool_output::vagrant_fields;
+use crate::tool_output::vagrant::fields as vagrant_fields;
 
 /// What the download's step says when it starts.
 const NOTE: &str = "Downloading the VMs' boxes…";

@@ -1,7 +1,8 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
 //! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
-//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]).
+//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]). Each tool speaks in the C
+//! locale ([`super::locale`]).
 
 use std::path::Path;
 use std::process::Stdio;
@@ -11,7 +12,7 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
 use super::stopping::{GRACE, Stopping};
-use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, shim};
+use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, locale, shim};
 use crate::BoxFuture;
 
 /// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
@@ -150,6 +151,12 @@ impl SystemProcesses {
             // Before the spec's own: what the run delivers is set again after.
             for var in &withheld {
                 c.env_remove(var);
+            }
+            for (var, value) in locale::settings(|name| std::env::var_os(name)) {
+                match value {
+                    Some(value) => c.env(var, value),
+                    None => c.env_remove(var),
+                };
             }
             c.envs(spec.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
             if let Some(dir) = &spec.cwd {

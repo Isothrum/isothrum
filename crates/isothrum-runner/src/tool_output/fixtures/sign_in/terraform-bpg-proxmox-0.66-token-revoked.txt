@@ -1,0 +1,8 @@
+╷
+│ Error: error retrieving VM: received an HTTP 401 response - Reason: authentication failure
+│ 
+│   with proxmox_virtual_environment_vm.web,
+│   on main.tf line 12, in resource "proxmox_virtual_environment_vm" "web":
+│   12: resource "proxmox_virtual_environment_vm" "web" {
+│ 
+╵

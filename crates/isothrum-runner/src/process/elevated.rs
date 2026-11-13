@@ -358,10 +358,10 @@ fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, Strin
     .to_string()
 }
 
-/// What a failed elevation's error says: declining the prompt is said plainly.
+/// What a failed elevation's error says: declining the prompt (the launcher's exit code
+/// [`script::ERROR_CANCELLED`], whatever language Windows words it in) is said plainly.
 fn declined(out: &Captured) -> String {
-    let cancelled = |l: &String| l.contains("canceled by the user") || l.contains("cancelled by the user");
-    if out.stderr_tail.iter().any(cancelled) {
+    if out.exit.code == Some(script::ERROR_CANCELLED) {
         "the Windows permission prompt was declined".into()
     } else {
         format!("the elevated session didn't start: {}", out.reason())

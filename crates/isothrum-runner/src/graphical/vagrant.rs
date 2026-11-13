@@ -12,6 +12,9 @@ use crate::Result;
 use crate::executor::{Cx, Echo, call};
 use crate::host_env::{HostEnv, LIBVIRT_DEFAULT_URI};
 use crate::process::ProcessSpec;
+use crate::tool_output::qemu::{recorded_socket, vnc_server};
+use crate::tool_output::vboxmanage::{Vrde, remote_display};
+use crate::tool_output::virsh::vnc_display;
 
 /// How long a read of the hypervisor may go without progress.
 const READ_LIMIT: Duration = Duration::from_secs(30);
@@ -71,22 +74,6 @@ pub(super) fn libvirt_uri(env: &HostEnv) -> String {
         .map_or_else(|| LIBVIRT_URI.to_owned(), |u| u.to_string_lossy().into_owned())
 }
 
-/// The address of a `vnc://<host>:<display>` line `virsh domdisplay` prints (port 5900 plus the
-/// display number), a bare IPv6 host in brackets.
-pub(super) fn vnc_display(said: &str) -> Option<SocketAddr> {
-    let rest = said.lines().map(str::trim).find_map(|l| l.strip_prefix("vnc://"))?;
-    let rest = rest.split(['/', '?']).next()?;
-    let (host, display) = rest.rsplit_once(':')?;
-    let display: u16 = display.parse().ok()?;
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    let ip = if host.eq_ignore_ascii_case("localhost") {
-        super::LOOPBACK
-    } else {
-        host.parse().ok()?
-    };
-    Some(SocketAddr::new(ip, 5900u16.checked_add(display)?))
-}
-
 /// The run's Vagrant state folder (`identity.vagrant.dotfile`), as its driver renders it.
 pub(super) fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
     match &cx.manifest().identity {
@@ -132,14 +119,6 @@ fn vagrant_home(env: &HostEnv) -> Option<PathBuf> {
 /// The text of `path`; none when there is no file there, an error naming it when it can't be read.
 pub(super) fn read_if_there(path: &std::path::Path) -> Result<Option<String>> {
     crate::store::if_there(std::fs::read_to_string(path)).map_err(crate::error::Error::io(path, "read"))
-}
-
-/// The `:monitor_socket:` vagrant-qemu's `options.yml` records.
-pub(super) fn recorded_socket(options: &str) -> Option<PathBuf> {
-    options.lines().find_map(|l| {
-        let path = l.trim().strip_prefix(":monitor_socket:")?.trim().trim_matches(['"', '\'']);
-        (!path.is_empty() && path != "~").then(|| PathBuf::from(path))
-    })
 }
 
 /// QEMU's VNC display of `machine`: `info vnc` asked of the VM's monitor.
@@ -202,17 +181,6 @@ pub(super) async fn ask_monitor(socket: &std::path::Path, command: &str) -> std:
         .unwrap_or_else(|_| Err(std::io::Error::other("no answer in 10 seconds")))
 }
 
-/// The address `info vnc` names its server at (`Server: 127.0.0.1:5900 (ipv4)`, or an older
-/// QEMU's `address: 127.0.0.1:5900`).
-#[cfg(any(unix, test))]
-pub(super) fn vnc_server(said: &str) -> Option<SocketAddr> {
-    said.lines().find_map(|l| {
-        let l = l.trim();
-        let rest = l.strip_prefix("Server:").or_else(|| l.strip_prefix("address:"))?.trim();
-        rest.split_whitespace().next()?.parse().ok()
-    })
-}
-
 /// VirtualBox's remote display of `machine`: on, and its port, from `VBoxManage showvminfo`.
 pub(super) async fn vrde(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     let name = vm_name(machine, Provider::Virtualbox)?;
@@ -235,64 +203,9 @@ pub(super) async fn vrde(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     }
 }
 
-/// What `showvminfo --machinereadable` says of the remote display.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum Vrde {
-    /// Off (no extension pack when the VM booted).
-    Off,
-    /// On, but bound to no port (the VM is off).
-    NotListening,
-    /// Listening at an address that isn't an IP address, as said.
-    Unreadable(String),
-    /// Listening there.
-    At(SocketAddr),
-}
-
-/// Reads `vrde="on"`, `vrdeport=<port in use>` and `vrdeaddress="<address>"`. An empty address
-/// is VirtualBox's default, every interface (`0.0.0.0`), which [`on_loopback`] then refuses.
-pub(super) fn remote_display(lines: &[String]) -> Vrde {
-    let value = |key: &str| {
-        lines
-            .iter()
-            .find_map(|l| l.strip_prefix(key)?.strip_prefix('=').map(|v| v.trim().trim_matches('"').to_owned()))
-    };
-    if value("vrde").as_deref() != Some("on") {
-        return Vrde::Off;
-    }
-    let Some(port) = value("vrdeport")
-        .and_then(|p| p.parse::<i32>().ok())
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p > 0)
-    else {
-        return Vrde::NotListening;
-    };
-    let address = value("vrdeaddress").unwrap_or_default();
-    if address.is_empty() {
-        return Vrde::At(SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), port));
-    }
-    match address.parse() {
-        Ok(ip) => Vrde::At(SocketAddr::new(ip, port)),
-        Err(_) => Vrde::Unreadable(address),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn virsh_says_a_vnc_display_by_its_number() {
-        assert_eq!(vnc_display("vnc://127.0.0.1:0\n"), Some("127.0.0.1:5900".parse().unwrap()));
-        assert_eq!(vnc_display("vnc://localhost:3"), Some("127.0.0.1:5903".parse().unwrap()));
-        assert_eq!(vnc_display("vnc://[::1]:1"), Some("[::1]:5901".parse().unwrap()));
-        assert_eq!(
-            vnc_display("vnc://0.0.0.0:2"),
-            Some("0.0.0.0:5902".parse().unwrap()),
-            "read as said; refused later"
-        );
-        assert_eq!(vnc_display("spice://127.0.0.1:5930"), None);
-        assert_eq!(vnc_display(""), None);
-    }
 
     #[test]
     fn libvirt_and_vagrant_are_found_where_the_runners_environment_says() {
@@ -305,52 +218,6 @@ mod tests {
         assert_eq!(vagrant_home(&home), Some(PathBuf::from("/home/u/.vagrant.d")));
         let both = HostEnv::of([("HOME", "/home/u"), ("VAGRANT_HOME", "/v")]);
         assert_eq!(vagrant_home(&both), Some(PathBuf::from("/v")));
-    }
-
-    #[test]
-    fn qemu_says_its_vnc_server_in_either_format() {
-        let new = "info vnc\r\ndefault:\r\n  Server: 127.0.0.1:5901 (ipv4)\r\n    Auth: none (Sub: none)\r\n(qemu) ";
-        assert_eq!(vnc_server(new), Some("127.0.0.1:5901".parse().unwrap()));
-        let old = "Server:\n     address: 127.0.0.1:5900\n        auth: none\n";
-        assert_eq!(vnc_server(old), Some("127.0.0.1:5900".parse().unwrap()));
-        assert_eq!(vnc_server("default:\n  Server: none\n"), None);
-    }
-
-    #[test]
-    fn vagrant_qemu_records_its_monitor_socket() {
-        let options = "---\n:ssh_port: 50022\n:control_port:\n:monitor_socket: \"/Users/u/.vagrant.d/tmp/vagrant-qemu/abc/qemu_socket\"\n:serial_socket: x\n";
-        assert_eq!(
-            recorded_socket(options),
-            Some(PathBuf::from("/Users/u/.vagrant.d/tmp/vagrant-qemu/abc/qemu_socket"))
-        );
-        assert_eq!(recorded_socket(":monitor_socket:\n"), None, "a control port instead");
-        assert_eq!(recorded_socket(""), None);
-    }
-
-    #[test]
-    fn virtualbox_says_whether_its_remote_display_is_on_and_where() {
-        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        let on = lines(&[
-            "name=\"web\"",
-            "vrde=\"on\"",
-            "vrdeport=3390",
-            "vrdeports=\"3390-3489\"",
-            "vrdeaddress=\"127.0.0.1\"",
-        ]);
-        assert_eq!(remote_display(&on), Vrde::At("127.0.0.1:3390".parse().unwrap()));
-        assert_eq!(remote_display(&lines(&["vrde=\"off\""])), Vrde::Off);
-        assert_eq!(remote_display(&lines(&[])), Vrde::Off);
-        assert_eq!(remote_display(&lines(&["vrde=\"on\"", "vrdeport=-1"])), Vrde::NotListening);
-        assert_eq!(
-            remote_display(&lines(&["vrde=\"on\"", "vrdeport=3389", "vrdeaddress=\"\""])),
-            Vrde::At("0.0.0.0:3389".parse().unwrap()),
-            "every interface: refused by on_loopback"
-        );
-        assert_eq!(
-            remote_display(&lines(&["vrde=\"on\"", "vrdeport=3389", "vrdeaddress=\"vbox-host\""])),
-            Vrde::Unreadable("vbox-host".into()),
-            "regression: read as every interface, and refused as listening there"
-        );
     }
 
     #[test]
