@@ -55,9 +55,9 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// The id the operation's own calls are reported under: the operation's name (`retire`),
+    /// The name the operation's own calls are reported under: the operation's (`retire`), or
     /// `query` for a read-only query's.
-    pub(crate) fn call_id(&self) -> &'static str {
+    pub(crate) fn operation_name(&self) -> &'static str {
         self.op.map_or(QUERY, Op::as_str)
     }
 

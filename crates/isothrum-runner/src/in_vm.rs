@@ -165,7 +165,7 @@ pub(crate) fn console(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &
 /// namespace ([`remove_service`]); nothing of the VM goes.
 pub(crate) async fn retire(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, service: &str) -> Result<()> {
     let spec = driver.in_guest(cx, vm_of(cx, guest)?, &remove_service(service), GuestUse::Step)?;
-    call_ok(cx, cx.events.call_id(), &spec, REMOVE_LIMIT, Echo::Shown).await.map(drop)
+    call_ok(cx, cx.events.operation_name(), &spec, REMOVE_LIMIT, Echo::Shown).await.map(drop)
 }
 
 /// The VM `guest` names, among the manifest's machines.

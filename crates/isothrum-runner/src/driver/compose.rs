@@ -215,7 +215,7 @@ impl Driver for Compose {
     /// start (back to an on-demand machine in the `access` profile) would keep running.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let profile = machine.on_demand.then_some(access::PROFILE);
-        self.remove(cx, cx.events.call_id(), profile, service_of(machine, "taking out")?).await
+        self.remove(cx, cx.events.operation_name(), profile, service_of(machine, "taking out")?).await
     }
 
     /// `docker compose exec` into the machine's service, a shell there; as `user`, `exec --user`

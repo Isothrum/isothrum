@@ -151,8 +151,9 @@ impl Patience {
         Patience { lasts, deadline: None }
     }
 
-    /// After a refusal: whether there is time left for another try, which is then waited for.
-    async fn wait(&mut self) -> bool {
+    /// After a refusal, waits for the next try and says whether there was time for one: false
+    /// when the patience is spent (nothing waited).
+    async fn wait_for_retry(&mut self) -> bool {
         let now = tokio::time::Instant::now();
         let deadline = *self.deadline.get_or_insert(now + self.lasts);
         if now + POLL > deadline {
@@ -173,7 +174,7 @@ where
 {
     loop {
         let out = attempt().await?;
-        if !refused(&out) || !safe(&out) || !patience.wait().await {
+        if !refused(&out) || !safe(&out) || !patience.wait_for_retry().await {
             return Ok(out);
         }
         tracing::debug!(call = what, "another Vagrant process holds a machine's lock: tried again");
@@ -280,7 +281,7 @@ pub(crate) async fn run_step(cx: &Cx<'_>, list: &str, step: &Step, observe: &mut
             };
             once(cx, list, step, &mut watch, Hold::No).await?
         };
-        if !refused(&ended.last) || !again(&args, announced) || !patience.wait().await {
+        if !refused(&ended.last) || !again(&args, announced) || !patience.wait_for_retry().await {
             return ended.result(cx, step);
         }
         cx.stale.rewind(stale);
