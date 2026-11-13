@@ -57,6 +57,7 @@ impl Running<'_> {
         let params = params_for_start(self.manifest(), &opts.params, &scope)?;
         self.ensure_ssh_key().await?;
         let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, opts.provider)?)?;
+        cx.env.clone_from(&opts.env);
         // Leftovers are removed with the names they were made with.
         cx.bind_record(&record);
         self.relay(&mut cx).await?;

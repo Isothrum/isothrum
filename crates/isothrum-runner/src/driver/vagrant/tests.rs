@@ -200,6 +200,13 @@ fn fixture_with(host: HostOs, manifest: &str, ports: FakePorts) -> Fixture {
 }
 
 impl Fixture {
+    /// The display name the Vagrantfile gives VM `define` of the fixture's run (named after its
+    /// environment), with the run's key.
+    fn vm(&self, define: &str) -> String {
+        let key = self.runner.copy_key(&crate::RunName::new("web-vm").unwrap());
+        format!("web-vm-{key} - {define}")
+    }
+
     fn engine(&self) -> std::sync::MutexGuard<'_, Engine> {
         self.engine.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -228,9 +235,14 @@ const VMS: [&str; 2] = ["web", CONTROLLER];
 
 /// Vagrant's record of `vm` on `provider` in `dotfile`, as `vagrant up` writes it.
 fn record(dotfile: &Path, vm: &str, provider: &str) {
+    record_id(dotfile, vm, provider, "0000");
+}
+
+/// Vagrant's record of `vm` on `provider` in `dotfile`, the hypervisor's id of it `id`.
+fn record_id(dotfile: &Path, vm: &str, provider: &str, id: &str) {
     let dir = dotfile.join("machines").join(vm).join(provider);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("id"), "0000").unwrap();
+    std::fs::write(dir.join("id"), id).unwrap();
 }
 
 /// The fake Vagrant's answer to `call`.

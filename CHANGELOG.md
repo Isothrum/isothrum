@@ -11,6 +11,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- **Every run has a key, and every tool of the run gets it.** `copy_key(home, name)` (and
+  `Runner::copy_key`): six lowercase letters and digits made from the runner's home and the run's
+  name, the same at every operation. Every command of every driver runs with it in
+  `ISOTHRUM_RUN_KEY` (`RUN_KEY_VAR`), for a project that names what it makes on the host after it,
+  so two copies of one project never share a VM, network or domain name.
+- **`RunOptions::with_env` (`RunOptions::env`): variables for every tool of an operation.** An
+  embedder hands a project what it reads under its own names (the run's key as the variable a
+  Vagrantfile reads, say). Not recorded: pass them to every operation.
+
 - **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
   drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
   the runner now knows the tools running and ends them, with the ones still stopping.
@@ -31,6 +40,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A run's clean-up only ever removes its own VMs (#109).** `vagrant.remove_orphans` deleted
+  every VirtualBox or Parallels VM named as the manifest named the run's: two runs of one
+  environment have the same names, so a second run whose start failed removed the first run's VMs
+  and disks. It now removes only a VM (and a VirtualBox VM folder) whose name carries the run's
+  key as a word of its own; a VM named without it is never removed. The VirtualBox actions
+  (`vagrant.discard_aborted_saved`) and the graphical consoles go by the ids Vagrant records
+  (`<dotfile>/machines/<define>/<provider>/id`: VirtualBox's and libvirt's UUIDs, Hyper-V's VM
+  id, UTM's UUID), never by a name: the manifest's `vm_names` are no longer read.
 - **On Windows, a tool being created as the runner's process is killed is ended by the next
   operation.** A tool is created suspended, put in its job object, then resumed; a process killed
   in between left it suspended in no job, never run and never ended. Its creation is now recorded

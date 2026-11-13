@@ -104,18 +104,25 @@ fn remove_dir(dir: &Path) -> Result<()> {
     crate::store::remove(dir)
 }
 
-/// The run's VMs' names under `provider`, from the manifest: what orphan clean-up and the
-/// VirtualBox actions match, exactly.
-pub(super) fn vm_names(cx: &Cx<'_>, provider: Provider) -> Vec<String> {
-    cx.run
-        .manifest()
-        .machines
-        .iter()
-        .filter_map(|m| match &m.native {
-            Some(isoloom_manifest::Native::Vagrant { vm_names, .. }) => vm_names.get(&provider).cloned(),
-            _ => None,
-        })
-        .collect()
+/// The VMs Vagrant records for the run under `provider` (`<dotfile>/machines/<define>/<provider>/id`),
+/// as `(define, id)`: the hypervisor's own id of each (VirtualBox's UUID), which the VirtualBox
+/// actions act on, never a name another copy of the environment could share.
+pub(super) fn recorded(dotfile: &Path, provider: Provider) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let folder = dotfile.join("machines");
+    let Some(machines) = if_there(std::fs::read_dir(&folder)).map_err(Error::io(&folder, "read"))? else {
+        return Ok(out);
+    };
+    for entry in machines {
+        let entry = entry.map_err(Error::io(&folder, "read"))?;
+        let path = entry.path().join(crate::encoding::wire_name(&provider)).join("id");
+        let id = if_there(std::fs::read_to_string(&path)).map_err(Error::io(&path, "read"))?;
+        if let Some(id) = id.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()) {
+            out.push((entry.file_name().to_string_lossy().into_owned(), id));
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// `VBoxManage <args>`.
@@ -129,12 +136,12 @@ pub(super) fn vboxmanage(args: &[&str]) -> ProcessSpec {
 /// A VM whose state can't be read is skipped, with why in a trace: one that doesn't exist yet
 /// (the usual case at a first start), or VirtualBox not answering (its state is then left as it
 /// is: `vagrant up` says what is wrong with it).
-pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()> {
+pub(super) async fn discard_aborted_saved(v: &Vagrant, cx: &Cx<'_>, step: &Step) -> Result<()> {
     let id = step.id.as_str();
-    for name in vm_names(cx, Provider::Virtualbox) {
-        let info = call(cx, id, &vboxmanage(&["showvminfo", &name, "--machinereadable"]), READ_LIMIT, Echo::Quiet).await?;
+    for (define, uuid) in recorded(&v.dotfile(cx)?, Provider::Virtualbox)? {
+        let info = call(cx, id, &vboxmanage(&["showvminfo", &uuid, "--machinereadable"]), READ_LIMIT, Echo::Quiet).await?;
         if !info.success() {
-            tracing::debug!(vm = %name, reason = %info.reason(), "the VM's state couldn't be read: its saved state, if any, is left as it is");
+            tracing::debug!(vm = %define, reason = %info.reason(), "the VM's state couldn't be read: its saved state, if any, is left as it is");
             continue;
         }
         if !aborted_saved(&info.stdout) {
@@ -142,9 +149,9 @@ pub(super) async fn discard_aborted_saved(cx: &Cx<'_>, step: &Step) -> Result<()
         }
         cx.events.warning(
             WarningCode::SavedStateDiscarded,
-            &format!("{name}: its saved state was cut off; it boots fresh"),
+            &format!("{define}: its saved state was cut off; it boots fresh"),
         );
-        call_ok(cx, id, &vboxmanage(&["discardstate", &name]), READ_LIMIT, Echo::Quiet).await?;
+        call_ok(cx, id, &vboxmanage(&["discardstate", &uuid]), READ_LIMIT, Echo::Quiet).await?;
     }
     Ok(())
 }

@@ -40,6 +40,9 @@ pub struct RunOptions {
     pub ssh_jump: Option<String>,
     /// How long the run may live, for a manifest with an `expiry` (its default otherwise).
     pub lifetime: Option<std::time::Duration>,
+    /// Variables every tool of the operation runs with, by name (the run's key under the name a
+    /// project reads, say). Never stored: pass them to every operation.
+    pub env: BTreeMap<String, String>,
 }
 
 impl RunOptions {
@@ -60,6 +63,13 @@ impl RunOptions {
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (String, String)>) -> RunOptions {
         self.params.extend(params);
+        self
+    }
+
+    /// Sets variable `name` to `value` for every tool of the operation.
+    #[must_use]
+    pub fn with_env(mut self, name: impl Into<String>, value: impl Into<String>) -> RunOptions {
+        self.env.insert(name.into(), value.into());
         self
     }
 

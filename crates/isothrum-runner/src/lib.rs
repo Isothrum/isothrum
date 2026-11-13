@@ -178,7 +178,7 @@ pub use process::fake;
 pub use process::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
-pub use runner::{Runner, RunnerConfig, this_arch, this_host};
+pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Op, Park, RunState};
 pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};

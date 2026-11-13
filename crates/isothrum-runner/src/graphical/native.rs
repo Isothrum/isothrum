@@ -146,16 +146,16 @@ pub(crate) async fn console(cx: &Cx<'_>, machine: &Machine, app: &NativeApp) -> 
     let ways = match provider {
         _ if cx.manifest().driver == Driver::Terraform => vec![proxmox_url(cx, machine)?],
         Some(Provider::Virtualbox) => {
-            let vm = argument(machine, vagrant::vm_name(machine, Provider::Virtualbox)?)?;
-            vec![program("VBoxManage", ["startvm", vm, "--type", "separate"])]
+            let uuid = recorded(cx, machine, Provider::Virtualbox)?;
+            vec![program("VBoxManage", ["startvm", argument(machine, &uuid)?, "--type", "separate"])]
         }
-        Some(Provider::Hyperv) => vec![program(
-            "vmconnect.exe",
-            ["localhost", argument(machine, vagrant::vm_name(machine, Provider::Hyperv)?)?],
-        )],
+        Some(Provider::Hyperv) => {
+            let id = recorded(cx, machine, Provider::Hyperv)?;
+            vec![program("vmconnect.exe", ["localhost", "-G", argument(machine, &id)?])]
+        }
         Some(Provider::Libvirt) => libvirt(cx, machine).await?,
         Some(Provider::VmwareDesktop) => {
-            let vmx = recorded(cx, machine, "vmware_desktop")?;
+            let vmx = recorded(cx, machine, Provider::VmwareDesktop)?;
             let vmx = argument(machine, &vmx)?.to_owned();
             app.needs
                 .iter()
@@ -174,7 +174,8 @@ pub(crate) async fn console(cx: &Cx<'_>, machine: &Machine, app: &NativeApp) -> 
             args: vec![parallels_bundle(cx, machine).await?],
         }],
         Some(Provider::Utm) => {
-            let vm = argument(machine, vagrant::vm_name(machine, Provider::Utm)?)?;
+            let vm = utm_name(cx, machine).await?;
+            let vm = argument(machine, &vm)?;
             vec![NativeOpen::MacApp {
                 app: PathBuf::from(UTM),
                 args: vec![format!("utm://start?name={}", percent(vm))],
@@ -210,24 +211,41 @@ fn argument<'a>(machine: &Machine, value: &'a str) -> Result<&'a str> {
     Ok(value)
 }
 
-/// What Vagrant records of `machine`'s VM under `provider_dir` (`<dotfile>/machines/<define>/<provider>/id`):
-/// VMware's `.vmx` path, ESXi's VM id, Parallels' VM UUID.
-fn recorded(cx: &Cx<'_>, machine: &Machine, provider_dir: &str) -> Result<String> {
-    let path = vagrant::dotfile(cx)?
-        .join("machines")
-        .join(vagrant::define(machine)?)
-        .join(provider_dir)
-        .join("id");
-    vagrant::read_if_there(&path)?
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| no_console(machine, "Vagrant records no VM for it: it isn't up"))
+/// What Vagrant records of `machine`'s VM under `provider` ([`vagrant::recorded`]).
+fn recorded(cx: &Cx<'_>, machine: &Machine, provider: Provider) -> Result<String> {
+    vagrant::recorded(cx, machine, provider)
+}
+
+/// The name of `machine`'s UTM VM, which UTM's `start` link takes: the one `utmctl list` gives the
+/// UUID Vagrant records (`<uuid>  <status>  <name>`).
+async fn utm_name(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
+    let uuid = recorded(cx, machine, Provider::Utm)?;
+    let out = call(
+        cx,
+        "console",
+        &ProcessSpec::new("utmctl", ["list"]),
+        std::time::Duration::from_secs(30),
+        Echo::Quiet,
+    )
+    .await?;
+    if !out.success() {
+        return Err(no_console(machine, format!("UTM didn't list its VMs: {}", out.reason())));
+    }
+    out.stdout
+        .iter()
+        .find_map(|line| {
+            let rest = line.trim_start().strip_prefix(uuid.as_str())?;
+            let (_status, name) = rest.trim_start().split_once(char::is_whitespace)?;
+            Some(name.trim().to_owned())
+        })
+        .ok_or_else(|| no_console(machine, "UTM lists no VM with the id Vagrant records"))
 }
 
 /// libvirt's viewers: `virt-viewer` on the domain, over the run's connection; else
 /// `remote-viewer` on the display libvirt says, when it says one.
 async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Vec<NativeOpen>> {
-    let domain = argument(machine, vagrant::vm_name(machine, Provider::Libvirt)?)?;
+    let domain = recorded(cx, machine, Provider::Libvirt)?;
+    let domain = argument(machine, &domain)?;
     let uri = vagrant::libvirt_uri(cx.host_env());
     let mut ways = vec![program("virt-viewer", ["--connect", argument(machine, &uri)?, domain])];
     if let Ok(super::Endpoint::Loopback(at)) = vagrant::libvirt(cx, machine).await {
@@ -240,7 +258,7 @@ async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Vec<NativeOpen>> {
 /// The bundle of `machine`'s Parallels VM: where `prlctl list --info --json <uuid>` says it is
 /// (`Home`).
 async fn parallels_bundle(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
-    let uuid = recorded(cx, machine, "parallels")?;
+    let uuid = recorded(cx, machine, Provider::Parallels)?;
     let uuid = argument(machine, &uuid)?;
     let spec = ProcessSpec::new("prlctl", ["list", "--info", "--json", uuid]);
     let out = call(cx, "console", &spec, std::time::Duration::from_secs(30), Echo::Quiet).await?;
@@ -265,7 +283,7 @@ fn esxi_url(cx: &Cx<'_>, machine: &Machine) -> Result<NativeOpen> {
         .get(isoloom_manifest::contract::ESXI_HOSTNAME)
         .filter(|h| host_name(h))
         .ok_or_else(|| no_console(machine, "the run names no ESXi host"))?;
-    let id = recorded(cx, machine, "vmware_esxi")?;
+    let id = recorded(cx, machine, Provider::VmwareEsxi)?;
     if !id.chars().all(|c| c.is_ascii_digit()) {
         return Err(no_console(machine, format!("its ESXi VM id `{}` isn't one", id.escape_debug())));
     }

@@ -119,29 +119,40 @@ async fn a_vagrant_record_that_cant_be_read_fails_the_start() {
     same.up(&opts().with_occupied(crate::Occupied::Replace), &Recorder::new()).await.unwrap();
 }
 
+/// The VirtualBox UUID Vagrant records of the `web` VM: what the VirtualBox actions act on.
+const VBOX_ID: &str = "1111-web";
+
 /// A VM whose state VirtualBox can't tell is skipped with why in a trace, not in silence.
 #[tokio::test]
 async fn a_virtualbox_vm_whose_state_cant_be_read_is_skipped_and_traced() {
     let f = fixture(crate::testing::TEST_HOST);
-    f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
+    f.engine().vbox.insert(VBOX_ID.into(), "aborted-saved".into());
     f.engine().vbox_wedged = true;
     let run = f.runner.open(&f.manifest, None).unwrap();
+    record_id(&f.runner.store.run_dir(run.name()).unwrap().join("vagrant"), "web", "virtualbox", VBOX_ID);
     let (started, traced) = crate::testing::traced(run.up(&opts(), &Recorder::new())).await;
     started.unwrap();
     assert!(
         !f.fake.lines().iter().any(|l| l.starts_with("VBoxManage discardstate")),
         "nothing read, nothing discarded"
     );
-    assert!(traced.contains("web-vm - web") && traced.contains("NS_ERROR_FAILURE"), "{traced}");
+    assert!(traced.contains("web") && traced.contains("NS_ERROR_FAILURE"), "{traced}");
 }
 
 #[tokio::test]
 async fn a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh() {
     let f = fixture(crate::testing::TEST_HOST);
-    f.engine().vbox.insert("web-vm - web".into(), "aborted-saved".into());
+    f.engine().vbox.insert(VBOX_ID.into(), "aborted-saved".into());
+    // Another copy's VM of the environment, cut off too, is never this run's to touch.
+    f.engine().vbox.insert("web-vm-zz0000 - web".into(), "aborted-saved".into());
     let run = f.runner.open(&f.manifest, None).unwrap();
+    record_id(&f.runner.store.run_dir(run.name()).unwrap().join("vagrant"), "web", "virtualbox", VBOX_ID);
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
-    let discard = calls.iter().position(|l| l == "VBoxManage discardstate web-vm - web").expect("discarded");
+    let discard = calls
+        .iter()
+        .position(|l| *l == format!("VBoxManage discardstate {VBOX_ID}"))
+        .expect("discarded");
+    assert!(!calls.iter().any(|l| l.contains("zz0000")), "{calls:#?}");
     assert!(discard < calls.iter().position(|l| l.starts_with("vagrant up --provider")).unwrap());
 }

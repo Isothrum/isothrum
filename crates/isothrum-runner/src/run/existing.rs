@@ -179,6 +179,7 @@ impl Running<'_> {
         // name a key this runner hasn't made yet.
         self.ensure_ssh_key().await?;
         let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, provider)?)?;
+        cx.env.clone_from(&opts.env);
         cx.bind_record(&record);
         self.driver.prepare(&cx)?;
         crate::graphical::chosen::ensure(&cx)?;

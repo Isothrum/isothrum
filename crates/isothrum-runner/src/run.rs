@@ -350,6 +350,7 @@ impl<'r> Running<'r> {
             stale,
             gone: LineWatch::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
+            env: std::collections::BTreeMap::new(),
             bound: crate::executor::Bound::default(),
         })
     }
