@@ -164,7 +164,7 @@ const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// `at`, once a connection to it is accepted within [`ANSWER_LIMIT`]; refused otherwise, saying
 /// where it didn't answer.
 async fn answering(cx: &Cx<'_>, machine: &Machine, at: SocketAddr) -> Result<Endpoint> {
-    let ports = &cx.run.runner.config.ports;
+    let ports = &cx.ports();
     if ports.reachable(&at.ip().to_string(), at.port(), ANSWER_LIMIT).await {
         Ok(Endpoint::Loopback(at))
     } else {

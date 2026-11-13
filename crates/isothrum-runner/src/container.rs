@@ -43,14 +43,9 @@ pub(crate) fn wrap(cx: &Cx<'_>, spec: ProcessSpec) -> ProcessSpec {
         return spec;
     };
     let state = cx.state_dir();
-    let home = &cx.run.runner.config.home;
-    let mounts = mounts(&[
-        run_root(cx.run.dir()),
-        state,
-        &crate::ssh::dir(home),
-        &crate::driver::plugin_cache(&cx.run.runner.config),
-    ]);
-    let network = HostNetwork::read(&cx.run.runner.config.host_env);
+    let home = &cx.home();
+    let mounts = mounts(&[run_root(cx.run.dir()), state, &crate::ssh::dir(home), &crate::driver::plugin_cache(cx.config())]);
+    let network = HostNetwork::read(cx.host_env());
     docker_run(image.as_str(), &mounts, &network, spec)
 }
 

@@ -58,7 +58,7 @@ pub(crate) fn write(cx: &Cx<'_>, fresh: bool) -> Result<()> {
 /// Removes every state file the manifest names, after a successful `down`.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     let dir = cx.state_dir();
-    for d in super::every_delivery(cx.run.manifest()) {
+    for d in super::every_delivery(cx.manifest()) {
         if let Delivery::StateFile { path, .. } = d {
             let target = dir.join(path.as_str());
             crate::store::remove(&target)?;

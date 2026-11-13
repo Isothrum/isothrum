@@ -38,7 +38,7 @@ pub(super) fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
 /// vagrant-libvirt's default.
 pub(super) async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
     let domain = vm_name(machine, Provider::Libvirt)?;
-    let spec = virsh_domdisplay(&cx.run.runner.config.host_env, domain);
+    let spec = virsh_domdisplay(cx.host_env(), domain);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
         return Err(none(machine, format!("libvirt didn't say where its display is: {}", out.reason())));
@@ -89,7 +89,7 @@ pub(super) fn vnc_display(said: &str) -> Option<SocketAddr> {
 
 /// The run's Vagrant state folder (`identity.vagrant.dotfile`), as its driver renders it.
 pub(super) fn dotfile(cx: &Cx<'_>) -> Result<PathBuf> {
-    match &cx.run.manifest().identity {
+    match &cx.manifest().identity {
         Identity::Vagrant(v) => match &v.dotfile {
             Some(t) => Ok(cx.run.dir().join(cx.vars.render(t.template(), "identity.vagrant.dotfile")?)),
             None => Ok(cx.run.dir().join(".vagrant")),
@@ -119,7 +119,7 @@ fn monitor_socket(cx: &Cx<'_>, machine: &Machine) -> Result<PathBuf> {
     if let Some(recorded) = options.as_deref().and_then(recorded_socket) {
         return Ok(recorded);
     }
-    let home = vagrant_home(&cx.run.runner.config.host_env).ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
+    let home = vagrant_home(cx.host_env()).ok_or_else(|| none(machine, "no Vagrant home to find its QEMU monitor in"))?;
     Ok(home.join("tmp").join("vagrant-qemu").join(id).join("qemu_socket"))
 }
 

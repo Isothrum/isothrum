@@ -128,7 +128,7 @@ impl Vagrant {
     /// traced.
     async fn guest_addresses(&self, cx: &Cx<'_>, read: &status::Reading) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
-        let manifest = cx.run.manifest();
+        let manifest = cx.manifest();
         for m in manifest.machines.iter().filter(|m| answers(manifest, m)) {
             let define = native_name(m);
             if read.states.get(define).map(|s| status::machine_state(s)) != Some(crate::status::MachineState::Running) {
@@ -180,7 +180,7 @@ impl Driver for Vagrant {
         // Its parent is the run's own folder, owner-only; Vagrant makes the folder itself.
         let dotfile = self.dotfile(cx)?;
         match dotfile.parent() {
-            Some(parent) if parent.starts_with(cx.run.runner.config.home.as_path()) => crate::store::create_dir(parent)?,
+            Some(parent) if parent.starts_with(cx.home()) => crate::store::create_dir(parent)?,
             _ => {}
         }
         Ok(())
@@ -217,12 +217,12 @@ impl Driver for Vagrant {
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let out = match lock::read_status(cx).await? {
             lock::StatusRead::Read(out) => out,
-            lock::StatusRead::Busy(defines) => return Ok(busy(cx.run.manifest(), &defines)),
+            lock::StatusRead::Busy(defines) => return Ok(busy(cx.manifest(), &defines)),
         };
         let read = status::parse(&out);
         let at_vm = cx.scope.runs_on(Provider::VmwareEsxi);
         let hosts = if at_vm { self.guest_addresses(cx, &read).await } else { local_hosts(cx)? };
-        Ok(machines(cx.run.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
+        Ok(machines(cx.manifest(), &read, &hosts, at_vm, cx.vars.vm_pins()))
     }
 
     fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
@@ -323,7 +323,7 @@ fn answers(manifest: &isoloom_manifest::Manifest, m: &Machine) -> bool {
 /// publishes its ports on ([`super::publish_host`]).
 fn local_hosts(cx: &Cx<'_>) -> Result<BTreeMap<String, String>> {
     let mut out = BTreeMap::new();
-    for m in &cx.run.manifest().machines {
+    for m in &cx.manifest().machines {
         out.insert(native_name(m).to_owned(), super::publish_host(cx, m)?);
     }
     Ok(out)

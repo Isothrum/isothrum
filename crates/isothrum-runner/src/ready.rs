@@ -152,7 +152,7 @@ async fn tcp(cx: &Cx<'_>, address: &str, port: &str, within: Duration) -> Result
     loop {
         let tried = tokio::time::Instant::now();
         let left = deadline.saturating_duration_since(tried);
-        if cx.run.runner.config.ports.reachable(address, number, left.min(TCP_RETRY)).await {
+        if cx.ports().reachable(address, number, left.min(TCP_RETRY)).await {
             cx.events.ready(&condition, ReadyState::Ok, "");
             return Ok(());
         }

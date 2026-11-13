@@ -70,12 +70,44 @@ pub(crate) struct Cx<'a> {
     pub(crate) query: bool,
 }
 
-impl Cx<'_> {
+impl<'a> Cx<'a> {
     /// The run's state folder (`${run.state_dir}`), worked out once with the context: every driver
     /// and helper reads and writes there through this, never asking the store again. An
     /// operation and a status read make it (owner-only) before their first step; a query doesn't.
     pub(crate) fn state_dir(&self) -> &std::path::Path {
         &self.state_dir
+    }
+
+    /// The run's manifest. These accessors borrow the run, not the context (`'a`), so a step
+    /// can hold one while it changes the context.
+    pub(crate) fn manifest(&self) -> &'a isoloom_manifest::Manifest {
+        self.run.manifest()
+    }
+
+    /// The runner's configuration (what a step reaches through `run.runner.config` otherwise:
+    /// Clean Code G36, transitive navigation, 2026-11-13).
+    pub(crate) fn config(&self) -> &'a crate::runner::RunnerConfig {
+        &self.run.runner.config
+    }
+
+    /// The runner's home.
+    pub(crate) fn home(&self) -> &'a std::path::Path {
+        &self.run.runner.config.home
+    }
+
+    /// The host ports the runner may use.
+    pub(crate) fn ports(&self) -> &'a std::sync::Arc<dyn crate::net::HostPorts> {
+        &self.run.runner.config.ports
+    }
+
+    /// The host's environment, as the runner read it.
+    pub(crate) fn host_env(&self) -> &'a crate::host_env::HostEnv {
+        &self.run.runner.config.host_env
+    }
+
+    /// The host's CPU architecture.
+    pub(crate) fn arch(&self) -> isoloom_manifest::Arch {
+        self.run.runner.config.arch
     }
 }
 
@@ -200,7 +232,7 @@ pub(crate) async fn run_up_steps(cx: &mut Cx<'_>, steps: &[Step]) -> Result<Ran>
 /// warning, then the steps run again, up to [`GONE_ROUNDS`] times. Any other failure is the
 /// list's, and nothing that might still exist is dropped.
 pub(crate) async fn run_down_steps(cx: &mut Cx<'_>) -> Result<Ran> {
-    let down = cx.run.manifest().lifecycle.down.as_slice();
+    let down = cx.manifest().lifecycle.down.as_slice();
     for _ in 0..GONE_ROUNDS {
         cx.gone.watch(cx.run.driver.gone(cx)?.into_iter().map(|g| g.text));
         let done = run_steps(cx, DOWN, down).await;

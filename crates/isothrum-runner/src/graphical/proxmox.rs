@@ -253,7 +253,7 @@ struct ApiVm<'m> {
 /// The run's VMs with Proxmox's console and an id `vars` fills, by machine name.
 fn proxmox_vms<'m>(cx: &Cx<'m>, vars: &crate::vars::Vars) -> Result<Vec<(String, ApiVm<'m>)>> {
     let mut out = Vec::new();
-    for m in &cx.run.manifest().machines {
+    for m in &cx.manifest().machines {
         let source = m.consoles.iter().find_map(|c| match &c.source {
             Some(s @ ConsoleSource::ProxmoxApi { .. }) => Some(s),
             _ => None,

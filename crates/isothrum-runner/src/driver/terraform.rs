@@ -121,7 +121,7 @@ impl Driver for Terraform {
 
     /// Creates the runner's own plugin cache; the user's is theirs, used as it is.
     fn prepare(&self, cx: &Cx<'_>) -> Result<()> {
-        let config = &cx.run.runner.config;
+        let config = &cx.config();
         if config.tf_plugin_cache.is_some() {
             return Ok(());
         }
@@ -130,7 +130,7 @@ impl Driver for Terraform {
     }
 
     fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
-        let cache = plugin_cache(&cx.run.runner.config);
+        let cache = plugin_cache(cx.config());
         let mut env = vec![("TF_PLUGIN_CACHE_DIR".to_owned(), cache.display().to_string())];
         env.extend(expiry_var(cx));
         Ok(env)
@@ -151,7 +151,7 @@ impl Driver for Terraform {
     /// says it stands ([`on_server`]).
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let tf = state::read(cx.state_dir())?;
-        let mut seen = observed(cx.run.manifest(), &tf);
+        let mut seen = observed(cx.manifest(), &tf);
         if tf.resources {
             on_server(cx, &mut seen).await?;
         }
@@ -254,7 +254,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
 /// `server_auth_failed` when the server refuses the run's credentials.
 async fn on_server(cx: &Cx<'_>, seen: &mut Observed) -> Result<()> {
     let mut vars = cx.vars.clone();
-    let read = crate::outputs::read(cx.run.manifest(), &vars, &seen.outputs, &seen.sensitive);
+    let read = crate::outputs::read(cx.manifest(), &vars, &seen.outputs, &seen.sensitive);
     crate::outputs::bind(&mut vars, &read.values);
     let states = crate::graphical::proxmox_vm_states(cx, &vars).await?;
     for m in &mut seen.machines {
@@ -288,7 +288,7 @@ fn published(tf: &state::TfState) -> BTreeMap<PortKey, u16> {
 /// The first `terraform.copy_module` of `up` that names its folder: where its step is
 /// (`lifecycle.up.<id>`) and that folder (`with.from`), filled.
 fn copied_from(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
-    for step in &cx.run.manifest().lifecycle.up {
+    for step in &cx.manifest().lifecycle.up {
         if let isoloom_manifest::Run::Action {
             action: Action::TerraformCopyModule,
             with,
@@ -304,7 +304,7 @@ fn copied_from(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 
 /// The manifest's expiry variable, as the module takes it, when the run has an expiry.
 fn expiry_var(cx: &Cx<'_>) -> Option<(String, String)> {
-    let expiry = cx.run.manifest().expiry.as_ref()?;
+    let expiry = cx.manifest().expiry.as_ref()?;
     let at = cx.expires_at?;
     let value = match expiry.unit {
         ExpiryUnit::UnixSeconds => at.to_string(),

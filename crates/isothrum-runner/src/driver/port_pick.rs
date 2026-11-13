@@ -69,7 +69,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// port, where the start failed `port_in_use` at its forwarded-port check.
     fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
         let free = !self.taken.contains(&(preferred, protocol))
-            && !self.cx.run.runner.config.ports.in_use(preferred, protocol)
+            && !self.cx.ports().in_use(preferred, protocol)
             && self.cx.run.runner.reserve(self.cx.run.name(), preferred, protocol);
         free.then(|| {
             self.taken.insert((preferred, protocol));

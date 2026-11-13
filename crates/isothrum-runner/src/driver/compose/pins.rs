@@ -22,6 +22,6 @@ pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<Strin
 
 /// The manifest's `preferred` number for the machine port `p` publishes.
 fn preferred(cx: &Cx<'_>, p: &ConfigPort) -> Option<u16> {
-    let machine = cx.run.manifest().machines.iter().find(|m| crate::driver::native_name(m) == p.service)?;
+    let machine = cx.manifest().machines.iter().find(|m| crate::driver::native_name(m) == p.service)?;
     port_pick::preferred(super::machine_port(machine, p.target, p.protocol)?)
 }
