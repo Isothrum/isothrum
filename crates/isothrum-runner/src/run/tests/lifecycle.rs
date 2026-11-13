@@ -284,7 +284,7 @@ async fn an_update_starts_an_added_service_and_a_service_taken_out_goes_at_its_r
     run.up(&opts(), &Recorder::new()).await.unwrap();
     run.retire("isoloom-routes-db", &RunOptions::new(), &Recorder::new()).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service taken out is removed");
-    assert!(rm.line().ends_with(" rm -sf isoloom-routes-db"), "{}", rm.line());
+    assert!(rm.line().ends_with(" rm -sfv isoloom-routes-db"), "{}", rm.line());
 
     std::fs::write(&f.manifest, regenerated()).unwrap();
     let before = f.fake.calls().len();

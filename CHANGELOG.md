@@ -9,6 +9,18 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+## [2.1.6] — 2026-11-13
+
+### Fixed
+
+- **A Compose run's retire and detach remove the machine's anonymous volumes.** The removal of a
+  machine taken out of the running run (`compose rm -sf`) and of a leftover container
+  (`docker rm -f`) left the anonymous volumes of the container's image behind: the attack box's
+  two, at every retire (the Cyber CTF rig's leftover audit, 2026-11-13, after 2.1.5 had covered
+  the stop and the update). Both removals take their volumes (`-v`), and a retire or detach
+  records the project's anonymous volumes before its steps and removes the recorded ones no
+  container holds after them, as an update does.
+
 ## [2.1.5] — 2026-11-13
 
 ### Fixed

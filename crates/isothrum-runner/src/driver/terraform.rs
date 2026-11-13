@@ -164,12 +164,12 @@ impl Driver for Terraform {
     }
 
     /// Nothing: a module's resources are the state's.
-    fn before_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn before_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         std::future::ready(Ok(()))
     }
 
     /// Nothing: a module's resources are the state's.
-    fn after_update(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn after_change(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         std::future::ready(Ok(()))
     }
 

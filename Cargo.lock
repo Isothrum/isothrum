@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-cli"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "clap",
  "clap_complete",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-compiler"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "indexmap",
  "insta",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-machine"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "isoloom-manifest",
  "isothrum-runner",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "flate2",
  "getrandom",
@@ -814,7 +814,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-wasm"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -1862,7 +1862,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "2.1.5"
+version = "2.1.6"
 dependencies = [
  "clap",
  "isothrum-runner",

@@ -145,7 +145,7 @@ async fn the_access_machines_routes_come_and_go_with_it() {
     let run = f.runner.open(&f.manifest, None).unwrap();
     detach(&run, None, &Recorder::new()).await.unwrap();
     let rm = f.fake.last("--profile access rm").unwrap();
-    assert!(rm.line().ends_with("rm -sf user isoloom-routes-user"), "{}", rm.line());
+    assert!(rm.line().ends_with("rm -sfv user isoloom-routes-user"), "{}", rm.line());
 }
 
 /// The run up without its access machine, then the machine attached with no image: its `up`
@@ -176,7 +176,7 @@ async fn detach_removes_just_the_access_service() {
     let events = Recorder::new();
     detach(&run, None, &events).await.unwrap();
     let rm = f.fake.last("--profile access rm").expect("the access service is removed");
-    assert!(rm.line().contains("rm -sf user"), "{}", rm.line());
+    assert!(rm.line().contains("rm -sfv user"), "{}", rm.line());
     assert!(
         events.events().iter().all(|e| e.op == Some(crate::state::Op::Detach)),
         "a detach's events, though a retire's work"
@@ -421,7 +421,7 @@ async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     let events = Recorder::new();
     run.retire("user", &RunOptions::new(), &events).await.unwrap();
     let rm = f.fake.last(" rm -sf").expect("the service is removed");
-    assert!(rm.line().contains(" --profile access rm -sf user isoloom-routes-user"), "{}", rm.line());
+    assert!(rm.line().contains(" --profile access rm -sfv user isoloom-routes-user"), "{}", rm.line());
     assert!(events.events().iter().all(|e| e.op == Some(crate::state::Op::Retire)));
     let Some(EventKind::Result { ok: true, data }) = kinds(&events).pop() else {
         panic!("{:?}", kinds(&events))
@@ -431,7 +431,7 @@ async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     // A machine of the default start: no profile named.
     run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();
     let default = f.fake.last(" rm -sf").unwrap().line();
-    assert!(default.ends_with(" rm -sf web") && !default.contains("--profile"), "{default}");
+    assert!(default.ends_with(" rm -sfv web") && !default.contains("--profile"), "{default}");
 }
 
 /// The run's Docker, its config one Compose can't be read from.
