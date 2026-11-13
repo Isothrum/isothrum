@@ -159,10 +159,14 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
             if let Some(pid) = end_entry(&path).await {
                 ended.push(pid);
             }
-            drop(crate::store::if_there(std::fs::remove_file(&path)));
+            if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
+                tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
+            }
         }
         drop(lock);
-        drop(crate::store::if_there(std::fs::remove_file(&owner)));
+        if let Err(e) = crate::store::if_there(std::fs::remove_file(&owner)) {
+            tracing::warn!(error = %e, path = %owner.display(), "a dead process's owner file couldn't be removed");
+        }
     }
     ended
 }
