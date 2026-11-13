@@ -15,7 +15,7 @@ use crate::vars::Vars;
 pub struct Values {
     vars: Vars,
     params: BTreeMap<String, String>,
-    published: BTreeMap<(String, String), u16>,
+    published: BTreeMap<crate::vars::PortKey, u16>,
 }
 
 impl Values {
