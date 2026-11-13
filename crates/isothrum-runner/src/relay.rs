@@ -132,7 +132,9 @@ where
 }
 
 /// Accepts connections on `listener` until the task is aborted, each served by `serve` on a task
-/// of its own. A refused handshake or fd exhaustion must not end a relay while a tool is still
+/// of its own, owned by the accept task: when the relay goes, its open connections and their
+/// `nc` children go with it, instead of outliving the operation (Clean Code ch.13, shutdown;
+/// 2026-11-13). A refused handshake or fd exhaustion must not end a relay while a tool is still
 /// pointed at it (nor spin hot): it waits a moment and keeps accepting.
 fn serve<F, Fut>(listener: TcpListener, serve: F) -> JoinHandle<()>
 where
@@ -140,9 +142,15 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     tokio::spawn(async move {
+        // Dropped with this task (an abort drops its future), which aborts every connection's.
+        let mut connections = tokio::task::JoinSet::new();
         loop {
             match listener.accept().await {
-                Ok((inbound, _)) => drop(tokio::spawn(serve(inbound))),
+                Ok((inbound, _)) => {
+                    connections.spawn(serve(inbound));
+                    // The ones that ended, reaped, so the set holds the open connections only.
+                    while connections.try_join_next().is_some() {}
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "a relay couldn't accept a connection; it keeps listening");
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
