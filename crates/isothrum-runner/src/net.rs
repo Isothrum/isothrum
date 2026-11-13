@@ -20,6 +20,10 @@ pub trait HostPorts: Send + Sync + sealed::Ports {}
 
 impl<T: sealed::Ports> HostPorts for T {}
 
+/// The loopback address the runner's own listeners and tunnels take, and where a port published
+/// on every interface of this computer answers.
+pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
 /// The real host: sockets on the loopback. Nothing listens on all interfaces: binding 0.0.0.0
 /// made Windows Firewall ask whether the embedder's app may accept connections from the network
 /// ([`held_on_all`] only binds there, and not on Windows).

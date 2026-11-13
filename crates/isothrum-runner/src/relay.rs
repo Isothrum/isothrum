@@ -21,6 +21,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use self::http_proxy::{Targets, start_http_proxy};
+use crate::net::LOOPBACK;
 use isoloom_manifest::contract::{ESXI_DEFAULT_SSH_PORT, ESXI_HOSTNAME, ESXI_HOSTPORT, SSH_PROXY_COMMAND};
 
 /// A loopback port forwarding to one LAN endpoint while it lives.
@@ -84,12 +85,10 @@ pub(crate) fn connect(host: &str, port: u16) -> std::io::Result<(FromLan, ToLan,
 /// Apple's netcat.
 const NC: &str = "/usr/bin/nc";
 
-/// Listens on 127.0.0.1 (a free port) and pipes every connection to `host:port`, the one endpoint
-/// it was started for, whatever the client asks.
+/// Listens on the loopback (a free port) and pipes every connection to `host:port`, the one
+/// endpoint it was started for, whatever the client asks.
 pub(crate) async fn start(host: String, port: u16) -> std::io::Result<Relay> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-    let local = listener.local_addr()?.port();
-    let task = serve(listener, move |inbound| {
+    serve(move |inbound| {
         let host = host.clone();
         async move {
             match connect(&host, port) {
@@ -101,8 +100,8 @@ pub(crate) async fn start(host: String, port: u16) -> std::io::Result<Relay> {
                 Err(e) => tracing::warn!(error = %e, host = %host, port, "the relay couldn't start nc to its host"),
             }
         }
-    });
-    Ok(Relay { port: local, task })
+    })
+    .await
 }
 
 /// Copies `from` into `to` to its end, then closes `to`: each way of a relayed connection, so a
@@ -131,17 +130,19 @@ where
     drop(to);
 }
 
-/// Accepts connections on `listener` until the task is aborted, each served by `serve` on a task
-/// of its own, owned by the accept task: when the relay goes, its open connections and their
-/// `nc` children go with it, instead of outliving the operation. A refused handshake or fd
-/// exhaustion must not end a relay while a tool is still
-/// pointed at it (nor spin hot): it waits a moment and keeps accepting.
-fn serve<F, Fut>(listener: TcpListener, serve: F) -> JoinHandle<()>
+/// A relay listening on a free port of the loopback ([`LOOPBACK`]), every relay's: it accepts
+/// connections until it is dropped, each served by `serve` on a task of its own, owned by the
+/// accept task: when the relay goes, its open connections and their `nc` children go with it,
+/// instead of outliving the operation. A refused handshake or fd exhaustion must not end a relay
+/// while a tool is still pointed at it (nor spin hot): it waits a moment and keeps accepting.
+async fn serve<F, Fut>(serve: F) -> std::io::Result<Relay>
 where
     F: Fn(TcpStream) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    tokio::spawn(async move {
+    let listener = TcpListener::bind((LOOPBACK, 0)).await?;
+    let port = listener.local_addr()?.port();
+    let task = tokio::spawn(async move {
         // Dropped with this task (an abort drops its future), which aborts every connection's.
         let mut connections = tokio::task::JoinSet::new();
         loop {
@@ -157,7 +158,8 @@ where
                 }
             }
         }
-    })
+    });
+    Ok(Relay { port, task })
 }
 
 /// Whether a run needs the relays: a `vagrant` run from macOS on an ESXi host (its `scope`), whose
@@ -209,7 +211,7 @@ async fn relays(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no
     let ssh = start(host.to_owned(), ssh_port).await.map_err(listening)?;
     let https = start(host.to_owned(), 443).await.map_err(listening)?;
     let mut env = vec![
-        (ESXI_HOSTNAME.to_owned(), "127.0.0.1".to_owned()),
+        (ESXI_HOSTNAME.to_owned(), LOOPBACK.to_string()),
         (ESXI_HOSTPORT.to_owned(), ssh.port.to_string()),
         (SSH_PROXY_COMMAND.to_owned(), format!("{NC} %h %p")),
     ];

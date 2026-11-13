@@ -121,8 +121,7 @@ impl Console {
     }
 }
 
-/// The loopback address the runner's own listeners and tunnels take.
-pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+pub(crate) use crate::net::LOOPBACK;
 
 /// [`Error::NoConsole`] for `machine`, saying `why`.
 pub(crate) fn no_console(machine: &Machine, why: impl Into<String>) -> Error {
