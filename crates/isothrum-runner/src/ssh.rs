@@ -181,9 +181,9 @@ impl Login {
     }
 }
 
-/// Forgets the run's pinned host keys and SSH configuration, after a successful `down` whatever
-/// the driver: a run brought up again meets new machines, maybe at the same addresses, whose new
-/// keys a pinned one would refuse.
+/// Forgets the run's pinned host keys and SSH configuration whenever its machines go, whatever
+/// the driver (`run::kept`): a run brought up again meets new machines, maybe at the same
+/// addresses, whose new keys a pinned one would refuse.
 pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
     let state = cx.state_dir();
     [KNOWN_HOSTS, CONFIG_FILE].iter().try_for_each(|file| {
