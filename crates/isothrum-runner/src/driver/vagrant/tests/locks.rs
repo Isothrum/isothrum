@@ -61,7 +61,7 @@ async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
     up.unwrap();
     for (who, status) in [("another process", elsewhere), ("this runner", here)] {
         let status = status.unwrap_or_else(|e| panic!("{who}: {e}"));
-        assert_eq!((status.state, status.live), (RunState::Starting, false), "{who}");
+        assert_eq!((status.state, status.live), (RunState::Creating, false), "{who}");
         // As the start read them before it brought them up.
         assert!(
             status.machines.iter().all(|m| m.state == crate::MachineState::Absent),
@@ -98,7 +98,8 @@ async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_r
     let (updated, status) = tokio::join!(regenerated.update(&opts, &events), status);
     updated.unwrap();
     let status = status.unwrap();
-    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    // The update moves the run through `updating` (3.0), and its machines show as last read.
+    assert_eq!((status.state, status.live), (RunState::Updating, false));
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.state, crate::MachineState::Running);
     assert!(

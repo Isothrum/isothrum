@@ -69,6 +69,7 @@ fn write(cx: &Cx<'_>, keep: Keep) -> Result<()> {
             StateFileFormat::TfvarsJson => tfvars_json(&file.entries),
         };
         crate::store::write(&target, text.as_bytes())?;
+        crate::run::keep(cx, crate::store::ResourceKind::StateFiles, &target)?;
     }
     Ok(())
 }

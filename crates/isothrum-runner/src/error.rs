@@ -107,6 +107,17 @@ pub enum ErrorCode {
     /// A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:
     /// not JSON, or another version's shape.
     Corrupt,
+    /// The run's state machine has no such move (a park of a parked run, a resume of a ready
+    /// one), or a resource row can't move that way.
+    IllegalTransition,
+    /// The run moved between the read and the write that would have moved it: try again.
+    StateConflict,
+    /// The home's store was written by a newer runner.
+    StoreVersion,
+    /// The home's store isn't a database this runner reads, or holds what it doesn't write.
+    StoreCorrupt,
+    /// A live process holds the lease asked for.
+    LeaseHeld,
 }
 
 impl ErrorCode {
@@ -149,6 +160,11 @@ impl ErrorCode {
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Usage => "usage",
             ErrorCode::ServerAuthFailed => "server_auth_failed",
+            ErrorCode::IllegalTransition => "illegal_transition",
+            ErrorCode::StateConflict => "state_conflict",
+            ErrorCode::StoreVersion => "store_version",
+            ErrorCode::StoreCorrupt => "store_corrupt",
+            ErrorCode::LeaseHeld => "lease_held",
         }
     }
 }
@@ -476,6 +492,37 @@ pub enum Error {
         #[source]
         source: serde_json::Error,
     },
+    /// The home's store couldn't do what was asked.
+    #[error("the home's state store couldn't be {action}: {reason}")]
+    Store {
+        /// What (`opened`, `read`, `written`, `migrated`).
+        action: &'static str,
+        /// The failure's code (`locked`, `store_corrupt`, `store_version`, `io`).
+        code: ErrorCode,
+        /// SQLite's word, or the store's.
+        reason: String,
+    },
+    /// The run's state machine refused the move.
+    #[error(transparent)]
+    IllegalTransition(#[from] crate::state::IllegalTransition),
+    /// The run moved between the read and the write that would have moved it.
+    #[error("run `{run}` was expected {expected} but is {}", found.map_or("not recorded", crate::state::RunState::as_str))]
+    StateConflict {
+        /// The run.
+        run: String,
+        /// Where the move started.
+        expected: crate::state::RunState,
+        /// Where the run stood instead.
+        found: Option<crate::state::RunState>,
+    },
+    /// A live process holds the lease asked for.
+    #[error("`{scope}` is held by process {pid}")]
+    LeaseHeld {
+        /// The lease.
+        scope: String,
+        /// Its holder's process id.
+        pid: u32,
+    },
 }
 
 impl Error {
@@ -540,6 +587,10 @@ impl Error {
             Error::Unsealed { .. } => ErrorCode::NotSealed,
             Error::NoConsole { .. } => ErrorCode::NoConsole,
             Error::ServerAuthFailed { .. } => ErrorCode::ServerAuthFailed,
+            Error::Store { code, .. } => *code,
+            Error::IllegalTransition(_) => ErrorCode::IllegalTransition,
+            Error::StateConflict { .. } => ErrorCode::StateConflict,
+            Error::LeaseHeld { .. } => ErrorCode::LeaseHeld,
         }
     }
 

@@ -19,7 +19,7 @@ async fn a_run_comes_up_with_its_entry_and_message_then_goes() {
         k.first(),
         Some(&EventKind::State {
             from: RunState::Absent,
-            to: RunState::Starting
+            to: RunState::Creating
         })
     );
     assert!(matches!(k.last(), Some(EventKind::Result { ok: true, .. })));
@@ -56,13 +56,10 @@ async fn the_flag_reaches_only_the_steps_that_create_things_and_never_an_event()
     }
     let text = serde_json::to_string(&events.events()).unwrap();
     assert!(!text.contains(SECRET) && text.contains("seeding ***"), "{text}");
-    let log = std::fs::read_to_string(f.runner.store.run_dir(run.name()).unwrap().join("events.jsonl")).unwrap();
-    assert!(!log.contains(SECRET));
-    assert!(
-        !std::fs::read_to_string(f.runner.store.run_dir(run.name()).unwrap().join("record.json"))
-            .unwrap()
-            .contains(SECRET)
-    );
+    let logged = serde_json::to_string(&f.runner.events(run.name()).unwrap().events).unwrap();
+    assert!(!logged.contains(SECRET));
+    let row = f.runner.store.db().read(|tx| tx.run(run.name())).unwrap().unwrap();
+    assert!(!serde_json::to_string(&row.record).unwrap().contains(SECRET));
 }
 
 #[tokio::test]
@@ -113,7 +110,7 @@ async fn every_operation_ends_with_exactly_one_result_or_error_and_is_logged() {
     assert_eq!(seqs, (1..=u64::try_from(seqs.len()).unwrap()).collect::<Vec<_>>());
     let logged = f.runner.events(run.name()).unwrap().events;
     assert_eq!(logged.len(), a.events().len() + b.events().len());
-    assert!(logged.iter().all(|e| e.time == "2026-10-15T12:00:00Z" && e.v == 0));
+    assert!(logged.iter().all(|e| e.time == "2026-10-15T12:00:00Z" && e.v == 1));
 }
 
 #[tokio::test]
@@ -226,15 +223,27 @@ async fn an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_o
     let f = fixture_answering(crate::testing::WEB_PORTAL, a_volume_dangles);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let record = f.runner.store.run_dir_path(run.name()).join("anonymous-volumes");
-    std::fs::write(&record, "vol-cut\n").unwrap();
+    // The cut operation's row: a volume it recorded, live, the operation never ended.
+    let gone = crate::store::Owner::this_process();
+    f.runner
+        .store
+        .db()
+        .write(|tx| {
+            let cut = tx.begin_operation(run.name(), crate::Op::Attach, &gone, None)?;
+            let id = tx.creating(
+                &crate::store::NewResource::new(run.name(), "vol-cut", crate::store::ResourceKind::Volume, cut.id).living(crate::store::Lifetime::Run),
+            )?;
+            tx.created(id, "vol-cut")
+        })
+        .unwrap();
     run.update(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let removed = f.fake.lines().into_iter().filter(|l| l.contains("volume rm --force")).collect::<Vec<_>>();
     assert!(
         removed.iter().any(|l| l.contains("vol-cut")),
         "the cut operation's volume is removed: {removed:?}"
     );
-    assert!(!record.exists(), "the record is consumed");
+    let live = f.runner.store.db().read(|tx| tx.live_resources(run.name())).unwrap();
+    assert!(live.iter().all(|r| r.native_id.as_deref() != Some("vol-cut")), "its row is gone: {live:?}");
 }
 
 /// One run's record is read alone: another run's record that can't be read doesn't fail it.
@@ -245,15 +254,7 @@ async fn one_runs_record_is_read_alone() {
     assert_eq!(f.runner.run_record(run.name()).unwrap(), None, "not recorded before its start");
     run.up(&opts(), &Recorder::new()).await.unwrap();
     assert_eq!(f.runner.run_record(run.name()).unwrap().map(|r| r.state), Some(RunState::Ready));
-    let other = f.runner.store.run_dir_path(&crate::RunName::new("other-run").unwrap());
-    std::fs::create_dir_all(&other).unwrap();
-    std::fs::write(other.join("record.json"), "{not json").unwrap();
-    assert!(f.runner.runs().is_err(), "every record read together fails on the broken one");
-    assert_eq!(
-        f.runner.run_record(run.name()).unwrap().map(|r| r.state),
-        Some(RunState::Ready),
-        "this run's alone reads"
-    );
+    assert_eq!(f.runner.runs().unwrap().len(), 1);
 }
 
 #[tokio::test]

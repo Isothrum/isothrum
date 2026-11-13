@@ -72,7 +72,7 @@ impl Running<'_> {
             Occupancy::Free => {}
         }
         self.record_start(&mut record, &cx, opts)?;
-        // The slot is picked and recorded (the run `starting`) under the home's lock: a start
+        // The slot is picked and recorded (the run `creating`) under the home's lock: a start
         // in another process waits, then sees it taken.
         let place = opts.host_label.as_deref();
         let slot = crate::slot::choose(&self.runner.store, self.manifest(), self.name(), place, Asked::Own(record.slot)).await?;
@@ -154,7 +154,9 @@ impl Running<'_> {
             _ if !exists => Ok(Occupancy::Free),
             Occupied::Replace => Ok(Occupancy::Leftovers),
             // A start that failed with its machines up: what it left goes, then a fresh start.
-            _ if record.state == RunState::Failed => Ok(Occupancy::Leftovers),
+            // Failed by its own operation (not by a status read that found a machine stopped,
+            // whose last operation succeeded): what that operation left goes.
+            _ if record.state == RunState::Failed && record.last.as_ref().is_none_or(|l| !l.ok) => Ok(Occupancy::Leftovers),
             _ if running && !parked => already(),
             // A parked run a machine of which was removed meanwhile can't resume as it was: what
             // is left goes, then a fresh start (`resume` alone refuses it: `nothing_to_resume`).

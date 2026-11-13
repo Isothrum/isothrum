@@ -48,9 +48,10 @@ pub(crate) async fn project(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMa
     let target = out.clone();
     let written = tokio::task::spawn_blocking(move || write(&root, &outputs, &target)).await;
     match written {
-        Ok(done) => done.map_err(Error::io(&out, "written")),
-        Err(e) => Err(Error::io(&out, "written")(io::Error::other(e.to_string()))),
+        Ok(done) => done.map_err(Error::io(&out, "written"))?,
+        Err(e) => return Err(Error::io(&out, "written")(io::Error::other(e.to_string()))),
     }
+    crate::run::keep(cx, crate::store::ResourceKind::Archive, &out)
 }
 
 /// Writes the archive of the project at `root` to `out`, with the Isoloom outputs `outputs`.

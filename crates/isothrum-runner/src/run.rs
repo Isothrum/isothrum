@@ -13,11 +13,13 @@ mod console;
 mod existing;
 mod graphical;
 mod kept;
+
+pub(crate) use kept::keep;
 mod operation;
 mod retire;
 mod seal;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod up;
 mod update;
 
@@ -217,6 +219,14 @@ impl<'r> Running<'r> {
         let provider = cx.scope.provider;
         let read = self.read_for_query(&mut cx, record.as_ref()).await;
         let (state, mut observed, live) = read.map_err(|e| self.classify_server_refusal(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
+        if live {
+            // The status read now is the run's state: the store follows it where the state
+            // machine allows (a VM stopped outside the runner: ready to failed).
+            if let Err(e) = self.runner.store.reconcile(&self.name, &observed.seen(), state) {
+                tracing::warn!(error = %e, "the run's observed state wasn't recorded");
+            }
+        }
+        let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
         let mut machines = std::mem::take(&mut observed.machines);
         self.offer_consoles(&cx, &mut machines).await;
         let outputs = self.bind_observed(&mut cx, observed).values;
@@ -226,6 +236,8 @@ impl<'r> Running<'r> {
         Ok(Status {
             state,
             live,
+            desired: row.as_ref().map(|r| r.desired),
+            failed_cause: row.and_then(|r| r.failed_cause),
             provider,
             machines,
             networks: self.networks(&cx),
@@ -285,7 +297,7 @@ impl<'r> Running<'r> {
     }
 
     /// Where the run stands while an operation holds it, if one does: the moving state of this
-    /// runner's operation on it (`starting` from the first instant of an `up`), else what its
+    /// runner's operation on it (`creating` from the first instant of an `up`), else what its
     /// record says (another process's operation records its moving state once it begins acting;
     /// an update leaves the run `ready`).
     ///
@@ -363,8 +375,11 @@ impl<'r> Running<'r> {
         // Its tools recorded in the run's state folder while they run: this process killed, the
         // next operation ends them ([`crate::process::ledger`]).
         let tools = cx.state_dir().join(crate::process::ledger::DIR);
-        let recorded: std::sync::Arc<dyn crate::ProcessRunner> =
-            std::sync::Arc::new(crate::process::Recording::new(std::sync::Arc::clone(&self.runner.config.processes), tools));
+        let recorded: std::sync::Arc<dyn crate::ProcessRunner> = std::sync::Arc::new(crate::process::Recording::new(
+            std::sync::Arc::clone(&self.runner.config.processes),
+            tools,
+            self.runner.operation_of(&self.name),
+        ));
         cx.processes = std::sync::Arc::clone(&recorded);
         if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
             let dir = cx.state_dir().join("elevated");
@@ -440,7 +455,15 @@ impl<'r> Running<'r> {
         if let Some(guest) = &self.manifest().guest {
             crate::in_vm::observe(cx, &self.driver, guest, &mut observed).await;
         }
-        if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
+        // An operation's read is kept even before its run has a row (a start's first read).
+        let kept = self
+            .runner
+            .op_of(&self.name)
+            .is_some()
+            .then(|| self.record_or_fresh())
+            .transpose()
+            .and_then(|fresh| self.runner.store.keep_seen(&self.name, &observed.seen(), fresh));
+        if let Err(e) = kept {
             tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
         }
         Ok(crate::driver::Observation::Read(observed))

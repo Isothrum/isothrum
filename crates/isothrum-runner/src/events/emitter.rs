@@ -1,8 +1,7 @@
 //! One operation's events: numbered, timed, masked, kept in the run's own log, and handed to the
 //! embedder's sink.
 
-use std::fs::File;
-use std::io::Write;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
@@ -11,6 +10,32 @@ use super::{EVENTS_VERSION, Event, EventKind, Events, ReadyState, StepState, Str
 use crate::clock::{Clock, rfc3339};
 use crate::error::Error;
 use crate::state::Op;
+use crate::store::{OperationId, Store};
+
+/// Where an operation's events are kept: the home's store, under the operation once it is
+/// journaled.
+pub(crate) struct StoreLog {
+    store: Arc<Store>,
+    operation: Option<OperationId>,
+}
+
+impl StoreLog {
+    /// Events kept in `store`, under no operation yet.
+    pub(crate) fn new(store: Arc<Store>) -> StoreLog {
+        StoreLog { store, operation: None }
+    }
+
+    /// Appends `event`, and journals it when it is a step's.
+    fn append(&self, event: &Event) -> crate::Result<()> {
+        self.store.write(|tx| {
+            tx.append_event(self.operation, event)?;
+            if let (Some(id), EventKind::Step { step, state, .. }) = (self.operation, &event.kind) {
+                tx.step(id, step, *state)?;
+            }
+            Ok(())
+        })
+    }
+}
 
 /// What a masked value reads as.
 pub(crate) const MASK: &str = "***";
@@ -26,7 +51,7 @@ pub(crate) struct Emitter<'a> {
     seq: AtomicU64,
     clock: &'a dyn Clock,
     sink: &'a dyn Events,
-    log: Mutex<Option<File>>,
+    log: Mutex<Option<StoreLog>>,
     /// The values never shown, longest first (so a value holding another is masked whole).
     secrets: Mutex<Vec<String>>,
 }
@@ -61,23 +86,18 @@ impl<'a> Emitter<'a> {
         self.op.map_or(QUERY, Op::as_str)
     }
 
-    /// Also appends each event to `log` (the run's `events.jsonl`).
-    pub(crate) fn with_log(self, log: File) -> Emitter<'a> {
+    /// Also appends each event to the home's store (its event table), and journals each step
+    /// under `log`'s operation once it has one.
+    pub(crate) fn with_log(self, log: StoreLog) -> Emitter<'a> {
         *self.log.lock().unwrap_or_else(PoisonError::into_inner) = Some(log);
         self
     }
 
-    /// Closes the run's log while `reopen` replaces it (an open handle would go on appending to
-    /// the file it replaced), then appends each event to the log `reopen` opens.
-    ///
-    /// # Errors
-    ///
-    /// `reopen`'s: the events are then no longer logged.
-    pub(crate) fn reopen_log(&self, reopen: impl FnOnce() -> crate::Result<File>) -> crate::Result<()> {
-        let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
-        *log = None;
-        *log = Some(reopen()?);
-        Ok(())
+    /// From now on, the events belong to journaled operation `id`, and its steps are journaled.
+    pub(crate) fn journal_as(&self, id: OperationId) {
+        if let Some(log) = self.log.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            log.operation = Some(id);
+        }
     }
 
     /// Masks `values` wherever they would appear.
@@ -105,24 +125,20 @@ impl<'a> Emitter<'a> {
         let kind = self.masked(kind);
         // The sequence number is taken under the log's lock: taken before it, two emits at once
         // could write N+1 before N to the log (Clean Code appendix A).
-        let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
+        let log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
         let event = Event {
             v: EVENTS_VERSION,
             seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
             time: rfc3339(self.clock.now()),
             run: Some(self.run.clone()),
             op: self.op,
+            operation: log.as_ref().and_then(|l| l.operation),
             kind,
         };
-        if let Some(log) = log.as_mut() {
-            // One write per event, its line break included, so a log cut short ends between two
-            // events or inside one, never with an event and no line break after it.
-            let written = serde_json::to_vec(&event).map_err(std::io::Error::from).and_then(|mut line| {
-                line.push(b'\n');
-                log.write_all(&line)
-            });
-            // The log is a convenience for a UI that reattaches: losing a line never fails the run.
-            if let Err(e) = written {
+        if let Some(log) = log.as_ref() {
+            // The event and the journal's step are one transaction. The log is what a UI that
+            // reattaches replays: losing an event never fails the run.
+            if let Err(e) = log.append(&event) {
                 tracing::warn!(error = %e, "an event wasn't logged");
             }
         }
@@ -270,18 +286,24 @@ mod tests {
     }
 
     #[test]
-    fn the_runs_log_keeps_each_event_as_a_line() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("events.jsonl");
+    fn the_store_keeps_each_event_and_journals_each_step() {
+        let home = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(home.path()).unwrap());
+        let run = crate::name::RunName::new("r").unwrap();
+        let op = store
+            .write(|tx| tx.begin_operation(&run, Op::Down, &crate::store::Owner::this_process(), None))
+            .unwrap();
         let clock = FixedClock(UNIX_EPOCH);
         let sink = Recorder::new();
-        let e = Emitter::new("r", Op::Down, &clock, &sink).with_log(File::create(&path).unwrap());
+        let e = Emitter::new("r", Op::Down, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
+        e.journal_as(op.id);
         e.step("down", StepState::Done, None);
         e.warning(WarningCode::StepTolerated, "a tolerated step failed");
         drop(e);
-        let text = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<Event> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        assert_eq!(lines, sink.events());
+        let (logged, unreadable) = store.read(|tx| tx.events_after(crate::store::EventCursor::default(), Some(&run), 10)).unwrap();
+        assert_eq!(unreadable, 0);
+        assert_eq!(logged.into_iter().map(|(_, event)| event).collect::<Vec<_>>(), sink.events());
+        assert_eq!(store.read(|tx| tx.steps(op.id)).unwrap(), [("down".to_owned(), StepState::Done)]);
     }
 
     #[test]

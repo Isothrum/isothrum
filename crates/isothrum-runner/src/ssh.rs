@@ -239,6 +239,7 @@ pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, 
         Error::io(&path, "written")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
     })?;
     crate::store::write(&path, text.as_bytes())?;
+    crate::run::keep(cx, crate::store::ResourceKind::HostKeys, &state.join(KNOWN_HOSTS))?;
     let mut sent: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
     sent.sort();
     sent.dedup();

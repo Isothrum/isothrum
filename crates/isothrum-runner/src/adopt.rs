@@ -169,7 +169,7 @@ impl Runner {
         let mut record = self.adopted(loaded, adoption);
         slot.keep_in(&mut record);
         let moved = move_files(&from, &to)?;
-        if let Err(e) = self.store.save(&record) {
+        if let Err(e) = self.store.save_adopted(&record) {
             put_back(&moved, &from, &to);
             return Err(e);
         }

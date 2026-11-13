@@ -4,7 +4,8 @@
 //! inherits them into the new container as volumes named by their id (Compose keeps a service's
 //! data across a recreate), and the engine then counts them named: a `down --volumes` after that
 //! removes the containers and leaves them (two a lab, in the Cyber CTF rig's leftover audit of
-//! every E2E group). So the `down` operation records them before its steps, from
+//! every E2E group). So the `down` operation records them, as the run's `volume` resources in the
+//! home's store, before its steps, from
 //! the containers the project still has, and removes what the steps left after them. An update
 //! orphans them too, at once: a recreate that makes new anonymous volumes for the new container
 //! (the fixture lab's, three a lab after three updates) leaves the old ones dangling, and no
@@ -16,102 +17,116 @@ use std::collections::BTreeSet;
 use super::{PROJECT_LABEL, docker_spec};
 use crate::Result;
 use crate::executor::{Cx, Echo, call_ok};
+use crate::store::{Lifetime, NewResource, ResourceKind, ResourceRow};
 
-/// The file of the run's state folder holding the names, one a line, between `before_down` and
-/// `after_down`.
-const RECORD: &str = "anonymous-volumes";
 /// The label the engine puts on a volume it made for a container's `VOLUME` (Docker 25 and
 /// later); an older engine's one has no label at all.
 const ANONYMOUS_LABEL: &str = "com.docker.volume.anonymous";
 /// How long a listing may take.
 const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Records the anonymous volumes of `project`'s containers in the run's state folder; a listing
-/// that fails records none and says so (the `down` steps answer for the engine).
+/// The run's anonymous volumes recorded in the store: live `volume` resources, by name.
+fn recorded(cx: &Cx<'_>) -> Result<Vec<ResourceRow>> {
+    let run = cx.run.name();
+    let rows = cx.run.runner.store.db().read(|tx| tx.live_resources(run))?;
+    Ok(rows.into_iter().filter(|r| r.kind == ResourceKind::Volume).collect())
+}
+
+/// Records the anonymous volumes of `project`'s containers as the run's resources, created by
+/// this operation; a listing that fails records none and says so (the `down` steps answer for
+/// the engine). Rows still live from an operation cut before its end (the app quit, a signal)
+/// stay: what that operation orphaned goes with what this one orphans.
 pub(super) async fn record(project: &str, cx: &Cx<'_>) -> Result<()> {
-    let path = cx.state_dir().join(RECORD);
-    // A record still here means the last operation was cut before its end (the app quit, a
-    // signal; the launch-ui spec closed the app three seconds into an attach): the
-    // volumes it recorded are still the run's, so they stay recorded, and what that operation
-    // orphaned goes with what this one orphans.
-    let mut names: BTreeSet<String> = match std::fs::read_to_string(&path) {
-        Ok(text) => text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
-        Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
+    let carried_over = recorded(cx)?;
+    let held = match listed(project, cx).await {
+        Ok(held) => held,
+        Err(e) => {
+            tracing::warn!(project, error = %e, "the run's anonymous volumes couldn't be listed before the operation");
+            Vec::new()
+        }
     };
-    let carried_over = names.len();
-    match listed(project, cx).await {
-        Ok(held) => names.extend(held),
-        Err(e) => tracing::warn!(project, error = %e, "the run's anonymous volumes couldn't be listed before the operation"),
-    }
+    let known: BTreeSet<&str> = carried_over.iter().filter_map(|r| r.native_id.as_deref()).collect();
+    let new: Vec<&String> = held.iter().filter(|v| !known.contains(v.as_str())).collect();
     tracing::info!(
         project,
-        recorded = names.len(),
-        carried_over,
+        recorded = known.len() + new.len(),
+        carried_over = carried_over.len(),
         "the run's anonymous volumes, recorded before the operation"
     );
-    let mut text = names.iter().cloned().collect::<Vec<_>>().join("\n");
-    if !text.is_empty() {
-        text.push('\n');
+    let (run, db) = (cx.run.name(), cx.run.runner.store.db());
+    let Some(by) = cx.run.runner.operation_of(run) else {
+        return Ok(());
+    };
+    db.write(|tx| {
+        for volume in new {
+            // Found, not made: written ahead and made in one transaction.
+            let id = tx.creating(&NewResource::new(run, volume, ResourceKind::Volume, by).living(Lifetime::Run))?;
+            tx.created(id, volume)?;
+        }
+        Ok(())
+    })
+}
+
+/// Removes `rows`, each marked `destroying` before the call and `gone` after it; a removal that
+/// fails is said, and the rows stay for the next operation.
+async fn remove(cx: &Cx<'_>, rows: &[&ResourceRow], what: &str) {
+    if rows.is_empty() {
+        return;
     }
-    crate::store::write(&path, text.as_bytes())
+    let (run, db) = (cx.run.name(), cx.run.runner.store.db());
+    if let Some(by) = cx.run.runner.operation_of(run)
+        && let Err(e) = db.write(|tx| rows.iter().try_for_each(|r| tx.destroying(r.id, by)))
+    {
+        tracing::warn!(error = %e, "the run's volumes weren't marked as being removed");
+    }
+    let mut args: Vec<String> = ["volume", "rm", "--force"].map(String::from).to_vec();
+    args.extend(rows.iter().filter_map(|r| r.native_id.clone()));
+    match call_ok(cx, "anonymous-volumes", &docker_spec(cx, args, Vec::new()), LIMIT, Echo::Quiet).await {
+        Ok(_) => {
+            if let Err(e) = db.write(|tx| rows.iter().try_for_each(|r| tx.gone(r.id))) {
+                tracing::warn!(error = %e, "the run's removed volumes weren't recorded gone");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "{what}"),
+    }
 }
 
 /// Removes the volumes [`record`] kept that the `down` steps left; one the engine still holds
 /// (a container of another's on it) is said, not failed on: the run is down.
 pub(super) async fn remove_recorded(cx: &Cx<'_>) -> Result<()> {
-    let path = cx.state_dir().join(RECORD);
-    let names: Vec<String> = match std::fs::read_to_string(&path) {
-        Ok(text) => text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
-    };
+    let rows = recorded(cx)?;
     tracing::info!(
-        recorded = names.len(),
+        recorded = rows.len(),
         "the run's anonymous volumes after its down: every recorded one is removed"
     );
-    if !names.is_empty() {
-        let mut args: Vec<String> = ["volume", "rm", "--force"].map(String::from).to_vec();
-        args.extend(names.iter().cloned());
-        if let Err(e) = call_ok(cx, "anonymous-volumes", &docker_spec(cx, args, Vec::new()), LIMIT, Echo::Quiet).await {
-            tracing::warn!(error = %e, "the run's anonymous volumes weren't all removed after its down");
-        }
-    }
-    crate::store::remove(&path)
+    let all: Vec<&ResourceRow> = rows.iter().collect();
+    remove(cx, &all, "the run's anonymous volumes weren't all removed after its down").await;
+    Ok(())
 }
 
 /// Removes the volumes [`record`] kept that no container holds after an update's steps (the
 /// engine's dangling ones among them): the old container's, orphaned by a recreate that made
-/// new ones. One still held stays, and the record goes.
+/// new ones. One still held stays recorded, still the run's.
 pub(super) async fn remove_recorded_dangling(cx: &Cx<'_>) -> Result<()> {
-    let path = cx.state_dir().join(RECORD);
-    let recorded: BTreeSet<String> = match std::fs::read_to_string(&path) {
-        Ok(text) => text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
-        Err(e) => return Err(crate::error::Error::io(&path, "read")(e)),
-    };
-    if !recorded.is_empty() {
-        let ls = ["volume", "ls", "--quiet", "--filter", "dangling=true"].map(String::from).to_vec();
-        match call_ok(cx, "anonymous-volumes", &docker_spec(cx, ls, Vec::new()), LIMIT, Echo::Quiet).await {
-            Ok(listed) => {
-                let orphaned: Vec<String> = listed.split_whitespace().filter(|v| recorded.contains(*v)).map(str::to_owned).collect();
-                tracing::info!(
-                    recorded = recorded.len(),
-                    orphaned = orphaned.len(),
-                    "the run's anonymous volumes after the operation: the orphaned ones are removed"
-                );
-                if !orphaned.is_empty() {
-                    let mut rm = ["volume", "rm", "--force"].map(String::from).to_vec();
-                    rm.extend(orphaned);
-                    if let Err(e) = call_ok(cx, "anonymous-volumes", &docker_spec(cx, rm, Vec::new()), LIMIT, Echo::Quiet).await {
-                        tracing::warn!(error = %e, "the anonymous volumes an update orphaned weren't all removed");
-                    }
-                }
-            }
-            Err(e) => tracing::warn!(error = %e, "the dangling volumes couldn't be listed after the update"),
-        }
+    let rows = recorded(cx)?;
+    if rows.is_empty() {
+        return Ok(());
     }
-    crate::store::remove(&path)
+    let ls = ["volume", "ls", "--quiet", "--filter", "dangling=true"].map(String::from).to_vec();
+    match call_ok(cx, "anonymous-volumes", &docker_spec(cx, ls, Vec::new()), LIMIT, Echo::Quiet).await {
+        Ok(listed) => {
+            let dangling: BTreeSet<&str> = listed.split_whitespace().collect();
+            let orphaned: Vec<&ResourceRow> = rows.iter().filter(|r| r.native_id.as_deref().is_some_and(|v| dangling.contains(v))).collect();
+            tracing::info!(
+                recorded = rows.len(),
+                orphaned = orphaned.len(),
+                "the run's anonymous volumes after the operation: the orphaned ones are removed"
+            );
+            remove(cx, &orphaned, "the anonymous volumes an update orphaned weren't all removed").await;
+        }
+        Err(e) => tracing::warn!(error = %e, "the dangling volumes couldn't be listed after the update"),
+    }
+    Ok(())
 }
 
 /// The anonymous volumes mounted in `project`'s containers now, each once.

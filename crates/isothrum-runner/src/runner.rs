@@ -11,6 +11,7 @@ use isoloom_manifest::{Arch, HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
+use crate::error::Error;
 use crate::events::EventLog;
 use crate::host_env::HostEnv;
 use crate::manifest::load_manifest;
@@ -18,8 +19,8 @@ use crate::name::RunName;
 use crate::net::{HostPorts, LoopbackPorts, PortReservations};
 use crate::process::{ProcessRunner, SystemProcesses};
 use crate::run::Running;
-use crate::state::Op;
-use crate::store::{RunLocks, RunRecord, Store};
+use crate::state::{Op, Transition};
+use crate::store::{Home, OperationId, RunLocks, RunRecord};
 
 /// How a runner is built: its home, and the ports it reaches the world through. Start from
 /// [`RunnerConfig::new`] and set a field to change it (`config.processes = Arc::new(fake)`).
@@ -130,9 +131,9 @@ pub fn this_arch() -> Arch {
 /// The runner.
 pub struct Runner {
     pub(crate) config: RunnerConfig,
-    pub(crate) store: Store,
+    pub(crate) store: Home,
     pub(crate) locks: RunLocks,
-    flight: Mutex<BTreeMap<RunName, Op>>,
+    flight: Mutex<BTreeMap<RunName, InFlight>>,
     /// The host ports its runs hold while they start, reserved across the home's processes.
     reservations: PortReservations,
 }
@@ -161,19 +162,22 @@ pub fn copy_key(home: &Path, name: &RunName) -> String {
 }
 
 impl Runner {
-    /// A runner with `config`; its home (with its missing parents) and the home's `runs/` and
-    /// `ports/` folders are created, owner-only (on Windows, a home outside the user's profile
-    /// gets an owner-only DACL).
+    /// A runner with `config`; its home (with its missing parents) and the home's `runs/` folder
+    /// are created, owner-only (on Windows, a home outside the user's profile gets an owner-only
+    /// DACL), and its store (`state.db`) opened: made, migrated, or imported from a 2.x home's
+    /// files ([`crate::store::Store::open`]).
     ///
     /// # Errors
     ///
     /// Fails with `io` when the home can't be created or made owner-only (on Windows, its owner
-    /// can't be read or its DACL set), or its `runs/` or `ports/` folder can't be created.
-    pub fn new(config: RunnerConfig) -> Result<Runner> {
-        let store = Store::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
-        let ports_dir = config.home.join("ports");
-        crate::store::create_dir(&ports_dir)?;
-        let reservations = PortReservations::new(Arc::clone(&config.ports), ports_dir);
+    /// can't be read or its DACL set), or its `runs/` folder can't be created; as
+    /// [`crate::store::Store::open`] does for the store.
+    pub fn new(mut config: RunnerConfig) -> Result<Runner> {
+        // A relative home is resolved once, here: the tools run in other folders (the run's, its
+        // state folder) and would read it against theirs.
+        config.home = std::path::absolute(&config.home).map_err(Error::io(&config.home, "made absolute"))?;
+        let store = Home::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
+        let reservations = PortReservations::new(Arc::clone(&config.ports), Arc::clone(store.db()));
         Ok(Runner {
             config,
             store,
@@ -254,13 +258,14 @@ impl Runner {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
-            .map(|(n, o)| (n.clone(), *o))
+            .map(|(n, f)| (n.clone(), f.op))
             .collect()
     }
 
-    /// Marks `op` on `name` in flight until the guard drops.
-    pub(crate) fn enter(&self, name: &RunName, op: Op) -> Flight<'_> {
-        self.flight.lock().unwrap_or_else(PoisonError::into_inner).insert(name.clone(), op);
+    /// Marks `op` on `name`, journaled as `id`, in flight until the guard drops.
+    pub(crate) fn enter(&self, name: &RunName, op: Op, id: OperationId) -> Flight<'_> {
+        let flight = InFlight { op, id, begun: None };
+        self.flight.lock().unwrap_or_else(PoisonError::into_inner).insert(name.clone(), flight);
         Flight {
             runner: self,
             name: name.clone(),
@@ -269,12 +274,29 @@ impl Runner {
 
     /// The operation in flight on `name`, if any.
     pub(crate) fn op_of(&self, name: &RunName) -> Option<Op> {
-        self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).copied()
+        self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).map(|f| f.op)
+    }
+
+    /// The journal id of the operation in flight on `name`, if any.
+    pub(crate) fn operation_of(&self, name: &RunName) -> Option<OperationId> {
+        self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).map(|f| f.id)
+    }
+
+    /// The transition the operation in flight on `name` began with, once it began acting.
+    pub(crate) fn begun(&self, name: &RunName) -> Option<Transition> {
+        self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).and_then(|f| f.begun)
+    }
+
+    /// Notes that the operation in flight on `name` began acting with `transition`.
+    pub(crate) fn note_begun(&self, name: &RunName, transition: Transition) {
+        if let Some(f) = self.flight.lock().unwrap_or_else(PoisonError::into_inner).get_mut(name) {
+            f.begun = Some(transition);
+        }
     }
 
     /// Reserves `port` for `name` while it starts; false when another run holds it.
     pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
-        self.reservations.reserve(name, port, protocol)
+        self.reservations.reserve(name, port, protocol, self.operation_of(name))
     }
 
     /// A free loopback port over `protocol` reserved for `name` ([`PortReservations::pick_reserved`]).
@@ -283,7 +305,7 @@ impl Runner {
     ///
     /// The loopback couldn't be bound.
     pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
-        self.reservations.pick_reserved(name, protocol)
+        self.reservations.pick_reserved(name, protocol, self.operation_of(name))
     }
 
     /// A free loopback port over `protocol` no other run holds, not reserved
@@ -327,6 +349,14 @@ impl std::fmt::Debug for Runner {
     }
 }
 
+/// An operation in flight: what it is, its journal id, and the transition it began acting with.
+#[derive(Debug, Clone, Copy)]
+struct InFlight {
+    op: Op,
+    id: OperationId,
+    begun: Option<Transition>,
+}
+
 /// An operation in flight; cleared when dropped, whatever the outcome (an error, a cancellation).
 pub(crate) struct Flight<'r> {
     runner: &'r Runner,
@@ -359,13 +389,25 @@ mod tests {
     }
 
     #[test]
+    fn a_relative_home_is_made_absolute_once() {
+        // Refs #131: a relative home was kept as given, and the tools, run in other folders,
+        // read it against theirs (a Terraform state under the lab's folder, no SSH key found).
+        let dir = tempfile::tempdir_in(".").unwrap();
+        let relative = PathBuf::from(dir.path().file_name().unwrap());
+        let r = runner(&relative);
+        assert!(r.config.home.is_absolute(), "{}", r.config.home.display());
+        assert_eq!(r.config.home, std::env::current_dir().unwrap().join(&relative));
+        assert!(r.store.db().path().is_absolute());
+    }
+
+    #[test]
     fn two_runners_share_nothing() {
         // Regression: the in-flight map and the port reservations kept in statics let two
         // embedders (or two tests) in one process see each other's operations and ports.
         let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, b) = (runner(a.path()), runner(b.path()));
         let name = RunName::new("demo").unwrap();
-        let flight = a.enter(&name, Op::Up);
+        let flight = a.enter(&name, Op::Up, crate::store::OperationId(1));
         assert!(a.reserve(&name, 8080, Protocol::Tcp));
         assert_eq!(a.in_flight(), [(name.clone(), Op::Up)]);
         assert_eq!(b.in_flight(), []);

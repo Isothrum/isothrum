@@ -269,7 +269,7 @@ fn compose_over_ssh() -> String {
 
 /// Every event the run showed and logged, as text.
 fn everything(a: &Account, run: &crate::Running<'_>, events: &Recorder) -> String {
-    let log = std::fs::read_to_string(a.runner.store.run_dir(run.name()).unwrap().join("events.jsonl")).unwrap();
+    let log = serde_json::to_string(&a.runner.events(run.name()).unwrap().events).unwrap();
     format!("{}\n{log}", serde_json::to_string(&events.events()).unwrap())
 }
 

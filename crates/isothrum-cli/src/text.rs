@@ -115,15 +115,15 @@ mod tests {
     fn a_status_read_while_an_operation_holds_the_run_says_its_machines_are_as_last_read() {
         let status = |live: bool| -> Status {
             serde_json::from_value(serde_json::json!({
-                "state": "starting", "live": live, "provider": null, "machines": [], "networks": [], "outputs": [], "message": null
+                "state": "creating", "live": live, "provider": null, "machines": [], "networks": [], "outputs": [], "message": null
             }))
             .unwrap()
         };
         assert_eq!(
             status_text("demo", &status(false))[0],
-            "demo: starting (an operation is in progress: machines as last read)"
+            "demo: creating (an operation is in progress: machines as last read)"
         );
-        assert_eq!(status_text("demo", &status(true))[0], "demo: starting");
+        assert_eq!(status_text("demo", &status(true))[0], "demo: creating");
     }
 
     /// A wait that says what it waits for is shown as it goes, not only once it ends.

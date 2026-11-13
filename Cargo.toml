@@ -53,6 +53,9 @@ flate2 = "1"
 getrandom = "0.4"
 # A port checked on all interfaces bound without listening (`net.rs`), its address reuse set.
 socket2 = "0.6"
+# The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
+# the same version, so one `libsqlite3-sys` serves both.
+rusqlite = { version = "0.37", features = ["bundled"] }
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now

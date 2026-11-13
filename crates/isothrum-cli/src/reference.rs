@@ -231,6 +231,22 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ServerAuthFailed => {
             "The server took the run's credentials no more: give the run its new API token or password (its connection's slot), then retry."
         }
+        _ => return store_remedy(code),
+    })
+}
+
+/// What to do about `code`, one of the home's store's and the run's state machine's.
+fn store_remedy(code: ErrorCode) -> Option<&'static str> {
+    Some(match code {
+        ErrorCode::IllegalTransition => {
+            "The run isn't where the operation starts from (a park of a parked run, a resume of a ready one): `status`, then the operation its state takes."
+        }
+        ErrorCode::StateConflict => "Another operation moved the run meanwhile: `status`, then run the command again.",
+        ErrorCode::StoreVersion => "A newer Isothrum wrote this home's `state.db`: use that release, or another `--home`.",
+        ErrorCode::StoreCorrupt => {
+            "The home's `state.db` isn't what the runner wrote: restore it from a backup, or move it away (the runs it held are then forgotten; `reap` finds what a cloud still holds)."
+        }
+        ErrorCode::LeaseHeld => "Another process holds the run: wait for it to end, or stop it.",
         _ => return None,
     })
 }

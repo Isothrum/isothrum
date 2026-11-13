@@ -11,7 +11,7 @@ type Schema = fn() -> serde_json::Value;
 
 /// Each schema file, relative to the repository, with the schema it holds.
 const SCHEMAS: [(&str, Schema); 2] = [
-    ("crates/isothrum-runner/schema/events-v0.schema.json", isothrum_runner::events_schema),
+    ("crates/isothrum-runner/schema/events-v1.schema.json", isothrum_runner::events_schema),
     ("crates/isothrum-runner/schema/status.schema.json", isothrum_runner::status_schema),
 ];
 

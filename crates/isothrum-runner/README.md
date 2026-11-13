@@ -59,7 +59,7 @@ No feature is on by default.
 
 - API: <https://docs.rs/isothrum-runner>
 - The event stream's JSON Schema:
-  [`schema/events-v0.schema.json`](https://github.com/Isothrum/isothrum/blob/main/crates/isothrum-runner/schema/events-v0.schema.json)
+  [`schema/events-v1.schema.json`](https://github.com/Isothrum/isothrum/blob/main/crates/isothrum-runner/schema/events-v1.schema.json)
 - Guides and reference: <https://github.com/Isothrum/isothrum/blob/main/docs/README.md>
 
 Minimum Rust: 1.90. Licence: Apache-2.0.

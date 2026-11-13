@@ -46,7 +46,7 @@ fn act() -> impl Strategy<Value = Act> {
 }
 
 /// The moving states a killed operation leaves.
-const MOVING: [RunState; 4] = [RunState::Starting, RunState::Stopping, RunState::Parking, RunState::Resuming];
+const MOVING: [RunState; 4] = [RunState::Creating, RunState::Destroying, RunState::Parking, RunState::Resuming];
 
 /// Does `act` to the run of `f`, then holds what must hold after it.
 async fn apply(f: &Fixture, run: &crate::Running<'_>, act: Act) -> std::result::Result<(), TestCaseError> {

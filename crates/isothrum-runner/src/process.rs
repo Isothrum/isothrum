@@ -151,25 +151,37 @@ pub trait ProcessRunner: Send + Sync {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>>;
 }
 
+/// The variable every tool of a journaled operation gets: the operation's id in the home's
+/// journal, so what a tool logs or leaves can be told apart by operation.
+pub(crate) const OPERATION_VAR: &str = "ISOTHRUM_OPERATION";
+
 /// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::ledger_dir`]): an
-/// operation's tools, in its run's state folder.
+/// operation's tools, in its run's state folder, each with the operation's id
+/// ([`OPERATION_VAR`]) ahead of its own variables.
 pub(crate) struct Recording {
     inner: std::sync::Arc<dyn ProcessRunner>,
     dir: PathBuf,
+    operation: Option<crate::store::OperationId>,
 }
 
 impl Recording {
-    /// `inner`'s tools, recorded in `dir`.
-    pub(crate) fn new(inner: std::sync::Arc<dyn ProcessRunner>, dir: PathBuf) -> Recording {
-        Recording { inner, dir }
+    /// `inner`'s tools, recorded in `dir`, of the journaled operation `operation`.
+    pub(crate) fn new(inner: std::sync::Arc<dyn ProcessRunner>, dir: PathBuf, operation: Option<crate::store::OperationId>) -> Recording {
+        Recording { inner, dir, operation }
     }
 }
 
 impl ProcessRunner for Recording {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
         Box::pin(async move {
+            let mut env = spec.env.clone();
+            if let Some(id) = self.operation {
+                // First: the driver's and the step's own variables come after it.
+                env.insert(0, (OPERATION_VAR.to_owned(), id.0.to_string()));
+            }
             let recorded = ProcessSpec {
                 ledger_dir: Some(self.dir.clone()),
+                env,
                 ..spec.clone()
             };
             self.inner.run(&recorded, on_line).await

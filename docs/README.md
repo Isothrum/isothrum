@@ -24,7 +24,7 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [Exit codes and error codes](reference/exit-codes.md)
 - [Environment variables](reference/environment.md)
 - [Event stream](reference/events.md) and the `status --json` schema
-- [State layout](reference/state.md): the home, `record.json`
+- [State layout](reference/state.md): the home, `state.db`
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
 - [GNS3 feature coverage](reference/gns3-coverage.md) of the compiler and the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),

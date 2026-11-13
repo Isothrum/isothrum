@@ -60,7 +60,7 @@ async fn a_machine_removed_while_the_start_waits_fails_it_and_the_next_start_cle
 #[tokio::test]
 async fn a_start_whose_process_was_killed_is_failed_not_ready_and_the_next_start_clears_it() {
     // Regression: a start killed after its containers came up (SIGKILL, a crash, the computer
-    // off) left its record `starting`. Its run read as ready though its set-up never ran, and the
+    // off) left its record `creating`. Its run read as ready though its set-up never ran, and the
     // next start was refused as already running.
     let f = fixture();
     let run = f.killed_start().await;
@@ -78,7 +78,7 @@ async fn a_start_whose_process_was_killed_is_failed_not_ready_and_the_next_start
     });
     assert_eq!(
         first,
-        Some((RunState::Failed, RunState::Starting)),
+        Some((RunState::Failed, RunState::Creating)),
         "it starts from the failed run the killed one left"
     );
     assert!(f.every_member_runs());
@@ -89,7 +89,7 @@ async fn a_start_whose_process_was_killed_is_failed_not_ready_and_the_next_start
 
 #[tokio::test]
 async fn any_operation_killed_midway_leaves_a_failed_run_that_a_down_removes() {
-    for left in [RunState::Starting, RunState::Stopping, RunState::Parking, RunState::Resuming] {
+    for left in [RunState::Creating, RunState::Destroying, RunState::Parking, RunState::Resuming] {
         let f = fixture();
         let run = f.run();
         run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -279,4 +279,107 @@ async fn the_tools_a_killed_start_left_running_are_ended_by_the_next_operation()
     let entries: Vec<_> = std::fs::read_dir(&tools).unwrap().flatten().map(|e| e.file_name()).collect();
     assert!(entries.iter().all(|n| !n.to_string_lossy().starts_with("dead")), "{entries:?}");
     assert_eq!(f.record().state, RunState::Absent);
+}
+
+/// The run's journal, newest first: each operation, how it ended, and the one it recovered.
+fn journal(f: &super::Fixture) -> Vec<(crate::Op, Option<crate::store::Outcome>, bool)> {
+    let name = crate::RunName::new("web-portal").unwrap();
+    f.runner
+        .store
+        .db()
+        .read(|tx| tx.operations(&name, 10))
+        .unwrap()
+        .into_iter()
+        .map(|o| (o.op, o.ended.map(|e| e.outcome), o.resumed_from.is_some()))
+        .collect()
+}
+
+#[tokio::test]
+async fn an_interrupted_up_retried_ends_ready_and_journals_the_one_it_recovered() {
+    use crate::store::Outcome::{Abandoned, Succeeded};
+    let f = fixture();
+    let run = f.killed_start().await;
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.is_whole(&run).await;
+    // Newest first: the retry (which recovered the killed one), the killed one, the first.
+    assert_eq!(
+        journal(&f),
+        [
+            (crate::Op::Up, Some(Succeeded), true),
+            (crate::Op::Up, Some(Abandoned), false),
+            (crate::Op::Up, Some(Succeeded), false)
+        ]
+    );
+    // Once more: the run is whole, and a start of a ready run is refused, not run twice.
+    let again = run.up(&opts(), &Recorder::new()).await.unwrap_err();
+    assert_eq!(again.code(), ErrorCode::AlreadyRunning);
+    assert_eq!(f.record().state, RunState::Ready);
+}
+
+#[tokio::test]
+async fn an_interrupted_down_retried_removes_everything_and_ends_absent() {
+    use crate::store::Outcome::{Abandoned, Succeeded};
+    let f = fixture();
+    let run = f.run();
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    f.killed_in(RunState::Destroying);
+    run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    assert!(f.project().ctrs.is_empty(), "{:?}", f.project().ctrs);
+    assert_eq!(f.record().state, RunState::Absent);
+    assert_eq!(
+        journal(&f)[..2],
+        [(crate::Op::Down, Some(Succeeded), true), (crate::Op::Down, Some(Abandoned), false)]
+    );
+    // Retried again: nothing left, and nothing fails.
+    run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.record().state, RunState::Absent);
+    let moves = f
+        .runner
+        .store
+        .db()
+        .read(|tx| tx.transitions(&crate::RunName::new("web-portal").unwrap()))
+        .unwrap();
+    assert!(
+        moves.iter().any(|(from, to, _)| (*from, *to) == (RunState::Destroying, RunState::Failed)),
+        "the killed down was recovered to failed: {moves:?}"
+    );
+    assert!(moves.iter().all(|(_, _, by)| by.is_some()), "each move stored with its operation: {moves:?}");
+}
+
+#[tokio::test]
+async fn an_operation_runs_as_the_row_a_service_queued_and_a_dead_owners_queued_row_is_cancelled() {
+    use crate::store::Outcome::{Cancelled, Succeeded};
+    let f = fixture();
+    let run = f.run();
+    let name = crate::RunName::new("web-portal").unwrap();
+    let mut gone = crate::store::Owner::this_process();
+    gone.pid = u32::MAX;
+    gone.boot = "a boot before this one".into();
+    let me = crate::store::Owner::this_process();
+    let (orphan, queued) = f
+        .runner
+        .store
+        .db()
+        .write(|tx| {
+            Ok((
+                tx.queue_operation(&name, crate::Op::Park, &gone)?,
+                tx.queue_operation(&name, crate::Op::Up, &me)?,
+            ))
+        })
+        .unwrap();
+    let events = Recorder::new();
+    run.up(&opts().with_operation(queued.id), &events).await.unwrap();
+    assert!(
+        events.events().iter().all(|e| e.operation == Some(queued.id)),
+        "every event carries the queued id"
+    );
+    let expected = queued.id.0.to_string();
+    let ups: Vec<_> = f.fake.calls().into_iter().filter(|c| c.line().contains(" up ")).collect();
+    assert_ne!(ups.len(), 0);
+    assert!(
+        ups.iter().all(|c| c.env("ISOTHRUM_OPERATION") == Some(expected.as_str())),
+        "the tools the operation ran know its id"
+    );
+    let ended = |id| f.runner.store.db().read(|tx| tx.operation(id)).unwrap().unwrap().ended.map(|e| e.outcome);
+    assert_eq!((ended(queued.id), ended(orphan.id)), (Some(Succeeded), Some(Cancelled)));
 }

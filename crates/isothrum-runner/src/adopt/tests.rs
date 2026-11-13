@@ -162,7 +162,7 @@ async fn a_run_an_earlier_down_left_absent_takes_a_deployment_over() {
 
 #[tokio::test]
 async fn a_run_that_isnt_absent_is_never_taken_over() {
-    for state in [RunState::Ready, RunState::Failed, RunState::Parked, RunState::Starting, RunState::Stopping] {
+    for state in [RunState::Ready, RunState::Failed, RunState::Parked, RunState::Creating, RunState::Destroying] {
         let (folder, runner) = runner("proxmox", SOLO_WEB_PROXMOX);
         let old = deployment(folder.home.path());
         let before = earlier(&runner, "app-solo-web", state);

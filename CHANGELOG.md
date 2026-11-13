@@ -26,6 +26,26 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Changed
 
+- **One transactional store per home: `state.db`.** **Breaking:** the runner keeps its state in
+  one SQLite database (WAL, foreign keys, migrations), `isothrum_runner::store::Store`, every
+  change one transaction: the runs (what the user wants of each, `desired`, and where each stands),
+  every state move with the operation that made it, the journal of operations (started, steps,
+  ended), the events, the resources each run made (written ahead: `creating` before the call,
+  `created` with the id after), the host ports reserved and the leases. It replaces `record.json`,
+  `seen.json`, `events.jsonl`, `anonymous-volumes` and `ports/*.lock`. A 2.x home is imported on
+  its first open, once, its files left read-only beside the store. An operation finds the
+  operations a dead process left unfinished, ends them `abandoned` and records a run they left
+  moving as `failed`. A host port's reservation is held under its run's lease, renewed while held:
+  a dead holder's is taken over.
+- **A typed state machine.** **Breaking:** `RunState`'s `starting` and `stopping` are `creating` and
+  `destroying`, and `updating` is new (an `update` moves the run through it). Every move is a
+  `Transition`, built only by constructors that check it against the table (`illegal_transition`
+  otherwise), and applied as a compare-and-set (`state_conflict`). `status` reconciles: the
+  run's recorded state follows what was read where the table allows, and `Status` gains `desired`
+  and `failed_cause`. New error codes: `illegal_transition`, `state_conflict`, `store_version`,
+  `store_corrupt`, `lease_held`.
+- **Events v1.** **Breaking:** an event's `v` is 1 (`schema/events-v1.schema.json`): the state
+  words above, and `operation`, the journal id, on every event of an operation.
 - **Three public fields say what they hold.** **Breaking, for embedders:** `Captured::stderr` is
   `Captured::stderr_tail` (it holds the last standard error lines, filtered, not the whole
   stream); `ProcessSpec::tools` is `ProcessSpec::ledger_dir` (the folder the tool is recorded in,

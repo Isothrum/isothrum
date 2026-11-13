@@ -89,8 +89,7 @@ impl Running<'_> {
         let observed = self.observe(cx).await?;
         if !crate::status::any_present(&observed.machines) {
             // Nothing left: the parked mark goes, and a fresh start is the way back.
-            record.state = RunState::Absent;
-            self.runner.store.save(&record)?;
+            self.observed_as(&record, RunState::Absent)?;
             return Err(Error::NothingToResume { run: self.name().to_string() });
         }
         let gone = crate::status::gone_members(&observed.machines);
@@ -99,8 +98,7 @@ impl Running<'_> {
             // without it, or a VM's would make it again from its image, never set up (`vagrant up
             // --no-provision`), and call the run ready. What is left is a failed run's, which
             // the next start clears.
-            record.state = RunState::Failed;
-            self.runner.store.save(&record)?;
+            self.observed_as(&record, RunState::Failed)?;
             return Err(Error::PartlyGone {
                 run: self.name().to_string(),
                 machines: gone,
@@ -110,6 +108,18 @@ impl Running<'_> {
         run_steps(cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
         ready::check(cx, None).await?;
         self.ready(cx, record).await
+    }
+
+    /// Moves the run of `record` to `state`, what its machines showed, where the state machine
+    /// has that move for an observation (a parked run found gone, or partly gone).
+    fn observed_as(&self, record: &RunRecord, state: RunState) -> Result<()> {
+        match crate::state::Transition::observed(record.state, state) {
+            Ok(t) => self.runner.store.apply(self.name(), t),
+            Err(e) => {
+                tracing::debug!(error = %e, "the run's state is left as it is");
+                Ok(())
+            }
+        }
     }
 
     /// Runs the run's checks against the running run.
