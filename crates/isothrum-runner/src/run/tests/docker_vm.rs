@@ -164,6 +164,25 @@ async fn on_vagrant_the_vm_comes_up_then_compose_in_it_and_the_ports_answer_on_t
     );
 }
 
+/// An ephemeral port is forwarded from the host port the runner pinned, not from the one Compose
+/// publishes in the VM: status, the outputs and `${published.…}` name the pinned one, never the
+/// VM's number on this computer, where another program may answer.
+#[tokio::test(start_paused = true)]
+async fn an_ephemeral_port_in_the_vm_answers_at_the_pinned_host_port() {
+    let ephemeral = DOCKER_VM.replace(r#""mode": "fixed""#, r#""mode": "ephemeral""#);
+    let folder = RunFolder::new("docker-vm", &ephemeral);
+    let (_engine, fake) = modelled(vagrant);
+    let ports: Arc<dyn crate::HostPorts> = Arc::new(FakePorts::new([50123]));
+    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), ports, HostOs::Macos)).unwrap();
+    let run = runner.open(&folder.manifest, None).unwrap();
+    let started = run.up(&opts(), &Recorder::new()).await.unwrap();
+    let page = started.outputs.iter().find(|o| o.name == "web__portal").unwrap();
+    assert_eq!(page.value.as_deref(), Some("http://127.0.0.1:50123/"));
+    let status = run.status().await.unwrap();
+    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
+    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 50123)]);
+}
+
 /// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with
 /// weak auto-correct, so two local docker-vm runs — or a half-created VM left behind — collide on
 /// it. The runner gives the helper VM's SSH forward a free host port of its own, carried to the

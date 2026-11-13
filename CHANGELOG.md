@@ -24,6 +24,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **docker-vm: a port Compose publishes in a local VM is reported at this computer's forward.**
+  An ephemeral port is forwarded from the host port the runner pinned, but status, the outputs,
+  `${published.…}` and the ready conditions named the VM's own port on this computer, where
+  another program may answer (and a ready check pass against it). A port a local VM forwards is
+  now reported at its forward's host port; at ESXi and on a server, at the VM's.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or
