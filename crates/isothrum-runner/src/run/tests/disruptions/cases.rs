@@ -345,3 +345,41 @@ async fn an_interrupted_down_retried_removes_everything_and_ends_absent() {
     );
     assert!(moves.iter().all(|(_, _, by)| by.is_some()), "each move stored with its operation: {moves:?}");
 }
+
+#[tokio::test]
+async fn an_operation_runs_as_the_row_a_service_queued_and_a_dead_owners_queued_row_is_cancelled() {
+    use crate::store::Outcome::{Cancelled, Succeeded};
+    let f = fixture();
+    let run = f.run();
+    let name = crate::RunName::new("web-portal").unwrap();
+    let mut gone = crate::store::Owner::this_process();
+    gone.pid = u32::MAX;
+    gone.boot = "a boot before this one".into();
+    let me = crate::store::Owner::this_process();
+    let (orphan, queued) = f
+        .runner
+        .store
+        .db()
+        .write(|tx| {
+            Ok((
+                tx.queue_operation(&name, crate::Op::Park, &gone)?,
+                tx.queue_operation(&name, crate::Op::Up, &me)?,
+            ))
+        })
+        .unwrap();
+    let events = Recorder::new();
+    run.up(&opts().with_operation(queued.id), &events).await.unwrap();
+    assert!(
+        events.events().iter().all(|e| e.operation == Some(queued.id)),
+        "every event carries the queued id"
+    );
+    let expected = queued.id.0.to_string();
+    let ups: Vec<_> = f.fake.calls().into_iter().filter(|c| c.line().contains(" up ")).collect();
+    assert_ne!(ups.len(), 0);
+    assert!(
+        ups.iter().all(|c| c.env("ISOTHRUM_OPERATION") == Some(expected.as_str())),
+        "the tools the operation ran know its id"
+    );
+    let ended = |id| f.runner.store.db().read(|tx| tx.operation(id)).unwrap().unwrap().ended.map(|e| e.outcome);
+    assert_eq!((ended(queued.id), ended(orphan.id)), (Some(Succeeded), Some(Cancelled)));
+}

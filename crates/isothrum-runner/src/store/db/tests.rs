@@ -369,7 +369,7 @@ fn a_lease_is_refused_while_its_holder_lives_and_taken_over_from_a_dead_one() {
 fn a_lease_whose_holder_died_is_taken_over() {
     let (_home, store) = store();
     let mut dead = Owner::this_process();
-    dead.pid = owner::test_pids::dead_pid();
+    dead.pid = owner::tests::dead_pid();
     let me = Owner::this_process();
     store
         .write(|tx| {
@@ -444,7 +444,7 @@ fn a_port_a_dead_process_reserved_is_taken_over() {
     let a = run_with_operation(&store, "one", Op::Up);
     let b = run_with_operation(&store, "two", Op::Up);
     let mut dead = Owner::this_process();
-    dead.pid = owner::test_pids::dead_pid();
+    dead.pid = owner::tests::dead_pid();
     let me = Owner::this_process();
     store
         .write(|tx| {
@@ -516,4 +516,29 @@ fn a_2x_home_is_imported_once_and_its_files_left_read_only() {
     std::fs::write(late.join("record.json"), serde_json::to_vec(&record("late")).unwrap()).unwrap();
     let reopened = Store::open(home.path()).unwrap();
     assert_eq!(reopened.read(|tx| tx.run(&name("late"))).unwrap(), None);
+}
+
+#[test]
+fn a_queued_operation_is_started_once_or_cancelled_and_never_otherwise_ended() {
+    let (_home, store) = store();
+    let r = name("r");
+    let me = Owner::this_process();
+    store
+        .write(|tx| {
+            let queued = tx.queue_operation(&r, Op::Up, &me)?;
+            assert_eq!((queued.started_at.as_deref(), queued.ended.as_ref()), (None, None));
+            assert_eq!(tx.unfinished(&r)?.len(), 1, "a queued one is unfinished");
+            let failed = tx.end_operation(queued.id, Outcome::Failed, Some(ErrorCode::Timeout));
+            assert_eq!(failed.unwrap_err().code(), ErrorCode::IllegalTransition, "it never ran");
+            let started = tx.start_operation(queued.id, &r, &me, None)?;
+            assert!(started.started_at.is_some());
+            let again = tx.start_operation(queued.id, &r, &me, None);
+            assert_eq!(again.unwrap_err().code(), ErrorCode::IllegalTransition, "started once");
+            let elsewhere = tx.queue_operation(&r, Op::Down, &me)?;
+            assert!(tx.start_operation(elsewhere.id, &name("other"), &me, None).is_err(), "another run's");
+            tx.end_operation(elsewhere.id, Outcome::Cancelled, Some(ErrorCode::Cancelled))?;
+            assert!(tx.start_operation(elsewhere.id, &r, &me, None).is_err(), "a cancelled one never starts");
+            Ok(())
+        })
+        .unwrap();
 }

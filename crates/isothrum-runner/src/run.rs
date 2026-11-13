@@ -13,6 +13,8 @@ mod console;
 mod existing;
 mod graphical;
 mod kept;
+
+pub(crate) use kept::keep;
 mod operation;
 mod retire;
 mod seal;
@@ -368,8 +370,11 @@ impl<'r> Running<'r> {
         // Its tools recorded in the run's state folder while they run: this process killed, the
         // next operation ends them ([`crate::process::ledger`]).
         let tools = cx.state_dir().join(crate::process::ledger::DIR);
-        let recorded: std::sync::Arc<dyn crate::ProcessRunner> =
-            std::sync::Arc::new(crate::process::Recording::new(std::sync::Arc::clone(&self.runner.config.processes), tools));
+        let recorded: std::sync::Arc<dyn crate::ProcessRunner> = std::sync::Arc::new(crate::process::Recording::new(
+            std::sync::Arc::clone(&self.runner.config.processes),
+            tools,
+            self.runner.operation_of(&self.name),
+        ));
         cx.processes = std::sync::Arc::clone(&recorded);
         if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
             let dir = cx.state_dir().join("elevated");

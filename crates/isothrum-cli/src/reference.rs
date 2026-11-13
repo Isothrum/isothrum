@@ -231,6 +231,13 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ServerAuthFailed => {
             "The server took the run's credentials no more: give the run its new API token or password (its connection's slot), then retry."
         }
+        _ => return store_remedy(code),
+    })
+}
+
+/// What to do about `code`, one of the home's store's and the run's state machine's.
+fn store_remedy(code: ErrorCode) -> Option<&'static str> {
+    Some(match code {
         ErrorCode::IllegalTransition => {
             "The run isn't where the operation starts from (a park of a parked run, a resume of a ready one): `status`, then the operation its state takes."
         }

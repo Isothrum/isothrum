@@ -67,7 +67,7 @@ impl Running<'_> {
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         let emitter = Emitter::new(self.name().as_str(), op, runner.config.clock.as_ref(), events).masking(mask);
         let emitter = emitter.with_log(StoreLog::new(Arc::clone(runner.store.db())));
-        let span = tracing::info_span!("run", run = %self.name(), op = %op);
+        let span = tracing::info_span!("run", run = %self.name(), op = %op, operation = tracing::field::Empty);
         let cut_short = CutShort::new(&emitter);
         let done = self.locked(op, &opts, &emitter, work).instrument(span.clone()).await;
         cut_short.disarm();
@@ -99,7 +99,8 @@ impl Running<'_> {
         // Journaled, and marked in flight, only now that the run is locked: no other operation
         // runs on it, so every operation of the run the journal shows unfinished is one whose
         // process died (or whose future was dropped before it could say how it ended).
-        let id = self.journal_begin(op)?;
+        let id = self.journal_begin(op, opts.operation)?;
+        tracing::Span::current().record("operation", id.0);
         emitter.journal_as(id);
         // Entered after the lock: entered before, a second op on the same run clobbered this
         // entry, and this guard, dropping after the lock was released, freed its port
@@ -194,15 +195,26 @@ impl Running<'_> {
     /// unfinished one of the run is ended `abandoned`, and a run its record shows moving
     /// (`creating`, `destroying`, ...) is recovered to `failed`, `cancelled`, by this operation:
     /// what it left is a failed run's, which the next `up` clears rather than calling it running.
-    fn journal_begin(&self, op: Op) -> Result<OperationId> {
+    fn journal_begin(&self, op: Op, queued: Option<OperationId>) -> Result<OperationId> {
         let name = self.name();
         let owner = Owner::this_process();
         self.runner.store.db().write(|tx| {
-            let unfinished = tx.unfinished(name)?;
-            let row = tx.begin_operation(name, op, &owner, unfinished.last().map(|o| o.id))?;
-            for left in &unfinished {
+            let unfinished: Vec<_> = tx.unfinished(name)?.into_iter().filter(|o| Some(o.id) != queued).collect();
+            // Started and never ended: its process died. Queued and never started: its owner's
+            // queue still holds it while that owner lives; an owner gone, it never ran.
+            let (started, waiting): (Vec<_>, Vec<_>) = unfinished.into_iter().partition(|o| o.started_at.is_some());
+            let resumed = started.last().map(|o| o.id);
+            let row = match queued {
+                Some(id) => tx.start_operation(id, name, &owner, resumed)?,
+                None => tx.begin_operation(name, op, &owner, resumed)?,
+            };
+            for left in &started {
                 tracing::warn!(operation = %left.id, op = %left.op, "an operation of the run ended without recording how: abandoned");
                 tx.end_operation(left.id, Outcome::Abandoned, Some(ErrorCode::Cancelled))?;
+            }
+            for orphan in waiting.iter().filter(|o| !o.owner.is_alive()) {
+                tracing::warn!(operation = %orphan.id, op = %orphan.op, "a queued operation's owner is gone: cancelled");
+                tx.end_operation(orphan.id, Outcome::Cancelled, Some(ErrorCode::Cancelled))?;
             }
             if let Some(run) = tx.run(name)?
                 && let Ok(recovered) = Transition::cut_off(run.state, row.id)

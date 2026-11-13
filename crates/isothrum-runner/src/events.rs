@@ -61,6 +61,19 @@ pub enum ReadyState {
     Failed,
 }
 
+/// Where a journaled operation stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OperationPhase {
+    /// Accepted and waiting in its run's queue.
+    Queued,
+    /// Begun.
+    Started,
+    /// Ended (its `outcome` says how).
+    Ended,
+}
+
 /// What happened.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -139,6 +152,19 @@ pub enum EventKind {
         ok: bool,
         /// What it found or produced.
         data: serde_json::Value,
+    },
+    /// A journaled operation was queued, started or ended: what a runner service says of the
+    /// operations it queues (the runner's own operation stream doesn't carry it: it still ends
+    /// with exactly one `result` or `error`).
+    Operation {
+        /// Where the operation stands.
+        phase: OperationPhase,
+        /// How it ended, when `phase` is `ended`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<crate::store::Outcome>,
+        /// Its place in its run's queue (0: next), when `phase` is `queued`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        position: Option<u32>,
     },
     /// Why the operation failed.
     Error {

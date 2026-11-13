@@ -4,20 +4,21 @@ use rusqlite::{OptionalExtension, Row, params};
 
 use super::{Ended, EventCursor, OperationId, OperationRow, Outcome, Owner, Tx, failed, from_json, from_word, now, to_json, word};
 use crate::Result;
-use crate::error::ErrorCode;
+use crate::error::{Error, ErrorCode};
 use crate::events::{Event, StepState};
 use crate::name::RunName;
 use crate::state::Op;
 
 /// The columns an [`OperationRow`] is read from, in [`operation_row`]'s order.
-const OPERATION_COLUMNS: &str = "id, run, op, started_at, ended_at, outcome, error_code, cancel_requested, owner_pid, owner_boot, owner_token, resumed_from";
+const OPERATION_COLUMNS: &str = "id, run, op, queued_at, started_at, ended_at, outcome, error_code, cancel_requested, owner_pid, owner_boot, owner_token, resumed_from";
 
 /// The text columns of an operation's row, before they are parsed.
 struct RawOperation {
     id: i64,
     run: String,
     op: String,
-    started_at: String,
+    queued_at: String,
+    started_at: Option<String>,
     ended_at: Option<String>,
     outcome: Option<String>,
     code: Option<String>,
@@ -33,15 +34,16 @@ fn raw_operation(r: &Row<'_>) -> rusqlite::Result<RawOperation> {
         id: r.get(0)?,
         run: r.get(1)?,
         op: r.get(2)?,
-        started_at: r.get(3)?,
-        ended_at: r.get(4)?,
-        outcome: r.get(5)?,
-        code: r.get(6)?,
-        cancel: r.get(7)?,
-        pid: r.get(8)?,
-        boot: r.get(9)?,
-        token: r.get(10)?,
-        resumed_from: r.get(11)?,
+        queued_at: r.get(3)?,
+        started_at: r.get(4)?,
+        ended_at: r.get(5)?,
+        outcome: r.get(6)?,
+        code: r.get(7)?,
+        cancel: r.get(8)?,
+        pid: r.get(9)?,
+        boot: r.get(10)?,
+        token: r.get(11)?,
+        resumed_from: r.get(12)?,
     })
 }
 
@@ -58,6 +60,7 @@ fn operation_row(raw: RawOperation) -> Result<OperationRow> {
         id: OperationId(raw.id),
         run: RunName::new(&raw.run).map_err(|_| super::corrupt("run name", &raw.run))?,
         op: from_word("op", &raw.op)?,
+        queued_at: raw.queued_at,
         started_at: raw.started_at,
         ended,
         cancel_requested: raw.cancel,
@@ -71,22 +74,59 @@ fn operation_row(raw: RawOperation) -> Result<OperationRow> {
 }
 
 impl Tx<'_> {
-    /// Journals operation `op` on `run` as started by `owner`, recovering `resumed_from` when it
-    /// found that one unfinished.
+    /// Journals operation `op` on `run` as queued by `owner` (a service answering a command): its
+    /// id is the one every later event and the client see; [`Tx::start_operation`] starts it.
+    ///
+    /// # Errors
+    ///
+    /// The store can't be written.
+    pub fn queue_operation(&mut self, run: &RunName, op: Op, owner: &Owner) -> Result<OperationRow> {
+        self.tx
+            .execute(
+                "INSERT INTO operations (run, op, queued_at, owner_pid, owner_boot, owner_token) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![run.as_str(), word(&op), now(), owner.pid, owner.boot, owner.token],
+            )
+            .map_err(failed("written"))?;
+        let id = OperationId(self.tx.last_insert_rowid());
+        self.operation(id)?.ok_or_else(|| super::corrupt("operation", "a row just written"))
+    }
+
+    /// Starts queued operation `id` of `run`, owned now by `owner`, recovering `resumed_from` when
+    /// it found that one unfinished.
+    ///
+    /// # Errors
+    ///
+    /// `illegal_transition` when `id` isn't a queued operation of `run` (started or ended
+    /// already, another run's, or none); the store's.
+    pub fn start_operation(&mut self, id: OperationId, run: &RunName, owner: &Owner, resumed_from: Option<OperationId>) -> Result<OperationRow> {
+        let changed = self
+            .tx
+            .execute(
+                "UPDATE operations SET started_at = ?3, owner_pid = ?4, owner_boot = ?5, owner_token = ?6, resumed_from = ?7
+                 WHERE id = ?1 AND run = ?2 AND started_at IS NULL AND ended_at IS NULL",
+                params![id.0, run.as_str(), now(), owner.pid, owner.boot, owner.token, resumed_from.map(|r| r.0)],
+            )
+            .map_err(failed("written"))?;
+        if changed == 0 {
+            return Err(Error::Store {
+                action: "written",
+                code: ErrorCode::IllegalTransition,
+                reason: format!("operation {id} isn't a queued operation of run `{run}`"),
+            });
+        }
+        self.operation(id)?.ok_or_else(|| super::corrupt("operation", "a row just written"))
+    }
+
+    /// Journals operation `op` on `run` as queued and started at once by `owner` (the command
+    /// line, an embedder with no service), recovering `resumed_from` when it found that one
+    /// unfinished.
     ///
     /// # Errors
     ///
     /// The store can't be written.
     pub fn begin_operation(&mut self, run: &RunName, op: Op, owner: &Owner, resumed_from: Option<OperationId>) -> Result<OperationRow> {
-        self.tx
-            .execute(
-                "INSERT INTO operations (run, op, started_at, owner_pid, owner_boot, owner_token, resumed_from)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![run.as_str(), word(&op), now(), owner.pid, owner.boot, owner.token, resumed_from.map(|id| id.0)],
-            )
-            .map_err(failed("written"))?;
-        let id = OperationId(self.tx.last_insert_rowid());
-        self.operation(id)?.ok_or_else(|| super::corrupt("operation", "a row just written"))
+        let queued = self.queue_operation(run, op, owner)?;
+        self.start_operation(queued.id, run, owner, resumed_from)
     }
 
     /// Journals that step `step` of operation `id` reached `state`.
@@ -126,12 +166,21 @@ impl Tx<'_> {
         Ok(steps)
     }
 
-    /// Journals how operation `id` ended. An operation already ended keeps its first end.
+    /// Journals how operation `id` ended. An operation already ended keeps its first end. A
+    /// queued one that never started can only be `cancelled`: it never ran.
     ///
     /// # Errors
     ///
-    /// The store can't be written.
+    /// `illegal_transition` when a queued operation is ended otherwise than cancelled; the
+    /// store's.
     pub fn end_operation(&mut self, id: OperationId, outcome: Outcome, code: Option<ErrorCode>) -> Result<()> {
+        if outcome != Outcome::Cancelled && self.operation(id)?.is_some_and(|o| o.started_at.is_none() && o.ended.is_none()) {
+            return Err(Error::Store {
+                action: "written",
+                code: ErrorCode::IllegalTransition,
+                reason: format!("operation {id} never started: it can only be cancelled"),
+            });
+        }
         self.tx
             .execute(
                 "UPDATE operations SET ended_at = ?2, outcome = ?3, error_code = ?4 WHERE id = ?1 AND ended_at IS NULL",
@@ -175,9 +224,10 @@ impl Tx<'_> {
         self.operations_where(&sql, params![run.as_str(), i64::try_from(limit).unwrap_or(i64::MAX)])
     }
 
-    /// Run `run`'s operations that never ended, oldest first. Called with the run held (its
-    /// lock, or its lease), so none of them runs: each is one whose process died, or whose
-    /// future was dropped before it could say how it ended.
+    /// Run `run`'s operations that never ended, queued or started, oldest first. Called with the
+    /// run held (its lock, or its lease), so none of the started ones runs: each is one whose
+    /// process died, or whose future was dropped before it could say how it ended. A queued one
+    /// still waits in its owner's queue while that owner lives.
     ///
     /// # Errors
     ///

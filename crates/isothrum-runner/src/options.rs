@@ -40,6 +40,9 @@ pub struct RunOptions {
     pub ssh_jump: Option<String>,
     /// How long the run may live, for a manifest with an `expiry` (its default otherwise).
     pub lifetime: Option<std::time::Duration>,
+    /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which
+    /// the operation begins instead of journaling a new one.
+    pub operation: Option<crate::store::OperationId>,
 }
 
 impl RunOptions {
@@ -67,6 +70,13 @@ impl RunOptions {
     #[must_use]
     pub fn with_secrets(mut self, secrets: Secrets) -> RunOptions {
         self.secrets = secrets;
+        self
+    }
+
+    /// Runs as the queued operation `id` of the home's journal ([`crate::store::Tx::queue_operation`]).
+    #[must_use]
+    pub fn with_operation(mut self, id: crate::store::OperationId) -> RunOptions {
+        self.operation = Some(id);
         self
     }
 

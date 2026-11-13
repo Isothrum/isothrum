@@ -93,20 +93,8 @@ fn pid_alive(_pid: u32) -> bool {
     true
 }
 
-/// What the store's tests share about processes.
-#[cfg(all(test, unix))]
-pub(crate) mod test_pids {
-    /// The pid of a process that ran and exited.
-    pub(crate) fn dead_pid() -> u32 {
-        let mut child = std::process::Command::new("true").spawn().unwrap();
-        let pid = child.id();
-        child.wait().unwrap();
-        pid
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -121,8 +109,17 @@ mod tests {
         #[cfg(unix)]
         {
             let mut gone = me.clone();
-            gone.pid = super::test_pids::dead_pid();
+            gone.pid = dead_pid();
             assert!(!gone.is_alive());
         }
+    }
+
+    /// The pid of a process that ran and exited.
+    #[cfg(unix)]
+    pub(crate) fn dead_pid() -> u32 {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
     }
 }

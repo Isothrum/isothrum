@@ -107,8 +107,10 @@ pub struct OperationRow {
     pub run: RunName,
     /// What it is.
     pub op: Op,
-    /// When it started.
-    pub started_at: String,
+    /// When it was queued (journaled).
+    pub queued_at: String,
+    /// When it started; none while it waits in a queue.
+    pub started_at: Option<String>,
     /// Its end; none while it runs, or when its process died before it ended.
     pub ended: Option<Ended>,
     /// Whether a cancel was asked for.

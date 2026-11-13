@@ -85,7 +85,8 @@ pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
     }
     let path = path(cx);
     let text = serde_json::to_vec(&table).map_err(|e| Error::io(&path, "written")(e.into()))?;
-    crate::store::write(&path, &text)
+    crate::store::write(&path, &text)?;
+    crate::run::keep(cx, crate::store::ResourceKind::Consoles, &path)
 }
 
 /// A random password of [`PASSWORD_LEN`] letters and digits.
