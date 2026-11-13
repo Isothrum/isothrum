@@ -63,7 +63,9 @@ pub(crate) mod sealed {
         ///
         /// The loopback couldn't be bound (no file descriptor left, a loopback that is down).
         fn pick_free(&self, protocol: Protocol) -> std::io::Result<Option<HeldPort>>;
-        /// Whether `host:port` accepts a TCP connection within `within`.
+        /// Whether `host:port` accepts a TCP connection within `within` and keeps it: a port
+        /// forwarded by a proxy (Docker's, a hypervisor's NAT) accepts every connection and
+        /// closes it at once when nothing listens behind, which is not a service ready.
         fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool>;
     }
 }
@@ -93,7 +95,26 @@ impl sealed::Ports for LoopbackPorts {
     }
 
     fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool> {
-        Box::pin(async move { matches!(tokio::time::timeout(within, tokio::net::TcpStream::connect((host, port))).await, Ok(Ok(_))) })
+        Box::pin(async move {
+            match tokio::time::timeout(within, tokio::net::TcpStream::connect((host, port))).await {
+                Ok(Ok(stream)) => kept_open(stream).await,
+                _ => false,
+            }
+        })
+    }
+}
+
+/// How long an accepted connection is watched for the peer closing it: a proxy with nothing
+/// behind closes within milliseconds; a service that waits for the client's first bytes keeps it.
+const HOLD: Duration = Duration::from_millis(500);
+
+/// Whether the peer keeps `stream` open for [`HOLD`] (or speaks first): closed at once is a
+/// proxy's accept with nothing listening behind.
+async fn kept_open(stream: tokio::net::TcpStream) -> bool {
+    let mut first = [0u8; 1];
+    match tokio::time::timeout(HOLD, stream.peek(&mut first)).await {
+        Ok(Ok(0) | Err(_)) => false,
+        Ok(Ok(_)) | Err(_) => true,
     }
 }
 
@@ -210,6 +231,41 @@ impl sealed::Ports for FakePorts {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_port_that_accepts_and_closes_at_once_isnt_reachable_one_that_holds_is() {
+        use tokio::io::AsyncWriteExt as _;
+        let ports = super::LoopbackPorts;
+        let within = Duration::from_secs(5);
+        // Nothing listening.
+        let free = ports.pick_free(Protocol::Tcp).unwrap().unwrap().port;
+        assert!(!ports.reachable("127.0.0.1", free, within).await);
+        // A proxy's accept: closed at once.
+        let closing = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closing_port = closing.local_addr().unwrap().port();
+        drop(tokio::spawn(async move {
+            let (s, _) = closing.accept().await.unwrap();
+            drop(s);
+        }));
+        assert!(!ports.reachable("127.0.0.1", closing_port, within).await);
+        // A service that greets.
+        let greeting = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let greeting_port = greeting.local_addr().unwrap().port();
+        drop(tokio::spawn(async move {
+            let (mut s, _) = greeting.accept().await.unwrap();
+            s.write_all(b"220 ready\r\n").await.unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }));
+        assert!(ports.reachable("127.0.0.1", greeting_port, within).await);
+        // A service that waits for the client's first bytes.
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let silent_port = silent.local_addr().unwrap().port();
+        drop(tokio::spawn(async move {
+            let (_held, _) = silent.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }));
+        assert!(ports.reachable("127.0.0.1", silent_port, within).await);
+    }
+
     use super::sealed::Ports;
     use super::*;
 
