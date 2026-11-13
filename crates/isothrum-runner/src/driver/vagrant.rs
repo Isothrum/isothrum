@@ -232,10 +232,10 @@ impl Driver for Vagrant {
         Ok(machines(cx.manifest(), &read, &hosts, forwarding))
     }
 
-    fn after_down(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
+    fn after_down(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         // `vagrant.reset_state`, a step of the manifest's `down`, clears the state folder; the
-        // consoles the runner chose go with the run.
-        std::future::ready(crate::graphical::chosen::forget(cx))
+        // consoles the runner chose go with the run, as everything it keeps (`run::kept`).
+        std::future::ready(Ok(()))
     }
 
     /// `vagrant reload <define> --no-provision`: the VM boots with what the Vagrantfile now says,

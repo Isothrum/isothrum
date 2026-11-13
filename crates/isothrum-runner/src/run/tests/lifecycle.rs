@@ -192,8 +192,13 @@ async fn leftovers_are_removed_before_a_start() {
     let f = fixture();
     f.set(Containers::Stopped);
     let run = f.runner.open(&f.manifest, None).unwrap();
+    // The host keys the earlier run's machines pinned: the machines made again have new ones.
+    let known_hosts = f.runner.store.run_dir_path(run.name()).join(crate::ssh::KNOWN_HOSTS);
+    std::fs::create_dir_all(known_hosts.parent().unwrap()).unwrap();
+    std::fs::write(&known_hosts, "10.0.0.5 ssh-ed25519 AAAAold\n").unwrap();
     let events = Recorder::new();
     run.up(&opts(), &events).await.unwrap();
+    assert!(!known_hosts.exists(), "the cleared machines' host keys are forgotten");
     let lines = f.fake.lines();
     let down = lines.iter().position(|l| l.contains(" down --volumes")).unwrap();
     let up = lines.iter().position(|l| l.contains(" up --detach ")).unwrap();

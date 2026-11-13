@@ -174,7 +174,8 @@ impl Running<'_> {
         }
         let cleared = crate::executor::run_down_steps(cx).await.map(drop);
         cx.vars.set_params(fresh);
-        cleared
+        cleared?;
+        self.machines_gone(cx)
     }
 
     /// Where the run goes on its place, kept in `record` beside its slot: its SSH jump, and its
@@ -210,6 +211,7 @@ impl Running<'_> {
                     cx.events
                         .warning(WarningCode::Recovering, &format!("clearing stale state, then starting again: {e}"));
                     run_steps(cx, "recovery.steps", &recovery.steps).await?;
+                    self.machines_gone(cx)?;
                 }
                 // A module that converges on a later apply (a cloud's eventual consistency); any
                 // other step's failure is the start's.
