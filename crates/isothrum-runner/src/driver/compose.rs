@@ -120,6 +120,10 @@ fn machine_port(m: &Machine, port: u16, protocol: Protocol) -> Option<&Port> {
 }
 
 impl Driver for Compose {
+    async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+        pull_before_step(cx, list, step).await
+    }
+
     /// A Compose run has nothing to check before it starts (its tools are probed).
     fn preflight(&self, _cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         std::future::ready(Ok(()))

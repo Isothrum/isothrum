@@ -11,7 +11,7 @@ use isoloom_manifest::{Action, Run, Step};
 use regex::Regex;
 
 use super::delivery::step_env;
-use super::progress::{Progress, downloading, within};
+use super::progress::{Progress, cut, downloading, within};
 use super::retry::Retry;
 use super::{Cx, plan};
 use crate::Result;
@@ -324,21 +324,6 @@ async fn timed<T>(step: &Step, scope: &Scope, progress: &Progress, run: impl Fut
     within(step.id.as_str(), plan::limit(step, scope), progress, run).await
 }
 
-/// A tool that couldn't run to its end, as step `step`'s failure.
-pub(super) fn process_error(step: &str, e: ProcessError) -> Error {
-    match e {
-        ProcessError::Missing { program } => Error::ToolMissing {
-            step: step.to_owned(),
-            tool: program,
-        },
-        ProcessError::Elevation { reason } => Error::Elevation { reason },
-        other => Error::ToolFailed {
-            step: step.to_owned(),
-            reason: other.to_string(),
-        },
-    }
-}
-
 /// How long a verdict leading a step's error may be.
 const VERDICT_MAX: usize = 300;
 
@@ -348,15 +333,6 @@ const VERDICT_MAX: usize = 300;
 fn verdict_of(verdict: &Regex, line: &str) -> Option<String> {
     let found = verdict.find(line)?;
     Some(cut(line.get(found.start()..)?.trim_end(), VERDICT_MAX))
-}
-
-/// `text`, cut to `max` bytes (at least 3) on a character boundary, `...` included.
-pub(super) fn cut(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_owned();
-    }
-    let end = (0..=max.saturating_sub(3)).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
-    format!("{}...", text.get(..end).unwrap_or_default())
 }
 
 #[cfg(test)]

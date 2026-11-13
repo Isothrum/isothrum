@@ -19,7 +19,6 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::step::{cut, process_error};
 use crate::Result;
 use crate::error::{Error, TimedOut};
 use crate::process::{Captured, ProcessError, ProcessRunner, ProcessSpec, capture_echoing};
@@ -155,6 +154,30 @@ async fn watched<T>(limit: Duration, ceiling: Option<Duration>, progress: &Progr
             return Err(TimedOut::Ceiling { after_s: after.as_secs() });
         }
     }
+}
+
+/// A tool that couldn't run to its end, as step `step`'s failure.
+fn process_error(step: &str, e: ProcessError) -> Error {
+    match e {
+        ProcessError::Missing { program } => Error::ToolMissing {
+            step: step.to_owned(),
+            tool: program,
+        },
+        ProcessError::Elevation { reason } => Error::Elevation { reason },
+        other => Error::ToolFailed {
+            step: step.to_owned(),
+            reason: other.to_string(),
+        },
+    }
+}
+
+/// `text`, cut to `max` bytes (at least 3) on a character boundary, `...` included.
+pub(super) fn cut(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_owned();
+    }
+    let end = (0..=max.saturating_sub(3)).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+    format!("{}...", text.get(..end).unwrap_or_default())
 }
 
 #[cfg(test)]

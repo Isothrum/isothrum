@@ -69,14 +69,6 @@ impl Vagrant {
         }
     }
 
-    /// Whether the provider of `scope` takes its management commands elevated (Hyper-V).
-    pub(crate) fn elevates(&self, scope: &crate::scope::Scope) -> bool {
-        self.identity
-            .providers
-            .iter()
-            .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
-    }
-
     /// The run's provider among the manifest's.
     fn provider(&self, cx: &Cx<'_>) -> Result<&VagrantProvider> {
         let theirs = || {
@@ -159,6 +151,30 @@ impl Vagrant {
 }
 
 impl Driver for Vagrant {
+    /// Whether the provider of `scope` takes its management commands elevated (Hyper-V).
+    fn elevates(&self, scope: &crate::scope::Scope) -> bool {
+        self.identity
+            .providers
+            .iter()
+            .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
+    }
+
+    fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+        forwarded::pin(cx)
+    }
+
+    fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
+        forwarded::local_host_port(cx, m, p)
+    }
+
+    async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+        boxes_before_step(self, cx, list, step).await
+    }
+
+    async fn run_argv(&self, cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
+        run_step(cx, list, step, observe).await
+    }
+
     /// The provider must be one of the run's, exist on this host, not be refused by Isoloom for
     /// this run, and have its plugin.
     async fn preflight(&self, cx: &Cx<'_>) -> Result<()> {
