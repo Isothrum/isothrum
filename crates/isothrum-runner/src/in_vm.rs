@@ -34,27 +34,31 @@ const RETRY: Duration = Duration::from_secs(1);
 /// `observed` (the VM's driver's) with the containers as `guest` reads them in the VM. The
 /// outputs the driver read are bound while they are read, as the run's outputs are
 /// ([`crate::outputs::with_engine`]: sensitive ones left out): the VM's address may be one
-/// (`${outputs.ip}`). The operation's own values are as they were after.
-pub(crate) async fn observe(cx: &mut Cx<'_>, guest: &Guest, observed: &mut Observed) {
+/// (`${outputs.ip}`). The operation's own values are as they were after. A port the VM's
+/// `driver` forwards to this computer is reported at the host port its forward runs from.
+pub(crate) async fn observe(cx: &mut Cx<'_>, driver: &AnyDriver, guest: &Guest, observed: &mut Observed) {
     let bound = crate::outputs::with_engine(cx.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
     let own = std::mem::replace(&mut cx.vars, bound);
-    read_in(cx, guest, observed).await;
+    read_in(cx, driver, guest, observed).await;
     cx.vars = own;
 }
 
 /// [`observe`], its outputs bound in `cx`.
-async fn read_in(cx: &Cx<'_>, guest: &Guest, observed: &mut Observed) {
+async fn read_in(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, observed: &mut Observed) {
     let vm = observed
         .machines
         .iter()
         .find(|m| m.name == guest.machine.as_str())
         .map_or(MachineState::Absent, |m| m.state.clone());
     let host = guest_host(cx, guest, observed);
-    let read = if vm == MachineState::Running {
+    let mut read = if vm == MachineState::Running {
         read_containers(cx, guest).await
     } else {
         Inside::VmDown
     };
+    if let Inside::Read(inside, published) = &mut read {
+        forwarded(cx, driver, inside, published);
+    }
     overlay_containers(cx.manifest(), observed, &read, &vm);
     if let Inside::Read(_, published) = read {
         merge_published(observed, published, host.as_deref());
@@ -103,6 +107,24 @@ fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, u16>, h
             observed.hosts.insert(key.machine.clone(), host.to_owned());
         }
         observed.published.insert(key, host_port);
+    }
+}
+
+/// `inside` and `published`, the ports Compose publishes in the VM, at the host port this computer
+/// reaches each at where `driver` forwards it here (a local VM: its forward runs from the port the
+/// runner pinned, not the VM's); left as read where the VM's ports answer at its own address.
+fn forwarded(cx: &Cx<'_>, driver: &AnyDriver, inside: &mut [MachineStatus], published: &mut BTreeMap<PortKey, u16>) {
+    for m in &cx.manifest().machines {
+        for p in &m.ports {
+            let Some(host_port) = driver.forwarded_port(cx, m, p) else { continue };
+            if let Some(at) = published.get_mut(&(m.name.to_string(), p.name.to_string())) {
+                *at = host_port;
+            }
+            let ports = inside.iter_mut().filter(|s| s.name == m.name.as_str()).flat_map(|s| s.published.iter_mut());
+            for port in ports.filter(|x| x.port == p.port.get() && x.protocol == p.kind.transport()) {
+                port.host_port = host_port;
+            }
+        }
     }
 }
 

@@ -406,7 +406,7 @@ impl<'r> Running<'r> {
             return Ok(observed);
         }
         if let Some(guest) = &self.manifest().guest {
-            crate::in_vm::observe(cx, guest, &mut observed).await;
+            crate::in_vm::observe(cx, &self.driver, guest, &mut observed).await;
         }
         if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
             tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");

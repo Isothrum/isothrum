@@ -239,6 +239,16 @@ impl AnyDriver {
         }
     }
 
+    /// The host port this computer reaches `m`'s published port `p` at, where the run's VMs
+    /// forward it here (Vagrant, but on ESXi); `None` where a VM's ports answer at its own address
+    /// (ESXi, a Terraform server or cloud) and for Compose, which reads its own.
+    pub(crate) fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
+        match self {
+            AnyDriver::Vagrant(_) => vagrant::forwarded::local_host_port(cx, m, p),
+            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => None,
+        }
+    }
+
     pub(crate) async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), action = ?action);
         match self {
