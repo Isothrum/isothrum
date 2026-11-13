@@ -184,6 +184,17 @@ impl Runner {
         self.store.records()
     }
 
+    /// Run `name`'s record, with the state its last operation left it in; `None` for a run never
+    /// recorded. Reads one file: an embedder asking after one run doesn't fail on another run's
+    /// record it can't read, as it would reading [`Runner::runs`].
+    ///
+    /// # Errors
+    ///
+    /// Fails with `io` when the record is there and can't be read.
+    pub fn run_record(&self, name: &RunName) -> Result<Option<RunRecord>> {
+        self.store.record(name)
+    }
+
     /// Run `name`'s logged events, oldest first, with how many of its lines it couldn't read as
     /// one (written by another version of the runner, or cut short).
     ///

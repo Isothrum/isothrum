@@ -21,6 +21,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   entry or a Terraform state that is there but isn't what the runner wrote (not JSON, another
   version's shape) fails with the new `corrupt` code and names the file; `io` stays the OS's
   reasons (missing, unreadable).
+- **`Runner::run_record`: one run's record, read alone.** An embedder asking after one run read
+  every record (`runs`) and failed on another run's record it couldn't read.
 
 ### Fixed
 
