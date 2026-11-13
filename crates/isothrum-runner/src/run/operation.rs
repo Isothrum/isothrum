@@ -7,12 +7,14 @@ use tracing::Instrument;
 
 use crate::clock::rfc3339;
 use crate::error::{Error, ErrorCode};
+use crate::events::StoreLog;
 use crate::events::{Emitter, EventKind, Events, WarningCode};
 use crate::options::RunOptions;
 use crate::run::Running;
 use crate::secrets::sensitive_values;
-use crate::state::{Op, RunState};
-use crate::store::{LastOp, RunRecord};
+use crate::state::{Desired, Op, RunState, Transition};
+use crate::store::{LastOp, OperationId, Outcome, Owner, RunRecord};
+use std::sync::Arc;
 
 /// What an operation's own work produced.
 pub(crate) struct Done<T> {
@@ -64,13 +66,7 @@ impl Running<'_> {
         let opts = self.with_connection_secrets(opts);
         let mask = sensitive_values(self.manifest(), &opts.secrets);
         let emitter = Emitter::new(self.name().as_str(), op, runner.config.clock.as_ref(), events).masking(mask);
-        let emitter = match runner.store.event_log(self.name()) {
-            Ok(log) => emitter.with_log(log),
-            Err(e) => {
-                emitter.error(&e);
-                return Err(e);
-            }
-        };
+        let emitter = emitter.with_log(StoreLog::new(Arc::clone(runner.store.db())));
         let span = tracing::info_span!("run", run = %self.name(), op = %op);
         let cut_short = CutShort::new(&emitter);
         let done = self.locked(op, &opts, &emitter, work).instrument(span.clone()).await;
@@ -97,18 +93,18 @@ impl Running<'_> {
         work: impl AsyncFnOnce(&RunOptions, &Emitter<'_>) -> Result<Done<T>>,
     ) -> Result<Done<T>> {
         let store = &self.runner.store;
+        store.run_dir(self.name())?;
         let _lock = self.runner.locks.acquire(self.name(), &store.lock_path(self.name())).await?;
-        // Trim the run's log only now that the run is locked: trimmed before, it was replaced
-        // under the operation holding the lock, whose later events went to the file it replaced.
-        emitter.reopen_log(|| {
-            store.trim_event_log(self.name())?;
-            store.event_log(self.name())
-        })?;
-        // Mark the op in flight and reserve its ports only now that the run is locked: entered
-        // before the lock, a second op on the same run clobbered this entry, and this guard,
-        // dropping after the lock was released, freed the second op's port reservations.
-        let _flight = self.runner.enter(self.name(), op);
-        self.settle_cut_off()?;
+        store.trim_event_log(self.name())?;
+        // Journaled, and marked in flight, only now that the run is locked: no other operation
+        // runs on it, so every operation of the run the journal shows unfinished is one whose
+        // process died (or whose future was dropped before it could say how it ended).
+        let id = self.journal_begin(op)?;
+        emitter.journal_as(id);
+        // Entered after the lock: entered before, a second op on the same run clobbered this
+        // entry, and this guard, dropping after the lock was released, freed its port
+        // reservations.
+        let _flight = self.runner.enter(self.name(), op, id);
         self.end_left_running().await;
         let before = store.record(self.name())?.map_or(RunState::Absent, |r| r.state);
         if let Some(during) = op.during() {
@@ -154,53 +150,81 @@ impl Running<'_> {
         crate::server_auth::refusal(e, crate::server_auth::server_of(&params))
     }
 
-    /// Records how `op` ended and the state it left the run in: `state` when it succeeded; when
-    /// it failed after it began acting (the record shows a moving state), `failed`. Returns the
-    /// recorded state.
-    fn close_record(&self, op: Op, code: Option<ErrorCode>, state: Option<RunState>) -> Result<Option<RunState>> {
-        let store = &self.runner.store;
-        let Some(mut record) = store.record(self.name())? else {
-            return Ok(state);
+    /// Records how `op` ended, in one transaction: the move it makes the run (to its goal when it
+    /// succeeded, `failed` with its code when it failed after it began acting; none when it
+    /// never began), the record's last operation, and the journal's end. Returns where the run
+    /// stands.
+    fn close_record(&self, op: Op, code: Option<ErrorCode>, _state: Option<RunState>) -> Result<Option<RunState>> {
+        let name = self.name();
+        let begun = self.runner.begun(name);
+        let id = self.runner.operation_of(name);
+        let at = rfc3339(self.runner.config.clock.now());
+        let outcome = match code {
+            None => Outcome::Succeeded,
+            Some(ErrorCode::Cancelled) => Outcome::Cancelled,
+            Some(_) => Outcome::Failed,
         };
-        let moving = record.state.is_moving();
-        match (state, code) {
-            (Some(state), _) => record.state = state,
-            (None, Some(_)) if moving => record.state = RunState::Failed,
-            _ => {}
-        }
-        record.last = Some(LastOp {
-            op,
-            ok: code.is_none(),
-            code,
-            at: rfc3339(self.runner.config.clock.now()),
-        });
-        store.save(&record)?;
-        Ok(Some(record.state))
+        self.runner.store.db().write(|tx| {
+            if let Some(id) = id {
+                tx.end_operation(id, outcome, code)?;
+            }
+            let Some(row) = tx.run(name)? else {
+                return Ok(None);
+            };
+            let mut record = row.record;
+            record.last = Some(LastOp {
+                op,
+                ok: code.is_none(),
+                code,
+                at,
+            });
+            tx.save_record(&record, row.desired)?;
+            let moved = begun.map(|b| match code {
+                None => Transition::succeed(b),
+                Some(code) => Transition::fail(b, code),
+            });
+            if let Some(t) = moved {
+                tx.apply(name, t)?;
+                if code.is_none()
+                    && let Some(desired) = Desired::after(op)
+                {
+                    tx.set_desired(name, desired)?;
+                }
+            }
+            Ok(Some(moved.map_or(row.state, |t| t.to())))
+        })
     }
 
-    /// Settles what an operation whose process died left in the run's record. Called with the
-    /// run locked, so no operation holds it: a record still in a moving state (`starting`,
-    /// `stopping`, ...) is one whose operation never recorded how it ended (its process killed,
-    /// the computer off), as [`Unfinished`] does for one cut short in this process. It is
-    /// recorded `failed`, cancelled, as that operation: what it left is a failed run's, which the
-    /// next `up` clears rather than calling it running.
-    fn settle_cut_off(&self) -> Result<()> {
-        let store = &self.runner.store;
-        let Some(mut record) = store.record(self.name())? else {
-            return Ok(());
-        };
-        let Some(op) = record.state.moved_by() else {
-            return Ok(());
-        };
-        tracing::warn!(state = %record.state, %op, "the run's last operation ended without recording how: taken as failed");
-        record.state = RunState::Failed;
-        record.last = Some(LastOp {
-            op,
-            ok: false,
-            code: Some(ErrorCode::Cancelled),
-            at: rfc3339(self.runner.config.clock.now()),
-        });
-        store.save(&record)
+    /// Journals `op` as begun, and settles what operations whose process died left: each
+    /// unfinished one of the run is ended `abandoned`, and a run its record shows moving
+    /// (`creating`, `destroying`, ...) is recovered to `failed`, `cancelled`, by this operation:
+    /// what it left is a failed run's, which the next `up` clears rather than calling it running.
+    fn journal_begin(&self, op: Op) -> Result<OperationId> {
+        let name = self.name();
+        let owner = Owner::this_process();
+        self.runner.store.db().write(|tx| {
+            let unfinished = tx.unfinished(name)?;
+            let row = tx.begin_operation(name, op, &owner, unfinished.last().map(|o| o.id))?;
+            for left in &unfinished {
+                tracing::warn!(operation = %left.id, op = %left.op, "an operation of the run ended without recording how: abandoned");
+                tx.end_operation(left.id, Outcome::Abandoned, Some(ErrorCode::Cancelled))?;
+            }
+            if let Some(run) = tx.run(name)?
+                && let Ok(recovered) = Transition::cut_off(run.state, row.id)
+            {
+                tracing::warn!(state = %run.state, "the run's last operation ended without recording how: taken as failed");
+                tx.apply(name, recovered)?;
+                let mut record = run.record;
+                record.last = Some(LastOp {
+                    op: run.state.moved_by().unwrap_or(op),
+                    ok: false,
+                    code: Some(ErrorCode::Cancelled),
+                    at: rfc3339(self.runner.config.clock.now()),
+                });
+                tx.save_record(&record, run.desired)?;
+            }
+            Ok(row.id)
+        })
     }
 
     /// Ends the tools a killed operation on the run left running ([`crate::process::ledger`]):
@@ -214,12 +238,39 @@ impl Running<'_> {
         }
     }
 
-    /// Records that `op` began acting on the run (the record moves to the operation's state).
+    /// Records that `op` began acting on the run: `record`'s fields, and the run's move to the
+    /// state the operation holds it in, in one transaction. An op that moves no run only saves.
+    ///
+    /// # Errors
+    ///
+    /// `illegal_transition` when the run can't begin `op` from where it stands; `state_conflict`
+    /// when it moved meanwhile; the store's.
     pub(crate) fn begin(&self, record: &mut RunRecord, op: Op) -> Result<()> {
-        if let Some(during) = op.during() {
-            record.state = during;
+        let name = self.name();
+        let Some(id) = self.runner.operation_of(name) else {
+            return self.runner.store.save(record);
+        };
+        self.runner.store.run_dir(name)?;
+        let begun = self.runner.store.db().write(|tx| {
+            tx.save_record(record, Desired::Running)?;
+            let Some(row) = tx.run(name)? else {
+                return Ok(None);
+            };
+            if op.during().is_none() {
+                return Ok(None);
+            }
+            let begun = Transition::begin(row.state, op, id)?;
+            tx.apply(name, begun)?;
+            if let Some(desired) = Desired::after(op) {
+                tx.set_desired(name, desired)?;
+            }
+            Ok(Some(begun))
+        })?;
+        if let Some(begun) = begun {
+            record.state = begun.to();
+            self.runner.note_begun(name, begun);
         }
-        self.runner.store.save(record)
+        Ok(())
     }
 
     /// Records in `record` that the run now runs from this manifest: its file, which a later

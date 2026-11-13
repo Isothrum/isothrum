@@ -153,7 +153,7 @@ impl OutputValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Status {
-    /// Where it stands. While an operation holds the run: the moving state it is in (`starting`
+    /// Where it stands. While an operation holds the run: the moving state it is in (`creating`
     /// through an `up`), else, before it records one or for an operation that leaves the run as
     /// it was meanwhile (an `update`: `ready`), the state the run's record holds.
     pub state: RunState,
@@ -164,6 +164,13 @@ pub struct Status {
     /// are left out.
     #[serde(default = "default_live")]
     pub live: bool,
+    /// What the user wants of the run (the last operation that set it: `up`, `park`, `down`);
+    /// none for a run never recorded. With `state`, whether the run is where it should be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desired: Option<crate::state::Desired>,
+    /// Why the run failed, when its recorded state is `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_cause: Option<crate::ErrorCode>,
     /// The Vagrant provider it uses, when it has one.
     pub provider: Option<Provider>,
     /// Every machine of the manifest.

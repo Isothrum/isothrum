@@ -14,13 +14,13 @@ use std::sync::{Mutex, PoisonError};
 use isoloom_manifest::OutputRole;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use emitter::{Emitter, MASK};
+pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
 use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
 
 /// The event stream's version.
-pub(crate) const EVENTS_VERSION: u32 = 0;
+pub(crate) const EVENTS_VERSION: u32 = 1;
 
 /// Where a step stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -177,7 +177,7 @@ pub struct EventLog {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Event {
-    /// The stream's version (0).
+    /// The stream's version (1; a 2.x runner's events, imported, are 0).
     pub v: u32,
     /// Its place in the operation, from 1.
     pub seq: u64,
@@ -191,6 +191,9 @@ pub struct Event {
     /// [`Event`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<Op>,
+    /// The operation's id in the home's journal: on every event of a journaled operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<crate::store::OperationId>,
     /// What happened.
     #[serde(flatten)]
     pub kind: EventKind,
@@ -208,6 +211,7 @@ impl Event {
             time: crate::clock::rfc3339(std::time::SystemTime::now()),
             run,
             op,
+            operation: None,
             kind,
         }
     }
@@ -316,11 +320,12 @@ mod tests {
 
     fn event(kind: EventKind) -> Event {
         Event {
-            v: 0,
+            v: 1,
             seq: 1,
             time: "2026-10-15T12:00:00Z".into(),
             run: Some("web-portal".into()),
             op: Some(Op::Up),
+            operation: None,
             kind,
         }
     }
@@ -334,7 +339,7 @@ mod tests {
         });
         assert_eq!(
             serde_json::to_value(&e).unwrap(),
-            serde_json::json!({"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
+            serde_json::json!({"v":1,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
         );
         let error = event(EventKind::Error {
             code: ErrorCode::PortInUse,

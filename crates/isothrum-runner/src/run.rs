@@ -15,7 +15,7 @@ mod operation;
 mod retire;
 mod seal;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod up;
 mod update;
 
@@ -183,6 +183,14 @@ impl<'r> Running<'r> {
         let provider = cx.scope.provider;
         let read = self.read_for_query(&mut cx, record.as_ref()).await;
         let (state, mut observed, live) = read.map_err(|e| self.classify_server_refusal(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
+        if live {
+            // The status read now is the run's state: the store follows it where the state
+            // machine allows (a VM stopped outside the runner: ready to failed).
+            if let Err(e) = self.runner.store.reconcile(&self.name, &observed.seen(), state) {
+                tracing::warn!(error = %e, "the run's observed state wasn't recorded");
+            }
+        }
+        let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
         let mut machines = std::mem::take(&mut observed.machines);
         self.offer_consoles(&cx, &mut machines).await;
         let outputs = self.bind_observed(&mut cx, observed).values;
@@ -192,6 +200,8 @@ impl<'r> Running<'r> {
         Ok(Status {
             state,
             live,
+            desired: row.as_ref().map(|r| r.desired),
+            failed_cause: row.and_then(|r| r.failed_cause),
             provider,
             machines,
             networks: self.networks(&cx),
@@ -251,7 +261,7 @@ impl<'r> Running<'r> {
     }
 
     /// Where the run stands while an operation holds it, if one does: the moving state of this
-    /// runner's operation on it (`starting` from the first instant of an `up`), else what its
+    /// runner's operation on it (`creating` from the first instant of an `up`), else what its
     /// record says (another process's operation records its moving state once it begins acting;
     /// an update leaves the run `ready`).
     fn state_while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {

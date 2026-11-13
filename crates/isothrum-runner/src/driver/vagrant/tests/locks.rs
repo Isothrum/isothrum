@@ -61,7 +61,7 @@ async fn a_status_while_the_runs_own_start_provisions_it_reports_it_starting() {
     up.unwrap();
     for (who, status) in [("another process", elsewhere), ("this runner", here)] {
         let status = status.unwrap_or_else(|e| panic!("{who}: {e}"));
-        assert_eq!((status.state, status.live), (RunState::Starting, false), "{who}");
+        assert_eq!((status.state, status.live), (RunState::Creating, false), "{who}");
         // As the start read them before it brought them up.
         assert!(
             status.machines.iter().all(|m| m.state == crate::MachineState::Absent),

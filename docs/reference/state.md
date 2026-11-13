@@ -5,20 +5,14 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
 
 ```text
 <home>/
+  state.db                 the home's store (SQLite, WAL: with state.db-wal and state.db-shm):
+                           the runs, the journal of operations, the events, the resources each
+                           run made, the host ports reserved and the leases (below)
   runs/
     <run>/                 one folder per run, named after the run
-      record.json          the run's record
       lock                 the OS lock: one operation per run at a time, across processes
-      events.jsonl         the last operations' events: once over 4000 lines, trimmed to the
-                           newest 2000, by the operation holding the run's lock
-      seen.json            the run's machines as the runner last read them, and where their
-                           ports answer (never an output's value): what `status` shows while
-                           an operation holds the run; removed by a `down`
       ...                  the run's state folder (${run.state_dir}): what the manifest keeps there
   slots.lock               the OS lock a start holds while it picks its slot (${run.slot})
-  ports/
-    <protocol>-<port>.lock the OS lock a start holds on a host port it reserved, until its
-                           operation ends (freed by the OS when its process dies)
   ssh/
     id_ed25519             the runner's SSH key, and id_ed25519.pub (made on first use)
   terraform-plugins/       the Terraform provider cache every run of this home shares,
@@ -59,20 +53,29 @@ lost), the runner drops that instance with `terraform state rm`, run as the dest
 `already_gone` warning naming it, and destroys again (three times at most). No other instance is
 dropped.
 
-## `record.json`
+## `state.db`
 
-The run's record, written atomically. It holds no secret value.
+The home's store, one SQLite database, every change one transaction. It holds no secret value.
+
+| Table | What it holds |
+|---|---|
+| `runs` | Each run: what the user wants of it (`desired`: `running`, `parked`, `gone`), where it stands (`state`, and `failed_cause` for a failed one), the operation that put it there, its record (the fields below), and what the runner last saw of it (its machines and where their ports answer, never an output's value: what `status` shows while an operation holds the run). |
+| `transitions` | Every move of a run's state, with the operation that made it (none for a status read's). The moves are a closed table: an operation that can't begin from where the run stands is refused (`illegal_transition`). |
+| `operations`, `operation_steps` | The journal: each operation's start, its steps, and its end (`succeeded`, `failed`, `cancelled`, `abandoned`). An operation with no end is one whose process died midway (killed, crashed, the computer off): the next operation on the run, once it holds the run, ends it `abandoned` and records a run it left moving (`creating`, `destroying`, `parking`, `resuming`, `updating`) as `failed` (`cancelled`), so the next `up` clears what it left. |
+| `events` | The runs' events, in order; a run's are trimmed to the newest 2000 once over 4000, by the operation holding the run. |
+| `resources` | What each run made, written ahead: `creating` before the call that makes it, `created` with the tool's id after, `destroying` before the call that removes it, `gone` after (today: a Compose run's anonymous volumes). |
+| `port_reservations`, `leases` | The host ports a start reserved, held under its run's lease, which its process renews while it holds them: a process that dies stops renewing it, and the next start takes the port over. |
+
+The record's fields:
 
 | Field | Meaning |
 |---|---|
-| `version` | The record format's version: `0`. |
 | `name` | The run's name. |
 | `manifest` | The absolute path of the manifest the run was last brought up or updated from. |
 | `target`, `driver` | The manifest's target and driver. |
 | `cloud` | The cloud, for a cloud run. |
 | `provider` | The Vagrant provider, for a Vagrant run. |
 | `host_label` | The place the run is on, when one was given (`--host-label`). |
-| `state` | Where the run stood after its last operation (`ready`, `parked`, `absent`, ...). An operation records a moving state (`starting`, `stopping`, `parking`, `resuming`) while it acts; one left so with no operation holding the run is one whose process died midway (killed, crashed, the computer off): its run reads as `failed`, and the next operation, once it holds the run, records it `failed` (its `last` cancelled), so the next `up` clears what it left. |
 | `params` | Every param the run was started with; later operations replay them, a param the record lacks taking the value given, else its default (a required one with neither is refused). |
 | `vm_host_ports` | The host ports a local VM run forwards, by `<machine>/<port>`. |
 | `vm_boot_digests` | Each VM's boot digest, which `update` compares to restart a VM whose boot-time settings changed. |
@@ -82,8 +85,13 @@ The run's record, written atomically. It holds no secret value.
 | `expires_at` | When the run expires, in seconds since the Unix epoch, for a manifest with an expiry. |
 | `last` | The last operation: `op`, `ok`, the error `code` when it failed, and `at`. |
 
-Fields that don't apply are left out. The record stays after a successful `down`, with state
-`absent`. How the format is versioned is in [Policies](../policies.md#what-is-stable).
+A run's row stays after a successful `down`, with state `absent`. A store a newer Isothrum wrote
+is refused (`store_version`).
+
+**From a 2.x home**: the first time a 3.0 runner opens a home a 2.x runner wrote, it imports each
+run's `record.json`, `seen.json`, `events.jsonl` and `anonymous-volumes` into `state.db`, once,
+and leaves those files beside it read-only. A record it can't read is left as it was, and said.
+The `ports/` folder is no longer used.
 
 ## Adopting an existing Terraform deployment
 

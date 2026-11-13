@@ -59,7 +59,8 @@
 //! [`Console`] lives, on Windows `whoami` and `icacls`, which make the home
 //! owner-only when the runner is built ([`Runner::new`]), before any operation, and, only for a
 //! tool a killed operation left running, `ps` (Windows: PowerShell) to tell it is still that tool,
-//! and on Windows `taskkill` to end it.
+//! and on Windows `taskkill` to end it, and, on Windows, `tasklist`, to tell whether the process
+//! holding a lease of the home's store still runs.
 //!
 //! # Deliveries
 //!
@@ -95,9 +96,9 @@
 //! manifest marks `download` runs the same way, its own limit the time it may show no progress. Operations on one run in one [`Runner`] wait for each other;
 //! an operation on it from another process (or another runner) fails with `locked` once it has
 //! waited a second for the run's lock. Operations on different runs run side by side. One
-//! exception to "no blocking call in async code": the run's state files (a record, a lock, the
-//! pinned ports, the event log) are a few KB on the local disk, so they are read and written
-//! inline rather than through `spawn_blocking`.
+//! exception to "no blocking call in async code": the home's store ([`store::Store`], SQLite) and
+//! the run's lock are a few KB on the local disk, each transaction a few rows, so they are read
+//! and written inline rather than through `spawn_blocking`.
 //!
 //! # Errors and tracing
 //!
@@ -146,7 +147,7 @@ mod slot;
 mod ssh;
 mod state;
 mod status;
-mod store;
+pub mod store;
 #[cfg(test)]
 mod testing;
 mod tool_output;
@@ -180,7 +181,7 @@ pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{Runner, RunnerConfig};
 pub use secrets::{SecretValue, Secrets};
-pub use state::{Op, Park, RunState};
+pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
 pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};
 pub use tool_output::{vagrant_plugins, version_found};

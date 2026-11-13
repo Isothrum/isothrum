@@ -71,7 +71,7 @@ impl Running<'_> {
             Occupancy::Free => {}
         }
         self.record_start(&mut record, &cx, opts)?;
-        // The slot is picked and recorded (the run `starting`) under the home's lock: a start
+        // The slot is picked and recorded (the run `creating`) under the home's lock: a start
         // in another process waits, then sees it taken.
         let place = opts.host_label.as_deref();
         let slot = crate::slot::choose(&self.runner.store, self.manifest(), self.name(), place, Asked::Own(record.slot)).await?;

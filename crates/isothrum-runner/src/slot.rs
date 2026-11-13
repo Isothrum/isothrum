@@ -14,7 +14,7 @@ use crate::Result;
 use crate::error::Error;
 use crate::name::RunName;
 use crate::state::RunState;
-use crate::store::{RunRecord, SlotsLock, Store};
+use crate::store::{Home, RunRecord, SlotsLock};
 
 /// The highest slot.
 const LAST: u8 = 99;
@@ -57,7 +57,7 @@ impl Chosen {
 
 /// The slot run `me` of `manifest` takes on `place`, as `asked`, under the home's slots lock
 /// ([`Store::hold_slots`]); nothing held nor chosen when the manifest needs no slot ([`needed`]).
-pub(crate) async fn choose(store: &Store, manifest: &Manifest, me: &RunName, place: Option<&str>, asked: Asked) -> Result<Chosen> {
+pub(crate) async fn choose(store: &Home, manifest: &Manifest, me: &RunName, place: Option<&str>, asked: Asked) -> Result<Chosen> {
     if !needed(manifest) {
         return Ok(Chosen { slot: None, _held: None });
     }

@@ -172,16 +172,14 @@ impl Fixture {
 
     /// The run's record, left in `state` as a process killed mid-operation leaves it.
     fn killed_in(&self, state: RunState) {
-        let mut record = self.record();
-        record.state = state;
-        self.runner.store.save(&record).unwrap();
+        crate::run::tests::killed_in(&self.runner, "web-portal", state);
     }
 
-    /// The run, started, then left `starting` as a process killed mid-start leaves it.
+    /// The run, started, then left `creating` as a process killed mid-start leaves it.
     async fn killed_start(&self) -> crate::Running<'_> {
         let run = self.run();
         run.up(&super::opts(), &Recorder::new()).await.unwrap();
-        self.killed_in(RunState::Starting);
+        self.killed_in(RunState::Creating);
         run
     }
 

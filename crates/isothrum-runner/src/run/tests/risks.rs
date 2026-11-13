@@ -112,16 +112,19 @@ async fn a_failed_operation_whose_record_cant_be_updated_ends_with_its_own_error
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let events = Recorder::new();
-    let record = f.runner.store.run_dir(run.name()).unwrap().join("record.json");
+    let db = f.runner.store.db().path().to_path_buf();
+    let mut other = None;
     let err = run
         .operate(Op::Down, &opts(), &events, async |_: &RunOptions, _: &Emitter<'_>| -> crate::Result<Done<()>> {
-            // The record can't be read back, nor written: a folder where it was.
-            std::fs::remove_file(&record).unwrap();
-            std::fs::create_dir(&record).unwrap();
+            // The store can't be written: another process holds its write lock past the wait.
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            other = Some(conn);
             Err(Error::NotRunning { run: "web-portal".into() })
         })
         .await
         .unwrap_err();
+    drop(other);
     assert_eq!(err.code(), ErrorCode::NotRunning);
     let kinds = kinds(&events);
     assert!(
@@ -136,7 +139,7 @@ async fn a_failed_operation_whose_record_cant_be_updated_ends_with_its_own_error
     );
     assert!(
         kinds.contains(&EventKind::State {
-            from: RunState::Stopping,
+            from: RunState::Destroying,
             to: RunState::Ready
         }),
         "{kinds:?}"

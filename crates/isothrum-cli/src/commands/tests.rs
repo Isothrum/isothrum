@@ -382,9 +382,9 @@ async fn attach_with_json_says_where_in_its_result_event() {
 async fn events_says_how_many_lines_of_the_log_it_couldnt_read() {
     let s = setup();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
-    let log = s.home.path().join("runs/web-portal/events.jsonl");
     let older = r#"{"v":0,"seq":9,"time":"2026-10-15T12:00:01Z","run":"web-portal","op":"up","event":"warning","code":"hook_failed","message":"x"}"#;
-    std::fs::write(&log, format!("{}{older}\n", std::fs::read_to_string(&log).unwrap())).unwrap();
+    let store = isothrum_runner::store::Store::open(s.home.path()).unwrap();
+    store.write(|tx| tx.append_raw_event(Some("web-portal"), None, older)).unwrap();
     s.out.take();
     s.err.take();
     assert_eq!(s.run(&["events"]).await.unwrap(), Verdict::Pass);

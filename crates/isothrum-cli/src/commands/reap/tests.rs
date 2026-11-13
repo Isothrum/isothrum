@@ -49,13 +49,18 @@ fn answer(home: &Path, call: &Call) -> Reply {
     }
 }
 
-/// [`answer`], but `terraform destroy` leaves the home a run record that isn't JSON, so the search
-/// that follows the sweep fails (`io`); it succeeds when `destroyed`.
+/// [`answer`], but `terraform destroy` leaves the home's store a run row whose record isn't JSON,
+/// so the search that follows the sweep fails (`store_corrupt`); it succeeds when `destroyed`.
 fn destroy_breaking_a_record(home: &Path, call: &Call, destroyed: bool) -> Reply {
     if call.line().starts_with("terraform destroy") {
-        let other = home.join("runs/other");
-        std::fs::create_dir_all(&other).unwrap();
-        std::fs::write(other.join("record.json"), "not json").unwrap();
+        let db = rusqlite::Connection::open(home.join("state.db")).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        db.execute(
+            "INSERT OR REPLACE INTO runs (name, manifest_path, manifest_digest, target, driver, desired, state, state_at, record)
+             VALUES ('other', '/x/run.json', '', 'docker', 'compose', 'running', 'ready', 'now', 'not json')",
+            [],
+        )
+        .unwrap();
         if !destroyed {
             return Reply::fail(1, "Error: destroy failed");
         }
@@ -217,7 +222,7 @@ async fn a_search_that_fails_after_a_failed_destroy_still_says_the_sweep() {
     assert!(!said.contains("nothing to reap"), "the cloud wasn't searched: {said}");
     let last = errors.lines().last().unwrap();
     assert!(
-        last.starts_with("error: ") && last.ends_with("record.json holds no JSON this runner reads: expected ident at line 1 column 2"),
+        last.starts_with("error: ") && last.ends_with("its record doesn't parse: expected ident at line 1 column 2"),
         "{errors}"
     );
 }
@@ -242,7 +247,7 @@ async fn a_search_that_fails_after_a_destroy_is_no_runs_error() {
     );
     assert_eq!(
         (error["event"].as_str(), error["code"].as_str(), error["seq"].as_u64()),
-        (Some("error"), Some("corrupt"), Some(2))
+        (Some("error"), Some("store_corrupt"), Some(2))
     );
     assert!(error.get("run").is_none() && error.get("op").is_none(), "no one run's operation: {error}");
 }

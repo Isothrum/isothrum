@@ -1,14 +1,14 @@
 //! The host ports the runs of one home hold while they start: a port one run reserved is
 //! refused to another starting meanwhile, before either binds it, in this runner or in another
-//! process of the home. Each reservation is the run's in this runner, and an OS lock on the
-//! port's file under the home's `ports/` (`tcp-8080.lock`), held until the run's operation ends:
-//! a start in another process (an embedder runs each lab's start in a worker of its own) finds
-//! it locked and moves to another port. The OS releases a dead holder's lock, so a start that
-//! crashed never strands a port.
+//! process of the home. Each reservation is a row of the home's store, held under its run's
+//! lease (`run:<name>`), which this runner renews while it holds a port: a process that dies
+//! stops renewing it, and its pid is gone, so the next start takes the port over. No start that
+//! crashed strands a port.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::time::Duration;
 
 use isoloom_manifest::Protocol;
 
@@ -17,71 +17,97 @@ use crate::Result;
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::name::RunName;
-use crate::store::{FileLock, lock_held, try_hold};
+use crate::store::{LeaseOutcome, OperationId, Owner, Reserver, Store};
 
-/// A port's reservation: the run that holds it, and the port's lock file it holds for the home.
+/// How long a run's lease holds unless renewed.
+const LEASE_TTL: Duration = Duration::from_secs(60);
+
+/// How often a held lease is renewed.
+const RENEW_EVERY: Duration = Duration::from_secs(20);
+
+/// A run's hold on its ports: the lease's owner, the operation reserving them, and the
+/// renewal's stop flag.
 #[derive(Debug)]
-struct Reservation {
-    run: RunName,
-    _across: FileLock,
+struct Holder {
+    owner: Owner,
+    operation: Option<OperationId>,
+    stop: Arc<AtomicBool>,
 }
 
-/// The ports reserved, each by the run that holds it, over the host's ports and the home's
-/// `ports/` folder.
+impl Drop for Holder {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// The ports reserved by this runner's runs, over the host's ports and the home's store.
 pub(crate) struct PortReservations {
-    held: Mutex<BTreeMap<(u16, Protocol), Reservation>>,
+    holders: Mutex<BTreeMap<RunName, Holder>>,
     ports: Arc<dyn HostPorts>,
-    dir: PathBuf,
+    db: Arc<Store>,
+}
+
+/// The lease a run's reservations are held under.
+fn scope(run: &RunName) -> String {
+    format!("run:{run}")
 }
 
 impl PortReservations {
-    /// No reservation yet, over `ports`, the home's reservations kept in `dir` (made already).
-    pub(crate) fn new(ports: Arc<dyn HostPorts>, dir: PathBuf) -> PortReservations {
+    /// No reservation yet, over `ports`, kept in `db`.
+    pub(crate) fn new(ports: Arc<dyn HostPorts>, db: Arc<Store>) -> PortReservations {
         PortReservations {
-            held: Mutex::default(),
+            holders: Mutex::default(),
             ports,
-            dir,
+            db,
         }
     }
 
-    /// The lock file of `port` over `protocol`.
-    fn lock_path(&self, port: u16, protocol: Protocol) -> PathBuf {
-        self.dir.join(format!("{}-{port}.lock", wire_name(&protocol)))
-    }
-
-    /// Reserves `port` for `name` while it starts; false when another run holds it, in this runner
-    /// or another process of the home. A lock file that can't be taken refuses the port (fails
-    /// closed): the pick moves to another one.
-    pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
-        if let Some(holder) = self.holder(port, protocol) {
-            return holder == *name;
-        }
-        // The file lock is taken out of the map's mutex: it arbitrates between two runs of this
-        // runner as between two processes, each handle its own.
-        let path = self.lock_path(port, protocol);
-        let across = match try_hold(&path) {
-            Ok(Some(across)) => across,
-            Ok(None) => return false,
-            Err(e) => {
-                tracing::warn!(error = %e, path = %path.display(), "a port's reservation file couldn't be locked; the port is refused");
-                return false;
+    /// Takes run `name`'s lease for this runner, and renews it while held: None when another live
+    /// process holds it, or the store can't be written (fails closed: the port is refused).
+    fn hold(&self, name: &RunName) -> Option<Holder> {
+        let owner = Owner::this_process();
+        let scope = scope(name);
+        match self.db.write(|tx| tx.acquire_lease(&scope, &owner, LEASE_TTL)) {
+            Ok(LeaseOutcome::Acquired { .. }) => {}
+            Ok(LeaseOutcome::Held(lease)) => {
+                tracing::warn!(run = %name, pid = lease.owner.pid, "another process holds the run's lease; its ports are refused");
+                return None;
             }
-        };
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        let reservation = held.entry((port, protocol)).or_insert_with(|| Reservation {
-            run: name.clone(),
-            _across: across,
-        });
-        reservation.run == *name
+            Err(e) => {
+                tracing::warn!(run = %name, error = %e, "the run's lease couldn't be taken; the port is refused");
+                return None;
+            }
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        renew(Arc::downgrade(&self.db), scope, owner.clone(), Arc::clone(&stop));
+        Some(Holder { owner, operation: None, stop })
     }
 
-    /// The run of this runner that holds `port`, if any.
-    fn holder(&self, port: u16, protocol: Protocol) -> Option<RunName> {
-        self.held
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&(port, protocol))
-            .map(|r| r.run.clone())
+    /// Reserves `port` for `name` while it starts; false when another run holds it, in this
+    /// runner or another process of the home. A reservation that can't be written refuses the
+    /// port (fails closed): the pick moves to another one.
+    pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol, by: Option<OperationId>) -> bool {
+        let mut holders = self.holders.lock().unwrap_or_else(PoisonError::into_inner);
+        if !holders.contains_key(name) {
+            let Some(holder) = self.hold(name) else {
+                return false;
+            };
+            holders.insert(name.clone(), holder);
+        }
+        let Some(holder) = holders.get_mut(name) else {
+            return false;
+        };
+        if by.is_some() {
+            holder.operation = by;
+        }
+        let scope = scope(name);
+        let reserved = self
+            .db
+            .write(|tx| tx.reserve_port(&Reserver::new(name, holder.operation, &scope, &holder.owner), port, protocol));
+        reserved.unwrap_or_else(|e| {
+            tracing::warn!(error = %e, port, "a port's reservation couldn't be written; the port is refused");
+            false
+        })
     }
 
     /// A free loopback port over `protocol` that no run holds, reserved for `name` until its
@@ -92,8 +118,8 @@ impl PortReservations {
     /// # Errors
     ///
     /// The loopback couldn't be bound.
-    pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
-        self.pick_where(protocol, |port| self.reserve(name, port, protocol))
+    pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol, by: Option<OperationId>) -> std::io::Result<Option<HeldPort>> {
+        self.pick_where(protocol, |port| self.reserve(name, port, protocol, by))
     }
 
     /// A free loopback port over `protocol` that no run but `name` holds, not reserved: for a
@@ -123,13 +149,16 @@ impl PortReservations {
         Ok(None)
     }
 
-    /// Whether another run than `name` holds `port`: one of this runner, or a start in another
-    /// process of the home. A lock file that can't be read reads as held (fails closed).
+    /// Whether another run than `name` holds `port`, in this runner or another process of the
+    /// home. A store that can't be read reads as held (fails closed).
     pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
-        if let Some(holder) = self.holder(port, protocol) {
-            return holder != *name;
+        match self.db.read(|tx| tx.port_holder(port, protocol)) {
+            Ok(holder) => holder.is_some_and(|h| h.run != *name),
+            Err(e) => {
+                tracing::warn!(error = %e, port, "a port's reservation couldn't be read; the port reads as reserved");
+                true
+            }
         }
-        held_across(&self.lock_path(port, protocol))
     }
 
     /// Each `ports` entry (a host port and its protocol) must be free before run `name` starts:
@@ -150,23 +179,42 @@ impl PortReservations {
         Ok(())
     }
 
-    /// Frees every port `name` reserved.
+    /// Frees every port `name` reserved, with its lease.
     pub(crate) fn release(&self, name: &RunName) {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner).retain(|_, r| r.run != *name);
+        let Some(holder) = self.holders.lock().unwrap_or_else(PoisonError::into_inner).remove(name) else {
+            return;
+        };
+        if let Err(e) = self.db.write(|tx| tx.release_lease(&scope(name), &holder.owner)) {
+            tracing::warn!(run = %name, error = %e, "the run's ports weren't released; they are freed when its lease expires");
+        }
     }
 }
 
-/// Whether another process holds the reservation whose lock file is `path`.
-fn held_across(path: &Path) -> bool {
-    lock_held(path).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, path = %path.display(), "a port's reservation file couldn't be read; the port reads as reserved");
-        true
-    })
+/// Renews `owner`'s lease `scope` every [`RENEW_EVERY`] until `stop` is set or the store is
+/// gone, on a thread of its own: an operation's async tasks may all be blocked on a tool.
+fn renew(db: Weak<Store>, scope: String, owner: Owner, stop: Arc<AtomicBool>) {
+    let spawned = std::thread::Builder::new().name("isothrum-lease".to_owned()).spawn(move || {
+        loop {
+            std::thread::sleep(RENEW_EVERY);
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            let Some(db) = db.upgrade() else { return };
+            match db.write(|tx| tx.renew_lease(&scope, &owner, LEASE_TTL)) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(e) => tracing::warn!(scope, error = %e, "a lease wasn't renewed"),
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "a lease's renewal couldn't be started: it holds for its first minute");
+    }
 }
 
 impl std::fmt::Debug for PortReservations {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = self.holders.lock().unwrap_or_else(PoisonError::into_inner);
         f.debug_struct("PortReservations").field("held", &held.len()).finish_non_exhaustive()
     }
 }

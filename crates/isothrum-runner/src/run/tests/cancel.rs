@@ -26,7 +26,7 @@ async fn an_operation_cut_short_says_cancelled_and_the_next_start_clears_what_it
     assert_eq!(
         state,
         &EventKind::State {
-            from: RunState::Starting,
+            from: RunState::Creating,
             to: RunState::Failed
         }
     );

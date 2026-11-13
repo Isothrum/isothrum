@@ -158,6 +158,25 @@ fn opts() -> RunOptions {
 }
 
 /// Every event's kind, in order.
+/// Leaves run `name` of `runner` in `state` as a process killed mid-operation leaves it: the
+/// operation that moved it there journaled and never ended, its owner a process that died.
+pub(crate) fn killed_in(runner: &Runner, name: &str, state: crate::RunState) {
+    let name = crate::RunName::new(name).unwrap();
+    let mut dead = crate::store::Owner::this_process();
+    dead.pid = u32::MAX;
+    dead.boot = "a boot before this one".into();
+    runner
+        .store
+        .db()
+        .write(|tx| {
+            if let Some(op) = state.moved_by() {
+                tx.begin_operation(&name, op, &dead, None)?;
+            }
+            tx.force_state(&name, state)
+        })
+        .unwrap();
+}
+
 fn kinds(events: &Recorder) -> Vec<EventKind> {
     events.events().into_iter().map(|e: Event| e.kind).collect()
 }

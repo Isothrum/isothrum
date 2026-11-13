@@ -1,9 +1,13 @@
 //! The words for what a run is doing and where it stands, shared by the API, the record and the
 //! event stream.
 
+mod transition;
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+pub use transition::{Cause, Desired, IllegalTransition, Transition};
 
 /// An operation on a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
@@ -67,12 +71,14 @@ impl Op {
     /// The state a run is in while this operation runs.
     pub(crate) fn during(self) -> Option<RunState> {
         match self {
-            Op::Up => Some(RunState::Starting),
-            Op::Down => Some(RunState::Stopping),
+            Op::Up => Some(RunState::Creating),
+            Op::Down => Some(RunState::Destroying),
             Op::Park => Some(RunState::Parking),
             Op::Resume => Some(RunState::Resuming),
-            // An update changes a run that keeps running: it stays ready meanwhile.
-            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update | Op::Retire => None,
+            Op::Update => Some(RunState::Updating),
+            // These change one machine of a run that keeps running, or nothing: the run stays
+            // where it is meanwhile, and their journal says they ran.
+            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => None,
         }
     }
 }
@@ -88,8 +94,9 @@ impl fmt::Display for Op {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RunState {
-    /// Being started.
-    Starting,
+    /// Being created by an `up` (2.x wrote `starting`, still read).
+    #[serde(alias = "starting")]
+    Creating,
     /// Up, every member machine running.
     Ready,
     /// Something of it exists, but not every member machine runs (a failed start, a machine down).
@@ -100,8 +107,11 @@ pub enum RunState {
     Parked,
     /// Being resumed.
     Resuming,
-    /// Being removed.
-    Stopping,
+    /// Being brought up to date with its manifest by an `update`.
+    Updating,
+    /// Being removed by a `down` (2.x wrote `stopping`, still read).
+    #[serde(alias = "stopping")]
+    Destroying,
     /// Nothing of it exists.
     Absent,
 }
@@ -123,13 +133,14 @@ impl RunState {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            RunState::Starting => "starting",
+            RunState::Creating => "creating",
             RunState::Ready => "ready",
             RunState::Failed => "failed",
             RunState::Parking => "parking",
             RunState::Parked => "parked",
             RunState::Resuming => "resuming",
-            RunState::Stopping => "stopping",
+            RunState::Updating => "updating",
+            RunState::Destroying => "destroying",
             RunState::Absent => "absent",
         }
     }
@@ -185,6 +196,15 @@ mod tests {
     fn every_op_is_listed_and_the_moving_states_are_those_an_op_holds() {
         assert_eq!(crate::testing::every_variant::<Op>(), Op::ALL);
         let moving: Vec<RunState> = crate::testing::every_variant::<RunState>().into_iter().filter(|s| s.is_moving()).collect();
-        assert_eq!(moving, [RunState::Starting, RunState::Parking, RunState::Resuming, RunState::Stopping]);
+        assert_eq!(
+            moving,
+            [
+                RunState::Creating,
+                RunState::Parking,
+                RunState::Resuming,
+                RunState::Updating,
+                RunState::Destroying
+            ]
+        );
     }
 }

@@ -103,10 +103,8 @@ async fn a_vm_deleted_while_the_start_provisions_it_fails_the_start_and_the_next
 async fn a_start_killed_while_it_provisions_is_failed_and_the_next_start_clears_it() {
     let f = fixture(crate::runner::this_host());
     let run = started(&f).await;
-    // The process running the start was killed: its record stays `starting`, its VMs up.
-    let mut record = f.runner.store.record(run.name()).unwrap().unwrap();
-    record.state = RunState::Starting;
-    f.runner.store.save(&record).unwrap();
+    // The process running the start was killed: its record stays `creating`, its VMs up.
+    crate::run::tests::killed_in(&f.runner, run.name().as_str(), RunState::Creating);
 
     assert_eq!(run.status().await.unwrap().state, RunState::Failed);
     let ups = f.vagrant().iter().filter(|l| l.starts_with("vagrant up --provider")).count();
