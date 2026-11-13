@@ -13,7 +13,8 @@ use crate::error::Error;
 const MAX_LEN: usize = 63;
 
 /// A run's name: 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit
-/// (Compose's rule for a project name).
+/// (Compose's rule for a project name), and not a Windows device name (`con`, `nul`, `com1`…),
+/// which can't name a folder there.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RunName(String);
 
@@ -27,7 +28,7 @@ impl RunName {
         let mut chars = value.chars();
         let first = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
         let rest = chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'));
-        if first && rest && value.len() <= MAX_LEN {
+        if first && rest && value.len() <= MAX_LEN && !is_windows_device(value) {
             Ok(RunName(value.to_owned()))
         } else {
             Err(Error::RunName { value: value.to_owned() })
@@ -38,6 +39,17 @@ impl RunName {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Whether `value` is one of the names Windows keeps for a device: a folder can't take it, on
+/// any drive, so a run named so couldn't keep its state there. A run name has no `.`, so the
+/// name alone is what counts.
+fn is_windows_device(value: &str) -> bool {
+    match value.as_bytes() {
+        b"con" | b"prn" | b"aux" | b"nul" => true,
+        [b'c', b'o', b'm', n] | [b'l', b'p', b't', n] => n.is_ascii_digit(),
+        _ => false,
     }
 }
 
@@ -100,6 +112,16 @@ mod tests {
         }
         for bad in ["", "Web", "-x", "_x", "a b", "a/b", "..", "é", &"a".repeat(64)] {
             assert_eq!(RunName::new(bad).unwrap_err().code(), crate::ErrorCode::RunName, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_windows_device_name_is_no_run_name() {
+        for device in ["con", "prn", "aux", "nul", "com0", "com1", "com9", "lpt1", "lpt9"] {
+            assert_eq!(RunName::new(device).unwrap_err().code(), crate::ErrorCode::RunName, "{device}");
+        }
+        for good in ["console", "con-1", "nul_lab", "com10", "lpt", "com", "auxiliary", "xcon"] {
+            assert_eq!(RunName::new(good).unwrap().as_str(), good);
         }
     }
 

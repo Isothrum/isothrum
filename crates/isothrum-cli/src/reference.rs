@@ -209,7 +209,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::NotReady => "Read the `ready` events: the service the condition waits for didn't come up. `status`, then `down` and `up` again.",
         ErrorCode::SecretMissing => "Give the value: `--secret-from-env NAME[=VAR]`, with the variable set.",
         ErrorCode::ParamInvalid => "Fix the `--param NAME=VALUE` the message names (a value the manifest allows).",
-        ErrorCode::RunName => "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit.",
+        ErrorCode::RunName => {
+            "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)."
+        }
         ErrorCode::ProviderRefused => "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed.",
         ErrorCode::ElevationFailed => {
             "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session."

@@ -18,6 +18,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A Windows device name (`con`, `nul`, `aux`, `com1`, `lpt1`…) can't name a run.** Windows can't
+  create a folder so named, so every operation of such a run failed with an `io` error; the name
+  now fails at once with `run_name`.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or
