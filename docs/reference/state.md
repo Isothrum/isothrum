@@ -16,6 +16,9 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
                            an operation holds the run; removed by a `down`
       ...                  the run's state folder (${run.state_dir}): what the manifest keeps there
   slots.lock               the OS lock a start holds while it picks its slot (${run.slot})
+  ports/
+    <protocol>-<port>.lock the OS lock a start holds on a host port it reserved, until its
+                           operation ends (freed by the OS when its process dies)
   ssh/
     id_ed25519             the runner's SSH key, and id_ed25519.pub (made on first use)
   terraform-plugins/       the Terraform provider cache every run of this home shares,

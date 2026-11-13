@@ -3,6 +3,9 @@
 //!
 //! ```text
 //! <home>/slots.lock          the OS lock a start holds while it picks its slot (`${run.slot}`)
+//! <home>/ports/<protocol>-<port>.lock
+//!                            the OS lock a start holds on a host port it reserved, until its
+//!                            operation ends: every process of the home sees it
 //! <home>/ssh/                the runner's SSH key, `id_ed25519` and `.pub`, made on first use
 //! <home>/terraform-plugins/  the Terraform provider cache every run of this home shares
 //! <home>/relay/              on macOS, the wrappers that send a tool through a loopback relay
@@ -60,7 +63,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
 pub(crate) fn remove(path: &Path) -> Result<()> {
     remove_path(path).map_err(Error::io(path, "removed"))
 }
-pub(crate) use lock::{RunLocks, SlotsLock};
+pub(crate) use lock::{FileLock, RunLocks, SlotsLock, held as lock_held, try_hold};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};
