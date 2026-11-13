@@ -8,6 +8,9 @@
 use std::time::Duration;
 
 use isoloom_manifest::{ConsoleSource, Machine};
+use serde::de::DeserializeOwned;
+
+use self::answer::{ClusterVm, Ticket, VncProxy};
 
 use super::no_console;
 use crate::Result;
@@ -16,6 +19,8 @@ use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
 use crate::secrets::SecretValue;
 use crate::store::Transient;
+
+mod answer;
 
 /// How long one API call may go without progress.
 const LIMIT: Duration = Duration::from_secs(30);
@@ -51,6 +56,14 @@ enum SignIn {
 }
 
 impl SignIn {
+    /// The sign-in `access/ticket` gave for a user's password; none without both of its fields.
+    fn ticket(answer: Ticket) -> Option<SignIn> {
+        Some(SignIn::Ticket {
+            ticket: answer.ticket?,
+            csrf: answer.csrf?,
+        })
+    }
+
     /// The config lines that sign a request in.
     fn lines(&self, post: bool) -> Vec<String> {
         match self {
@@ -102,12 +115,9 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
     let path = format!("/api2/json/nodes/{node}/qemu/{vm_id}");
     let mut fields = sign_in.lines(true);
     fields.push("data = \"websocket=1\"".to_owned());
-    let said = api(cx, machine, &format!("{base}{path}/vncproxy"), insecure, &fields).await?;
-    let port = said
-        .get("port")
-        .and_then(|p| p.as_u64().or_else(|| p.as_str()?.parse().ok()))
-        .and_then(|p| u16::try_from(p).ok());
-    let ticket = said.get("ticket").and_then(serde_json::Value::as_str);
+    let said: Option<VncProxy> = api(cx, machine, &format!("{base}{path}/vncproxy"), insecure, &fields).await?;
+    let port = said.as_ref().and_then(VncProxy::port);
+    let ticket = said.as_ref().and_then(|s| s.ticket.as_deref());
     let (Some(port), Some(ticket)) = (port, ticket) else {
         return Err(no_console(machine, "Proxmox's vncproxy gave no port and ticket"));
     };
@@ -139,33 +149,25 @@ async fn sign_in(
                 format!("data-urlencode = {}", quoted(&format!("username={user}"))),
                 format!("data-urlencode = {}", quoted(&format!("password={p}"))),
             ];
-            let said = api(cx, machine, &format!("{base}/api2/json/access/ticket"), insecure, &fields).await?;
-            let ticket = said.get("ticket").and_then(serde_json::Value::as_str);
-            let csrf = said.get("CSRFPreventionToken").and_then(serde_json::Value::as_str);
-            match (ticket, csrf) {
-                (Some(t), Some(c)) => Ok(SignIn::Ticket {
-                    ticket: t.to_owned(),
-                    csrf: c.to_owned(),
-                }),
-                _ => Err(no_console(machine, "Proxmox gave no ticket for the user's password")),
-            }
+            let said: Option<Ticket> = api(cx, machine, &format!("{base}/api2/json/access/ticket"), insecure, &fields).await?;
+            said.and_then(SignIn::ticket)
+                .ok_or_else(|| no_console(machine, "Proxmox gave no ticket for the user's password"))
         }
         (None, None) => Err(no_console(machine, "the run's connection gives no Proxmox API token or password")),
     }
 }
 
-/// The `data` of a POST to `url`, its `fields` (the config lines that sign it in and its form)
-/// in the config file `curl` reads, removed once it ran or the request is cut short.
-async fn api(cx: &Cx<'_>, machine: &Machine, url: &str, insecure: bool, fields: &[String]) -> Result<serde_json::Value> {
+/// The `data` of a POST to `url` ([`answer`]), its `fields` (the config lines that sign it in and
+/// its form) in the config file `curl` reads, removed once it ran or the request is cut short.
+async fn api<T: DeserializeOwned>(cx: &Cx<'_>, machine: &Machine, url: &str, insecure: bool, fields: &[String]) -> Result<Option<T>> {
     let out = request(cx, "console", (url, Some("POST")), insecure, fields).await?;
     if !out.success() {
         return Err(no_console(machine, format!("Proxmox's API refused: {}", cx.events.mask(&out.reason()))));
     }
-    let body: serde_json::Value = serde_json::from_str(&out.stdout.join("\n")).map_err(|e| Error::NoConsole {
+    answer::data(&out.stdout.join("\n")).map_err(|e| Error::NoConsole {
         machine: machine.name.to_string(),
-        why: format!("Proxmox's API answered no JSON: {e}"),
-    })?;
-    Ok(body.get("data").cloned().unwrap_or(serde_json::Value::Null))
+        why: format!("Proxmox's API answered no JSON this runner reads: {e}"),
+    })
 }
 
 /// What `curl` answered to a request to `url` (`method`: `POST`, or a GET), for step `step`, its
@@ -217,18 +219,13 @@ pub(crate) async fn vm_states(cx: &Cx<'_>, vars: &crate::vars::Vars) -> Result<s
     let Some(answer) = asked(request(cx, "status", (&url, None), first.insecure, &sign_in.lines(false)).await) else {
         return Ok(out);
     };
-    let Some(listed) = answered(cx, vars, &answer)? else {
+    let Some(listed) = data_of::<Vec<ClusterVm>>(cx, vars, &answer)? else {
         tracing::warn!("Proxmox's answer holds no list of resources: the run's own state stands");
         return Ok(out);
     };
     for (name, vm) in &vms {
-        let found = listed.iter().find(|r| {
-            r.get("vmid")
-                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(str::to_owned)))
-                .as_deref()
-                == Some(vm.id.as_str())
-        });
-        let state = match found.and_then(|r| r.get("status")).and_then(serde_json::Value::as_str) {
+        let found = listed.iter().find(|r| r.is(&vm.id));
+        let state = match found.and_then(|r| r.status.as_deref()) {
             None if found.is_none() => crate::MachineState::Absent,
             Some("running") => crate::MachineState::Running,
             Some("stopped") => crate::MachineState::Stopped,
@@ -315,11 +312,7 @@ async fn status_sign_in(cx: &Cx<'_>, vars: &crate::vars::Vars, vm: &ApiVm<'_>) -
     let Some(answer) = asked(request(cx, "status", (&url, Some("POST")), vm.insecure, &fields).await) else {
         return Ok(None);
     };
-    let Some(data) = data_of(cx, vars, &answer)? else { return Ok(None) };
-    let field = |k: &str| data.get(k).and_then(serde_json::Value::as_str).map(str::to_owned);
-    Ok(field("ticket")
-        .zip(field("CSRFPreventionToken"))
-        .map(|(ticket, csrf)| SignIn::Ticket { ticket, csrf }))
+    Ok(data_of::<Ticket>(cx, vars, &answer)?.and_then(SignIn::ticket))
 }
 
 /// What `curl` answered a status read, when it ran to its end; a request that couldn't (`curl`
@@ -329,18 +322,13 @@ fn asked(done: Result<crate::process::Captured>) -> Option<crate::process::Captu
         .ok()
 }
 
-/// The list a status read's `answer` holds; none when the API couldn't be asked (traced).
-fn answered(cx: &Cx<'_>, vars: &crate::vars::Vars, answer: &crate::process::Captured) -> Result<Option<Vec<serde_json::Value>>> {
-    Ok(data_of(cx, vars, answer)?.and_then(|d| d.as_array().cloned()))
-}
-
-/// The `data` of the API's `answer`; none when it didn't answer one (unreachable, not the API),
-/// which is traced.
+/// The `data` of the API's `answer` ([`answer`]); none when it didn't answer one (unreachable,
+/// not the API's), which is traced.
 ///
 /// # Errors
 ///
 /// `server_auth_failed` when it refused the credentials.
-fn data_of(cx: &Cx<'_>, vars: &crate::vars::Vars, answer: &crate::process::Captured) -> Result<Option<serde_json::Value>> {
+fn data_of<T: DeserializeOwned>(cx: &Cx<'_>, vars: &crate::vars::Vars, answer: &crate::process::Captured) -> Result<Option<T>> {
     if !answer.success() {
         let reason = cx.events.mask(&answer.reason());
         if crate::server_auth::refused(&reason) {
@@ -353,10 +341,10 @@ fn data_of(cx: &Cx<'_>, vars: &crate::vars::Vars, answer: &crate::process::Captu
         tracing::warn!(%reason, "Proxmox's API couldn't be asked where the run's VMs stand: its state stands");
         return Ok(None);
     }
-    match serde_json::from_str::<serde_json::Value>(&answer.stdout.join("\n")) {
-        Ok(body) => Ok(body.get("data").cloned()),
+    match answer::data(&answer.stdout.join("\n")) {
+        Ok(data) => Ok(data),
         Err(e) => {
-            tracing::warn!(error = %e, "Proxmox's API answered no JSON: the run's state stands");
+            tracing::warn!(error = %e, "Proxmox's API answered no JSON this runner reads: the run's state stands");
             Ok(None)
         }
     }
