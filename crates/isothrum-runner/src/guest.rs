@@ -24,7 +24,7 @@ use isoloom_manifest::{Delivery, SecretSlot};
 
 use crate::Result;
 use crate::error::Error;
-use crate::executor::{Cx, Echo, call, slot_value, stdout_of};
+use crate::executor::{Cx, Echo, call, slot_value, stdout_of_step};
 use crate::ssh::{self, Login};
 use crate::store::Transient;
 use isoloom_manifest::contract::{DELIVERED, SECRETS_DIR};
@@ -134,7 +134,7 @@ async fn deliver_retrying(cx: &Cx<'_>, id: &str, login: &Login, input: &Path) ->
         }
     };
     let out = retrying.answered(cx, id, out)?;
-    stdout_of(cx, id, None, &out).map(drop)
+    stdout_of_step(cx, id, &out).map(drop)
 }
 
 #[cfg(test)]

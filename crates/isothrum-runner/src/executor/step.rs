@@ -228,30 +228,36 @@ fn masked(cx: &Cx<'_>, e: Error) -> Error {
 /// [`call`], failing unless it exits 0: its standard output.
 pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Duration, echo: Echo) -> Result<String> {
     let out = call(cx, id, spec, limit, echo).await?;
-    stdout_of(cx, id, Some(spec), &out)
+    stdout_of_call(cx, id, spec, &out)
 }
 
-/// The standard output of a tool run for the step `id` that ended as `out`; unless it exited 0,
-/// the step's failure, saying why ([`Captured::reason`]), led by the call's command line when it
-/// was one of a driver's own calls (`call`), not the step itself.
-pub(crate) fn stdout_of(cx: &Cx<'_>, id: &str, call: Option<&ProcessSpec>, out: &Captured) -> Result<String> {
-    out.output().map_err(|why| {
-        let reason = match call {
-            Some(spec) => format!("`{}` failed: {why}", spec.line()),
-            None => why,
-        };
-        Error::ToolFailed {
-            step: id.to_owned(),
-            reason: cx.events.mask(&reason),
-        }
-    })
+/// The standard output of the step `id`'s own tool, which ended as `out`; unless it exited 0,
+/// the step's failure, saying why ([`Captured::reason`]).
+pub(crate) fn stdout_of_step(cx: &Cx<'_>, id: &str, out: &Captured) -> Result<String> {
+    out.output().map_err(|why| tool_failed(cx, id, &why))
+}
+
+/// The standard output of one of a driver's own calls, `spec`, made for the step `id` and ended
+/// as `out`; unless it exited 0, the step's failure, led by the call's command line (two
+/// functions where one took an `Option<&ProcessSpec>` every caller filled or not: Clean Code
+/// ch.7, don't pass null; 2026-11-13).
+pub(crate) fn stdout_of_call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Result<String> {
+    out.output().map_err(|why| tool_failed(cx, id, &format!("`{}` failed: {why}", spec.line())))
+}
+
+/// The step `id`'s failure, `reason` masked.
+fn tool_failed(cx: &Cx<'_>, id: &str, reason: &str) -> Error {
+    Error::ToolFailed {
+        step: id.to_owned(),
+        reason: cx.events.mask(reason),
+    }
 }
 
 /// Runs argv step `step` without events, returning its standard output: a read-only probe
 /// (`lifecycle.status`).
 pub(crate) async fn capture_step(cx: &Cx<'_>, list: &str, step: &Step) -> Result<String> {
     let out = capture_output(cx, list, step).await?;
-    stdout_of(cx, step.id.as_str(), None, &out)
+    stdout_of_step(cx, step.id.as_str(), &out)
 }
 
 /// Runs argv step `step` without events: how it ended, a failure included (the caller's to

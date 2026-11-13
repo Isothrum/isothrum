@@ -22,7 +22,8 @@ use tracing::Instrument;
 
 pub(crate) use progress::{DOWNLOAD_STALL, Progress, within};
 pub(crate) use step::{
-    Echo, Hold, call, call_ok, capture_output, capture_step, download, env_of, once, run_argv, spec_for, stdin_of, stdout_of, with_delivered,
+    Echo, Hold, call, call_ok, capture_output, capture_step, download, env_of, once, run_argv, spec_for, stdin_of, stdout_of_call, stdout_of_step,
+    with_delivered,
 };
 
 use crate::Result;
