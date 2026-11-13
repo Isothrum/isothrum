@@ -109,7 +109,14 @@ impl SystemProcesses {
         // which is never logged.
         tracing::debug!(program = %spec.program, args = ?spec.args, "starting a process");
         let mut cmd = self.command(spec).map_err(io)?;
+        // Windows: recorded until it is in its job, which `spawn` returns with.
+        let creating = if cfg!(windows) {
+            spec.tools.as_deref().and_then(|dir| ledger::Spawning::write(dir, wrapped(spec).0))
+        } else {
+            None
+        };
         let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
+        drop(creating);
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
         let _running = child.id().map(|pid| Running::enter(&self.running, pid));
         let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
