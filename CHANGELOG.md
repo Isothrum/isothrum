@@ -9,6 +9,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ## [Unreleased]
 
+### Added
+
+- **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
+  drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
+  the runner now knows the tools running and ends them, with the ones still stopping.
+
 ### Changed
 
 - **A file of the runner's own that doesn't parse is `corrupt`, not `io`.** A record, a ledger
