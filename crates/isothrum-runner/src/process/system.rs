@@ -116,7 +116,7 @@ impl SystemProcesses {
         } else {
             None
         };
-        let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
+        let child = cmd.spawn().map_err(|e| spawned(spec, e))?;
         drop(creating);
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
         let _running = child.id().map(|pid| Running::enter(&self.running, pid));
@@ -273,14 +273,19 @@ fn group(cmd: &mut CommandWrap) {
     cmd.wrap(process_wrap::tokio::JobObject);
 }
 
-/// The error of a tool that couldn't start: missing, or the OS's reason.
-fn spawned(program: &str, e: std::io::Error) -> ProcessError {
-    match e.kind() {
-        std::io::ErrorKind::NotFound => ProcessError::Missing { program: program.to_owned() },
-        _ => ProcessError::Io {
-            program: program.to_owned(),
-            source: e,
+/// The error of the tool `spec` that couldn't start: missing, or the OS's reason. The OS refuses
+/// a start in a working folder that isn't there with `NotFound` too: that is said of the folder,
+/// not taken for a tool that isn't installed.
+fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
+    let program = spec.program.clone();
+    let folder_gone = spec.cwd.as_deref().filter(|dir| !dir.is_dir());
+    match (e.kind(), folder_gone) {
+        (std::io::ErrorKind::NotFound, Some(dir)) => ProcessError::Io {
+            program,
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("its working folder {} doesn't exist", dir.display())),
         },
+        (std::io::ErrorKind::NotFound, None) => ProcessError::Missing { program },
+        _ => ProcessError::Io { program, source: e },
     }
 }
 

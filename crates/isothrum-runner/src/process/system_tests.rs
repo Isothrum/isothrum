@@ -59,6 +59,21 @@ async fn cancelled_once_started(runner: &SystemProcesses, job: &ProcessSpec, fil
     .expect("the tool never started")
 }
 
+/// Regression (#124): a tool started in a folder that isn't there was "not installed": the OS
+/// refuses the start with `NotFound` for the folder as for the program.
+#[tokio::test]
+async fn a_missing_working_folder_is_not_a_missing_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("no such folder");
+    let program = if cfg!(windows) { "cmd" } else { "true" };
+    let mut job = spec(program, if cfg!(windows) { &["/C", "exit 0"] } else { &[] });
+    job.cwd = Some(gone.clone());
+    let err = capture(&SystemProcesses::default(), &job).await.unwrap_err();
+    assert!(matches!(err, ProcessError::Io { .. }), "{err:?}");
+    let said = err.to_string();
+    assert!(said.contains(&gone.display().to_string()) && said.contains("working folder"), "{said}");
+}
+
 #[tokio::test]
 async fn a_missing_tool_is_named() {
     let err = capture(&SystemProcesses::default(), &spec("isothrum-no-such-tool", &[])).await.unwrap_err();
