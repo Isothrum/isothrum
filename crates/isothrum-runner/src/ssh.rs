@@ -102,7 +102,7 @@ pub(crate) fn needed(manifest: &isoloom_manifest::Manifest) -> bool {
 /// key accepted once and pinned, no prompt, and a host that stops answering given up in under a
 /// minute. `None` when a path is one no OpenSSH config can hold ([`config_path`]).
 fn config(key: &Path, known_hosts: &Path) -> Option<String> {
-    let path = |p: &Path| config_path(&p.to_string_lossy(), cfg!(windows));
+    let path = |p: &Path| config_path(&p.to_string_lossy(), PathStyle::HERE);
     Some(format!(
         "# Written by the Isothrum runner for this run.\nHost *\n  IdentityFile {}\n  IdentitiesOnly yes\n  UserKnownHostsFile {}\n  StrictHostKeyChecking accept-new\n  BatchMode yes\n  ConnectTimeout 10\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  LogLevel ERROR\n",
         path(key)?,
@@ -117,12 +117,29 @@ fn config(key: &Path, known_hosts: &Path) -> Option<String> {
 /// so a network path (`\\server\share`) would lose its first. `None` for a path no parser reads
 /// as written: one holding `"` or a control character, `${` (an environment variable from 8.4),
 /// or, but on Windows, `\` (an escape from 8.7).
-fn config_path(path: &str, windows: bool) -> Option<String> {
-    let path = if windows { path.replace('\\', "/") } else { path.to_owned() };
+fn config_path(path: &str, style: PathStyle) -> Option<String> {
+    let path = match style {
+        PathStyle::Windows => path.replace('\\', "/"),
+        PathStyle::Unix => path.to_owned(),
+    };
     if path.contains(['"', '\\']) || path.contains("${") || path.chars().any(char::is_control) {
         return None;
     }
     Some(format!("\"{}\"", path.replace('%', "%%")))
+}
+
+/// How the paths of the computer the runner runs on are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathStyle {
+    /// `/` separates.
+    Unix,
+    /// `\` separates.
+    Windows,
+}
+
+impl PathStyle {
+    /// This computer's.
+    const HERE: PathStyle = if cfg!(windows) { PathStyle::Windows } else { PathStyle::Unix };
 }
 
 /// Whether `login` is a plain `[user@]host` (letters, digits, `.`, `-`, `_`, `:` and one `@`):
@@ -563,14 +580,14 @@ mod tests {
     /// Quoted, a path reads the same to OpenSSH before 8.7 (no escapes) and after (`\` escapes).
     #[test]
     fn a_path_is_quoted_for_every_openssh_and_its_tokens_doubled() {
-        assert_eq!(config_path("/home/a b/x 50%", false).as_deref(), Some("\"/home/a b/x 50%%\""));
-        assert_eq!(config_path("it's", false).as_deref(), Some("\"it's\""));
+        assert_eq!(config_path("/home/a b/x 50%", PathStyle::Unix).as_deref(), Some("\"/home/a b/x 50%%\""));
+        assert_eq!(config_path("it's", PathStyle::Unix).as_deref(), Some("\"it's\""));
         assert_eq!(
-            config_path("C:\\Users\\a b\\.isothrum\\ssh\\id_ed25519", true).as_deref(),
+            config_path("C:\\Users\\a b\\.isothrum\\ssh\\id_ed25519", PathStyle::Windows).as_deref(),
             Some("\"C:/Users/a b/.isothrum/ssh/id_ed25519\"")
         );
         assert_eq!(
-            config_path("\\\\server\\share\\h", true).as_deref(),
+            config_path("\\\\server\\share\\h", PathStyle::Windows).as_deref(),
             Some("\"//server/share/h\""),
             "a network path"
         );
@@ -579,9 +596,9 @@ mod tests {
     #[test]
     fn a_path_no_openssh_reads_as_written_is_refused() {
         for path in ["/a\"b", "/a\\b", "/a/${HOME}", "/a\nb"] {
-            assert_eq!(config_path(path, false), None, "{path:?}");
+            assert_eq!(config_path(path, PathStyle::Unix), None, "{path:?}");
         }
-        assert_eq!(config_path("C:\\a\"b", true), None);
+        assert_eq!(config_path("C:\\a\"b", PathStyle::Windows), None);
     }
 
     #[test]

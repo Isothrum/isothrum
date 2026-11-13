@@ -118,26 +118,30 @@ pub(crate) enum RunnerCommand {
     Key,
 }
 
+/// What `up` takes: the operation's arguments and the start's own.
+#[derive(Debug, clap::Args)]
+pub(crate) struct UpArgs {
+    #[command(flatten)]
+    pub(crate) op: OpArgs,
+    /// Remove whatever of the run exists, then start afresh.
+    #[arg(long)]
+    pub(crate) replace: bool,
+    /// How long a run that stops itself (a cloud run) may live, in minutes (default: its
+    /// manifest's).
+    #[arg(long, value_name = "MINUTES")]
+    pub(crate) lifetime: Option<u64>,
+    /// A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge
+    /// this machine can't route to. Recorded when the run starts: every later operation (a
+    /// resume through `up` too) goes the same way.
+    #[arg(long, value_name = "USER@HOST")]
+    pub(crate) ssh_jump: Option<String>,
+}
+
 /// The commands that change the run's life (flattened into [`RunnerCommand`]: the same grammar).
 #[derive(Debug, Subcommand)]
 pub(crate) enum Lifecycle {
     /// Start the run (a parked run is resumed; leftovers are removed first).
-    Up {
-        #[command(flatten)]
-        op: OpArgs,
-        /// Remove whatever of the run exists, then start afresh.
-        #[arg(long)]
-        replace: bool,
-        /// How long a run that stops itself (a cloud run) may live, in minutes (default: its
-        /// manifest's).
-        #[arg(long, value_name = "MINUTES")]
-        lifetime: Option<u64>,
-        /// A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge
-        /// this machine can't route to. Recorded when the run starts: every later operation (a
-        /// resume through `up` too) goes the same way.
-        #[arg(long, value_name = "USER@HOST")]
-        ssh_jump: Option<String>,
-    },
+    Up(UpArgs),
     /// Remove everything the run created.
     Down(OpArgs),
     /// Stop the run, keeping what it created.
@@ -329,7 +333,7 @@ mod tests {
             "virtualbox",
             "--json",
         ]);
-        let RunnerCommand::Lifecycle(Lifecycle::Up { op, replace, .. }) = on_runner(cli.command) else {
+        let RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs { op, replace, .. })) = on_runner(cli.command) else {
             panic!("not `up`")
         };
         assert_eq!(op.provider, Some(Provider::Virtualbox));
@@ -374,7 +378,7 @@ mod tests {
     #[test]
     fn only_up_takes_the_ssh_jump() {
         let up = Cli::parse_from(["isothrum", "up", "--ssh-jump", "root@pve.lan"]);
-        assert!(matches!(on_runner(up.command), RunnerCommand::Lifecycle(Lifecycle::Up { ssh_jump: Some(j), .. }) if j == "root@pve.lan"));
+        assert!(matches!(on_runner(up.command), RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs { ssh_jump: Some(j), .. })) if j == "root@pve.lan"));
         for later in ["down", "park", "resume", "update", "provision", "attach", "detach"] {
             let given = Cli::try_parse_from(["isothrum", later, "--ssh-jump", "root@pve.lan"]);
             assert!(given.is_err(), "only `up` takes the jump the run records: {later}");

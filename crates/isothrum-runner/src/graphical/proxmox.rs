@@ -57,6 +57,15 @@ enum SignIn {
     Ticket { ticket: String, csrf: String },
 }
 
+/// An API request's HTTP method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Method {
+    /// A read.
+    Get,
+    /// A change (needs the ticket's CSRF token).
+    Post,
+}
+
 impl SignIn {
     /// The sign-in `access/ticket` gave for a user's password; none without both of its fields.
     fn ticket(answer: Ticket) -> Option<SignIn> {
@@ -66,13 +75,13 @@ impl SignIn {
         })
     }
 
-    /// The config lines that sign a request in.
-    fn lines(&self, post: bool) -> Vec<String> {
+    /// The config lines that sign a request by `method` in.
+    fn lines(&self, method: Method) -> Vec<String> {
         match self {
             SignIn::Token(t) => vec![format!("header = {}", quoted(&format!("Authorization: PVEAPIToken={t}")))],
             SignIn::Ticket { ticket, csrf } => {
                 let mut out = vec![format!("cookie = {}", quoted(&format!("PVEAuthCookie={ticket}")))];
-                if post {
+                if method == Method::Post {
                     out.push(format!("header = {}", quoted(&format!("CSRFPreventionToken: {csrf}"))));
                 }
                 out
@@ -115,7 +124,7 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
     }
     let sign_in = sign_in(cx, machine, &base, insecure, (username, token, password)).await?;
     let path = format!("/api2/json/nodes/{node}/qemu/{vm_id}");
-    let mut fields = sign_in.lines(true);
+    let mut fields = sign_in.lines(Method::Post);
     fields.push("data = \"websocket=1\"".to_owned());
     let said: Option<VncProxy> = api(cx, machine, &format!("{base}{path}/vncproxy"), insecure, &fields).await?;
     let port = said.as_ref().and_then(VncProxy::port);
@@ -162,7 +171,7 @@ async fn sign_in(
 /// The `data` of a POST to `url` ([`answer`]), its `fields` (the config lines that sign it in and
 /// its form) in the config file `curl` reads, removed once it ran or the request is cut short.
 async fn api<T: DeserializeOwned>(cx: &Cx<'_>, machine: &Machine, url: &str, insecure: bool, fields: &[String]) -> Result<Option<T>> {
-    let out = request(cx, "console", (url, Some("POST")), insecure, fields).await?;
+    let out = request(cx, "console", (url, Method::Post), insecure, fields).await?;
     if !out.success() {
         return Err(no_console(machine, format!("Proxmox's API refused: {}", cx.events.mask(&out.reason()))));
     }
@@ -172,13 +181,13 @@ async fn api<T: DeserializeOwned>(cx: &Cx<'_>, machine: &Machine, url: &str, ins
     })
 }
 
-/// What `curl` answered to a request to `url` (`method`: `POST`, or a GET), for step `step`, its
+/// What `curl` answered to a request to `url` by `method`, for step `step`, its
 /// `fields` in the config file it reads, removed once it ran or the request is cut short.
-async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Option<&str>), insecure: bool, fields: &[String]) -> Result<crate::process::Captured> {
+async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Method), insecure: bool, fields: &[String]) -> Result<crate::process::Captured> {
     let mut text = format!("url = {}\n", quoted(url));
-    if let Some(method) = method {
+    if method == Method::Post {
         text.push_str("request = ");
-        text.push_str(&quoted(method));
+        text.push_str(&quoted("POST"));
         text.push('\n');
     }
     for f in fields {
@@ -218,7 +227,7 @@ pub(crate) async fn vm_states(cx: &Cx<'_>, vars: &crate::vars::Vars) -> Result<s
         return Ok(out);
     };
     let url = format!("{}/api2/json/cluster/resources?type=vm", first.base);
-    let Some(answer) = asked(request(cx, "status", (&url, None), first.insecure, &sign_in.lines(false)).await) else {
+    let Some(answer) = asked(request(cx, "status", (&url, Method::Get), first.insecure, &sign_in.lines(Method::Get)).await) else {
         return Ok(out);
     };
     let Some(listed) = data_of::<Vec<ClusterVm>>(cx, vars, &answer)? else {
@@ -311,7 +320,7 @@ async fn status_sign_in(cx: &Cx<'_>, vars: &crate::vars::Vars, vm: &ApiVm<'_>) -
         format!("data-urlencode = {}", quoted(&format!("password={p}"))),
     ];
     let url = format!("{}/api2/json/access/ticket", vm.base);
-    let Some(answer) = asked(request(cx, "status", (&url, Some("POST")), vm.insecure, &fields).await) else {
+    let Some(answer) = asked(request(cx, "status", (&url, Method::Post), vm.insecure, &fields).await) else {
         return Ok(None);
     };
     Ok(data_of::<Ticket>(cx, vars, &answer)?.and_then(SignIn::ticket))
@@ -390,13 +399,16 @@ mod tests {
     #[test]
     fn a_token_or_a_ticket_signs_the_websocket_in() {
         let t = SignIn::Token("root@pam!x=s3cr3t".into());
-        assert_eq!(t.lines(true), ["header = \"Authorization: PVEAPIToken=root@pam!x=s3cr3t\""]);
+        assert_eq!(t.lines(Method::Post), ["header = \"Authorization: PVEAPIToken=root@pam!x=s3cr3t\""]);
         assert_eq!(t.header().0, "Authorization");
         let k = SignIn::Ticket {
             ticket: "PVE:t".into(),
             csrf: "c".into(),
         };
-        assert_eq!(k.lines(true), ["cookie = \"PVEAuthCookie=PVE:t\"", "header = \"CSRFPreventionToken: c\""]);
+        assert_eq!(
+            k.lines(Method::Post),
+            ["cookie = \"PVEAuthCookie=PVE:t\"", "header = \"CSRFPreventionToken: c\""]
+        );
         assert_eq!(k.header(), ("Cookie".to_owned(), SecretValue::new("PVEAuthCookie=PVE:t")));
     }
 }

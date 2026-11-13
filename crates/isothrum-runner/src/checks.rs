@@ -51,7 +51,11 @@ pub(crate) async fn run(cx: &mut Cx<'_>) -> Result<CheckReport> {
     let setup = run_steps(cx, "checks.setup", &checks.setup).await;
     if setup.is_ok() {
         for runner in &checks.runners {
-            run_runner(cx, runner, &mut report).await;
+            let ran = run_runner(cx, runner).await;
+            report.results.extend(ran.results);
+            if !ran.finished {
+                report.unfinished.push(runner.id.to_string());
+            }
         }
     }
     let teardown = run_steps(cx, "checks.teardown", &checks.teardown).await;
@@ -65,15 +69,21 @@ pub(crate) async fn run(cx: &mut Cx<'_>) -> Result<CheckReport> {
     Ok(report)
 }
 
-/// Runs one check runner, reading its results into `report`.
-async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner, report: &mut CheckReport) {
+/// What one check runner reported: its results, and whether it ran to its end.
+struct RunnerReport {
+    results: Vec<CheckResult>,
+    finished: bool,
+}
+
+/// Runs one check runner, reading its results.
+async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner) -> RunnerReport {
     let id = runner.id.as_str();
-    let before = report.results.len();
+    let mut results = Vec::new();
     let mut ended = false;
     let mut record = |line: &str| match CheckLine::parse(line) {
-        Some(CheckLine::Pass { name }) => push(cx, &mut report.results, result(runner, name, true, String::new())),
+        Some(CheckLine::Pass { name }) => push(cx, &mut results, passed(runner, name)),
         Some(CheckLine::Fail { name, reason }) => {
-            push(cx, &mut report.results, result(runner, name, false, reason));
+            push(cx, &mut results, failed(runner, name, reason));
         }
         // Its counts aren't read: the report counts the results itself.
         Some(CheckLine::End { .. }) => ended = true,
@@ -90,12 +100,13 @@ async fn run_runner(cx: &mut Cx<'_>, runner: &CheckRunner, report: &mut CheckRep
             }
         }
     }
-    let reported: BTreeSet<String> = report.results.iter().skip(before).map(|r| r.name.clone()).collect();
+    let reported: BTreeSet<String> = results.iter().map(|r| r.name.clone()).collect();
     for check in runner.checks.iter().filter(|c| !reported.contains(&c.name)) {
-        push(cx, &mut report.results, unreported(runner, check));
+        push(cx, &mut results, unreported(runner, check));
     }
-    if ran.is_err() || !ended {
-        report.unfinished.push(id.to_owned());
+    RunnerReport {
+        results,
+        finished: ran.is_ok() && ended,
     }
 }
 
@@ -111,17 +122,27 @@ fn push(cx: &Cx<'_>, results: &mut Vec<CheckResult>, r: CheckResult) {
     results.push(r);
 }
 
-fn result(runner: &CheckRunner, name: String, ok: bool, detail: String) -> CheckResult {
+/// A check of `runner` that passed.
+fn passed(runner: &CheckRunner, name: String) -> CheckResult {
     CheckResult {
         runner: runner.id.to_string(),
         from: runner.from.clone(),
         name,
-        ok,
-        detail,
+        ok: true,
+        detail: String::new(),
+    }
+}
+
+/// A check of `runner` that failed, for `reason`.
+fn failed(runner: &CheckRunner, name: String, reason: String) -> CheckResult {
+    CheckResult {
+        ok: false,
+        detail: reason,
+        ..passed(runner, name)
     }
 }
 
 /// A check its runner stopped before.
 fn unreported(runner: &CheckRunner, check: &Check) -> CheckResult {
-    result(runner, check.name.clone(), false, "the runner stopped before this check".into())
+    failed(runner, check.name.clone(), "the runner stopped before this check".into())
 }
