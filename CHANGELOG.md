@@ -11,6 +11,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **On Windows, VirtualBox and VMware Workstation are found where they install.** Neither
+  installer adds its folder to PATH; the runner adds `VBOX_MSI_INSTALL_PATH`, Program Files'
+  `Oracle\VirtualBox` and `VMware\VMware Workstation` to the PATH its tools run with.
+
+### Fixed
+
 - **An event's sequence number is taken under the log's lock.** Two events emitted at once could
   be written to `events.jsonl` out of order.
 - **Two first elevated calls at once start one broker, not two.** The session was decided by a
