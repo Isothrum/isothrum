@@ -46,7 +46,7 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 insta = "1"
 wasm-bindgen = "0.2"
 wasm-bindgen-test = "0.3"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 toml = "1"
 tar = "0.4"
 flate2 = "1"
