@@ -226,11 +226,11 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
 /// stopped.
 async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
-    let console = run.graphical_console(machine).await?;
+    let mut console = run.graphical_console(machine).await?;
     let protocol = isothrum_runner::wire_name(&console.protocol);
     let (address, websocket) = match &console.endpoint {
         Endpoint::Loopback(at) => (Some(at.to_string()), None),
-        Endpoint::ProxmoxVnc(vnc) => (None, Some(vnc.websocket.expose().to_owned())),
+        Endpoint::ProxmoxVnc(vnc) => (None, Some(websocket_shown(vnc, show))),
         _ => (None, None),
     };
     let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
@@ -255,9 +255,38 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> 
         }
     }
     if console.tunnelled() {
-        std::future::pending::<()>().await;
+        // Held open while it lives: a tunnel that closed ends the command, saying so.
+        match console.tunnel_closed().await {
+            Ok(never) => match never {},
+            Err(e) => return Err(e.into()),
+        }
     }
     Ok(Verdict::Pass)
+}
+
+/// A Proxmox VE console's websocket as `screen` prints it: its ticket (the console's password, in
+/// its query) masked unless `show` (`--show-password`).
+fn websocket_shown(vnc: &isothrum_runner::ProxmoxVnc, show: bool) -> String {
+    ticket_shown(vnc.websocket.expose(), vnc.ticket.expose(), show)
+}
+
+/// `url` with `ticket` in it, as it is or percent-encoded, masked unless `show`.
+fn ticket_shown(url: &str, ticket: &str, show: bool) -> String {
+    const HIDDEN: &str = "<hidden: --show-password prints it>";
+    if show || ticket.is_empty() {
+        return url.to_owned();
+    }
+    url.replace(&percent(ticket), HIDDEN).replace(ticket, HIDDEN)
+}
+
+/// `s` percent-encoded as a query value: unreserved characters as they are.
+fn percent(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => char::from(b).to_string(),
+            other => format!("%{other:02X}"),
+        })
+        .collect()
 }
 
 /// The run's checks: a pass only when every one passed.
