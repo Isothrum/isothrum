@@ -71,6 +71,7 @@ impl Store {
     /// database; `store_version` when a newer runner wrote it; `locked` when another process's
     /// write held it past five seconds.
     pub fn open(home: &Path) -> Result<Store> {
+        let home = &std::path::absolute(home).map_err(Error::io(home, "made absolute"))?;
         crate::store::create_dir(home)?;
         let path = home.join(DB_FILE);
         let conn = Connection::open(&path).map_err(failed("opened"))?;

@@ -10,7 +10,8 @@ use crate::name::RunName;
 use crate::state::Op;
 
 /// The columns an [`OperationRow`] is read from, in [`operation_row`]'s order.
-const OPERATION_COLUMNS: &str = "id, run, op, queued_at, started_at, ended_at, outcome, error_code, cancel_requested, owner_pid, owner_boot, owner_token, resumed_from";
+const OPERATION_COLUMNS: &str =
+    "id, run, op, queued_at, started_at, ended_at, outcome, error_code, cancel_requested, owner_pid, owner_boot, owner_token, resumed_from";
 
 /// The text columns of an operation's row, before they are parsed.
 struct RawOperation {

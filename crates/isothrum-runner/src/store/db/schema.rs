@@ -102,7 +102,7 @@ CREATE TABLE port_reservations (
   protocol  TEXT NOT NULL,
   port      INTEGER NOT NULL,
   run       TEXT NOT NULL,
-  operation INTEGER REFERENCES operations(id),
+  operation INTEGER,
   lease     TEXT NOT NULL,
   owner_token TEXT NOT NULL,
   PRIMARY KEY (protocol, port)

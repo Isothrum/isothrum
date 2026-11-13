@@ -143,7 +143,7 @@ async fn reap_destroys_a_clouds_expired_runs_and_lists_what_no_run_records() {
     let verdict = s.run(&["reap", "aws", "--region", "eu-west-3", "--json"]).await;
     let said = s.out.take();
     let events: Vec<serde_json::Value> = said.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    assert!(events.iter().all(|e| e["v"] == 0 && e["event"].is_string()), "one event per line: {said}");
+    assert!(events.iter().all(|e| e["v"] == 1 && e["event"].is_string()), "one event per line: {said}");
     let last = events.last().unwrap();
     assert_eq!((last["event"].as_str(), last["ok"].as_bool()), (Some("result"), Some(false)), "{last}");
     assert!(last.get("run").is_none() && last.get("op").is_none(), "no one run's operation: {last}");

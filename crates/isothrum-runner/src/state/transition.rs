@@ -133,7 +133,9 @@ fn begins_from(op: Op) -> (&'static [RunState], &'static str) {
         // A replacing `up` (or one over a failed start) removes what is there first: the op's own
         // checks refuse a running run (`already_running`), not the table.
         Op::Up => (&[Absent, Failed, Ready, Parked], "be brought up"),
-        Op::Resume => (&[Parked], "be resumed"),
+        // A resume also brings back a run whose machines were stopped outside the runner (failed),
+        // or starts again what of a ready run is stopped.
+        Op::Resume => (&[Parked, Failed, Ready], "be resumed"),
         Op::Park => (&[Ready], "be parked"),
         Op::Update => (&[Ready], "be updated"),
         Op::Down => (&[Ready, Parked, Failed, Absent], "be brought down"),
@@ -300,7 +302,7 @@ mod tests {
     fn an_illegal_transition_is_refused() {
         for (from, op) in [
             (RunState::Parked, Op::Park),
-            (RunState::Ready, Op::Resume),
+            (RunState::Absent, Op::Resume),
             (RunState::Absent, Op::Update),
             (RunState::Creating, Op::Up),
             (RunState::Creating, Op::Down),
