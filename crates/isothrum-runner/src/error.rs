@@ -481,7 +481,10 @@ impl Error {
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
-            Error::Manifest { source, .. } if source.code() == "version" => ErrorCode::ManifestVersion,
+            Error::Manifest {
+                source: isoloom_manifest::Error::Version { .. },
+                ..
+            } => ErrorCode::ManifestVersion,
             Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } => ErrorCode::Unsupported,
             Error::Io { .. } | Error::Relay { .. } => ErrorCode::Io,
