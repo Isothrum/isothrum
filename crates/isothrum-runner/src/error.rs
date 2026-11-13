@@ -29,9 +29,6 @@ pub enum ErrorCode {
     Unsupported,
     /// A file or folder couldn't be read or written, or a socket on this computer bound.
     Io,
-    /// A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:
-    /// not JSON, or another version's shape.
-    Corrupt,
     /// Another process runs an operation on this run, or holds the home's slot pick.
     Locked,
     /// A tool a step runs isn't installed.
@@ -107,6 +104,9 @@ pub enum ErrorCode {
     /// answered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password
     /// changed).
     ServerAuthFailed,
+    /// A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:
+    /// not JSON, or another version's shape.
+    Corrupt,
 }
 
 impl ErrorCode {
@@ -193,18 +193,6 @@ pub enum Error {
         action: &'static str,
         /// The OS's reason.
         source: std::io::Error,
-    },
-    /// A file of the runner's own is there but isn't what it wrote (not JSON, or another
-    /// version's shape): told apart from a file that can't be read, which is the OS's to explain.
-    #[error("{} holds no {what} this runner reads: {source}", path.display())]
-    Corrupt {
-        /// The file.
-        path: PathBuf,
-        /// What it should hold (`record`, `ledger entry`).
-        what: &'static str,
-        /// Why it doesn't parse.
-        #[source]
-        source: serde_json::Error,
     },
     /// Another process holds the run's lock.
     #[error("run `{run}` is busy: another process runs an operation on it")]
@@ -473,6 +461,18 @@ pub enum Error {
         server: Option<String>,
         /// What the server or its tool said (secrets masked).
         reason: String,
+    },
+    /// A file of the runner's own is there but isn't what it wrote (not JSON, or another
+    /// version's shape): told apart from a file that can't be read, which is the OS's to explain.
+    #[error("{} holds no {what} this runner reads: {source}", path.display())]
+    Corrupt {
+        /// The file.
+        path: PathBuf,
+        /// What it should hold (`record`, `ledger entry`).
+        what: &'static str,
+        /// Why it doesn't parse.
+        #[source]
+        source: serde_json::Error,
     },
 }
 

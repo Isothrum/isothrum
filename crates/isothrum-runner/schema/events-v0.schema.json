@@ -737,6 +737,11 @@
           "description": "The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API\nanswered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password\nchanged).",
           "type": "string",
           "const": "server_auth_failed"
+        },
+        {
+          "description": "A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:\nnot JSON, or another version's shape.",
+          "type": "string",
+          "const": "corrupt"
         }
       ]
     },
