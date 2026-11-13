@@ -71,6 +71,9 @@ pub(crate) struct Elevated {
     /// The run's `elevated/` folder, holding the session's.
     root: PathBuf,
     session: Mutex<Session>,
+    /// Held while the session is decided: two first calls at once would each start a broker (two
+    /// prompts, the first session leaked); the second waits and finds the session decided.
+    opening: tokio::sync::Mutex<()>,
     next: AtomicU64,
     /// The variables an elevated process starts without: `PATH`, `VAGRANT_*`, `VAGRANT_HOME`, the
     /// proxies and CA bundles.
@@ -92,6 +95,7 @@ impl Elevated {
             inner,
             root,
             session: Mutex::new(Session::Unchecked),
+            opening: tokio::sync::Mutex::new(()),
             next: AtomicU64::new(1),
             forwarded,
         }
@@ -107,8 +111,11 @@ impl Elevated {
 
     async fn run_spec(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
         if self.session() == Session::Unchecked {
-            let s = self.open().await;
-            self.set(s);
+            let _opening = self.opening.lock().await;
+            if self.session() == Session::Unchecked {
+                let s = self.open().await;
+                self.set(s);
+            }
         }
         match self.session() {
             Session::Direct | Session::Unchecked => self.inner.run(spec, on_line).await,

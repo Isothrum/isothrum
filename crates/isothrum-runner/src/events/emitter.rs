@@ -102,15 +102,19 @@ impl<'a> Emitter<'a> {
 
     /// Emits `kind`, masked.
     pub(crate) fn emit(&self, kind: EventKind) {
+        let kind = self.masked(kind);
+        // The sequence number is taken under the log's lock: taken before it, two emits at once
+        // could write N+1 before N to the log (Clean Code appendix A, 2026-11-13).
+        let mut log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
         let event = Event {
             v: EVENTS_VERSION,
             seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
             time: rfc3339(self.clock.now()),
             run: Some(self.run.clone()),
             op: self.op,
-            kind: self.masked(kind),
+            kind,
         };
-        if let Some(log) = self.log.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+        if let Some(log) = log.as_mut() {
             // One write per event, its line break included, so a log cut short ends between two
             // events or inside one, never with an event and no line break after it.
             let written = serde_json::to_vec(&event).map_err(std::io::Error::from).and_then(|mut line| {
@@ -122,6 +126,7 @@ impl<'a> Emitter<'a> {
                 tracing::warn!(error = %e, "an event wasn't logged");
             }
         }
+        drop(log);
         self.sink.emit(&event);
     }
 

@@ -89,8 +89,16 @@ impl Cx<'_> {
 pub(crate) struct LineWatch {
     /// Whether a text is seen whatever its case (the texts are then kept in lower case).
     any_case: bool,
-    texts: Mutex<BTreeSet<String>>,
-    seen: Mutex<BTreeSet<String>>,
+    /// What is watched for and what was seen: one lock, as a change of the texts forgets what
+    /// was seen in the same step (two locks let a line between them match the old texts).
+    state: Mutex<WatchState>,
+}
+
+/// What a [`LineWatch`] watches for and what it saw.
+#[derive(Debug, Default)]
+struct WatchState {
+    texts: BTreeSet<String>,
+    seen: BTreeSet<String>,
 }
 
 impl LineWatch {
@@ -107,45 +115,51 @@ impl LineWatch {
     /// Watches for `texts` from now on, in place of what it watched for, and forgets what it saw.
     pub(crate) fn watch(&self, texts: impl IntoIterator<Item = String>) {
         let texts = texts.into_iter().filter(|t| !t.is_empty());
-        *self.texts.lock().unwrap_or_else(PoisonError::into_inner) = if self.any_case {
+        let mut state = self.state();
+        state.texts = if self.any_case {
             texts.map(|t| t.to_lowercase()).collect()
         } else {
             texts.collect()
         };
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        state.seen.clear();
     }
 
     /// Notes each text `line` holds.
     fn notice(&self, line: &str) {
-        let texts = self.texts.lock().unwrap_or_else(PoisonError::into_inner);
-        if texts.is_empty() {
+        let mut state = self.state();
+        if state.texts.is_empty() {
             return;
         }
         let line = if self.any_case { line.to_lowercase() } else { line.to_owned() };
-        let found = texts.iter().filter(|t| line.contains(t.as_str())).cloned();
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
+        let found: Vec<String> = state.texts.iter().filter(|t| line.contains(t.as_str())).cloned().collect();
+        state.seen.extend(found);
     }
 
     /// The texts seen since the last take, or since it was told what to watch for, kept.
     pub(crate) fn seen(&self) -> BTreeSet<String> {
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.state().seen.clone()
     }
 
     /// Back to having seen `seen` (what [`LineWatch::seen`] said before): what was seen since is
     /// forgotten (the lines of a try that runs again).
     pub(crate) fn rewind(&self, seen: BTreeSet<String>) {
-        *self.seen.lock().unwrap_or_else(PoisonError::into_inner) = seen;
+        self.state().seen = seen;
     }
 
     /// The texts seen since the last take, or since it was told what to watch for.
     pub(crate) fn take(&self) -> BTreeSet<String> {
-        std::mem::take(&mut *self.seen.lock().unwrap_or_else(PoisonError::into_inner))
+        std::mem::take(&mut self.state().seen)
     }
 
     /// [`LineWatch::take`], and nothing watched any more.
     pub(crate) fn end(&self) -> BTreeSet<String> {
-        self.texts.lock().unwrap_or_else(PoisonError::into_inner).clear();
-        self.take()
+        let mut state = self.state();
+        state.texts.clear();
+        std::mem::take(&mut state.seen)
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, WatchState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
