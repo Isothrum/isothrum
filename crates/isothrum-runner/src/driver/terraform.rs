@@ -107,7 +107,7 @@ impl Driver for Terraform {
     }
 
     fn reapplies(&self, up: &[Step], e: &Error) -> bool {
-        argv::applied(up, e)
+        argv::failed_in_apply(up, e)
     }
 
     fn preflight(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
