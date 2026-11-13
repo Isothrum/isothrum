@@ -26,7 +26,7 @@ const PASSWORD_LEN: usize = 8;
 
 /// One machine's console, as chosen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Chosen {
+struct ConsoleAccount {
     port: u16,
     password: String,
 }
@@ -37,7 +37,7 @@ fn path(cx: &Cx<'_>) -> PathBuf {
 }
 
 /// What the run's file holds, by machine; nothing when there is none.
-fn read(cx: &Cx<'_>) -> Result<BTreeMap<String, Chosen>> {
+fn read(cx: &Cx<'_>) -> Result<BTreeMap<String, ConsoleAccount>> {
     Ok(crate::store::read_json(&path(cx))?.unwrap_or_default())
 }
 
@@ -81,7 +81,7 @@ pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
                 break port;
             }
         };
-        table.insert(machine, Chosen { port, password: password()? });
+        table.insert(machine, ConsoleAccount { port, password: password()? });
     }
     let path = path(cx);
     let text = serde_json::to_vec(&table).map_err(|e| Error::io(&path, "written")(e.into()))?;
@@ -114,7 +114,10 @@ pub(crate) fn var(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 pub(crate) fn of(cx: &Cx<'_>, machine: &Machine) -> Result<(u16, SecretValue)> {
     match read(cx)?.remove(machine.name.as_str()) {
         Some(c) => Ok((c.port, SecretValue::new(c.password))),
-        None => Err(super::none(machine, "the runner chose none for it: it boots with one at the run's next start")),
+        None => Err(super::no_console(
+            machine,
+            "the runner chose none for it: it boots with one at the run's next start",
+        )),
     }
 }
 

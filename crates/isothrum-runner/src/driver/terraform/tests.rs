@@ -19,7 +19,7 @@ fn an_applied_state_runs_every_machine_and_publishes_at_the_routers_address() {
     let tf = state(r#"{"outputs":{"ip":{"value":"10.10.10.7"},"published":{"value":{"web/web":"10.10.10.7:8080"}}},"resources":[{"instances":[{}]}]}"#);
     let o = observed(&m, &tf);
     assert!(o.machines.iter().all(|x| x.state == MachineState::Running), "{:?}", o.machines);
-    assert_eq!(o.published.get(&("web".to_owned(), "web".to_owned())), Some(&8080));
+    assert_eq!(o.published.get(&crate::vars::PortKey::new("web", "web")), Some(&8080));
     assert_eq!(o.outputs.get("ip").map(String::as_str), Some("10.10.10.7"));
     let web = o.machines.iter().find(|x| x.name == "web").unwrap();
     assert_eq!(web.addresses.get("app").map(String::as_str), Some("10.80.0.10"));

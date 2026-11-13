@@ -3,7 +3,7 @@
 
 use super::Running;
 use crate::Result;
-use crate::graphical::{Console, native, none, offered, reach};
+use crate::graphical::{Console, native, no_console, offered, reach};
 
 impl Running<'_> {
     /// `machine`'s graphical console (its screen), as its manifest says it has one under the
@@ -32,7 +32,7 @@ impl Running<'_> {
         let console = offered(target, cx.scope.provider)?;
         let (_, observed, _) = self.read_for_query(&mut cx, record.as_ref()).await?;
         runs_now(target, &observed)?;
-        super::made(&cx)?;
+        super::create_state_dir(&cx)?;
         self.driver.prepare(&cx)?;
         if cx.relayed.is_none() {
             self.relay(&mut cx).await?;
@@ -69,14 +69,14 @@ impl Running<'_> {
 fn runs_now(target: &isoloom_manifest::Machine, observed: &crate::driver::Observed) -> Result<()> {
     let state = observed.machines.iter().find(|m| m.name == target.name.as_str()).map(|m| m.state.clone());
     match state {
-        Some(crate::MachineState::Busy) => Err(none(
+        Some(crate::MachineState::Busy) => Err(no_console(
             target,
             "another process is acting on it (starting or provisioning it): its screen can be shown once that is done",
         )),
         Some(s) if s.runs() => Ok(()),
         other => {
             let said = other.map_or_else(|| "absent".to_owned(), |s| s.to_string());
-            Err(none(target, format!("it isn't running ({said})")))
+            Err(no_console(target, format!("it isn't running ({said})")))
         }
     }
 }

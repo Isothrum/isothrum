@@ -37,7 +37,7 @@ impl Values {
 
     /// Binds `${published.<machine>.<port>}`.
     pub fn published(&mut self, machine: &str, port: &str, host_port: u16) {
-        self.published.insert((machine.to_owned(), port.to_owned()), host_port);
+        self.published.insert(crate::vars::PortKey::new(machine, port), host_port);
         self.vars.set_published(self.published.clone());
     }
 

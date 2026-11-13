@@ -158,7 +158,7 @@ impl Driver for Compose {
             .manifest()
             .machines
             .iter()
-            .filter(|m| published.keys().any(|(name, _)| m.name.as_str() == name));
+            .filter(|m| published.keys().any(|key| m.name.as_str() == key.machine));
         let mut hosts = BTreeMap::new();
         for m in publishing {
             hosts.insert(m.name.to_string(), super::publish_host(cx, m)?);
@@ -259,7 +259,7 @@ impl Compose {
         if let Some(image) = image {
             env.push((contract::ACCESS_IMAGE.to_owned(), image.to_owned()));
         }
-        let services = self.with_namespace(cx, Op::Attach.as_str(), Some(access::PROFILE), native).await?;
+        let services = self.services_sharing_namespace(cx, Op::Attach.as_str(), Some(access::PROFILE), native).await?;
         let mut rest = vec!["--profile", access::PROFILE, "up", "-d", "--wait", "--no-deps"];
         rest.extend(services.iter().map(String::as_str));
         let args = self.compose_args(cx, &rest)?;
@@ -279,7 +279,7 @@ impl Compose {
     /// attack box's, which a retire left behind, two a lab):
     /// `docker compose [--profile <profile>] rm -sfv <service> <its sidecars>`.
     async fn remove(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<()> {
-        let services = self.with_namespace(cx, id, profile, native).await?;
+        let services = self.services_sharing_namespace(cx, id, profile, native).await?;
         let mut rest = profiled(profile);
         rest.extend(["rm", "-sfv"]);
         rest.extend(services.iter().map(String::as_str));
@@ -292,7 +292,7 @@ impl Compose {
     /// namespace ([`config::sharing_namespace`]): one machine, started and removed together.
     /// Refused when Compose prints a config it can't be read from: the machine would come up
     /// without its routes, or leave them running.
-    async fn with_namespace(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<Vec<String>> {
+    async fn services_sharing_namespace(&self, cx: &Cx<'_>, id: &str, profile: Option<&str>, native: &str) -> Result<Vec<String>> {
         let mut rest = profiled(profile);
         rest.extend(["config", "--format", "json"]);
         let args = self.compose_args(cx, &rest)?;

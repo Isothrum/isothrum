@@ -232,6 +232,25 @@ async fn an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_o
     assert!(!record.exists(), "the record is consumed");
 }
 
+/// One run's record is read alone: another run's record that can't be read doesn't fail it.
+#[tokio::test]
+async fn one_runs_record_is_read_alone() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    assert_eq!(f.runner.run_record(run.name()).unwrap(), None, "not recorded before its start");
+    run.up(&opts(), &Recorder::new()).await.unwrap();
+    assert_eq!(f.runner.run_record(run.name()).unwrap().map(|r| r.state), Some(RunState::Ready));
+    let other = f.runner.store.run_dir_path(&crate::RunName::new("other-run").unwrap());
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("record.json"), "{not json").unwrap();
+    assert!(f.runner.runs().is_err(), "every record read together fails on the broken one");
+    assert_eq!(
+        f.runner.run_record(run.name()).unwrap().map(|r| r.state),
+        Some(RunState::Ready),
+        "this run's alone reads"
+    );
+}
+
 #[tokio::test]
 async fn a_park_of_a_run_that_isnt_there_is_refused() {
     let f = fixture();

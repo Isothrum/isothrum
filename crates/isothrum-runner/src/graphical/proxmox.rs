@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{ConsoleSource, Machine};
 
-use super::none;
+use super::no_console;
 use crate::Result;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call};
@@ -86,7 +86,7 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         password,
     }) = &console.source
     else {
-        return Err(none(machine, "it has no Proxmox console"));
+        return Err(no_console(machine, "it has no Proxmox console"));
     };
     let at = |f: &str| format!("machines.{}.consoles.source.{f}", machine.name);
     let base = cx.vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
@@ -94,9 +94,9 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
     let insecure = cx.vars.render(insecure, &at("insecure"))?.trim() == "true";
     let host = base
         .strip_prefix("https://")
-        .ok_or_else(|| none(machine, format!("the Proxmox API `{base}` isn't https")))?;
+        .ok_or_else(|| no_console(machine, format!("the Proxmox API `{base}` isn't https")))?;
     if !plain(&node) || !vm_id.chars().all(|c| c.is_ascii_digit()) || vm_id.is_empty() {
-        return Err(none(machine, format!("its VM `{vm_id}` on node `{node}` can't be named in a request")));
+        return Err(no_console(machine, format!("its VM `{vm_id}` on node `{node}` can't be named in a request")));
     }
     let sign_in = sign_in(cx, machine, &base, insecure, (username, token, password)).await?;
     let path = format!("/api2/json/nodes/{node}/qemu/{vm_id}");
@@ -109,7 +109,7 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         .and_then(|p| u16::try_from(p).ok());
     let ticket = said.get("ticket").and_then(serde_json::Value::as_str);
     let (Some(port), Some(ticket)) = (port, ticket) else {
-        return Err(none(machine, "Proxmox's vncproxy gave no port and ticket"));
+        return Err(no_console(machine, "Proxmox's vncproxy gave no port and ticket"));
     };
     cx.events.hide([ticket.to_owned()]);
     Ok(ProxmoxVnc {
@@ -147,10 +147,10 @@ async fn sign_in(
                     ticket: t.to_owned(),
                     csrf: c.to_owned(),
                 }),
-                _ => Err(none(machine, "Proxmox gave no ticket for the user's password")),
+                _ => Err(no_console(machine, "Proxmox gave no ticket for the user's password")),
             }
         }
-        (None, None) => Err(none(machine, "the run's connection gives no Proxmox API token or password")),
+        (None, None) => Err(no_console(machine, "the run's connection gives no Proxmox API token or password")),
     }
 }
 
@@ -159,7 +159,7 @@ async fn sign_in(
 async fn api(cx: &Cx<'_>, machine: &Machine, url: &str, insecure: bool, fields: &[String]) -> Result<serde_json::Value> {
     let out = request(cx, "console", (url, Some("POST")), insecure, fields).await?;
     if !out.success() {
-        return Err(none(machine, format!("Proxmox's API refused: {}", cx.events.mask(&out.reason()))));
+        return Err(no_console(machine, format!("Proxmox's API refused: {}", cx.events.mask(&out.reason()))));
     }
     let body: serde_json::Value = serde_json::from_str(&out.stdout.join("\n")).map_err(|e| Error::NoConsole {
         machine: machine.name.to_string(),

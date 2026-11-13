@@ -56,7 +56,7 @@ impl Running<'_> {
         self.refuse_elsewhere(&record, opts.host_label.as_deref())?;
         let params = params_for_start(self.manifest(), &opts.params, &scope)?;
         self.ensure_ssh_key().await?;
-        let mut cx = self.acting(self.cx(params, &opts.secrets, events, opts.provider)?)?;
+        let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, opts.provider)?)?;
         // Leftovers are removed with the names they were made with.
         Self::bind_record(&mut cx, &record);
         self.relay(&mut cx).await?;
@@ -95,7 +95,7 @@ impl Running<'_> {
         // binds them into `cx` for the start's own forwards and status.
         record.vm_host_ports = self.driver.pin_vm_ports(cx)?;
         // Every VM the start boots, boots with the Vagrantfile of this manifest.
-        self.runs_from_this(record);
+        self.point_record_at_this_manifest(record);
         record.params = cx.vars.params().clone();
         record.cloud = self.manifest().cloud;
         record.host_label.clone_from(&opts.host_label);
@@ -239,10 +239,5 @@ const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
     let shown: Vec<serde_json::Value> = outputs.iter().map(|o| json!({ "name": o.name, "role": o.role, "value": o.value })).collect();
     let data = json!({ "state": RunState::Ready, "outputs": shown, "message": message });
-    Done {
-        value: Started { record, outputs, message },
-        ok: true,
-        data,
-        state: Some(RunState::Ready),
-    }
+    Done::settled(Started { record, outputs, message }, Some(RunState::Ready), data)
 }

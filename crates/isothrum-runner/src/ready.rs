@@ -50,7 +50,7 @@ pub(crate) async fn check(cx: &mut Cx<'_>, ran: Option<&Ran>) -> Result<()> {
 
 /// The wait of a `ready_file` condition, its templates filled. The condition's every field is
 /// named here (no `..`): a field Isoloom adds fails to compile until the runner reads it.
-fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::Wait> {
+fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::ReadyFileWait> {
     let Condition::ReadyFile {
         host,
         user,
@@ -72,7 +72,7 @@ fn ready_file(cx: &Cx<'_>, condition: &Condition) -> Result<file::Wait> {
     let host = render(host, "host")?;
     let via = via.as_ref().map(|v| render(v, "via")).transpose()?.unwrap_or_default();
     let secs = |n: NonZeroU32| Duration::from_secs(u64::from(n.get()));
-    Ok(file::Wait {
+    Ok(file::ReadyFileWait {
         condition: format!("ready_file {host}"),
         login: crate::ssh::Login::new(&render(user, "user")?, &host, cx.ssh_jump.as_deref(), &via)?,
         path: render(path, "path")?,

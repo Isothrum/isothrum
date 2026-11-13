@@ -29,7 +29,7 @@ const LOG_MARK: &str = "--isoloom-log--";
 
 /// The bootstrap's progress, from the ready file's first line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Progress {
+pub(crate) enum ReadyProgress {
     /// No file yet, or nothing the grammar knows.
     Booting,
     /// A step runs.
@@ -42,7 +42,7 @@ pub(crate) enum Progress {
 
 /// The ready file's first line, read with its `grammar`: every grammar is matched by name, so one
 /// Isoloom adds fails to compile here until the runner reads it, never read as another.
-pub(crate) fn progress(grammar: ReadyGrammar, line: &str) -> Progress {
+pub(crate) fn progress(grammar: ReadyGrammar, line: &str) -> ReadyProgress {
     match grammar {
         ReadyGrammar::V1 => progress_v1(line),
     }
@@ -50,18 +50,18 @@ pub(crate) fn progress(grammar: ReadyGrammar, line: &str) -> Progress {
 
 /// The ready file's first line, read with `isoloom-ready/1` as Isoloom reads it
 /// ([`ReadyLine::parse`]).
-fn progress_v1(line: &str) -> Progress {
+fn progress_v1(line: &str) -> ReadyProgress {
     match ReadyLine::parse(line) {
-        Some(ReadyLine::Ready) => Progress::Ready,
-        Some(ReadyLine::Running { step }) => Progress::Running(step),
-        Some(ReadyLine::Failed { step }) => Progress::Failed(step),
-        None => Progress::Booting,
+        Some(ReadyLine::Ready) => ReadyProgress::Ready,
+        Some(ReadyLine::Running { step }) => ReadyProgress::Running(step),
+        Some(ReadyLine::Failed { step }) => ReadyProgress::Failed(step),
+        None => ReadyProgress::Booting,
     }
 }
 
 /// What a `ready_file` condition waits for.
 #[derive(Debug, Clone)]
-pub(crate) struct Wait {
+pub(crate) struct ReadyFileWait {
     /// The condition, as events name it (`ready_file 10.60.0.10`).
     pub(crate) condition: String,
     /// Where the file is.
@@ -105,11 +105,11 @@ fn split(out: &[String]) -> (String, Vec<String>) {
 /// the bootstrap runs out of time, or when the host never answered. A read that fails is said
 /// (a `ready` event, `waiting`, each time its reason changes), and the last one's reason ends
 /// the error a wait that runs out of time fails with.
-pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
+pub(crate) async fn wait(cx: &Cx<'_>, w: &ReadyFileWait) -> Result<()> {
     let spec = ssh::spec(cx, &w.login, &read_command(&w.path, w.log.as_deref()), Vec::new())?;
     let started = tokio::time::Instant::now();
     let unreachable = w.unreachable.unwrap_or(UNREACHABLE_DEFAULT);
-    let (mut reached, mut last, mut failed) = (false, Progress::Booting, None::<String>);
+    let (mut reached, mut last, mut failed) = (false, ReadyProgress::Booting, None::<String>);
     loop {
         match call(cx, &w.condition, &spec, READ_LIMIT, Echo::Quiet).await {
             Ok(out) if out.success() => {
@@ -141,9 +141,9 @@ pub(crate) async fn wait(cx: &Cx<'_>, w: &Wait) -> Result<()> {
 
 /// What a wait out of time says: the last step the file named, and why the last read failed
 /// when it did.
-fn out_of_time(w: &Wait, last: &Progress, failed: Option<&str>) -> String {
+fn out_of_time(w: &ReadyFileWait, last: &ReadyProgress, failed: Option<&str>) -> String {
     let step = match last {
-        Progress::Running(s) => s.as_str(),
+        ReadyProgress::Running(s) => s.as_str(),
         _ => "booting",
     };
     let detail = format!("not done within {}s (last step: {step})", w.within.as_secs());
@@ -155,20 +155,20 @@ fn out_of_time(w: &Wait, last: &Progress, failed: Option<&str>) -> String {
 
 /// What one answer means: the end of the wait (ready, or failed with the log's tail), or none
 /// while it goes on (a new step is an event).
-fn settle(cx: &Cx<'_>, w: &Wait, now: Progress, tail: &[String], last: &mut Progress) -> Option<Result<()>> {
+fn settle(cx: &Cx<'_>, w: &ReadyFileWait, now: ReadyProgress, tail: &[String], last: &mut ReadyProgress) -> Option<Result<()>> {
     match &now {
-        Progress::Ready => {
+        ReadyProgress::Ready => {
             cx.events.ready(&w.condition, ReadyState::Ok, "ready");
             return Some(Ok(()));
         }
-        Progress::Failed(step) => {
+        ReadyProgress::Failed(step) => {
             let mut detail = format!("failed: {step}");
             if !tail.is_empty() {
                 detail = format!("{detail}\n{}", tail.join("\n"));
             }
             return Some(Err(not_ready(cx, w.condition.clone(), cx.events.mask(&detail))));
         }
-        Progress::Running(step) if *last != now => cx.events.ready(&w.condition, ReadyState::Waiting, &format!("running: {step}")),
+        ReadyProgress::Running(step) if *last != now => cx.events.ready(&w.condition, ReadyState::Waiting, &format!("running: {step}")),
         _ => {}
     }
     *last = now;
@@ -183,17 +183,17 @@ mod tests {
 
     #[test]
     fn the_first_line_says_how_far_the_bootstrap_got() {
-        assert_eq!(progress(ReadyGrammar::V1, "ready\n"), Progress::Ready);
+        assert_eq!(progress(ReadyGrammar::V1, "ready\n"), ReadyProgress::Ready);
         assert_eq!(
             progress(ReadyGrammar::V1, "running: provision/web.sh"),
-            Progress::Running("provision/web.sh".into())
+            ReadyProgress::Running("provision/web.sh".into())
         );
         assert_eq!(
             progress(ReadyGrammar::V1, "failed: waiting for cache "),
-            Progress::Failed("waiting for cache".into())
+            ReadyProgress::Failed("waiting for cache".into())
         );
-        assert_eq!(progress(ReadyGrammar::V1, ""), Progress::Booting, "no file yet");
-        assert_eq!(progress(ReadyGrammar::V1, "ready now"), Progress::Booting);
+        assert_eq!(progress(ReadyGrammar::V1, ""), ReadyProgress::Booting, "no file yet");
+        assert_eq!(progress(ReadyGrammar::V1, "ready now"), ReadyProgress::Booting);
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn a_wait_out_of_time_says_why_its_last_read_failed() {
-        let w = Wait {
+        let w = ReadyFileWait {
             condition: "ready_file 10.0.0.9".into(),
             login: Login::new("isoloom", "10.0.0.9", None, "").unwrap(),
             path: "/var/lib/isoloom/ready".into(),
@@ -225,10 +225,10 @@ mod tests {
             unreachable: None,
             every: Duration::from_secs(5),
         };
-        let running = Progress::Running("provision/web.sh".into());
+        let running = ReadyProgress::Running("provision/web.sh".into());
         assert_eq!(out_of_time(&w, &running, None), "not done within 900s (last step: provision/web.sh)");
         assert_eq!(
-            out_of_time(&w, &Progress::Booting, Some("Connection reset (exited with code 255)")),
+            out_of_time(&w, &ReadyProgress::Booting, Some("Connection reset (exited with code 255)")),
             "not done within 900s (last step: booting); its last read over SSH failed: Connection reset (exited with code 255)"
         );
     }
@@ -240,7 +240,7 @@ mod tests {
         let grammars = crate::testing::every_variant::<ReadyGrammar>();
         assert_ne!(grammars, []);
         for grammar in grammars {
-            assert_eq!(progress(grammar, "ready"), Progress::Ready, "{grammar:?}");
+            assert_eq!(progress(grammar, "ready"), ReadyProgress::Ready, "{grammar:?}");
         }
     }
 
@@ -248,7 +248,7 @@ mod tests {
         #[test]
         fn any_line_reads_as_some_progress(line in ".{0,60}") {
             let p = progress(ReadyGrammar::V1, &line);
-            if line.trim() == "ready" { prop_assert_eq!(p, Progress::Ready) }
+            if line.trim() == "ready" { prop_assert_eq!(p, ReadyProgress::Ready) }
         }
     }
 }

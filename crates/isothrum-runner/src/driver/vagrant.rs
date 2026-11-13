@@ -355,7 +355,7 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts
         let mut published = Vec::new();
         if host.is_some() {
             for (name, port) in published_ports(m, forwarding) {
-                out.published.insert((m.name.to_string(), name), port.host_port);
+                out.published.insert(crate::vars::PortKey { machine: m.name.to_string(), port: name }, port.host_port);
                 published.push(port);
             }
         }

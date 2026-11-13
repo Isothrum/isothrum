@@ -39,12 +39,7 @@ impl Running<'_> {
             }
             let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
-            Ok(Done {
-                value: (),
-                ok: true,
-                data: serde_json::json!({ "machine": machine }),
-                state: None,
-            })
+            Ok(Done::settled((), None, serde_json::json!({ "machine": machine })))
         })
         .await
     }

@@ -221,7 +221,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
                 .ports
                 .iter()
                 .filter_map(|p| {
-                    let host_port = *published.get(&(m.name.to_string(), p.name.to_string()))?;
+                    let host_port = *published.get(&PortKey::new(m.name.as_str(), p.name.as_str()))?;
                     Some(PublishedPort {
                         port: p.port.get(),
                         protocol: p.kind.transport(),
@@ -273,7 +273,7 @@ fn published(tf: &state::TfState) -> BTreeMap<PortKey, u16> {
     let mut out = BTreeMap::new();
     for (key, address) in tf.maps.get(PUBLISHED).into_iter().flatten() {
         if let (Some((machine, port)), Some(host_port)) = (key.split_once('/'), state::port_of(address)) {
-            out.insert((machine.to_owned(), port.to_owned()), host_port);
+            out.insert(PortKey::new(machine, port), host_port);
         } else {
             tracing::warn!(
                 key,
