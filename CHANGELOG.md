@@ -18,6 +18,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A Terraform state holding only data sources no longer reads as machines running.** An
+  apply that read a `data` source (an AMI lookup) and then failed to create anything left a
+  state the runner took as a run with resources: status said every machine ran, and park, check
+  and provision accepted the run as existing. Only managed resources count now, for that and
+  for a tainted instance.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or
