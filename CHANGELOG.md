@@ -11,6 +11,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **One unreadable `docker compose ps` line fails the listing instead of hiding a container.** A
+  container left out read as its machine absent, and the operations acted on that (a start made
+  again, a stop skipped); the listing is now unreadable as a whole, traced by the line's number.
+
+### Fixed
+
 - **On Windows, VirtualBox and VMware Workstation are found where they install.** Neither
   installer adds its folder to PATH; the runner adds `VBOX_MSI_INSTALL_PATH`, Program Files'
   `Oracle\VirtualBox` and `VMware\VMware Workstation` to the PATH its tools run with.

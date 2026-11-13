@@ -86,9 +86,10 @@ impl PsEntry {
 }
 
 /// `ps --format json`'s containers: a JSON array (older Compose) or one object per line (2.21 on).
-/// A blank line is no container; a line that doesn't parse is skipped, and traced (by its number and why: a container's line may
-/// hold its command); `None` when there is output but no container in it can be read: taken as no
-/// container, it would make every machine of a run that is there read absent.
+/// A blank line is no container. `None` when the output holds a line that doesn't parse, traced
+/// by its number and why (never the line: a container's line may hold its command): a container
+/// left out would read as a machine absent, and the operations would act on that (a start made
+/// again, a stop skipped).
 pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
     let trimmed = out.trim();
     if trimmed.is_empty() {
@@ -99,16 +100,13 @@ pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
             .inspect_err(|e| tracing::warn!(error = %e, "`docker compose ps`'s list couldn't be read"))
             .ok();
     }
-    let read = |(n, line): (usize, &str)| match serde_json::from_str(line) {
-        Ok(entry) => Some(entry),
-        Err(e) => {
-            tracing::warn!(line = n + 1, error = %e, "a line of `docker compose ps` couldn't be read: its container is left out");
-            None
-        }
+    let read = |(n, line): (usize, &str)| {
+        serde_json::from_str(line)
+            .inspect_err(|e| tracing::warn!(line = n + 1, error = %e, "a line of `docker compose ps` couldn't be read: the listing is unreadable"))
+            .ok()
     };
     let lines = trimmed.lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
-    let entries: Vec<PsEntry> = lines.filter_map(read).collect();
-    (!entries.is_empty()).then_some(entries)
+    lines.map(read).collect()
 }
 
 /// The words for `ps` output [`parse_ps`] can't read.
@@ -157,10 +155,10 @@ mod tests {
     use crate::testing::docker_manifest;
 
     #[tokio::test]
-    async fn a_line_that_doesnt_parse_is_skipped_and_traced_by_its_number() {
+    async fn a_line_that_doesnt_parse_makes_the_listing_unreadable_traced_by_its_number() {
         let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{\"Service\":\"db\",\"Command\":\"run --token s3cret\" cut\n";
         let (entries, traced) = crate::testing::traced(async { parse_ps(lines) }).await;
-        assert_eq!(entries.unwrap().len(), 1);
+        assert!(entries.is_none(), "a container left out would read as a machine absent: {entries:?}");
         assert!(
             traced.contains("WARN") && traced.contains("line=3") && traced.contains("couldn't be read"),
             "{traced}"
@@ -183,7 +181,7 @@ mod tests {
 
     #[test]
     fn parses_both_compose_output_formats() {
-        let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{bogus}\n{\"Service\":\"db\",\"State\":\"exited\",\"ExitCode\":3}\n";
+        let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{\"Service\":\"db\",\"State\":\"exited\",\"ExitCode\":3}\n";
         assert_eq!(read(lines).len(), 2);
         assert_eq!(read("[{\"Service\":\"web\",\"State\":\"running\"}]")[0].service, "web");
         assert_eq!(read(lines)[1].machine_state(), MachineState::Exited(3));
