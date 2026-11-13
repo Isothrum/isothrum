@@ -127,7 +127,7 @@ impl Elevated {
     /// Decides the session: direct when the account may manage Hyper-V, else the broker started
     /// (a `whoami` that can't say is traced by [`may_manage_hyperv`]).
     async fn open(&self) -> Session {
-        if may_manage_hyperv(self.inner.as_ref()).await == Some(true) {
+        if may_manage_hyperv(self.inner.as_ref()).await == HyperVRights::Granted {
             return Session::Direct;
         }
         self.start_broker().await.unwrap_or_else(Session::Failed)
@@ -303,21 +303,39 @@ fn exit_code(text: &str) -> std::io::Result<i32> {
     })
 }
 
+/// Whether this account may manage Hyper-V ([`may_manage_hyperv`]'s answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HyperVRights {
+    /// Its token is elevated, or it is a member of "Hyper-V Administrators".
+    Granted,
+    /// Neither: Vagrant's Hyper-V provider refuses its commands.
+    Missing,
+    /// `whoami` couldn't say (it didn't run, or failed).
+    Unknown,
+}
+
 /// Whether this account may manage Hyper-V, as Vagrant's Hyper-V provider requires for every
 /// command on its machines (`vagrant status` included): its token is elevated, or it is a member of
 /// "Hyper-V Administrators". Read from `whoami /groups`, run through `processes` (no `unsafe`).
-/// `None` when `whoami` can't say (it didn't run, or failed), which is traced.
-pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> Option<bool> {
+/// [`HyperVRights::Unknown`] when `whoami` can't say (it didn't run, or failed), which is traced.
+pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> HyperVRights {
     let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
     match capture(processes, &whoami).await {
-        Ok(out) if out.success() => Some(may_manage(&out.stdout.join("\n"))),
+        Ok(out) if out.success() => {
+            if may_manage(&out.stdout.join("\n")) {
+                HyperVRights::Granted
+            } else {
+                HyperVRights::Missing
+            }
+        }
         Ok(out) => {
             tracing::warn!(stderr = %out.stderr_tail.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
-            None
+            HyperVRights::Unknown
         }
         Err(e) => {
             tracing::warn!(error = %e, "`whoami /groups` didn't run: whether this account may manage Hyper-V is unknown");
-            None
+            HyperVRights::Unknown
         }
     }
 }

@@ -46,10 +46,10 @@ pub(super) async fn remove(cx: &Cx<'_>, step: &Step) -> Result<()> {
 /// can't be powered off): only traced.
 async fn attempt(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<()> {
     let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
-    if let Err(reason) = out.output() {
+    if let Err(failed) = out.output() {
         tracing::debug!(
             call = spec.line(),
-            reason,
+            reason = failed.reason,
             "a step of an orphan's removal failed (nothing to stop, or it can't be)"
         );
     }
@@ -62,7 +62,7 @@ async fn removal(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec, what: &str) -> Re
     let out = call(cx, step.id.as_str(), spec, READ_LIMIT, Echo::Quiet).await?;
     match out.output() {
         Ok(_) => removed(cx, what),
-        Err(reason) => not_removed(cx, what, &reason),
+        Err(failed) => not_removed(cx, what, &failed.reason),
     }
     Ok(())
 }
@@ -86,7 +86,7 @@ async fn listed(cx: &Cx<'_>, step: &Step, spec: &ProcessSpec) -> Result<Option<S
     Ok(out
         .output()
         .inspect_err(|reason| {
-            tracing::warn!(call = spec.line(), reason, "the hypervisor couldn't be read: no orphan it lists is removed");
+            tracing::warn!(call = spec.line(), reason = %reason, "the hypervisor couldn't be read: no orphan it lists is removed");
             let said = format!(
                 "what earlier runs left couldn't be listed (`{}`), so none of it is removed: {reason}",
                 spec.line()

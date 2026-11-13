@@ -21,7 +21,11 @@ pub(crate) async fn read_any_exit(runner: &dyn ProcessRunner, program: &str, arg
 /// Why it didn't answer: it couldn't be started, or it failed (the runner's one wording of a
 /// failed tool, [`Captured::reason`]).
 pub(crate) async fn read_ok(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, String> {
-    run(runner, program, args).await.map_err(|e| e.to_string())?.output()
+    run(runner, program, args)
+        .await
+        .map_err(|e| e.to_string())?
+        .output()
+        .map_err(|failed| failed.to_string())
 }
 
 /// How `program args` ended, with what it printed.

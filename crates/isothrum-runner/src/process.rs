@@ -18,7 +18,7 @@ mod tail;
 use std::path::PathBuf;
 
 pub(crate) use elevated::Elevated;
-pub use elevated::may_manage_hyperv;
+pub use elevated::{HyperVRights, may_manage_hyperv};
 pub(crate) use shim::TERRAFORM_PROGRAMS;
 pub use system::SystemProcesses;
 pub(crate) use tail::Tail;
@@ -243,10 +243,29 @@ impl Captured {
     ///
     /// # Errors
     ///
-    /// It didn't exit 0: the error is its reason.
-    pub fn output(&self) -> Result<String, String> {
-        if self.success() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
+    /// [`ProcessFailed`] when it didn't exit 0: how it ended, and its reason.
+    pub fn output(&self) -> Result<String, ProcessFailed> {
+        if self.success() {
+            Ok(self.stdout.join("\n"))
+        } else {
+            Err(ProcessFailed {
+                exit: self.exit,
+                reason: self.reason(),
+            })
+        }
     }
+}
+
+/// A process that ran to its end and didn't exit 0 ([`Captured::output`]): how it ended, and
+/// why, in the one wording every failed tool's error uses ([`Captured::reason`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{reason}")]
+#[non_exhaustive]
+pub struct ProcessFailed {
+    /// How it ended.
+    pub exit: Exit,
+    /// Why it failed, ending with how it ended (`denied (exited with code 1)`).
+    pub reason: String,
 }
 
 /// Runs `spec`, keeping what it prints.
@@ -328,7 +347,8 @@ mod tests {
         assert_eq!(reason(&ended(None, &[" "], &[])), "exited with a signal");
         assert_eq!(reason(&ended(Some(2), &["no space left"], &[])), "no space left (exited with code 2)");
         assert_eq!(ended(Some(0), &["warning"], &["a", "b"]).output(), Ok("a\nb".to_owned()));
-        assert_eq!(ended(Some(3), &["bad"], &["a"]).output(), Err("bad (exited with code 3)".to_owned()));
+        let failed = ended(Some(3), &["bad"], &["a"]).output().unwrap_err();
+        assert_eq!((failed.exit, failed.to_string()), (Exit::new(Some(3)), "bad (exited with code 3)".to_owned()));
     }
 
     #[test]

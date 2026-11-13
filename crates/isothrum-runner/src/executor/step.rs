@@ -230,14 +230,15 @@ pub(crate) async fn call_ok(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, limit: Du
 /// The standard output of the step `id`'s own tool, which ended as `out`; unless it exited 0,
 /// the step's failure, saying why ([`Captured::reason`]).
 pub(crate) fn stdout_of_step(cx: &Cx<'_>, id: &str, out: &Captured) -> Result<String> {
-    out.output().map_err(|why| tool_failed(cx, id, &why))
+    out.output().map_err(|failed| tool_failed(cx, id, &failed.reason))
 }
 
 /// The standard output of one of a driver's own calls, `spec`, made for the step `id` and ended
 /// as `out`; unless it exited 0, the step's failure, led by the call's command line. Two
 /// functions where one took an `Option<&ProcessSpec>` every caller filled or left empty.
 pub(crate) fn stdout_of_call(cx: &Cx<'_>, id: &str, spec: &ProcessSpec, out: &Captured) -> Result<String> {
-    out.output().map_err(|why| tool_failed(cx, id, &format!("`{}` failed: {why}", spec.line())))
+    out.output()
+        .map_err(|failed| tool_failed(cx, id, &format!("`{}` failed: {failed}", spec.line())))
 }
 
 /// The step `id`'s failure, `reason` masked.

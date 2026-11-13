@@ -35,6 +35,9 @@ pub enum ErrorCode {
     ToolMissing,
     /// A step's tool ran and failed.
     ToolFailed,
+    /// A tool the run needs is installed, but its probe got no answer from it (Docker's engine
+    /// stopped, or not this account's to reach): the message says what the tool said.
+    ToolUnanswered,
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
@@ -122,6 +125,7 @@ impl ErrorCode {
             ErrorCode::Locked => "locked",
             ErrorCode::ToolMissing => "tool_missing",
             ErrorCode::ToolFailed => "tool_failed",
+            ErrorCode::ToolUnanswered => "tool_unanswered",
             ErrorCode::ToolTooOld => "tool_too_old",
             ErrorCode::Timeout => "timeout",
             ErrorCode::DownloadStalled => "download_stalled",
@@ -230,6 +234,18 @@ pub enum Error {
         /// The step.
         step: String,
         /// Its last error lines, or its exit status (secrets masked).
+        reason: String,
+    },
+    /// A tool the run needs is installed, but its probe got no answer from it: a container
+    /// engine stopped, or one this account can't reach. Said by its code, so a caller never reads
+    /// it out of a [`Error::ToolFailed`]'s wording.
+    #[error("step `{step}` failed: `{tool}` doesn't answer: {reason}")]
+    ToolUnanswered {
+        /// The probing step (`tools`).
+        step: String,
+        /// The tool, by its manifest name (`docker`).
+        tool: String,
+        /// What it said, or why its answer is none (secrets masked).
         reason: String,
     },
     /// A step ran out of time: it showed no progress for its limit, or it ran to the ceiling.
@@ -484,6 +500,7 @@ impl Error {
         match self {
             Error::ToolMissing { step, .. }
             | Error::ToolFailed { step, .. }
+            | Error::ToolUnanswered { step, .. }
             | Error::Timeout { step, .. }
             | Error::DownloadStalled { step, .. }
             | Error::DownloadFailed { step, .. }
@@ -516,6 +533,7 @@ impl Error {
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
+            Error::ToolUnanswered { .. } => ErrorCode::ToolUnanswered,
             Error::Timeout { .. } => ErrorCode::Timeout,
             Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,
             Error::DownloadFailed { .. } => ErrorCode::DownloadFailed,

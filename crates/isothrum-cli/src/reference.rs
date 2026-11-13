@@ -190,6 +190,7 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::Locked => "Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it.",
         ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
         ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
+        ErrorCode::ToolUnanswered => "Start the tool's service (Docker's engine), or let this account reach it, then run the command again.",
         ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
         ErrorCode::Timeout => {
             "See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
