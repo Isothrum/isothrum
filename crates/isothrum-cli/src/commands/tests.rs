@@ -307,7 +307,7 @@ async fn attach_says_where_the_access_machine_is_and_detach_takes_it_out() {
     let last = s.last_event();
     assert_eq!((last["event"].as_str(), last["op"].as_str()), (Some("result"), Some("detach")));
     assert_eq!(last["data"]["machine"], "user");
-    assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sf user")));
+    assert!(s.fake.calls().iter().any(|c| c.line().contains("--profile access rm -sfv user")));
 }
 
 /// A run whose manifest has no message comes up with the command's own line instead.
