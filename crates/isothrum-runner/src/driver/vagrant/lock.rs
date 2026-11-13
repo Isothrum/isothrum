@@ -54,16 +54,6 @@ pub(super) const QUERY_PATIENCE: Duration = Duration::from_secs(10);
 /// How long between two tries.
 const POLL: Duration = Duration::from_secs(2);
 
-/// What Vagrant says when another process holds a machine's lock, its action lock or its index
-/// lock: each error's class, which `--machine-readable` prints in its `error-exit` record, and its
-/// message, which a human-readable call prints on standard error (the record repeats it too).
-const LOCKED: [&str; 4] = [
-    "Vagrant::Errors::MachineActionLockedError",
-    "another process is already executing an action on the machine",
-    "Vagrant::Errors::MachineLocked,",
-    "Vagrant can't use the requested machine because it is locked!",
-];
-
 /// How Vagrant's human output starts each line it says for a machine (`==> web: Removing
 /// domain...`): what it does to the machine is announced so, before it is done.
 const ACTING: &str = "==> ";
@@ -71,7 +61,7 @@ const ACTING: &str = "==> ";
 /// Whether `out`, a failed Vagrant call, was refused because another process held a machine's
 /// lock.
 pub(super) fn refused(out: &Captured) -> bool {
-    !out.success() && out.stdout.iter().chain(&out.stderr).any(|line| LOCKED.iter().any(|said| line.contains(said)))
+    !out.success() && crate::tool_output::vagrant_locked(out.stdout.iter().chain(&out.stderr))
 }
 
 /// What a `vagrant` command does when it is run a second time: the one reading of its verb, for

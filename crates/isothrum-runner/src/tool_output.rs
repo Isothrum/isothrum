@@ -77,6 +77,36 @@ pub(crate) fn vagrant_error(stdout: &[String]) -> Option<String> {
     }
 }
 
+/// What Vagrant says when another process holds a machine's lock, its action lock or its index
+/// lock: each error's class, which `--machine-readable` prints in its `error-exit` record, and its
+/// message, which a human-readable call prints on standard error (the record repeats it too).
+const VAGRANT_LOCKED: [&str; 4] = [
+    "Vagrant::Errors::MachineActionLockedError",
+    "another process is already executing an action on the machine",
+    "Vagrant::Errors::MachineLocked,",
+    "Vagrant can't use the requested machine because it is locked!",
+];
+
+/// Whether `lines`, what a failed Vagrant call printed, say another process held a machine's lock.
+pub(crate) fn vagrant_locked<'a>(lines: impl IntoIterator<Item = &'a String>) -> bool {
+    said_any(lines, &VAGRANT_LOCKED)
+}
+
+/// What vagrant-vmware-esxi says when the VM it is asked to halt is already off: ESXi refuses the
+/// guest shutdown (`vim.fault.InvalidPowerState`, the VM `poweredOff`).
+const ESXI_ALREADY_OFF: [&str; 2] = ["existingState = \"poweredOff\"", "in the current state (Powered off)"];
+
+/// Whether `lines`, what a failed `vagrant halt` printed, say ESXi refused it as the VM was
+/// already off.
+pub(crate) fn esxi_already_off<'a>(lines: impl IntoIterator<Item = &'a String>) -> bool {
+    said_any(lines, &ESXI_ALREADY_OFF)
+}
+
+/// Whether any of `lines` holds any of `wordings`.
+fn said_any<'a>(lines: impl IntoIterator<Item = &'a String>, wordings: &[&str]) -> bool {
+    lines.into_iter().any(|line| wordings.iter().any(|said| line.contains(said)))
+}
+
 /// A `--machine-readable` field as Vagrant wrote it, its escapes undone: a comma written as
 /// `%!(VAGRANT_COMMA)`, a line break as `\n`, a carriage return as `\r`.
 fn unescape(field: &str) -> String {
@@ -113,6 +143,35 @@ mod tests {
         assert!(v("4.7.5") > v("4.6.5") && v("4.6.5") >= v("4.6.5"));
         assert!(v("0.1.6") < v("0.2.0"));
         assert!(v("0.2.0-beta") < v("0.2.0"), "a pre-release comes before its release");
+    }
+
+    #[test]
+    fn a_held_lock_is_read_in_each_of_vagrant_s_wordings() {
+        // As Vagrant 2.4 prints them: the action lock (machine-readable, then human), the index lock.
+        let action = lines(
+            "1794307174,,error-exit,Vagrant::Errors::MachineActionLockedError,An action 'read_state' was attempted on the machine 'web'%!(VAGRANT_COMMA)\\nbut another process is already executing an action on the machine.",
+        );
+        let human = lines(
+            "An action 'read_state' was attempted on the machine 'web',\nbut another process is already executing an action on the machine.\nVagrant locks each machine for access by only one process at a time.",
+        );
+        let index = lines("1794342958,,error-exit,Vagrant::Errors::MachineLocked,Vagrant can't use the requested machine because it is locked! This");
+        assert!(vagrant_locked(&action) && vagrant_locked(&human) && vagrant_locked(&index));
+        assert!(!vagrant_locked(&lines(
+            "VBoxManage: error: Cannot unregister the machine 'web-vm - web' while it is locked"
+        )));
+        assert!(!vagrant_locked(&[]));
+    }
+
+    #[test]
+    fn esxi_refusing_to_halt_a_vm_already_off_is_read() {
+        // As vagrant-vmware-esxi prints it.
+        let off = lines(
+            "There was an error talking to ESXi.\n  Unable to shutdown the VM:\n    (vim.fault.InvalidPowerState) {\n   existingState = \"poweredOff\"\n   msg = \"shutdownGuest\nThe attempted operation cannot be performed in the current state (Powered off).\"\n}",
+        );
+        assert!(esxi_already_off(&off));
+        assert!(!esxi_already_off(&lines(
+            "There was an error talking to ESXi.\n  Unable to shutdown the VM: timed out"
+        )));
     }
 
     #[test]
