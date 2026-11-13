@@ -95,8 +95,7 @@ impl<'a> Cx<'a> {
         self.run.manifest()
     }
 
-    /// The runner's configuration (what a step reaches through `run.runner.config` otherwise:
-    /// Clean Code G36, transitive navigation).
+    /// The runner's configuration, so a step needn't reach through `run.runner.config`.
     pub(crate) fn config(&self) -> &'a crate::runner::RunnerConfig {
         &self.run.runner.config
     }

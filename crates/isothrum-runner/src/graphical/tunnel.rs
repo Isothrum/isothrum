@@ -42,8 +42,7 @@ pub(crate) struct Tunnel {
     pub(super) local: SocketAddr,
     /// Its `ssh`, killed when the tunnel is dropped.
     ssh: tokio::process::Child,
-    /// The reader of its `ssh`'s standard error, owned so it ends with the tunnel (Clean Code
-    /// ch.13, shutdown; 2026-11-13: it was spawned detached).
+    /// The reader of its `ssh`'s standard error, owned so it ends with the tunnel.
     drain: Option<tokio::task::JoinHandle<()>>,
 }
 

@@ -85,9 +85,8 @@ impl Stopping {
         self.count.load(Ordering::SeqCst) > 0
     }
 
-    /// Once no tool is stopping any more: woken by the last tool's end, not by polling (Clean
-    /// Code ch.13). The wait is armed before the count is read, so an end between the
-    /// two isn't missed.
+    /// Once no tool is stopping any more: woken by the last tool's end, not by polling. The wait
+    /// is armed before the count is read, so an end between the two isn't missed.
     pub(super) async fn stopped(&self) {
         loop {
             let notified = self.done.notified();
