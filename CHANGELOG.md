@@ -31,6 +31,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A run rebuilt at the same addresses no longer meets its old machines' SSH host keys.** The
+  leftovers an `up` clears and a recovery's steps removed the machines but kept their pinned host
+  keys, so every SSH connection to the machines made again failed; every way a run's machines go
+  now forgets what was learned from them, and a `down` everything the run kept (the consoles the
+  runner chose included, whatever the driver).
 - **A Terraform state holding only data sources no longer reads as machines running.** An
   apply that read a `data` source (an AMI lookup) and then failed to create anything left a
   state the runner took as a run with resources: status said every machine ran, and park, check
