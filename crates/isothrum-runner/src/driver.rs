@@ -141,6 +141,54 @@ pub(crate) trait Driver {
     /// (`docker-vm`'s guest), through the VM's way in, as `use_` says. Refused by a driver whose
     /// runs have no such VM.
     fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec>;
+    /// Whether the run's management commands need elevation in `scope` (Hyper-V's provider).
+    /// Never by default.
+    fn elevates(&self, _scope: &crate::scope::Scope) -> bool {
+        false
+    }
+    /// The host ports a fresh start pins for a driver that chooses its own (Vagrant, locally: a
+    /// free loopback port per ephemeral published port, by `"<machine>/<port>"`), empty by
+    /// default. Recorded so a resume forwards the same ports; Compose pins its own through its
+    /// `pin_ports` action, and a Terraform (server/cloud) run forwards nothing to this computer.
+    ///
+    /// # Errors
+    ///
+    /// `tool_failed` when no free host port is found for one, `io` when the loopback can't be
+    /// bound to look for one ([`port_pick::PortPick::pin`]).
+    fn pin_vm_ports(&self, _cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+        Ok(BTreeMap::new())
+    }
+    /// What step `step` of list `list` needs before it runs, in a phase of its own with its own
+    /// step events and limit: the images a Compose `up` starts, pulled; the boxes a `vagrant up`
+    /// boots, downloaded. Nothing by default.
+    async fn before_step(&self, _cx: &Cx<'_>, _list: &str, _step: &Step) -> Result<()> {
+        Ok(())
+    }
+    /// Runs argv step `step` of list `list` once ([`crate::executor::once`]), `observe` seeing
+    /// each line. The Vagrant driver runs a `vagrant` command another Vagrant process's lock
+    /// refused again, while that is safe ([`vagrant::run_step`]).
+    async fn run_argv(&self, cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
+        crate::executor::once(cx, list, step, observe, crate::executor::Hold::No)
+            .await?
+            .result(cx, step)
+    }
+    /// What a failed `down` may print for each resource of the run that is already gone, and the
+    /// resource: Terraform's `identity.terraform.gone`, filled for each instance its state holds
+    /// ([`terraform::gone`]). None by default.
+    fn gone(&self, _cx: &Cx<'_>) -> Result<Vec<terraform::gone::Gone>> {
+        Ok(Vec::new())
+    }
+    /// Drops from the run's state each resource [`Driver::gone`] names whose text, among
+    /// `seen`, step `step` of list `list` printed before it failed, through that step's own tool;
+    /// whether it dropped any (so the list may run again). Nothing by default.
+    async fn forget_gone(&self, _cx: &Cx<'_>, _list: &str, _step: &Step, _seen: &std::collections::BTreeSet<String>) -> Result<bool> {
+        Ok(false)
+    }
+    /// Whether `e`, a failure of the start's steps `up`, is one a later apply may get past (a
+    /// cloud's eventual consistency). Never by default.
+    fn reapplies(&self, _up: &[Step], _e: &Error) -> bool {
+        false
+    }
 }
 
 /// What a script run in the run's VM ([`Driver::in_guest`]) is for, which decides how it runs.
@@ -161,6 +209,18 @@ pub(crate) enum AnyDriver {
     Compose(compose::Compose),
     Vagrant(vagrant::Vagrant),
     Terraform(terraform::Terraform),
+}
+
+/// Calls `$call` on the driver `$any` holds, bound to `$d`: the one match a new driver joins
+/// for every hook of [`Driver`].
+macro_rules! dispatch {
+    ($any:expr, $d:ident => $call:expr) => {
+        match $any {
+            AnyDriver::Compose($d) => $call,
+            AnyDriver::Vagrant($d) => $call,
+            AnyDriver::Terraform($d) => $call,
+        }
+    };
 }
 
 impl AnyDriver {
@@ -192,203 +252,110 @@ impl AnyDriver {
 
     pub(crate) async fn preflight(&self, cx: &Cx<'_>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), check = "preflight");
-        match self {
-            AnyDriver::Compose(d) => d.preflight(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.preflight(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.preflight(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.preflight(cx).instrument(span).await)
     }
 
-    /// Whether the run's management commands need elevation in `scope` (Hyper-V's provider).
+    /// Whether the run's management commands need elevation in `scope` ([`Driver::elevates`]).
     pub(crate) fn elevates(&self, scope: &crate::scope::Scope) -> bool {
-        match self {
-            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => false,
-            AnyDriver::Vagrant(d) => d.elevates(scope),
-        }
+        dispatch!(self, d => d.elevates(scope))
     }
 
     pub(crate) fn prepare(&self, cx: &Cx<'_>) -> Result<()> {
-        match self {
-            AnyDriver::Compose(d) => d.prepare(cx),
-            AnyDriver::Vagrant(d) => d.prepare(cx),
-            AnyDriver::Terraform(d) => d.prepare(cx),
-        }
+        dispatch!(self, d => d.prepare(cx))
     }
 
     pub(crate) fn env(&self, cx: &Cx<'_>) -> Result<Vec<(String, String)>> {
-        match self {
-            AnyDriver::Compose(d) => d.env(cx),
-            AnyDriver::Vagrant(d) => d.env(cx),
-            AnyDriver::Terraform(d) => d.env(cx),
-        }
+        dispatch!(self, d => d.env(cx))
     }
 
-    /// The host ports a fresh start pins for a driver that chooses its own (Vagrant, locally: a
-    /// free loopback port per ephemeral published port, by `"<machine>/<port>"`), empty for the
-    /// others. Recorded so a resume forwards the same ports; Compose pins its own through its
-    /// `pin_ports` action, and a Terraform (server/cloud) run forwards nothing to this computer.
+    /// The host ports a fresh start pins ([`Driver::pin_vm_ports`]).
     ///
     /// # Errors
     ///
-    /// `tool_failed` when no free host port is found for one, `io` when the loopback can't be
-    /// bound to look for one ([`port_pick::PortPick::pin`]).
+    /// As [`Driver::pin_vm_ports`].
     pub(crate) fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
-        match self {
-            AnyDriver::Vagrant(_) => vagrant::forwarded::pin(cx),
-            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => Ok(BTreeMap::new()),
-        }
+        dispatch!(self, d => d.pin_vm_ports(cx))
     }
 
     pub(crate) async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), action = ?action);
-        match self {
-            AnyDriver::Compose(d) => d.action(cx, list, step, action).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.action(cx, list, step, action).instrument(span).await,
-            AnyDriver::Terraform(d) => d.action(cx, list, step, action).instrument(span).await,
-        }
+        dispatch!(self, d => d.action(cx, list, step, action).instrument(span).await)
     }
 
-    /// What step `step` of list `list` needs before it runs, in a phase of its own with its own
-    /// step events and limit: the images a Compose `up` starts, pulled; the boxes a `vagrant up`
-    /// boots, downloaded. Nothing for another step, nor for another driver.
+    /// What step `step` of list `list` needs before it runs ([`Driver::before_step`]).
     pub(crate) async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
-        match self {
-            AnyDriver::Compose(_) => compose::pull_before_step(cx, list, step).await,
-            AnyDriver::Vagrant(d) => vagrant::boxes_before_step(d, cx, list, step).await,
-            AnyDriver::Terraform(_) => Ok(()),
-        }
+        dispatch!(self, d => d.before_step(cx, list, step).await)
     }
 
-    /// Runs argv step `step` of list `list` once ([`crate::executor::once`]), `observe` seeing
-    /// each line; the Vagrant driver runs a `vagrant` command another Vagrant process's lock
-    /// refused again, while that is safe ([`vagrant::run_step`]).
+    /// Runs argv step `step` of list `list` once ([`Driver::run_argv`]).
     pub(crate) async fn run_argv(&self, cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
-        match self {
-            AnyDriver::Vagrant(_) => vagrant::run_step(cx, list, step, observe).await,
-            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => crate::executor::once(cx, list, step, observe, crate::executor::Hold::No)
-                .await?
-                .result(cx, step),
-        }
+        dispatch!(self, d => d.run_argv(cx, list, step, observe).await)
     }
 
     pub(crate) async fn observe(&self, cx: &Cx<'_>) -> Result<Observed> {
         let span = tracing::debug_span!("driver", driver = self.name(), read = "status");
-        match self {
-            AnyDriver::Compose(d) => d.observe(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.observe(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.observe(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.observe(cx).instrument(span).await)
     }
 
-    /// What a failed `down` may print for each resource of the run that is already gone, and the
-    /// resource: Terraform's `identity.terraform.gone`, filled for each instance its state holds
-    /// ([`terraform::gone`]). None for the other drivers.
+    /// What a failed `down` may print for each resource already gone ([`Driver::gone`]).
     pub(crate) fn gone(&self, cx: &Cx<'_>) -> Result<Vec<terraform::gone::Gone>> {
-        match self {
-            AnyDriver::Terraform(d) => d.gone(cx),
-            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => Ok(Vec::new()),
-        }
+        dispatch!(self, d => d.gone(cx))
     }
 
-    /// Drops from the run's state each resource [`AnyDriver::gone`] names whose text, among
-    /// `seen`, step `step` of list `list` printed before it failed, through that step's own tool;
-    /// whether it dropped any (so the list may run again). Nothing for a step that isn't a
-    /// Terraform destroy, nor for another driver.
+    /// Drops from the run's state each resource already gone that step `step` printed
+    /// ([`Driver::forget_gone`]).
     pub(crate) async fn forget_gone(&self, cx: &Cx<'_>, list: &str, step: &Step, seen: &std::collections::BTreeSet<String>) -> Result<bool> {
-        match self {
-            AnyDriver::Terraform(d) => d.forget_gone(cx, list, step, seen).await,
-            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => Ok(false),
-        }
+        dispatch!(self, d => d.forget_gone(cx, list, step, seen).await)
     }
 
-    /// Whether `e`, a failure of the start's steps `up`, is one a later apply may get past (a
-    /// cloud's eventual consistency): a step that runs `terraform apply` failing. Never for another
-    /// driver.
+    /// Whether `e`, a failure of the start's steps `up`, is one a later apply may get past
+    /// ([`Driver::reapplies`]).
     pub(crate) fn reapplies(&self, up: &[Step], e: &Error) -> bool {
-        match self {
-            AnyDriver::Terraform(_) => terraform::argv::applied(up, e),
-            AnyDriver::Compose(_) | AnyDriver::Vagrant(_) => false,
-        }
+        dispatch!(self, d => d.reapplies(up, e))
     }
 
     pub(crate) async fn before_down(&self, cx: &Cx<'_>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = "before_down");
-        match self {
-            AnyDriver::Compose(d) => d.before_down(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.before_down(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.before_down(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.before_down(cx).instrument(span).await)
     }
 
     pub(crate) async fn before_change(&self, cx: &Cx<'_>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = "before_change");
-        match self {
-            AnyDriver::Compose(d) => d.before_change(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.before_change(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.before_change(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.before_change(cx).instrument(span).await)
     }
 
     pub(crate) async fn after_change(&self, cx: &Cx<'_>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = "after_change");
-        match self {
-            AnyDriver::Compose(d) => d.after_change(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.after_change(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.after_change(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.after_change(cx).instrument(span).await)
     }
 
     pub(crate) async fn after_down(&self, cx: &Cx<'_>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = "after_down");
-        match self {
-            AnyDriver::Compose(d) => d.after_down(cx).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.after_down(cx).instrument(span).await,
-            AnyDriver::Terraform(d) => d.after_down(cx).instrument(span).await,
-        }
+        dispatch!(self, d => d.after_down(cx).instrument(span).await)
     }
 
     pub(crate) async fn restart(&self, cx: &Cx<'_>, machine: &Machine, id: &str) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = cx.events.operation_name(), machine = %machine.name);
-        match self {
-            AnyDriver::Compose(d) => d.restart(cx, machine, id).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.restart(cx, machine, id).instrument(span).await,
-            AnyDriver::Terraform(d) => d.restart(cx, machine, id).instrument(span).await,
-        }
+        dispatch!(self, d => d.restart(cx, machine, id).instrument(span).await)
     }
 
     pub(crate) async fn attach(&self, cx: &Cx<'_>, machine: &Machine, image: Option<&str>, network: Option<&str>) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = "attach", machine = %machine.name);
-        match self {
-            AnyDriver::Compose(d) => d.attach(cx, machine, image, network).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.attach(cx, machine, image, network).instrument(span).await,
-            AnyDriver::Terraform(d) => d.attach(cx, machine, image, network).instrument(span).await,
-        }
+        dispatch!(self, d => d.attach(cx, machine, image, network).instrument(span).await)
     }
 
     pub(crate) async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()> {
         let span = tracing::debug_span!("driver", driver = self.name(), op = cx.events.operation_name(), machine = %machine.name);
-        match self {
-            AnyDriver::Compose(d) => d.retire(cx, machine).instrument(span).await,
-            AnyDriver::Vagrant(d) => d.retire(cx, machine).instrument(span).await,
-            AnyDriver::Terraform(d) => d.retire(cx, machine).instrument(span).await,
-        }
+        dispatch!(self, d => d.retire(cx, machine).instrument(span).await)
     }
 
     pub(crate) fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
         let _span = tracing::debug_span!("driver", driver = self.name(), query = "console", machine = %machine.name).entered();
-        match self {
-            AnyDriver::Compose(d) => d.console_command(cx, machine, user),
-            AnyDriver::Vagrant(d) => d.console_command(cx, machine, user),
-            AnyDriver::Terraform(d) => d.console_command(cx, machine, user),
-        }
+        dispatch!(self, d => d.console_command(cx, machine, user))
     }
 
     pub(crate) fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-        match self {
-            AnyDriver::Compose(d) => d.in_guest(cx, vm, script, use_),
-            AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, use_),
-            AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, use_),
-        }
+        dispatch!(self, d => d.in_guest(cx, vm, script, use_))
     }
 }
 
