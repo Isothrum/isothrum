@@ -2,8 +2,8 @@
 //! the VM with `curl`, signed in with the run's connection (an API token, else the user's
 //! password through a ticket), its answer turned into the API's VNC websocket and the ticket that
 //! opens it ([`ProxmoxVnc`]). The credentials reach `curl` in a config file the runner writes
-//! owner-only in the run's state folder, pipes into it, and removes however the request ends
-//! (a cancel, Ctrl-C included): never on its command line.
+//! owner-only in the run's state folder, one per request, pipes into it, and removes however the
+//! request ends (a cancel, Ctrl-C included): never on its command line.
 
 use std::time::Duration;
 
@@ -25,8 +25,10 @@ mod answer;
 /// How long one API call may go without progress.
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// The config file `curl` reads, in the run's state folder, only while it runs ([`Transient`]).
-const CONFIG: &str = "proxmox-console.curl";
+/// The config file `curl` reads, in the run's state folder, only while it runs ([`Transient`]):
+/// `proxmox-console-<random>.curl`, one per request, since a status read takes no run lock and
+/// may run beside a console request.
+const CONFIG: (&str, &str) = ("proxmox-console", "curl");
 
 /// Proxmox VE's VNC websocket for one VM, opened for one session: connect to `websocket` with
 /// the `authorization` header (TLS unverified when `insecure`), then speak VNC with `ticket` as
@@ -183,7 +185,7 @@ async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Option<&str>), i
         text.push_str(f);
         text.push('\n');
     }
-    let config = Transient::write(cx.state_dir().join(CONFIG), text.as_bytes(), "a Proxmox API request's curl config")?;
+    let config = Transient::write_unique(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
     let mut args = vec!["--silent", "--show-error", "--fail-with-body", "--max-time", "25", "--config", "-"];
     if insecure {
         args.push("--insecure");

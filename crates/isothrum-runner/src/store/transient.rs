@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::Result;
+use crate::error::Error;
 
 /// An owner-only file in the run's state folder, removed when its use ends: by
 /// [`Transient::remove_after`] once the tool ran (its removal failing is an error), and on drop
@@ -25,6 +26,22 @@ impl Transient {
         Ok(Transient { path, what, held: true })
     }
 
+    /// `contents` written owner-only in a new file of its own in `dir`, named
+    /// `<stem>-<random>.<extension>`, `what` naming it: two uses at once (requests that take no
+    /// lock) never read, replace or remove each other's.
+    pub(crate) fn write_unique(dir: &Path, (stem, extension): (&str, &str), contents: &[u8], what: &'static str) -> Result<Transient> {
+        let mut tries = 0;
+        loop {
+            let path = dir.join(format!("{stem}-{}.{extension}", suffix()?));
+            match super::write_new_private(&path, contents) {
+                Ok(()) => return Ok(Transient { path, what, held: true }),
+                // A name already taken (as good as never with 64 random bits): another one.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries < 8 => tries += 1,
+                Err(e) => return Err(Error::io(&path, "written")(e)),
+            }
+        }
+    }
+
     /// Where it is.
     pub(crate) fn path(&self) -> &Path {
         &self.path
@@ -41,6 +58,17 @@ impl Transient {
         }
         done.and_then(|value| removed.map(|()| value))
     }
+}
+
+/// 64 random bits, as lowercase hex.
+fn suffix() -> Result<String> {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).map_err(|e| Error::io("the OS's random source", "read")(std::io::Error::other(e.to_string())))?;
+    Ok(bytes.iter().fold(String::with_capacity(16), |mut hex, b| {
+        hex.extend(char::from_digit(u32::from(b >> 4), 16));
+        hex.extend(char::from_digit(u32::from(b & 15), 16));
+        hex
+    }))
 }
 
 impl Drop for Transient {
@@ -68,6 +96,24 @@ mod tests {
         let cut_at = cut.path().to_path_buf();
         drop(cut);
         assert!(!cut_at.exists(), "a use cut short removes it too");
+    }
+
+    /// Regression: every Proxmox API request wrote the same file, so a status read beside a
+    /// console request read, replaced or removed the other's credentials.
+    #[test]
+    fn each_unique_use_has_a_file_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Transient::write_unique(dir.path(), ("req", "curl"), b"a", "a test's file").unwrap();
+        let b = Transient::write_unique(dir.path(), ("req", "curl"), b"b", "a test's file").unwrap();
+        assert_ne!(a.path(), b.path());
+        let name = a.path().file_name().unwrap().to_str().unwrap().to_owned();
+        let (stem, extension) = name.rsplit_once('.').unwrap();
+        assert!(stem.starts_with("req-") && extension == "curl", "{name}");
+        let b_at = b.path().to_path_buf();
+        a.remove_after(Ok(())).unwrap();
+        assert_eq!(std::fs::read(&b_at).unwrap(), b"b", "the other use's file is untouched");
+        drop(b);
+        assert!(!b_at.exists());
     }
 
     #[test]
