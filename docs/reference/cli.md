@@ -14,6 +14,7 @@ Every command takes the global options. Exit codes: [exit-codes.md](exit-codes.m
 
 - `--home <DIR>`: The runner's home, where runs are recorded (default: `$ISOTHRUM_HOME`, else `~/.isothrum`)
 - `--json`: Machine-readable output on standard output: an operation's events, and the ones `events` replays, one JSON object per line; `status`, `console`, `screen` and `key` print one JSON document; any failure is an `error` event. `completions` prints its script either way.
+- `--no-service`: Run the command in this process rather than through the home's runner service (also `ISOTHRUM_NO_SERVICE=1`): for tests and CI, where nothing should outlive the command.
 
 ## `isothrum up`
 
@@ -261,6 +262,17 @@ Print the runner's SSH public key (made when it has none): authorize it where a 
 isothrum key [OPTIONS]
 ```
 
+
+## `isothrum serve`
+
+Run the home's runner service: it runs every operation of the home (one at a time per run, runs side by side) and streams their events to its clients. The other commands start it when it isn't running and talk to it (unless `--no-service`)
+
+```text
+isothrum serve [OPTIONS]
+```
+
+- `--idle-timeout <SECONDS>`: Stop after this many seconds with no client and no operation (0: never) Default: `600`.
+- `--detach`: Run as a background service, as a client starts it: a terminal's hang-up doesn't stop it, and it logs at `info` unless `ISOTHRUM_LOG` says otherwise.
 
 ## `isothrum completions`
 

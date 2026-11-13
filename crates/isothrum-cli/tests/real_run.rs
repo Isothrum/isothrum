@@ -30,6 +30,7 @@ impl Real {
     /// `isothrum <args> --json` on the run; its output lines, and whether it exited 0.
     fn run(&mut self, args: &[&str]) -> Outcome<(Vec<Value>, bool)> {
         let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+            .env("ISOTHRUM_NO_SERVICE", "1")
             .args(args)
             .arg(&self.run)
             .args(["--name", NAME, "--json", "--home"])

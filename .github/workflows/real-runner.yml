@@ -117,6 +117,8 @@ jobs:
           {
             echo "RECORD=$RECORD"
             echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
+            # In-process: nothing outlives the job.
+            echo "ISOTHRUM_NO_SERVICE=1"
             echo "RUN_DIR=$RUNNER_TEMP/run"
           } >> "$GITHUB_ENV"
 
@@ -259,6 +261,8 @@ jobs:
           {
             echo "RECORD=$RECORD"
             echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
+            # In-process: nothing outlives the job.
+            echo "ISOTHRUM_NO_SERVICE=1"
             echo "RUN_DIR=$RUNNER_TEMP/run"
           } >> "$GITHUB_ENV"
 

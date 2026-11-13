@@ -25,6 +25,7 @@ pub(crate) async fn run<R: Borrow<Runner>>(cli: &Cli, runner: impl FnOnce() -> R
             return Ok(Verdict::Pass);
         }
         Command::Runner(command) => command,
+        Command::Serve(_) => return Err(Error::Usage("`serve` runs the service, not a command on a runner".into())),
     };
     let runner = runner()?;
     let (json, human) = (Json(term), Human(term));
@@ -130,10 +131,10 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
 }
 
 /// Where a command writes: the terminal (JSON lines with `json`), and its operation's events.
-struct Out<'a> {
-    json: bool,
-    term: &'a Term,
-    events: &'a dyn Events,
+pub(crate) struct Out<'a> {
+    pub(crate) json: bool,
+    pub(crate) term: &'a Term,
+    pub(crate) events: &'a dyn Events,
 }
 
 /// A command that changes the run's life, written to `out`.
@@ -165,7 +166,7 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
 }
 
 /// How `mode` parks a run.
-fn park_mode(mode: Mode) -> Park {
+pub(crate) fn park_mode(mode: Mode) -> Park {
     match mode {
         Mode::Pause => Park::Pause,
         Mode::Shutdown => Park::Shutdown,

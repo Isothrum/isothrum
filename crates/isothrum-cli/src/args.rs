@@ -23,6 +23,10 @@ pub(crate) struct Cli {
     /// document; any failure is an `error` event. `completions` prints its script either way.
     #[arg(long, global = true)]
     pub(crate) json: bool,
+    /// Run the command in this process rather than through the home's runner service (also
+    /// `ISOTHRUM_NO_SERVICE=1`): for tests and CI, where nothing should outlive the command.
+    #[arg(long, global = true)]
+    pub(crate) no_service: bool,
 }
 
 /// What the command line asks for.
@@ -31,6 +35,10 @@ pub(crate) enum Command {
     /// A command on the runner: every one but `completions`.
     #[command(flatten)]
     Runner(Box<RunnerCommand>),
+    /// Run the home's runner service: it runs every operation of the home (one at a time per run,
+    /// runs side by side) and streams their events to its clients. The other commands start it
+    /// when it isn't running and talk to it (unless `--no-service`).
+    Serve(ServeArgs),
     /// Print the shell completion script for `shell` (e.g. `isothrum completions bash >
     /// /etc/bash_completion.d/isothrum`).
     Completions {
@@ -177,6 +185,18 @@ fn wire_parser<T: serde::de::DeserializeOwned + schemars::JsonSchema + Clone + S
     PossibleValuesParser::new(every_name::<T>()).try_map(|name| from_wire_name::<T>(&name).ok_or("not a name Isoloom gives"))
 }
 
+/// How the service runs.
+#[derive(Debug, Args)]
+pub(crate) struct ServeArgs {
+    /// Stop after this many seconds with no client and no operation (0: never).
+    #[arg(long, value_name = "SECONDS", default_value_t = 600)]
+    pub(crate) idle_timeout: u64,
+    /// Run as a background service, as a client starts it: a terminal's hang-up doesn't stop it,
+    /// and it logs at `info` unless `ISOTHRUM_LOG` says otherwise.
+    #[arg(long)]
+    pub(crate) detach: bool,
+}
+
 /// What `reap` sweeps.
 #[derive(Debug, Args)]
 pub(crate) struct ReapArgs {
@@ -260,7 +280,7 @@ mod tests {
     fn on_runner(command: Command) -> RunnerCommand {
         match command {
             Command::Runner(command) => *command,
-            Command::Completions { .. } => panic!("not a runner command"),
+            Command::Completions { .. } | Command::Serve(_) => panic!("not a runner command"),
         }
     }
 
@@ -409,5 +429,20 @@ mod tests {
             on_runner(park.command),
             RunnerCommand::Lifecycle(Lifecycle::Park { mode: Mode::Pause, .. })
         ));
+    }
+
+    #[test]
+    fn serve_takes_its_idle_time_and_any_command_runs_without_the_service_when_asked() {
+        let serve = Cli::parse_from(["isothrum", "serve", "--home", "/h", "--idle-timeout", "5", "--detach"]);
+        assert!(matches!(serve.command, Command::Serve(ServeArgs { idle_timeout: 5, detach: true })));
+        let default = Cli::parse_from(["isothrum", "serve"]);
+        assert!(matches!(
+            default.command,
+            Command::Serve(ServeArgs {
+                idle_timeout: 600,
+                detach: false
+            })
+        ));
+        assert!(Cli::parse_from(["isothrum", "up", "--no-service"]).no_service);
     }
 }
