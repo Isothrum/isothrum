@@ -6,7 +6,6 @@
 //! The store is synchronous: its transactions are a few rows, and the runner calls it inline
 //! from async code, as it read and wrote its files before.
 
-mod import;
 mod journal;
 mod leases;
 mod owner;
@@ -21,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -60,10 +59,9 @@ pub struct Tx<'c> {
 }
 
 impl Store {
-    /// The home's store, `<home>/state.db`: created owner-only when missing, migrated to this
-    /// runner's schema, and, the first time a home a 2.x runner wrote is opened, imported from
-    /// its files (`runs/<name>/record.json`, `seen.json`, `events.jsonl`, the
-    /// anonymous volumes), which are then left read-only beside it.
+    /// The home's store, `<home>/state.db`: created owner-only when missing, and migrated to this
+    /// runner's schema. Nothing else of the home is read: files another release left in it are
+    /// ignored.
     ///
     /// # Errors
     ///
@@ -83,7 +81,6 @@ impl Store {
         conn.pragma_update(None, "synchronous", "NORMAL").map_err(failed("opened"))?;
         let store = Store { conn: Mutex::new(conn), path };
         store.migrate()?;
-        store.write(|tx| import::from_files(tx, home))?;
         Ok(store)
     }
 
@@ -152,26 +149,7 @@ impl Store {
     }
 }
 
-impl Tx<'_> {
-    /// The value of `store_meta`'s `key`.
-    pub(crate) fn meta(&self, key: &str) -> Result<Option<String>> {
-        self.tx
-            .query_row("SELECT value FROM store_meta WHERE key = ?1", [key], |r| r.get(0))
-            .optional()
-            .map_err(failed("read"))
-    }
-
-    /// Sets `store_meta`'s `key`.
-    pub(crate) fn set_meta(&mut self, key: &str, value: &str) -> Result<()> {
-        self.tx
-            .execute(
-                "INSERT INTO store_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [key, value],
-            )
-            .map_err(failed("written"))?;
-        Ok(())
-    }
-}
+impl Tx<'_> {}
 
 /// The store's failure to do `action`, with the code SQLite's error has: a database busy past the
 /// wait is `locked`, a file that isn't one `store_corrupt`, anything else `io`.

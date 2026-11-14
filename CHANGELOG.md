@@ -39,8 +39,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   every state move with the operation that made it, the journal of operations (started, steps,
   ended), the events, the resources each run made (written ahead: `creating` before the call,
   `created` with the id after), the host ports reserved and the leases. It replaces `record.json`,
-  `seen.json`, `events.jsonl`, `anonymous-volumes` and `ports/*.lock`. A 2.x home is imported on
-  its first open, once, its files left read-only beside the store. An operation finds the
+  `seen.json`, `events.jsonl`, `anonymous-volumes` and `ports/*.lock`. A 3.0 home starts empty:
+  nothing of a 2.x home is read (stop and remove 2.x runs with the 2.x command line first). An
+  operation finds the
   operations a dead process left unfinished, ends them `abandoned` and records a run they left
   moving as `failed`. A host port's reservation is held under its run's lease, renewed while held:
   a dead holder's is taken over.

@@ -278,9 +278,8 @@ impl Tx<'_> {
         self.append_raw_event(event.run.as_deref(), operation, &to_json(event)?)
     }
 
-    /// Appends an event already written as JSON, as written (a 2.x runner's imported line,
-    /// another version's kind): it is read back as an event when this runner reads it, else
-    /// counted unreadable.
+    /// Appends an event already written as JSON, as written (another version's kind): it is read
+    /// back as an event when this runner reads it, else counted unreadable.
     ///
     /// # Errors
     ///

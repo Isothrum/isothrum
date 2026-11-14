@@ -88,44 +88,12 @@ The record's fields:
 A run's row stays after a successful `down`, with state `absent`. A store a newer Isothrum wrote
 is refused (`store_version`).
 
-## Migrating a home to 3.0
+## Upgrading from 2.x
 
-3.0 keeps a home's state in `state.db` instead of files. Nothing needs doing by hand: the first
-time a 3.0 runner opens a home a 2.x runner wrote, it imports it, once.
-
-| 2.x | 3.0 |
-|---|---|
-| `runs/<run>/record.json` | A row of `runs`: the same fields, its state as it was. What the user wants of the run is read from that state: `ready`, `starting`, `resuming` or `failed` give `running`; `parked` or `parking` give `parked`; `absent` or `stopping` give `gone`. |
-| `runs/<run>/seen.json` | The row's last observation. |
-| `runs/<run>/events.jsonl` | Rows of `events`, as written (`v: 0`). `isothrum events` still replays them. |
-| `runs/<run>/anonymous-volumes` | Live `volume` resources of an operation recorded as abandoned: the run's next `down` or `update` removes them. |
-| `ports/<protocol>-<port>.lock` | No longer used: reservations are rows held under the run's lease. |
-| `runs/<run>/lock`, `slots.lock`, `tools/` | Unchanged. |
-
-The imported files stay beside the store, read-only, and are never read again. A record that
-can't be read is left as it was, writable, and said (the run isn't imported). Don't point a 2.x
-runner at a home a 3.0 runner has opened: it would read the old files, and its first write fails
-on the read-only ones. Going back from 3.0 to 2.x is not supported.
-
-What a reader of the runner's output sees change:
-
-- **Run states.** `starting` is `creating`, `stopping` is `destroying`, and `updating` is new: an
-  `update` moves the run through it, and a failed update leaves the run `failed` (a status read
-  that finds every machine running brings it back to `ready`). 3.0 still reads 2.x's words.
-- **Events v1** (`schema/events-v1.schema.json`): every event's `v` is 1, and an event of an
-  operation carries `operation`, its id in the journal. New kinds: `desired` (what the user now
-  wants of the run, when an operation that sets it begins), `resource` (a move of a resource row),
-  and `operation` (a service's queued, started and ended phases). A reader that ignores the kinds
-  and fields it doesn't know, as the event stream asks, only needs the new state words.
-- **Status.** `status` reconciles: a live read records what it saw, and moves a settled run where
-  the state machine allows (a machine stopped outside: `ready` to `failed`). `--json` carries
-  `desired` and `failed_cause`.
-- **Error codes.** New: `illegal_transition` (the operation can't begin from where the run stands),
-  `state_conflict` (the run moved meanwhile: retry), `store_version` (a newer Isothrum wrote the
-  home's store), `store_corrupt` (`state.db` isn't what the runner wrote), `lease_held` (another
-  live process holds the run). See [Exit codes](exit-codes.md).
-- **The home is absolute.** A relative `--home` (or `ISOTHRUM_HOME`) is resolved once, against
-  the folder the command starts in.
+3.0 doesn't read a home a 2.x runner wrote. Before upgrading, stop and remove every 2.x run with
+the 2.x command line (`isothrum down` for each). A 3.0 home starts empty: the files a 2.x runner
+left in it (`runs/<run>/record.json`, `seen.json`, `events.jsonl`,
+`anonymous-volumes`, `ports/`) are neither read nor removed, and can be deleted by hand.
 
 ## Adopting an existing Terraform deployment
 
