@@ -62,7 +62,11 @@ impl Tx<'_> {
                             token: r.get(2)?,
                         },
                         acquired_at: r.get(3)?,
-                        expires_at: r.get(4)?,
+                        // SQLite's integers are i64: rusqlite reads no u64.
+                        expires_at: r
+                            .get::<_, i64>(4)?
+                            .try_into()
+                            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Integer, Box::new(e)))?,
                     })
                 },
             )
