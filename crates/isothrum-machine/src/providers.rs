@@ -179,6 +179,26 @@ fn kvm_problem(dev: &Path) -> Option<String> {
     }
 }
 
+/// Why VirtualBox can't start a VM although `VBoxManage` runs: on Linux, its kernel driver isn't
+/// loaded (a kernel updated since its module was built, Secure Boot refusing the unsigned module),
+/// which VirtualBox's wrapper only warns of before running the command, whose answer is otherwise
+/// as usual. `None` when it warns of nothing.
+async fn vbox_driver_problem(runner: &dyn ProcessRunner) -> Option<String> {
+    let said = exec::read_all(runner, "VBoxManage", &["--version"]).await.ok()?;
+    vbox_driver_missing(&said).then(|| VBOX_DRIVER_MISSING.to_owned())
+}
+
+/// What VirtualBox whose kernel driver isn't loaded needs.
+const VBOX_DRIVER_MISSING: &str = "VirtualBox's kernel driver isn't loaded, so it can't start VMs: rebuild it with `sudo /sbin/vboxconfig` \
+(with Secure Boot on, enroll the key it signs it with), or reinstall VirtualBox for this kernel";
+
+/// Whether `said`, what `VBoxManage` printed, warns that its kernel driver isn't there: Oracle's
+/// packages (`The vboxdrv kernel module is not loaded`) and the distributions'
+/// (`The character device /dev/vboxdrv does not exist`).
+fn vbox_driver_missing(said: &str) -> bool {
+    said.lines().any(|l| l.trim_start().starts_with("WARNING:") && l.contains("vboxdrv"))
+}
+
 /// The QEMU binary for this machine's CPU.
 fn qemu_binary() -> &'static str {
     qemu_binary_on(this_arch())
@@ -287,7 +307,11 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         let needs_admin = needs_admin(provider, hypervisor, runner).await;
-        let platform_problem = if provider == Provider::Libvirt { kvm_problem(Path::new(KVM)) } else { None };
+        let platform_problem = match provider {
+            Provider::Libvirt => kvm_problem(Path::new(KVM)),
+            Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
+            _ => None,
+        };
         let platform_problem = platform_problem.as_deref();
         let detection = Detection {
             hypervisor,

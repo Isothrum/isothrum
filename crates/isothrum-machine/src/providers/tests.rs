@@ -296,3 +296,28 @@ fn hyperv_needs_admin_folds_into_its_reason() {
     assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(true)).as_deref(), Some(HYPERV_NEEDS_ADMIN));
     assert_eq!(unavailable_reason(Provider::Hyperv, hyperv(false)), None);
 }
+
+/// Regression (#128): with its kernel driver not loaded, `VBoxManage` still answers, after a
+/// warning, and VirtualBox read as ready until `vagrant up` failed.
+#[tokio::test]
+async fn a_virtualbox_whose_kernel_driver_isnt_loaded_isnt_ready() {
+    let oracle = "WARNING: The vboxdrv kernel module is not loaded. Either there is no module\n         available for the current kernel (6.8.0-49-generic) or it failed to\n         load. Please recompile the kernel module and install it by\n\n           sudo /sbin/vboxconfig\n\n         You will not be able to start VMs until this problem is fixed.\n7.0.14r161095";
+    let distribution = "WARNING: The character device /dev/vboxdrv does not exist.\n\t Please install the virtualbox-dkms package and the appropriate\n\t headers, most likely linux-headers-6.8.0-49-generic.\n\n\t You will not be able to start VMs until this problem is fixed.\n7.0.16_Ubuntur162802";
+    for said in [oracle, distribution] {
+        assert!(vbox_driver_missing(said), "{said}");
+        let tools = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok(said))]);
+        assert_eq!(vbox_driver_problem(&tools).await.as_deref(), Some(VBOX_DRIVER_MISSING));
+        // Printed on standard error, it is read too.
+        let mut on_stderr = Reply::ok("7.0.14r161095");
+        on_stderr.stderr = said.lines().map(str::to_owned).collect();
+        let warned_on_stderr = FakeProcesses::rules(&[("VBoxManage --version", on_stderr)]);
+        assert_eq!(vbox_driver_problem(&warned_on_stderr).await.as_deref(), Some(VBOX_DRIVER_MISSING));
+    }
+    let fine = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok("7.1.4r165100"))]);
+    assert_eq!(vbox_driver_problem(&fine).await, None);
+    if applicable(Provider::Virtualbox) {
+        let detected = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok(oracle)), ("vagrant plugin list", Reply::ok(""))]);
+        let virtualbox = detect(&detected, true).await.into_iter().find(|s| s.provider == Provider::Virtualbox).unwrap();
+        assert_eq!(virtualbox.reason.as_deref(), Some(VBOX_DRIVER_MISSING));
+    }
+}

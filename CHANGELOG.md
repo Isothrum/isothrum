@@ -60,6 +60,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **Proxmox VE requests work with a curl older than 7.76 (#133).** They used `--fail-with-body`,
+  which an older curl refuses with the whole command line; the HTTP status is now read from
+  `--write-out` after the body.
+- **VirtualBox no longer reads as ready on Linux while its kernel driver isn't loaded (#128).**
+  `VBoxManage` still answers then, after a warning, and the provider read as ready until
+  `vagrant up` failed; detection now says the driver is missing and how to rebuild it.
 - **A command's line quotes an argument that holds a space (#130).** `ProcessSpec::line`, the
   form messages and the event stream show a command in, joined the arguments with spaces, so one
   argument with a space read as two.

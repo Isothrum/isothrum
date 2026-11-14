@@ -14,6 +14,18 @@ pub(crate) async fn read_any_exit(runner: &dyn ProcessRunner, program: &str, arg
     run(runner, program, args).await.map(|out| out.stdout.join("\n"))
 }
 
+/// Runs `program args` and returns everything it printed, standard output then its last
+/// standard error lines, whatever its exit code: a warning a tool prints on either.
+///
+/// # Errors
+///
+/// [`ProcessError`] when the tool is not installed or the OS refuses to start it.
+pub(crate) async fn read_all(runner: &dyn ProcessRunner, program: &str, args: &[&str]) -> Result<String, ProcessError> {
+    run(runner, program, args)
+        .await
+        .map(|out| out.stdout.iter().chain(&out.stderr_tail).cloned().collect::<Vec<_>>().join("\n"))
+}
+
 /// Runs `program args` and returns its standard output when it exits 0.
 ///
 /// # Errors
