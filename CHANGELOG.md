@@ -60,6 +60,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **`reap <cloud>` refuses a `--region` or `--project` its cloud's query doesn't read (#134).**
+  `reap azure --region westeurope` searched the CLI's default region and said nothing was left,
+  while a leftover in the region named kept billing; such a flag is now a usage error (exit 2),
+  before anything is destroyed.
+- **Hyper-V no longer reads as ready while Windows' hypervisor isn't running (#135).** Detection
+  now asks whether the hypervisor is present (bounded at 20 seconds) and says so when it isn't.
 - **Proxmox VE requests work with a curl older than 7.76 (#133).** They used `--fail-with-body`,
   which an older curl refuses with the whole command line; the HTTP status is now read from
   `--write-out` after the body.

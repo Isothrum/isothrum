@@ -321,3 +321,34 @@ async fn a_virtualbox_whose_kernel_driver_isnt_loaded_isnt_ready() {
         assert_eq!(virtualbox.reason.as_deref(), Some(VBOX_DRIVER_MISSING));
     }
 }
+
+/// Regression (#135): Hyper-V turned on with its hypervisor off (`hypervisorlaunchtype off`,
+/// virtualization off in the firmware) read as ready, and `vagrant up` failed minutes in.
+#[tokio::test]
+async fn an_installed_hyperv_whose_hypervisor_isnt_running_isnt_ready() {
+    let said = |answer: Reply| FakeProcesses::rules(&[("powershell", answer)]);
+    assert_eq!(hypervisor_stopped(&said(Reply::ok("False\r\n"))).await.as_deref(), Some(HYPERVISOR_STOPPED));
+    assert_eq!(hypervisor_stopped(&said(Reply::ok("True"))).await, None);
+    assert_eq!(
+        hypervisor_stopped(&said(Reply::fail(1, "Get-CimInstance : Access denied"))).await,
+        None,
+        "unknown adds no reason"
+    );
+    assert_eq!(hypervisor_stopped(&said(Reply::missing())).await, None);
+    let asked = said(Reply::ok("False"));
+    hypervisor_stopped(&asked).await;
+    assert_eq!(asked.calls()[0].args.last().map(String::as_str), Some(HYPERVISOR_PRESENT));
+    // Folded into Hyper-V's status after the layers before it.
+    let off = Detection {
+        hypervisor: Some(true),
+        hypervisor_version: None,
+        unresponsive: false,
+        plugin: None,
+        plugin_installed: true,
+        plugin_version: None,
+        plugins_unknown: None,
+        needs_admin: false,
+        platform_problem: Some(HYPERVISOR_STOPPED),
+    };
+    assert_eq!(unavailable_reason(Provider::Hyperv, off).as_deref(), Some(HYPERVISOR_STOPPED));
+}

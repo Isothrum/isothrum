@@ -159,6 +159,29 @@ fn hyperv_enabled() -> bool {
     root.join("System32").join("vmms.exe").is_file()
 }
 
+/// Why an installed Hyper-V can't start a VM: Windows' hypervisor isn't running (virtualization
+/// off in the firmware, or `hypervisorlaunchtype off`, often set so VirtualBox runs faster), which
+/// the feature's files and service don't show. Asked of `Win32_ComputerSystem.HypervisorPresent`,
+/// which PowerShell prints as `True` or `False` whatever the display language. `None` when it runs,
+/// or when Windows can't say.
+async fn hypervisor_stopped(runner: &dyn ProcessRunner) -> Option<String> {
+    // WMI can hang on a damaged repository: an answer that doesn't come in time is no answer.
+    let asking = exec::read_ok(runner, "powershell", &["-NoProfile", "-NonInteractive", "-Command", HYPERVISOR_PRESENT]);
+    let asked = tokio::time::timeout(HYPERVISOR_PROBE, asking).await.ok()?;
+    // Any other answer, or none, leaves it unknown: Hyper-V is then taken as ready, as before.
+    (asked.as_deref().map(str::trim) == Ok("False")).then(|| HYPERVISOR_STOPPED.to_owned())
+}
+
+/// How long Windows may take to say whether its hypervisor runs.
+const HYPERVISOR_PROBE: Duration = Duration::from_secs(20);
+
+/// The PowerShell that says whether Windows' hypervisor runs.
+const HYPERVISOR_PRESENT: &str = "(Get-CimInstance -ClassName Win32_ComputerSystem).HypervisorPresent";
+
+/// What an installed Hyper-V whose hypervisor doesn't run needs.
+const HYPERVISOR_STOPPED: &str = "Hyper-V is turned on but Windows' hypervisor isn't running: turn virtualization on in the firmware, \
+or run `bcdedit /set hypervisorlaunchtype auto` as an administrator, then restart Windows";
+
 /// KVM's device, which vagrant-libvirt's guests run on.
 const KVM: &str = "/dev/kvm";
 
@@ -310,6 +333,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let platform_problem = match provider {
             Provider::Libvirt => kvm_problem(Path::new(KVM)),
             Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
+            Provider::Hyperv if hypervisor == Some(true) => hypervisor_stopped(runner).await,
             _ => None,
         };
         let platform_problem = platform_problem.as_deref();
