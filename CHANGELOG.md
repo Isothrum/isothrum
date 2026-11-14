@@ -62,6 +62,10 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A Proxmox VM missing from the server's resource listing no longer reads as absent (#114).** A
+  user without `VM.Audit` on a VM doesn't see it listed; the runner now asks the server whether
+  the VM's id is still held (`cluster/nextid`), reads the VM absent only when it isn't, and keeps
+  the run's own state on any other answer.
 - **A Proxmox VM left out of the server's listing no longer reads absent on that alone.**
   `cluster/resources` lists only the VMs the credentials may audit, and was asked once, of the
   first VM's server, for every VM; a token without `VM.Audit` on one VM, or VMs on another
