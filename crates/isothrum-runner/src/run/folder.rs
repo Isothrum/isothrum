@@ -80,19 +80,32 @@ impl<'r> FolderRun<'r> {
     /// format reads them ([`crate::project::inputs`]).
     fn tool_env(&self, opts: &RunOptions) -> Result<Vec<(String, String)>> {
         let mut env = vec![(crate::RUN_KEY_VAR.to_owned(), self.runner.copy_key(&self.name))];
+        if self.project.format == Format::Terraform {
+            // Every run of the runner shares one provider cache, unless the user has their own.
+            let cache = crate::driver::plugin_cache(&self.runner.config);
+            std::fs::create_dir_all(&cache).map_err(Error::io(&cache, "create"))?;
+            env.push(("TF_PLUGIN_CACHE_DIR".to_owned(), cache.to_string_lossy().into_owned()));
+        }
         env.extend(crate::project::inputs::environment(self.project.format, &opts.env, &opts.secrets)?);
         Ok(env)
     }
 
     /// The process runner of an operation: its tools recorded in the run's state folder while they
     /// run, so a killed operation's are ended by the next ([`crate::process::ledger`]).
-    fn operation_processes(&self) -> Arc<dyn ProcessRunner> {
+    fn operation_processes(&self, opts: &RunOptions) -> Arc<dyn ProcessRunner> {
         let tools = self.state_dir().join(crate::process::ledger::DIR);
-        Arc::new(crate::process::Recording::new(
+        let recorded: Arc<dyn ProcessRunner> = Arc::new(crate::process::Recording::new(
             Arc::clone(&self.runner.config.processes),
             tools,
             self.runner.operation_of(&self.name),
-        ))
+        ));
+        let windows = self.runner.config.host == isoloom_manifest::HostOs::Windows;
+        if windows && self.driver.elevates(opts.provider.map(Into::into)) {
+            let config = &self.runner.config;
+            let env = config.host_env.for_elevation(config.search_path.as_deref());
+            return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
+        }
+        recorded
     }
 
     /// Runs `work` with a tool context for this run, whose tool lines and warnings go to
@@ -159,7 +172,7 @@ impl<'r> FolderRun<'r> {
     /// the tool reports and reads where the run stands.
     async fn drive(&self, op: Op, opts: &RunOptions, events: &dyn Events, act: impl AsyncFnOnce(&ToolCx<'_>) -> Result<()>) -> Result<RunState> {
         self.operate(op, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, by: OperationId| {
-            let processes = self.operation_processes();
+            let processes = self.operation_processes(given);
             self.with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
                 self.recover(cx, emitter, by).await?;
                 self.driver.probe(cx).await?;
@@ -205,7 +218,7 @@ impl<'r> FolderRun<'r> {
     /// As [`FolderRun::up`]'s tool failures.
     pub async fn down(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.operate(Op::Down, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, by: OperationId| {
-            let processes = self.operation_processes();
+            let processes = self.operation_processes(given);
             self.with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
                 self.driver.probe(cx).await?;
                 self.driver.down(cx).await?;
@@ -289,7 +302,7 @@ impl<'r> FolderRun<'r> {
     /// When the command can't be run at all (the tool missing, the machine refused).
     pub async fn exec(&self, machine: &str, argv: &[String], opts: &RunOptions, events: &dyn Events) -> Result<ExecReport> {
         self.operate(Op::Check, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, _by: OperationId| {
-            let processes = self.operation_processes();
+            let processes = self.operation_processes(given);
             let ran = self
                 .with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
                     self.driver.exec(cx, machine, argv).await

@@ -2,10 +2,11 @@
 //! one place a new format joins.
 
 use super::compose::Compose;
+use super::terraform::Terraform;
+use super::vagrant::Vagrant;
 use super::{Change, FormatDriver, Found, Ran, Seen, ToolCx};
 use crate::Result;
 use crate::console::ShellCommand;
-use crate::error::Error;
 use crate::project::Format;
 use crate::project::platform::Provider;
 use crate::state::{Park, RunState};
@@ -16,6 +17,10 @@ use crate::store::ResourceKind;
 pub(crate) enum AnyFormat {
     /// Compose.
     Compose(Compose),
+    /// Vagrant.
+    Vagrant(Vagrant),
+    /// Terraform.
+    Terraform(Terraform),
 }
 
 /// Calls `$call` on the driver `$any` holds, bound to `$d`.
@@ -23,6 +28,8 @@ macro_rules! dispatch {
     ($any:expr, $d:ident => $call:expr) => {
         match $any {
             AnyFormat::Compose($d) => $call,
+            AnyFormat::Vagrant($d) => $call,
+            AnyFormat::Terraform($d) => $call,
         }
     };
 }
@@ -32,14 +39,13 @@ impl AnyFormat {
     ///
     /// # Errors
     ///
-    /// `unsupported` for a format whose driver this runner doesn't have yet.
+    /// None today: every format has its driver. Kept fallible for a format a build may lack.
     pub(crate) fn of(format: Format) -> Result<AnyFormat> {
-        match format {
-            Format::Compose => Ok(AnyFormat::Compose(Compose)),
-            other => Err(Error::Unsupported {
-                what: format!("running a {other} project (its driver isn't wired in this build yet)"),
-            }),
-        }
+        Ok(match format {
+            Format::Compose => AnyFormat::Compose(Compose),
+            Format::Vagrant => AnyFormat::Vagrant(Vagrant),
+            Format::Terraform => AnyFormat::Terraform(Terraform),
+        })
     }
 
     pub(crate) async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
