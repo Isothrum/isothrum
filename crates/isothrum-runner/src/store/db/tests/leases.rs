@@ -2,6 +2,7 @@
 //! from a dead or expired one.
 
 use super::*;
+use crate::port::HostPort;
 
 /// An owner whose process is gone, and this process.
 #[cfg(unix)]
@@ -87,21 +88,21 @@ fn a_port_is_reserved_by_one_live_operation_and_freed_with_its_lease() {
         .write(|tx| {
             tx.acquire_lease("run:one", &me, ttl)?;
             tx.acquire_lease("run:two", &other, ttl)?;
-            assert!(tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &me), 8080, Protocol::Tcp)?);
+            assert!(tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &me), HostPort::new(8080), Protocol::Tcp)?);
             assert!(
-                tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &me), 8080, Protocol::Tcp)?,
+                tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &me), HostPort::new(8080), Protocol::Tcp)?,
                 "its own again"
             );
-            assert!(!tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), 8080, Protocol::Tcp)?);
+            assert!(!tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), HostPort::new(8080), Protocol::Tcp)?);
             assert!(
-                tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), 8080, Protocol::Udp)?,
+                tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), HostPort::new(8080), Protocol::Udp)?,
                 "another protocol"
             );
-            assert_eq!(tx.port_holder(8080, Protocol::Tcp)?.map(|h| h.run), Some(one.clone()));
+            assert_eq!(tx.port_holder(HostPort::new(8080), Protocol::Tcp)?.map(|h| h.run), Some(one.clone()));
             assert_eq!(tx.port_reservations()?.len(), 2);
             tx.release_lease("run:one", &me)?;
             assert!(
-                tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), 8080, Protocol::Tcp)?,
+                tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &other), HostPort::new(8080), Protocol::Tcp)?,
                 "freed with its lease"
             );
             tx.release_ports(b.id)?;
@@ -119,9 +120,9 @@ fn a_port_a_dead_process_reserved_is_taken_over() {
     store
         .write(|tx| {
             tx.acquire_lease("run:one", &dead, Duration::from_secs(3600))?;
-            assert!(tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &dead), 8080, Protocol::Tcp)?);
+            assert!(tx.reserve_port(&Reserver::new(&one, Some(a.id), "run:one", &dead), HostPort::new(8080), Protocol::Tcp)?);
             tx.acquire_lease("run:two", &me, Duration::from_secs(60))?;
-            assert!(tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &me), 8080, Protocol::Tcp)?);
+            assert!(tx.reserve_port(&Reserver::new(&two, Some(b.id), "run:two", &me), HostPort::new(8080), Protocol::Tcp)?);
             Ok(())
         })
         .unwrap();

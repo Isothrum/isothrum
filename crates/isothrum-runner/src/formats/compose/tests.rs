@@ -143,7 +143,7 @@ async fn observe_reads_each_service_and_its_published_ports_and_derives_the_runs
     let (seen, state) = Compose.observe(&cx(&project, &run, &fake)).await.expect("read");
     assert_eq!(state, RunState::Ready, "an init job that ended well is no failure");
     let web = seen.machines.iter().find(|m| m.name == "web").expect("web");
-    assert_eq!((web.published[0].guest, web.published[0].host), (80, 41001));
+    assert_eq!((web.published[0].guest.get(), web.published[0].host.get()), (80, 41001));
 }
 
 #[test]

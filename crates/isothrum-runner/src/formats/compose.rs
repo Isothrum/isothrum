@@ -116,7 +116,7 @@ fn up_error(step: &str, e: CliError<Failure>) -> Error {
         CliError::Failed {
             failure: Failure::PortTaken, ..
         } => Error::PortInUse {
-            port: 0,
+            port: crate::port::HostPort::new(0),
             protocol: "tcp".to_owned(),
         },
         other => tool_error(step, other),

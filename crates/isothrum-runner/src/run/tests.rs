@@ -80,7 +80,7 @@ async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_
     assert_eq!(status.state, RunState::Ready);
     let web = status.machines.iter().find(|m| m.name == "web").expect("web");
     assert_eq!(web.state, MachineState::Running);
-    assert_eq!((web.published[0].port, web.published[0].host_port), (80, 41001));
+    assert_eq!((web.published[0].port.get(), web.published[0].host_port.get()), (80, 41001));
 
     let name = RunName::new("my-lab").expect("a name");
     let live = runner.store.db().read(|tx| tx.live_resources(&name)).expect("rows");

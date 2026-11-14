@@ -129,9 +129,9 @@ pub(crate) struct SeenMachine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SeenPort {
     /// The machine's port.
-    pub(crate) guest: u16,
+    pub(crate) guest: crate::port::GuestPort,
     /// The host port it answers at.
-    pub(crate) host: u16,
+    pub(crate) host: crate::port::HostPort,
     /// `tcp` or `udp`, when the tool says (Vagrant's `port` doesn't): never guessed.
     pub(crate) protocol: Option<crate::project::platform::Protocol>,
 }

@@ -391,8 +391,8 @@ pub enum LeaseOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PortReservation {
-    /// The port.
-    pub port: u16,
+    /// The port, on the host.
+    pub port: crate::port::HostPort,
     /// Its protocol.
     pub protocol: Protocol,
     /// The run.

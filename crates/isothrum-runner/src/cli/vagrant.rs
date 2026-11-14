@@ -189,9 +189,9 @@ pub(crate) async fn ssh_host(call: &Call<'_>, machine: &str) -> Result<String, C
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Forward {
     /// The guest's port.
-    pub(crate) guest: u16,
+    pub(crate) guest: crate::port::GuestPort,
     /// The host's.
-    pub(crate) host: u16,
+    pub(crate) host: crate::port::HostPort,
 }
 
 /// `port <machine> --machine-readable`'s forwards (`forwarded_port,<guest>,<host>` records).
@@ -203,8 +203,8 @@ pub(crate) fn forwards(out: &str) -> Result<Vec<Forward>, String> {
             let (guest, host) = data.split_once(',').ok_or_else(|| format!("a forward that isn't `guest,host`: {data}"))?;
             let port = |p: &str| p.trim().parse::<u16>().map_err(|e| format!("a forward's port `{p}`: {e}"));
             Ok(Forward {
-                guest: port(guest)?,
-                host: port(host)?,
+                guest: crate::port::GuestPort::new(port(guest)?),
+                host: crate::port::HostPort::new(port(host)?),
             })
         })
         .collect()
@@ -315,10 +315,17 @@ mod tests {
         );
     }
 
+    fn forward(guest: u16, host: u16) -> Forward {
+        Forward {
+            guest: crate::port::GuestPort::new(guest),
+            host: crate::port::HostPort::new(host),
+        }
+    }
+
     #[test]
     fn forwards_read_as_vagrant_prints_them() {
         let read = forwards(include_str!("../tool_output/fixtures/vagrant/2.4.1-port.txt")).unwrap();
-        assert_eq!(read, [Forward { guest: 22, host: 2222 }, Forward { guest: 80, host: 8080 }]);
+        assert_eq!(read, [forward(22, 2222), forward(80, 8080)]);
         assert!(forwards("1,web,forwarded_port,22").is_err(), "a cut record isn't a shorter list");
         assert_eq!(forwards("").unwrap(), Vec::<Forward>::new());
     }

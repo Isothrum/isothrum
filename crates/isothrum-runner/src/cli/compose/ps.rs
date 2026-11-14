@@ -45,9 +45,9 @@ struct Publisher {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ContainerPort {
     /// The container's port.
-    pub(crate) guest: u16,
+    pub(crate) guest: crate::port::GuestPort,
     /// The host port.
-    pub(crate) host: u16,
+    pub(crate) host: crate::port::HostPort,
     /// `tcp` or `udp`; `None` when Compose says no protocol, or one that is neither.
     pub(crate) protocol: Option<Protocol>,
 }
@@ -88,8 +88,8 @@ impl Container {
         let mut out: Vec<ContainerPort> = Vec::new();
         for p in self.publishers.iter().filter(|p| p.published_port > 0 && p.target_port > 0) {
             let port = ContainerPort {
-                guest: p.target_port,
-                host: p.published_port,
+                guest: crate::port::GuestPort::new(p.target_port),
+                host: crate::port::HostPort::new(p.published_port),
                 protocol: Protocol::parse(&p.protocol),
             };
             if !out.contains(&port) {
@@ -174,8 +174,8 @@ mod tests {
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"},
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"}]}]"#;
         let udp = ContainerPort {
-            guest: 80,
-            host: 41874,
+            guest: crate::port::GuestPort::new(80),
+            host: crate::port::HostPort::new(41874),
             protocol: Some(Protocol::Udp),
         };
         assert_eq!(read(ps)[0].published(), [udp]);
@@ -187,7 +187,7 @@ mod tests {
         let ps = r#"[{"Service":"web","State":"running","Publishers":[
             {"PublishedPort":41873,"TargetPort":80,"Protocol":"sctp"},
             {"PublishedPort":41874,"TargetPort":81}]}]"#;
-        let published: Vec<_> = read(ps)[0].published().iter().map(|p| (p.guest, p.protocol)).collect();
+        let published: Vec<_> = read(ps)[0].published().iter().map(|p| (p.guest.get(), p.protocol)).collect();
         assert_eq!(published, [(80, None), (81, None)]);
     }
 }

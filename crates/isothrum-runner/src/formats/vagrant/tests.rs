@@ -300,13 +300,13 @@ async fn observe_reads_each_machine_and_the_ports_of_those_running_without_guess
         web.published,
         [
             SeenPort {
-                guest: 22,
-                host: 2222,
+                guest: crate::port::GuestPort::new(22),
+                host: crate::port::HostPort::new(2222),
                 protocol: None
             },
             SeenPort {
-                guest: 80,
-                host: 8080,
+                guest: crate::port::GuestPort::new(80),
+                host: crate::port::HostPort::new(8080),
                 protocol: None
             }
         ]

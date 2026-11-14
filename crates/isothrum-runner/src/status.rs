@@ -58,12 +58,12 @@ impl std::fmt::Display for MachineState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct PublishedPort {
-    /// The machine's port.
-    pub port: u16,
+    /// The machine's port, inside it.
+    pub port: crate::port::GuestPort,
     /// `tcp` or `udp`; `None` when the tool doesn't say (Vagrant's `port`), never guessed.
     pub protocol: Option<Protocol>,
-    /// The host port.
-    pub host_port: u16,
+    /// The host port it is reached at, at the machine's host address.
+    pub host_port: crate::port::HostPort,
 }
 
 /// One machine of the run, as its tool reports it.
