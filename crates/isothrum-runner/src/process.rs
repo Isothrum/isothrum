@@ -189,9 +189,14 @@ impl ProcessRunner for Recording {
     }
 }
 
-/// `program` and `args` as one line, separated by spaces.
+/// `program` and `args` as one line, separated by spaces, each word quoted when it holds a space
+/// or another character a shell reads, so an argument with a space reads as one.
 fn command_line(program: &str, args: &[String]) -> String {
-    std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+    std::iter::once(program)
+        .chain(args.iter().map(String::as_str))
+        .map(crate::console::sh_word)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// How many of its last output lines stand in for a failed tool's silent standard error.
@@ -351,6 +356,9 @@ mod tests {
     fn a_spec_reads_as_its_command_line() {
         let spec = ProcessSpec::new("docker", ["compose", "ps"]);
         assert_eq!(spec.line(), "docker compose ps");
+        // An argument with a space reads as one word, not two.
+        let spaced = ProcessSpec::new("vagrant", ["up", "web server", "--provider=hyperv"]);
+        assert_eq!(spaced.line(), "vagrant up 'web server' --provider=hyperv");
         assert!(Exit { code: Some(0) }.success() && !Exit { code: None }.success());
     }
 }

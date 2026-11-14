@@ -407,7 +407,7 @@ async fn parallels_opens_a_running_vm_on_its_bundle() {
             }]
         )
     );
-    assert_eq!(fake.last("prlctl").unwrap().line(), "prlctl list --info --json {b1}");
+    assert_eq!(fake.last("prlctl").unwrap().line(), "prlctl list --info --json '{b1}'");
 }
 
 /// vagrant-qemu has no app of its own: none is named, and none opens.

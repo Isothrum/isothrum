@@ -192,7 +192,7 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     run.up(&opts(), &events).await.unwrap();
     let calls = f.fake.lines();
     let at = |text: &str| calls.iter().position(|l| l.contains(text)).unwrap_or_else(|| panic!("{text}: {calls:#?}"));
-    assert!(at("vagrant destroy --force") < at(&format!("VBoxManage unregistervm uuid-{} --delete", f.vm("web"))));
+    assert!(at("vagrant destroy --force") < at(&format!("VBoxManage unregistervm 'uuid-{}' --delete", f.vm("web"))));
     assert_eq!(calls.iter().filter(|l| l.starts_with("vagrant up --provider")).count(), 2);
     // Regression (#109): the sweep matched the manifest's names, which held no run's identity, and
     // deleted another run's VM of the same environment beside its own orphan.
@@ -213,7 +213,7 @@ async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
     let run = up_on_parallels(&f).await;
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
-    assert!(calls.contains(&format!("prlctl stop {} --kill", f.vm("web"))), "{calls:#?}");
+    assert!(calls.contains(&format!("prlctl stop '{}' --kill", f.vm("web"))), "{calls:#?}");
     assert_eq!(
         f.engine().parallels.clone().unwrap(),
         ["mine", "web-vm - web", ANOTHER_COPY].map(String::from).into()

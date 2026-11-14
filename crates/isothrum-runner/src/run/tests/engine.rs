@@ -27,7 +27,7 @@ async fn a_stopped_engine_fails_the_start_before_anything_is_created() {
         err.to_string(),
         "step `tools` failed: `docker` doesn't answer: Cannot connect to the Docker daemon (exited with code 1)"
     );
-    assert_eq!(fake.lines(), ["docker info --format {{.ServerVersion}}"], "nothing but the probe ran");
+    assert_eq!(fake.lines(), ["docker info --format '{{.ServerVersion}}'"], "nothing but the probe ran");
 }
 
 /// Docker 26 and older exit 0 with an empty line when the daemon doesn't answer: the probe reads
@@ -37,5 +37,5 @@ async fn a_stopped_engine_fails_the_start_before_anything_is_created() {
 async fn an_engine_answering_no_version_fails_the_start_as_a_stopped_one_does() {
     let (fake, err) = start_with_engine_answering(Reply::ok("\n")).await;
     assert!(err.to_string().contains("printed nothing (its daemon isn't running)"), "{err}");
-    assert_eq!(fake.lines(), ["docker info --format {{.ServerVersion}}"], "nothing but the probe ran");
+    assert_eq!(fake.lines(), ["docker info --format '{{.ServerVersion}}'"], "nothing but the probe ran");
 }
