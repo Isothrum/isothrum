@@ -11,6 +11,8 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- **`percent_encoded`: a value percent-encoded for a URL's query**, the one encoder the runner's
+  links and the command line's masked console ticket use.
 - **Every run has a key, and every tool of the run gets it.** `copy_key(home, name)` (and
   `Runner::copy_key`): six lowercase letters and digits made from the runner's home and the run's
   name, the same at every operation. Every command of every driver runs with it in
