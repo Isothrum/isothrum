@@ -1,7 +1,7 @@
 //! The operations on a run that exists: `down`, `park`, `resume`, `check` and `provision`. Each
 //! replays the params the run was started with.
 
-use serde_json::json;
+use crate::events::ResultData;
 
 use super::Running;
 use super::operation::Done;
@@ -135,7 +135,11 @@ impl Running<'_> {
             // A runner's step may name an output (`${outputs.ip}`, the router it goes through).
             self.bind_observed(&mut cx, observed);
             let report = checks::run(&mut cx).await?;
-            let data = json!({ "passed": report.results.iter().filter(|r| r.ok).count(), "failed": report.results.iter().filter(|r| !r.ok).count(), "unfinished": report.unfinished });
+            let data = ResultData::Checked {
+                passed: report.results.iter().filter(|r| r.ok).count(),
+                failed: report.results.iter().filter(|r| !r.ok).count(),
+                unfinished: report.unfinished.clone(),
+            };
             Ok(Done::checked(report.ok, report, data))
         })
         .await
@@ -173,7 +177,13 @@ impl Running<'_> {
                 None => ("lifecycle.provision.all", &provision.all),
             };
             run_steps(&mut cx, list, steps).await?;
-            Ok(Done::settled((), None, json!({ "machine": machine })))
+            Ok(Done::settled(
+                (),
+                None,
+                ResultData::Machine {
+                    machine: machine.map(str::to_owned),
+                },
+            ))
         })
         .await
     }

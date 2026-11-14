@@ -316,7 +316,7 @@ fn events_are_appended_in_order_and_read_after_a_cursor() {
             Some(Op::Up),
             EventKind::Result {
                 ok: true,
-                data: serde_json::Value::Null,
+                data: crate::ResultData::Moved { state: crate::RunState::Ready },
             },
         )
     };

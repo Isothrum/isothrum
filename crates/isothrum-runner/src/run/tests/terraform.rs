@@ -401,7 +401,7 @@ async fn retiring_a_machine_the_module_makes_is_left_to_the_apply() {
     assert!(ran.is_empty(), "{ran:?}");
     let last = events.events().last().cloned().unwrap();
     assert!(
-        matches!(&last.kind, crate::EventKind::Result { ok: true, data } if data["machine"] == "web"),
+        matches!(&last.kind, crate::EventKind::Result { ok: true, data } if *data == crate::ResultData::Machine { machine: Some("web".into()) }),
         "{last:?}"
     );
 }

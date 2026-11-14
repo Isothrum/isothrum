@@ -180,6 +180,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
             "Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix."
         }
         ErrorCode::ManifestVersion => "Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom.",
+        ErrorCode::ProjectInvalid => {
+            "Point the command at the folder of one Compose project, Vagrantfile or Terraform module, or keep one format's files in it when it holds several."
+        }
         ErrorCode::Unsupported => "Upgrade Isothrum, generate the run for another target, or ask the run for what its target does.",
         ErrorCode::Io => {
             "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`); for a port, the open-file limit (`ulimit -n`) and the loopback."
@@ -188,9 +191,6 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
             "The file the message names is the runner's own and isn't what it wrote: another version's, or damaged. Remove it (a record: the run's folder), or regenerate the run."
         }
         ErrorCode::Locked => "Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it.",
-        ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
-        ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
-        ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
         ErrorCode::Timeout => {
             "See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
         }
@@ -231,7 +231,18 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ServerAuthFailed => {
             "The server took the run's credentials no more: give the run its new API token or password (its connection's slot), then retry."
         }
-        _ => return store_remedy(code),
+        _ => return tool_remedy(code).or_else(|| store_remedy(code)),
+    })
+}
+
+/// What to do about `code`, one of a tool's (missing, failed, too old, unanswered).
+fn tool_remedy(code: ErrorCode) -> Option<&'static str> {
+    Some(match code {
+        ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
+        ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
+        ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
+        ErrorCode::ToolUnanswered => "Start the tool's service (Docker Desktop, the Docker engine) or give this account access to it, then retry.",
+        _ => return None,
     })
 }
 

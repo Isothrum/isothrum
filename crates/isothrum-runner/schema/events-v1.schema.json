@@ -270,7 +270,8 @@
           "type": "boolean"
         },
         "data": {
-          "description": "What it found or produced."
+          "description": "What it found or produced, by operation.",
+          "$ref": "#/$defs/ResultData"
         },
         "event": {
           "type": "string",
@@ -624,6 +625,296 @@
         }
       ]
     },
+    "ResultData": {
+      "description": "What an operation found or produced, by operation.",
+      "anyOf": [
+        {
+          "description": "An `up` that came up: where the run stands, its outputs, and its message.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "description": "Where the run stands (`ready`).",
+              "$ref": "#/$defs/RunState"
+            },
+            "outputs": {
+              "description": "Its outputs, sensitive values shown as `***`.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ShownOutput"
+              }
+            },
+            "message": {
+              "description": "Its message to the user, its placeholders filled, when the manifest gives one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "outputs"
+          ]
+        },
+        {
+          "description": "A `check`: how its checks went.",
+          "type": "object",
+          "properties": {
+            "passed": {
+              "description": "How many passed.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "failed": {
+              "description": "How many failed.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "unfinished": {
+              "description": "The check runners that didn't finish (no `END` line).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "failed",
+            "unfinished"
+          ]
+        },
+        {
+          "description": "A `reap`: the expired runs it destroyed or would, and what a cloud still holds.",
+          "type": "object",
+          "properties": {
+            "cloud": {
+              "description": "The cloud swept, by its wire name.",
+              "type": "string"
+            },
+            "destroyed": {
+              "description": "The runs destroyed.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "pending": {
+              "description": "The runs a dry run would destroy.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "failed": {
+              "description": "The runs whose destroy failed, with why.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SweepFailure"
+              }
+            },
+            "orphans": {
+              "description": "The cloud's resources past their expiry that no run records; none when the cloud\ncouldn't be searched.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/SweptResource"
+              }
+            },
+            "unread": {
+              "description": "What of the cloud couldn't be read; none when it couldn't be searched.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "cloud",
+            "destroyed",
+            "pending",
+            "failed"
+          ]
+        },
+        {
+          "description": "A `detach`: the access machine taken out.",
+          "type": "object",
+          "properties": {
+            "machine": {
+              "description": "Its manifest name.",
+              "type": "string"
+            },
+            "native": {
+              "description": "Its native name (the Compose service / Vagrant define).",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "machine",
+            "native"
+          ]
+        },
+        {
+          "description": "An `attach`: the access machine brought up, and where to reach it.",
+          "type": "object",
+          "properties": {
+            "machine": {
+              "description": "Its manifest name.",
+              "type": "string"
+            },
+            "native": {
+              "description": "Its native name.",
+              "type": "string"
+            },
+            "network": {
+              "description": "The run's network it is on.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "description": "Its address on that network.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "image": {
+              "description": "The image or box it was brought up with, when the user picked one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "machine",
+            "native"
+          ]
+        },
+        {
+          "description": "An operation on one machine or on all (`retire`, `provision`): which.",
+          "type": "object",
+          "properties": {
+            "machine": {
+              "description": "Its manifest name; none for every machine (a `provision` of the whole run).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An operation that moved the run (`down`, `park`, `resume`): where it stands.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "description": "Where the run stands now.",
+              "$ref": "#/$defs/RunState"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "ShownOutput": {
+      "description": "An output as a `result` event shows it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Its name.",
+          "type": "string"
+        },
+        "role": {
+          "description": "What it is for.",
+          "$ref": "#/$defs/OutputRole"
+        },
+        "value": {
+          "description": "Its value, when it can be read; `***` when it is sensitive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "role"
+      ]
+    },
+    "SweepFailure": {
+      "description": "A run a `reap` couldn't destroy.",
+      "type": "object",
+      "properties": {
+        "run": {
+          "description": "The run.",
+          "type": "string"
+        },
+        "error": {
+          "description": "Why its destroy failed.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "error"
+      ]
+    },
+    "SweptResource": {
+      "description": "A cloud resource past its expiry that no run records, as a `reap` shows it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Its id as the cloud names it.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What it is.",
+          "type": "string"
+        },
+        "expires_at": {
+          "description": "When its environment ends, in seconds since the Unix epoch, when it says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "instance": {
+          "description": "Its environment's name, when it says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ]
+    },
     "OperationPhase": {
       "description": "Where a journaled operation stands.",
       "oneOf": [
@@ -716,6 +1007,11 @@
           "description": "A tool answers at a version older than the run needs.",
           "type": "string",
           "const": "tool_too_old"
+        },
+        {
+          "description": "A tool the run needs is installed but its probe got no answer before anything was\ncreated: it failed, or answered nothing (Docker's daemon stopped, or this account refused\nits socket). The error names the tool in its own field.",
+          "type": "string",
+          "const": "tool_unanswered"
         },
         {
           "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",

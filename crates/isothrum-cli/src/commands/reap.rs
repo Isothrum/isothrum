@@ -7,8 +7,7 @@
 
 use std::time::SystemTime;
 
-use isothrum_runner::{EventKind, Events, Orphans, Place, RunOptions, RunRecord, Runner, Secrets, wire_name};
-use serde_json::json;
+use isothrum_runner::{EventKind, Events, Orphans, Place, ResultData, RunOptions, RunRecord, Runner, Secrets, SweepFailure, SweptResource, wire_name};
 
 use crate::args::ReapArgs;
 use crate::commands::Out;
@@ -82,16 +81,20 @@ async fn destroy(runner: &Runner, record: &RunRecord, connection: &Secrets, even
 
 /// The sweep as one JSON object: the data of the `result` that closes `reap --json`. `orphans`
 /// and `unread` are null when the cloud couldn't be searched (`orphans` is `None`).
-fn summary(args: &ReapArgs, swept: &Swept, orphans: Option<&Orphans>) -> serde_json::Value {
-    let failed: Vec<serde_json::Value> = swept.failed.iter().map(|(run, why)| json!({ "run": run, "error": why })).collect();
-    json!({
-        "cloud": wire_name(&args.cloud),
-        "destroyed": swept.destroyed,
-        "pending": swept.pending,
-        "failed": failed,
-        "orphans": orphans.map(|o| &o.resources),
-        "unread": orphans.map(|o| &o.unread),
-    })
+fn summary(args: &ReapArgs, swept: &Swept, orphans: Option<&Orphans>) -> ResultData {
+    ResultData::Swept {
+        cloud: wire_name(&args.cloud),
+        destroyed: swept.destroyed.clone(),
+        pending: swept.pending.clone(),
+        failed: swept.failed.iter().map(|(run, why)| SweepFailure::new(run, why)).collect(),
+        orphans: orphans.map(|o| {
+            o.resources
+                .iter()
+                .map(|r| SweptResource::new(&r.id, &r.kind, r.expires_at, r.instance.clone()))
+                .collect()
+        }),
+        unread: orphans.map(|o| o.unread.clone()),
+    }
 }
 
 /// The sweep as a person reads it; `orphans`, when the cloud was searched.

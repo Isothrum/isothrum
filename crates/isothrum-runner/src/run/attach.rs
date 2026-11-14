@@ -5,9 +5,9 @@
 //! nothing to attach: an embedder adds a machine of its own as an ordinary machine of the run
 //! ([`Running::update`], [`Running::retire`], [`Running::console_command`]).
 
+use crate::events::ResultData;
 use isoloom_manifest::Machine;
 use serde::Serialize;
-use serde_json::json;
 
 use super::Running;
 use super::operation::Done;
@@ -123,7 +123,10 @@ impl Running<'_> {
             Ok(Done::settled(
                 (),
                 None,
-                json!({ "machine": target.name.as_str(), "native": driver::native_name(target) }),
+                ResultData::Detached {
+                    machine: target.name.as_str().to_owned(),
+                    native: driver::native_name(target).to_owned(),
+                },
             ))
         })
         .await
@@ -189,16 +192,15 @@ impl Running<'_> {
 }
 
 impl AttachReport {
-    /// The report as its `result` event's `data`: each field by its JSON name, built from its
-    /// strings (so it can't fail as writing through a serializer could).
-    fn data(&self) -> serde_json::Value {
-        serde_json::json!({
-            "machine": self.machine,
-            "native": self.native,
-            "network": self.network,
-            "address": self.address,
-            "image": self.image,
-        })
+    /// The report as its `result` event's `data`.
+    fn data(&self) -> ResultData {
+        ResultData::Attached {
+            machine: self.machine.clone(),
+            native: self.native.clone(),
+            network: self.network.clone(),
+            address: self.address.clone(),
+            image: self.image.clone(),
+        }
     }
 }
 
@@ -245,6 +247,6 @@ mod tests {
             address: None,
             image: Some("debian:12".into()),
         };
-        assert_eq!(report.data(), serde_json::to_value(&report).unwrap());
+        assert_eq!(serde_json::to_value(report.data()).unwrap(), serde_json::to_value(&report).unwrap());
     }
 }

@@ -1,8 +1,8 @@
 //! Starting a run: the occupied-slot rules, the start steps with their recovery retry, the ready
 //! conditions, then outputs and the message.
 
+use crate::events::{ResultData, ShownOutput};
 use isoloom_manifest::Recovery;
-use serde_json::json;
 
 use super::Running;
 use super::operation::Done;
@@ -241,7 +241,11 @@ const DEFAULT_LIFETIME_MINUTES: u32 = 240;
 
 /// A run that came up, as the operation returns it and its `result` event says.
 fn ready_run(record: RunRecord, outputs: Vec<OutputValue>, message: Option<String>) -> Done<Started> {
-    let shown: Vec<serde_json::Value> = outputs.iter().map(|o| json!({ "name": o.name, "role": o.role, "value": o.value })).collect();
-    let data = json!({ "state": RunState::Ready, "outputs": shown, "message": message });
+    let shown = outputs.iter().map(|o| ShownOutput::new(o.name.clone(), o.role, o.value.clone())).collect();
+    let data = ResultData::Started {
+        state: RunState::Ready,
+        outputs: shown,
+        message: message.clone(),
+    };
     Done::settled(Started { record, outputs, message }, Some(RunState::Ready), data)
 }

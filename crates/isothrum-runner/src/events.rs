@@ -7,6 +7,7 @@
 //! decoded lossily; an operation ends with exactly one `result` or `error`.
 
 mod emitter;
+mod result_data;
 
 #[cfg(test)]
 use std::sync::{Mutex, PoisonError};
@@ -18,6 +19,7 @@ pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
 use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
+pub use result_data::{ResultData, ShownOutput, SweepFailure, SweptResource};
 
 /// The event stream's version.
 pub(crate) const EVENTS_VERSION: u32 = 1;
@@ -150,8 +152,8 @@ pub enum EventKind {
     Result {
         /// Whether it reached its goal (false: a check failed).
         ok: bool,
-        /// What it found or produced.
-        data: serde_json::Value,
+        /// What it found or produced, by operation.
+        data: ResultData,
     },
     /// A journaled operation was queued, started or ended: what a runner service says of the
     /// operations it queues (the runner's own operation stream doesn't carry it: it still ends

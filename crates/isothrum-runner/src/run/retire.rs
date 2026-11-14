@@ -32,7 +32,13 @@ impl Running<'_> {
             let target = self.machine_named(machine)?;
             let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
-            Ok(Done::settled((), None, serde_json::json!({ "machine": machine })))
+            Ok(Done::settled(
+                (),
+                None,
+                crate::ResultData::Machine {
+                    machine: Some(machine.to_owned()),
+                },
+            ))
         })
         .await
     }

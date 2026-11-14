@@ -212,6 +212,11 @@
           "const": "tool_too_old"
         },
         {
+          "description": "A tool the run needs is installed but its probe got no answer before anything was\ncreated: it failed, or answered nothing (Docker's daemon stopped, or this account refused\nits socket). The error names the tool in its own field.",
+          "type": "string",
+          "const": "tool_unanswered"
+        },
+        {
           "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
           "type": "string",
           "const": "timeout"
