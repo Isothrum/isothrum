@@ -81,6 +81,7 @@ pub(crate) fn failure(code: ErrorCode, message: String) -> EventKind {
         message,
         step: None,
         timeout: None,
+        detail: None,
     }
 }
 

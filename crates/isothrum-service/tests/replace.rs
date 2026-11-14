@@ -209,6 +209,7 @@ mod tests {
                         id,
                         code: ErrorCode::Usage,
                         message: "not in this fake".into(),
+                        detail: None,
                     },
                     false,
                 ),

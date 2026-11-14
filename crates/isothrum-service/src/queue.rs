@@ -301,6 +301,7 @@ fn error_event(run: &RunName, op: Op, code: ErrorCode, message: &str) -> Event {
         message: message.to_owned(),
         step: None,
         timeout: None,
+        detail: None,
     };
     Event::new(0, Some(run.to_string()), Some(op), kind)
 }

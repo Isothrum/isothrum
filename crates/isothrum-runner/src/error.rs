@@ -4,9 +4,11 @@
 use std::path::PathBuf;
 
 pub use self::code::ErrorCode;
+pub use self::detail::{DETAIL_VERSION, Detail, ErrorDetail};
 pub use self::timed_out::TimedOut;
 
 mod code;
+mod detail;
 mod timed_out;
 
 /// The runner's `Result`: its error is a [`Error`] unless said otherwise.

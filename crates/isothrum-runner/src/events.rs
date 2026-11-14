@@ -160,6 +160,9 @@ pub enum EventKind {
         /// Which limit the step ran into, when the code is `timeout`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout: Option<TimedOut>,
+        /// The failure's typed fields, when it has any ([`crate::Error::detail`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<crate::ErrorDetail>,
     },
 }
 
@@ -357,6 +360,7 @@ mod tests {
             message: "m".into(),
             step: None,
             timeout: None,
+            detail: None,
         });
         let back: Event = serde_json::from_value(serde_json::to_value(&error).unwrap()).unwrap();
         assert_eq!(back, error);

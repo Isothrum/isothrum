@@ -34,6 +34,47 @@ keeps these two frames as they are:
   queued or running (the service takes no new one from then on, and exits), else
   `{"reply":"busy","id":N,"operations":[…]}` (their ids, oldest first) and nothing changes.
 
+### Errors and their detail
+
+A refused request is answered `{"reply":"error","id":N,"code":"…","message":"…"}`, and an operation
+that fails ends with an `error` event (`{"kind":"error","code":"…","message":"…",…}`). Both keep
+their `code` and `message` as before. When the runner's failure has typed fields, both also carry
+a `detail` object:
+
+```json
+{"reply":"error","id":7,"code":"port_in_use","message":"…",
+ "detail":{"v":1,"kind":"port_in_use","port":8080,"protocol":"tcp"}}
+```
+
+- `v` is the version of the fields (1). A later runner adding a field makes a new version and never
+  changes what a field means.
+- `kind` names the failure. Its fields are its own:
+  - `port_in_use`: `port`, `protocol`.
+  - `tool_missing`: `tool`.
+  - `tool_too_old`: `tool`, `found`, `required`.
+  - `tool_unanswered`: `tool`.
+  - `timeout`: `timed_out`, without the tool's last line.
+  - `download_stalled`: `after_s`.
+  - `running_elsewhere`: `recorded`, `asked`.
+  - `not_parkable`: `mode`.
+  - `partly_gone`: `machines`.
+  - `secret_missing`: `name`.
+  - `input_invalid`: `name`.
+  - `project_invalid`: `dir`.
+  - `machine_unknown`: `machine`.
+  - `network_unknown`: `network`.
+  - `provider_refused`: `provider`.
+  - `no_console`: `machine`.
+  - `server_auth_failed`: `server`.
+  - `io`: `path`, `action`.
+  - `state_conflict`: `expected`, `found`.
+  - `lease_held`: `scope`, `pid`.
+- `detail` never holds a secret, nor any text a tool printed (which might echo one): those stay in
+  `message`, which the event stream masks. It is absent when the failure has no typed fields.
+
+The Rust types are `isothrum_runner::ErrorDetail` and `isothrum_runner::Detail`. The client hands
+them on as `ClientError::Refused { detail, .. }` and `ClientError::Operation { detail, .. }`.
+
 ### Stopping
 
 | Request | Operations queued or running |

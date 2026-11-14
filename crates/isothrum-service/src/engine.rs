@@ -15,19 +15,28 @@ pub struct Refusal {
     pub code: ErrorCode,
     /// The message.
     pub message: String,
+    /// The runner's typed fields, for a refusal the runner made.
+    pub detail: Option<isothrum_runner::ErrorDetail>,
 }
 
 impl Refusal {
     /// A refusal of code `code`.
     #[must_use]
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Refusal {
-        Refusal { code, message: message.into() }
+        Refusal {
+            code,
+            message: message.into(),
+            detail: None,
+        }
     }
 }
 
 impl From<isothrum_runner::Error> for Refusal {
     fn from(e: isothrum_runner::Error) -> Refusal {
-        Refusal::new(e.code(), e.to_string())
+        Refusal {
+            detail: e.detail(),
+            ..Refusal::new(e.code(), e.to_string())
+        }
     }
 }
 
@@ -145,6 +154,7 @@ impl Engine for RunnerEngine {
                         message: refusal.message,
                         step: None,
                         timeout: None,
+                        detail: refusal.detail,
                     };
                     journal.keep(Event::new(1, Some(run.to_string()), command.op(), kind));
                     return false;

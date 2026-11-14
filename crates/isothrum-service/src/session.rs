@@ -50,6 +50,7 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
                     id: 0,
                     code: ErrorCode::Usage,
                     message: format!("a line that isn't a request: {e}"),
+                    detail: None,
                 };
                 drop(session.outbox.send(refused).await);
                 break;
@@ -101,7 +102,7 @@ impl Session {
                 tokio::spawn(async move {
                     let reply = match shared.engine.status(&run, target.as_ref()).await {
                         Ok(status) => Reply::Status { id, status: Box::new(status) },
-                        Err(refusal) => error(id, refusal.code, refusal.message),
+                        Err(refusal) => refused(id, refusal),
                     };
                     drop(outbox.send(reply).await);
                 });
@@ -109,11 +110,11 @@ impl Session {
             }
             Command::List => match runs(&self.shared.store) {
                 Ok(runs) => Reply::Runs { id, runs },
-                Err(e) => error(id, e.code(), e.to_string()),
+                Err(e) => refused(id, e.into()),
             },
             Command::Operations { run, limit } => match self.shared.queue.operations(&run, usize::try_from(limit).unwrap_or(usize::MAX)) {
                 Ok(operations) => Reply::Operations { id, operations },
-                Err(refusal) => error(id, refusal.code, refusal.message),
+                Err(refusal) => refused(id, refusal),
             },
             Command::Cancel { operation } => {
                 if self.shared.queue.cancel(operation) {
@@ -136,7 +137,7 @@ impl Session {
             Command::ShutdownIfIdle => self.shutdown_if_idle(id),
             command => match self.shared.queue.submit(command) {
                 Ok((operation, run, position)) => Reply::Accepted { id, operation, run, position },
-                Err(refusal) => error(id, refusal.code, refusal.message),
+                Err(refusal) => refused(id, refusal),
             },
         };
         self.outbox.send(reply).await.is_ok()
@@ -205,7 +206,22 @@ fn hello(id: u64) -> Reply {
 
 /// An error reply.
 fn error(id: u64, code: ErrorCode, message: String) -> Reply {
-    Reply::Error { id, code, message }
+    Reply::Error {
+        id,
+        code,
+        message,
+        detail: None,
+    }
+}
+
+/// The error reply of `refusal`, with the runner's typed fields when it has them.
+fn refused(id: u64, refusal: crate::engine::Refusal) -> Reply {
+    Reply::Error {
+        id,
+        code: refusal.code,
+        message: refusal.message,
+        detail: refusal.detail,
+    }
 }
 
 /// Sends a subscription's events to `outbox`: those the store keeps after `after` (every one

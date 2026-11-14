@@ -9,7 +9,6 @@ use crate::repo;
 /// The prefix of every Isoloom crate.
 const ISOLOOM: &str = "isoloom-";
 
-
 /// One dependency edge of the resolved graph: who depends on whom, and how.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Edge {
@@ -68,8 +67,7 @@ fn members(metadata: &Value) -> Vec<String> {
 fn violations(metadata: &Value) -> Vec<String> {
     let members = members(metadata);
     let all = edges(metadata);
-    all
-        .iter()
+    all.iter()
         .filter(|e| e.to.starts_with(ISOLOOM) && !e.from.starts_with(ISOLOOM))
         .map(|e| {
             let kind = e.kind.as_deref().map(|k| format!(" ({k})")).unwrap_or_default();
@@ -125,7 +123,6 @@ mod tests {
         })
     }
 
-
     fn check(extra: Vec<Package>, outsiders: &[&str]) -> Vec<String> {
         violations(&graph(&extra, outsiders))
     }
@@ -153,7 +150,6 @@ mod tests {
             ["helper (a dependency of the workspace) pulls in isoloom-spec: Isothrum links no Isoloom crate"]
         );
     }
-
 
     #[test]
     fn no_isothrum_crate_depends_on_an_isoloom_crate() {

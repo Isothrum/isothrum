@@ -254,6 +254,7 @@ impl Drop for CutShort<'_> {
                 message: "the operation was cancelled; the tools it started were stopped".to_owned(),
                 step: None,
                 timeout: None,
+                detail: None,
             });
         }
     }
