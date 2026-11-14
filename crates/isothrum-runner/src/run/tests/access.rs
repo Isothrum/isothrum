@@ -439,7 +439,7 @@ async fn retiring_a_compose_service_removes_it_with_its_namespace() {
     let Some(EventKind::Result { ok: true, data }) = kinds(&events).pop() else {
         panic!("{:?}", kinds(&events))
     };
-    assert_eq!(data["machine"], "user");
+    assert_eq!(data, crate::ResultData::Machine { machine: Some("user".into()) });
 
     // A machine of the default start: no profile named.
     run.retire("web", &RunOptions::new(), &Recorder::new()).await.unwrap();

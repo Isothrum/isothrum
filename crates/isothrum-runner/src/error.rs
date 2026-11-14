@@ -40,6 +40,10 @@ pub enum ErrorCode {
     ToolFailed,
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
+    /// A tool the run needs is installed but its probe got no answer before anything was
+    /// created: it failed, or answered nothing (Docker's daemon stopped, or this account refused
+    /// its socket). The error names the tool in its own field.
+    ToolUnanswered,
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
     /// and was stopped, with what it started (the `error` event's `timeout` says which).
     Timeout,
@@ -138,6 +142,7 @@ impl ErrorCode {
             ErrorCode::ToolMissing => "tool_missing",
             ErrorCode::ToolFailed => "tool_failed",
             ErrorCode::ToolTooOld => "tool_too_old",
+            ErrorCode::ToolUnanswered => "tool_unanswered",
             ErrorCode::Timeout => "timeout",
             ErrorCode::DownloadStalled => "download_stalled",
             ErrorCode::DownloadFailed => "download_failed",
@@ -243,6 +248,14 @@ pub enum Error {
         found: String,
         /// The oldest version the run takes.
         required: String,
+    },
+    /// A tool's probe, before anything was created, failed or answered nothing.
+    #[error("`{tool}` doesn't answer: {reason}")]
+    ToolUnanswered {
+        /// The tool, as the manifest names it (`docker`).
+        tool: String,
+        /// What its probe said, or why it said nothing (secrets masked).
+        reason: String,
     },
     /// A step's tool ran and failed.
     #[error("step `{step}` failed: {reason}")]
@@ -575,6 +588,7 @@ impl Error {
             Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
+            Error::ToolUnanswered { .. } => ErrorCode::ToolUnanswered,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
             Error::Timeout { .. } => ErrorCode::Timeout,
             Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,

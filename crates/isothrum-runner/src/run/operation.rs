@@ -8,7 +8,7 @@ use tracing::Instrument;
 use crate::clock::rfc3339;
 use crate::error::{Error, ErrorCode};
 use crate::events::StoreLog;
-use crate::events::{Emitter, EventKind, Events, WarningCode};
+use crate::events::{Emitter, EventKind, Events, ResultData, WarningCode};
 use crate::options::RunOptions;
 use crate::run::Running;
 use crate::secrets::sensitive_values;
@@ -23,7 +23,7 @@ pub(crate) struct Done<T> {
     /// Whether it reached its goal (a check can fail while the operation succeeds).
     pub(crate) ok: bool,
     /// The `result` event's data.
-    pub(crate) data: serde_json::Value,
+    pub(crate) data: ResultData,
     /// Where the run stands after it, when the operation moves it.
     pub(crate) state: Option<RunState>,
 }
@@ -32,13 +32,13 @@ impl<T> Done<T> {
     /// An operation that reached its goal, returning `value`, its `result` event carrying `data`,
     /// the run left where `state` says (or where it was). One constructor for the seven literals
     /// that spelled `ok: true` by hand (Clean Code G5, 2026-11-13).
-    pub(crate) fn settled(value: T, state: Option<RunState>, data: serde_json::Value) -> Done<T> {
+    pub(crate) fn settled(value: T, state: Option<RunState>, data: ResultData) -> Done<T> {
         Done { value, ok: true, data, state }
     }
 
     /// An operation whose checks decide whether it reached its goal: `ok` is the report's, read
     /// before the report moves in.
-    pub(crate) fn checked(ok: bool, value: T, data: serde_json::Value) -> Done<T> {
+    pub(crate) fn checked(ok: bool, value: T, data: ResultData) -> Done<T> {
         Done { value, ok, data, state: None }
     }
 }
@@ -47,7 +47,7 @@ impl Done<()> {
     /// An operation that moved the run to `state` and returns nothing else: its event says the
     /// state.
     pub(crate) fn moved(state: RunState) -> Done<()> {
-        Done::settled((), Some(state), serde_json::json!({ "state": state }))
+        Done::settled((), Some(state), ResultData::Moved { state })
     }
 }
 

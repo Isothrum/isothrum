@@ -183,17 +183,8 @@ impl<'a> Emitter<'a> {
             },
             EventKind::Result { ok, data } => EventKind::Result {
                 ok,
-                data: self.mask_json(data),
+                data: data.masked(|s| self.mask(s)),
             },
-            other => other,
-        }
-    }
-
-    fn mask_json(&self, data: serde_json::Value) -> serde_json::Value {
-        match data {
-            serde_json::Value::String(s) => serde_json::Value::String(self.mask(&s)),
-            serde_json::Value::Array(items) => items.into_iter().map(|v| self.mask_json(v)).collect(),
-            serde_json::Value::Object(map) => map.into_iter().map(|(k, v)| (k, self.mask_json(v))).collect(),
             other => other,
         }
     }
@@ -269,7 +260,11 @@ mod tests {
         e.log("up", Stream::Stderr, "seeding token-x-long and token-x");
         e.emit(EventKind::Result {
             ok: true,
-            data: serde_json::json!({"message": ["at token-x"]}),
+            data: crate::ResultData::Started {
+                state: crate::RunState::Ready,
+                outputs: Vec::new(),
+                message: Some("at token-x".into()),
+            },
         });
         let got = sink.events();
         assert_eq!(got.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2]);
@@ -282,7 +277,7 @@ mod tests {
             "{:?}",
             got[0]
         );
-        assert!(matches!(&got[1].kind, EventKind::Result { data, .. } if data["message"][0] == "at ***"));
+        assert!(matches!(&got[1].kind, EventKind::Result { data: crate::ResultData::Started { message, .. }, .. } if message.as_deref() == Some("at ***")));
     }
 
     #[test]

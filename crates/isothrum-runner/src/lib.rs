@@ -167,7 +167,10 @@ pub use encoding::{every_name, from_wire_name, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
 #[cfg(test)]
 pub(crate) use events::Recorder;
-pub use events::{Event, EventKind, EventLog, Events, OperationPhase, ReadyState, StepState, Stream, WarningCode, events_schema};
+pub use events::{
+    Event, EventKind, EventLog, Events, OperationPhase, ReadyState, ResultData, ShownOutput, StepState, Stream, SweepFailure, SweptResource, WarningCode,
+    events_schema,
+};
 pub use future::BoxFuture;
 pub use graphical::{Console, ConsoleOffer, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc};
 pub use isoloom_manifest;
