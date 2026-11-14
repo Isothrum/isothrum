@@ -21,9 +21,8 @@
 //!   the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
-//! - On Windows a tool is also recorded while it is being created, before its pid is known
-//!   ([`Spawning`]): one created as its process was killed stays suspended outside its job, and
-//!   is ended the same way.
+//! - On Windows a tool's job object already ends its tree when this process dies ([`super::job`]):
+//!   its entry is the backstop, for a tree the job didn't hold.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -32,10 +31,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::time::Duration;
-
-#[path = "ledger_spawning.rs"]
-mod spawning;
-pub(crate) use spawning::Spawning;
 
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
@@ -186,19 +181,10 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
         let prefix = format!("{token}-");
         for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            match Path::new(entry).extension().and_then(|x| x.to_str()) {
-                Some("tool") => ended.extend(end_entry(&path).await),
-                #[cfg(windows)]
-                Some(spawning::EXT) => {
-                    if let Some(spawned) = std::fs::read_to_string(&path).ok().and_then(|t| spawning::Entry::parse(&t)) {
-                        ended.extend(spawning::end(&spawned).await);
-                    }
-                }
-                // Off Windows nothing is created suspended: the entry only goes.
-                #[cfg(not(windows))]
-                Some(spawning::EXT) => {}
-                _ => continue,
+            if Path::new(entry).extension().is_none_or(|x| x != "tool") {
+                continue;
             }
+            ended.extend(end_entry(&path).await);
             if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
                 tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
             }

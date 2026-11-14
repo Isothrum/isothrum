@@ -38,8 +38,8 @@ regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "net"] }
-process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group", "job-object", "creation-flags"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
 nix = { version = "0.31", default-features = false, features = ["signal"] }
 clap = { version = "4", features = ["derive", "string"] }
@@ -72,8 +72,10 @@ widestring = "1"
 # `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`), which fails when a count
 # goes up. An exception is a local `#[expect(lint, reason = "…")]`, never an `#[allow]`.
 [workspace.lints.rust]
-# No exception: processes are grouped and killed through `process-wrap`, never raw FFI.
-unsafe_code = "forbid"
+# One exception: creating a Windows tool inside its job object, which std can't do
+# (`isothrum-runner`'s `process/job.rs`, each block under `#[expect(unsafe_code)]` with its
+# `SAFETY:` comment). Everything else is grouped and killed through `process-wrap` or std.
+unsafe_code = "deny"
 unused = { level = "deny", priority = -1 }
 missing_docs = "deny"
 unreachable_pub = "deny"

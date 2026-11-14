@@ -7,6 +7,8 @@
 mod elevated;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
+#[cfg(windows)]
+mod job;
 pub(crate) mod ledger;
 mod lines;
 mod locale;
@@ -14,6 +16,8 @@ mod shim;
 mod stopping;
 mod system;
 mod tail;
+#[cfg(any(windows, test))]
+mod win_command;
 
 use std::path::PathBuf;
 
