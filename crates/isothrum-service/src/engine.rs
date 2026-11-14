@@ -2,15 +2,11 @@
 //! behind it. The service knows nothing of the tools a run drives: it queues commands and hands
 //! each to the engine.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
-use isothrum_runner::isoloom_manifest::Provider;
 use isothrum_runner::store::OperationId;
-use isothrum_runner::{
-    AccessPick, BoxFuture, ErrorCode, Event, EventKind, Events, Occupied, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status, from_wire_name,
-};
+use isothrum_runner::{BoxFuture, ErrorCode, Event, EventKind, Events, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status};
 
 /// Why the engine refused a request: a code and a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,8 +54,8 @@ pub trait Engine: Send + Sync + 'static {
     /// reached its goal.
     fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool>;
 
-    /// The status of `run` (opened from `path`, else from where its record says).
-    fn status<'a>(&'a self, run: &'a RunName, path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>>;
+    /// The status of `run` (opened from `target`, else as its record says).
+    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>>;
 }
 
 /// The Isothrum runner as the service's engine.
@@ -75,28 +71,34 @@ impl RunnerEngine {
         RunnerEngine { runner }
     }
 
-    /// The run `target` names.
+    /// The run `target` names: its folder, as its format (recognized there unless given).
     fn open(&self, target: &Target) -> Result<Running<'_>, Refusal> {
-        Ok(self.runner.open(&target.path, target.name.clone())?)
+        let opened = match target.format {
+            Some(format) => self.runner.open_as(&target.path, format, target.name.clone()),
+            None => self.runner.open(&target.path, target.name.clone()),
+        };
+        Ok(opened?)
     }
 
-    /// Runs `command` on the opened `run`: whether it reached its goal (a check that failed
-    /// didn't); Err: it failed (its `error` event said why).
+    /// Runs `command` on the opened `run`: whether it reached its goal (a command `exec` ran that
+    /// exited non-zero didn't); Err: it failed (its `error` event said why).
     async fn run(run: &Running<'_>, command: &Command, opts: RunOptions, events: &dyn Events) -> isothrum_runner::Result<bool> {
         match command {
-            Command::Up { fresh, lifetime_s, .. } => run.up(&start_options(opts, *fresh, *lifetime_s), events).await.map(drop),
+            Command::Up { lifetime_s, .. } => {
+                let opts = match lifetime_s {
+                    Some(secs) => opts.with_lifetime(std::time::Duration::from_secs(*secs)),
+                    None => opts,
+                };
+                run.up(&opts, events).await.map(drop)
+            }
             Command::Down { .. } => run.down(&opts, events).await,
             Command::Park { mode, .. } => run.park(*mode, &opts, events).await,
-            Command::Resume { .. } => run.resume(&opts, events).await.map(drop),
-            Command::Update { .. } => run.update(&opts, events).await.map(drop),
-            Command::Check { .. } => return run.check(&opts, events).await.map(|report| report.ok),
+            Command::Resume { .. } => run.resume(&opts, events).await,
+            Command::Update { .. } => run.update(&opts, events).await,
             Command::Provision { machine, .. } => run.provision(machine.as_deref(), &opts, events).await,
-            Command::Attach { machine, network, image, .. } => {
-                let pick = access_pick(machine.as_deref(), network.as_deref(), image.as_deref());
-                run.attach(pick, &opts, events).await.map(drop)
-            }
-            Command::Detach { machine, .. } => run.detach(machine.as_deref(), &opts, events).await,
+            Command::Attach { machine, .. } => run.attach(machine, &opts, events).await,
             Command::Retire { machine, .. } => run.retire(machine, &opts, events).await,
+            Command::Exec { machine, argv, .. } => return run.exec(machine, argv, &opts, events).await.map(|report| report.exit == 0),
             // `execute` takes operations only.
             _ => Ok(()),
         }
@@ -104,52 +106,20 @@ impl RunnerEngine {
     }
 }
 
-/// `opts` for a start: `fresh` removes whatever exists first; `lifetime_s` bounds the run's life.
-fn start_options(opts: RunOptions, fresh: bool, lifetime_s: Option<u64>) -> RunOptions {
-    let opts = if fresh { opts.with_occupied(Occupied::Replace) } else { opts };
-    match lifetime_s {
-        Some(secs) => opts.with_lifetime(std::time::Duration::from_secs(secs)),
-        None => opts,
-    }
-}
-
-/// The access machine an attach adds, where, from what: the runner's pick from the values a
-/// command gives (the service's `attach`, the command line's in-process one).
-#[must_use]
-pub fn access_pick<'a>(machine: Option<&'a str>, network: Option<&'a str>, image: Option<&'a str>) -> AccessPick<'a> {
-    let mut pick = AccessPick::default();
-    if let Some(m) = machine {
-        pick = pick.with_machine(m);
-    }
-    if let Some(n) = network {
-        pick = pick.with_network(n);
-    }
-    if let Some(i) = image {
-        pick = pick.with_image(i);
-    }
-    pick
-}
-
 /// The runner's options `options` give.
-///
-/// # Errors
-///
-/// A provider the runner doesn't know.
-fn run_options(options: &OpOptions) -> Result<RunOptions, Refusal> {
+fn run_options(options: &OpOptions) -> RunOptions {
     let secrets: Secrets = options.secrets.iter().map(|(k, v)| (k.clone(), SecretValue::new(v.clone()))).collect();
-    let mut opts = RunOptions::new().with_params(options.params.clone()).with_secrets(secrets);
+    let mut opts = RunOptions::new().with_secrets(secrets);
+    for (name, value) in &options.env {
+        opts = opts.with_env(name, value);
+    }
     if let Some(label) = &options.host_label {
         opts = opts.with_host_label(label);
     }
-    if let Some(name) = &options.provider {
-        let provider =
-            from_wire_name::<Provider>(name).ok_or_else(|| Refusal::new(ErrorCode::Usage, format!("`{name}` isn't a provider this runner knows")))?;
+    if let Some(provider) = options.provider {
         opts = opts.with_provider(provider);
     }
-    if let Some(jump) = &options.ssh_jump {
-        opts = opts.with_ssh_jump(jump);
-    }
-    Ok(opts)
+    opts
 }
 
 impl Engine for RunnerEngine {
@@ -162,11 +132,12 @@ impl Engine for RunnerEngine {
             let Some((target, options)) = command.target() else {
                 return false;
             };
-            let opened = self
-                .open(&Target::new(&target.path, Some(run.clone())))
-                .and_then(|r| Ok((r, run_options(options)?.with_operation(operation))));
-            let (running, opts) = match opened {
-                Ok(opened) => opened,
+            let named = Target {
+                name: Some(run.clone()),
+                ..target.clone()
+            };
+            let running = match self.open(&named) {
+                Ok(running) => running,
                 Err(refusal) => {
                     // Refused before the runner began: its `error` is written here.
                     let kind = EventKind::Error {
@@ -179,21 +150,20 @@ impl Engine for RunnerEngine {
                     return false;
                 }
             };
+            let opts = run_options(options).with_operation(operation);
             RunnerEngine::run(&running, command, opts, journal).await.unwrap_or(false)
         })
     }
 
-    fn status<'a>(&'a self, run: &'a RunName, path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>> {
+    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async move {
-            let path = if let Some(path) = path {
-                path.to_path_buf()
-            } else {
-                let record = self.runner.run_record(run)?;
-                record
-                    .map(|r| r.manifest)
-                    .ok_or_else(|| Refusal::new(ErrorCode::NotRunning, format!("no run `{run}` is recorded: say where it is")))?
+            let running = match target {
+                Some(target) => self.open(&Target {
+                    name: Some(run.clone()),
+                    ..target.clone()
+                })?,
+                None => self.runner.reopen(run)?,
             };
-            let running = self.open(&Target::new(path, Some(run.clone())))?;
             Ok(running.status().await?)
         })
     }

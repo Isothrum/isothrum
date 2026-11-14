@@ -33,7 +33,7 @@ use isothrum_runner::SystemProcesses;
 use isothrum_runner::store::{LeaseOutcome, Owner, Store};
 use tokio::sync::Notify;
 
-pub use engine::{Engine, Journal, Refusal, RunnerEngine, access_pick};
+pub use engine::{Engine, Journal, Refusal, RunnerEngine};
 pub use error::ServeError;
 
 use crate::feed::Feed;
