@@ -246,3 +246,24 @@ async fn a_search_that_fails_after_a_destroy_is_no_runs_error() {
     );
     assert!(error.get("run").is_none() && error.get("op").is_none(), "no one run's operation: {error}");
 }
+
+/// Regression (#134): `--region` on a cloud other than AWS, `--project` on one other than Google
+/// Cloud, was taken and dropped: the sweep searched the CLI's default place and said it was clean.
+#[test]
+fn a_flag_the_clouds_query_doesnt_read_is_a_usage_error() {
+    let refused = |argv: &[&str]| {
+        let cli = Cli::parse_from(argv);
+        let crate::args::Command::Runner(command) = cli.command else {
+            panic!("a runner command")
+        };
+        let crate::args::RunnerCommand::Reap(args) = *command else { panic!("reap") };
+        commands::reap::refuse_unread_flags(&args).err().map(|e| e.to_string())
+    };
+    let azure = refused(&["isothrum", "reap", "azure", "--region", "westeurope"]).expect("refused");
+    assert!(azure.contains("`--region` is read for aws only"), "{azure}");
+    let aws = refused(&["isothrum", "reap", "aws", "--project", "lab-123"]).expect("refused");
+    assert!(aws.contains("`--project` is read for gcp only"), "{aws}");
+    assert_eq!(refused(&["isothrum", "reap", "aws", "--region", "eu-west-3"]), None);
+    assert_eq!(refused(&["isothrum", "reap", "gcp", "--project", "lab-123"]), None);
+    assert_eq!(refused(&["isothrum", "reap", "linode"]), None);
+}
