@@ -225,6 +225,18 @@ impl Tx<'_> {
         self.operations_where(&sql, params![run.as_str(), i64::try_from(limit).unwrap_or(i64::MAX)])
     }
 
+    /// The home's operations that never ended, every run's, queued or started, oldest first:
+    /// those still in their owner's queue or running while it lives, else left by a process that
+    /// died.
+    ///
+    /// # Errors
+    ///
+    /// As [`Tx::operation`].
+    pub fn in_flight(&self) -> Result<Vec<OperationRow>> {
+        let sql = format!("SELECT {OPERATION_COLUMNS} FROM operations WHERE ended_at IS NULL ORDER BY id");
+        self.operations_where(&sql, params![])
+    }
+
     /// Run `run`'s operations that never ended, queued or started, oldest first. Called with the
     /// run held (its lock, or its lease), so none of the started ones runs: each is one whose
     /// process died, or whose future was dropped before it could say how it ended. A queued one

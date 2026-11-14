@@ -313,7 +313,7 @@ async fn os_start(pid: u32) -> Option<Start> {
 /// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
 /// stored (`lstart`, in UTC and the C locale's words).
 #[cfg(unix)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let out = tokio::process::Command::new("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .env("TZ", "UTC")
@@ -328,7 +328,7 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 
 /// When process `pid` started, as Windows stored its creation time (seconds since the epoch).
 #[cfg(windows)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let script = format!("[DateTimeOffset]::new((Get-Process -Id {pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()");
     let mut cmd = tokio::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script])

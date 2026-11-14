@@ -1,0 +1,75 @@
+# Runner service
+
+`isothrum serve --home <home>` runs the home's **runner service**: one daemon per home that runs
+every operation of the home (one at a time per run, runs side by side) and streams their events
+to its clients. The command line starts it when it isn't running (unless `--no-service`); an app
+links [`isothrum-client`](https://docs.rs/isothrum-client).
+
+## Files
+
+| In the home | What |
+|---|---|
+| `service.lock` | The OS lock the service holds for its life (released by the OS however it ends): a second service of the home exits naming the holder. |
+| `service.json` | Written once it listens, removed when it stops: `pid`, `started` (RFC 3339, UTC), `version` (its release), `protocol`, `endpoint`, `epoch`. A dead service's may stay: a client checks it. |
+| `service.sock` | Unix: the owner-only socket it listens on. Windows: a named pipe of a random name only the user may open, named in `service.json`. |
+| `service.log` | What a service a client started writes. |
+| `service.replace.lock` | Held by a client while it replaces a service of another release. |
+
+## Protocol
+
+Newline-delimited JSON (one object per line, at most 16 MiB). A client writes requests
+`{"id":N,"cmd":"…",…}`; the service answers each with one reply carrying its id. The first request
+is `hello`. The commands, replies and the event frames are documented in the client crate's
+[`proto`](https://docs.rs/isothrum-client/latest/isothrum_client/proto/) module.
+
+### What every protocol keeps
+
+So that a client of one release can always tell which service runs and replace it, every protocol
+keeps these two frames as they are:
+
+- `{"id":N,"cmd":"hello","protocol":P}` is answered `{"reply":"hello","id":N,"protocol":Q,"version":"…"}`
+  whatever `P` is. When `P` isn't the service's `Q`, the connection then takes only
+  `shutdown_if_idle`; any other request is refused (`usage`).
+- `{"id":N,"cmd":"shutdown_if_idle"}` is answered `{"reply":"ok","id":N}` when no operation is
+  queued or running (the service takes no new one from then on, and exits), else
+  `{"reply":"busy","id":N,"operations":[…]}` (their ids, oldest first) and nothing changes.
+
+### Stopping
+
+| Request | Operations queued or running |
+|---|---|
+| `shutdown` | Queued ones are dropped, running ones cancelled and their tools stopped (40 seconds, then ended at once), then the service exits. It never refuses. |
+| `shutdown_if_idle` | Refused with `busy`: the service goes on. |
+
+The service also stops on Ctrl-C or SIGTERM (as `shutdown`), and after `--idle-timeout` seconds
+with no client and no operation.
+
+## Replacing a service of another release
+
+`Client::connect` takes the service it finds, whatever its release; it fails only on another
+protocol. `Client::connect_exact(home, binary)` connects only to a service of the client's release
+(`isothrum_client::VERSION`) and protocol, for an app that bundles its own `isothrum`:
+
+1. It takes the home's replacement turn (`service.replace.lock`, up to a minute): two apps replace
+   a service one after the other.
+2. It connects to the service `service.json` names and says `hello` (3 seconds to answer).
+   - The client's release and protocol: that connection is the client.
+   - Another release or protocol: it asks `shutdown_if_idle`. `busy` ends the call with
+     `ClientError::Busy { version, pid, operations }`, the service left running, for the app to
+     tell its user and try again later. `ok`: it waits (20 seconds) until the service is gone, its
+     lock released and its endpoint closed.
+   - No answer while a process holds `service.lock`: it waits 5 seconds (a service starting up
+     holds the lock before it listens), then takes it as hung. It reads the journal (`state.db`,
+     read-only, never migrated): an operation of that pid unfinished, or a journal it can't read,
+     and the service is left running (`ClientError::Busy`, or `ClientError::Unavailable`). Else it
+     ends the pid (SIGTERM, then SIGKILL after 5 seconds; Windows: `taskkill /F`), but only while
+     the lock is still held and the process with that pid started no later than `started` (within
+     2 seconds): a pid is reused only after its process ended, so one reused since started later
+     and is never ended (`ClientError::Unavailable`, nothing ended).
+   - No process holds `service.lock`: there is no service, whatever `service.json` says (a stale
+     one is never acted on).
+3. With no service, it starts `binary` (`serve --home <home> --detach`, as `Client::connect` does),
+   connects, and checks the service's `hello`: another release is `ClientError::Version`, and that
+   service is asked to stop again.
+
+The app reads none of the home's files itself.

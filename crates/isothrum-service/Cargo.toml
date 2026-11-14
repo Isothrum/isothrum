@@ -32,6 +32,9 @@ isothrum-runner = { workspace = true, features = ["fake"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+nix.workspace = true
+
 [lints]
 workspace = true
 

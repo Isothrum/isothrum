@@ -241,6 +241,24 @@ impl Queue {
         !self.state().workers.is_empty()
     }
 
+    /// Takes no new operation when none is queued or running; else the ones that are (oldest
+    /// first), and nothing changes. One look at the queue: an operation can't slip in between.
+    pub(crate) fn stop_if_idle(&self) -> Result<(), Vec<OperationId>> {
+        let mut state = self.state();
+        let mut operations: Vec<OperationId> = state
+            .running
+            .values()
+            .map(|c| c.id)
+            .chain(state.pending.values().flatten().map(|j| j.id))
+            .collect();
+        if operations.is_empty() && state.workers.is_empty() {
+            state.stopping = true;
+            return Ok(());
+        }
+        operations.sort_unstable();
+        Err(operations)
+    }
+
     /// Takes no new operation, drops the queued ones and cuts the running ones short.
     pub(crate) fn close_all(&self) {
         let mut state = self.state();

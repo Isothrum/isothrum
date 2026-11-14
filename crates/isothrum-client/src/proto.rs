@@ -8,6 +8,20 @@
 //! answered at once with [`Reply::Accepted`]; the operation's events, ending with its `result` or
 //! `error` and an `operation` event of phase `ended`, arrive on a subscription: after `subscribe`,
 //! the connection carries [`Reply::Event`] frames until it closes or `unsubscribe`.
+//!
+//! # What every protocol keeps
+//!
+//! A client of one release meets services of others: an app that bundles Isothrum finds the
+//! service an older (or newer) release started. So that it can always tell which service runs and
+//! replace it, every protocol, this one and every later one, keeps these two frames as they are:
+//!
+//! - `{"id":N,"cmd":"hello","protocol":P}` is answered `{"reply":"hello","id":N,"protocol":Q,
+//!   "version":"…"}` whatever `P` is: `Q` is the protocol the service speaks, `version` its
+//!   release. When `P` isn't `Q`, the connection then takes only `shutdown_if_idle` (any other
+//!   request is refused).
+//! - `{"id":N,"cmd":"shutdown_if_idle"}` is answered `{"reply":"ok","id":N}` (the service stops,
+//!   and takes no operation meanwhile) or `{"reply":"busy","id":N,"operations":[…]}` (it has
+//!   operations queued or running, and goes on).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -187,6 +201,10 @@ pub enum Command {
     /// Stops the service: queued operations are dropped, running ones cancelled and their tools
     /// stopped, then it exits.
     Shutdown,
+    /// Stops the service only when no operation is queued or running ([`Reply::Ok`]: it takes no
+    /// new one, and exits); else refused with [`Reply::Busy`], and nothing changes. Every protocol
+    /// takes it, from a client of any protocol (see the module's documentation).
+    ShutdownIfIdle,
 }
 
 impl Command {
@@ -211,7 +229,8 @@ impl Command {
             | Command::Cancel { .. }
             | Command::Subscribe { .. }
             | Command::Unsubscribe
-            | Command::Shutdown => return None,
+            | Command::Shutdown
+            | Command::ShutdownIfIdle => return None,
         })
     }
 
@@ -335,7 +354,7 @@ pub enum Reply {
         /// The operations, newest first.
         operations: Vec<OperationRow>,
     },
-    /// Done (`subscribe`, `unsubscribe`, `cancel`, `shutdown`).
+    /// Done (`subscribe`, `unsubscribe`, `cancel`, `shutdown`, `shutdown_if_idle`).
     Ok {
         /// The request's id.
         id: u64,
@@ -348,6 +367,14 @@ pub enum Reply {
         code: ErrorCode,
         /// What went wrong.
         message: String,
+    },
+    /// To `shutdown_if_idle`, refused: the operations queued or running, which the service goes on
+    /// with.
+    Busy {
+        /// The request's id.
+        id: u64,
+        /// The operations, oldest first.
+        operations: Vec<OperationId>,
     },
     /// A subscription's frame.
     Event {
@@ -369,6 +396,7 @@ impl Reply {
             | Reply::Runs { id, .. }
             | Reply::Operations { id, .. }
             | Reply::Ok { id }
+            | Reply::Busy { id, .. }
             | Reply::Error { id, .. } => Some(*id),
             Reply::Event { .. } => None,
         }
@@ -454,5 +482,30 @@ mod tests {
             event: Box::new(event),
         });
         assert!(frame.starts_with(r#"{"reply":"event","cursor":12,"event":{"v":1"#), "{frame}");
+    }
+
+    #[test]
+    fn the_frames_every_protocol_keeps_read_as_written() {
+        let hello = r#"{"id":0,"cmd":"hello","protocol":7}"#;
+        assert_eq!(serde_json::from_str::<Request>(hello).unwrap().command, Command::Hello { protocol: 7 });
+        assert_eq!(
+            round_trip(&Request {
+                id: 3,
+                command: Command::ShutdownIfIdle,
+            }),
+            r#"{"id":3,"cmd":"shutdown_if_idle"}"#
+        );
+        let hello_reply = round_trip(&Reply::Hello {
+            id: 0,
+            protocol: 7,
+            version: "9.0.0".into(),
+        });
+        assert_eq!(hello_reply, r#"{"reply":"hello","id":0,"protocol":7,"version":"9.0.0"}"#);
+        let busy = round_trip(&Reply::Busy {
+            id: 3,
+            operations: vec![OperationId(4), OperationId(9)],
+        });
+        assert_eq!(busy, r#"{"reply":"busy","id":3,"operations":[4,9]}"#);
+        assert_eq!(round_trip(&Reply::Ok { id: 3 }), r#"{"reply":"ok","id":3}"#);
     }
 }

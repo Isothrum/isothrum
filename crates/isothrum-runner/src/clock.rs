@@ -44,6 +44,23 @@ pub fn rfc3339(time: SystemTime) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
+/// A time [`rfc3339`] wrote (`YYYY-MM-DDTHH:MM:SSZ`, a fraction of a second allowed and dropped)
+/// as whole seconds since the Unix epoch; none for any other text.
+#[must_use]
+pub fn rfc3339_seconds(text: &str) -> Option<u64> {
+    const SECS_PER_DAY: u64 = 86_400;
+    let (date, time) = text.strip_suffix('Z')?.split_once('T')?;
+    let ymd: Vec<i64> = date.split('-').map(str::parse).collect::<Result<_, _>>().ok()?;
+    let [year, month, day] = ymd.as_slice() else { return None };
+    let whole = time
+        .split_once('.')
+        .map_or(time, |(whole, fraction)| if fraction.bytes().all(|b| b.is_ascii_digit()) { whole } else { "" });
+    let hms: Vec<u64> = whole.split(':').map(str::parse).collect::<Result<_, _>>().ok()?;
+    // A leap second reads as 60.
+    let [h @ 0..24, m @ 0..60, s @ 0..=60] = hms.as_slice() else { return None };
+    Some(days_from_civil(*year, *month, *day)? * SECS_PER_DAY + h * 3600 + m * 60 + s)
+}
+
 /// Days since 1970-01-01 as a civil date (Howard Hinnant's algorithm, as Isoloom's registry wrote
 /// it; the short names are the published algorithm's own).
 fn civil(days: u64) -> (i64, i64, i64) {
@@ -62,7 +79,6 @@ fn civil(days: u64) -> (i64, i64, i64) {
 /// The civil date `year`-`month`-`day` as days since 1970-01-01: [`civil`]'s way back (Howard
 /// Hinnant's `days_from_civil`); none for a month or day out of range, or a year outside
 /// 1970..=9999 (four digits, as [`rfc3339`] writes them).
-#[cfg(any(unix, test))]
 pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> Option<u64> {
     if !(1970..=9999).contains(&year) {
         return None;
@@ -116,6 +132,24 @@ mod tests {
             (i64::MAX, 1, 1),
         ] {
             assert_eq!(days_from_civil(y, m, d), None, "{y}-{m}-{d}");
+        }
+    }
+
+    #[test]
+    fn an_rfc3339_time_reads_back_as_its_seconds() {
+        for secs in [0, 951_782_400, 1_792_065_600, 1_792_065_659] {
+            assert_eq!(rfc3339_seconds(&rfc3339(UNIX_EPOCH + Duration::from_secs(secs))), Some(secs));
+        }
+        assert_eq!(rfc3339_seconds("2026-10-15T12:00:00.250Z"), Some(1_792_065_600));
+        for text in [
+            "",
+            "2026-10-15T12:00:00",
+            "2026-10-15 12:00:00Z",
+            "2026-13-15T12:00:00Z",
+            "2026-10-15T24:00:00Z",
+            "2026-10-15T12:00:00.x1Z",
+        ] {
+            assert_eq!(rfc3339_seconds(text), None, "{text}");
         }
     }
 

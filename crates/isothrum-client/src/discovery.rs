@@ -30,6 +30,13 @@ impl ServicePaths {
         self.home.join("service.lock")
     }
 
+    /// The file a client holds an OS lock on while it replaces the home's service
+    /// ([`Client::connect_exact`](crate::Client::connect_exact)): two replace it in turn.
+    #[must_use]
+    pub fn replace_lock(&self) -> PathBuf {
+        self.home.join("service.replace.lock")
+    }
+
     /// Where the running service says who and where it is ([`ServiceInfo`]).
     #[must_use]
     pub fn info(&self) -> PathBuf {

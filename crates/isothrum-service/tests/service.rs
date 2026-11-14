@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use isothrum_client::proto::{Command, OpOptions, Target};
+use isothrum_client::proto::{Command, OpOptions, Reply, Target};
 use isothrum_client::v1::{Event, OperationPhase, is_outcome, phase_of};
 use isothrum_client::{Client, ClientError, Followed};
 use isothrum_runner::store::OperationId;
@@ -303,4 +303,28 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
     let row = ops.iter().find(|o| o.id == left).unwrap();
     assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
     s.task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_if_idle_is_refused_while_an_operation_runs_and_stops_the_service_once_idle() {
+    let s = start(None).await.unwrap();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    let mut long = client.follow(up("web", 500)).await.unwrap();
+    begun(&mut long).await.unwrap();
+    let refused = client.request(Command::ShutdownIfIdle).await.unwrap();
+    assert!(
+        matches!(&refused, Reply::Busy { operations, .. } if operations == &[long.accepted.operation]),
+        "{refused:?}"
+    );
+    long.outcome().await.unwrap();
+    assert!(s.engine.log().contains(&"end web up".to_owned()), "the operation ran to its end");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match client.request(Command::ShutdownIfIdle).await.unwrap() {
+            Reply::Ok { .. } => break,
+            Reply::Busy { .. } if std::time::Instant::now() < deadline => tokio::time::sleep(Duration::from_millis(20)).await,
+            other => panic!("{other:?}"),
+        }
+    }
+    tokio::time::timeout(Duration::from_secs(5), s.task).await.unwrap().unwrap().unwrap();
 }

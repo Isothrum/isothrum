@@ -1,6 +1,7 @@
 //! Why a client call failed.
 
 use isothrum_runner::ErrorCode;
+use isothrum_runner::store::OperationId;
 
 /// Why a client call failed.
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +31,25 @@ pub enum ClientError {
         /// The step that failed, when one did.
         step: Option<String>,
     },
+    /// The home's service is another release and has operations queued or running: it was left
+    /// running ([`Client::connect_exact`](crate::Client::connect_exact)).
+    #[error("the runner service (Isothrum {version}, pid {pid}) has {} operation(s) queued or running: it was left running", operations.len())]
+    Busy {
+        /// The service's release.
+        version: String,
+        /// Its process id.
+        pid: u32,
+        /// Its operations queued or running, oldest first.
+        operations: Vec<OperationId>,
+    },
+    /// The service started is another release than this client.
+    #[error("the runner service is Isothrum {service}, this client {client}")]
+    Version {
+        /// This client's release ([`VERSION`](crate::VERSION)).
+        client: String,
+        /// The service's.
+        service: String,
+    },
     /// Reading or writing the connection failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -41,6 +61,8 @@ impl ClientError {
     pub fn code(&self) -> ErrorCode {
         match self {
             ClientError::Refused { code, .. } | ClientError::Operation { code, .. } => *code,
+            ClientError::Busy { .. } => ErrorCode::Locked,
+            ClientError::Version { .. } => ErrorCode::Unsupported,
             ClientError::Unavailable(_) | ClientError::Protocol(_) | ClientError::Io(_) => ErrorCode::Io,
         }
     }
