@@ -3,9 +3,15 @@ use isothrum_test_support::assert_every;
 
 use super::*;
 
+/// Detection, Vagrant installed, on a Linux amd64 host whose KVM device the user may open, its
+/// tools `tools`.
+async fn detect_on_linux(tools: &FakeProcesses) -> Vec<ProviderStatus> {
+    let dir = tempfile::tempdir().unwrap();
+    detect_on(&linux(&dir.path().join("kvm")), tools, true).await
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_qemu_with_its_plugin_is_ready() {
-    let dir = tempfile::tempdir().unwrap();
     let tools = on_linux(FakeProcesses::script())
         .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
         .expect(
@@ -13,18 +19,17 @@ async fn a_qemu_with_its_plugin_is_ready() {
             Reply::ok("1,,plugin-name,vagrant-qemu\n1,vagrant-qemu,plugin-version,0.6.3%!(VAGRANT_COMMA) global"),
         )
         .build();
-    let statuses = detect_on(&linux(&dir.path().join("kvm")), &tools, true).await;
+    let statuses = detect_on_linux(&tools).await;
     assert_eq!(status_of(&statuses, Provider::Qemu).reason, None);
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_qemu_without_its_plugin_says_so() {
-    let dir = tempfile::tempdir().unwrap();
     let tools = on_linux(FakeProcesses::script())
         .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let statuses = detect_on(&linux(&dir.path().join("kvm")), &tools, true).await;
+    let statuses = detect_on_linux(&tools).await;
     assert_eq!(
         status_of(&statuses, Provider::Qemu).reason.as_deref(),
         Some("Vagrant plugin `vagrant-qemu` is not installed")
@@ -54,14 +59,13 @@ async fn an_arm_host_probes_its_own_qemu() {
 
 #[tokio::test(start_paused = true)]
 async fn a_vagrant_that_cant_list_its_plugins_is_one_reason_not_each_plugin_missing() {
-    let dir = tempfile::tempdir().unwrap();
     let tools = on_linux(FakeProcesses::script())
         .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
         .expect("VBoxManage --version", Reply::ok("7.1.4"))
         .expect("VBoxManage list runningvms", Reply::ok(""))
         .expect(PLUGINS, Reply::fail(1, "Vagrant failed to initialize at a very early stage"))
         .build();
-    let statuses = detect_on(&linux(&dir.path().join("kvm")), &tools, true).await;
+    let statuses = detect_on_linux(&tools).await;
     assert_eq!(
         status_of(&statuses, Provider::Qemu).reason.as_deref(),
         Some("Vagrant couldn't say which plugins it has (`vagrant plugin list`: Vagrant failed to initialize at a very early stage (exited with code 1))")
@@ -72,12 +76,11 @@ async fn a_vagrant_that_cant_list_its_plugins_is_one_reason_not_each_plugin_miss
 
 #[tokio::test(start_paused = true)]
 async fn a_virtualbox_that_isnt_installed_is_detected_as_such() {
-    let dir = tempfile::tempdir().unwrap();
     let tools = on_linux(FakeProcesses::script())
         .expect("VBoxManage --version", Reply::missing())
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let statuses = detect_on(&linux(&dir.path().join("kvm")), &tools, true).await;
+    let statuses = detect_on_linux(&tools).await;
     assert_eq!(status_of(&statuses, Provider::Virtualbox).reason.as_deref(), Some("`VBoxManage` was not found"));
 }
 
