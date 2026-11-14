@@ -223,7 +223,7 @@ pub struct EventLog {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Event {
-    /// The stream's version (1; a 2.x runner's events, imported, are 0).
+    /// The stream's version (1).
     pub v: u32,
     /// Its place in the operation, from 1.
     pub seq: u64,

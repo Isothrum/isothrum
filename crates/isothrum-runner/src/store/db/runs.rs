@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, Row, params};
 
 use super::{OperationId, RunRow, Tx, failed, from_json, from_word, now, to_json, word};
 use crate::Result;
-use crate::error::{Error, ErrorCode};
+use crate::error::Error;
 use crate::name::RunName;
 use crate::state::{Desired, RunState, Transition};
 use crate::store::{LastObserved, RunRecord};
@@ -278,22 +278,16 @@ impl Tx<'_> {
         Ok(())
     }
 
-    /// Sets run `name`'s state as an import found it, with no move recorded: for a 2.x home's
-    /// record only.
-    pub(super) fn import_state(&mut self, name: &RunName, state: RunState, failed_cause: Option<ErrorCode>) -> Result<()> {
-        self.tx
-            .execute(
-                "UPDATE runs SET state = ?2, failed_cause = ?3 WHERE name = ?1",
-                params![name.as_str(), word(&state), failed_cause.map(|c| word(&c))],
-            )
-            .map_err(failed("written"))?;
-        Ok(())
-    }
-
     /// Puts run `name` in `state` with no move recorded, as a process killed mid-operation leaves
     /// it: for the tests only, which stand in for that process.
     #[cfg(test)]
     pub(crate) fn force_state(&mut self, name: &RunName, state: RunState) -> Result<()> {
-        self.import_state(name, state, None)
+        self.tx
+            .execute(
+                "UPDATE runs SET state = ?2, failed_cause = NULL WHERE name = ?1",
+                params![name.as_str(), word(&state)],
+            )
+            .map_err(failed("written"))?;
+        Ok(())
     }
 }

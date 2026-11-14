@@ -8,7 +8,6 @@ pub(super) const MIGRATIONS: &[&str] = &[V1];
 /// Version 1: the runs, their transitions, the journal, the events, the resources, the port
 /// reservations and the leases.
 const V1: &str = r"
-CREATE TABLE store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE TABLE runs (
   name            TEXT PRIMARY KEY,

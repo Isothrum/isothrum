@@ -25,9 +25,7 @@
 //!                       Vagrant's state, Terraform's state and module copy
 //! ```
 //!
-//! A home a 2.x runner wrote is imported into the store the first time it is opened: its
-//! `record.json`, `seen.json`, `events.jsonl` and `anonymous-volumes` files become rows, and stay
-//! beside it read-only (`db/import.rs`).
+//! A home starts empty: files another release left in it are neither read nor removed.
 
 #[cfg(any(windows, test))]
 mod acl;

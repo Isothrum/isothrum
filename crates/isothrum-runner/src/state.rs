@@ -94,8 +94,7 @@ impl fmt::Display for Op {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RunState {
-    /// Being created by an `up` (2.x wrote `starting`, still read).
-    #[serde(alias = "starting")]
+    /// Being created by an `up`.
     Creating,
     /// Up, every member machine running.
     Ready,
@@ -109,8 +108,7 @@ pub enum RunState {
     Resuming,
     /// Being brought up to date with its manifest by an `update`.
     Updating,
-    /// Being removed by a `down` (2.x wrote `stopping`, still read).
-    #[serde(alias = "stopping")]
+    /// Being removed by a `down`.
     Destroying,
     /// Nothing of it exists.
     Absent,

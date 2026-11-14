@@ -164,8 +164,8 @@ pub fn copy_key(home: &Path, name: &RunName) -> String {
 impl Runner {
     /// A runner with `config`; its home (with its missing parents) and the home's `runs/` folder
     /// are created, owner-only (on Windows, a home outside the user's profile gets an owner-only
-    /// DACL), and its store (`state.db`) opened: made, migrated, or imported from a 2.x home's
-    /// files ([`crate::store::Store::open`]).
+    /// DACL), and its store (`state.db`) opened: made or migrated
+    /// ([`crate::store::Store::open`]).
     ///
     /// # Errors
     ///
