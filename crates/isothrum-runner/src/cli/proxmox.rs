@@ -1,5 +1,6 @@
 //! The Proxmox VE API adapter, through `curl`: signing in (an API token as it is, a user's
-//! password traded for a ticket) and `vncproxy`, which opens a VM's VNC websocket for one session.
+//! password traded for a ticket), `vncproxy`, which opens a VM's VNC websocket for one session,
+//! and the cluster's VMs as the server has them (`cluster/resources`, `cluster/nextid`).
 //! The credentials reach `curl` in a config file written owner-only in the folder the caller names
 //! (the run's state folder), one per request, piped into it and removed however the request ends:
 //! never on its command line. Every answer is `{"data": …}`, read here into the fields the runner
@@ -80,7 +81,7 @@ pub(crate) enum SignIn {
 }
 
 impl SignIn {
-    /// The config lines that sign a POST in.
+    /// The config lines that sign a request in (a GET needs no CSRF token, and ignores it).
     fn lines(&self) -> Vec<String> {
         match self {
             SignIn::Token(t) => vec![format!("header = {}", quoted(&format!("Authorization: PVEAPIToken={}", t.expose())))],
@@ -135,7 +136,7 @@ struct VncProxy {
 }
 
 /// A number the API writes as a number or as a string, depending on the call and the version.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 enum NumberOrText {
     Number(u64),
@@ -143,6 +144,14 @@ enum NumberOrText {
 }
 
 impl NumberOrText {
+    /// Whether it writes `id`.
+    fn is(&self, id: &str) -> bool {
+        match self {
+            NumberOrText::Number(n) => n.to_string() == id,
+            NumberOrText::Text(t) => t == id,
+        }
+    }
+
     fn as_u16(&self) -> Option<u16> {
         match self {
             NumberOrText::Number(n) => u16::try_from(*n).ok(),
@@ -181,7 +190,14 @@ pub(crate) async fn sign_in(call: &Call<'_>, api: &Api, credentials: &Credential
                 format!("data-urlencode = {}", quoted(&format!("username={user}"))),
                 format!("data-urlencode = {}", quoted(&format!("password={}", password.expose()))),
             ];
-            let said: Ticket = post(call, &format!("{}/api2/json/access/ticket", api.base), api.insecure, &fields, scratch).await?;
+            let said: Ticket = request(
+                call,
+                (Method::Post, &format!("{}/api2/json/access/ticket", api.base)),
+                api.insecure,
+                &fields,
+                scratch,
+            )
+            .await?;
             match (said.ticket, said.csrf) {
                 (Some(ticket), Some(csrf)) => Ok(SignIn::Ticket {
                     ticket: SecretValue::new(ticket),
@@ -198,7 +214,7 @@ pub(crate) async fn vncproxy(call: &Call<'_>, api: &Api, sign_in: &SignIn, (node
     let mut fields = sign_in.lines();
     fields.push("data = \"websocket=1\"".to_owned());
     let url = format!("{}{}/vncproxy", api.base, vm_path(node, vm_id));
-    let said: VncProxy = post(call, &url, api.insecure, &fields, scratch).await?;
+    let said: VncProxy = request(call, (Method::Post, &url), api.insecure, &fields, scratch).await?;
     match (said.port.as_ref().and_then(NumberOrText::as_u16), said.ticket) {
         (Some(port), Some(ticket)) => Ok(Vnc {
             port,
@@ -221,9 +237,64 @@ fn unexpected(what: &str) -> CliError<Failure> {
     }
 }
 
-/// The `data` of a POST to `url`, `fields` (its sign-in and form) in the config file curl reads.
-async fn post<T: DeserializeOwned>(call: &Call<'_>, url: &str, insecure: bool, fields: &[String], scratch: &Path) -> Result<T, CliError<Failure>> {
-    let mut text = format!("url = {}\nrequest = \"POST\"\n", quoted(url));
+/// One VM of the cluster, as `cluster/resources` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(crate) struct ClusterVm {
+    /// Its id.
+    vmid: NumberOrText,
+    /// `running`, `stopped`, …
+    pub(crate) status: Option<String>,
+}
+
+impl ClusterVm {
+    /// Whether it is VM `id`.
+    pub(crate) fn is(&self, id: &str) -> bool {
+        self.vmid.is(id)
+    }
+}
+
+/// The VMs of the cluster the sign-in may see (`cluster/resources?type=vm`), wherever each
+/// migrated.
+pub(crate) async fn cluster_vms(call: &Call<'_>, api: &Api, sign_in: &SignIn, scratch: &Path) -> Result<Vec<ClusterVm>, CliError<Failure>> {
+    let url = format!("{}/api2/json/cluster/resources?type=vm", api.base);
+    request(call, (Method::Get, &url), api.insecure, &sign_in.lines(), scratch).await
+}
+
+/// Whether no VM of the cluster holds id `vm_id` (`cluster/nextid?vmid=<id>` answers the id only
+/// then; any signed-in user may ask, whatever the sign-in may see). A listing leaves out the VMs
+/// the sign-in may not audit: only this tells a VM gone from one hidden.
+pub(crate) async fn id_free(call: &Call<'_>, api: &Api, sign_in: &SignIn, vm_id: &str, scratch: &Path) -> Result<bool, CliError<Failure>> {
+    let url = format!("{}/api2/json/cluster/nextid?vmid={vm_id}", api.base);
+    match request::<NumberOrText>(call, (Method::Get, &url), api.insecure, &sign_in.lines(), scratch).await {
+        Ok(id) => Ok(id.is(vm_id)),
+        // A VM holds the id: the API refuses it as a request it can't take.
+        Err(CliError::Failed {
+            failure: Failure::Other(_), ..
+        }) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// A request's method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Method {
+    Get,
+    Post,
+}
+
+/// The `data` of a request to `url`, `fields` (its sign-in and form) in the config file curl
+/// reads.
+async fn request<T: DeserializeOwned>(
+    call: &Call<'_>,
+    (method, url): (Method, &str),
+    insecure: bool,
+    fields: &[String],
+    scratch: &Path,
+) -> Result<T, CliError<Failure>> {
+    let mut text = format!("url = {}\n", quoted(url));
+    if method == Method::Post {
+        text.push_str("request = \"POST\"\n");
+    }
     for f in fields {
         text.push_str(f);
         text.push('\n');

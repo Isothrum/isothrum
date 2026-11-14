@@ -236,6 +236,11 @@ impl Queue {
         Ok(self.store.read(|tx| tx.operations(run, limit))?)
     }
 
+    /// Whether an operation of `run` is queued or running.
+    pub(crate) fn has_work(&self, run: &RunName) -> bool {
+        self.state().workers.contains(run)
+    }
+
     /// Whether an operation is queued or running.
     pub(crate) fn busy(&self) -> bool {
         !self.state().workers.is_empty()

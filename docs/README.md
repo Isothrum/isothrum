@@ -27,6 +27,7 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [State layout](reference/state.md): the home, `state.db`
 - [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
+- [Terraform modules](reference/terraform.md): what any module gets, and the optional outputs and values that add screens and Proxmox reads
 - [GNS3 feature coverage](reference/gns3-coverage.md) of the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),
   [isothrum-machine](https://docs.rs/isothrum-machine)

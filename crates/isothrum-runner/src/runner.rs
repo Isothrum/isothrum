@@ -3,7 +3,6 @@
 //! them.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -37,11 +36,6 @@ pub struct RunnerConfig {
     pub(crate) clock: Arc<dyn Clock>,
     /// The host's operating system (it picks the providers a Vagrant run may use, and elevation).
     pub host: HostOs,
-    /// The `PATH` the runner hands on where it isn't inherited: to an elevated Hyper-V session,
-    /// and to Vagrant on an ESXi host from macOS, whose relays look for the real `ovftool` in it
-    /// and put their wrapper first (default: the runner's own). The tools the runner starts as
-    /// its children inherit its environment as it is.
-    pub search_path: Option<OsString>,
     /// The user's own Terraform plugin cache (`TF_PLUGIN_CACHE_DIR`), which the runs use as it
     /// is; without one, they share one under the home.
     pub(crate) tf_plugin_cache: Option<PathBuf>,
@@ -50,37 +44,10 @@ pub struct RunnerConfig {
     pub(crate) host_env: HostEnv,
 }
 
-/// The PATH the tools are found on: this process's, and on Windows the folders VirtualBox and
-/// VMware Workstation install to without adding themselves to PATH (`VBOX_MSI_INSTALL_PATH`,
-/// `%ProgramFiles%\Oracle\VirtualBox`, `%ProgramFiles(x86)%\VMware\VMware Workstation`), each
-/// once, after what is there. Elsewhere, the PATH as it is.
-fn tool_path(path: Option<OsString>, var: impl Fn(&str) -> Option<OsString>) -> Option<OsString> {
-    if !cfg!(windows) {
-        return path;
-    }
-    let mut dirs: Vec<PathBuf> = path.as_ref().map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
-    let mut extra: Vec<PathBuf> = Vec::new();
-    if let Some(vbox) = var("VBOX_MSI_INSTALL_PATH") {
-        extra.push(PathBuf::from(vbox));
-    }
-    if let Some(pf) = var("ProgramFiles") {
-        extra.push(PathBuf::from(pf).join("Oracle").join("VirtualBox"));
-    }
-    if let Some(pf86) = var("ProgramFiles(x86)") {
-        extra.push(PathBuf::from(pf86).join("VMware").join("VMware Workstation"));
-    }
-    for dir in extra {
-        if !dirs.iter().any(|d| d.as_os_str().eq_ignore_ascii_case(dir.as_os_str())) {
-            dirs.push(dir);
-        }
-    }
-    std::env::join_paths(dirs).ok().or(path)
-}
-
 impl RunnerConfig {
     /// A runner at `home` on this host: real processes (told the Docker CLI's config, see
     /// [`SystemProcesses`]), the loopback, the system's clock, and what it needs of this process's
-    /// environment, read now (`PATH`, `TF_PLUGIN_CACHE_DIR`, the proxies, the CA bundles,
+    /// environment, read now (`TF_PLUGIN_CACHE_DIR`, the proxies, the CA bundles,
     /// Terraform's CLI configuration, Vagrant's variables, `USERPROFILE`).
     pub fn new(home: impl Into<PathBuf>) -> RunnerConfig {
         RunnerConfig {
@@ -89,7 +56,6 @@ impl RunnerConfig {
             ports: Arc::new(LoopbackPorts),
             clock: Arc::new(SystemClock),
             host: this_host(),
-            search_path: tool_path(std::env::var_os("PATH"), |name| std::env::var_os(name)),
             tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
             host_env: HostEnv::capture(),
         }
@@ -462,28 +428,5 @@ mod tests {
         assert!(r.reserve(&two, crate::port::HostPort::new(41000), Protocol::Udp), "another protocol");
         r.release(&one);
         assert!(r.reserve(&two, crate::port::HostPort::new(41000), Protocol::Tcp));
-    }
-}
-
-#[cfg(all(test, windows))]
-mod tool_path_tests {
-    use super::tool_path;
-    use std::ffi::OsString;
-
-    #[test]
-    fn the_hypervisors_folders_join_the_path_once() {
-        let var = |name: &str| match name {
-            "VBOX_MSI_INSTALL_PATH" => Some(OsString::from(r"D:\VBox\")),
-            "ProgramFiles" => Some(OsString::from(r"C:\Program Files")),
-            "ProgramFiles(x86)" => Some(OsString::from(r"C:\Program Files (x86)")),
-            _ => None,
-        };
-        let path = tool_path(Some(OsString::from(r"C:\Windows;D:\VBox\")), var).unwrap();
-        let dirs: Vec<_> = std::env::split_paths(&path).collect();
-        assert_eq!(dirs.iter().filter(|d| d.as_os_str() == r"D:\VBox\").count(), 1, "{dirs:?}");
-        assert!(
-            dirs.iter().any(|d| d.ends_with(r"Oracle\VirtualBox")) && dirs.iter().any(|d| d.ends_with(r"VMware\VMware Workstation")),
-            "{dirs:?}"
-        );
     }
 }

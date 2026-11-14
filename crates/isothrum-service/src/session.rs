@@ -96,11 +96,11 @@ impl Session {
         }
         let reply = match request.command {
             Command::Hello { .. } => hello(id),
-            Command::Status { run, target } => {
+            Command::Status { run, target, options } => {
                 // A status reads the tools: it doesn't hold the connection's other requests.
                 let (shared, outbox) = (Arc::clone(&self.shared), self.outbox.clone());
                 tokio::spawn(async move {
-                    let reply = match shared.engine.status(&run, target.as_ref()).await {
+                    let reply = match shared.engine.status(&run, target.as_ref(), &options).await {
                         Ok(status) => Reply::Status { id, status: Box::new(status) },
                         Err(refusal) => refused(id, refusal),
                     };

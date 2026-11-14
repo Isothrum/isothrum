@@ -363,7 +363,21 @@ impl Client {
     ///
     /// The runner couldn't read it, or the connection ended.
     pub async fn status(&self, run: &RunName, target: Option<Target>) -> Result<Status> {
-        let command = Command::Status { run: run.clone(), target };
+        self.status_with(run, target, OpOptions::default()).await
+    }
+
+    /// [`Client::status`], the read's tools given `options`' values and secrets (a Proxmox VE
+    /// module's API token, for its VMs' states on the server).
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::status`]; `server_auth_failed` when a server refuses the credentials.
+    pub async fn status_with(&self, run: &RunName, target: Option<Target>, options: OpOptions) -> Result<Status> {
+        let command = Command::Status {
+            run: run.clone(),
+            target,
+            options,
+        };
         match self.request(command).await? {
             Reply::Status { status, .. } => Ok(*status),
             other => Err(unexpected(&other)),
