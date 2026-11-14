@@ -166,6 +166,8 @@ mod tests {
             version: "1",
             name: family,
             installer,
+            kind: isoloom_spec::os::Kind::Linux,
+            release: isoloom_spec::os::DISTROS.iter().find_map(|d| d.releases.first()).unwrap(),
         }
     }
 

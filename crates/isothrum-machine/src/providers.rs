@@ -291,6 +291,18 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
 add this account to that group and sign out of Windows and back in, or run elevated";
 
+/// What keeps `provider`'s installed hypervisor (`hypervisor`) from starting a VM on this
+/// computer: KVM's device for libvirt, VirtualBox's kernel driver, Windows' hypervisor for
+/// Hyper-V. `None` when nothing does.
+async fn platform_problem(provider: Provider, hypervisor: Option<bool>, runner: &dyn ProcessRunner) -> Option<String> {
+    match provider {
+        Provider::Libvirt => kvm_problem(Path::new(KVM)),
+        Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
+        Provider::Hyperv if hypervisor == Some(true) => hypervisor_stopped(runner).await,
+        _ => None,
+    }
+}
+
 /// The readiness of every provider that applies to this computer's OS and CPU, usable or not:
 /// `None` when it is ready, else why not (its hypervisor, its plugin, Hyper-V needing an
 /// administrator...). Without Vagrant (`vagrant_installed`, the caller's to know) each says so,
@@ -330,12 +342,7 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         let needs_admin = needs_admin(provider, hypervisor, runner).await;
-        let platform_problem = match provider {
-            Provider::Libvirt => kvm_problem(Path::new(KVM)),
-            Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
-            Provider::Hyperv if hypervisor == Some(true) => hypervisor_stopped(runner).await,
-            _ => None,
-        };
+        let platform_problem = platform_problem(provider, hypervisor, runner).await;
         let platform_problem = platform_problem.as_deref();
         let detection = Detection {
             hypervisor,
