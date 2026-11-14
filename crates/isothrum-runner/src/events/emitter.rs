@@ -314,7 +314,7 @@ mod tests {
         let path = dir.path().join("events.jsonl");
         let clock = FixedClock(UNIX_EPOCH);
         let sink = Recorder::new();
-        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(File::create(&path).unwrap());
+        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(std::fs::File::create(&path).unwrap());
         let (threads, each) = (8, 250);
         let start = std::sync::Barrier::new(threads);
         std::thread::scope(|s| {
