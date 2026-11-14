@@ -87,6 +87,9 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
     let dir = dir(home);
     crate::store::create_dir(&dir)?;
     let path = key_path(home);
+    if let Some(key) = public_half_again(processes, &path).await? {
+        return Ok(key);
+    }
     let spec = ProcessSpec::new(
         "ssh-keygen",
         ["-q", "-t", "ed25519", "-N", "", "-C", "isothrum", "-f"]
@@ -100,6 +103,39 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
         return Err(failed(out.reason()));
     }
     public_key(home)?.ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
+}
+
+/// The public half of a private key at `path` left without it (a disk full when `ssh-keygen`
+/// wrote it, a make cut short between the two halves, the `.pub` removed by hand), derived from
+/// it again (`ssh-keygen -y`) and written beside it: a machine that already trusts the key keeps
+/// working. A private key that can't be read as one (a truncated write) is set aside as
+/// `<key>.unusable`, so a new key can be made: `ssh-keygen` would otherwise stop at its overwrite
+/// prompt, with no one to answer it, at every later run. `None` when there is no private key, or
+/// once it is set aside.
+async fn public_half_again(processes: &dyn ProcessRunner, path: &Path) -> Result<Option<String>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let derive = ProcessSpec::new("ssh-keygen", ["-y".to_owned(), "-f".to_owned(), path.display().to_string()]);
+    let progress = crate::executor::Progress::new();
+    let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, &progress, progress.capture(processes, &derive)).await?;
+    let derived = out.stdout.iter().map(|l| l.trim()).find(|l| l.starts_with("ssh-ed25519 "));
+    if let (true, Some(key)) = (out.success(), derived) {
+        // `-y` prints the comment only from OpenSSH 7.8 on.
+        let key = if key.split_whitespace().count() < 3 {
+            format!("{key} isothrum")
+        } else {
+            key.to_owned()
+        };
+        crate::store::write(&path.with_extension("pub"), format!("{key}\n").as_bytes())?;
+        tracing::warn!(path = %path.display(), "the runner's SSH key had lost its public half: derived from the private one again");
+        return Ok(Some(key));
+    }
+    let aside = path.with_extension("unusable");
+    tracing::warn!(path = %path.display(), reason = %out.reason(), "the runner's SSH key can't be read: it is set aside and a new one made");
+    std::fs::rename(path, &aside).map_err(Error::io(path, "set aside"))?;
+    crate::store::remove(&path.with_extension("pub"))?;
+    Ok(None)
 }
 
 /// Whether a run of `manifest` needs the runner's key: it reaches a machine over SSH, or names
@@ -485,6 +521,54 @@ mod tests {
         assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
         assert!(fake.calls().is_empty(), "no ssh-keygen: {:?}", fake.lines());
         assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
+    }
+
+    /// Regression (#125): a private key left without its public half (an empty `.pub` from a
+    /// disk that filled up) ran `ssh-keygen` over it, which stopped at its overwrite prompt and
+    /// failed every later run. Its public half is derived from it again.
+    #[tokio::test]
+    async fn a_key_left_without_its_public_half_gets_it_back_from_the_private_one() {
+        let home = tempfile::tempdir().unwrap();
+        let key = key_path(home.path());
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        std::fs::write(&key, "private").unwrap();
+        std::fs::write(key.with_extension("pub"), "").unwrap();
+        let fake = crate::process::fake::FakeProcesses::new(|call| {
+            if call.line().contains(" -y ") {
+                crate::process::fake::Reply::ok("ssh-ed25519 AAAAkept")
+            } else {
+                crate::process::fake::Reply::fail(1, "id_ed25519 already exists.\nOverwrite (y/n)? ")
+            }
+        });
+        let got = ensure_key(&fake, home.path()).await.unwrap();
+        assert_eq!(got, "ssh-ed25519 AAAAkept isothrum");
+        assert_eq!(public_key(home.path()).unwrap().as_deref(), Some(got.as_str()));
+        assert_eq!(std::fs::read_to_string(&key).unwrap(), "private", "the private key is kept");
+        assert_eq!(fake.calls().len(), 1, "no new key: {:?}", fake.lines());
+    }
+
+    /// A private key that isn't one (a truncated write) is set aside and a new key made.
+    #[tokio::test]
+    async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
+        let home = tempfile::tempdir().unwrap();
+        let key = key_path(home.path());
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        std::fs::write(&key, "trunc").unwrap();
+        let made = key.clone();
+        let fake = crate::process::fake::FakeProcesses::new(move |call| {
+            if call.line().contains(" -y ") {
+                return crate::process::fake::Reply::fail(255, "Load key: invalid format");
+            }
+            if made.exists() {
+                return crate::process::fake::Reply::fail(1, "Overwrite (y/n)? ");
+            }
+            std::fs::write(&made, "new private").unwrap();
+            std::fs::write(made.with_extension("pub"), "ssh-ed25519 AAAAnew isothrum\n").unwrap();
+            crate::process::fake::Reply::ok("")
+        });
+        assert_eq!(ensure_key(&fake, home.path()).await.unwrap(), "ssh-ed25519 AAAAnew isothrum");
+        assert_eq!(std::fs::read_to_string(key.with_extension("unusable")).unwrap(), "trunc", "set aside, not lost");
+        assert_eq!(fake.calls().len(), 2, "{:?}", fake.lines());
     }
 
     /// `ssh-keygen` as it runs: a while to make the key, then the private half, then the public
