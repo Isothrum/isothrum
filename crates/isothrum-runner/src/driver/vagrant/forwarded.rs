@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use isoloom_manifest::{Machine, Manifest, Port, Protocol, Provider, PublishMode, Step};
+use isoloom_manifest::{Machine, Port, Protocol, Provider, PublishMode, Step};
 
 use super::status;
 use crate::Result;
@@ -19,14 +19,6 @@ use crate::status::MachineState;
 /// The key a chosen host port is held under: `"<machine>/<port>"`.
 pub(super) fn key(m: &Machine, p: &Port) -> String {
     format!("{}/{}", m.name, p.name)
-}
-
-/// The key the helper VM's SSH forward host port is held under (`"<guest machine>/ssh"`), for a
-/// run that runs Compose inside a VM (Isoloom's docker-vm). The Vagrantfile's QEMU provider block
-/// reads it as that VM's `ssh_port`; no machine of the run has a port named `ssh`, so it can't
-/// clash with a published port's key.
-fn ssh_key(manifest: &Manifest) -> Option<String> {
-    manifest.guest.as_ref().map(|g| format!("{}/ssh", g.machine.as_str()))
 }
 
 /// Whether `p` is a published port the runner picks a free host port for.
@@ -60,27 +52,7 @@ pub(in crate::driver) fn pin(cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
             chosen.insert(key(m, p), pick.pin(PICK_STEP, &what, port_pick::preferred(p), p.kind.transport())?);
         }
     }
-    // The helper VM's own SSH forward on QEMU: vagrant-qemu forwards guest 22 to one fixed host
-    // port (50022) with weak auto-correct, so two local VMs — or a half-created one left by a
-    // failed start — collide on it. Give it a free host port of its own, the same way a published
-    // port gets one; only QEMU needs it (every other provider manages its own SSH access).
-    if cx.scope.runs_on(Provider::Qemu)
-        && let Some(ssh) = ssh_key(cx.manifest())
-    {
-        let port = pick.pin(PICK_STEP, "the helper VM's SSH forward", None, Protocol::Tcp)?;
-        chosen.insert(ssh, port);
-    }
     Ok(chosen)
-}
-
-/// The host port `m`'s published port `p` is forwarded from on this computer when the run's VMs
-/// forward their ports here ([`host_port`] among the ports the run pinned); `None` on ESXi, whose
-/// VMs forward nothing (a port answers at the VM's own address), or when `p` isn't published.
-pub(in crate::driver) fn local_host_port(cx: &Cx<'_>, m: &Machine, p: &Port) -> Option<u16> {
-    if cx.scope.runs_on(Provider::VmwareEsxi) {
-        return None;
-    }
-    host_port(m, p, cx.vars.vm_pins())
 }
 
 /// The host port `m`'s published port `p` is forwarded from on this computer, as the
@@ -104,12 +76,6 @@ fn host_ports(cx: &Cx<'_>) -> Vec<(u16, Protocol)> {
                 ports.push((port, p.kind.transport()));
             }
         }
-    }
-    // The helper VM's SSH forward (chosen in `pick`, present only on a QEMU docker-vm run).
-    if let Some(ssh) = ssh_key(cx.manifest())
-        && let Some(port) = forwards.get(&ssh)
-    {
-        ports.push((*port, Protocol::Tcp));
     }
     ports
 }

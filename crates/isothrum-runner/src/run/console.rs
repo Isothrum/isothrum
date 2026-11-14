@@ -1,12 +1,9 @@
 //! The way into a machine of a run: the command that opens a console into it, built by the
 //! runner (it alone knows the runtime) and run by the embedder in its own terminal.
 
-use isoloom_manifest::{Machine, Native};
-
 use super::Running;
 use crate::Result;
 use crate::console::{ShellCommand, check_user};
-use crate::executor::Cx;
 
 impl Running<'_> {
     /// The command that opens an interactive console into `machine`, any machine of the run (an
@@ -29,16 +26,6 @@ impl Running<'_> {
     pub fn console_command(&self, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
         let target = self.machine_named(machine)?;
         let user = user.map(|u| check_user(u, target)).transpose()?;
-        self.query(|cx| self.console_of(cx, target, user))
-    }
-
-    /// The console into `target`, as `user` when given: into the run's VM, then into its
-    /// container, for a Compose service in that VM ([`crate::in_vm::console`]); the driver's
-    /// otherwise.
-    fn console_of(&self, cx: &Cx<'_>, target: &Machine, user: Option<&str>) -> Result<ShellCommand> {
-        match (&self.manifest().guest, &target.native) {
-            (Some(guest), Some(Native::Compose { service })) => crate::in_vm::console(cx, &self.driver, guest, service.as_str(), user),
-            _ => self.driver.console_command(cx, target, user),
-        }
+        self.query(|cx| self.driver.console_command(cx, target, user))
     }
 }

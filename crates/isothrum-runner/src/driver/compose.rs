@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, ComposeIdentity, Machine, Native, Port, Protocol, Step, access, contract};
 
-use super::{Driver, GuestUse, Observation, Observed};
+use super::{Driver, Observation, Observed};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::error::Error;
@@ -24,7 +24,6 @@ use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::tool_output::docker as docker_said;
 
-pub(crate) use ps::UNREADABLE as UNREADABLE_PS;
 pub(crate) use pull::before_step as pull_before_step;
 
 /// The label Compose puts on each container naming its service, which finds a service's
@@ -227,13 +226,6 @@ impl Driver for Compose {
             Some(user) => self.compose_args(cx, &["exec", "--user", user, service, "sh", "-c", &super::shells::container_shell_as()])?,
         };
         Ok(super::console_in_run(cx, ProcessSpec::new("docker", args)))
-    }
-
-    /// Refused: a Compose run's containers run on this computer, in no VM.
-    fn in_guest(&self, _cx: &Cx<'_>, vm: &Machine, _script: &str, _use: GuestUse) -> Result<ProcessSpec> {
-        Err(Error::Unsupported {
-            what: format!("running a script in `{}`: a Compose run has no VM its containers run in", vm.name),
-        })
     }
 }
 

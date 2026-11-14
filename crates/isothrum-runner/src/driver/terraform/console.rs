@@ -10,7 +10,7 @@ use isoloom_manifest::Machine;
 use super::state;
 use crate::Result;
 use crate::console::ShellCommand;
-use crate::driver::{GuestUse, console_in_run, shells};
+use crate::driver::{console_in_run, shells};
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::process::ProcessSpec;
@@ -27,24 +27,12 @@ pub(super) fn command(cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Res
         run: cx.run.name().to_string(),
     })?;
     let shell = user.map_or_else(|| shells::LOGIN_SHELL.to_owned(), shells::login_shell_as);
-    Ok(console_in_run(cx, over_ssh(cx, &login, &shell, GuestUse::Console)?))
+    Ok(console_in_run(cx, over_ssh(cx, &login, &shell)?))
 }
 
-/// `script` run in the run's VM over `ssh`, with a terminal for a console; refused when the run
-/// has none. Either way the session carries no variable: a Terraform run delivers nothing to its
-/// VM's sessions.
-pub(super) fn in_guest(cx: &Cx<'_>, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-    let login = super::guest::login(cx, &state::read(cx.state_dir())?)?.ok_or_else(|| Error::Unsupported {
-        what: "running a script in the run's VM: this run has none".to_owned(),
-    })?;
-    over_ssh(cx, &login, script, use_)
-}
-
-/// `ssh` at `login`, running `command` there: with a terminal (`-t`) for a console.
-fn over_ssh(cx: &Cx<'_>, login: &Login, command: &str, use_: GuestUse) -> Result<ProcessSpec> {
+/// `ssh` at `login`, running `command` there with a terminal (`-t`).
+fn over_ssh(cx: &Cx<'_>, login: &Login, command: &str) -> Result<ProcessSpec> {
     let mut spec = ssh::spec(cx, login, command, Vec::new())?;
-    if use_ == GuestUse::Console {
-        spec.args.insert(0, "-t".to_owned());
-    }
+    spec.args.insert(0, "-t".to_owned());
     Ok(spec)
 }

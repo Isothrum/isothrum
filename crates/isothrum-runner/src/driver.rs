@@ -9,7 +9,6 @@ pub(crate) mod shells;
 pub(crate) mod terraform;
 mod vagrant;
 
-pub(crate) use compose::{COMPOSE_SERVICE_LABEL, UNREADABLE_PS, read_ps};
 pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
@@ -135,31 +134,13 @@ pub(crate) trait Driver {
     /// or its move out of the default start; a detach of an on-demand access machine), where the
     /// next update wouldn't remove it itself. The operation's step is named after the emitter's
     /// op. Refused where the driver does nothing for it, except for a machine a Terraform module
-    /// makes, which the update's apply removes. A Compose service in the run's VM never reaches
-    /// here: [`crate::in_vm::retire`] takes it.
+    /// makes, which the update's apply removes.
     async fn retire(&self, cx: &Cx<'_>, machine: &Machine) -> Result<()>;
     /// The argv that opens an interactive console into `machine`, any machine of the run, as
     /// account `user` when given (a checked name, [`crate::console::check_user`]). A pure query:
     /// no process runs here, the embedder runs what it returns in its own terminal. Refused where
-    /// the driver has no way in. A Compose service in the run's VM never reaches here:
-    /// [`crate::in_vm::console`] opens it.
+    /// the driver has no way in.
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand>;
-    /// The process that runs `script` inside `vm`, the VM the run's containers run in
-    /// (`docker-vm`'s guest), through the VM's way in, as `use_` says. Refused by a driver whose
-    /// runs have no such VM.
-    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec>;
-}
-
-/// What a script run in the run's VM ([`Driver::in_guest`]) is for, which decides how it runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GuestUse {
-    /// A console the embedder runs in its own terminal: with a terminal, and with the run's own
-    /// variables only. Nothing the manifest delivers to a step goes in: the embedder is handed
-    /// the command, its variables included, so a secret delivered there would show.
-    Console,
-    /// Part of the operation, run by the runner itself: no terminal, with what the manifest
-    /// delivers to the operation's step (the values reach only the process).
-    Step,
 }
 
 /// The driver a manifest names.
@@ -243,16 +224,6 @@ impl AnyDriver {
         match self {
             AnyDriver::Vagrant(_) => vagrant::forwarded::pin(cx),
             AnyDriver::Compose(_) | AnyDriver::Terraform(_) => Ok(BTreeMap::new()),
-        }
-    }
-
-    /// The host port this computer reaches `m`'s published port `p` at, where the run's VMs
-    /// forward it here (Vagrant, but on ESXi); `None` where a VM's ports answer at its own address
-    /// (ESXi, a Terraform server or cloud) and for Compose, which reads its own.
-    pub(crate) fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
-        match self {
-            AnyDriver::Vagrant(_) => vagrant::forwarded::local_host_port(cx, m, p),
-            AnyDriver::Compose(_) | AnyDriver::Terraform(_) => None,
         }
     }
 
@@ -397,14 +368,6 @@ impl AnyDriver {
             AnyDriver::Compose(d) => d.console_command(cx, machine, user),
             AnyDriver::Vagrant(d) => d.console_command(cx, machine, user),
             AnyDriver::Terraform(d) => d.console_command(cx, machine, user),
-        }
-    }
-
-    pub(crate) fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-        match self {
-            AnyDriver::Compose(d) => d.in_guest(cx, vm, script, use_),
-            AnyDriver::Vagrant(d) => d.in_guest(cx, vm, script, use_),
-            AnyDriver::Terraform(d) => d.in_guest(cx, vm, script, use_),
         }
     }
 }

@@ -78,6 +78,11 @@ impl<'r> Running<'r> {
                 what: format!("target `{}` on this host", wire_name(&loaded.manifest.target)),
             });
         }
+        if let Some(guest) = &loaded.manifest.guest {
+            return Err(Error::Unsupported {
+                what: format!("containers run inside the run's VM `{}` (docker-vm): run the VM targets instead", guest.machine),
+            });
+        }
         let driver = AnyDriver::for_manifest(&loaded.manifest)?;
         Ok(Running {
             runner,
@@ -443,13 +448,10 @@ impl<'r> Running<'r> {
     /// [`Running::observe`], or, for a query another process's lock refused, the machines it
     /// acts on: nothing read, what the runner last saw stands.
     async fn observe_now(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observation> {
-        let mut observed = match self.driver.observe(cx).await? {
+        let observed = match self.driver.observe(cx).await? {
             crate::driver::Observation::Read(observed) => observed,
             busy @ crate::driver::Observation::Busy(_) => return Ok(busy),
         };
-        if let Some(guest) = &self.manifest().guest {
-            crate::in_vm::observe(cx, &self.driver, guest, &mut observed).await;
-        }
         if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
             tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
         }

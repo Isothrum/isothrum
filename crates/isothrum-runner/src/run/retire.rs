@@ -1,12 +1,11 @@
 //! Taking a machine out of a running run ahead of the update that drops it: what that update
 //! wouldn't remove itself. The detach of an on-demand access machine takes it out the same way.
 
-use isoloom_manifest::{Machine, Native};
+use isoloom_manifest::Machine;
 
 use super::Running;
 use super::operation::Done;
 use crate::Result;
-use crate::error::Error;
 use crate::events::{Emitter, Events};
 use crate::executor::Cx;
 use crate::options::RunOptions;
@@ -24,19 +23,13 @@ impl Running<'_> {
     ///
     /// # Errors
     ///
-    /// Fails with `machine_unknown` for a machine the run doesn't have; `unsupported` for the VM
-    /// the run's containers run in (`docker-vm`'s guest: every container would go with it), and
-    /// for a machine the run has nothing to take out of (one whose manifest doesn't say how it
+    /// Fails with `machine_unknown` for a machine the run doesn't have; `unsupported` for a
+    /// machine the run has nothing to take out of (one whose manifest doesn't say how it
     /// runs, a Compose service with no VM to run in, an on-demand machine on a server or cloud);
     /// and as the other operations do for a step or the run's state.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.operate(Op::Retire, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let target = self.machine_named(machine)?;
-            if self.manifest().guest.as_ref().is_some_and(|g| g.machine == target.name) {
-                return Err(Error::Unsupported {
-                    what: format!("retiring `{machine}`, the VM the run's containers run in"),
-                });
-            }
             let (_, cx) = self.existing(connected, e).await?;
             self.take_out(&cx, target).await?;
             Ok(Done::settled((), None, serde_json::json!({ "machine": machine })))
@@ -44,17 +37,12 @@ impl Running<'_> {
         .await
     }
 
-    /// Takes `target` out of the running run: a Compose service in the run's VM there
-    /// ([`crate::in_vm::retire`]), anything else through its driver.
+    /// Takes `target` out of the running run, through its driver.
     pub(crate) async fn take_out(&self, cx: &Cx<'_>, target: &Machine) -> Result<()> {
         // The machine's anonymous volumes: recorded before its removal, what the removal left of
         // them removed after (the attack box's two, left by every retire).
         self.driver.before_change(cx).await?;
-        let taken = match (&self.manifest().guest, &target.native) {
-            (Some(guest), Some(Native::Compose { service })) => crate::in_vm::retire(cx, &self.driver, guest, service.as_str()).await,
-            _ => self.driver.retire(cx, target).await,
-        };
-        taken?;
+        self.driver.retire(cx, target).await?;
         self.driver.after_change(cx).await
     }
 }

@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, contract};
 
-use super::{Driver, GuestUse, Observation, Observed, native_name};
+use super::{Driver, Observation, Observed, native_name};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::encoding::wire_name;
@@ -129,7 +129,7 @@ impl Vagrant {
     async fn guest_addresses(&self, cx: &Cx<'_>, read: &status::Reading) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         let manifest = cx.manifest();
-        for m in manifest.machines.iter().filter(|m| answers(manifest, m)) {
+        for m in manifest.machines.iter().filter(|m| answers(m)) {
             let define = native_name(m);
             if read.states.get(define).map(|s| status::machine_state(s)) != Some(crate::status::MachineState::Running) {
                 continue;
@@ -294,18 +294,6 @@ impl Driver for Vagrant {
         };
         Ok(super::console_in_run(cx, spec))
     }
-
-    /// `vagrant ssh <define> -c <script>` (Vagrant gives `-c` a terminal by default): a console
-    /// gets the run's own variables only ([`Driver::env`]), never what the manifest delivers to a
-    /// step, since the embedder is handed its command; a step of the operation gets what the
-    /// manifest delivers to it ([`GuestUse`]).
-    fn in_guest(&self, cx: &Cx<'_>, vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-        let args = ["ssh", define_of(vm, "running a script in")?, "-c", script];
-        match use_ {
-            GuestUse::Console => self.console(cx, &args),
-            GuestUse::Step => self.vagrant(cx, cx.events.operation_name(), &args),
-        }
-    }
 }
 
 /// The Vagrant define `machine` is, for `what`: refused for a Compose service with no VM to run
@@ -320,10 +308,9 @@ fn define_of<'m>(machine: &'m Machine, what: &str) -> Result<&'m str> {
     }
 }
 
-/// Whether the ports of `m` answer somewhere: it publishes one, or it is the VM Compose runs in
-/// (the containers' ports answer where it does).
-fn answers(manifest: &isoloom_manifest::Manifest, m: &Machine) -> bool {
-    m.ports.iter().any(|p| p.publish.is_some()) || manifest.guest.as_ref().is_some_and(|g| g.machine == m.name)
+/// Whether the ports of `m` answer somewhere: it publishes one.
+fn answers(m: &Machine) -> bool {
+    m.ports.iter().any(|p| p.publish.is_some())
 }
 
 /// Where each VM forwarding to this computer answers, by define name: the address the manifest
@@ -349,7 +336,7 @@ fn machines(manifest: &isoloom_manifest::Manifest, read: &status::Reading, hosts
             .get(define)
             .map_or(crate::status::MachineState::Absent, |s| status::machine_state(s));
         let host = hosts.get(define).filter(|_| state != crate::status::MachineState::Absent);
-        if let Some(host) = host.filter(|_| answers(manifest, m)) {
+        if let Some(host) = host.filter(|_| answers(m)) {
             out.hosts.insert(m.name.to_string(), host.clone());
         }
         let mut published = Vec::new();

@@ -126,7 +126,6 @@ pub mod fuzzing;
 mod graphical;
 mod guest;
 mod host_env;
-mod in_vm;
 mod manifest;
 mod name;
 mod net;

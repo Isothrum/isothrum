@@ -25,7 +25,6 @@ pub(crate) mod argv;
 mod console;
 mod copy_module;
 pub(crate) mod gone;
-mod guest;
 pub(crate) mod state;
 
 use std::collections::BTreeMap;
@@ -33,10 +32,9 @@ use std::path::{Path, PathBuf};
 
 use isoloom_manifest::{Action, ExpiryUnit, Machine, Step, TerraformIdentity};
 
-use super::{Driver, GuestUse, Observation, Observed};
+use super::{Driver, Observation, Observed};
 use crate::console::ShellCommand;
 use crate::executor::Cx;
-use crate::process::ProcessSpec;
 use crate::status::{MachineState, MachineStatus, PublishedPort};
 use crate::vars::PortKey;
 use crate::{Error, Result, RunnerConfig};
@@ -185,11 +183,6 @@ impl Driver for Terraform {
     /// ([`console::command`]).
     fn console_command(&self, cx: &Cx<'_>, machine: &Machine, user: Option<&str>) -> Result<ShellCommand> {
         console::command(cx, machine, user)
-    }
-
-    /// `ssh` to the run's VM, as the guest's steps reach it ([`console::in_guest`]).
-    fn in_guest(&self, cx: &Cx<'_>, _vm: &Machine, script: &str, use_: GuestUse) -> Result<ProcessSpec> {
-        console::in_guest(cx, script, use_)
     }
 }
 

@@ -46,11 +46,6 @@ pub(crate) const SOLO_WEB_AWS: &str = include_str!("../tests/fixtures/solo-web.c
 /// the controller.
 pub(crate) const WEB_VM: &str = include_str!("../tests/fixtures/web-vm.run.json");
 
-/// Isoloom's `docker-vm` fixture (web-portal): Compose inside a VM Vagrant makes.
-pub(crate) const DOCKER_VM: &str = include_str!("../tests/fixtures/web-portal.docker-vm.run.json");
-
-/// Isoloom's `docker-vm` fixture on Proxmox: Compose inside a VM Terraform makes, over SSH.
-pub(crate) const DOCKER_VM_PROXMOX: &str = include_str!("../tests/fixtures/web-portal.docker-vm-proxmox.run.json");
 
 /// The Terraform state a Proxmox host's reset left of a cut-short apply: its IP set, gone from the
 /// server, as a real run kept it.
