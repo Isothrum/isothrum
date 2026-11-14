@@ -144,7 +144,10 @@ impl Tunnel {
 fn ssh_spec(machine: &str, to: &To, key: &Path, state_dir: &Path, local: u16) -> Result<ProcessSpec> {
     let address = |h: &str| !h.is_empty() && !h.starts_with('-') && h.chars().all(|c| c.is_ascii_alphanumeric() || ".:-".contains(c));
     if !address(&to.host) {
-        return Err(no_console(machine, format!("its address `{}` isn't one a tunnel goes to", to.host.escape_debug())));
+        return Err(no_console(
+            machine,
+            format!("its address `{}` isn't one a tunnel goes to", to.host.escape_debug()),
+        ));
     }
     let forward = format!("{LOOPBACK}:{local}:{}:{}", bracketed(&to.host), to.port);
     let mut args = crate::ssh::options(key, state_dir)?;

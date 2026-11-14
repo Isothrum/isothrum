@@ -88,8 +88,8 @@ impl AnyFormat {
         dispatch!(self, d => d.reapply(cx, change).await)
     }
 
-    pub(crate) async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>) -> Result<()> {
-        dispatch!(self, d => d.provision(cx, machine).await)
+    pub(crate) async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>, with: Option<&str>) -> Result<()> {
+        dispatch!(self, d => d.provision(cx, machine, with).await)
     }
 
     pub(crate) async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {

@@ -73,6 +73,9 @@ pub(crate) enum RunnerCommand {
         /// Only this machine.
         #[arg(long)]
         machine: Option<String>,
+        /// Only the provisioner of this name (Vagrant's `--provision-with`, a lab's `checks`).
+        #[arg(long)]
+        with: Option<String>,
     },
     /// Start a machine the project leaves down at `up` (a Compose service under a profile, a
     /// Vagrant machine with `autostart: false`).

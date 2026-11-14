@@ -244,7 +244,9 @@ pub(crate) trait FormatDriver {
     #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     async fn reapply(&self, cx: &ToolCx<'_>, change: &Change) -> Result<()>;
     /// Runs the set-up again, on `machine` or on every machine.
-    async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>) -> Result<()>;
+    /// `with`, when given, runs only the provisioner of that name (Vagrant's
+    /// `--provision-with`: a lab's checks, re-read from the project before they run).
+    async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>, with: Option<&str>) -> Result<()>;
     /// Starts `machine`, one the project leaves down at `up` (a Compose service under a profile,
     /// a Vagrant machine with `autostart: false`).
     async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()>;

@@ -231,7 +231,9 @@ async fn outputs(module: &Module<'_, '_>, state: StateAt<'_>) -> Result<BTreeMap
 pub(super) async fn reach(module: &Module<'_, '_>, state: StateAt<'_>, vm: &tf::Resource, machine: &str) -> Result<Console> {
     let cx = module.cx;
     let out = outputs(module, state).await?;
-    let seen = machines_of(std::slice::from_ref(vm)).pop().ok_or_else(|| no_console(machine, "it isn't a VM"))?;
+    let seen = machines_of(std::slice::from_ref(vm))
+        .pop()
+        .ok_or_else(|| no_console(machine, "it isn't a VM"))?;
     let plan = match plan(&out, &seen) {
         Some(Ok(plan)) => plan,
         Some(Err(why)) => return Err(no_console(machine, why)),
@@ -244,7 +246,10 @@ pub(super) async fn reach(module: &Module<'_, '_>, state: StateAt<'_>, vm: &tf::
         None => {
             return Err(no_console(
                 machine,
-                format!("a `{}` gives no screen this runner reaches (its module names none in a `{CONSOLES_OUTPUT}` output)", vm.kind),
+                format!(
+                    "a `{}` gives no screen this runner reaches (its module names none in a `{CONSOLES_OUTPUT}` output)",
+                    vm.kind
+                ),
             ));
         }
     };

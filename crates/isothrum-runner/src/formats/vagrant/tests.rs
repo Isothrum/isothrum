@@ -247,8 +247,8 @@ async fn resume_boots_without_provisioning_and_update_and_provision_provision() 
     let cx = cx(&f, &fake, LIBVIRT);
     Vagrant.resume(&cx).await.expect("resume");
     Vagrant.update(&cx).await.expect("update");
-    Vagrant.provision(&cx, None).await.expect("provision all");
-    Vagrant.provision(&cx, Some("web")).await.expect("provision one");
+    Vagrant.provision(&cx, None, None).await.expect("provision all");
+    Vagrant.provision(&cx, Some("web"), None).await.expect("provision one");
     assert_eq!(
         made(&fake),
         [

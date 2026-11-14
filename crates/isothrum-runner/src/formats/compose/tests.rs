@@ -225,7 +225,7 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     Compose.attach(&cx, "attackbox").await.expect("attached");
     Compose.retire(&cx, "attackbox").await.expect("retired");
     assert_eq!(
-        Compose.provision(&cx, None).await.expect_err("nothing to provision").code(),
+        Compose.provision(&cx, None, None).await.expect_err("nothing to provision").code(),
         crate::ErrorCode::Unsupported
     );
 }

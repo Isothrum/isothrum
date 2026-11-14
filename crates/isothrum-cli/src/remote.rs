@@ -98,9 +98,17 @@ fn operation(command: &RunnerCommand, var: &Var<'_>) -> Result<(Command, Shown)>
                 Shown::Plain,
             )
         }
-        RunnerCommand::Provision { machine, .. } => {
-            let machine = machine.clone();
-            (Command::Provision { target, options, machine }, Shown::Plain)
+        RunnerCommand::Provision { machine, with, .. } => {
+            let (machine, with) = (machine.clone(), with.clone());
+            (
+                Command::Provision {
+                    target,
+                    options,
+                    machine,
+                    with,
+                },
+                Shown::Plain,
+            )
         }
         RunnerCommand::Attach { machine, .. } => {
             let machine = machine.clone();

@@ -466,12 +466,26 @@ impl FormatDriver for Vagrant {
         Ok(())
     }
 
-    async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>) -> Result<()> {
+    async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>, with: Option<&str>) -> Result<()> {
         asked(cx)?;
         let machines: Vec<String> = machine.map(one).unwrap_or_default();
-        self.up_call(cx, "provision", Provision::Yes, &machines)
-            .await
-            .map_err(|e| tool_error("provision", e))
+        let Some(name) = with else {
+            return self
+                .up_call(cx, "provision", Provision::Yes, &machines)
+                .await
+                .map_err(|e| tool_error("provision", e));
+        };
+        // One provisioner on machines that run: nothing else of their set-up runs again.
+        let name = vagrant::ProvisionerName::new(name).ok_or_else(|| Error::Input {
+            name: "provisioner".to_owned(),
+            reason: format!("`{name}` isn't a provisioner's name (letters, digits, `-`, `_`)"),
+        })?;
+        let call = call(cx, UP_LIMIT);
+        retrying(cx.warn, "provision", Rerun::Repeats, PATIENCE, || {
+            vagrant::provision_with(&call, &name, &machines)
+        })
+        .await
+        .map_err(|e| tool_error("provision", e))
     }
 
     async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
