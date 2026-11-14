@@ -397,7 +397,7 @@ async fn detect_on(host: &Host, runner: &dyn ProcessRunner, vagrant_installed: b
 /// account: said here with the way out, not as a raw error mid-boot. When the runner's check
 /// can't say, no reason is added.
 async fn needs_admin(provider: Provider, hypervisor: Option<bool>, runner: &dyn ProcessRunner) -> bool {
-    provider == Provider::Hyperv && hypervisor == Some(true) && isothrum_runner::may_manage_hyperv(runner).await == Some(false)
+    provider == Provider::Hyperv && hypervisor == Some(true) && isothrum_runner::may_manage_hyperv(runner).await == isothrum_runner::HyperVRights::Missing
 }
 
 /// Whether VirtualBox's background service is wedged: `VBoxManage --version` never talks to it, so

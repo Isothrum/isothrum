@@ -57,15 +57,14 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
     }
     let mut step = Step::argv(id, tool.probe.clone());
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    let out = capture_step(cx, STEP, &step)
-        .await
-        .map_err(|e| named(e, tool.name.as_str(), |reason| format!("`{}` doesn't answer: {reason}", tool.name)))?;
+    let out = capture_step(cx, STEP, &step).await.map_err(|e| named(e, tool.name.as_str(), |reason| reason))?;
     // Docker 26 and older exit 0 with an empty line when the daemon doesn't answer: an empty
     // answer from its probe is a daemon down, as an exit 1 is.
     if tool.name.as_str() == "docker" && out.trim().is_empty() {
-        return Err(Error::ToolFailed {
+        return Err(Error::ToolUnanswered {
             step: STEP.to_owned(),
-            reason: "`docker` doesn't answer: its probe printed nothing (its daemon isn't running)".to_owned(),
+            tool: "docker".to_owned(),
+            reason: "its probe printed nothing (its daemon isn't running)".to_owned(),
         });
     }
     let Some(min) = &tool.min_version else { return Ok(()) };
@@ -96,30 +95,29 @@ async fn engine(cx: &Cx<'_>, id: StepId, docker: Program, image: &str) -> Result
     let probe = HostArgv::Every(Argv::new(docker, ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into()));
     let mut step = Step::argv(id.clone(), probe);
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    let version = capture_step(cx, STEP, &step).await.map_err(|e| {
-        named(e, "docker", |reason| {
-            format!("Docker, which runs `{image}` on this host, doesn't answer: {reason}")
-        })
-    })?;
+    let runs = |reason: String| format!("{reason}; it runs `{image}` on this host");
+    let version = capture_step(cx, STEP, &step).await.map_err(|e| named(e, "docker", runs))?;
     if version.trim().is_empty() {
-        return Err(Error::ToolFailed {
+        return Err(Error::ToolUnanswered {
             step: id.to_string(),
-            reason: format!("Docker, which runs `{image}` on this host, doesn't answer: `docker info` printed no server version (its daemon isn't running)"),
+            tool: "docker".to_owned(),
+            reason: runs("`docker info` printed no server version (its daemon isn't running)".to_owned()),
         });
     }
     Ok(())
 }
 
-/// A probe's failure, said of the tool it probes: missing under its manifest name, failing with
-/// `failed` saying why.
+/// A probe's failure, said of the tool it probes: missing under its manifest name, a failed probe
+/// as the tool not answering ([`Error::ToolUnanswered`]), `failed` saying why from its reason.
 fn named(e: Error, tool: &str, failed: impl FnOnce(String) -> String) -> Error {
     match e {
         Error::ToolMissing { step: probe, .. } => Error::ToolMissing {
             step: probe,
             tool: tool.to_owned(),
         },
-        Error::ToolFailed { step: probe, reason } => Error::ToolFailed {
+        Error::ToolFailed { step: probe, reason } => Error::ToolUnanswered {
             step: probe,
+            tool: tool.to_owned(),
             reason: failed(reason),
         },
         other => other,
@@ -170,7 +168,7 @@ mod tests {
             "x",
             |r| format!("x: {r}"),
         );
-        assert!(matches!(failed, Error::ToolFailed { reason, .. } if reason == "x: exit 1"));
+        assert!(matches!(failed, Error::ToolUnanswered { tool, reason, .. } if tool == "x" && reason == "x: exit 1"));
         let other = named(
             Error::Timeout {
                 step: "tools".into(),

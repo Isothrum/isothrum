@@ -442,14 +442,14 @@ fn a_session_token_is_random_hex() {
 async fn whether_the_account_may_manage_hyperv_is_whoamis_answer_or_unknown() {
     let whoami = |groups: &str| FakeProcesses::expect(&[("whoami /groups /fo csv /nh", Reply::ok(groups))]);
     let elevated = whoami("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\",");
-    assert_eq!(may_manage_hyperv(&elevated).await, Some(true));
+    assert_eq!(may_manage_hyperv(&elevated).await, HyperVRights::Granted);
     let member = whoami("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\",");
-    assert_eq!(may_manage_hyperv(&member).await, Some(true));
+    assert_eq!(may_manage_hyperv(&member).await, HyperVRights::Granted);
     let neither = whoami("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\",");
-    assert_eq!(may_manage_hyperv(&neither).await, Some(false));
+    assert_eq!(may_manage_hyperv(&neither).await, HyperVRights::Missing);
     let failing = FakeProcesses::expect(&[("whoami /groups", Reply::fail(1, "ERROR: access denied"))]);
     let (answer, traced) = crate::testing::traced(may_manage_hyperv(&failing)).await;
-    assert_eq!(answer, None, "a failed whoami is no answer, not a no");
+    assert_eq!(answer, HyperVRights::Unknown, "a failed whoami is no answer, not a no");
     assert!(traced.contains("`whoami /groups` failed") && traced.contains("access denied"), "{traced}");
 }
 

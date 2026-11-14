@@ -57,6 +57,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   entry or a Terraform state that is there but isn't what the runner wrote (not JSON, another
   version's shape) fails with the new `corrupt` code and names the file; `io` stays the OS's
   reasons (missing, unreadable).
+- **A failure is told by its type, never by its wording (#381).** **Breaking, for embedders:**
+  a tool whose probe gets no answer (Docker's engine stopped, or one this account can't reach)
+  fails with the new `tool_unanswered` code (`Error::ToolUnanswered { step, tool, reason }`), not
+  `tool_failed` with "doesn't answer" in its reason; the message reads as before.
+  `Captured::output` fails with a `ProcessFailed` (how the tool ended, and its reason), not a
+  `String`; `may_manage_hyperv` answers a `HyperVRights` (`Granted`, `Missing`, `Unknown`), not
+  an `Option<bool>`.
 - **`Runner::run_record`: one run's record, read alone.** An embedder asking after one run read
   every record (`runs`) and failed on another run's record it couldn't read.
 

@@ -86,7 +86,10 @@ pub(super) async fn reconcile_provider(v: &Vagrant, cx: &Cx<'_>, step: &Step) ->
         .warning(WarningCode::OtherProvider, "this run last ran on another provider: clearing that run first");
     let destroy = v.vagrant(cx, id, &["destroy", "--force"])?;
     let destroyed = lock::call_retrying(cx, id, &destroy, RECONCILE_DESTROY_LIMIT, Echo::Shown).await;
-    if let Err(reason) = destroyed.map_err(|e| e.to_string()).and_then(|out| out.output().map(drop)) {
+    if let Err(reason) = destroyed
+        .map_err(|e| e.to_string())
+        .and_then(|out| out.output().map(drop).map_err(|failed| failed.reason))
+    {
         let said = format!("the run on the other provider couldn't be destroyed: {reason}");
         cx.events.warning(WarningCode::CleanupFailed, &said);
     }

@@ -88,6 +88,18 @@ pub enum Error {
         /// Its last error lines, or its exit status (secrets masked).
         reason: String,
     },
+    /// A tool the run needs is installed, but its probe got no answer from it: a container
+    /// engine stopped, or one this account can't reach. Said by its code, so a caller never reads
+    /// it out of a [`Error::ToolFailed`]'s wording.
+    #[error("step `{step}` failed: `{tool}` doesn't answer: {reason}")]
+    ToolUnanswered {
+        /// The probing step (`tools`).
+        step: String,
+        /// The tool, by its manifest name (`docker`).
+        tool: String,
+        /// What it said, or why its answer is none (secrets masked).
+        reason: String,
+    },
     /// A step ran out of time: it showed no progress for its limit, or it ran to the ceiling.
     #[error("step `{step}` {timed_out}")]
     Timeout {
@@ -371,6 +383,7 @@ impl Error {
         match self {
             Error::ToolMissing { step, .. }
             | Error::ToolFailed { step, .. }
+            | Error::ToolUnanswered { step, .. }
             | Error::Timeout { step, .. }
             | Error::DownloadStalled { step, .. }
             | Error::DownloadFailed { step, .. }
@@ -403,6 +416,7 @@ impl Error {
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
+            Error::ToolUnanswered { .. } => ErrorCode::ToolUnanswered,
             Error::Timeout { .. } => ErrorCode::Timeout,
             Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,
             Error::DownloadFailed { .. } => ErrorCode::DownloadFailed,

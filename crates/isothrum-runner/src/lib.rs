@@ -176,7 +176,7 @@ pub use options::{Occupied, RunOptions};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
-pub use process::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
+pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};

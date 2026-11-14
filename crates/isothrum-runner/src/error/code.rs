@@ -28,6 +28,9 @@ pub enum ErrorCode {
     ToolMissing,
     /// A step's tool ran and failed.
     ToolFailed,
+    /// A tool the run needs is installed, but its probe got no answer from it (Docker's engine
+    /// stopped, or not this account's to reach): the message says what the tool said.
+    ToolUnanswered,
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
@@ -126,6 +129,7 @@ impl ErrorCode {
             ErrorCode::Locked => "locked",
             ErrorCode::ToolMissing => "tool_missing",
             ErrorCode::ToolFailed => "tool_failed",
+            ErrorCode::ToolUnanswered => "tool_unanswered",
             ErrorCode::ToolTooOld => "tool_too_old",
             ErrorCode::Timeout => "timeout",
             ErrorCode::DownloadStalled => "download_stalled",
