@@ -2,8 +2,7 @@
 //! mid-transaction leaves no trace of it), the integrity check at open, and the mirror of the
 //! critical rows a damaged store is rebuilt from.
 
-use std::io::{BufRead as _, BufReader, Seek as _, SeekFrom, Write as _};
-use std::process::{Command, Stdio};
+use std::io::{Seek as _, SeekFrom, Write as _};
 
 use super::*;
 use crate::store::{Lifetime, NewResource, ResourceKind, ResourceState};
@@ -47,20 +46,7 @@ fn a_child_killed_mid_transaction() {
 fn a_process_killed_mid_transaction_leaves_no_trace_of_it() {
     let home = tempfile::tempdir().unwrap();
     a_run_with_a_vm(&Store::open(home.path()).unwrap());
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "store::db::tests::robust::a_child_killed_mid_transaction",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(CHILD_HOME, home.path())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-    let inside = lines.by_ref().map_while(std::result::Result::ok).any(|l| l.contains("inside"));
+    let (mut child, inside) = crate::testing::child_test_saying("store::db::tests::robust::a_child_killed_mid_transaction", CHILD_HOME, home.path(), "inside");
     // SIGKILL on Unix, TerminateProcess on Windows: no handler runs, the transaction is cut.
     child.kill().unwrap();
     child.wait().unwrap();
@@ -84,19 +70,21 @@ fn damage(path: &std::path::Path) {
     f.sync_all().unwrap();
 }
 
-/// Checkpoints the WAL into the main file, so damaging the file damages the rows.
-fn checkpoint(store: Store) {
+/// A home whose store holds [`a_run_with_a_vm`] (the operation's id beside it), its mirror
+/// written, and its WAL checkpointed into the main file, so damaging the file damages the rows.
+fn a_home_with_a_vm() -> (tempfile::TempDir, OperationId) {
+    let home = tempfile::tempdir().unwrap();
+    let store = Store::open(home.path()).unwrap();
+    let op = a_run_with_a_vm(&store);
     store.conn.lock().unwrap().execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
     drop(store);
+    (home, op)
 }
 
 #[test]
 fn a_damaged_store_is_rebuilt_from_its_mirror_and_kept_aside() {
-    let home = tempfile::tempdir().unwrap();
-    let store = Store::open(home.path()).unwrap();
-    let op = a_run_with_a_vm(&store);
+    let (home, op) = a_home_with_a_vm();
     assert!(home.path().join(MIRROR_FILE).is_file(), "the mirror follows each committed change");
-    checkpoint(store);
     damage(&home.path().join(DB_FILE));
 
     let rebuilt = Store::open(home.path()).expect("rebuilt from the mirror");
@@ -117,10 +105,7 @@ fn a_damaged_store_is_rebuilt_from_its_mirror_and_kept_aside() {
 
 #[tokio::test]
 async fn a_resource_recorded_in_the_mirror_is_still_removed_by_its_id() {
-    let home = tempfile::tempdir().unwrap();
-    let store = Store::open(home.path()).unwrap();
-    a_run_with_a_vm(&store);
-    checkpoint(store);
+    let (home, _) = a_home_with_a_vm();
     damage(&home.path().join(DB_FILE));
 
     let rebuilt = std::sync::Arc::new(Store::open(home.path()).unwrap());
@@ -147,10 +132,7 @@ async fn a_resource_recorded_in_the_mirror_is_still_removed_by_its_id() {
 
 #[test]
 fn an_emptied_store_beside_a_mirror_is_rebuilt_not_taken_as_new() {
-    let home = tempfile::tempdir().unwrap();
-    let store = Store::open(home.path()).unwrap();
-    a_run_with_a_vm(&store);
-    checkpoint(store);
+    let (home, _) = a_home_with_a_vm();
     std::fs::File::create(home.path().join(DB_FILE)).unwrap();
     let rebuilt = Store::open(home.path()).unwrap();
     assert!(rebuilt.recovered().is_some(), "truncated to nothing: repaired");
@@ -159,10 +141,7 @@ fn an_emptied_store_beside_a_mirror_is_rebuilt_not_taken_as_new() {
 
 #[test]
 fn a_damaged_store_with_no_mirror_is_a_typed_error() {
-    let home = tempfile::tempdir().unwrap();
-    let store = Store::open(home.path()).unwrap();
-    a_run_with_a_vm(&store);
-    checkpoint(store);
+    let (home, _) = a_home_with_a_vm();
     std::fs::remove_file(home.path().join(MIRROR_FILE)).unwrap();
     damage(&home.path().join(DB_FILE));
     let err = Store::open(home.path()).unwrap_err();
