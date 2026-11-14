@@ -1,5 +1,9 @@
 //! The runner service as the binary runs it: a client starts it when none answers, one service
 //! per home, `shutdown` and the idle time stop it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
+)]
 
 use std::path::Path;
 use std::process::Command;

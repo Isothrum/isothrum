@@ -266,14 +266,8 @@ async fn parallels_bundle(cx: &Cx<'_>, machine: &Machine) -> Result<String> {
     if !out.success() {
         return Err(no_console(machine, format!("Parallels didn't say where its VM is: {}", out.reason())));
     }
-    let said: serde_json::Value = serde_json::from_str(&out.stdout.join("\n")).unwrap_or_default();
-    let home = said
-        .as_array()
-        .and_then(|vms| vms.first())
-        .and_then(|vm| vm.get("Home"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| no_console(machine, "Parallels didn't say where its VM is"))?;
-    Ok(argument(machine, home.trim_end_matches('/'))?.to_owned())
+    let home = crate::tool_output::prlctl::home(&out.stdout.join("\n")).ok_or_else(|| no_console(machine, "Parallels didn't say where its VM is"))?;
+    Ok(argument(machine, &home)?.to_owned())
 }
 
 /// The ESXi Host Client's console of `machine`'s VM: `https://<host>/ui/#/console/<id>`.

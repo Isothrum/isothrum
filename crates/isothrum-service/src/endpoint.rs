@@ -64,6 +64,10 @@ pub(crate) fn listen(_paths: &ServicePaths) -> Result<(Listener, String), ServeE
 
 /// The account's SID, from `whoami /user /fo csv /nh` (`"host\ada","S-1-5-21-…"`): no FFI.
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the service secures its endpoint before any run exists, with no process runner to hand"
+)]
 fn account_sid() -> std::io::Result<String> {
     let out = std::process::Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output()?;
     let text = String::from_utf8_lossy(&out.stdout);

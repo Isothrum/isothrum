@@ -38,6 +38,10 @@ pub(super) fn owner_only(home: &Path, profile: Option<&Path>) -> std::io::Result
 
 /// Gives `folder` the owner-only DACL, protected from what its parent passes down.
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the store protects its home folder before any run exists, with no process runner to hand"
+)]
 fn protect(folder: &Path) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     // No console window flashes in a GUI embedder while the home is made owner-only.

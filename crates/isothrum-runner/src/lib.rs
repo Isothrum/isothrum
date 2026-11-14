@@ -107,6 +107,13 @@
 //! `run`, `step` and `driver`, events for each process), never by printing.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::disallowed_methods,
+        reason = "tests start the programs they stand in for, or a real process to check its handling"
+    )
+)]
 
 mod adopt;
 mod archive;

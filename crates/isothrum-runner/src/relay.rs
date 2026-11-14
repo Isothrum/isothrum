@@ -67,6 +67,10 @@ pub(crate) type ToLan = Box<dyn AsyncWrite + Send + Unpin>;
 /// terminal; an app may be let through while its child tools are not), while Apple's binaries
 /// never are. Not the [`crate::ProcessRunner`] port: this is a byte pipe for as long as the
 /// connection lasts, not a tool run to its end; `nc` goes with the connection (`kill_on_drop`).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the relay's `nc` is a stream it holds open both ways, not a call the process module waits on"
+)]
 pub(crate) fn connect(host: &str, port: u16) -> std::io::Result<(FromLan, ToLan, tokio::process::Child)> {
     let mut child = tokio::process::Command::new(NC)
         .arg(host)
