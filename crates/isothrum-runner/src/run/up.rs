@@ -57,6 +57,7 @@ impl Running<'_> {
         let params = params_for_start(self.manifest(), &opts.params, &scope)?;
         self.ensure_ssh_key().await?;
         let mut cx = self.with_operation_processes(self.cx(params, &opts.secrets, events, opts.provider)?)?;
+        cx.env.clone_from(&opts.env);
         // Leftovers are removed with the names they were made with.
         cx.bind_record(&record);
         self.relay(&mut cx).await?;
@@ -78,7 +79,7 @@ impl Running<'_> {
         slot.keep_in(&mut record);
         self.place(&mut record, opts);
         cx.bind_record(&record);
-        self.begin(&mut record, Op::Up)?;
+        self.begin(&mut record, Op::Up, cx.events)?;
         drop(slot);
         crate::executor::state_files::write_all(&cx)?;
         self.converge(&mut cx).await?;
@@ -191,13 +192,14 @@ impl Running<'_> {
         });
     }
 
-    /// The start steps; a failure after a step printed one of `recovery.stale_markers` (any line
-    /// of an argv or `ssh.run` step's, see [`crate::executor::LineWatch`]) runs the recovery steps
+    /// The start steps; a failure after a step printed the words of one of `recovery.leftovers`
+    /// ([`crate::tool_output::leftover`]; any line of an argv or `ssh.run` step's, see
+    /// [`crate::executor::LineWatch`]) runs the recovery steps
     /// and starts again, up to `recovery.retries` times. A genuine failure never retries.
     pub(super) async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
         let up = self.manifest().lifecycle.up.as_slice();
         let none = Recovery {
-            stale_markers: Vec::new(),
+            leftovers: Vec::new(),
             steps: Vec::new(),
             retries: isoloom_manifest::Retries::default(),
             apply_retries: None,

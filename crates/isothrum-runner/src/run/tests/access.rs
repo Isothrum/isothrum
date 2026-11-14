@@ -63,10 +63,11 @@ async fn attach_brings_the_access_service_up_in_its_profile_with_the_picked_imag
     assert!(matches!(kinds(&events).last(), Some(EventKind::Result { ok: true, .. })));
 }
 
-/// Any failure to join the chosen network fails the attach, and a network the run doesn't have is
-/// refused before anything starts.
+/// A failure to join the chosen network fails the attach (a container already on it isn't joined
+/// again: `a_container_already_on_the_network_isnt_joined_again`), and a network the run doesn't
+/// have is refused before anything starts.
 #[tokio::test]
-async fn attach_to_a_network_fails_on_a_refused_join_and_refuses_an_unknown_network() {
+async fn attach_to_a_network_fails_on_a_refused_join() {
     let refused = fixture_answering(WEB_PORTAL_ACCESS, |e, c| {
         joining(e, c, Reply::fail(1, "Error response from daemon: network web-portal_lab not found"))
     });

@@ -89,7 +89,7 @@ pub(crate) fn check_user<'u>(user: &'u str, machine: &Machine) -> Result<&'u str
 
 /// `word` as a POSIX shell reads it back: as it is when nothing in it is special, else
 /// single-quoted.
-fn sh_word(word: &str) -> String {
+pub(crate) fn sh_word(word: &str) -> String {
     let plain = |c: char| c.is_ascii_alphanumeric() || "_-.,/:@%+=".contains(c);
     if !word.is_empty() && word.chars().all(plain) {
         word.to_owned()

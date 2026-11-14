@@ -3,7 +3,8 @@
 //!
 //! - **one-way dependencies**: the library (the runner) depends on no other crate of the
 //!   repository and on no UI; the machine-setup domain builds on the runner, and the app (the command line) may depend on the libraries and the domain (it uses
-//!   the libraries), never the reverse; nothing depends on the xtask;
+//!   the libraries), never the reverse; nothing depends on the xtask; the tests' shared support
+//!   depends on no crate of the repository, and any crate's tests may use it;
 //! - **workspace hygiene**: every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -22,16 +23,19 @@ enum Role {
     App,
     /// The development tasks.
     Xtask,
+    /// What the crates' tests share (a dev-dependency only, unpublished).
+    TestSupport,
 }
 
 /// The repository's crates and their roles.
-const ROLES: [(&str, Role); 4] = [
+const ROLES: [(&str, Role); 5] = [
     ("isothrum-runner", Role::Library),
     // Builds on the runner and the apps build on it: a tier of its own between the base libraries
     // and the apps (out of this workspace, which consume it too).
     ("isothrum-machine", Role::Domain),
     ("isothrum-cli", Role::App),
     ("xtask", Role::Xtask),
+    ("isothrum-test-support", Role::TestSupport),
 ];
 
 /// Crates that make a user interface: a library never depends on one directly (the rule reads each
@@ -46,7 +50,9 @@ fn role(name: &str) -> Option<Role> {
 fn allowed(from: &str, to: &str) -> bool {
     matches!(
         (role(from), role(to)),
-        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain)) | (Some(Role::Domain), Some(Role::Library))
+        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain))
+            | (Some(Role::Domain), Some(Role::Library))
+            | (Some(Role::Library | Role::Domain | Role::App), Some(Role::TestSupport))
     )
 }
 

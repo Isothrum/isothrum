@@ -1,8 +1,10 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+mod reap;
 
 use std::borrow::Borrow;
+
+use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
@@ -226,11 +228,11 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
 /// stopped.
 async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
-    let console = run.graphical_console(machine).await?;
+    let mut console = run.graphical_console(machine).await?;
     let protocol = isothrum_runner::wire_name(&console.protocol);
     let (address, websocket) = match &console.endpoint {
         Endpoint::Loopback(at) => (Some(at.to_string()), None),
-        Endpoint::ProxmoxVnc(vnc) => (None, Some(vnc.websocket.expose().to_owned())),
+        Endpoint::ProxmoxVnc(vnc) => (None, Some(websocket_shown(vnc, show))),
         _ => (None, None),
     };
     let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
@@ -255,9 +257,28 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> 
         }
     }
     if console.tunnelled() {
-        std::future::pending::<()>().await;
+        // Held open while it lives: a tunnel that closed ends the command, saying so.
+        match console.tunnel_closed().await {
+            Ok(never) => match never {},
+            Err(e) => return Err(e.into()),
+        }
     }
     Ok(Verdict::Pass)
+}
+
+/// A Proxmox VE console's websocket as `screen` prints it: its ticket (the console's password, in
+/// its query) masked unless `show` (`--show-password`).
+fn websocket_shown(vnc: &isothrum_runner::ProxmoxVnc, show: bool) -> String {
+    ticket_shown(vnc.websocket.expose(), vnc.ticket.expose(), show)
+}
+
+/// `url` with `ticket` in it, as it is or percent-encoded, masked unless `show`.
+fn ticket_shown(url: &str, ticket: &str, show: bool) -> String {
+    const HIDDEN: &str = "<hidden: --show-password prints it>";
+    if show || ticket.is_empty() {
+        return url.to_owned();
+    }
+    url.replace(&isothrum_runner::percent_encoded(ticket), HIDDEN).replace(ticket, HIDDEN)
 }
 
 /// The run's checks: a pass only when every one passed.
@@ -338,6 +359,5 @@ fn options(args: &OpArgs, var: &Var<'_>) -> Result<RunOptions> {
     Ok(opts)
 }
 
-mod reap;
 #[cfg(test)]
 mod tests;

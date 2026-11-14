@@ -11,7 +11,8 @@ use crate::secrets::{SecretValue, Secrets};
 use crate::testing::SOLO_WEB_PROXMOX;
 use crate::{ErrorCode, Recorder};
 
-/// The fake Proxmox API's answers to `curl`, by the request's URL, and every config `curl` read.
+/// The fake Proxmox API's answers to `curl`, by the request's URL, and every config `curl` read:
+/// each body followed by the HTTP status on a line of its own, as `--write-out` prints it.
 fn proxmox_api(call: &Call, configs: &Mutex<Vec<String>>) -> Option<Reply> {
     if call.program != "curl" {
         return None;
@@ -20,20 +21,24 @@ fn proxmox_api(call: &Call, configs: &Mutex<Vec<String>>) -> Option<Reply> {
     configs.lock().unwrap_or_else(PoisonError::into_inner).push(config.clone());
     if config.contains("/access/ticket") {
         return Some(Reply::ok(
-            r#"{"data":{"ticket":"PVE:root@pam:ABC::sig","CSRFPreventionToken":"csrf1","username":"root@pam"}}"#,
+            r#"{"data":{"ticket":"PVE:root@pam:ABC::sig","CSRFPreventionToken":"csrf1","username":"root@pam"}}
+200"#,
         ));
     }
     if config.contains("/cluster/resources?type=vm") {
         return Some(Reply::ok(
-            r#"{"data":[{"id":"qemu/104","vmid":104,"node":"pve-run","status":"running","type":"qemu"}]}"#,
+            r#"{"data":[{"id":"qemu/104","vmid":104,"node":"pve-run","status":"running","type":"qemu"}]}
+200"#,
         ));
     }
     if config.contains("/nodes/pve-run/qemu/104/vncproxy") {
         return Some(Reply::ok(
-            r#"{"data":{"port":"5901","ticket":"PVEVNC:6A3F::tk+t/x=","user":"root@pam","cert":"c","upid":"u"}}"#,
+            r#"{"data":{"port":"5901","ticket":"PVEVNC:6A3F::tk+t/x=","user":"root@pam","cert":"c","upid":"u"}}
+200"#,
         ));
     }
-    Some(Reply::fail(22, "curl: (22) The requested URL returned error: 401"))
+    // As curl answers a refusal: the API's body, then the status line `--write-out` adds.
+    Some(Reply::ok("{\"data\":null}\n401"))
 }
 
 /// A server up with the fake Proxmox API, `api` answering its `curl`s.

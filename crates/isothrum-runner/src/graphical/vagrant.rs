@@ -26,23 +26,28 @@ const STEP: &str = "console";
 /// The connection vagrant-libvirt uses when nothing names another.
 const LIBVIRT_URI: &str = "qemu:///system";
 
-/// `machine`'s VM name under `provider`, as the manifest records it.
-pub(super) fn vm_name(machine: &Machine, provider: Provider) -> Result<&str> {
-    match &machine.native {
-        Some(Native::Vagrant { vm_names, .. }) => vm_names
-            .get(&provider)
-            .map(String::as_str)
-            .ok_or_else(|| no_console(machine, format!("the manifest names no {} VM for it", provider.id()))),
-        _ => Err(no_console(machine, "it isn't a Vagrant VM")),
-    }
+/// What Vagrant records of `machine`'s VM under `provider` (`<dotfile>/machines/<define>/<provider>/id`):
+/// the hypervisor's own id of it (VirtualBox's and libvirt's UUID, Hyper-V's VM id, VMware's
+/// `.vmx` path, ESXi's VM id, Parallels' and UTM's UUID), never a name another copy of the
+/// environment could share.
+pub(super) fn recorded(cx: &Cx<'_>, machine: &Machine, provider: Provider) -> Result<String> {
+    let path = dotfile(cx)?
+        .join("machines")
+        .join(define(machine)?)
+        .join(crate::encoding::wire_name(&provider))
+        .join("id");
+    read_if_there(&path)?
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| no_console(machine, "Vagrant records no VM for it: it isn't up"))
 }
 
 /// libvirt's display of `machine`'s domain: `virsh domdisplay`, on the connection
 /// `LIBVIRT_DEFAULT_URI` names (which `virsh` inherits and reads itself, UTF-8 or not), else
 /// vagrant-libvirt's default.
 pub(super) async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
-    let domain = vm_name(machine, Provider::Libvirt)?;
-    let spec = virsh_domdisplay(cx.host_env(), domain);
+    let domain = recorded(cx, machine, Provider::Libvirt)?;
+    let spec = virsh_domdisplay(cx.host_env(), &domain);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
         return Err(no_console(machine, format!("libvirt didn't say where its display is: {}", out.reason())));
@@ -184,8 +189,8 @@ pub(super) async fn ask_monitor(socket: &std::path::Path, command: &str) -> std:
 
 /// VirtualBox's remote display of `machine`: on, and its port, from `VBoxManage showvminfo`.
 pub(super) async fn vrde(cx: &Cx<'_>, machine: &Machine) -> Result<Endpoint> {
-    let name = vm_name(machine, Provider::Virtualbox)?;
-    let spec = ProcessSpec::new("VBoxManage", ["showvminfo", name, "--machinereadable"]);
+    let uuid = recorded(cx, machine, Provider::Virtualbox)?;
+    let spec = ProcessSpec::new("VBoxManage", ["showvminfo", uuid.as_str(), "--machinereadable"]);
     let out = call(cx, STEP, &spec, READ_LIMIT, Echo::Quiet).await?;
     if !out.success() {
         return Err(no_console(machine, format!("VirtualBox didn't say how its VM is: {}", out.reason())));

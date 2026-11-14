@@ -18,6 +18,18 @@ pub(crate) fn random_hex<const N: usize>() -> Result<String, getrandom::Error> {
     }))
 }
 
+/// `s` percent-encoded for a URL's query value: unreserved characters (`A-Z a-z 0-9 - . _ ~`) as
+/// they are, every other byte as `%XX`.
+#[must_use]
+pub fn percent_encoded(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => char::from(b).to_string(),
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
 /// `value`'s name as the manifest and the event stream write it (a target, a provider, a
 /// machine's role: `vmware_desktop`), without JSON's quotes. It is meant for the unit enums serde
 /// writes as a string; any other value is named by its JSON text (`3`), and one serde can't write

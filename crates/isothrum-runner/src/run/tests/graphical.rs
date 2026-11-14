@@ -90,8 +90,18 @@ async fn up_on(provider: Provider, h: Hypervisor, ports: &[u16]) -> (RunFolder, 
         let opts = RunOptions::new().with_provider(provider).with_secrets(secrets);
         run.up(&opts, &Recorder::new()).await.unwrap();
     }
+    // What Vagrant records of the VM it made: the hypervisor's own id of it.
+    match provider {
+        Provider::Libvirt => vagrant_records(&folder, "libvirt", LIBVIRT_ID),
+        Provider::Virtualbox => vagrant_records(&folder, "virtualbox", VIRTUALBOX_ID),
+        _ => {}
+    }
     (folder, fake, h, runner)
 }
+
+/// The ids Vagrant records of the `web` VM: libvirt's domain UUID, VirtualBox's VM UUID.
+const LIBVIRT_ID: &str = "5f1c0de0-0000-4000-8000-00000000000a";
+const VIRTUALBOX_ID: &str = "0b0c0de0-0000-4000-8000-00000000000b";
 
 const RUNNING: Hypervisor = Hypervisor {
     running: true,
@@ -108,7 +118,11 @@ async fn libvirts_display_is_read_from_libvirt_and_shown_in_the_status() {
     assert_eq!(console.endpoint, Endpoint::Loopback("127.0.0.1:5902".parse().unwrap()));
     assert!(console.password.is_none() && !console.tunnelled());
     let asked = fake.last("domdisplay").expect("libvirt asked");
-    assert_eq!(asked.line(), "virsh -c qemu:///system domdisplay web-vm_web", "the domain the manifest names");
+    assert_eq!(
+        asked.line(),
+        format!("virsh -c qemu:///system domdisplay {LIBVIRT_ID}"),
+        "the domain Vagrant records, by its UUID: never a name another copy could share"
+    );
     let status = run.status().await.unwrap();
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.console.as_ref().map(|c| c.protocol), Some(ConsoleProtocol::Vnc));
@@ -342,7 +356,7 @@ async fn virtualbox_opens_a_running_vm_in_a_window_of_its_own() {
     let vbox = run.native_console("web").await.unwrap();
     assert_eq!(
         (vbox.app.as_str(), vbox.ways),
-        ("VirtualBox", vec![program("VBoxManage", &["startvm", "web-vm - web", "--type", "separate"])])
+        ("VirtualBox", vec![program("VBoxManage", &["startvm", VIRTUALBOX_ID, "--type", "separate"])])
     );
     let app = run.status().await.unwrap().native.unwrap();
     assert_eq!((app.name.as_str(), app.needs), ("VirtualBox", vec![NativeNeed::Program("VBoxManage".into())]));
@@ -357,7 +371,7 @@ async fn libvirt_opens_a_running_vm_in_virt_viewer_else_remote_viewer() {
     assert_eq!(
         libvirt.ways,
         vec![
-            program("virt-viewer", &["--connect", "qemu:///system", "web-vm_web"]),
+            program("virt-viewer", &["--connect", "qemu:///system", LIBVIRT_ID]),
             program("remote-viewer", &["vnc://127.0.0.1:2"]),
         ]
     );
@@ -393,7 +407,7 @@ async fn parallels_opens_a_running_vm_on_its_bundle() {
             }]
         )
     );
-    assert_eq!(fake.last("prlctl").unwrap().line(), "prlctl list --info --json {b1}");
+    assert_eq!(fake.last("prlctl").unwrap().line(), "prlctl list --info --json '{b1}'");
 }
 
 /// vagrant-qemu has no app of its own: none is named, and none opens.

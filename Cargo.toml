@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "xtask"]
+members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-test-support", "xtask"]
 # The fuzz targets are their own workspace: they build with nightly and libFuzzer
 # (`cargo run -p xtask -- fuzz`).
 exclude = ["fuzz"]
@@ -19,9 +19,10 @@ publish = false
 # Isoloom's published crates (crates.io), at the release this one pairs with. A change that needs
 # unreleased Isoloom API builds against a local Isoloom checkout through the git-ignored
 # `.cargo/config.toml` patch (CONTRIBUTING.md); the release step raises these pins to it.
-isoloom-targets = "2.0.0"
-isoloom-manifest = "2.0.0"
+isoloom-targets = "3.0.0"
+isoloom-manifest = "3.0.0"
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
+isothrum-test-support = { path = "crates/isothrum-test-support" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
@@ -45,9 +46,11 @@ toml = "1"
 tar = "0.4"
 flate2 = "1"
 getrandom = "0.4"
+# A port checked on all interfaces bound without listening (`net.rs`), its address reuse set.
+socket2 = "0.6"
 # The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
 # the same version, so one `libsqlite3-sys` serves both.
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now

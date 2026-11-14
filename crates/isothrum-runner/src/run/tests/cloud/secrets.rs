@@ -66,7 +66,7 @@ async fn an_input_that_cannot_be_removed_fails_the_delivery() {
     let events = Recorder::new();
     let err = run.up(&with_secret("eu-west-3"), &events).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
-    assert!(err.to_string().contains("guest-web.in"), "{err}");
+    assert!(err.to_string().contains("guest-web-") && err.to_string().contains(".in"), "{err}");
     assert!(
         events
             .events()
@@ -127,7 +127,12 @@ async fn a_delivery_cut_short_leaves_no_input_behind() {
     assert!(cut.is_err(), "still delivering");
     let tried = a.fake.last("/var/lib/isoloom/secrets").unwrap();
     let input = tried.stdin.unwrap();
-    assert_eq!(input.file_name().and_then(|n| n.to_str()), Some("guest-web.in"));
+    let name = input.file_name().and_then(|n| n.to_str()).unwrap();
+    let extension = input.extension().and_then(|e| e.to_str());
+    assert!(
+        name.starts_with("guest-web-") && extension == Some("in"),
+        "a file of the delivery's own: {name}"
+    );
     assert!(!input.exists(), "the values went with the operation");
 }
 

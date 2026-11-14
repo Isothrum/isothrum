@@ -50,7 +50,11 @@ mod tests {
             params(&["A=1".into(), "B=x=y".into()]).unwrap(),
             BTreeMap::from([("A".into(), "1".into()), ("B".into(), "x=y".into())])
         );
-        assert!(params(&["A".into()]).is_err());
+        assert_eq!(params(&["A".into()]).unwrap_err().to_string(), "`--param A`: write NAME=VALUE");
+        assert_eq!(
+            params(&["A=1".into(), "A=2".into()]).unwrap_err().to_string(),
+            "`--param A=2`: `A` is given twice"
+        );
         let env = |k: &str| (k == "SECRET_VAR").then(|| OsString::from("token-x"));
         let s = secrets(&["DEMO_SECRET=SECRET_VAR".into()], &env).unwrap();
         assert_eq!(s.get("DEMO_SECRET").map(SecretValue::expose), Some("token-x"));

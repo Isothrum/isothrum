@@ -251,7 +251,7 @@ impl Running<'_> {
     ///
     /// `illegal_transition` when the run can't begin `op` from where it stands; `state_conflict`
     /// when it moved meanwhile; the store's.
-    pub(crate) fn begin(&self, record: &mut RunRecord, op: Op) -> Result<()> {
+    pub(crate) fn begin(&self, record: &mut RunRecord, op: Op, events: &Emitter<'_>) -> Result<()> {
         let name = self.name();
         let Some(id) = self.runner.operation_of(name) else {
             return self.runner.store.save(record);
@@ -267,12 +267,18 @@ impl Running<'_> {
             }
             let begun = Transition::begin(row.state, op, id)?;
             tx.apply(name, begun)?;
-            if let Some(desired) = Desired::after(op) {
+            // Said whenever an operation that sets it begins, so a client sees the wish with the
+            // operation that carries it out (a new run's row already starts out `running`).
+            let wanted = Desired::after(op);
+            if let Some(desired) = wanted {
                 tx.set_desired(name, desired)?;
             }
-            Ok(Some(begun))
+            Ok(Some((begun, wanted)))
         })?;
-        if let Some(begun) = begun {
+        if let Some((begun, wanted)) = begun {
+            if let Some(desired) = wanted {
+                events.desired(desired);
+            }
             record.state = begun.to();
             self.runner.note_begun(name, begun);
         }
@@ -368,6 +374,12 @@ impl Unfinished<'_, '_> {
 impl Drop for Unfinished<'_, '_> {
     /// Cut short: the record says `cancelled`. Nobody is left to report to: a record that can't
     /// be written is traced.
+    ///
+    /// Blocking file I/O in a drop, on whichever runtime thread drops the future, on purpose: a
+    /// drop can't await, and the record must be settled before the run's lock (taken before this guard, so dropped
+    /// after it) lets the next operation in. It is one small local write ([`crate`]'s
+    /// exception for the run's state files), atomic (a temporary file renamed over the record),
+    /// so a future cut at any `.await` never leaves it half-written.
     fn drop(&mut self) {
         if self.armed {
             let traced = |e: Error| {

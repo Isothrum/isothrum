@@ -20,6 +20,8 @@ enum Server {
     Has(&'static str),
     /// No VM 104: removed in the web UI.
     Removed,
+    /// VM 104 running, but left out of the listing: the credentials have no `VM.Audit` on it.
+    Unaudited,
     /// 401: the token revoked.
     Refuses,
     /// 401, its answer quoting the password it was given (a proxy in front of the API that
@@ -39,14 +41,19 @@ fn api(server: &Arc<Mutex<Server>>) -> impl Fn(&Call) -> Option<Reply> + Send + 
         let config = std::fs::read_to_string(call.stdin.as_ref()?).unwrap();
         let now = *server.lock().unwrap_or_else(PoisonError::into_inner);
         Some(match now {
-            Server::Refuses => Reply::fail(22, "curl: (22) The requested URL returned error: 401"),
+            // A refusal as curl answers it: the API's body, then the status line `--write-out` adds.
+            Server::Refuses => Reply::ok("{\"data\":null}\n401"),
             Server::RefusesQuoting => Reply::fail(22, "curl: (22) The requested URL returned error: 401 (password=pw-s3cret)"),
             Server::Unreachable => Reply::fail(7, "curl: (7) Failed to connect to 172.16.1.10 port 8006: Connection refused"),
-            _ if config.contains("/access/ticket") => Reply::ok(r#"{"data":{"ticket":"PVE:t","CSRFPreventionToken":"c"}}"#),
+            _ if config.contains("/access/ticket") => Reply::ok("{\"data\":{\"ticket\":\"PVE:t\",\"CSRFPreventionToken\":\"c\"}}\n200"),
+            // `cluster/nextid` answers the id only when no VM holds it.
+            Server::Removed if config.contains("/cluster/nextid?vmid=104") => Reply::ok("{\"data\":\"104\"}\n200"),
+            _ if config.contains("/cluster/nextid?vmid=104") => Reply::ok("{\"data\":null,\"errors\":{\"vmid\":\"VM 104 already exists\"}}\n400"),
             Server::Has(status) => Reply::ok(&format!(
-                r#"{{"data":[{{"vmid":104,"node":"pve-run","status":"{status}","type":"qemu"}},{{"vmid":7,"status":"running"}}]}}"#
+                r#"{{"data":[{{"vmid":104,"node":"pve-run","status":"{status}","type":"qemu"}},{{"vmid":7,"status":"running"}}]}}
+200"#
             )),
-            Server::Removed => Reply::ok(r#"{"data":[{"vmid":7,"status":"running","type":"qemu"}]}"#),
+            Server::Removed | Server::Unaudited => Reply::ok("{\"data\":[{\"vmid\":7,\"status\":\"running\",\"type\":\"qemu\"}]}\n200"),
         })
     }
 }
@@ -80,6 +87,17 @@ async fn a_vm_removed_in_proxmoxs_web_ui_reads_gone_and_one_powered_off_there_st
     *server.lock().unwrap_or_else(PoisonError::into_inner) = Server::Removed;
     let bare = s.runner.open(&s.manifest, None).unwrap();
     assert_eq!(web(&bare.status().await.unwrap()), MachineState::Running);
+}
+
+/// Regression: a VM left out of `cluster/resources` read absent, but the listing holds only the
+/// VMs the credentials may audit; a healthy run then read failed, and the next up destroyed it.
+#[tokio::test(start_paused = true)]
+async fn a_vm_the_credentials_cant_audit_isnt_read_as_gone() {
+    let server = Arc::new(Mutex::new(Server::Has("running")));
+    let s = up_with_api(api(&server)).await;
+    *server.lock().unwrap_or_else(PoisonError::into_inner) = Server::Unaudited;
+    let status = signed_in(&s).status().await.unwrap();
+    assert_eq!((status.state, web(&status)), (RunState::Ready, MachineState::Running));
 }
 
 #[tokio::test(start_paused = true)]

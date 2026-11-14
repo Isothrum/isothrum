@@ -318,6 +318,13 @@ async fn a_destroy_locked_out_past_the_patience_still_fails_with_vagrants_error(
     assert!((2..=32).contains(&tries), "{tries} tries");
 }
 
+/// A run with an attack box (`attackbox`) beside its machines.
+fn with_attackbox() -> Fixture {
+    let f = fixture_from(crate::testing::TEST_HOST, &with_vm_added("attackbox"));
+    f.engine().added.push("attackbox".into());
+    f
+}
+
 /// The refusal the app showed (a Mac on vagrant-qemu): its status poll read the run while the
 /// attack box's `vagrant up` held `attackbox`, and every read failed with Vagrant's own words.
 const ATTACKBOX_LOCKED: &str = "An action 'read_state' was attempted on the machine 'attackbox',\nbut another process is \
@@ -333,10 +340,8 @@ const ATTACKBOX_LOCKED: &str = "An action 'read_state' was attempted on the mach
 /// not live; once the lock is gone, it is read again.
 #[tokio::test(start_paused = true)]
 async fn a_status_read_refused_for_another_process_acting_on_a_machine_says_it_busy() {
-    let f = fixture_from(crate::testing::TEST_HOST, &with_vm_added("attackbox"));
-    f.engine().added.push("attackbox".into());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let f = with_attackbox();
+    let run = super::disruptions::started(&f).await;
     // The attack box's start, in another process: its `vagrant up` holds `attackbox`.
     f.engine().acting_on = Some("attackbox");
     let status = run.status().await.unwrap_or_else(|e| {
@@ -360,10 +365,8 @@ async fn a_status_read_refused_for_another_process_acting_on_a_machine_says_it_b
 /// the machine is as last read, and its hypervisor is asked where its screen is.
 #[tokio::test(start_paused = true)]
 async fn a_screen_asked_for_while_another_process_acts_on_its_machine_is_refused_saying_so() {
-    let f = fixture_from(crate::testing::TEST_HOST, &with_vm_added("attackbox"));
-    f.engine().added.push("attackbox".into());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
+    let f = with_attackbox();
+    let run = super::disruptions::started(&f).await;
     f.engine().acting_on = Some("attackbox");
     let asked = tokio::time::Instant::now();
     let err = run.graphical_console("attackbox").await.unwrap_err();

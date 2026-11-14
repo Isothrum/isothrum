@@ -23,7 +23,7 @@ mod proxmox;
 mod tunnel;
 mod vagrant;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use isoloom_manifest::{ConsoleProtocol, ConsoleSource, Machine, Provider};
 use serde::{Deserialize, Serialize};
@@ -119,10 +119,27 @@ impl Console {
     pub fn tunnelled(&self) -> bool {
         self.tunnel.is_some()
     }
+
+    /// Once the SSH tunnel it is reached through has closed (its `ssh` ended: the connection
+    /// dropped, the host it goes through went away): its endpoint no longer answers. Never, for a
+    /// console reached without one.
+    ///
+    /// # Errors
+    ///
+    /// Always `no_console`, saying how the tunnel's `ssh` ended, once it has.
+    pub async fn tunnel_closed(&mut self) -> Result<std::convert::Infallible> {
+        let Some(tunnel) = self.tunnel.as_mut() else {
+            return std::future::pending().await;
+        };
+        let how = tunnel.closed().await;
+        Err(Error::NoConsole {
+            machine: self.machine.clone(),
+            why: format!("its SSH tunnel closed ({how}): open the screen again"),
+        })
+    }
 }
 
-/// The loopback address the runner's own listeners and tunnels take.
-pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+pub(crate) use crate::net::LOOPBACK;
 
 /// [`Error::NoConsole`] for `machine`, saying `why`.
 pub(crate) fn no_console(machine: &Machine, why: impl Into<String>) -> Error {

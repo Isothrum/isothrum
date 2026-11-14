@@ -64,22 +64,6 @@ impl Terraform {
         cx.run.dir().join(self.identity.module.as_str())
     }
 
-    /// What a failed `down` may print for each instance of the state that is already gone: the
-    /// manifest's `identity.terraform.gone`, filled for each instance of its types the state holds.
-    pub(crate) fn gone(&self, cx: &Cx<'_>) -> Result<Vec<gone::Gone>> {
-        if self.identity.gone.is_empty() {
-            return Ok(Vec::new());
-        }
-        let dir = cx.state_dir();
-        Ok(state::read_doc(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
-    }
-
-    /// Drops from the state each instance it still holds whose text, among `seen`, its failed
-    /// destroy `step` of list `list` printed ([`gone::forget`]); whether it dropped any.
-    pub(crate) async fn forget_gone(&self, cx: &Cx<'_>, list: &str, step: &Step, seen: &std::collections::BTreeSet<String>) -> Result<bool> {
-        gone::forget(cx, list, step, self.gone(cx)?, seen).await
-    }
-
     /// The folder whose module the run applies, checked before anything runs: the run's own
     /// module where it is when `up` copies one (`terraform.copy_module`), else the generated one.
     fn checked_module(&self, cx: &Cx<'_>) -> Result<PathBuf> {
@@ -104,6 +88,26 @@ fn copy_module(cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
 }
 
 impl Driver for Terraform {
+    /// What a failed `down` may print for each instance of the state that is already gone: the
+    /// manifest's `identity.terraform.gone`, filled for each instance of its types the state holds.
+    fn gone(&self, cx: &Cx<'_>) -> Result<Vec<gone::Gone>> {
+        if self.identity.gone.is_empty() {
+            return Ok(Vec::new());
+        }
+        let dir = cx.state_dir();
+        Ok(state::read_doc(dir)?.map(|s| gone::in_state(&s, &self.identity.gone)).unwrap_or_default())
+    }
+
+    /// Drops from the state each instance it still holds whose text, among `seen`, its failed
+    /// destroy `step` of list `list` printed ([`gone::forget`]); whether it dropped any.
+    async fn forget_gone(&self, cx: &Cx<'_>, list: &str, step: &Step, seen: &std::collections::BTreeSet<String>) -> Result<bool> {
+        gone::forget(cx, list, step, self.gone(cx)?, seen).await
+    }
+
+    fn reapplies(&self, up: &[Step], e: &Error) -> bool {
+        argv::failed_in_apply(up, e)
+    }
+
     fn preflight(&self, cx: &Cx<'_>) -> impl Future<Output = Result<()>> {
         let checked = self.checked_module(cx).and_then(|module| {
             if copy_module::has_terraform_files(&module)? {

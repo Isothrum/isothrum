@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use isothrum_test_support::{PidGuard, alive};
+
 use super::*;
 use crate::process::capture;
 #[cfg(unix)]
@@ -11,42 +13,28 @@ fn spec(program: &str, args: &[&str]) -> ProcessSpec {
     ProcessSpec::new(program, args.iter().copied())
 }
 
-/// Whether process `pid` is gone within a few seconds.
-async fn gone(pid: &str) -> bool {
-    for _ in 0..60 {
-        let alive = if cfg!(windows) {
-            let out = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).output();
-            out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(pid))
-        } else {
-            // A zombie is gone too: in a container, nothing may reap the orphan it became.
-            let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output();
-            out.is_ok_and(|o| {
-                let stat = String::from_utf8_lossy(&o.stdout);
-                !stat.trim().is_empty() && !stat.trim().starts_with('Z')
-            })
-        };
-        if !alive {
+/// Whether the process `pid` guards is gone within a few seconds.
+async fn gone(pid: &PidGuard) -> bool {
+    for _ in 0..300 {
+        if !alive(pid.id()) {
             return true;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
     false
 }
 
 /// Runs `job` until it wrote a pid to `file`, then cancels it (drops the run), however long it
-/// took to get there: the pid it wrote.
-async fn cancelled_once_started(runner: &SystemProcesses, job: &ProcessSpec, file: &std::path::Path) -> String {
+/// took to get there: the process it wrote, guarded (it is killed when the test ends, whatever
+/// way, so a failed test leaves nothing running).
+async fn cancelled_once_started(runner: &SystemProcesses, job: &ProcessSpec, file: &std::path::Path) -> PidGuard {
     let mut run = Box::pin(capture(runner, job));
     let started = async {
         loop {
-            if let Some(pid) = std::fs::read_to_string(file)
-                .ok()
-                .map(|s| s.trim().to_owned())
-                .filter(|s| s.parse::<u32>().is_ok())
-            {
+            if let Some(pid) = PidGuard::from_file(file) {
                 return pid;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
     tokio::time::timeout(Duration::from_secs(300), async {
@@ -57,6 +45,21 @@ async fn cancelled_once_started(runner: &SystemProcesses, job: &ProcessSpec, fil
     })
     .await
     .expect("the tool never started")
+}
+
+/// Regression (#124): a tool started in a folder that isn't there was "not installed": the OS
+/// refuses the start with `NotFound` for the folder as for the program.
+#[tokio::test]
+async fn a_missing_working_folder_is_not_a_missing_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("no such folder");
+    let program = if cfg!(windows) { "cmd" } else { "true" };
+    let mut job = spec(program, if cfg!(windows) { &["/C", "exit 0"] } else { &[] });
+    job.cwd = Some(gone.clone());
+    let err = capture(&SystemProcesses::default(), &job).await.unwrap_err();
+    assert!(matches!(err, ProcessError::Io { .. }), "{err:?}");
+    let said = err.to_string();
+    assert!(said.contains(&gone.display().to_string()) && said.contains("working folder"), "{said}");
 }
 
 #[tokio::test]
@@ -86,22 +89,20 @@ async fn a_tool_cancelled_takes_what_it_started_with_it() {
     let runner = SystemProcesses::default();
     // Cancelled once its child runs (its pid written), however long the tool took to get there:
     // a PowerShell's cold start on a busy Windows runner took longer than any fixed wait.
-    let pid = cancelled_once_started(&runner, &job, &file).await;
-    assert!(gone(&pid).await, "the tool's child {pid} was left running");
+    let child = cancelled_once_started(&runner, &job, &file).await;
+    assert!(gone(&child).await, "the tool's child {} was left running", child.id());
 }
 
-/// A `sh` job that writes its pid to `pid`, then loops until stopped; `on_int` is its SIGINT trap
-/// (`''` to ignore it).
+/// A `sh` job that writes its pid to `pid`, then loops until stopped (a minute at most, should
+/// the test binary itself be killed before its guard ran); `on_int` is its SIGINT trap (`''` to
+/// ignore it).
 #[cfg(unix)]
 fn looping(pid: &std::path::Path, on_int: &str) -> ProcessSpec {
-    let script = format!("trap {on_int} INT; echo $$ > '{}'; while :; do sleep 0.1; done", pid.display());
+    let script = format!(
+        "trap {on_int} INT; echo $$ > '{}'; i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done",
+        pid.display()
+    );
     spec("sh", &["-c", &script])
-}
-
-/// The pid `file` holds, once the job wrote it.
-#[cfg(unix)]
-fn pid_in(file: &std::path::Path) -> String {
-    std::fs::read_to_string(file).unwrap().trim().to_owned()
 }
 
 /// A tool cut short is asked to stop (SIGINT to its group), as Terraform needs to save its state,
@@ -113,13 +114,46 @@ async fn a_tool_cut_short_is_asked_to_stop_before_it_is_ended() {
     let (pid, said) = (dir.path().join("pid"), dir.path().join("said"));
     let job = looping(&pid, &format!("\"echo stopped > '{}'; exit 0\"", said.display()));
     let runner = SystemProcesses::default();
-    cancelled_once_started(&runner, &job, &pid).await;
+    let tool = cancelled_once_started(&runner, &job, &pid).await;
     tokio::time::timeout(Duration::from_secs(10), runner.stopped())
         .await
         .expect("it stopped on its own");
     assert!(!runner.is_stopping());
     assert_eq!(std::fs::read_to_string(&said).unwrap().trim(), "stopped", "its interrupt handler ran");
-    assert!(gone(&pid_in(&pid)).await);
+    assert!(gone(&tool).await);
+}
+
+/// A tool run in a container (a `docker run` client) that is ended has its container removed:
+/// ending the client alone left the container, and the Terraform in it, running.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tool_ended_has_its_container_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (pid, log, docker) = (dir.path().join("pid"), dir.path().join("log"), dir.path().join("docker"));
+    // A `docker` that, run, ignores the request to stop (for a minute at most); asked to remove,
+    // says what it was asked. Written by a child process, as every program a test runs.
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = rm ]; then echo "$*" >> '{}'; exit 0; fi
+trap '' INT; echo $$ > '{}'; i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+"#,
+        log.display(),
+        pid.display()
+    );
+    isothrum_test_support::write_executable(&docker, &script).unwrap();
+    let mut job = spec(&docker.display().to_string(), &["run", "--rm", "-i", "--name", "isothrum-tool-1", "img"]);
+    job.container = Some("isothrum-tool-1".into());
+    let runner = SystemProcesses {
+        stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
+        ..SystemProcesses::default()
+    };
+    assert!(tokio::time::timeout(Duration::from_secs(2), capture(&runner, &job)).await.is_err(), "cut short");
+    tokio::time::timeout(Duration::from_secs(10), runner.stopped())
+        .await
+        .expect("ended after its grace");
+    let tool = PidGuard::from_file(&pid).expect("the tool started");
+    assert!(gone(&tool).await);
+    assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "rm -f isothrum-tool-1");
 }
 
 /// A tool that doesn't stop when asked is ended once its grace is over.
@@ -132,12 +166,12 @@ async fn a_tool_that_ignores_the_request_is_ended_after_its_grace() {
         stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
         ..SystemProcesses::default()
     };
-    cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
+    let tool = cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
     assert!(runner.is_stopping(), "given its grace");
     tokio::time::timeout(Duration::from_secs(10), runner.stopped())
         .await
         .expect("ended after its grace");
-    assert!(gone(&pid_in(&pid)).await);
+    assert!(gone(&tool).await);
 }
 
 /// A second Ctrl-C: the tools still stopping are ended at once.
@@ -147,12 +181,12 @@ async fn the_tools_still_stopping_can_be_ended_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
     let runner = SystemProcesses::default();
-    cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
+    let tool = cancelled_once_started(&runner, &looping(&pid, "''"), &pid).await;
     runner.end_stopping();
     tokio::time::timeout(Duration::from_secs(5), runner.stopped())
         .await
         .expect("ended well before its 30 s");
-    assert!(gone(&pid_in(&pid)).await);
+    assert!(gone(&tool).await);
 }
 
 #[cfg(unix)]
@@ -172,9 +206,10 @@ async fn a_tool_that_exited_is_not_waited_for_past_what_it_left_holding_its_outp
     // Regression: a process the tool left behind (an ssh ControlMaster) held its pipes open, and
     // a finished `terraform destroy` hung the run, and its lock, for good.
     let started = std::time::Instant::now();
-    let (runner, job) = (SystemProcesses::default(), spec("sh", &["-c", "sleep 20 & printf 'done'"]));
+    let (runner, job) = (SystemProcesses::default(), spec("sh", &["-c", "sleep 20 & echo $! >&2; printf 'done'"]));
     let run = capture(&runner, &job);
     let out = tokio::time::timeout(Duration::from_secs(10), run).await.unwrap().unwrap();
+    let _left = out.stderr_tail.first().and_then(|pid| pid.parse().ok()).map(PidGuard::new);
     assert_eq!(out.stdout, ["done"]);
     assert!(started.elapsed() < Duration::from_secs(10));
 }
@@ -318,4 +353,29 @@ async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
         .filter(|e| e.path().extension().is_some_and(|x| x == "tool"))
         .collect();
     assert!(tools.is_empty(), "{tools:?}");
+}
+
+/// Regression (#132): on Windows a tool cut short was terminated at once, so a `terraform apply`
+/// cancelled mid-way lost the state of what it had made. It is sent Ctrl-C on its console first:
+/// a PowerShell loop's `finally` runs.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_tool_cut_short_on_windows_gets_ctrl_c_before_it_is_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let (pid, said) = (dir.path().join("pid"), dir.path().join("said"));
+    let script = format!(
+        "try {{ Set-Content -LiteralPath '{}' $PID; while ($true) {{ Start-Sleep -Milliseconds 100 }} }} finally {{ Set-Content -LiteralPath '{}' 'stopped' }}",
+        pid.display(),
+        said.display()
+    );
+    let job = spec("powershell", &["-NoProfile", "-NonInteractive", "-Command", &script]);
+    let runner = SystemProcesses::default();
+    let started = cancelled_once_started(&runner, &job, &pid).await;
+    tokio::time::timeout(Duration::from_secs(40), runner.stopped()).await.expect("it stopped");
+    assert_eq!(
+        std::fs::read_to_string(&said).map(|s| s.trim().to_owned()).ok().as_deref(),
+        Some("stopped"),
+        "its Ctrl-C handler ran"
+    );
+    assert!(gone(&started).await);
 }

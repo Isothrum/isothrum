@@ -69,14 +69,6 @@ impl Vagrant {
         }
     }
 
-    /// Whether the provider of `scope` takes its management commands elevated (Hyper-V).
-    pub(crate) fn elevates(&self, scope: &crate::scope::Scope) -> bool {
-        self.identity
-            .providers
-            .iter()
-            .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
-    }
-
     /// The run's provider among the manifest's.
     fn provider(&self, cx: &Cx<'_>) -> Result<&VagrantProvider> {
         let theirs = || {
@@ -101,7 +93,9 @@ impl Vagrant {
     /// settings.
     fn vagrant(&self, cx: &Cx<'_>, id: &str, args: &[&str]) -> Result<ProcessSpec> {
         // An ESXi host behind the macOS relays: Vagrant talks to it through them.
-        let env = with_delivered(cx, id, self.env(cx)?);
+        let mut env = super::run_env(cx);
+        env.extend(self.env(cx)?);
+        let env = with_delivered(cx, id, env);
         Ok(ProcessSpec {
             program: "vagrant".into(),
             args: args.iter().map(|a| (*a).to_owned()).collect(),
@@ -109,6 +103,7 @@ impl Vagrant {
             env,
             stdin: None,
             ledger_dir: None,
+            container: None,
         })
     }
 
@@ -117,7 +112,8 @@ impl Vagrant {
     /// step, whose values (and passwords) would show in the printed command.
     fn console(&self, cx: &Cx<'_>, args: &[&str]) -> Result<ProcessSpec> {
         let mut spec = ProcessSpec::new("vagrant", args.iter().copied());
-        spec.env = self.env(cx)?;
+        spec.env = super::run_env(cx);
+        spec.env.extend(self.env(cx)?);
         spec.env.retain(|(k, _)| k != contract::CONSOLES);
         Ok(spec)
     }
@@ -156,6 +152,26 @@ impl Vagrant {
 }
 
 impl Driver for Vagrant {
+    /// Whether the provider of `scope` takes its management commands elevated (Hyper-V).
+    fn elevates(&self, scope: &crate::scope::Scope) -> bool {
+        self.identity
+            .providers
+            .iter()
+            .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
+    }
+
+    fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+        forwarded::pin(cx)
+    }
+
+    async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
+        boxes_before_step(self, cx, list, step).await
+    }
+
+    async fn run_argv(&self, cx: &Cx<'_>, list: &str, step: &Step, observe: &mut (dyn FnMut(&str) + Send)) -> Result<()> {
+        run_step(cx, list, step, observe).await
+    }
+
     /// The provider must be one of the run's, exist on this host, not be refused by Isoloom for
     /// this run, and have its plugin.
     async fn preflight(&self, cx: &Cx<'_>) -> Result<()> {
@@ -204,7 +220,7 @@ impl Driver for Vagrant {
     async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {
         match action {
             Action::VagrantReconcileProvider => actions::reconcile_provider(self, cx, step).await,
-            Action::VagrantDiscardAbortedSaved => actions::discard_aborted_saved(cx, step).await,
+            Action::VagrantDiscardAbortedSaved => actions::discard_aborted_saved(self, cx, step).await,
             Action::VagrantRemoveOrphans => orphans::remove(cx, step).await,
             Action::VagrantResetState => actions::reset_state(self, cx),
             Action::VagrantWakeController => actions::wake_controller(self, cx, list, step).await,

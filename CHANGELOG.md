@@ -11,6 +11,17 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **`percent_encoded`: a value percent-encoded for a URL's query**, the one encoder the runner's
+  links and the command line's masked console ticket use.
+- **Every run has a key, and every tool of the run gets it.** `copy_key(home, name)` (and
+  `Runner::copy_key`): six lowercase letters and digits made from the runner's home and the run's
+  name, the same at every operation. Every command of every driver runs with it in
+  `ISOTHRUM_RUN_KEY` (`RUN_KEY_VAR`), for a project that names what it makes on the host after it,
+  so two copies of one project never share a VM, network or domain name.
+- **`RunOptions::with_env` (`RunOptions::env`): variables for every tool of an operation.** An
+  embedder hands a project what it reads under its own names (the run's key as the variable a
+  Vagrantfile reads, say). Not recorded: pass them to every operation.
+
 - **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
   drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
   the runner now knows the tools running and ends them, with the ones still stopping.
@@ -26,6 +37,11 @@ Terraform), usable on any project of those formats.
 - **docker-vm is gone.** **Breaking:** a run manifest whose containers run inside one of its VMs
   (`guest`) is refused (`unsupported`); run the VM targets.
 
+- **A run manifest's recovery names its leftovers (`recovery.leftovers`), not the tools' words.**
+  **Breaking, for manifests:** Isoloom 3 writes `leftovers` (`virtualbox_name_taken`,
+  `machine_locked`, `other_provider`, `container_name_taken`, `network_left`) in place of
+  `stale_markers`, and the runner reads each in the words the tools it runs print; a manifest
+  with `stale_markers` is refused. Regenerate it with Isoloom 3.
 - **One transactional store per home: `state.db`.** **Breaking:** the runner keeps its state in
   one SQLite database (WAL, foreign keys, migrations), `isothrum_runner::store::Store`, every
   change one transaction: the runs (what the user wants of each, `desired`, and where each stands),
@@ -55,16 +71,84 @@ Terraform), usable on any project of those formats.
   entry or a Terraform state that is there but isn't what the runner wrote (not JSON, another
   version's shape) fails with the new `corrupt` code and names the file; `io` stays the OS's
   reasons (missing, unreadable).
+- **A failure is told by its type, never by its wording (#381).** **Breaking, for embedders:**
+  a tool whose probe gets no answer (Docker's engine stopped, or one this account can't reach)
+  fails with the new `tool_unanswered` code (`Error::ToolUnanswered { step, tool, reason }`), not
+  `tool_failed` with "doesn't answer" in its reason; the message reads as before.
+  `Captured::output` fails with a `ProcessFailed` (how the tool ended, and its reason), not a
+  `String`; `may_manage_hyperv` answers a `HyperVRights` (`Granted`, `Missing`, `Unknown`), not
+  an `Option<bool>`.
 - **`Runner::run_record`: one run's record, read alone.** An embedder asking after one run read
   every record (`runs`) and failed on another run's record it couldn't read.
 
 ### Fixed
 
+- **A Proxmox VM missing from the server's resource listing no longer reads as absent (#114).** A
+  user without `VM.Audit` on a VM doesn't see it listed; the runner now asks the server whether
+  the VM's id is still held (`cluster/nextid`), reads the VM absent only when it isn't, and keeps
+  the run's own state on any other answer.
+- **A Proxmox VM left out of the server's listing no longer reads absent on that alone.**
+  `cluster/resources` lists only the VMs the credentials may audit, and was asked once, of the
+  first VM's server, for every VM; a token without `VM.Audit` on one VM, or VMs on another
+  server, made a healthy VM absent (the run failed, and the next up destroyed it). Each server is
+  now asked as its VMs sign in, and a VM it leaves out reads absent only when `cluster/nextid`
+  says no VM holds its id.
+- **`up --lifetime 0` is a usage error (#136).** A run given no life to live was started and
+  then reaped at once; `--lifetime` now takes a minute at least, and 0 exits 2 before anything
+  starts.
+- **`reap <cloud>` refuses a `--region` or `--project` its cloud's query doesn't read (#134).**
+  `reap azure --region westeurope` searched the CLI's default region and said nothing was left,
+  while a leftover in the region named kept billing; such a flag is now a usage error (exit 2),
+  before anything is destroyed.
+- **Hyper-V no longer reads as ready while Windows' hypervisor isn't running (#135).** Detection
+  now asks whether the hypervisor is present (bounded at 20 seconds) and says so when it isn't.
+- **Proxmox VE requests work with a curl older than 7.76 (#133).** They used `--fail-with-body`,
+  which an older curl refuses with the whole command line; the HTTP status is now read from
+  `--write-out` after the body.
+- **VirtualBox no longer reads as ready on Linux while its kernel driver isn't loaded (#128).**
+  `VBoxManage` still answers then, after a warning, and the provider read as ready until
+  `vagrant up` failed; detection now says the driver is missing and how to rebuild it.
+- **A command's line quotes an argument that holds a space (#130).** `ProcessSpec::line`, the
+  form messages and the event stream show a command in, joined the arguments with spaces, so one
+  argument with a space read as two.
+- **On Windows, a tool cut short gets Ctrl-C before it is ended (#132).** It was ended at once,
+  so a cancelled `terraform apply` couldn't save its state; it now gets Ctrl-C on a console of its
+  own (Ruby and Python see SIGINT), and its job is ended after the grace period, as on Unix.
+- **A missing working folder no longer reads as a missing tool (#124).** A step whose folder the
+  lab doesn't have failed with "`terraform` isn't installed or isn't on PATH"; it now fails with
+  an `io` error naming the folder.
+- **A runner key left without its public half gets it back (#125).** With `id_ed25519.pub`
+  missing or empty, `ssh-keygen` stopped at its overwrite prompt and every run that needs SSH
+  failed; the public half is now derived again from the private key, and a private key that
+  can't be read is set aside (`id_ed25519.unusable`) and a new one made.
+- **`isothrum screen` ends when its SSH tunnel closes (#126), hides a Proxmox VNC ticket
+  (#127), and its tunnel opens no console window on Windows (#129).** The command waited
+  forever on a tunnel whose `ssh` had exited; it now ends with `no_console` saying how
+  (`Console::tunnel_closed`). The websocket URL it printed carried the VNC ticket without
+  `--show-password`.
+- **A relative `--home` or `ISOTHRUM_HOME` is made absolute (#131).** Each tool resolved it from
+  its own folder, so a run's state (a Vagrant dotfile, a Terraform state) landed under the lab,
+  where the runner found nothing, and `ssh` found neither the key nor `known_hosts`.
+- **A run's clean-up only ever removes its own VMs (#109).** `vagrant.remove_orphans` deleted
+  every VirtualBox or Parallels VM named as the manifest named the run's: two runs of one
+  environment have the same names, so a second run whose start failed removed the first run's VMs
+  and disks. It now removes only a VM (and a VirtualBox VM folder) whose name carries the run's
+  key as a word of its own; a VM named without it is never removed. The VirtualBox actions
+  (`vagrant.discard_aborted_saved`) and the graphical consoles go by the ids Vagrant records
+  (`<dotfile>/machines/<define>/<provider>/id`: VirtualBox's and libvirt's UUIDs, Hyper-V's VM
+  id, UTM's UUID), never by a name: the manifest's `vm_names` are no longer read.
 - **On Windows, a tool being created as the runner's process is killed is ended by the next
   operation.** A tool is created suspended, put in its job object, then resumed; a process killed
   in between left it suspended in no job, never run and never ended. Its creation is now recorded
   in the run's tools ledger until it is in its job, and the next operation, finding its creator
   dead, ends it.
+- **One elevated request cut short no longer ends the Hyper-V session.** A request that timed
+  out (a `vagrant ssh -c` probe while the controller halts) ended the elevated broker, and every
+  later call of the operation failed with `elevation`. The broker now runs each request in a
+  process of its own and cancels that request alone (`cancel-<n>`): one in flight has its process
+  tree ended, one not yet taken is skipped, and the session goes on with the next, under the same
+  UAC prompt. (#115)
+
 - **A run rebuilt at the same addresses no longer meets its old machines' SSH host keys.** The
   leftovers an `up` clears and a recovery's steps removed the machines but kept their pinned host
   keys, so every SSH connection to the machines made again failed; every way a run's machines go
@@ -92,6 +176,15 @@ Terraform), usable on any project of those formats.
   `proxmox-console.curl`, and a status read takes no run lock, so one beside a console request
   could read the other's sign-in, replace it or find it gone; each is now
   `proxmox-console-<random>.curl`, created new.
+- **On macOS, a port another program holds on all interfaces is in use.** The check bound the
+  loopback only, which macOS allows beside a socket listening on `0.0.0.0` or `::`, so such a port
+  read free and the start failed later with Docker's or Vagrant's bind error instead of
+  `port_in_use`; outside Windows the check now also binds both, without listening.
+- **A tool run from its image no longer outlives being ended.** A Terraform run in a container
+  (`tools[].container`) ran as `docker run` with no name, so a timeout, a cancel, an embedder's
+  exit or the next operation's clean-up after a killed one ended the `docker` client only: the
+  Terraform in the container kept writing the state while the next operation cleared its lock.
+  Each such container is now named, and removed (`docker rm -f`) wherever its tool is ended.
 - **A `tcp` ready condition no longer holds on a proxy's accept with nothing behind.** A port
   Docker or a hypervisor's NAT forwards accepts every connection and closes it at once when no
   service listens behind; the check now needs the peer to keep the connection half a second, or

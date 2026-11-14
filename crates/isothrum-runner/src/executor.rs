@@ -55,6 +55,8 @@ pub(crate) struct Cx<'a> {
     pub(crate) stale: LineWatch,
     /// What the steps' lines say of resources already gone, while a `down` watches for them.
     pub(crate) gone: LineWatch,
+    /// The embedder's variables for the operation's tools ([`crate::RunOptions::env`]).
+    pub(crate) env: std::collections::BTreeMap<String, String>,
     /// What the context learns of the run once made: set through its methods only.
     pub(crate) bound: Bound,
 }
@@ -93,8 +95,7 @@ impl<'a> Cx<'a> {
         self.run.manifest()
     }
 
-    /// The runner's configuration (what a step reaches through `run.runner.config` otherwise:
-    /// Clean Code G36, transitive navigation).
+    /// The runner's configuration, so a step needn't reach through `run.runner.config`.
     pub(crate) fn config(&self) -> &'a crate::runner::RunnerConfig {
         &self.run.runner.config
     }
@@ -176,10 +177,10 @@ impl<'a> Cx<'a> {
 
 /// Texts watched for in every line an argv or `ssh.run` step prints (a driver action's own calls
 /// aren't watched): any line of the step's, not only one of the last it printed. Two watch the
-/// steps: the manifest's `recovery.stale_markers`, whatever their case
-/// ([`LineWatch::any_case`]: Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the
-/// manifest writes it in lower case), and, exactly as written, what a destroy prints for a
-/// resource already gone ([`run_down_steps`]).
+/// steps: the words of the manifest's `recovery.leftovers` ([`crate::tool_output::leftover`]),
+/// whatever their case ([`LineWatch::any_case`]: Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS`
+/// in capitals, the runner's words are in lower case), and, exactly as written, what a destroy
+/// prints for a resource already gone ([`run_down_steps`]).
 #[derive(Debug, Default)]
 pub(crate) struct LineWatch {
     /// Whether a text is seen whatever its case (the texts are then kept in lower case).

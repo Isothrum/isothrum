@@ -19,6 +19,9 @@ use crate::process::ProcessSpec;
 /// How long the tunnel may take to listen.
 const OPENING: Duration = Duration::from_secs(20);
 
+/// How long a tunnel that didn't open is given to exit, then to finish writing why.
+const SAYING_WHY: Duration = Duration::from_secs(2);
+
 /// The step id a missing `ssh` is reported under.
 const STEP: &str = "console";
 
@@ -42,8 +45,7 @@ pub(crate) struct Tunnel {
     pub(super) local: SocketAddr,
     /// Its `ssh`, killed when the tunnel is dropped.
     ssh: tokio::process::Child,
-    /// The reader of its `ssh`'s standard error, owned so it ends with the tunnel (Clean Code
-    /// ch.13, shutdown; 2026-11-13: it was spawned detached).
+    /// The reader of its `ssh`'s standard error, owned so it ends with the tunnel.
     drain: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -136,6 +138,7 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
     }
+    headless(&mut command);
     Ok(Tunnel {
         local,
         ssh: command.spawn()?,
@@ -143,13 +146,25 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
     })
 }
 
+/// No console window for the tunnel's `ssh` on Windows, as for every tool the runner starts: from
+/// a GUI app it would get one of its own, open as long as the tunnel, and closing it ends `ssh`.
+#[cfg(windows)]
+fn headless(command: &mut tokio::process::Command) {
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+    command.creation_flags(CREATE_NO_WINDOW.0);
+}
+
+/// Nothing to do off Windows: no process gets a console window of its own.
+#[cfg(not(windows))]
+fn headless(_command: &mut tokio::process::Command) {}
+
 impl Tunnel {
     /// The last line `ssh` wrote to its standard error, once it is stopped: why a tunnel that
     /// didn't open closed (a host key that changed, a key refused). None when it said nothing.
     async fn why_closed(&mut self) -> Option<String> {
         use tokio::io::AsyncReadExt;
         // An `ssh` that failed has exited, or is about to: it is given a moment to say why.
-        if tokio::time::timeout(Duration::from_secs(2), self.ssh.wait()).await.is_err()
+        if tokio::time::timeout(SAYING_WHY, self.ssh.wait()).await.is_err()
             && let Err(e) = self.ssh.start_kill()
         {
             tracing::debug!(error = %e, "a console's tunnel couldn't be stopped");
@@ -158,7 +173,7 @@ impl Tunnel {
         let mut said = Vec::new();
         // Its end comes with the process's; a grandchild holding the pipe open is waited for no
         // longer than this.
-        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(2), stderr.read_to_end(&mut said)).await {
+        if let Ok(Err(e)) = tokio::time::timeout(SAYING_WHY, stderr.read_to_end(&mut said)).await {
             tracing::debug!(error = %e, "a console's tunnel's standard error couldn't be read");
         }
         String::from_utf8_lossy(&said)
@@ -166,6 +181,18 @@ impl Tunnel {
             .map(str::trim)
             .rfind(|l| !l.is_empty())
             .map(str::to_owned)
+    }
+
+    /// Once its `ssh` has exited (the connection dropped, the host it goes through went away),
+    /// how it ended: the tunnel no longer listens.
+    pub(super) async fn closed(&mut self) -> String {
+        match self.ssh.wait().await {
+            Ok(status) => match status.code() {
+                Some(code) => format!("its ssh exited with code {code}"),
+                None => "its ssh was ended by a signal".to_owned(),
+            },
+            Err(e) => format!("its ssh couldn't be waited for: {e}"),
+        }
     }
 
     /// Reads what `ssh` writes to its standard error while the tunnel is open, into the trace, so
@@ -208,6 +235,18 @@ mod tests {
         assert_eq!(start(&quiet, "127.0.0.1:1".parse().unwrap()).unwrap().why_closed().await, None);
     }
 
+    /// Regression (#126): nothing said when a tunnel's `ssh` ended, so `isothrum screen` kept
+    /// saying a dead tunnel was open.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_says_when_its_ssh_ended() {
+        let spec = ProcessSpec::new("sh", ["-c", "sleep 0.2; exit 255"]);
+        let mut tunnel = start(&spec, "127.0.0.1:1".parse().unwrap()).unwrap();
+        tunnel.drain();
+        let said = tokio::time::timeout(Duration::from_secs(10), tunnel.closed()).await.expect("seen closing");
+        assert_eq!(said, "its ssh exited with code 255");
+    }
+
     #[test]
     fn an_ipv6_host_is_bracketed_in_the_forward() {
         assert_eq!(bracketed("fd00::5"), "[fd00::5]");
@@ -224,13 +263,8 @@ mod tests {
         let spec = ProcessSpec::new("sh", ["-c", script.as_str()]);
         let tunnel = start(&spec, "127.0.0.1:1".parse().unwrap()).unwrap();
         let pid = tunnel.ssh.id().unwrap();
-        for _ in 0..100 {
-            if mark.exists() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        assert!(mark.exists(), "the process ran");
+        // A loaded host can take seconds to start `sh`: waited for up to 20 s.
+        assert!(isothrum_test_support::wait_until(Duration::from_secs(20), || mark.exists()), "the process ran");
         drop(tunnel);
         tokio::time::sleep(Duration::from_millis(200)).await;
         // Gone, or a zombie its parent hasn't reaped yet: either way it no longer runs.

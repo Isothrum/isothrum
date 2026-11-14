@@ -6,13 +6,13 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::name::RunName;
-use crate::process::fake::{FakeProcesses, Reply};
+use crate::process::fake::{FakeProcesses, Reply, Script};
 use crate::testing::{TEST_TIME, no_ports, processes, runner_config};
 
-/// A runner whose tools answer with `answer`, its home a temporary folder.
-fn runner(answer: impl Fn(&crate::process::fake::Call) -> Reply + Send + Sync + 'static) -> (tempfile::TempDir, Runner) {
+/// A runner whose tools answer from `script`, its home a temporary folder.
+fn runner(script: Script) -> (tempfile::TempDir, Runner) {
     let home = tempfile::tempdir().unwrap();
-    let fake = Arc::new(FakeProcesses::new(answer));
+    let fake = Arc::new(script.build());
     let r = Runner::new(runner_config(home.path(), processes(&fake), no_ports(), HostOs::Linux)).unwrap();
     (home, r)
 }
@@ -38,7 +38,7 @@ fn now() -> SystemTime {
 
 #[test]
 fn a_run_is_expired_once_its_time_passed_while_something_of_it_is_left() {
-    let (_home, r) = runner(|_| Reply::ok(""));
+    let (_home, r) = runner(FakeProcesses::script());
     record(&r, "past", RunState::Ready, Some(TEST_TIME - 1), None);
     record(&r, "failed-past", RunState::Failed, Some(TEST_TIME), None);
     record(&r, "future", RunState::Ready, Some(TEST_TIME + 60), None);
@@ -65,9 +65,10 @@ const AWS: &str = r#"{"ResourceTagMappingList": [
 
 /// A recorded run's state that exists but doesn't parse fails the sweep: what it holds is unknown,
 /// and skipping it would list its live resources as orphans.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_recorded_state_that_doesnt_parse_fails_the_sweep() {
-    let (_home, r) = runner(|call| if call.program == "aws" { Reply::ok(AWS) } else { Reply::missing() });
+    // Nothing is scripted: the sweep stops at the state, before it asks the cloud anything.
+    let (_home, r) = runner(FakeProcesses::script());
     record(&r, "live", RunState::Ready, Some(TEST_TIME + 60), Some("{ cut short"));
     let place = Place::new(vec!["eu-west-3".into()], None);
     let err = r.orphans(Cloud::Aws, &place, now()).await.unwrap_err();
@@ -75,9 +76,9 @@ async fn a_recorded_state_that_doesnt_parse_fails_the_sweep() {
     assert!(err.to_string().contains("terraform.tfstate"), "{err}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_orphan_is_tagged_past_its_expiry_with_no_recorded_run_holding_it() {
-    let (_home, r) = runner(|call| if call.program == "aws" { Reply::ok(AWS) } else { Reply::missing() });
+    let (_home, r) = runner(FakeProcesses::script().expect("aws resourcegroupstaggingapi get-resources", Reply::ok(AWS)));
     let state = r#"{"resources":[{"instances":[{"attributes":{"tags":{"isoloom-instance":"isoloom-solo-web-ab12cd34"}}}]}]}"#;
     record(&r, "live", RunState::Ready, Some(TEST_TIME + 60), Some(state));
     let place = Place::new(vec!["eu-west-3".into()], None);
@@ -92,9 +93,9 @@ async fn an_orphan_is_tagged_past_its_expiry_with_no_recorded_run_holding_it() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_cloud_whose_command_line_is_missing_is_said_unchecked_not_a_failure() {
-    let (_home, r) = runner(|_| Reply::missing());
+    let (_home, r) = runner(FakeProcesses::script().expect("gcloud compute instances list", Reply::missing()));
     let found = r.orphans(Cloud::Gcp, &Place::default(), now()).await.unwrap();
     assert_eq!(found.resources, []);
     assert_eq!(found.unread.len(), 1);
@@ -104,7 +105,7 @@ async fn a_cloud_whose_command_line_is_missing_is_said_unchecked_not_a_failure()
 /// A query counts its limit as every tool call does: the time it goes without progress.
 #[tokio::test(start_paused = true)]
 async fn a_cloud_query_that_prints_nothing_is_given_up_after_its_limit() {
-    let (_home, r) = runner(|_| Reply::ok("[]").after(Duration::from_secs(3600)));
+    let (_home, r) = runner(FakeProcesses::script().expect("gcloud compute instances list", Reply::ok("[]").after(Duration::from_secs(3600))));
     let found = r.orphans(Cloud::Gcp, &Place::default(), now()).await.unwrap();
     assert_eq!(found.unread.len(), 1, "{found:?}");
     assert!(found.unread[0].ends_with("printed nothing for 120s and was stopped"), "{found:?}");

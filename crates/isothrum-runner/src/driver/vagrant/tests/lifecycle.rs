@@ -167,16 +167,22 @@ async fn a_providers_missing_plugin_is_named_with_its_install_command() {
 }
 
 /// A fixture whose first `vagrant up` trips over the VM an earlier run left registered in
-/// VirtualBox (`web-vm - web`). VirtualBox prints `VERR_ALREADY_EXISTS` in capitals; the
-/// manifest's markers are lower case.
+/// VirtualBox (`web-vm-<key> - web`), beside another copy's of the same environment (its own
+/// key), which is never this run's to remove. VirtualBox prints `VERR_ALREADY_EXISTS` in
+/// capitals; the manifest's markers are lower case.
 fn tripped_over_an_orphan() -> Fixture {
     let f = fixture(crate::testing::TEST_HOST);
     f.engine()
         .ups
         .push(("VBoxManage: error: Details: code VERR_ALREADY_EXISTS (0x80004005)".into(), true));
-    f.engine().vbox.insert("web-vm - web".into(), "poweroff".into());
+    let mine = f.vm("web");
+    f.engine().vbox.insert(mine, "poweroff".into());
+    f.engine().vbox.insert(ANOTHER_COPY.into(), "running".into());
     f
 }
+
+/// Another copy's VM of the same environment: another key.
+const ANOTHER_COPY: &str = "web-vm-zz0000 - web";
 
 #[tokio::test]
 async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
@@ -186,9 +192,16 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
     run.up(&opts(), &events).await.unwrap();
     let calls = f.fake.lines();
     let at = |text: &str| calls.iter().position(|l| l.contains(text)).unwrap_or_else(|| panic!("{text}: {calls:#?}"));
-    assert!(at("vagrant destroy --force") < at("VBoxManage unregistervm uuid-web-vm - web --delete"));
+    assert!(at("vagrant destroy --force") < at(&format!("VBoxManage unregistervm 'uuid-{}' --delete", f.vm("web"))));
     assert_eq!(calls.iter().filter(|l| l.starts_with("vagrant up --provider")).count(), 2);
-    assert!(f.engine().vbox.is_empty(), "the orphan is gone");
+    // Regression (#109): the sweep matched the manifest's names, which held no run's identity, and
+    // deleted another run's VM of the same environment beside its own orphan.
+    assert_eq!(
+        f.engine().vbox.keys().collect::<Vec<_>>(),
+        [ANOTHER_COPY],
+        "the orphan is gone, the other copy's VM kept"
+    );
+    assert!(!calls.iter().any(|l| l.contains(&format!("uuid-{ANOTHER_COPY}"))), "{calls:#?}");
 }
 
 /// A run on Parallels whose `down` finds its VM still registered: `prlctl` stops and deletes it
@@ -196,12 +209,15 @@ async fn a_start_that_tripped_over_leftovers_clears_them_and_starts_again() {
 #[tokio::test]
 async fn a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name() {
     let f = fixture(HostOs::Macos);
-    f.engine().parallels = Some(["web-vm - web", "web-vm-web", "mine"].map(String::from).into());
+    f.engine().parallels = Some([f.vm("web"), "web-vm - web".into(), ANOTHER_COPY.into(), "mine".into()].into());
     let run = up_on_parallels(&f).await;
     run.down(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let calls = f.fake.lines();
-    assert!(calls.contains(&"prlctl stop web-vm - web --kill".to_owned()), "{calls:#?}");
-    assert_eq!(f.engine().parallels.clone().unwrap(), ["mine", "web-vm-web"].map(String::from).into());
+    assert!(calls.contains(&format!("prlctl stop '{}' --kill", f.vm("web"))), "{calls:#?}");
+    assert_eq!(
+        f.engine().parallels.clone().unwrap(),
+        ["mine", "web-vm - web", ANOTHER_COPY].map(String::from).into()
+    );
 }
 
 /// Regression: a `prlctl list` that failed skipped the clean-up without a word; then it was only
@@ -269,7 +285,7 @@ async fn an_orphan_the_hypervisor_wont_delete_is_warned_about_not_said_removed()
     assert!(!said.iter().any(|w| w.starts_with("orphan_removed")), "{said:#?}");
     assert!(
         said.iter()
-            .any(|w| w.starts_with("cleanup_failed: a VM an earlier run left (web-vm - web) couldn't be removed: ") && w.contains(VBOX_LOCKED)),
+            .any(|w| w.starts_with(&format!("cleanup_failed: a VM an earlier run left ({}) couldn't be removed: ", f.vm("web"))) && w.contains(VBOX_LOCKED)),
         "{said:#?}"
     );
 }
@@ -278,15 +294,17 @@ async fn an_orphan_the_hypervisor_wont_delete_is_warned_about_not_said_removed()
 async fn an_orphan_parallels_wont_delete_is_warned_about_and_one_it_deletes_said_removed() {
     for undeletable in [false, true] {
         let f = fixture(HostOs::Macos);
-        f.engine().parallels = Some(["web-vm - web"].map(String::from).into());
+        f.engine().parallels = Some([f.vm("web")].into());
         if undeletable {
             f.engine().fails.insert(Fails::Delete);
         }
         let said = down_warnings(&up_on_parallels(&f).await).await;
-        let removed = said.iter().any(|w| w == "orphan_removed: removed a VM an earlier run left (web-vm - web)");
+        let removed = said
+            .iter()
+            .any(|w| *w == format!("orphan_removed: removed a VM an earlier run left ({})", f.vm("web")));
         let refused = said
             .iter()
-            .any(|w| w.starts_with("cleanup_failed: a VM an earlier run left (web-vm - web) couldn't be removed: "));
+            .any(|w| w.starts_with(&format!("cleanup_failed: a VM an earlier run left ({}) couldn't be removed: ", f.vm("web"))));
         assert_eq!((removed, refused), (!undeletable, undeletable), "{said:#?}");
     }
 }
@@ -297,24 +315,28 @@ async fn an_orphan_parallels_wont_delete_is_warned_about_and_one_it_deletes_said
 #[tokio::test]
 async fn virtualbox_leftover_folders_are_said_removed_once_gone_and_an_unreadable_folder_is_a_failed_clean_up() {
     let machines = tempfile::tempdir().unwrap();
-    let leftover = machines.path().join("web-vm - web");
-    std::fs::create_dir(&leftover).unwrap();
     let not_a_folder = machines.path().join("a-file");
     std::fs::write(&not_a_folder, "").unwrap();
-    for (folder, expected) in [
-        (
-            machines.path().to_path_buf(),
-            format!("orphan_removed: removed a VM folder an earlier run left ({})", leftover.display()),
-        ),
-        (
-            not_a_folder.clone(),
-            format!(
-                "cleanup_failed: the VM folders an earlier run left in {} couldn't be removed: ",
-                not_a_folder.display()
-            ),
-        ),
-    ] {
+    let theirs = machines.path().join(ANOTHER_COPY);
+    std::fs::create_dir(&theirs).unwrap();
+    for listable in [true, false] {
         let f = fixture(crate::testing::TEST_HOST);
+        let leftover = machines.path().join(f.vm("web"));
+        std::fs::create_dir(&leftover).unwrap();
+        let (folder, expected) = if listable {
+            (
+                machines.path().to_path_buf(),
+                format!("orphan_removed: removed a VM folder an earlier run left ({})", leftover.display()),
+            )
+        } else {
+            (
+                not_a_folder.clone(),
+                format!(
+                    "cleanup_failed: the VM folders an earlier run left in {} couldn't be removed: ",
+                    not_a_folder.display()
+                ),
+            )
+        };
         f.engine().machine_folder = Some(folder);
         let run = f.runner.open(&f.manifest, None).unwrap();
         run.up(&opts(), &Recorder::new()).await.unwrap();
@@ -323,6 +345,27 @@ async fn virtualbox_leftover_folders_are_said_removed_once_gone_and_an_unreadabl
         let said = warnings(&events);
         assert!(said.iter().any(|w| w.starts_with(&expected)), "{expected}\n{said:#?}");
         assert!(!said.iter().any(|w| w.starts_with("step_tolerated")), "{said:#?}");
+        assert_eq!(!leftover.exists(), listable);
     }
-    assert!(!leftover.exists());
+    assert!(theirs.is_dir(), "another copy's VM folder is never this run's leftover");
+}
+
+/// Every Vagrant command of a run gets the run's key (`ISOTHRUM_RUN_KEY`), the same at each, and
+/// the variables the embedder gives the operation (a project's own name for the key, say); a
+/// driver's own variable (`VAGRANT_DOTFILE_PATH`) wins over an embedder's of the same name.
+#[tokio::test]
+async fn every_vagrant_command_gets_the_runs_key_and_the_embedders_variables() {
+    let f = fixture(crate::testing::TEST_HOST);
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let key = f.runner.copy_key(run.name());
+    let given = opts().with_env("PROJECT_KEY", key.clone()).with_env("VAGRANT_DOTFILE_PATH", "/elsewhere");
+    run.up(&given, &Recorder::new()).await.unwrap();
+    let acting = |c: &crate::process::ProcessSpec| ["vagrant up", "vagrant status", "vagrant halt"].iter().any(|v| c.line().starts_with(v));
+    let vagrant: Vec<_> = f.fake.calls().into_iter().filter(|c| acting(c)).collect();
+    assert!(vagrant.iter().any(|c| c.line().starts_with("vagrant up")), "{vagrant:#?}");
+    for call in &vagrant {
+        assert_eq!(call.env(crate::RUN_KEY_VAR), Some(key.as_str()), "{}", call.line());
+        assert_eq!(call.env("PROJECT_KEY"), Some(key.as_str()), "{}", call.line());
+        assert_ne!(call.env("VAGRANT_DOTFILE_PATH"), Some("/elsewhere"), "{}", call.line());
+    }
 }

@@ -57,14 +57,18 @@ pub(super) async fn record(project: &str, cx: &Cx<'_>) -> Result<()> {
     let Some(by) = cx.run.runner.operation_of(run) else {
         return Ok(());
     };
-    db.write(|tx| {
+    let made = db.write(|tx| {
+        let mut made = Vec::new();
         for volume in new {
             // Found, not made: written ahead and made in one transaction.
             let id = tx.creating(&NewResource::new(run, volume, ResourceKind::Volume, by).living(Lifetime::Run))?;
             tx.created(id, volume)?;
+            made.push(id);
         }
-        Ok(())
-    })
+        Ok(made)
+    })?;
+    crate::run::recovery::say(cx.events, db, &made);
+    Ok(())
 }
 
 /// Removes `rows`, each marked `destroying` before the call and `gone` after it; a removal that
@@ -74,19 +78,20 @@ async fn remove(cx: &Cx<'_>, rows: &[&ResourceRow], what: &str) {
         return;
     }
     let (run, db) = (cx.run.name(), cx.run.runner.store.db());
-    if let Some(by) = cx.run.runner.operation_of(run)
-        && let Err(e) = db.write(|tx| rows.iter().try_for_each(|r| tx.destroying(r.id, by)))
-    {
-        tracing::warn!(error = %e, "the run's volumes weren't marked as being removed");
+    let ids: Vec<_> = rows.iter().map(|r| r.id).collect();
+    if let Some(by) = cx.run.runner.operation_of(run) {
+        match db.write(|tx| rows.iter().try_for_each(|r| tx.destroying(r.id, by))) {
+            Ok(()) => crate::run::recovery::say(cx.events, db, &ids),
+            Err(e) => tracing::warn!(error = %e, "the run's volumes weren't marked as being removed"),
+        }
     }
     let mut args: Vec<String> = ["volume", "rm", "--force"].map(String::from).to_vec();
     args.extend(rows.iter().filter_map(|r| r.native_id.clone()));
     match call_ok(cx, "anonymous-volumes", &docker_spec(cx, args, Vec::new()), LIMIT, Echo::Quiet).await {
-        Ok(_) => {
-            if let Err(e) = db.write(|tx| rows.iter().try_for_each(|r| tx.gone(r.id))) {
-                tracing::warn!(error = %e, "the run's removed volumes weren't recorded gone");
-            }
-        }
+        Ok(_) => match db.write(|tx| rows.iter().try_for_each(|r| tx.gone(r.id))) {
+            Ok(()) => crate::run::recovery::say(cx.events, db, &ids),
+            Err(e) => tracing::warn!(error = %e, "the run's removed volumes weren't recorded gone"),
+        },
         Err(e) => tracing::warn!(error = %e, "{what}"),
     }
 }

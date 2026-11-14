@@ -59,15 +59,19 @@ pub(crate) fn keep(cx: &Cx<'_>, kind: ResourceKind, path: &Path) -> Result<()> {
         return Ok(());
     };
     let path = path.to_string_lossy();
-    runner.store.db().write(|tx| {
+    let db = runner.store.db();
+    let made = db.write(|tx| {
         let live = tx.live_resources(run)?;
         if live.iter().any(|r| r.kind == kind && r.native_id.as_deref() == Some(&*path)) {
-            return Ok(());
+            return Ok(None);
         }
         let key = crate::encoding::wire_name(&kind);
         let id = tx.creating(&NewResource::new(run, &key, kind, by))?;
-        tx.created(id, &path)
-    })
+        tx.created(id, &path)?;
+        Ok(Some(id))
+    })?;
+    super::recovery::say(cx.events, db, &made.into_iter().collect::<Vec<_>>());
+    Ok(())
 }
 
 impl Running<'_> {
@@ -86,15 +90,20 @@ impl Running<'_> {
             return Ok(());
         };
         let by = self.runner.operation_of(self.name());
-        self.runner.store.db().write(|tx| {
+        let db = self.runner.store.db();
+        let gone = db.write(|tx| {
+            let mut gone = Vec::new();
             for row in tx.live_resources(self.name())?.into_iter().filter(|r| r.kind == kind) {
                 if let Some(by) = by {
                     tx.destroying(row.id, by)?;
                 }
                 tx.gone(row.id)?;
+                gone.push(row.id);
             }
-            Ok(())
-        })
+            Ok(gone)
+        })?;
+        super::recovery::say(cx.events, db, &gone);
+        Ok(())
     }
 
     /// After the run's machines were removed to be made again (the leftovers an `up` clears, a

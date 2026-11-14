@@ -170,6 +170,36 @@ impl Tx<'_> {
         also(self).map_err(failed("written"))
     }
 
+    /// Resource row `id`, in any state.
+    ///
+    /// # Errors
+    ///
+    /// The store can't be read.
+    pub fn resource(&self, id: ResourceId) -> Result<Option<ResourceRow>> {
+        let sql = format!("SELECT {RESOURCE_COLUMNS} FROM resources WHERE id = ?1");
+        Ok(self.resources_where(&sql, params![id.0])?.pop())
+    }
+
+    /// The live provider rows of `run` that operations whose process died made: each made by an
+    /// operation that ended `abandoned`, or never ended and isn't `current` (called with the run
+    /// held, so none of those runs). What a recovery removes by recorded id, newest first. A row
+    /// still `creating` with no id is left out: nothing to remove by, and the next reading of what
+    /// the tool reports gives it its id or lets it go.
+    ///
+    /// # Errors
+    ///
+    /// The store can't be read.
+    pub fn left_by_dead_operations(&self, run: &RunName, current: OperationId) -> Result<Vec<ResourceRow>> {
+        let sql = format!(
+            "SELECT {RESOURCE_COLUMNS} FROM resources r WHERE r.run = ?1 AND r.state <> 'gone' AND r.scope = 'provider'
+               AND r.native_id IS NOT NULL AND r.created_by <> ?2
+               AND EXISTS (SELECT 1 FROM operations o WHERE o.id = r.created_by
+                           AND (o.outcome = 'abandoned' OR o.ended_at IS NULL))
+             ORDER BY r.id DESC"
+        );
+        self.resources_where(&sql, params![run.as_str(), current.0])
+    }
+
     /// Run `run`'s resources not gone, oldest first (a `down` walks them newest first).
     ///
     /// # Errors

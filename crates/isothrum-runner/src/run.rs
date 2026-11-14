@@ -13,6 +13,7 @@ mod console;
 mod existing;
 mod graphical;
 mod kept;
+pub(crate) mod recovery;
 
 pub(crate) use kept::keep;
 mod operation;
@@ -305,6 +306,10 @@ impl<'r> Running<'r> {
     /// runner's operation on it (`creating` from the first instant of an `up`), else what its
     /// record says (another process's operation records its moving state once it begins acting;
     /// an update leaves the run `ready`).
+    ///
+    /// Two reads, not one atomic look: an operation can take the run between them, or between
+    /// this and the query's own read of the engine. Tolerated, not locked out: a status is
+    /// advisory, never waits for an operation, and the next one reads the run as it then stands.
     fn state_while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {
         let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
         if let Some(op) = self.runner.op_of(&self.name) {
@@ -351,7 +356,7 @@ impl<'r> Running<'r> {
             .manifest()
             .recovery
             .as_ref()
-            .map(|r| LineWatch::any_case(&r.stale_markers))
+            .map(|r| LineWatch::any_case(&crate::tool_output::leftover::markers_of(&r.leftovers)))
             .unwrap_or_default();
         Ok(Cx {
             run: self,
@@ -363,6 +368,7 @@ impl<'r> Running<'r> {
             stale,
             gone: LineWatch::default(),
             processes: std::sync::Arc::clone(&self.runner.config.processes),
+            env: std::collections::BTreeMap::new(),
             bound: crate::executor::Bound::default(),
         })
     }

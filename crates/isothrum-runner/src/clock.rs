@@ -59,6 +59,32 @@ fn civil(days: u64) -> (i64, i64, i64) {
     (y, mo, d)
 }
 
+/// The civil date `year`-`month`-`day` as days since 1970-01-01: [`civil`]'s way back (Howard
+/// Hinnant's `days_from_civil`); none for a month or day out of range, or a year outside
+/// 1970..=9999 (four digits, as [`rfc3339`] writes them).
+#[cfg(any(unix, test))]
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> Option<u64> {
+    if !(1970..=9999).contains(&year) {
+        return None;
+    }
+    let length = match month {
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        _ => return None,
+    };
+    if !(1..=length).contains(&day) {
+        return None;
+    }
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    u64::try_from(era * 146_097 + doe - 719_468).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -71,6 +97,26 @@ mod tests {
         assert_eq!(rfc3339(UNIX_EPOCH + Duration::from_secs(1_792_065_600)), "2026-10-15T12:00:00Z");
         assert_eq!(rfc3339(UNIX_EPOCH + Duration::from_secs(951_782_400)), "2000-02-29T00:00:00Z");
         assert_eq!(rfc3339(UNIX_EPOCH - Duration::from_secs(5)), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn a_civil_date_and_its_days_since_1970_are_each_others_way_back() {
+        for days in (0..30_000).chain([146_097, 2_932_896]) {
+            let (y, m, d) = civil(days);
+            assert_eq!(days_from_civil(y, m, d), Some(days), "{y}-{m}-{d}");
+        }
+        assert_eq!(days_from_civil(2024, 2, 29), Some(19_782));
+        for (y, m, d) in [
+            (2023, 2, 29),
+            (2026, 4, 31),
+            (2026, 13, 1),
+            (2026, 0, 1),
+            (2026, 1, 0),
+            (1969, 12, 31),
+            (i64::MAX, 1, 1),
+        ] {
+            assert_eq!(days_from_civil(y, m, d), None, "{y}-{m}-{d}");
+        }
     }
 
     #[test]

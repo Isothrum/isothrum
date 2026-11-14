@@ -11,8 +11,8 @@
 //! responses are already its origin's.
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use super::{Relay, pump, serve};
@@ -72,9 +72,7 @@ fn on_local_network(ip: std::net::IpAddr) -> bool {
 
 /// The proxy, on a free loopback port, forwarding to `targets` only.
 pub(crate) async fn start_http_proxy(targets: Targets) -> std::io::Result<Relay> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-    let local = listener.local_addr()?.port();
-    let task = serve(listener, move |inbound| {
+    serve(move |inbound| {
         let targets = targets.clone();
         async move {
             // A client gone mid-request ends its connection, never the proxy.
@@ -82,8 +80,8 @@ pub(crate) async fn start_http_proxy(targets: Targets) -> std::io::Result<Relay>
                 tracing::debug!(error = %e, "a proxied connection ended early");
             }
         }
-    });
-    Ok(Relay { port: local, task })
+    })
+    .await
 }
 
 /// The request head's target as (host:port, origin-form path), from an absolute `http://` URI.
@@ -196,16 +194,27 @@ struct Upstream {
     to_origin: super::ToLan,
     /// Streams the origin's responses back to the client, in order (it pairs them with its
     /// requests).
-    pump: JoinHandle<()>,
+    pump: Pump,
+}
+
+/// The task streaming an origin's responses, holding the client's write half and `nc`: aborted
+/// when dropped (a refused request, a failed write, the relay gone), so neither outlives the
+/// connection. Only [`Peer::finish`] lets it run to its end.
+struct Pump(JoinHandle<()>);
+
+impl Drop for Pump {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl Upstream {
     fn start(target: String, (mut from_origin, to_origin, nc): (super::FromLan, super::ToLan, tokio::process::Child), mut client: OwnedWriteHalf) -> Upstream {
-        let pump = tokio::spawn(async move {
+        let pump = Pump(tokio::spawn(async move {
             // `nc` lives as long as the origin's answers flow.
             let _nc = nc;
             pump(&mut from_origin, &mut client).await;
-        });
+        }));
         Upstream { target, to_origin, pump }
     }
 }
@@ -232,9 +241,9 @@ impl Peer {
     /// input is closed, not shut down: a pipe's shutdown leaves it open, so nc would never pass
     /// the end on, and the origin, nc and this connection's task would wait for each other.
     async fn finish(self) {
-        if let Peer::Connected(Upstream { to_origin, pump, .. }) = self {
+        if let Peer::Connected(Upstream { to_origin, mut pump, .. }) = self {
             drop(to_origin);
-            if let Err(e) = pump.await {
+            if let Err(e) = (&mut pump.0).await {
                 tracing::debug!(error = %e, "the responses' pump ended early");
             }
         }

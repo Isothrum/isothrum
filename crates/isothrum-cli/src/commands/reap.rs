@@ -32,6 +32,7 @@ struct Swept {
 pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let Out { json, term, events } = *out;
     let cloud = args.cloud;
+    refuse_unread_flags(args)?;
     let connection = values::secrets(&args.secrets, var)?;
     let now = SystemTime::now();
     let expired: Vec<RunRecord> = runner.expired(now)?.into_iter().filter(|r| r.cloud == Some(cloud)).collect();
@@ -71,6 +72,25 @@ pub(crate) async fn run(args: &ReapArgs, runner: &Runner, out: &Out<'_>, var: &V
         }
     }
     Ok(Verdict::of(clean))
+}
+
+/// Refuses a flag `args`' cloud's query doesn't read (`--region` is AWS's, `--project` Google
+/// Cloud's): taken and dropped, the sweep searched the CLI's default place and said nothing was
+/// left, while a leftover in the place named kept billing. Before anything is destroyed.
+fn refuse_unread_flags(args: &ReapArgs) -> Result<()> {
+    let cloud = wire_name(&args.cloud);
+    let unread = |flag: &str, reads: &str| {
+        crate::error::Error::Usage(format!(
+            "`{flag}` is read for {reads} only: `reap {cloud}` would search its CLI's default instead"
+        ))
+    };
+    if !args.regions.is_empty() && args.cloud != isothrum_runner::isoloom_manifest::Cloud::Aws {
+        return Err(unread("--region", "aws"));
+    }
+    if args.project.is_some() && args.cloud != isothrum_runner::isoloom_manifest::Cloud::Gcp {
+        return Err(unread("--project", "gcp"));
+    }
+    Ok(())
 }
 
 /// The run of `record` destroyed, with `connection`.

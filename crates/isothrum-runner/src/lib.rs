@@ -74,7 +74,7 @@
 //! owner-only under `/var/lib/isoloom/secrets/<slot name>` and then touches
 //! `/var/lib/isoloom/secrets/.delivered`, which the machine's set-up waits for; the values travel
 //! base64-encoded on its standard input, retried while SSH can't connect (up to 15 minutes),
-//! from an owner-only `guest-<machine>.in` in the run's state folder that is removed once
+//! from an owner-only `guest-<machine>-<random>.in` (one per delivery) in the run's state folder that is removed once
 //! delivered (a removal that fails, fails the delivery) or once the operation is cut short.
 //!
 //! # Concurrency
@@ -84,7 +84,7 @@
 //! `timeout_s`, else an hour; 25 s for a probe; two minutes for an action's own Docker calls),
 //! and dropping an operation's future stops the process trees it started: on Unix each gets
 //! SIGINT (so Terraform saves its state) and SIGKILL once it exited or 30 seconds later; on
-//! Windows each is ended at once ([`SystemProcesses`]). The limit counts the time
+//! Windows Ctrl-C on its own console, then its job ended the same way ([`SystemProcesses`]). The limit counts the time
 //! a tool shows no progress: it is stopped once it printed no new line for that long (a line, on
 //! either stream, that isn't blank and isn't one of its last distinct lines; from its start when
 //! it prints nothing), and at the latest six hours after its start, or at its limit when that is
@@ -165,7 +165,7 @@ pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
 pub use clock::rfc3339;
 pub use console::ShellCommand;
-pub use encoding::{every_name, from_wire_name, wire_name};
+pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
 #[cfg(test)]
 pub(crate) use events::Recorder;
@@ -186,12 +186,12 @@ pub use options::{Occupied, RunOptions};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
-pub use process::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
+pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use project::platform::{Arch, Cloud, HostOs, Provider};
 pub use project::{Format, Project};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
-pub use runner::{Runner, RunnerConfig, this_arch, this_host};
+pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
 pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};

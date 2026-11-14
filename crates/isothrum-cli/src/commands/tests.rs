@@ -40,6 +40,17 @@ fn setup() -> Setup {
     setup_with(WEB_PORTAL)
 }
 
+/// A runner over `home` whose tools are `fake` and whose free host ports are `free`, and a terminal
+/// whose standard output and error are kept.
+pub(super) fn runner_with(home: &std::path::Path, fake: &Arc<FakeProcesses>, free: impl IntoIterator<Item = u16>) -> (Runner, Term, Buf, Buf) {
+    let mut config = RunnerConfig::new(home);
+    config.processes = Arc::<FakeProcesses>::clone(fake);
+    config.ports = Arc::new(FakePorts::new(free));
+    let (out, err) = (Buf::default(), Buf::default());
+    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    (Runner::new(config).unwrap(), term, out, err)
+}
+
 /// [`setup`] with `manifest` as the run's `run.json`.
 fn setup_with(manifest: &str) -> Setup {
     let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -60,8 +71,8 @@ fn setup_with(manifest: &str) -> Setup {
             () if line.contains(" ps --all ") && now == STOPPED => Reply::ok(&web("exited")),
             () if line.contains(" ps ") && !line.contains(" ps -q ") => Reply::ok(if now == UP { web("running") } else { String::new() }.as_str()),
             () if line.contains(" ps -q user") => Reply::ok("c0ffee"),
-            // The access container's networks, before it is joined to the chosen one.
-            () if line.starts_with("docker inspect --format") => Reply::ok("{\"web-portal_default\":{}}\n"),
+            // The access container's networks, as `docker inspect` prints them: the default one only.
+            () if line.starts_with("docker inspect --format") => Reply::ok("{\"web-portal_default\":{}}"),
             () if line.contains("--profile access up") => Reply::ok(&format!("user from {}", call.env("ISOLOOM_ACCESS_IMAGE").unwrap_or("its image"))),
             () if line.contains(" up --detach ") => {
                 state.store(UP, Ordering::SeqCst);
@@ -84,15 +95,11 @@ fn setup_with(manifest: &str) -> Setup {
             () => Reply::ok(""),
         }
     }));
-    let mut config = RunnerConfig::new(home.path());
-    config.processes = Arc::<FakeProcesses>::clone(&fake);
-    config.ports = Arc::new(FakePorts::new([41873]));
-    let (out, err) = (Buf::default(), Buf::default());
-    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    let (runner, term, out, err) = runner_with(home.path(), &fake, [41873]);
     Setup {
         home,
-        runner: Runner::new(config).unwrap(),
         run,
+        runner,
         fake,
         term,
         out,
@@ -425,4 +432,16 @@ async fn key_prints_the_public_key_or_with_json_one_document() {
         assert_eq!(verdict.unwrap(), Verdict::Pass);
         assert_eq!(s.out.take(), said);
     }
+}
+
+/// Regression (#127): a Proxmox console's websocket carried its VNC ticket, the password
+/// `--show-password` is for, into the terminal whatever the flag.
+#[test]
+fn a_proxmox_websocket_hides_its_ticket_without_show_password() {
+    let ticket = "PVEVNC:6553F0A4::dGlja2V0";
+    let url = "wss://pve:8006/api2/json/nodes/pve/qemu/101/vncwebsocket?port=5900&vncticket=PVEVNC%3A6553F0A4%3A%3AdGlja2V0";
+    let hidden = commands::ticket_shown(url, ticket, false);
+    assert!(!hidden.contains("dGlja2V0"), "{hidden}");
+    assert!(hidden.ends_with("vncticket=<hidden: --show-password prints it>"), "{hidden}");
+    assert_eq!(commands::ticket_shown(url, ticket, true), url);
 }

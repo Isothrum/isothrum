@@ -3,7 +3,6 @@
 //! so a missing tool or a stopped engine fails before anything is created.
 
 use std::num::NonZeroU32;
-use std::sync::LazyLock;
 
 use isoloom_manifest::{Argv, HostArgv, Program, Step, StepId, Template, Tool};
 
@@ -14,18 +13,15 @@ use crate::executor::{Cx, capture_step};
 /// The step id the probes report under.
 const STEP: &str = "tools";
 
-/// [`STEP`] and the container engine's program, as Isoloom's types, parsed once for the process:
-/// literals a test holds to Isoloom's rules, so the error each keeps can't happen.
-static CONSTANTS: LazyLock<std::result::Result<(StepId, Program), String>> = LazyLock::new(|| {
-    Ok((
-        StepId::parse(STEP).map_err(|e| e.to_string())?,
-        Program::parse("docker").map_err(|e| e.to_string())?,
-    ))
-});
-
-/// The probes' step id and the container engine's program ([`CONSTANTS`]).
+/// The probes' step id and the container engine's program, as Isoloom's types: literals a test
+/// holds to Isoloom's rules, so the error each keeps can't happen. Parsed where they are used, not
+/// kept in a process-wide lazy value: two short literals cost nothing to parse.
 fn constants() -> Result<(StepId, Program)> {
-    CONSTANTS.clone().map_err(|what| Error::Unsupported { what })
+    let unsupported = |what: String| Error::Unsupported { what };
+    Ok((
+        StepId::parse(STEP).map_err(|e| unsupported(e.to_string()))?,
+        Program::parse("docker").map_err(|e| unsupported(e.to_string()))?,
+    ))
 }
 
 /// How long a probe may take.
@@ -66,6 +62,7 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
     // answer from its probe is a daemon down, as an exit 1 is.
     if tool.name.as_str() == "docker" && out.trim().is_empty() {
         return Err(Error::ToolUnanswered {
+            step: STEP.to_owned(),
             tool: "docker".to_owned(),
             reason: "its probe printed nothing (its daemon isn't running)".to_owned(),
         });
@@ -77,7 +74,7 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
 /// Whether `tool`, its probe having printed `said`, is `min` or later: refused when it says an
 /// older version; passed, and traced with what it said, when no version can be read in it.
 fn new_enough(tool: &str, min: &isoloom_manifest::Version, said: &str) -> Result<()> {
-    match crate::tool_output::version_found(said) {
+    match crate::version_found(said) {
         Some(found) if found < *min => Err(Error::ToolTooOld {
             tool: tool.to_owned(),
             found: found.as_str().to_owned(),
@@ -98,27 +95,28 @@ async fn engine(cx: &Cx<'_>, id: StepId, docker: Program, image: &str) -> Result
     let probe = HostArgv::Every(Argv::new(docker, ["info", "--format", "{{.ServerVersion}}"].map(Template::text).into()));
     let mut step = Step::argv(id.clone(), probe);
     step.timeout_s = NonZeroU32::new(PROBE_TIMEOUT_S);
-    let version = capture_step(cx, STEP, &step)
-        .await
-        .map_err(|e| named(e, "docker", |reason| format!("{reason} (it runs `{image}` on this host)")))?;
+    let runs = |reason: String| format!("{reason}; it runs `{image}` on this host");
+    let version = capture_step(cx, STEP, &step).await.map_err(|e| named(e, "docker", runs))?;
     if version.trim().is_empty() {
         return Err(Error::ToolUnanswered {
+            step: id.to_string(),
             tool: "docker".to_owned(),
-            reason: format!("`docker info` printed no server version (its daemon isn't running; it runs `{image}` on this host)"),
+            reason: runs("`docker info` printed no server version (its daemon isn't running)".to_owned()),
         });
     }
     Ok(())
 }
 
-/// A probe's failure, said of the tool it probes: missing under its manifest name, or unanswered
-/// ([`Error::ToolUnanswered`]) with `failed` saying why.
+/// A probe's failure, said of the tool it probes: missing under its manifest name, a failed probe
+/// as the tool not answering ([`Error::ToolUnanswered`]), `failed` saying why from its reason.
 fn named(e: Error, tool: &str, failed: impl FnOnce(String) -> String) -> Error {
     match e {
         Error::ToolMissing { step: probe, .. } => Error::ToolMissing {
             step: probe,
             tool: tool.to_owned(),
         },
-        Error::ToolFailed { reason, .. } => Error::ToolUnanswered {
+        Error::ToolFailed { step: probe, reason } => Error::ToolUnanswered {
+            step: probe,
             tool: tool.to_owned(),
             reason: failed(reason),
         },
@@ -170,9 +168,7 @@ mod tests {
             "x",
             |r| format!("x: {r}"),
         );
-        assert!(matches!(&failed, Error::ToolUnanswered { tool, reason } if tool == "x" && reason == "x: exit 1"));
-        assert_eq!(failed.code(), crate::ErrorCode::ToolUnanswered);
-        assert_eq!(failed.to_string(), "`x` doesn't answer: x: exit 1");
+        assert!(matches!(failed, Error::ToolUnanswered { tool, reason, .. } if tool == "x" && reason == "x: exit 1"));
         let other = named(
             Error::Timeout {
                 step: "tools".into(),

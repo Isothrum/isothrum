@@ -13,7 +13,8 @@
 //!   lock                the OS lock: one operation per run across processes
 //!   ssh_config          the run's SSH settings, with its `known_hosts`, for a run reached over
 //!                       SSH
-//!   guest-<machine>.in  a guest delivery's values, only while it is delivered
+//!   guest-<machine>-<random>.in  a guest delivery's values, one file per delivery, only while
+//!                       it is delivered
 //!   consoles.json       the graphical consoles the runner chose (VMware's VNC: port and
 //!                       password per machine); removed by a down
 //!   proxmox-console-<random>.curl  a Proxmox API request's credentials, one file per request,
@@ -33,7 +34,7 @@ mod acl;
 mod db;
 mod fs;
 mod lock;
-mod transient;
+mod temp_file;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -43,11 +44,11 @@ use isoloom_manifest::{Cloud, Driver, Provider, Target};
 use serde::{Deserialize, Serialize};
 
 pub use db::{
-    CopyName, Ended, EventCursor, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner, PortReservation, Reserver,
-    ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
+    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
+    PortReservation, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
 };
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_new_private, write_private};
-pub(crate) use transient::Transient;
+pub(crate) use temp_file::TempFile;
 
 /// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
 /// when that fails.
@@ -66,7 +67,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
 pub(crate) fn remove(path: &Path) -> Result<()> {
     remove_path(path).map_err(Error::io(path, "removed"))
 }
-pub(crate) use lock::{RunLocks, SlotsLock};
+pub(crate) use lock::{RunLocks, SlotsLock, hold};
 
 use crate::Result;
 use crate::error::{Error, ErrorCode};

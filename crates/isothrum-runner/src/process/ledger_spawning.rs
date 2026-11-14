@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    /// Regression (#73): a tool created as the runner's process was killed stayed suspended, in no
+    /// Regression: a tool created as the runner's process was killed stayed suspended, in no
     /// job, for good. It is the dead owner's child of the program recorded, created since; not
     /// what a later process with the owner's id started, nor anything else the owner started.
     #[test]

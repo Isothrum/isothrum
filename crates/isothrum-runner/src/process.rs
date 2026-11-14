@@ -18,7 +18,7 @@ mod tail;
 use std::path::PathBuf;
 
 pub(crate) use elevated::Elevated;
-pub use elevated::may_manage_hyperv;
+pub use elevated::{HyperVRights, may_manage_hyperv};
 pub(crate) use shim::TERRAFORM_PROGRAMS;
 pub use system::SystemProcesses;
 pub(crate) use tail::Tail;
@@ -44,6 +44,10 @@ pub struct ProcessSpec {
     /// Windows), so the next operation can end it if the process that started it is killed first
     /// (default: not recorded). An operation's tools are recorded in the run's state folder.
     pub ledger_dir: Option<PathBuf>,
+    /// The container the tool runs in, by name, when `program` is the Docker CLI running it
+    /// (`docker run --name`): removed (`docker rm -f`) wherever the tool is ended before its end,
+    /// since ending the `docker` client leaves its container running (default: none).
+    pub container: Option<String>,
 }
 
 impl ProcessSpec {
@@ -185,9 +189,14 @@ impl ProcessRunner for Recording {
     }
 }
 
-/// `program` and `args` as one line, separated by spaces.
+/// `program` and `args` as one line, separated by spaces, each word quoted when it holds a space
+/// or another character a shell reads, so an argument with a space reads as one.
 fn command_line(program: &str, args: &[String]) -> String {
-    std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+    std::iter::once(program)
+        .chain(args.iter().map(String::as_str))
+        .map(crate::console::sh_word)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// How many of its last output lines stand in for a failed tool's silent standard error.
@@ -255,10 +264,29 @@ impl Captured {
     ///
     /// # Errors
     ///
-    /// It didn't exit 0: the error is its reason.
-    pub fn output(&self) -> Result<String, String> {
-        if self.success() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
+    /// [`ProcessFailed`] when it didn't exit 0: how it ended, and its reason.
+    pub fn output(&self) -> Result<String, ProcessFailed> {
+        if self.success() {
+            Ok(self.stdout.join("\n"))
+        } else {
+            Err(ProcessFailed {
+                exit: self.exit,
+                reason: self.reason(),
+            })
+        }
     }
+}
+
+/// A process that ran to its end and didn't exit 0 ([`Captured::output`]): how it ended, and
+/// why, in the one wording every failed tool's error uses ([`Captured::reason`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{reason}")]
+#[non_exhaustive]
+pub struct ProcessFailed {
+    /// How it ended.
+    pub exit: Exit,
+    /// Why it failed, ending with how it ended (`denied (exited with code 1)`).
+    pub reason: String,
 }
 
 /// Runs `spec`, keeping what it prints.
@@ -340,13 +368,17 @@ mod tests {
         assert_eq!(reason(&ended(None, &[" "], &[])), "exited with a signal");
         assert_eq!(reason(&ended(Some(2), &["no space left"], &[])), "no space left (exited with code 2)");
         assert_eq!(ended(Some(0), &["warning"], &["a", "b"]).output(), Ok("a\nb".to_owned()));
-        assert_eq!(ended(Some(3), &["bad"], &["a"]).output(), Err("bad (exited with code 3)".to_owned()));
+        let failed = ended(Some(3), &["bad"], &["a"]).output().unwrap_err();
+        assert_eq!((failed.exit, failed.to_string()), (Exit::new(Some(3)), "bad (exited with code 3)".to_owned()));
     }
 
     #[test]
     fn a_spec_reads_as_its_command_line() {
         let spec = ProcessSpec::new("docker", ["compose", "ps"]);
         assert_eq!(spec.line(), "docker compose ps");
+        // An argument with a space reads as one word, not two.
+        let spaced = ProcessSpec::new("vagrant", ["up", "web server", "--provider=hyperv"]);
+        assert_eq!(spaced.line(), "vagrant up 'web server' --provider=hyperv");
         assert!(Exit { code: Some(0) }.success() && !Exit { code: None }.success());
     }
 }

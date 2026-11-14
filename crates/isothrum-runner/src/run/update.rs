@@ -52,7 +52,7 @@ impl Running<'_> {
         cx.keep_set_up(observed.machines.iter().filter(|m| m.state.runs()).map(|m| m.name.clone()));
         self.reload_changed(&cx, &record.vm_boot_digests, &observed).await?;
         self.point_record_at_this_manifest(&mut record);
-        self.begin(&mut record, Op::Update)?;
+        self.begin(&mut record, Op::Update, cx.events)?;
         // The manifest may name new state files, or new entries in them (a new machine's inputs).
         crate::executor::state_files::write_all(&cx)?;
         self.driver.before_change(&cx).await?;

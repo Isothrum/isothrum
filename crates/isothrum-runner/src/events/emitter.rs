@@ -120,6 +120,21 @@ impl<'a> Emitter<'a> {
         secrets.iter().fold(text.to_owned(), |t, s| t.replace(s.as_str(), MASK))
     }
 
+    /// Says what the user now wants of the run.
+    pub(crate) fn desired(&self, desired: crate::state::Desired) {
+        self.emit(EventKind::Desired { desired });
+    }
+
+    /// Says where `row`, a resource of the run, stands now.
+    pub(crate) fn resource(&self, row: &crate::store::ResourceRow) {
+        self.emit(EventKind::Resource {
+            key: row.key.clone(),
+            kind: row.kind,
+            state: row.state,
+            native_id: row.native_id.clone(),
+        });
+    }
+
     /// Emits `kind`, masked.
     pub(crate) fn emit(&self, kind: EventKind) {
         let kind = self.masked(kind);
@@ -162,6 +177,12 @@ impl<'a> Emitter<'a> {
                 message: self.mask(&message),
                 step,
                 timeout: timeout.map(|t| t.masked(|l| self.mask(l))),
+            },
+            EventKind::Resource { key, kind, state, native_id } => EventKind::Resource {
+                key: self.mask(&key),
+                kind,
+                state,
+                native_id: native_id.map(|id| self.mask(&id)),
             },
             EventKind::Ready { condition, state, detail } => EventKind::Ready {
                 condition,
@@ -299,5 +320,43 @@ mod tests {
         assert_eq!(unreadable, 0);
         assert_eq!(logged.into_iter().map(|(_, event)| event).collect::<Vec<_>>(), sink.events());
         assert_eq!(store.read(|tx| tx.steps(op.id)).unwrap(), [("down".to_owned(), StepState::Done)]);
+    }
+
+    #[test]
+    fn events_emitted_from_several_threads_at_once_reach_the_log_in_their_order() {
+        // More threads than an operation ever has, each emitting at once, again and again: the
+        // store's numbers rise event by event, none missing, none twice.
+        let home = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(home.path()).unwrap());
+        let run = crate::name::RunName::new("r").unwrap();
+        let op = store
+            .write(|tx| tx.begin_operation(&run, Op::Up, &crate::store::Owner::this_process(), None))
+            .unwrap();
+        let clock = FixedClock(UNIX_EPOCH);
+        let sink = Recorder::new();
+        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
+        e.journal_as(op.id);
+        let (threads, each) = (8, 250);
+        let start = std::sync::Barrier::new(threads);
+        std::thread::scope(|s| {
+            for t in 0..threads {
+                let (e, start) = (&e, &start);
+                s.spawn(move || {
+                    start.wait();
+                    for i in 0..each {
+                        e.log("up", Stream::Stdout, &format!("thread {t} line {i}"));
+                    }
+                });
+            }
+        });
+        drop(e);
+        let total = threads * each;
+        let (logged, unreadable) = store
+            .read(|tx| tx.events_after(crate::store::EventCursor::default(), Some(&run), total + 1))
+            .unwrap();
+        assert_eq!(unreadable, 0);
+        let seqs: Vec<u64> = logged.into_iter().map(|(_, event)| event.seq).collect();
+        let expected: Vec<u64> = (1..=u64::try_from(total).unwrap()).collect();
+        assert_eq!(seqs, expected);
     }
 }

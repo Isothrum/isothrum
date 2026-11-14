@@ -1,0 +1,22 @@
+# What the workspace's tests share and no product code uses: guards that end the helper processes
+# a test starts, waits with a deadline, a temporary home, and asserts that can't pass on nothing.
+# The runner's scripted processes stay in `isothrum-runner` (feature `fake`): they implement its
+# `ProcessRunner`.
+[package]
+name = "isothrum-test-support"
+description = "Test support shared by the Isothrum crates' tests (not published)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 //! What Proxmox VE's API answers, parsed once, here, into the fields the runner reads: every
 //! answer is `{"data": …}`, and each call's `data` has its own shape ([`Ticket`], [`VncProxy`],
-//! [`ClusterVm`]). Unknown fields are skipped.
+//! [`ClusterVm`], [`FreeId`]). Unknown fields are skipped.
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -54,6 +54,18 @@ impl ClusterVm {
     /// Whether it is the VM `id` names.
     pub(super) fn is(&self, id: &str) -> bool {
         self.vmid.as_ref().is_some_and(|v| v.text() == id)
+    }
+}
+
+/// `cluster/nextid?vmid=<id>`'s answer: the id, when no VM of the cluster holds it.
+#[derive(Debug, Deserialize)]
+#[serde(transparent)]
+pub(super) struct FreeId(NumberOrText);
+
+impl FreeId {
+    /// Whether it is the id `id` names.
+    pub(super) fn is(&self, id: &str) -> bool {
+        self.0.text() == id
     }
 }
 
@@ -118,10 +130,21 @@ mod tests {
     }
 
     #[test]
+    fn nextid_answers_the_id_it_was_asked_when_it_is_free() {
+        let free: FreeId = data(r#"{"data":"104"}"#).unwrap().unwrap();
+        assert!(free.is("104") && !free.is("105"));
+        let number: FreeId = data(r#"{"data":104}"#).unwrap().unwrap();
+        assert!(number.is("104"));
+        assert!(data::<FreeId>(r#"{"data":null,"errors":{"vmid":"VM 104 already exists"}}"#).unwrap().is_none());
+    }
+
+    #[test]
     fn an_answer_without_data_or_not_the_api_s_is_told_apart() {
         assert!(data::<Ticket>(r#"{"data":null}"#).unwrap().is_none());
         assert!(data::<Ticket>("{}").unwrap().is_none());
-        assert!(data::<Vec<ClusterVm>>(r#"{"data":{"vmid":1}}"#).is_err(), "not a list");
-        assert!(data::<Ticket>("<html>").is_err());
+        let not_a_list = data::<Vec<ClusterVm>>(r#"{"data":{"vmid":1}}"#).unwrap_err();
+        assert!(not_a_list.is_data(), "a JSON answer of the wrong shape: {not_a_list}");
+        let not_json = data::<Ticket>("<html>").unwrap_err();
+        assert!(not_json.is_syntax(), "not the API's answer: {not_json}");
     }
 }

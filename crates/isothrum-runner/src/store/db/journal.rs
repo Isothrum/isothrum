@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, Row, params};
 
-use super::{Ended, EventCursor, OperationId, OperationRow, Outcome, Owner, Tx, failed, from_json, from_word, now, to_json, word};
+use super::{Ended, EventCursor, EventPage, OperationId, OperationRow, Outcome, Owner, Tx, failed, from_json, from_word, now, to_json, word};
 use crate::Result;
 use crate::error::{Error, ErrorCode};
 use crate::events::{Event, StepState};
@@ -238,6 +238,27 @@ impl Tx<'_> {
         self.operations_where(&sql, params![run.as_str()])
     }
 
+    /// Ends `cancelled` every queued operation of the home (any run) that never started and whose
+    /// owner is gone (another boot, a dead process): a service that died with operations in its
+    /// queue. Returns their ids. A live owner's queued rows stay: they wait in its queue.
+    ///
+    /// # Errors
+    ///
+    /// The store can't be read or written.
+    pub fn cancel_orphaned_queued(&mut self) -> Result<Vec<OperationId>> {
+        let sql = format!("SELECT {OPERATION_COLUMNS} FROM operations WHERE started_at IS NULL AND ended_at IS NULL ORDER BY id");
+        let orphans: Vec<OperationId> = self
+            .operations_where(&sql, params![])?
+            .into_iter()
+            .filter(|o| !o.owner.is_alive())
+            .map(|o| o.id)
+            .collect();
+        for id in &orphans {
+            self.end_operation(*id, Outcome::Cancelled, Some(ErrorCode::Cancelled))?;
+        }
+        Ok(orphans)
+    }
+
     fn operations_where(&self, sql: &str, params: impl rusqlite::Params) -> Result<Vec<OperationRow>> {
         let mut stmt = self.tx.prepare(sql).map_err(failed("read"))?;
         let found = stmt.query_map(params, raw_operation).map_err(failed("read"))?;
@@ -281,6 +302,19 @@ impl Tx<'_> {
     ///
     /// The store can't be read.
     pub fn events_after(&self, after: EventCursor, run: Option<&RunName>, limit: usize) -> Result<(Vec<(EventCursor, Event)>, usize)> {
+        let page = self.events_page(after, run, limit)?;
+        Ok((page.events, page.unreadable))
+    }
+
+    /// Up to `limit` event rows after cursor `after`, of run `run` or of every run, oldest first:
+    /// the events it reads, how many rows it couldn't read as one, and the cursor of the last row
+    /// it scanned, read or not (`after` when there was none). A reader resumes from `last`: a
+    /// page of rows another version wrote, none of them readable, still moves it on.
+    ///
+    /// # Errors
+    ///
+    /// The store can't be read.
+    pub fn events_page(&self, after: EventCursor, run: Option<&RunName>, limit: usize) -> Result<EventPage> {
         let mut stmt = self
             .tx
             .prepare("SELECT cursor, body FROM events WHERE cursor > ?1 AND (?2 IS NULL OR run = ?2) ORDER BY cursor LIMIT ?3")
@@ -295,18 +329,24 @@ impl Tx<'_> {
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )
             .map_err(failed("read"))?;
-        let (mut events, mut unreadable) = (Vec::new(), 0);
+        let mut page = EventPage {
+            events: Vec::new(),
+            unreadable: 0,
+            last: after,
+        };
         for row in rows {
             let (cursor, body) = row.map_err(failed("read"))?;
+            let cursor = EventCursor(u64::try_from(cursor).unwrap_or(0));
+            page.last = cursor;
             match from_json::<Event>("event", &body) {
-                Ok(event) => events.push((EventCursor(u64::try_from(cursor).unwrap_or(0)), event)),
+                Ok(event) => page.events.push((cursor, event)),
                 Err(e) => {
-                    tracing::debug!(cursor, error = %e, "an event row isn't an event this runner reads");
-                    unreadable += 1;
+                    tracing::debug!(cursor = cursor.0, error = %e, "an event row isn't an event this runner reads");
+                    page.unreadable += 1;
                 }
             }
         }
-        Ok((events, unreadable))
+        Ok(page)
     }
 
     /// The newest event's cursor (0 when there is none).

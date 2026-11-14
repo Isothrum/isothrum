@@ -129,6 +129,7 @@ mod tests {
     fn a_run_name_reads_back_checked() {
         let name: RunName = serde_json::from_str("\"web-1\"").unwrap();
         assert_eq!(serde_json::to_string(&name).unwrap(), "\"web-1\"");
-        assert!(serde_json::from_str::<RunName>("\"../etc\"").is_err());
+        let err = serde_json::from_str::<RunName>("\"../etc\"").unwrap_err().to_string();
+        assert!(err.contains("../etc"), "the refused name is said: {err}");
     }
 }

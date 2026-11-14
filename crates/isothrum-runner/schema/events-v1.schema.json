@@ -323,6 +323,59 @@
       ]
     },
     {
+      "description": "What the user wants of the run changed: an operation that moves it began (`up`, `resume`:\nrunning; `park`: parked; `down`: gone).",
+      "type": "object",
+      "properties": {
+        "desired": {
+          "description": "What is wanted now.",
+          "$ref": "#/$defs/Desired"
+        },
+        "event": {
+          "type": "string",
+          "const": "desired"
+        }
+      },
+      "required": [
+        "event",
+        "desired"
+      ]
+    },
+    {
+      "description": "A resource of the run moved in the home's write-ahead ledger: written `creating` before\nthe call that makes it, `created` with the tool's id after it, `destroying` before the call\nthat removes it, `gone` after.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "The resource's key in the run (`container:web-1`, a volume's name, a local thing's kind).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What it is.",
+          "$ref": "#/$defs/ResourceKind"
+        },
+        "state": {
+          "description": "Where it stands now.",
+          "$ref": "#/$defs/ResourceState"
+        },
+        "native_id": {
+          "description": "The tool's id for it, once it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event": {
+          "type": "string",
+          "const": "resource"
+        }
+      },
+      "required": [
+        "event",
+        "key",
+        "kind",
+        "state"
+      ]
+    },
+    {
       "description": "Why the operation failed.",
       "type": "object",
       "properties": {
@@ -960,6 +1013,116 @@
         }
       ]
     },
+    "Desired": {
+      "description": "What a user wants of a run: set by the commands, never by an observation.",
+      "oneOf": [
+        {
+          "description": "Up and ready.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string",
+          "const": "parked"
+        },
+        {
+          "description": "Nothing of it left.",
+          "type": "string",
+          "const": "gone"
+        }
+      ]
+    },
+    "ResourceKind": {
+      "description": "What a resource is. The provider kinds are manifest v2's `resources[].kind`; the local ones\nthe runner's own.",
+      "oneOf": [
+        {
+          "description": "A virtual machine.",
+          "type": "string",
+          "const": "vm"
+        },
+        {
+          "description": "A container.",
+          "type": "string",
+          "const": "container"
+        },
+        {
+          "description": "A network.",
+          "type": "string",
+          "const": "network"
+        },
+        {
+          "description": "A volume.",
+          "type": "string",
+          "const": "volume"
+        },
+        {
+          "description": "A hub (a Docker host VM several runs share).",
+          "type": "string",
+          "const": "hub"
+        },
+        {
+          "description": "A process a step leaves running.",
+          "type": "string",
+          "const": "process"
+        },
+        {
+          "description": "A Terraform module's resources, as one.",
+          "type": "string",
+          "const": "module"
+        },
+        {
+          "description": "The machines' SSH host keys this computer trusts.",
+          "type": "string",
+          "const": "host_keys"
+        },
+        {
+          "description": "The files the run's tools keep in its state folder.",
+          "type": "string",
+          "const": "state_files"
+        },
+        {
+          "description": "The run's outputs archive.",
+          "type": "string",
+          "const": "archive"
+        },
+        {
+          "description": "The graphical consoles the runner chose.",
+          "type": "string",
+          "const": "consoles"
+        },
+        {
+          "description": "A tool process an operation runs.",
+          "type": "string",
+          "const": "tool_process"
+        }
+      ]
+    },
+    "ResourceState": {
+      "description": "Where a resource stands, written ahead of the provider's call.",
+      "oneOf": [
+        {
+          "description": "Written before the call that makes it: it may or may not exist.",
+          "type": "string",
+          "const": "creating"
+        },
+        {
+          "description": "The provider made it, with this id.",
+          "type": "string",
+          "const": "created"
+        },
+        {
+          "description": "Written before the call that removes it.",
+          "type": "string",
+          "const": "destroying"
+        },
+        {
+          "description": "Removed, or found missing.",
+          "type": "string",
+          "const": "gone"
+        }
+      ]
+    },
     "ErrorCode": {
       "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
       "oneOf": [
@@ -1004,14 +1167,14 @@
           "const": "tool_failed"
         },
         {
+          "description": "A tool the run needs is installed, but its probe got no answer from it (Docker's engine\nstopped, or not this account's to reach): the message says what the tool said.",
+          "type": "string",
+          "const": "tool_unanswered"
+        },
+        {
           "description": "A tool answers at a version older than the run needs.",
           "type": "string",
           "const": "tool_too_old"
-        },
-        {
-          "description": "A tool the run needs is installed but its probe got no answer before anything was\ncreated: it failed, or answered nothing (Docker's daemon stopped, or this account refused\nits socket). The error names the tool in its own field.",
-          "type": "string",
-          "const": "tool_unanswered"
         },
         {
           "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",

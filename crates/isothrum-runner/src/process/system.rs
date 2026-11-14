@@ -1,7 +1,7 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
 //! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
-//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]). Each tool speaks in the C
+//! tool cut short is asked to stop first (see [`super::stopping`]). Each tool speaks in the C
 //! locale ([`super::locale`]).
 
 use std::path::Path;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use tokio::process::Command;
 
-use super::stopping::{GRACE, Stopping};
+use super::stopping::{GRACE, Removal, Stopping};
 use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, locale, shim};
 use crate::BoxFuture;
 
@@ -20,8 +20,8 @@ use crate::BoxFuture;
 /// an engine context of their own.
 ///
 /// A tool cut short (its operation's future dropped: a cancel, a step's timeout) is asked to stop
-/// on Unix (SIGINT to its process group, so Terraform saves its state) and ended once it has
-/// exited, or 30 seconds later; on Windows it is ended at once. Its clones share the tools
+/// (SIGINT to its process group on Unix, Ctrl-C on its console on Windows, so Terraform saves its
+/// state) and ended once it has exited, or 30 seconds later. Its clones share the tools
 /// stopping: a process about to exit waits for them with [`SystemProcesses::stopped`].
 #[derive(Debug, Clone)]
 pub struct SystemProcesses {
@@ -29,8 +29,9 @@ pub struct SystemProcesses {
     strip_engine_overrides: bool,
     /// The tools cut short that are still stopping.
     stopping: Arc<Stopping>,
-    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid.
-    running: Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>,
+    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid, each
+    /// with the removal of the container it runs in, if any.
+    running: Arc<std::sync::Mutex<RunningSet>>,
 }
 
 impl Default for SystemProcesses {
@@ -90,8 +91,11 @@ impl SystemProcesses {
     pub fn end_all_now(&self) {
         self.stopping.end_now();
         let running = std::mem::take(&mut *self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for pid in running {
+        for (pid, removal) in running {
             kill_tree(pid);
+            if let Some(removal) = removal {
+                removal.run();
+            }
         }
     }
 
@@ -116,19 +120,21 @@ impl SystemProcesses {
         } else {
             None
         };
-        let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
+        let child = cmd.spawn().map_err(|e| spawned(spec, e))?;
         drop(creating);
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
-        let _running = child.id().map(|pid| Running::enter(&self.running, pid));
+        let removal = self.removal(spec);
+        let _running = child.id().map(|pid| Running::enter(&self.running, pid, removal.clone()));
         let recorded = spec
             .ledger_dir
             .as_deref()
             .zip(child.id())
-            .and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
+            .and_then(|(dir, pid)| ledger::Recorded::write(dir, pid, spec.container.as_deref()));
         let mut tree = Tree {
             child: Some(child),
             stopping: Arc::clone(&self.stopping),
             recorded,
+            removal,
         };
         let status = match tree.child.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
@@ -141,6 +147,27 @@ impl SystemProcesses {
             return Err(ProcessError::Missing { program: spec.program.clone() });
         }
         Ok(Exit { code: status.code() })
+    }
+
+    /// The removal of the container `spec`'s tool runs in, when it names one, with the
+    /// environment the tool gets, so it reaches the same engine.
+    fn removal(&self, spec: &ProcessSpec) -> Option<Removal> {
+        let name = spec.container.as_deref()?;
+        let inherited = std::env::vars_os().filter_map(|(k, _)| k.into_string().ok());
+        let withheld = shim::withheld(&spec.program, inherited);
+        let strip = self.strip_engine_overrides && shim::uses_engine(&spec.program);
+        let stripped = if strip {
+            shim::ENGINE_OVERRIDES.iter().map(|v| (*v).to_owned()).collect()
+        } else {
+            Vec::new()
+        };
+        Some(Removal {
+            program: spec.program.clone(),
+            name: name.to_owned(),
+            withheld,
+            env: spec.env.clone(),
+            stripped,
+        })
     }
 
     /// The command for `spec`: its own group or job, its output piped, headless.
@@ -187,8 +214,8 @@ impl ProcessRunner for SystemProcesses {
 }
 
 /// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
-/// cancellation), with its entry in the run's tools when it was recorded: removed once the tool
-/// ended.
+/// cancellation), with its entry in the run's tools when it was recorded (removed once the tool
+/// ended) and the removal of the container it runs in, if any.
 struct Tree {
     /// The process, until it is waited for.
     child: Option<Box<dyn ChildWrapper>>,
@@ -196,22 +223,27 @@ struct Tree {
     stopping: Arc<Stopping>,
     /// Its ledger entry, taken by the stop.
     recorded: Option<ledger::Recorded>,
+    /// The removal of the container it runs in, taken by the stop.
+    removal: Option<Removal>,
 }
 
 impl Drop for Tree {
     fn drop(&mut self) {
         if let Some(child) = self.child.take() {
-            self.stopping.stop(child, self.recorded.take());
+            self.stopping.stop(child, self.recorded.take(), self.removal.take());
         }
     }
 }
 
+/// The tools running now, by leader pid, each with the removal of its container, if any.
+type RunningSet = std::collections::BTreeMap<u32, Option<Removal>>;
+
 /// A tool in [`SystemProcesses`]'s running set while this lives.
-struct Running(Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, u32);
+struct Running(Arc<std::sync::Mutex<RunningSet>>, u32);
 
 impl Running {
-    fn enter(set: &Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, pid: u32) -> Running {
-        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid);
+    fn enter(set: &Arc<std::sync::Mutex<RunningSet>>, pid: u32, removal: Option<Removal>) -> Running {
+        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid, removal);
         Running(Arc::clone(set), pid)
     }
 }
@@ -273,14 +305,19 @@ fn group(cmd: &mut CommandWrap) {
     cmd.wrap(process_wrap::tokio::JobObject);
 }
 
-/// The error of a tool that couldn't start: missing, or the OS's reason.
-fn spawned(program: &str, e: std::io::Error) -> ProcessError {
-    match e.kind() {
-        std::io::ErrorKind::NotFound => ProcessError::Missing { program: program.to_owned() },
-        _ => ProcessError::Io {
-            program: program.to_owned(),
-            source: e,
+/// The error of the tool `spec` that couldn't start: missing, or the OS's reason. The OS refuses
+/// a start in a working folder that isn't there with `NotFound` too: that is said of the folder,
+/// not taken for a tool that isn't installed.
+fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
+    let program = spec.program.clone();
+    let folder_gone = spec.cwd.as_deref().filter(|dir| !dir.is_dir());
+    match (e.kind(), folder_gone) {
+        (std::io::ErrorKind::NotFound, Some(dir)) => ProcessError::Io {
+            program,
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("its working folder {} doesn't exist", dir.display())),
         },
+        (std::io::ErrorKind::NotFound, None) => ProcessError::Missing { program },
+        _ => ProcessError::Io { program, source: e },
     }
 }
 

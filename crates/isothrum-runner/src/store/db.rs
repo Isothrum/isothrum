@@ -28,8 +28,8 @@ use serde::de::DeserializeOwned;
 pub use leases::Reserver;
 pub use owner::Owner;
 pub use rows::{
-    CopyName, Ended, EventCursor, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, PortReservation, ResourceId,
-    ResourceKind, ResourceRow, ResourceState, RunRow, Scope,
+    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, PortReservation,
+    ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope,
 };
 
 use crate::Result;
@@ -75,6 +75,7 @@ impl Store {
         crate::store::create_dir(home)?;
         let path = home.join(DB_FILE);
         let conn = Connection::open(&path).map_err(failed("opened"))?;
+        #[cfg(unix)]
         restrict(&path)?;
         conn.busy_timeout(BUSY_TIMEOUT).map_err(failed("opened"))?;
         conn.pragma_update(None, "journal_mode", "WAL").map_err(failed("opened"))?;
@@ -236,14 +237,9 @@ pub(crate) fn epoch_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// Makes the database's file owner-only (on Windows the home's DACL already is).
+/// Makes the database's file owner-only (Unix: on Windows the home's DACL already is).
+#[cfg(unix)]
 fn restrict(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(Error::io(path, "made owner-only"))?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(Error::io(path, "made owner-only"))
 }

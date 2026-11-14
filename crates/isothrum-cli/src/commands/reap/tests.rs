@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
+use isothrum_runner::Runner;
 use isothrum_runner::fake::{Call, FakeProcesses, Reply};
-use isothrum_runner::{FakePorts, Runner, RunnerConfig};
 
 use crate::args::Cli;
 use crate::commands;
@@ -69,7 +69,7 @@ fn destroy_breaking_a_record(home: &Path, call: &Call, destroyed: bool) -> Reply
 }
 
 struct Setup {
-    _home: tempfile::TempDir,
+    home: tempfile::TempDir,
     run: tempfile::TempDir,
     runner: Runner,
     fake: Arc<FakeProcesses>,
@@ -93,16 +93,11 @@ fn setup_answering(answer: fn(&Path, &Call) -> Reply) -> Setup {
         let home = home.path().to_path_buf();
         move |call| answer(&home, call)
     }));
-    let mut config = RunnerConfig::new(home.path());
-    let processes: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
-    config.processes = processes;
-    config.ports = Arc::new(FakePorts::new([]));
-    let (out, err) = (Buf::default(), Buf::default());
-    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    let (runner, term, out, err) = super::super::tests::runner_with(home.path(), &fake, []);
     Setup {
-        _home: home,
-        runner: Runner::new(config).unwrap(),
+        home,
         run,
+        runner,
         fake,
         term,
         out,
@@ -118,7 +113,8 @@ impl Setup {
             .unwrap()
     }
 
-    /// The run started with no life left: expired at once.
+    /// The run started, then past its expiry: its record says it ended long ago (`--lifetime`
+    /// takes a minute at least, and the command line's clock is the system's).
     async fn expired_run(&self) {
         let run = self.run.path().display().to_string();
         let up = [
@@ -129,10 +125,20 @@ impl Setup {
             "--param",
             "allowed_cidr=203.0.113.7/32",
             "--lifetime",
-            "0",
+            "1",
         ];
         assert_eq!(self.run(&up).await, Verdict::Pass);
         self.out.take();
+        // The run's record is a row of the home's store: its expiry moved long into the past.
+        let db = rusqlite::Connection::open(self.home.path().join("state.db")).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let expired = db
+            .execute(
+                "UPDATE runs SET record = json_set(record, '$.expires_at', 1000) WHERE json_extract(record, '$.expires_at') IS NOT NULL",
+                [],
+            )
+            .unwrap();
+        assert_eq!(expired, 1, "the run has an expiry");
     }
 }
 
@@ -250,4 +256,25 @@ async fn a_search_that_fails_after_a_destroy_is_no_runs_error() {
         (Some("error"), Some("store_corrupt"), Some(2))
     );
     assert!(error.get("run").is_none() && error.get("op").is_none(), "no one run's operation: {error}");
+}
+
+/// Regression (#134): `--region` on a cloud other than AWS, `--project` on one other than Google
+/// Cloud, was taken and dropped: the sweep searched the CLI's default place and said it was clean.
+#[test]
+fn a_flag_the_clouds_query_doesnt_read_is_a_usage_error() {
+    let refused = |argv: &[&str]| {
+        let cli = Cli::parse_from(argv);
+        let crate::args::Command::Runner(command) = cli.command else {
+            panic!("a runner command")
+        };
+        let crate::args::RunnerCommand::Reap(args) = *command else { panic!("reap") };
+        commands::reap::refuse_unread_flags(&args).err().map(|e| e.to_string())
+    };
+    let azure = refused(&["isothrum", "reap", "azure", "--region", "westeurope"]).expect("refused");
+    assert!(azure.contains("`--region` is read for aws only"), "{azure}");
+    let aws = refused(&["isothrum", "reap", "aws", "--project", "lab-123"]).expect("refused");
+    assert!(aws.contains("`--project` is read for gcp only"), "{aws}");
+    assert_eq!(refused(&["isothrum", "reap", "aws", "--region", "eu-west-3"]), None);
+    assert_eq!(refused(&["isothrum", "reap", "gcp", "--project", "lab-123"]), None);
+    assert_eq!(refused(&["isothrum", "reap", "linode"]), None);
 }

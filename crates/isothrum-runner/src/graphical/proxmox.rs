@@ -10,7 +10,7 @@ use std::time::Duration;
 use isoloom_manifest::{ConsoleSource, Machine};
 use serde::de::DeserializeOwned;
 
-use self::answer::{ClusterVm, Ticket, VncProxy};
+use self::answer::{ClusterVm, FreeId, Ticket, VncProxy};
 
 use super::no_console;
 use crate::Result;
@@ -18,14 +18,14 @@ use crate::error::Error;
 use crate::executor::{Cx, Echo, call};
 use crate::process::ProcessSpec;
 use crate::secrets::SecretValue;
-use crate::store::Transient;
+use crate::store::TempFile;
 
 mod answer;
 
 /// How long one API call may go without progress.
 const LIMIT: Duration = Duration::from_secs(30);
 
-/// The config file `curl` reads, in the run's state folder, only while it runs ([`Transient`]):
+/// The config file `curl` reads, in the run's state folder, only while it runs ([`TempFile`]):
 /// `proxmox-console-<random>.curl`, one per request, since a status read takes no run lock and
 /// may run beside a console request.
 const CONFIG: (&str, &str) = ("proxmox-console", "curl");
@@ -113,9 +113,8 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         return Err(no_console(machine, "it has no Proxmox console"));
     };
     let at = |f: &str| format!("machines.{}.consoles.source.{f}", machine.name);
-    let base = cx.vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
+    let (base, insecure) = api_target(&cx.vars, (endpoint, insecure), at)?;
     let (node, vm_id) = (cx.vars.render(node, &at("node"))?, cx.vars.render(vm_id, &at("vm_id"))?);
-    let insecure = cx.vars.render(insecure, &at("insecure"))?.trim() == "true";
     let host = base
         .strip_prefix("https://")
         .ok_or_else(|| no_console(machine, format!("the Proxmox API `{base}` isn't https")))?;
@@ -140,6 +139,18 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         authorization: sign_in.header(),
         insecure,
     })
+}
+
+/// The API a console's `endpoint` names, filled, without its last `/`, and whether its `insecure`
+/// says not to verify the server's certificate (`true`); `at` names a field in errors.
+fn api_target(
+    vars: &crate::vars::Vars,
+    (endpoint, insecure): (&isoloom_manifest::Template, &isoloom_manifest::Template),
+    at: impl Fn(&str) -> String,
+) -> Result<(String, bool)> {
+    let base = vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
+    let insecure = vars.render(insecure, &at("insecure"))?.trim() == "true";
+    Ok((base, insecure))
 }
 
 /// How the API is signed in to: the run's connection's API token (`token`), else the user's
@@ -194,23 +205,46 @@ async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Method), insecur
         text.push_str(f);
         text.push('\n');
     }
-    let config = Transient::write_unique(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
-    let mut args = vec!["--silent", "--show-error", "--fail-with-body", "--max-time", "25", "--config", "-"];
+    let config = TempFile::create_new_in(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
+    // The HTTP status on a line of its own after the body: `--fail-with-body` would say it, but
+    // only from curl 7.76 on, and an older one refuses the whole command line.
+    let mut args = vec!["--silent", "--show-error", "--write-out", STATUS_LINE, "--max-time", "25", "--config", "-"];
     if insecure {
         args.push("--insecure");
     }
     let mut spec = ProcessSpec::new("curl", args);
     spec.stdin = Some(config.path().to_path_buf());
-    config.remove_after(call(cx, step, &spec, LIMIT, Echo::Quiet).await)
+    config.remove_after(call(cx, step, &spec, LIMIT, Echo::Quiet).await.map(http_answer))
+}
+
+/// What `--write-out` prints after the body: the HTTP status on a line of its own.
+const STATUS_LINE: &str = "\\n%{http_code}";
+
+/// What `curl` answered, the HTTP status line [`STATUS_LINE`] added taken off its output: an
+/// answer of 400 or more fails as `--fail-with-body` fails it (exit 22, `The requested URL
+/// returned error: <status>` on standard error, its body kept on standard output), so a refused
+/// sign-in reads as one.
+fn http_answer(mut out: crate::process::Captured) -> crate::process::Captured {
+    let status = out.stdout.pop().and_then(|line| line.trim().parse::<u16>().ok());
+    match status {
+        Some(code) if code >= 400 && out.success() => {
+            let mut stderr = out.stderr_tail.clone();
+            stderr.push(format!("curl: (22) The requested URL returned error: {code}"));
+            crate::process::Captured::new("curl", crate::process::Exit::new(Some(22)), out.stdout, stderr)
+        }
+        _ => out,
+    }
 }
 
 /// Where each VM of the run with Proxmox's console stands on its server, by machine name, as the
 /// server's API says (`cluster/resources`, every VM of the cluster it lets the run's credentials
 /// see, wherever it migrated): running, stopped, or absent when the server no longer has it (its
-/// web UI's Remove). `vars` holds the run's params and outputs (each VM's id). Nothing for a run
-/// whose VMs have no such console, no id yet, or whose connection gives no credentials; nothing
-/// either when the server can't be asked (unreachable, an answer that isn't the API's), traced:
-/// the run's own state then stands.
+/// web UI's Remove). Each server the VMs are on is asked once, as their consoles sign in to it. A
+/// VM its listing leaves out is absent only when the server says no VM holds its id
+/// ([`unlisted`]): the listing holds only the VMs the credentials may audit. `vars` holds the
+/// run's params and outputs (each VM's id). Nothing for a run whose VMs have no such console, no
+/// id yet, or whose connection gives no credentials; nothing either for a VM whose server can't be
+/// asked (unreachable, an answer that isn't the API's), traced: the run's own state then stands.
 ///
 /// # Errors
 ///
@@ -219,33 +253,80 @@ async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Method), insecur
 pub(crate) async fn vm_states(cx: &Cx<'_>, vars: &crate::vars::Vars) -> Result<std::collections::BTreeMap<String, crate::MachineState>> {
     let mut out = std::collections::BTreeMap::new();
     let vms = proxmox_vms(cx, vars)?;
-    let Some((_, first)) = vms.first() else { return Ok(out) };
-    // Each way the API's answer is missing is said (an empty map hid why): the run's own state
-    // then stands.
-    let Some(sign_in) = status_sign_in(cx, vars, first).await? else {
-        tracing::debug!("no Proxmox credentials among the secrets: the VMs' states aren't asked, the run's own stand");
-        return Ok(out);
-    };
-    let url = format!("{}/api2/json/cluster/resources?type=vm", first.base);
-    let Some(answer) = asked(request(cx, "status", (&url, Method::Get), first.insecure, &sign_in.lines(Method::Get)).await) else {
-        return Ok(out);
-    };
-    let Some(listed) = data_of::<Vec<ClusterVm>>(cx, vars, &answer)? else {
-        tracing::warn!("Proxmox's answer holds no list of resources: the run's own state stands");
-        return Ok(out);
-    };
+    let mut servers: Vec<(&ApiVm<'_>, Option<Listing>)> = Vec::new();
     for (name, vm) in &vms {
-        let found = listed.iter().find(|r| r.is(&vm.id));
-        let state = match found.and_then(|r| r.status.as_deref()) {
-            None if found.is_none() => crate::MachineState::Absent,
-            Some("running") => crate::MachineState::Running,
-            Some("stopped") => crate::MachineState::Stopped,
-            Some(other) => crate::MachineState::Unknown(other.to_owned()),
-            None => continue,
+        let at = if let Some(at) = servers.iter().position(|(asked, _)| asked.same_server(vm)) {
+            at
+        } else {
+            servers.push((vm, listing(cx, vars, vm).await?));
+            servers.len() - 1
         };
-        out.insert(name.clone(), state);
+        let Some(listing) = servers.get(at).and_then(|(_, l)| l.as_ref()) else {
+            continue;
+        };
+        let state = match listing.vms.iter().find(|r| r.is(&vm.id)) {
+            Some(found) => found.status.as_deref().map(reading),
+            None => unlisted(cx, vm, &listing.sign_in).await,
+        };
+        if let Some(state) = state {
+            out.insert(name.clone(), state);
+        }
     }
     Ok(out)
+}
+
+/// The VMs a server lists, and the sign-in it was asked with.
+struct Listing {
+    /// How the server was signed in to.
+    sign_in: SignIn,
+    /// Its `cluster/resources` of type `vm`.
+    vms: Vec<ClusterVm>,
+}
+
+/// The VMs `vm`'s server lists (`cluster/resources`), asked as `vm`'s console signs in; none when
+/// there are no credentials to ask with, or no list came back (traced).
+async fn listing(cx: &Cx<'_>, vars: &crate::vars::Vars, vm: &ApiVm<'_>) -> Result<Option<Listing>> {
+    // Each way the API's answer is missing is said (an empty map hid why): the run's own state
+    // then stands.
+    let Some(sign_in) = status_sign_in(cx, vars, vm).await? else {
+        tracing::debug!("no Proxmox credentials among the secrets: the VMs' states aren't asked, the run's own stand");
+        return Ok(None);
+    };
+    let url = format!("{}/api2/json/cluster/resources?type=vm", vm.base);
+    let Some(answer) = asked(request(cx, "status", (&url, Method::Get), vm.insecure, &sign_in.lines(Method::Get)).await) else {
+        return Ok(None);
+    };
+    let Some(vms) = data_of::<Vec<ClusterVm>>(cx, vars, &answer)? else {
+        tracing::warn!("Proxmox's answer holds no list of resources: the run's own state stands");
+        return Ok(None);
+    };
+    Ok(Some(Listing { sign_in, vms }))
+}
+
+/// Whether `vm`, which its server's listing leaves out, is gone: `cluster/nextid?vmid=<id>`
+/// answers the id only when no VM of the cluster holds it, which any signed-in user may ask and
+/// which doesn't depend on what the credentials may audit. Absent then; any other answer (a VM
+/// holds the id, the server refused or didn't answer) says nothing, traced: the run's own state
+/// then stands.
+async fn unlisted(cx: &Cx<'_>, vm: &ApiVm<'_>, sign_in: &SignIn) -> Option<crate::MachineState> {
+    let url = format!("{}/api2/json/cluster/nextid?vmid={}", vm.base, vm.id);
+    let answer = asked(request(cx, "status", (&url, Method::Get), vm.insecure, &sign_in.lines(Method::Get)).await)?;
+    let free = answer.success() && answer::data::<FreeId>(&answer.stdout.join("\n")).ok().flatten().is_some_and(|f| f.is(&vm.id));
+    if free {
+        return Some(crate::MachineState::Absent);
+    }
+    let reason = cx.events.mask(&answer.reason());
+    tracing::warn!(vm = %vm.id, %reason, "Proxmox doesn't list a VM it still holds the id of (credentials without VM.Audit on it?): the run's own state stands");
+    None
+}
+
+/// A VM's state as the API's `status` names it.
+fn reading(status: &str) -> crate::MachineState {
+    match status {
+        "running" => crate::MachineState::Running,
+        "stopped" => crate::MachineState::Stopped,
+        other => crate::MachineState::Unknown(other.to_owned()),
+    }
 }
 
 /// One VM as its Proxmox console names it, filled.
@@ -262,6 +343,14 @@ struct ApiVm<'m> {
         &'m isoloom_manifest::Identifier,
         &'m isoloom_manifest::Identifier,
     ),
+}
+
+impl ApiVm<'_> {
+    /// Whether `other` is on the same server, signed in to as this one is: one listing answers
+    /// for both.
+    fn same_server(&self, other: &ApiVm<'_>) -> bool {
+        (&self.base, self.insecure, self.sign_in) == (&other.base, other.insecure, other.sign_in)
+    }
 }
 
 /// The run's VMs with Proxmox's console and an id `vars` fills, by machine name.
@@ -290,8 +379,7 @@ fn proxmox_vms<'m>(cx: &Cx<'m>, vars: &crate::vars::Vars) -> Result<Vec<(String,
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
-        let base = vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
-        let insecure = vars.render(insecure, &at("insecure"))?.trim() == "true";
+        let (base, insecure) = api_target(vars, (endpoint, insecure), at)?;
         out.push((
             m.name.to_string(),
             ApiVm {
@@ -394,6 +482,30 @@ mod tests {
         assert_eq!(quoted(r#"a"b\c"#), r#""a\"b\\c""#);
         assert_eq!(quoted("x\ny"), "\"x\\ny\"", "a new line can't start another option");
         assert!(plain("pve-1") && !plain("pve/../x") && !plain(""));
+    }
+
+    fn curl(code: i32, stdout: &[&str]) -> crate::process::Captured {
+        let lines = stdout.iter().map(|l| (*l).to_owned()).collect();
+        crate::process::Captured::new("curl", crate::process::Exit::new(Some(code)), lines, Vec::new())
+    }
+
+    /// Regression (#133): `--fail-with-body` exists only from curl 7.76 on; the status is read
+    /// from `--write-out` instead, and an error status fails the request as it did.
+    #[test]
+    fn the_http_status_is_read_after_the_body_on_any_curl() {
+        assert_eq!(STATUS_LINE, "\\n%{http_code}", "curl writes the line break itself");
+        let ok = http_answer(curl(0, &[r#"{"data":{"port":"5900"}}"#, "200"]));
+        assert!(ok.success());
+        assert_eq!(ok.stdout, [r#"{"data":{"port":"5900"}}"#]);
+        let refused = http_answer(curl(0, &[r#"{"data":null}"#, "401"]));
+        assert!(!refused.success());
+        assert_eq!(refused.stdout, [r#"{"data":null}"#], "the body is kept");
+        assert!(crate::tool_output::sign_in::refused(&refused.reason()), "{}", refused.reason());
+        let failed = http_answer(curl(0, &["", "500"]));
+        assert_eq!(failed.reason(), "curl: (22) The requested URL returned error: 500 (exited with code 22)");
+        // curl itself failing (no server) is left as it said.
+        let unreachable = http_answer(curl(7, &["000"]));
+        assert_eq!(unreachable.exit.code, Some(7));
     }
 
     #[test]

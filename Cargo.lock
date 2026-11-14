@@ -313,9 +313,9 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "foldhash"
-version = "0.1.5"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "futures"
@@ -419,26 +419,20 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.5"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash",
 ]
 
 [[package]]
-name = "hashbrown"
-version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-
-[[package]]
 name = "hashlink"
-version = "0.10.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
+checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
 dependencies = [
- "hashbrown 0.15.5",
+ "hashbrown",
 ]
 
 [[package]]
@@ -503,7 +497,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
- "hashbrown 0.17.1",
+ "hashbrown",
  "serde",
  "serde_core",
 ]
@@ -516,9 +510,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isoloom-ansible"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e27c9cb1f52d967c80a9489333dee30d347cf48be752f405523920d9fb140870"
+version = "3.0.0"
 dependencies = [
  "isoloom-catalogue",
  "isoloom-manifest",
@@ -531,9 +523,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-catalogue"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7403524373573d6d29c50f44f8c66b1470429f715a7ebd864adda7d6ea86d746"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -548,9 +538,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-compose"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c847a17a2b7669e53cce1866edc783a2e370e8c100b75aba4787dfa755d89cd"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -564,9 +552,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-kubernetes"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be5bbb45a509e80c54883c90ea3620a156d0746058ec291745325e8f191b7415"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -581,9 +567,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-manifest"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479b6afd3928a7a38861d8656e765bcd4cb3efe8b599382232be9a23f55fd24f"
+version = "3.0.0"
 dependencies = [
  "schemars",
  "serde",
@@ -594,22 +578,21 @@ dependencies = [
 
 [[package]]
 name = "isoloom-plan"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "867966f135a93d9511bfc1d8aab69e264157149318140c2d4c3e28864f68a57f"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-catalogue",
+ "isoloom-manifest",
  "isoloom-spec",
+ "serde",
  "serde_json",
+ "serde_yaml_ng",
  "thiserror",
 ]
 
 [[package]]
 name = "isoloom-render"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "281ec8a835d86a84e8f15be4a74d977bca36c74f933f6943f404b36e5894466b"
+version = "3.0.0"
 dependencies = [
  "flate2",
  "indexmap",
@@ -623,9 +606,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-spec"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb29ab84c5db26d8bf7a33601b7c017ddcce52d53a53955df9006e80b676f291"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -640,9 +621,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-targets"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "614db9614212c84e9a63b50d70751878eceb69260de690d55339569a9f74a1a1"
+version = "3.0.0"
 dependencies = [
  "isoloom-ansible",
  "isoloom-compose",
@@ -661,9 +640,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-terraform"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84d9be577345dbbfd3c995f02b53eac6d69389d717a889e30aed34a96c96537a"
+version = "3.0.0"
 dependencies = [
  "hcl-rs",
  "indexmap",
@@ -677,9 +654,7 @@ dependencies = [
 
 [[package]]
 name = "isoloom-vagrant"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6579799df2e2f4b43b0ec865eee68fd1da0c1bc7e8d166b22b925dcff92f0cb8"
+version = "3.0.0"
 dependencies = [
  "indexmap",
  "isoloom-manifest",
@@ -698,6 +673,7 @@ dependencies = [
  "clap_complete",
  "isoloom-manifest",
  "isothrum-runner",
+ "isothrum-test-support",
  "proptest",
  "rusqlite",
  "schemars",
@@ -716,6 +692,7 @@ version = "3.0.0"
 dependencies = [
  "isoloom-manifest",
  "isothrum-runner",
+ "isothrum-test-support",
  "tempfile",
  "tokio",
 ]
@@ -729,6 +706,7 @@ dependencies = [
  "indexmap",
  "isoloom-manifest",
  "isoloom-targets",
+ "isothrum-test-support",
  "nix",
  "process-wrap",
  "proptest",
@@ -737,6 +715,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "socket2",
  "tar",
  "tempfile",
  "thiserror",
@@ -744,6 +723,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows",
+]
+
+[[package]]
+name = "isothrum-test-support"
+version = "3.0.0"
+dependencies = [
+ "nix",
+ "tempfile",
 ]
 
 [[package]]
@@ -776,9 +763,9 @@ checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.35.0"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1006,10 +993,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "rusqlite"
-version = "0.37.0"
+name = "rsqlite-vfs"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f"
+checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "rusqlite"
+version = "0.41.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags",
  "fallible-iterator",
@@ -1017,6 +1013,7 @@ dependencies = [
  "hashlink",
  "libsqlite3-sys",
  "smallvec",
+ "sqlite-wasm-rs",
 ]
 
 [[package]]
@@ -1224,6 +1221,16 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "sqlite-wasm-rs"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6cd504cecbfe7eef649988840f9a6cb768d11085efec138f8e99f160632d867"
+dependencies = [
+ "cc",
+ "rsqlite-vfs",
 ]
 
 [[package]]
