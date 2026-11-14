@@ -30,6 +30,7 @@
 //! folder from just before the broker picks the request up to the moment it has read it.
 
 mod log;
+mod protocol;
 mod script;
 
 use std::path::{Path, PathBuf};
@@ -149,7 +150,7 @@ impl Elevated {
             Ok(out) => return Err(declined(&out)),
             Err(e) => return Err(e.to_string()),
         }
-        if wait_for(&dir.join("ready"), PROMPT_TIMEOUT).await {
+        if wait_for(&dir.join(protocol::READY), PROMPT_TIMEOUT).await {
             Ok(Session::Broker { dir, token })
         } else {
             Err("the elevated session didn't start".into())
@@ -174,10 +175,10 @@ impl Elevated {
             source,
         };
         // The values first: the broker takes a request only once its `req` file is there.
-        crate::store::write_private(&dir.join(format!("env-{n}.json")), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
-        crate::store::write_private(&dir.join(format!("req-{n}.json")), request_file(token, n, spec).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(protocol::variables(n)), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(protocol::request(n)), request_file(token, n, spec).as_bytes()).map_err(io)?;
         let mut log_reader = LogReader::default();
-        let (log, exit) = (dir.join(format!("out-{n}.log")), dir.join(format!("exit-{n}")));
+        let (log, exit) = (dir.join(protocol::output(n)), dir.join(protocol::exit(n)));
         loop {
             let done = read_if_there(&exit).map_err(io)?;
             log_reader.read(&log, on_line).map_err(io)?;
@@ -209,7 +210,7 @@ impl Drop for Elevated {
         if let Session::Broker { dir, .. } = self.session() {
             // Between two requests: the broker ends on its own once it reads `done` (or finds its
             // folder gone).
-            signal(&dir, "done");
+            signal(&dir, protocol::DONE);
         }
         // What the session wrote goes with it (nothing is there when it ran direct). The next
         // session clears what can't be removed now (a file the broker still holds).
@@ -231,11 +232,11 @@ struct Cancel<'a> {
 impl Drop for Cancel<'_> {
     fn drop(&mut self) {
         if self.armed {
-            let cancel = format!("cancel-{}", self.n);
+            let cancel = protocol::cancel(self.n);
             signal(self.dir, &cancel);
             // An answer that came just before the cancel: the broker has moved on and won't read
             // `cancel-<n>`, so the request's files are this guard's to remove.
-            if self.dir.join(format!("exit-{}", self.n)).exists()
+            if self.dir.join(protocol::exit(self.n)).exists()
                 && let Err(e) = remove_request_files(self.dir, self.n).and_then(|()| crate::store::remove_path(&self.dir.join(&cancel)))
             {
                 tracing::warn!(error = %e, "a cancelled elevated request's answer couldn't be removed");
@@ -252,13 +253,13 @@ fn read_if_there(file: &Path) -> std::io::Result<Option<String>> {
 /// Why the session in `dir` ended, once it has: the reason its broker gave (in `ended`, written
 /// when it stops other than at `done`), or its folder gone.
 fn session_end_reason(dir: &Path) -> std::io::Result<Option<String>> {
-    if let Some(reason) = read_if_there(&dir.join("ended"))? {
+    if let Some(reason) = read_if_there(&dir.join(protocol::ENDED))? {
         return Ok(Some(format!("the elevated session ended: {}", reason.trim())));
     }
     Ok((!dir.try_exists()?).then(|| "the elevated session ended: its folder is gone".to_owned()))
 }
 
-/// Tells the broker `what` (`done`, `cancel-<n>`) through its file in the session's folder. A broker
+/// Tells the broker `what` ([`protocol::DONE`], a [`protocol::cancel`]) through its file in the session's folder. A broker
 /// already gone can't be told anything, and a drop has no one to report to: it is traced.
 fn signal(dir: &Path, what: &str) {
     if let Err(e) = std::fs::write(dir.join(what), "") {
@@ -276,7 +277,7 @@ fn fresh_session_dir(root: &Path, dir: &Path) -> std::io::Result<()> {
 /// Deletes what request `n` left in `dir` once its answer is read: its output, its exit code, and
 /// its variables (the broker deleted them already, unless it refused the request).
 fn remove_request_files(dir: &Path, n: u64) -> std::io::Result<()> {
-    for file in [format!("out-{n}.log"), format!("exit-{n}"), format!("env-{n}.json")] {
+    for file in [protocol::output(n), protocol::exit(n), protocol::variables(n)] {
         crate::store::remove_path(&dir.join(file))?;
     }
     Ok(())

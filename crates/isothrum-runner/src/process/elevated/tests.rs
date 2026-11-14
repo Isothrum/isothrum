@@ -37,14 +37,14 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
     let dir = session_dir(&root).await;
     obstacle(&dir);
     let token = dir.file_name().unwrap().to_string_lossy().into_owned();
-    std::fs::write(dir.join("ready"), "").unwrap();
+    std::fs::write(dir.join(protocol::READY), "").unwrap();
     let mut n = 1;
-    let over = |d: &Path| !d.exists() || d.join("done").exists();
+    let over = |d: &Path| !d.exists() || d.join(protocol::DONE).exists();
     while !over(&dir) {
-        let req = dir.join(format!("req-{n}.json"));
-        let cancel = dir.join(format!("cancel-{n}"));
+        let req = dir.join(protocol::request(n));
+        let cancel = dir.join(protocol::cancel(n));
         if cancel.exists() {
-            for f in [&req, &dir.join(format!("env-{n}.json")), &cancel] {
+            for f in [&req, &dir.join(protocol::variables(n)), &cancel] {
                 crate::store::remove_path(f).unwrap();
             }
             n += 1;
@@ -56,7 +56,7 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
             if r["session"] != token.as_str() || r["seq"] != n {
                 continue;
             }
-            let env_file = dir.join(format!("env-{n}.json"));
+            let env_file = dir.join(protocol::variables(n));
             let e: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&env_file).unwrap()).unwrap();
             std::fs::remove_file(&env_file).unwrap();
             match r["program"].as_str().unwrap() {
@@ -83,8 +83,8 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
                 r["args"][0].as_str().unwrap(),
                 env.join(";")
             );
-            std::fs::write(dir.join(format!("out-{n}.log")), out).unwrap();
-            std::fs::write(dir.join(format!("exit-{n}")), code.to_string()).unwrap();
+            std::fs::write(dir.join(protocol::output(n)), out).unwrap();
+            std::fs::write(dir.join(protocol::exit(n)), code.to_string()).unwrap();
             n += 1;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -163,7 +163,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
     let dir = session_dir(&root).await;
     let left = files_left(&dir);
-    assert_eq!(left, ["ready"], "every request's files are gone once answered");
+    assert_eq!(left, [protocol::READY], "every request's files are gone once answered");
     drop(e);
     assert!(!root.exists(), "the session's folder goes with it");
     broker.await.unwrap();
@@ -190,10 +190,10 @@ async fn what_an_earlier_session_left_is_cleared_never_read_as_this_ones() {
     let root = e.root.clone();
     for stale in [root.clone(), root.join("an-earlier-session")] {
         std::fs::create_dir_all(&stale).unwrap();
-        std::fs::write(stale.join("ready"), "").unwrap();
-        std::fs::write(stale.join("out-1.log"), "an earlier command's output").unwrap();
-        std::fs::write(stale.join("exit-1"), "0").unwrap();
-        std::fs::write(stale.join("env-2.json"), r#"{"env":[{"k":"DEMO_SECRET","v":"token-old"}]}"#).unwrap();
+        std::fs::write(stale.join(protocol::READY), "").unwrap();
+        std::fs::write(stale.join(protocol::output(1)), "an earlier command's output").unwrap();
+        std::fs::write(stale.join(protocol::exit(1)), "0").unwrap();
+        std::fs::write(stale.join(protocol::variables(2)), r#"{"env":[{"k":"DEMO_SECRET","v":"token-old"}]}"#).unwrap();
     }
     let broker = tokio::spawn(broker(root.clone(), "this session's", 4));
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
@@ -216,12 +216,15 @@ async fn the_broker_runs_no_request_of_another_session() {
     // A request planted in turn 2 without the session's token is deleted unrun; the runner's own
     // request 2 then runs.
     std::fs::write(
-        dir.join("req-2.json"),
+        dir.join(protocol::request(2)),
         r#"{"session":"guess","seq":2,"program":"cmd","args":["/c","whoami"],"cwd":"."}"#,
     )
     .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!dir.join("req-2.json").exists() && !dir.join("exit-2").exists(), "deleted unrun");
+    assert!(
+        !dir.join(protocol::request(2)).exists() && !dir.join(protocol::exit(2)).exists(),
+        "deleted unrun"
+    );
     let (second, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
     assert!(second.unwrap().success());
     assert_eq!(lines[0], "vagrant halt");
@@ -279,7 +282,10 @@ async fn a_failed_command_keeps_its_exit_code_and_what_the_broker_cant_carry_is_
         "{no_input:?}"
     );
     let dir = session_dir(&e.root).await;
-    assert!(!dir.join("req-3.json").exists() && !dir.join("req-2.json").exists(), "no request made");
+    assert!(
+        !dir.join(protocol::request(3)).exists() && !dir.join(protocol::request(2)).exists(),
+        "no request made"
+    );
     drop(e);
     broker.await.unwrap();
 }
@@ -298,7 +304,7 @@ async fn a_request_cut_short_cancels_itself_alone_and_the_session_goes_on() {
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
     assert!(exit.unwrap().success(), "{lines:?}");
     assert_eq!(lines[0], "vagrant halt");
-    assert!(!dir.join("cancel-1").exists() && !dir.join("out-1.log").exists());
+    assert!(!dir.join(protocol::cancel(1)).exists() && !dir.join(protocol::output(1)).exists());
     assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
     drop(e);
     assert!(!root.exists(), "the session's files (its values) are gone");
@@ -326,7 +332,7 @@ async fn two_requests_at_once_one_cut_short_leave_the_other_answered() {
     assert_eq!(later_lines[0], "vagrant halt");
     let dir = session_dir(&root).await;
     let left = files_left(&dir);
-    assert_eq!(left, ["ready"], "the cut request's files went too");
+    assert_eq!(left, [protocol::READY], "the cut request's files went too");
     assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
     drop(e);
     broker.await.unwrap();
@@ -336,7 +342,7 @@ async fn two_requests_at_once_one_cut_short_leave_the_other_answered() {
 async fn started_then(root: PathBuf, obstacle: fn(&Path)) {
     let dir = session_dir(&root).await;
     obstacle(&dir);
-    std::fs::write(dir.join("ready"), "").unwrap();
+    std::fs::write(dir.join(protocol::READY), "").unwrap();
 }
 
 /// What a call through `e` gives within 5 s (a call that waits longer fails the test).
@@ -353,11 +359,11 @@ async fn a_broker_that_ends_mid_request_fails_it_at_once_and_the_session_with_it
     let root = e.root.clone();
     let broker = tokio::spawn(async move {
         let dir = session_dir(&root).await;
-        std::fs::write(dir.join("ready"), "").unwrap();
-        while !dir.join("req-1.json").exists() {
+        std::fs::write(dir.join(protocol::READY), "").unwrap();
+        while !dir.join(protocol::request(1)).exists() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        std::fs::write(dir.join("ended"), "the elevated broker stopped\r\n").unwrap();
+        std::fs::write(dir.join(protocol::ENDED), "the elevated broker stopped\r\n").unwrap();
     });
     let spec = ProcessSpec::new("vagrant", ["up"]);
     let err = within_5s(&e, &spec).await.unwrap_err();
@@ -378,7 +384,7 @@ async fn a_request_that_cant_be_written_cancels_itself_alone() {
     let (_home, _fake, e) = session("", Reply::ok(""));
     let broker = tokio::spawn(broker_after(
         e.root.clone(),
-        |dir| std::fs::create_dir_all(dir.join("req-1.json").join("in-the-way")).unwrap(),
+        |dir| std::fs::create_dir_all(dir.join(protocol::request(1)).join("in-the-way")).unwrap(),
         "ran",
         0,
     ));
@@ -396,7 +402,7 @@ async fn an_answer_that_cant_be_read_fails_the_request() {
     // answer can't be read waited on.
     let (_home, _fake, e) = session("", Reply::ok(""));
     let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
-        std::fs::create_dir_all(dir.join("exit-1").join("in-the-way")).unwrap();
+        std::fs::create_dir_all(dir.join(protocol::exit(1)).join("in-the-way")).unwrap();
     }));
     let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert!(matches!(err, ProcessError::Io { .. }), "{err}");
@@ -408,7 +414,7 @@ async fn an_answer_that_cant_be_read_fails_the_request() {
 async fn an_answer_that_isnt_an_exit_code_fails_the_request() {
     let (_home, _fake, e) = session("", Reply::ok(""));
     let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
-        std::fs::write(dir.join("exit-1"), "oops\r\n").unwrap();
+        std::fs::write(dir.join(protocol::exit(1)), "oops\r\n").unwrap();
     }));
     let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert_eq!(err.to_string(), "`vagrant`: the elevated broker answered `oops`, not an exit code");
