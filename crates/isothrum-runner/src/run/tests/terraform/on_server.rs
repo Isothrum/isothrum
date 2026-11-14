@@ -39,14 +39,16 @@ fn api(server: &Arc<Mutex<Server>>) -> impl Fn(&Call) -> Option<Reply> + Send + 
         let config = std::fs::read_to_string(call.stdin.as_ref()?).unwrap();
         let now = *server.lock().unwrap_or_else(PoisonError::into_inner);
         Some(match now {
-            Server::Refuses => Reply::fail(22, "curl: (22) The requested URL returned error: 401"),
+            // A refusal as curl answers it: the API's body, then the status line `--write-out` adds.
+            Server::Refuses => Reply::ok("{\"data\":null}\n401"),
             Server::RefusesQuoting => Reply::fail(22, "curl: (22) The requested URL returned error: 401 (password=pw-s3cret)"),
             Server::Unreachable => Reply::fail(7, "curl: (7) Failed to connect to 172.16.1.10 port 8006: Connection refused"),
-            _ if config.contains("/access/ticket") => Reply::ok(r#"{"data":{"ticket":"PVE:t","CSRFPreventionToken":"c"}}"#),
+            _ if config.contains("/access/ticket") => Reply::ok("{\"data\":{\"ticket\":\"PVE:t\",\"CSRFPreventionToken\":\"c\"}}\n200"),
             Server::Has(status) => Reply::ok(&format!(
-                r#"{{"data":[{{"vmid":104,"node":"pve-run","status":"{status}","type":"qemu"}},{{"vmid":7,"status":"running"}}]}}"#
+                r#"{{"data":[{{"vmid":104,"node":"pve-run","status":"{status}","type":"qemu"}},{{"vmid":7,"status":"running"}}]}}
+200"#
             )),
-            Server::Removed => Reply::ok(r#"{"data":[{"vmid":7,"status":"running","type":"qemu"}]}"#),
+            Server::Removed => Reply::ok("{\"data\":[{\"vmid\":7,\"status\":\"running\",\"type\":\"qemu\"}]}\n200"),
         })
     }
 }
