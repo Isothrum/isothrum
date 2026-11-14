@@ -76,6 +76,8 @@ jobs:
         with:
           tool: cargo-machete@0.9.2
       - run: cargo run -p xtask --locked -- quality
+      # The generated schemas and reference pages are the code's (.githooks/regenerate writes them).
+      - run: .githooks/regenerate --check --locked
 
   deny:
     name: cargo-deny
