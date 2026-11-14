@@ -198,12 +198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doctest-file"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2db04e74f0a9a93103b50e90b96024c9b2bdca8bce6a632ec71b88736d3d359"
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -413,36 +407,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "interprocess"
-version = "2.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f0ed453af5ae3bdbf68e41dde07eae0bffcc986419f63521ba9c89d82988c70"
-dependencies = [
- "doctest-file",
- "futures-core",
- "libc",
- "recvmsg",
- "tokio",
- "widestring",
- "windows-sys",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "isoloom-manifest"
-version = "3.0.0"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "thiserror",
-]
 
 [[package]]
 name = "isothrum-cli"
@@ -450,13 +418,9 @@ version = "3.0.0"
 dependencies = [
  "clap",
  "clap_complete",
- "isoloom-manifest",
- "isothrum-client",
  "isothrum-runner",
- "isothrum-service",
  "isothrum-test-support",
  "proptest",
- "rusqlite",
  "schemars",
  "serde",
  "serde_json",
@@ -468,29 +432,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "isothrum-client"
-version = "3.0.0"
-dependencies = [
- "futures-core",
- "interprocess",
- "isothrum-runner",
- "nix",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "isothrum-machine"
 version = "3.0.0"
 dependencies = [
  "isothrum-runner",
  "isothrum-test-support",
- "serde",
- "serde_json",
  "tempfile",
  "tokio",
 ]
@@ -519,23 +465,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows",
-]
-
-[[package]]
-name = "isothrum-service"
-version = "3.0.0"
-dependencies = [
- "getrandom",
- "interprocess",
- "isothrum-client",
- "isothrum-runner",
- "nix",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "widestring",
 ]
 
 [[package]]
@@ -681,6 +610,7 @@ dependencies = [
  "indexmap",
  "nix",
  "tokio",
+ "windows",
 ]
 
 [[package]]
@@ -738,12 +668,6 @@ checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
 dependencies = [
  "rand_core",
 ]
-
-[[package]]
-name = "recvmsg"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
 
 [[package]]
 name = "ref-cast"
@@ -838,7 +762,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a"
 dependencies = [
  "dyn-clone",
- "indexmap",
  "ref-cast",
  "schemars_derive",
  "serde",
@@ -904,23 +827,11 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
- "indexmap",
  "itoa",
  "memchr",
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "serde_path_to_error"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
-dependencies = [
- "itoa",
- "serde",
- "serde_core",
 ]
 
 [[package]]
@@ -1239,12 +1150,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
-name = "widestring"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
-
-[[package]]
 name = "windows"
 version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1401,43 +1306,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "isoloom-ansible"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-catalogue"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-compose"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-kubernetes"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-plan"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-render"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-spec"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-targets"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-terraform"
-version = "3.0.0"
-
-[[patch.unused]]
-name = "isoloom-vagrant"
-version = "3.0.0"

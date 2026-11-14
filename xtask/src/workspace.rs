@@ -107,7 +107,7 @@ fn not_inherited(name: &str, manifest: &toml::Table) -> Vec<String> {
     let inherited = |v: Option<&toml::Value>| v.and_then(|v| v.get("workspace")).and_then(toml::Value::as_bool) == Some(true);
     let package = manifest.get("package");
     // `publish` is deliberately not here: publishability varies per crate (the library crates go
-    // to crates.io, xtask and the fuzz targets do not), so it is set per package, not inherited.
+    // to crates.io and xtask does not), so it is set per package, not inherited.
     let mut found: Vec<String> = ["version", "edition", "rust-version", "license", "repository"]
         .into_iter()
         .filter(|field| !inherited(package.and_then(|p| p.get(*field))))

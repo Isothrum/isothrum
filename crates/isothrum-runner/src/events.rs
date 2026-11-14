@@ -17,7 +17,7 @@ pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
 use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
-pub use result_data::{ResultData, ShownOutput, SweepFailure, SweptResource};
+pub use result_data::{ResultData, ShownOutput, SweepFailure};
 
 /// The event stream's version.
 pub(crate) const EVENTS_VERSION: u32 = 1;

@@ -122,7 +122,7 @@ pub use console::ShellCommand;
 pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
 pub use events::{
-    Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, SweptResource, WarningCode,
+    Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode,
     events_schema,
 };
 pub use future::BoxFuture;

@@ -69,7 +69,7 @@ mod tests {
     /// A version as each tool prints it, compared in version order: by its numbers (a missing
     /// patch 0), a pre-release before its release.
     #[test]
-    fn versions_are_read_from_what_a_tool_prints_in_isoloom_s_order() {
+    fn versions_are_read_from_what_a_tool_prints_in_version_order() {
         let v = |text: &str| version_found(text).unwrap();
         let parsed = |text: &str| Version::parse(text).unwrap();
         assert_eq!(v("5.5.1"), parsed("5.5.1"));
