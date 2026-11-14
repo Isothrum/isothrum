@@ -32,6 +32,12 @@ pub(crate) enum Error {
     /// A run's status or event couldn't be written as JSON.
     #[error("writing JSON failed: {0}")]
     Json(#[from] serde_json::Error),
+    /// The home's runner service couldn't be reached or started, or refused.
+    #[error(transparent)]
+    Service(#[from] isothrum_client::ClientError),
+    /// The service couldn't serve the home.
+    #[error(transparent)]
+    Serve(#[from] isothrum_service::ServeError),
     /// A signal asked the command to stop; the operation in flight was dropped, and the tools it
     /// started stopped with it.
     #[error("cancelled by {}: the tools the command started were stopped", .0.name())]
@@ -43,9 +49,10 @@ impl Error {
     pub(crate) fn code(&self) -> ErrorCode {
         match self {
             Error::Usage(_) => ErrorCode::Usage,
-            Error::Runner(e) => e.code(),
-            Error::Read { .. } | Error::Output(_) | Error::Json(_) => ErrorCode::Io,
+            Error::Runner(e) | Error::Serve(isothrum_service::ServeError::Runner(e)) => e.code(),
+            Error::Read { .. } | Error::Output(_) | Error::Json(_) | Error::Serve(_) => ErrorCode::Io,
             Error::Cancelled(_) => ErrorCode::Cancelled,
+            Error::Service(e) => e.code(),
         }
     }
 }

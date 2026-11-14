@@ -174,7 +174,8 @@ jobs:
           RELEASE_ARGS: ${{ steps.release.outputs.args }}
         run: |
           # shellcheck disable=SC2086 # RELEASE_ARGS is empty or one flag and its value.
-          cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask $RELEASE_ARGS
+          # isothrum-client and isothrum-service have no release on crates.io yet: no baseline.
+          cargo semver-checks --workspace --exclude isothrum-cli --exclude isothrum-client --exclude isothrum-service --exclude xtask $RELEASE_ARGS
 
   msrv:
     name: MSRV (Rust 1.90)

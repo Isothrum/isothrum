@@ -22,6 +22,25 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   embedder hands a project what it reads under its own names (the run's key as the variable a
   Vagrantfile reads, say). Not recorded: pass them to every operation.
 
+- **The runner service: `isothrum serve`, one daemon per home.** It holds the home (an OS lock
+  on `<home>/service.lock`: a second `serve` exits naming the holder), listens on an owner-only
+  endpoint (`<home>/service.sock` on Unix; on Windows a named pipe of a random name only the user
+  may open, remote clients refused), published in `<home>/service.json`, and speaks a
+  newline-delimited JSON protocol: the operations (`up`, `down`, `park`, `resume`, `update`,
+  `attach`, `detach`, `retire`, `provision`, `check`) are queued per run (one at a time per run,
+  runs side by side), `status`, `list`, `operations` and `cancel` answer at once, and `subscribe`
+  streams every operation's events, numbered so a reconnecting client resumes after the last it
+  saw. It stops on `shutdown`, on Ctrl-C/SIGTERM, or after `--idle-timeout` seconds (default 600)
+  with no client and no operation, cancelling its operations and ending their tools.
+- **`isothrum-client`: the service's client crate** (what an app links): `Client::connect`
+  starts the home's service when none answers, typed commands, `subscribe` as a `Stream`,
+  `follow` (an operation's events, none missed) and `wait`.
+- **The command line goes through the service.** The operations and `status` are sent to the
+  home's service (started when it isn't running) and print its events as before; Ctrl-C cancels
+  the operation in the service and waits for its end. `--no-service` (or `ISOTHRUM_NO_SERVICE=1`)
+  runs the command in-process, as before, for tests and CI. In service mode the tools run with
+  the service's environment (the one it started with), not the command's; secrets given with
+  `--secret-from-env` are read by the command and sent over the owner-only endpoint.
 - **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
   drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
   the runner now knows the tools running and ends them, with the ones still stopping.
