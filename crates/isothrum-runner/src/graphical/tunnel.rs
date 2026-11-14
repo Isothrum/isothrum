@@ -136,12 +136,25 @@ pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tu
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
     }
+    headless(&mut command);
     Ok(Tunnel {
         local,
         ssh: command.spawn()?,
         drain: None,
     })
 }
+
+/// No console window for the tunnel's `ssh` on Windows, as for every tool the runner starts: from
+/// a GUI app it would get one of its own, open as long as the tunnel, and closing it ends `ssh`.
+#[cfg(windows)]
+fn headless(command: &mut tokio::process::Command) {
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+    command.creation_flags(CREATE_NO_WINDOW.0);
+}
+
+/// Nothing to do off Windows: no process gets a console window of its own.
+#[cfg(not(windows))]
+fn headless(_command: &mut tokio::process::Command) {}
 
 impl Tunnel {
     /// The last line `ssh` wrote to its standard error, once it is stopped: why a tunnel that
@@ -166,6 +179,18 @@ impl Tunnel {
             .map(str::trim)
             .rfind(|l| !l.is_empty())
             .map(str::to_owned)
+    }
+
+    /// Once its `ssh` has exited (the connection dropped, the host it goes through went away),
+    /// how it ended: the tunnel no longer listens.
+    pub(super) async fn closed(&mut self) -> String {
+        match self.ssh.wait().await {
+            Ok(status) => match status.code() {
+                Some(code) => format!("its ssh exited with code {code}"),
+                None => "its ssh was ended by a signal".to_owned(),
+            },
+            Err(e) => format!("its ssh couldn't be waited for: {e}"),
+        }
     }
 
     /// Reads what `ssh` writes to its standard error while the tunnel is open, into the trace, so
@@ -206,6 +231,18 @@ mod tests {
         assert_eq!(tunnel.why_closed().await.as_deref(), Some("Host key verification failed."));
         let quiet = ProcessSpec::new("sh", ["-c", "exit 255"]);
         assert_eq!(start(&quiet, "127.0.0.1:1".parse().unwrap()).unwrap().why_closed().await, None);
+    }
+
+    /// Regression (#126): nothing said when a tunnel's `ssh` ended, so `isothrum screen` kept
+    /// saying a dead tunnel was open.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_says_when_its_ssh_ended() {
+        let spec = ProcessSpec::new("sh", ["-c", "sleep 0.2; exit 255"]);
+        let mut tunnel = start(&spec, "127.0.0.1:1".parse().unwrap()).unwrap();
+        tunnel.drain();
+        let said = tokio::time::timeout(Duration::from_secs(10), tunnel.closed()).await.expect("seen closing");
+        assert_eq!(said, "its ssh exited with code 255");
     }
 
     #[test]
