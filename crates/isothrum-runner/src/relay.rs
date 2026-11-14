@@ -85,6 +85,12 @@ pub(crate) fn connect(host: &str, port: u16) -> std::io::Result<(FromLan, ToLan,
 /// Apple's netcat.
 const NC: &str = "/usr/bin/nc";
 
+/// The ESXi host's API port (HTTPS), which the second relay forwards.
+const HTTPS_PORT: u16 = 443;
+
+/// How long a relay waits after a failed accept before listening again.
+const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Listens on the loopback (a free port) and pipes every connection to `host:port`, the one
 /// endpoint it was started for, whatever the client asks.
 pub(crate) async fn start(host: String, port: u16) -> std::io::Result<Relay> {
@@ -154,7 +160,7 @@ where
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "a relay couldn't accept a connection; it keeps listening");
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(ACCEPT_RETRY).await;
                 }
             }
         }
@@ -209,7 +215,7 @@ pub(crate) async fn prepare(host: &str, ssh_port: u16, home: &Path, path: Option
 async fn relays(host: &str, ssh_port: u16, home: &Path, path: Option<&OsStr>, no_proxy: Option<&str>) -> std::io::Result<Relayed> {
     let listening = |e: std::io::Error| std::io::Error::new(e.kind(), format!("a relay couldn't listen on the loopback: {e}"));
     let ssh = start(host.to_owned(), ssh_port).await.map_err(listening)?;
-    let https = start(host.to_owned(), 443).await.map_err(listening)?;
+    let https = start(host.to_owned(), HTTPS_PORT).await.map_err(listening)?;
     let mut env = vec![
         (ESXI_HOSTNAME.to_owned(), LOOPBACK.to_string()),
         (ESXI_HOSTPORT.to_owned(), ssh.port.to_string()),

@@ -19,6 +19,9 @@ use crate::process::ProcessSpec;
 /// How long the tunnel may take to listen.
 const OPENING: Duration = Duration::from_secs(20);
 
+/// How long a tunnel that didn't open is given to exit, then to finish writing why.
+const SAYING_WHY: Duration = Duration::from_secs(2);
+
 /// The step id a missing `ssh` is reported under.
 const STEP: &str = "console";
 
@@ -161,7 +164,7 @@ impl Tunnel {
     async fn why_closed(&mut self) -> Option<String> {
         use tokio::io::AsyncReadExt;
         // An `ssh` that failed has exited, or is about to: it is given a moment to say why.
-        if tokio::time::timeout(Duration::from_secs(2), self.ssh.wait()).await.is_err()
+        if tokio::time::timeout(SAYING_WHY, self.ssh.wait()).await.is_err()
             && let Err(e) = self.ssh.start_kill()
         {
             tracing::debug!(error = %e, "a console's tunnel couldn't be stopped");
@@ -170,7 +173,7 @@ impl Tunnel {
         let mut said = Vec::new();
         // Its end comes with the process's; a grandchild holding the pipe open is waited for no
         // longer than this.
-        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(2), stderr.read_to_end(&mut said)).await {
+        if let Ok(Err(e)) = tokio::time::timeout(SAYING_WHY, stderr.read_to_end(&mut said)).await {
             tracing::debug!(error = %e, "a console's tunnel's standard error couldn't be read");
         }
         String::from_utf8_lossy(&said)

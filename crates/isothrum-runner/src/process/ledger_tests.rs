@@ -38,7 +38,17 @@ fn the_oss_start_reads_from_proc_and_from_ps() {
     // `TZ=UTC LC_ALL=C ps -o lstart=`.
     assert_eq!(lstart("Wed Nov 11 16:43:35 2026\n"), Some(1_794_415_415));
     assert_eq!(lstart("Thu Feb 29 00:00:00 2024"), Some(1_709_164_800));
-    for bad in ["", "Wed Foo 11 16:43:35 2026", "Wed Nov 11 16:43 2026", "Wed Nov 0 16:43:35 2026"] {
+    for bad in [
+        "",
+        "Wed Foo 11 16:43:35 2026",
+        "Wed Nov 11 16:43 2026",
+        "Wed Nov 0 16:43:35 2026",
+        "Wed Nov 11 24:00:00 2026",
+        "Wed Nov 11 16:60:00 2026",
+        "Wed Nov 11 16:43:35:01 2026",
+        "Thu Feb 29 00:00:00 2026",
+        "Mon Nov 31 00:00:00 2026",
+    ] {
         assert_eq!(lstart(bad), None, "{bad:?}");
     }
 }

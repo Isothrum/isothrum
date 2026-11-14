@@ -143,10 +143,8 @@ fn exited(child: &mut dyn ChildWrapper) -> bool {
 /// SIGINT to the tool's process group; whether it was sent.
 #[cfg(unix)]
 fn interrupt(child: &dyn ChildWrapper) -> bool {
-    /// SIGINT's number, the same on every Unix (POSIX).
-    const SIGINT: i32 = 2;
     tracing::debug!(pid = ?child.id(), "asking a process tree cut short to stop");
-    match child.signal(SIGINT) {
+    match child.signal(nix::libc::SIGINT) {
         Ok(()) => true,
         Err(e) => {
             tracing::debug!(error = %e, "the process tree had already ended");

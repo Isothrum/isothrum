@@ -48,6 +48,10 @@ const SLACK: u64 = 2;
 #[cfg(unix)]
 const GRACE: Duration = super::stopping::GRACE;
 
+/// How often a tool left behind is checked for having stopped.
+#[cfg(unix)]
+const STOP_POLL: Duration = Duration::from_millis(100);
+
 /// A tool's start, as recorded and as the OS has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Start {
@@ -293,7 +297,9 @@ fn proc_start(pid: u32) -> Option<Start> {
 
 /// The start in a `/proc/<pid>/stat` line, in clock ticks since boot.
 fn stat_ticks(stat: &str) -> Option<u64> {
-    stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+    /// `starttime` is field 22 (from 1); the first field after the name is field 3.
+    const STARTTIME_AFTER_NAME: usize = 22 - 3;
+    stat.rsplit_once(')')?.1.split_whitespace().nth(STARTTIME_AFTER_NAME)?.parse().ok()
 }
 
 /// Process `pid`'s start as the OS has it now; none when there is no such process.
@@ -336,13 +342,17 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 #[cfg(any(unix, test))]
 fn lstart(text: &str) -> Option<u64> {
     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const SECS_PER_MINUTE: u64 = 60;
+    const SECS_PER_HOUR: u64 = 60 * SECS_PER_MINUTE;
+    const SECS_PER_DAY: u64 = 24 * SECS_PER_HOUR;
     let words: Vec<&str> = text.split_whitespace().collect();
     let [_, month, day, time, year] = words.as_slice() else { return None };
     let month = i64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
     let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
-    let mut hms = time.split(':').map(|p| p.parse::<u64>().ok());
-    let (h, m, s) = (hms.next()??, hms.next()??, hms.next()??);
-    Some(crate::clock::days_from_civil(year, month, day)? * 86_400 + h * 3600 + m * 60 + s)
+    let hms: Vec<u64> = time.split(':').map(str::parse).collect::<Result<_, _>>().ok()?;
+    // A leap second reads as 60.
+    let [h @ 0..24, m @ 0..60, s @ 0..=60] = hms.as_slice() else { return None };
+    Some(crate::clock::days_from_civil(year, month, day)? * SECS_PER_DAY + h * SECS_PER_HOUR + m * SECS_PER_MINUTE + s)
 }
 
 /// Asks the process group `pid` leads to stop (SIGINT, as a tool cut short is asked), and kills
@@ -360,7 +370,7 @@ async fn end_group(pid: u32) {
     let deadline = tokio::time::Instant::now() + GRACE;
     // Signal 0: whether anything of the group is left.
     while killpg(group, None).is_ok() && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(STOP_POLL).await;
     }
     if let Err(e) = killpg(group, Signal::SIGKILL) {
         tracing::debug!(pid, error = %e, "the tool's process group had ended");
