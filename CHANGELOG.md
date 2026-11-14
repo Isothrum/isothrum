@@ -11,6 +11,10 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A Vagrant project runs on UTM again.** Isoloom's `vagrant` target has a UTM provider again
+  (each network an isolated vmnet network its Vagrantfile attaches the VMs to, a UTM box per
+  machine), and the Vagrant driver already runs `--provider utm` on macOS (vagrant_utm, UTM's
+  screen in its own app): no runner change was needed.
 - **`isothrum-machine`'s host table: `Host`, `Os`, `Arch`, `Packages`, `LinuxPackages`,
   `Devices`.** This computer as machine setup reads it: its OS and CPU (one `Arch` with Rust's
   name, `id()` `x86_64`/`aarch64`, and Docker's, `docker_name()` `amd64`/`arm64`), the package
