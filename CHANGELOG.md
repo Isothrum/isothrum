@@ -60,6 +60,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A command's line quotes an argument that holds a space (#130).** `ProcessSpec::line`, the
+  form messages and the event stream show a command in, joined the arguments with spaces, so one
+  argument with a space read as two.
 - **On Windows, a tool cut short gets Ctrl-C before it is ended (#132).** It was ended at once,
   so a cancelled `terraform apply` couldn't save its state; it now gets Ctrl-C on a console of its
   own (Ruby and Python see SIGINT), and its job is ended after the grace period, as on Unix.
