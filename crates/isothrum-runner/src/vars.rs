@@ -217,8 +217,10 @@ mod tests {
         let err = vars().render(&t("--provider ${run.provider}"), "lifecycle.up.up").unwrap_err();
         assert_eq!(err.to_string(), "lifecycle.up.up: `${run.provider}` has no value in this operation");
         assert_eq!(err.code(), crate::ErrorCode::ManifestInvalid, "the manifest names what the operation lacks");
-        assert!(vars().render(&t("${published.web.admin}"), "x").is_err());
-        assert!(vars().render(&t("${value}"), "x").is_err());
+        for unbound in ["${published.web.admin}", "${value}"] {
+            let unfilled = vars().render(&t(unbound), "x").unwrap_err();
+            assert_eq!(unfilled.to_string(), format!("x: `{unbound}` has no value in this operation"));
+        }
         let unbound_host = vars().render(&t("http://${host.db}/"), "outputs.db_site.format").unwrap_err();
         assert_eq!(unbound_host.to_string(), "outputs.db_site.format: `${host.db}` has no value in this operation");
     }

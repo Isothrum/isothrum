@@ -121,7 +121,9 @@ mod tests {
     fn an_answer_without_data_or_not_the_api_s_is_told_apart() {
         assert!(data::<Ticket>(r#"{"data":null}"#).unwrap().is_none());
         assert!(data::<Ticket>("{}").unwrap().is_none());
-        assert!(data::<Vec<ClusterVm>>(r#"{"data":{"vmid":1}}"#).is_err(), "not a list");
-        assert!(data::<Ticket>("<html>").is_err());
+        let not_a_list = data::<Vec<ClusterVm>>(r#"{"data":{"vmid":1}}"#).unwrap_err();
+        assert!(not_a_list.is_data(), "a JSON answer of the wrong shape: {not_a_list}");
+        let not_json = data::<Ticket>("<html>").unwrap_err();
+        assert!(not_json.is_syntax(), "not the API's answer: {not_json}");
     }
 }
