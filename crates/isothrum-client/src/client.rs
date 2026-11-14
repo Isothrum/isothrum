@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use isothrum_runner::{ErrorCode, EventKind, Park, RunName, Status};
+use isothrum_runner::{ErrorCode, EventKind, InputVariable, Park, RunName, Status};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::discovery::{ServiceInfo, ServicePaths};
@@ -363,6 +363,21 @@ impl Client {
         let command = Command::Status { run: run.clone(), target };
         match self.request(command).await? {
             Reply::Status { status, .. } => Ok(*status),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    /// The input variables the Terraform folder `target` names declares (name, type, default,
+    /// sensitive), read from its files: a sensitive one is given as a secret, which no record
+    /// keeps.
+    ///
+    /// # Errors
+    ///
+    /// The folder isn't a Terraform module (`unsupported`, `project_invalid`), or the connection
+    /// ended.
+    pub async fn variables(&self, target: Target) -> Result<Vec<InputVariable>> {
+        match self.request(Command::Variables { target }).await? {
+            Reply::Variables { variables, .. } => Ok(variables),
             other => Err(unexpected(&other)),
         }
     }

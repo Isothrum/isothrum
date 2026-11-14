@@ -22,6 +22,17 @@ Newline-delimited JSON (one object per line, at most 16 MiB). A client writes re
 is `hello`. The commands, replies and the event frames are documented in the client crate's
 [`proto`](https://docs.rs/isothrum-client/latest/isothrum_client/proto/) module.
 
+### A Terraform folder's input variables
+
+`{"id":N,"cmd":"variables","target":{"path":"/abs/folder"}}` is answered
+`{"reply":"variables","id":N,"variables":[…]}`: each `variable` block of the folder's `*.tf` and
+`*.tf.json` files, by name, with its `type` as written, its `default` (JSON; absent when the module
+needs it given), `sensitive` and `description`. Nothing runs and nothing is recorded. A folder that
+holds no Terraform module is refused (`project_invalid`). A client gives a sensitive variable's
+value as a secret (`options.secrets`), which no record keeps, and the others as values
+(`options.env`), which the run's record keeps and every later operation gives again. Each reaches
+the module as `TF_VAR_<name>`. In Rust: `Client::variables(target)`, `Project::variables()`.
+
 ### What every protocol keeps
 
 So that a client of one release can always tell which service runs and replace it, every protocol

@@ -75,6 +75,7 @@ pub mod wire;
 pub use client::{Accepted, Client, Followed, Subscription};
 pub use discovery::{ServiceInfo, ServicePaths};
 pub use error::ClientError;
+pub use isothrum_runner::InputVariable;
 
 /// This crate's release: the version [`Client::connect_exact`] wants of a service.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

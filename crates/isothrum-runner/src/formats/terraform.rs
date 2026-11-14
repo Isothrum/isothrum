@@ -298,11 +298,15 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
         .collect()
 }
 
-/// The run's state as its managed instances say: nothing is absent, a tainted one failed, else
-/// ready.
-fn run_state(managed: &[tf::Resource]) -> RunState {
-    if managed.is_empty() {
+/// Where a run stands, from its state as `show` read it: absent when it holds nothing; ready
+/// when every managed instance is sound, or when it holds data sources only (a module that reads
+/// and gives back, making nothing, is up once applied); failed with a tainted instance.
+fn run_state(held: &tf::Shown) -> RunState {
+    let managed = &held.managed;
+    if managed.is_empty() && held.data.is_empty() {
         RunState::Absent
+    } else if managed.is_empty() {
+        RunState::Ready
     } else if managed.iter().any(|r| r.tainted) {
         RunState::Failed
     } else {
@@ -496,7 +500,7 @@ impl FormatDriver for Terraform {
                 })
                 .collect(),
         };
-        Ok((seen, run_state(&held.managed)))
+        Ok((seen, run_state(&held)))
     }
 
     async fn found(&self, cx: &ToolCx<'_>) -> Result<Vec<Found>> {

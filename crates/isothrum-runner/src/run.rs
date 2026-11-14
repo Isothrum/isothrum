@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::error::Error;
-use crate::events::{Emitter, Events, ResultData, Stream, WarningCode};
+use crate::events::{Emitter, Events, ResultData, ShownOutput, Stream, WarningCode};
 use crate::formats::any::AnyFormat;
 use crate::formats::{Seen, SeenMachine, ToolCx, ledger};
 use crate::name::RunName;
@@ -245,13 +245,22 @@ impl<'r> Running<'r> {
                 self.driver.probe(cx).await?;
                 self.act(cx, act).await?;
                 self.record_found(cx, emitter, by).await?;
-                let (_, state) = self.driver.observe(cx).await?;
-                Ok(state)
+                self.driver.observe(cx).await
             })
             .await
-            .map(|state| {
+            .map(|(seen, state)| {
                 let goal = op_goal(op).unwrap_or(state);
-                Done::settled(goal, ResultData::Moved { state: goal })
+                let data = if op == Op::Up {
+                    // A start says what the project gives back (a module's outputs), masked.
+                    let outputs = status_of(&seen, goal, true, None).outputs;
+                    ResultData::Started {
+                        state: goal,
+                        outputs: outputs.into_iter().map(|o| ShownOutput::new(o.name, o.value)).collect(),
+                    }
+                } else {
+                    ResultData::Moved { state: goal }
+                };
+                Done::settled(goal, data)
             })
         })
         .await
