@@ -480,9 +480,9 @@ async fn only_hyperv_s_programs_are_elevated_and_never_with_a_loader_variable() 
         ("VAGRANT_INSTALLER_EMBEDDED_DIR".into(), "C:\\Users\\ada\\e".into()),
         ("DEMO_SECRET".into(), "token-x".into()),
     ];
-    let (exit, lines) = lines_of(&e, &up).await;
+    let (exit, up_lines) = lines_of(&e, &up).await;
     assert!(exit.unwrap().success());
-    let env = &lines[2];
+    let env = &up_lines[2];
     assert!(env.contains("DEMO_SECRET=token-x"), "{env}");
     for dropped in ["RUBYOPT", "PATH=", "VAGRANT_INSTALLER_EMBEDDED_DIR"] {
         assert!(!env.contains(dropped), "{dropped}: {env}");

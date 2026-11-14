@@ -121,6 +121,7 @@ mod tests {
     /// each argument whole, whatever it holds.
     #[cfg(unix)]
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "the test runs the line in a real shell, to its end")]
     fn a_shell_line_splits_back_into_the_command() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().join("a run's folder");

@@ -157,7 +157,7 @@ pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&s
         tool,
         what: format!("no version in `{}`", said.trim()),
     })?;
-    if let Some(min) = min.and_then(|m| crate::project::platform::Version::parse(m))
+    if let Some(min) = min.and_then(crate::project::platform::Version::parse)
         && found < min
     {
         return Err(CliError::TooOld {

@@ -123,26 +123,26 @@ mod tests {
         })
     }
 
-    fn check(extra: Vec<Package>, outsiders: &[&str]) -> Vec<String> {
-        violations(&graph(&extra, outsiders))
+    fn check(extra: &[Package], outsiders: &[&str]) -> Vec<String> {
+        violations(&graph(extra, outsiders))
     }
 
     #[test]
     fn a_workspace_with_no_isoloom_edge_passes_and_any_edge_fails() {
-        assert!(check(vec![("isothrum-runner", vec![("tokio", None)])], &[]).is_empty());
-        let found = check(vec![("isothrum-cli", vec![("isoloom-render", None)])], &[]);
+        assert_eq!(check(&[("isothrum-runner", vec![("tokio", None)])], &[]), Vec::<String>::new());
+        let found = check(&[("isothrum-cli", vec![("isoloom-render", None)])], &[]);
         assert_eq!(
             found,
             ["isothrum-cli depends on isoloom-render: Isothrum runs native files and links no Isoloom crate"]
         );
-        let dev = check(vec![("isothrum-runner", vec![("isoloom-manifest", Some("dev"))])], &[]);
+        let dev = check(&[("isothrum-runner", vec![("isoloom-manifest", Some("dev"))])], &[]);
         assert_eq!(dev.len(), 1, "a test's edge is an edge too: {dev:?}");
     }
 
     #[test]
     fn an_isoloom_crate_a_dependency_pulls_in_fails() {
         let found = check(
-            vec![("isothrum-runner", vec![("helper", None)]), ("helper", vec![("isoloom-spec", None)])],
+            &[("isothrum-runner", vec![("helper", None)]), ("helper", vec![("isoloom-spec", None)])],
             &["helper"],
         );
         assert_eq!(

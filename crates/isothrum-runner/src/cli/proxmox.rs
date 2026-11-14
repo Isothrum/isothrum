@@ -318,20 +318,29 @@ mod tests {
         assert_eq!(k.header(), ("Cookie".to_owned(), SecretValue::new("PVEAuthCookie=PVE:t")));
     }
 
-    #[tokio::test]
-    async fn vncproxy_gives_its_port_and_ticket_and_a_refusal_is_told_apart() {
-        let dir = tempfile::tempdir().unwrap();
+    /// `vncproxy` with the fake answering `reply`, in `dir`.
+    async fn vncproxy_answered(reply: Reply, dir: &Path) -> Result<Vnc, CliError<Failure>> {
         let args = format!("curl --silent --show-error --write-out {STATUS_LINE} --max-time 25 --config -");
-        let fake = FakeProcesses::script()
-            .expect(&args, Reply::ok("{\"data\":{\"port\":\"5900\",\"ticket\":\"PVEVNC:x\"}}\n200"))
-            .expect(&args, Reply::ok("{\"data\":null}\n401"))
-            .build();
+        let fake = FakeProcesses::script().expect(&args, reply).build();
         let call = testing::call(&fake);
         let api = Api::at("https://pve:8006", false).unwrap();
         let token = SignIn::Token(SecretValue::new("t"));
-        let vnc = vncproxy(&call, &api, &token, ("pve", "101"), dir.path()).await.unwrap();
+        vncproxy(&call, &api, &token, ("pve", "101"), dir).await
+    }
+
+    #[tokio::test]
+    async fn vncproxy_gives_its_port_and_ticket() {
+        let dir = tempfile::tempdir().unwrap();
+        let reply = Reply::ok("{\"data\":{\"port\":\"5900\",\"ticket\":\"PVEVNC:x\"}}\n200");
+        let vnc = vncproxy_answered(reply, dir.path()).await.unwrap();
         assert_eq!((vnc.port, vnc.ticket.expose()), (5900, "PVEVNC:x"));
-        let refused = vncproxy(&call, &api, &token, ("pve", "101"), dir.path()).await.unwrap_err();
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "no request's config is left");
+    }
+
+    #[tokio::test]
+    async fn a_refused_vncproxy_is_told_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let refused = vncproxy_answered(Reply::ok("{\"data\":null}\n401"), dir.path()).await.unwrap_err();
         assert!(
             matches!(
                 refused,

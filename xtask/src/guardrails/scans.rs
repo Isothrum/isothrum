@@ -1,14 +1,14 @@
 //! What clippy can't say about the runner's code, read from its sources (tests left out):
 //!
 //! - a tool's output is parsed (`serde_json::from_str`/`from_slice`) in an adapter only: the
-//!   drivers, `tool_output`, and the readers [`ADAPTERS`] names; a file that parses JSON that is
-//!   no tool's output says what it parses in [`NOT_TOOL_OUTPUT`];
-//! - the script a `sh -c` (or `ssh … -c`, `vagrant ssh -c`) runs comes from the shell scripts'
-//!   module (`driver::shells`) or is one [`SCRIPTS`] names, never a `format!` assembled where the
-//!   command is;
-//! - a script that runs as root (the shell scripts' module, the probes [`SCRIPTS`] names) chains
-//!   no command with `&&`: under `set -e` and in a probe a failed left side passes silently, so
-//!   a step says each command's failure with `;` and an `if`.
+//!   tools' adapters (`cli/`), `tool_output`, and the readers [`ADAPTERS`] names; a file that
+//!   parses JSON that is no tool's output says what it parses in [`NOT_TOOL_OUTPUT`];
+//! - the script a shell's `-c` (`sh -c`, `bash -c`, `vagrant ssh <machine> -c`) runs comes from
+//!   the shell scripts' module (`console::shells`) or is one [`SCRIPTS`] names, never a `format!`
+//!   assembled where the command is; another program's `-c` (virsh's connection) is no script;
+//! - a script that runs as root (the shell scripts' module's) chains no command with `&&`: under
+//!   `set -e` a failed left side passes silently, so a script says each command's failure with
+//!   `;` and an `if`.
 
 use super::source;
 
@@ -21,28 +21,28 @@ const CRATES: [&str; 5] = [
     "crates/isothrum-client/src",
 ];
 
-/// Where a tool's answer is read, beside the drivers and `tool_output` (the tool-output module's
-/// own list of the documents read beside their tool).
-const ADAPTERS: [(&str, &str); 4] = [
+/// Where a tool's answer is read, beside `tool_output` (the tool-output module's own list of the
+/// documents read beside their tool).
+const ADAPTERS: [(&str, &str); 3] = [
     (
-        "crates/isothrum-runner/src/driver/",
-        "each driver reads its own tool's documents (Compose's ps and config, Terraform's state)",
+        "crates/isothrum-runner/src/cli/",
+        "one adapter per tool: its argv, its spawn and the parse of its answers into typed values",
     ),
     ("crates/isothrum-runner/src/tool_output/", "what the tools print, one reader per tool"),
     (
-        "crates/isothrum-runner/src/reap/tags.rs",
-        "the clouds' CLIs' listings, read in the reaper's one reader",
-    ),
-    (
-        "crates/isothrum-runner/src/graphical/proxmox/answer.rs",
-        "Proxmox's API answers, read in one place",
+        "crates/isothrum-runner/src/formats/terraform/tunnelled.rs",
+        "a module's `consoles` output, the value `terraform output` gave, read in its one reader",
     ),
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 5] = [
+const NOT_TOOL_OUTPUT: [(&str, &str); 6] = [
     ("crates/isothrum-runner/src/store.rs", "the home's own files, which the runner wrote"),
     ("crates/isothrum-runner/src/store/db.rs", "the store's own rows, which the runner wrote"),
+    (
+        "crates/isothrum-runner/src/store/db/mirror.rs",
+        "the store's mirror file, which the runner wrote",
+    ),
     (
         "crates/isothrum-runner/src/process/shim.rs",
         "the Docker CLI's config file, the user's settings, not an answer",
@@ -54,25 +54,27 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 5] = [
     ("crates/isothrum-client/src/wire.rs", "the service protocol's frames, Isothrum's own"),
 ];
 
-/// The scripts a `-c` may run besides the shell scripts' module's, by file and the expression
-/// passed: a probe (also read for `&&`), the manifest's own guest script, and an option that is
-/// no script.
-const SCRIPTS: [(&str, &str, &str); 3] = [
-    ("crates/isothrum-runner/src/driver/vagrant/actions.rs", "&halting_probe(", "fn halting_probe"),
+/// The scripts a shell's or an ssh's `-c` may run besides the shell scripts' module's, by file
+/// and the expression passed.
+const SCRIPTS: [(&str, &str, &str); 2] = [
     (
-        "crates/isothrum-runner/src/driver/vagrant.rs",
+        "crates/isothrum-runner/src/cli/vagrant.rs",
         "script",
-        "the manifest's guest step, as Isoloom wrote it",
+        "the adapter's parameter: a login shell of the shell scripts' module, or the caller's command with each word quoted (`console::sh_word`)",
     ),
     (
-        "crates/isothrum-runner/src/graphical/vagrant.rs",
-        "LIBVIRT_URI",
-        "virsh's `-c` is its connection, not a script",
+        "crates/isothrum-runner/src/formats/compose.rs",
+        "shell",
+        "a container shell of the shell scripts' module, picked on the line before",
     ),
 ];
 
+/// The programs whose `-c` takes a script: the shells, and `ssh` (`vagrant ssh <machine> -c`).
+/// Another program's `-c` (virsh's connection) is no script.
+const SCRIPT_TAKERS: [&str; 3] = ["\"sh\"", "\"bash\"", "\"ssh\""];
+
 /// The shell scripts' module: every literal in it is a script.
-const SHELLS: &str = "crates/isothrum-runner/src/driver/shells.rs";
+const SHELLS: &str = "crates/isothrum-runner/src/console/shells.rs";
 
 /// Each crate's files that aren't a test's, as code without their test modules.
 fn code_files() -> Vec<source::File> {
@@ -110,12 +112,21 @@ fn parses_outside_adapters(files: &[source::File]) -> Vec<String> {
     found
 }
 
-/// The expression after each `"-c",` in `text`, with its offset.
+/// The expression after each `"-c"` of a shell or an ssh in `text` (`"-c",`, or the same as an
+/// owned string, `"-c".to_owned(),` or `"-c".into(),`), with its offset. The `-c` is a script's
+/// when its line, up to it, names a [`SCRIPT_TAKERS`] (the argument list it is in).
 fn dash_c_operands(text: &str) -> Vec<(usize, &str)> {
     text.match_indices("\"-c\"")
         .filter_map(|(at, m)| {
-            let rest = text.get(at + m.len()..)?.trim_start().strip_prefix(',')?.trim_start();
+            let rest = text.get(at + m.len()..)?;
+            let rest = [".to_owned()", ".to_string()", ".into()"]
+                .iter()
+                .fold(rest, |r, owned| r.strip_prefix(owned).unwrap_or(r));
+            let rest = rest.trim_start().strip_prefix(',')?.trim_start();
             let end = rest.find([']', ',', ')']).unwrap_or(rest.len());
+            let before = text.get(..at)?;
+            let line = before.get(before.rfind('\n').map_or(0, |i| i + 1)..)?;
+            SCRIPT_TAKERS.iter().any(|p| line.contains(p)).then_some(())?;
             Some((at, rest.get(..end)?.trim()))
         })
         .collect()
@@ -159,30 +170,24 @@ fn literals(text: &str) -> Vec<&str> {
     out
 }
 
-/// The text of `fn name` in `text`: from its `fn` to the `}` that ends it at the start of a line.
-fn function<'t>(text: &'t str, head: &str) -> Option<&'t str> {
-    let start = text.find(head)?;
-    let rest = text.get(start..)?;
-    rest.get(..rest.find("\n}").map_or(rest.len(), |i| i + 2))
-}
-
-/// Every `&&` in a script that runs as root: the shell scripts' module and the probes.
+/// Every `&&` in a script that runs as root: the shell scripts' module's.
 fn chains_in_root_scripts(files: &[source::File]) -> Vec<String> {
-    let mut scripts: Vec<(&str, &str)> = files.iter().filter(|f| f.path == SHELLS).map(|f| (f.path.as_str(), f.text.as_str())).collect();
-    for (path, _, head) in SCRIPTS.iter().filter(|(_, _, h)| h.starts_with("fn ")) {
-        let body = files.iter().find(|f| f.path == *path).and_then(|f| function(&f.text, head));
-        scripts.push((*path, body.unwrap_or("")));
-    }
-    let mut found = Vec::new();
-    for (path, text) in scripts {
-        found.extend(
-            literals(text)
+    files
+        .iter()
+        .filter(|f| f.path == SHELLS)
+        .flat_map(|f| {
+            literals(&f.text)
                 .into_iter()
                 .filter(|l| l.contains("&&"))
-                .map(|l| format!("{path}: `{l}`: a root script chains no command with `&&` (`;` and an `if` say each failure)")),
-        );
-    }
-    found
+                .map(|l| {
+                    format!(
+                        "{}: `{l}`: a root script chains no command with `&&` (`;` and an `if` say each failure)",
+                        f.path
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -199,7 +204,7 @@ mod tests {
     #[test]
     fn a_parse_outside_an_adapter_is_named_with_its_line() {
         let files = [
-            file("crates/isothrum-runner/src/driver/compose/ps.rs", "serde_json::from_str(x)"),
+            file("crates/isothrum-runner/src/cli/compose/ps.rs", "serde_json::from_str(x)"),
             file("crates/isothrum-runner/src/store.rs", "serde_json::from_slice(&b)"),
             file(
                 "crates/isothrum-runner/src/graphical/native.rs",
@@ -207,10 +212,11 @@ mod tests {
             ),
         ];
         let found = parses_outside_adapters(&files);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(
-            found[0].starts_with("crates/isothrum-runner/src/graphical/native.rs:2: serde_json::from_str"),
-            "{found:?}"
+        assert_eq!(
+            found,
+            [
+                "crates/isothrum-runner/src/graphical/native.rs:2: serde_json::from_str outside an adapter: a tool's answer is read in tool_output (or the driver's own reader); JSON that is no tool's goes in NOT_TOOL_OUTPUT (xtask/src/guardrails/scans.rs)"
+            ]
         );
     }
 
@@ -218,38 +224,49 @@ mod tests {
     fn a_script_assembled_where_the_command_is_is_named() {
         let files = [
             file(
-                "crates/isothrum-runner/src/driver/compose.rs",
+                "crates/isothrum-runner/src/formats/compose.rs",
                 r#"["exec", s, "sh", "-c", super::shells::CONTAINER_SHELL]"#,
             ),
-            file("crates/isothrum-runner/src/driver/vagrant.rs", r#"["ssh", d, "-c", script]"#),
+            file("crates/isothrum-runner/src/cli/vagrant.rs", r#"argv(["ssh", d, "-c", script])"#),
             file(
-                "crates/isothrum-runner/src/relay.rs",
+                "crates/isothrum-runner/src/net.rs",
                 r#"ProcessSpec::new("sh", ["-c", &format!("nc {host} {port}")])"#,
             ),
             file(
-                "crates/isothrum-runner/src/driver/vagrant.rs",
-                r#"["ssh", d, "-c", &format!("cd {x}; {script}")]"#,
+                "crates/isothrum-runner/src/cli/vagrant.rs",
+                r#"argv(["ssh", d, "-c", &format!("cd {x}; {script}")])"#,
             ),
+            file("crates/isothrum-runner/src/formats/x.rs", r#"vec!["bash".to_owned(), "-c".to_owned(), built]"#),
         ];
         let found = scripts_built_in_place(&files);
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert!(found[0].contains("-c &format!(\"nc {host} {port}\""), "{found:?}");
+        let operands: Vec<&str> = found.iter().map(|f| f.split('`').nth(1).unwrap()).collect();
+        assert_eq!(
+            operands,
+            [r#"-c &format!("nc {host} {port}""#, r#"-c &format!("cd {x}; {script}""#, "-c built"],
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn another_programs_dash_c_is_no_script() {
+        let virsh = r#"args.extend(["-c".to_owned(), uri.to_owned()]);"#;
+        assert_eq!(dash_c_operands(virsh), []);
+        let ssh = r#"argv(["ssh", machine, "-c", script])"#;
+        assert_eq!(dash_c_operands(ssh), [(22, "script")]);
     }
 
     #[test]
     fn a_chain_in_a_root_script_is_named() {
         let files = [
             file(SHELLS, "const A: &str = \"if a; then b; fi\";\nconst B: &str = \"mkdir -p /x && chown u /x\";"),
-            file(
-                "crates/isothrum-runner/src/driver/vagrant/actions.rs",
-                "fn halting_probe() -> String {\n    format!(\"test -e {H} && echo halting\")\n}\nfn other() { \"a && b\" }",
-            ),
+            file("crates/isothrum-runner/src/formats/vagrant.rs", "fn other() { \"a && b\" }"),
         ];
         let found = chains_in_root_scripts(&files);
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert!(
-            found[0].contains("mkdir -p /x && chown u /x") && found[1].contains("test -e {H} && echo halting"),
-            "{found:?}"
+        assert_eq!(
+            found,
+            [format!(
+                "{SHELLS}: `mkdir -p /x && chown u /x`: a root script chains no command with `&&` (`;` and an `if` say each failure)"
+            )]
         );
         assert_eq!(literals(r#"a "x\"y" b "z""#), [r#"x\"y"#, "z"]);
     }

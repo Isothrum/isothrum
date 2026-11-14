@@ -213,7 +213,7 @@ impl Runner {
             Some(name) => name,
             None => RunName::from_folder(&project.dir)?,
         };
-        Running::new(self, project, name)
+        Ok(Running::new(self, project, name))
     }
 
     /// Recorded run `name`, opened again from the folder and format it was started with.

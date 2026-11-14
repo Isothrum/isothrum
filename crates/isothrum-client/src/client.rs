@@ -236,7 +236,11 @@ impl Client {
             return Err(e.into());
         }
         match rx.await.map_err(|_| ClientError::closed())? {
-            Reply::Error { code, message, detail, .. } => Err(ClientError::Refused { code, message, detail }),
+            Reply::Error { code, message, detail, .. } => Err(ClientError::Refused {
+                code,
+                message,
+                detail: detail.map(Box::new),
+            }),
             reply => Ok(reply),
         }
     }
@@ -426,7 +430,13 @@ impl Client {
             match reader.next::<Reply>().await? {
                 Some(Reply::Hello { .. }) => {}
                 Some(Reply::Ok { id: 1 }) => break,
-                Some(Reply::Error { code, message, detail, .. }) => return Err(ClientError::Refused { code, message, detail }),
+                Some(Reply::Error { code, message, detail, .. }) => {
+                    return Err(ClientError::Refused {
+                        code,
+                        message,
+                        detail: detail.map(Box::new),
+                    });
+                }
                 Some(other) => return Err(unexpected(&other)),
                 None => return Err(ClientError::closed()),
             }
@@ -610,7 +620,7 @@ fn outcome_of(event: Option<Event>) -> Result<Event> {
             code: *code,
             message: message.clone(),
             step: step.clone(),
-            detail: detail.clone(),
+            detail: detail.clone().map(Box::new),
         }),
         _ => Ok(event),
     }

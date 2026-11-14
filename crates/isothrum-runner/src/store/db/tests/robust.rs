@@ -103,6 +103,16 @@ fn a_damaged_store_is_rebuilt_from_its_mirror_and_kept_aside() {
     assert!(rebuilt.read(|tx| tx.run(&name("after"))).unwrap().is_some());
 }
 
+/// Notes the id of each row it is asked to remove.
+struct Noted<'a>(&'a mut Vec<Option<String>>);
+
+impl crate::run::recovery::Remover for Noted<'_> {
+    fn remove(&mut self, row: &ResourceRow) -> impl Future<Output = crate::Result<()>> {
+        self.0.push(row.native_id.clone());
+        std::future::ready(Ok(()))
+    }
+}
+
 #[tokio::test]
 async fn a_resource_recorded_in_the_mirror_is_still_removed_by_its_id() {
     let (home, _) = a_home_with_a_vm();
@@ -117,14 +127,6 @@ async fn a_resource_recorded_in_the_mirror_is_still_removed_by_its_id() {
     let clock = crate::clock::FixedClock(std::time::UNIX_EPOCH);
     let sink = crate::events::Recorder::new();
     let events = crate::events::Emitter::new("web", Op::Down, &clock, &sink);
-    /// Notes the id of each row it is asked to remove.
-    struct Noted<'a>(&'a mut Vec<Option<String>>);
-    impl crate::run::recovery::Remover for Noted<'_> {
-        async fn remove(&mut self, row: &ResourceRow) -> crate::Result<()> {
-            self.0.push(row.native_id.clone());
-            Ok(())
-        }
-    }
     let mut removed = Vec::new();
     let failed = crate::run::recovery::destroy_recorded(&rebuilt, &events, next.id, &left, Noted(&mut removed))
         .await

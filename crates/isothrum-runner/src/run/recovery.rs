@@ -115,6 +115,21 @@ mod tests {
         assert_eq!(keys, ["vm:a"], "not the finished up's network, nor a row with no id yet");
     }
 
+    /// Removes each row asked for, but `vm:c`, and notes the ids it was asked.
+    struct Asked<'a>(&'a mut Vec<String>);
+
+    impl Remover for Asked<'_> {
+        fn remove(&mut self, row: &ResourceRow) -> impl Future<Output = Result<()>> {
+            self.0.push(row.native_id.clone().unwrap_or_default());
+            let done = if row.key == "vm:c" {
+                Err(Error::NotRunning { run: "r".into() })
+            } else {
+                Ok(())
+            };
+            std::future::ready(done)
+        }
+    }
+
     #[tokio::test]
     async fn recovery_removes_by_recorded_id_says_each_move_and_keeps_what_failed() {
         let (_home, store, r, current) = left_by_a_dead_up();
@@ -133,17 +148,6 @@ mod tests {
         let clock = FixedClock(std::time::UNIX_EPOCH);
         let sink = Recorder::new();
         let events = Emitter::new("r", Op::Up, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
-        /// Removes each row asked for, but `vm:c`, and notes the ids it was asked.
-        struct Asked<'a>(&'a mut Vec<String>);
-        impl Remover for Asked<'_> {
-            async fn remove(&mut self, row: &ResourceRow) -> Result<()> {
-                self.0.push(row.native_id.clone().unwrap_or_default());
-                if row.key == "vm:c" {
-                    return Err(Error::NotRunning { run: "r".into() });
-                }
-                Ok(())
-            }
-        }
         let mut asked = Vec::new();
         let failed = destroy_recorded(&store, &events, current, &rows, Asked(&mut asked)).await.unwrap();
         assert_eq!(asked, ["uuid-c", "uuid-a"], "newest first, by the tool's own id");
