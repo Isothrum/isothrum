@@ -154,6 +154,7 @@ fn the_runs_state_follows_its_services() {
         state,
         published: Vec::new(),
         kind: None,
+        address: None,
     };
     assert_eq!(run_state(&[]), RunState::Absent);
     assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(0))]), RunState::Ready);

@@ -199,6 +199,7 @@ mod tests {
             state: crate::MachineState::Running,
             published: Vec::new(),
             kind: Some(kind.into()),
+            address: None,
         };
         assert_eq!(offer(&m("proxmox_vm_qemu")).map(|o| o.protocol), Some(ConsoleProtocol::Vnc));
         assert_eq!(offer(&m("aws_instance")), None);

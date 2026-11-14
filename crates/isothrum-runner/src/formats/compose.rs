@@ -288,6 +288,7 @@ impl FormatDriver for Compose {
                     })
                     .collect(),
                 kind: None,
+                address: None,
             })
             .collect();
         let state = run_state(&machines);

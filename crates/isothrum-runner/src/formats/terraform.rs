@@ -289,6 +289,7 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
             state: if r.tainted { MachineState::Unhealthy } else { MachineState::Running },
             published: Vec::new(),
             kind: Some(r.kind.clone()),
+            address: r.vm.address.clone(),
         })
         .collect()
 }

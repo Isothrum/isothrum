@@ -76,6 +76,12 @@ pub struct MachineStatus {
     pub state: MachineState,
     /// Its published ports.
     pub published: Vec<PublishedPort>,
+    /// The address it is reached at itself, when its tool says one another computer reaches (a
+    /// VM on a bridged or host-only network, a server's VM, a cloud instance); none for one
+    /// reached only through its published ports. On ESXi, which forwards no port to this
+    /// computer, a machine's ports answer at this address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
     /// Its graphical console, as its hypervisor offers it; none for a machine with no screen to
     /// speak of (a container), and while not [`Status::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]

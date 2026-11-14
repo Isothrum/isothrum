@@ -312,6 +312,31 @@ impl Vagrant {
     }
 }
 
+/// Whether a VM of `provider` (as Vagrant names it) is reached at an address of its own, which
+/// `ssh-config` gives: every provider but those that reach it through a port forwarded on this
+/// computer's loopback (VirtualBox, QEMU, UTM).
+fn own_address(provider: &str) -> bool {
+    ![Provider::Virtualbox, Provider::Qemu, Provider::Utm].iter().any(|p| p.id() == provider)
+}
+
+impl Vagrant {
+    /// The address `ssh-config` gives running `machine`, when it is one another computer
+    /// reaches; none when it gives none, or can't be read (traced): the status stands without it.
+    async fn address(&self, cx: &ToolCx<'_>, machine: &str) -> Option<String> {
+        let read = call(cx, READ_LIMIT);
+        match retrying(cx.warn, "ssh-config", Rerun::Read, STATUS_PATIENCE, || vagrant::ssh_host(&read, machine)).await {
+            Ok(host) => host
+                .parse::<std::net::IpAddr>()
+                .map_or(true, |ip| !ip.is_loopback() && !ip.is_unspecified())
+                .then_some(host),
+            Err(e) => {
+                tracing::debug!(machine, error = %e, "the machine's address couldn't be read");
+                None
+            }
+        }
+    }
+}
+
 /// `verb` as Vagrant's command names it, for what is said of it.
 fn verb_word(verb: Verb) -> &'static str {
     match verb {
@@ -509,7 +534,18 @@ impl FormatDriver for Vagrant {
             let asked = cx.provider.map(Provider::id);
             let mine = records.iter().filter(|r| r.machine == name);
             let kind = mine.clone().find(|r| Some(r.provider.as_str()) == asked).or_else(|| mine.clone().next()).map(|r| r.provider.clone());
-            machines.push(SeenMachine { name, state, published, kind });
+            let address = if state == MachineState::Running && kind.as_deref().is_some_and(own_address) {
+                self.address(cx, &name).await
+            } else {
+                None
+            };
+            machines.push(SeenMachine {
+                name,
+                state,
+                published,
+                kind,
+                address,
+            });
         }
         let state = run_state(&machines);
         Ok((Seen { machines, ..Seen::default() }, state))

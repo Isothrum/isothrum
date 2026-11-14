@@ -142,6 +142,9 @@ pub(crate) struct SeenMachine {
     /// What its tool says it is, when it says: Vagrant's provider (`virtualbox`), a module's
     /// resource type (`proxmox_virtual_environment_vm`). What a driver tells its consoles by.
     pub(crate) kind: Option<String>,
+    /// The address it is reached at, when its tool says one another computer reaches: Vagrant's
+    /// `ssh-config` on a provider that gives the VM's own, a module's VM's as its state says.
+    pub(crate) address: Option<String>,
 }
 
 /// One published port of a machine, as its tool reports it.

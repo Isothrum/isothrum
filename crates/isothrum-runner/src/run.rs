@@ -538,6 +538,7 @@ fn machine_statuses(machines: &[SeenMachine]) -> Vec<MachineStatus> {
                     host_port: p.host,
                 })
                 .collect(),
+            address: m.address.clone(),
             console: None,
         })
         .collect()
