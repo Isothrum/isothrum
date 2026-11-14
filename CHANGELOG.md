@@ -4,8 +4,8 @@ All notable changes to Isothrum are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Isothrum is the runner (crate and CLI) and the topology compiler (drawing → spec)
-plus its WASM build. It executes what Isoloom generates; the apps that embed it share it.
+Isothrum is the runner (crate and CLI): a wrapper of each format's own tool (Compose, Vagrant,
+Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
@@ -16,6 +16,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   the runner now knows the tools running and ends them, with the ones still stopping.
 
 ### Changed
+
+- **The topology compiler and its WebAssembly build moved to Isoloom.** **Breaking:**
+  `isothrum-compiler` and `isothrum-wasm` are gone from this repository: they compile Isoloom specs,
+  so they are Isoloom's `isoloom-topology` and `isoloom-wasm` now, with the same JavaScript exports
+  (the served files are `isoloom_wasm.js` and `isoloom_wasm_bg.wasm`). `xtask wasm`, the CI
+  WebAssembly job and the `drawing` fuzz target moved with them. Isothrum no longer depends on
+  `isoloom-spec` or `isoloom-plan`.
+- **docker-vm is gone.** **Breaking:** a run manifest whose containers run inside one of its VMs
+  (`guest`) is refused (`unsupported`); run the VM targets.
 
 - **One transactional store per home: `state.db`.** **Breaking:** the runner keeps its state in
   one SQLite database (WAL, foreign keys, migrations), `isothrum_runner::store::Store`, every

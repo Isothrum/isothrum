@@ -58,7 +58,6 @@ pub(crate) fn read(manifest: &Manifest, vars: &Vars, engine: &BTreeMap<String, S
     Read { values, unformatted }
 }
 
-
 /// Binds `outputs` into `vars` (`${outputs.<name>}`), sensitive ones excepted.
 pub(crate) fn bind(vars: &mut Vars, outputs: &[OutputValue]) {
     for o in outputs.iter().filter(|o| !o.sensitive) {
@@ -126,5 +125,4 @@ mod tests {
         let said: Vec<String> = read.unformatted.iter().map(ToString::to_string).collect();
         assert_eq!(said, ["outputs.web__portal.format: `${outputs.token}` has no value in this operation"]);
     }
-
 }

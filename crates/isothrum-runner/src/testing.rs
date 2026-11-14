@@ -46,7 +46,6 @@ pub(crate) const SOLO_WEB_AWS: &str = include_str!("../tests/fixtures/solo-web.c
 /// the controller.
 pub(crate) const WEB_VM: &str = include_str!("../tests/fixtures/web-vm.run.json");
 
-
 /// The Terraform state a Proxmox host's reset left of a cut-short apply: its IP set, gone from the
 /// server, as a real run kept it.
 pub(crate) const IPSET_LEFT: &str = r#"{"version":4,"terraform_version":"1.16.7","serial":24,"outputs":{},"resources":[{"mode":"managed","type":"proxmox_virtual_environment_firewall_ipset","name":"test","provider":"provider[\"registry.terraform.io/bpg/proxmox\"]","instances":[{"schema_version":0,"attributes":{"cidr":[{"comment":"","name":"10.254.250.0/24","nomatch":false}],"comment":"network test","container_id":null,"id":"iso1n0","name":"iso1n0","node_name":null,"vm_id":null},"sensitive_attributes":[]}]}]}"#;

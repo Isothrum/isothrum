@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Isothrum runner event, version 0",
+  "title": "Isothrum runner event, version 1",
   "description": "One event of the stream.\n\nEvery event of an operation has `run` and `op`. An event written outside one ([`Event::new`])\nhas those its writer knows. The command line's own: a command line it refused has neither;\n`reap`'s closing `result` and `error` have neither; any other failure before an operation\nbegan has `op` when the command is an operation, and `run` when `--name` named it (a failure\nof `status`, `console`, `events` or `key` has no `op`).",
   "type": "object",
   "properties": {
     "v": {
-      "description": "The stream's version (0).",
+      "description": "The stream's version (1; a 2.x runner's events, imported, are 0).",
       "type": "integer",
       "format": "uint32",
       "minimum": 0
@@ -32,6 +32,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/Op"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation": {
+      "description": "The operation's id in the home's journal: on every event of a journaled operation.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OperationId"
         },
         {
           "type": "null"
@@ -273,6 +284,44 @@
       ]
     },
     {
+      "description": "A journaled operation was queued, started or ended: what a runner service says of the\noperations it queues (the runner's own operation stream doesn't carry it: it still ends\nwith exactly one `result` or `error`).",
+      "type": "object",
+      "properties": {
+        "phase": {
+          "description": "Where the operation stands.",
+          "$ref": "#/$defs/OperationPhase"
+        },
+        "outcome": {
+          "description": "How it ended, when `phase` is `ended`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "position": {
+          "description": "Its place in its run's queue (0: next), when `phase` is `queued`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "event": {
+          "type": "string",
+          "const": "operation"
+        }
+      },
+      "required": [
+        "event",
+        "phase"
+      ]
+    },
+    {
       "description": "Why the operation failed.",
       "type": "object",
       "properties": {
@@ -370,13 +419,18 @@
         }
       ]
     },
+    "OperationId": {
+      "description": "An operation's id: the journal's key, increasing in a home and never reused.",
+      "type": "integer",
+      "format": "int64"
+    },
     "RunState": {
       "description": "Where a run stands.",
       "oneOf": [
         {
-          "description": "Being started.",
+          "description": "Being created by an `up` (2.x wrote `starting`, still read).",
           "type": "string",
-          "const": "starting"
+          "const": "creating"
         },
         {
           "description": "Up, every member machine running.",
@@ -404,9 +458,14 @@
           "const": "resuming"
         },
         {
-          "description": "Being removed.",
+          "description": "Being brought up to date with its manifest by an `update`.",
           "type": "string",
-          "const": "stopping"
+          "const": "updating"
+        },
+        {
+          "description": "Being removed by a `down` (2.x wrote `stopping`, still read).",
+          "type": "string",
+          "const": "destroying"
         },
         {
           "description": "Nothing of it exists.",
@@ -565,6 +624,51 @@
         }
       ]
     },
+    "OperationPhase": {
+      "description": "Where a journaled operation stands.",
+      "oneOf": [
+        {
+          "description": "Accepted and waiting in its run's queue.",
+          "type": "string",
+          "const": "queued"
+        },
+        {
+          "description": "Begun.",
+          "type": "string",
+          "const": "started"
+        },
+        {
+          "description": "Ended (its `outcome` says how).",
+          "type": "string",
+          "const": "ended"
+        }
+      ]
+    },
+    "Outcome": {
+      "description": "How an operation ended.",
+      "oneOf": [
+        {
+          "description": "It reached its end without an error.",
+          "type": "string",
+          "const": "succeeded"
+        },
+        {
+          "description": "It failed.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "It was cut short (an embedder's cancel, Ctrl-C).",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "Its process died before it ended: a later operation found it and closed it.",
+          "type": "string",
+          "const": "abandoned"
+        }
+      ]
+    },
     "ErrorCode": {
       "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
       "oneOf": [
@@ -577,6 +681,11 @@
           "description": "The manifest is another version of the contract.",
           "type": "string",
           "const": "manifest_version"
+        },
+        {
+          "description": "The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or\nTerraform module, or the files of several formats with none named.",
+          "type": "string",
+          "const": "project_invalid"
         },
         {
           "description": "The manifest needs something this runner doesn't do (a target that doesn't run on this\nhost, a delivery its driver doesn't take, an action of another driver's, a step with no\ncommand for this host), or the call asks the run for something its target can't do (a\nconsole into a Compose service with no VM, a Vagrant VM joined to another network).",
@@ -742,6 +851,31 @@
           "description": "A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:\nnot JSON, or another version's shape.",
           "type": "string",
           "const": "corrupt"
+        },
+        {
+          "description": "The run's state machine has no such move (a park of a parked run, a resume of a ready\none), or a resource row can't move that way.",
+          "type": "string",
+          "const": "illegal_transition"
+        },
+        {
+          "description": "The run moved between the read and the write that would have moved it: try again.",
+          "type": "string",
+          "const": "state_conflict"
+        },
+        {
+          "description": "The home's store was written by a newer runner.",
+          "type": "string",
+          "const": "store_version"
+        },
+        {
+          "description": "The home's store isn't a database this runner reads, or holds what it doesn't write.",
+          "type": "string",
+          "const": "store_corrupt"
+        },
+        {
+          "description": "A live process holds the lease asked for.",
+          "type": "string",
+          "const": "lease_held"
         }
       ]
     },

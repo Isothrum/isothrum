@@ -8,8 +8,6 @@
 //!   under `target/real-run/`; `real-run cloud <cloud>` runs solo-web on a cloud account whose
 //!   credentials are in the environment (up, status, check, then down and reap whatever
 //!   happened);
-//! - `wasm`: the editor's engine built for the browser (`web/pkg/`), and with `--copy-to <dir>`
-//!   the files a page serves copied into that folder;
 //! - `quality`: the ratchet, the clean-code counts per crate against `quality-baseline.json`;
 //! - `test`: the tests under cargo-nextest, then the doctests, in a temp folder of their own that
 //!   must be empty at the end (`ISOTHRUM_KEEP_TEMP=1` keeps it);
@@ -40,7 +38,6 @@ mod real_run;
 mod repo;
 mod schema;
 mod test;
-mod wasm;
 #[cfg(test)]
 mod workspace;
 
@@ -66,8 +63,6 @@ enum Task {
     /// Runs an Isoloom example on this host's Docker through the `isothrum` command line (`cloud
     /// <cloud>`: on a cloud account, with its credentials in the environment).
     RealRun(real_run::Args),
-    /// Builds the editor's engine for the browser, for size.
-    Wasm(wasm::Args),
     /// The ratchet: every clean-code count per crate against quality-baseline.json; fails when
     /// one goes up (`--update` writes them when they only went down).
     Quality(quality::Args),
@@ -100,7 +95,6 @@ fn run(cli: Cli) -> Res<ExitCode> {
     match cli.task {
         Task::Schema => schema::write().map(|()| ExitCode::SUCCESS),
         Task::RealRun(a) => real_run::run(&a).map(|()| ExitCode::SUCCESS),
-        Task::Wasm(a) => wasm::build(&a).map(|()| ExitCode::SUCCESS),
         Task::Quality(a) => quality::run(&a),
         Task::Test(a) => test::run(&a),
         Task::Msrv => hack::msrv(),

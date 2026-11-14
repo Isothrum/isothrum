@@ -180,7 +180,7 @@ mod tests {
     fn the_fuzz_crate_declares_every_target_with_existing_seeds() {
         let fuzz = repo::root().join("fuzz");
         let found = targets(&std::fs::read_to_string(fuzz.join("Cargo.toml")).unwrap()).unwrap();
-        assert!(found.iter().any(|t| t.name == "drawing"), "{found:?}");
+        assert!(found.iter().any(|t| t.name == "plan"), "{found:?}");
         for t in &found {
             assert!(fuzz.join("fuzz_targets").join(format!("{}.rs", t.name)).is_file(), "{}", t.name);
             for seed in &t.seeds {

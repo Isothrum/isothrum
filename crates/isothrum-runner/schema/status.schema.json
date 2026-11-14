@@ -5,13 +5,35 @@
   "type": "object",
   "properties": {
     "state": {
-      "description": "Where it stands. While an operation holds the run: the moving state it is in (`starting`\nthrough an `up`), else, before it records one or for an operation that leaves the run as\nit was meanwhile (an `update`: `ready`), the state the run's record holds.",
+      "description": "Where it stands. While an operation holds the run: the moving state it is in (`creating`\nthrough an `up`), else, before it records one or for an operation that leaves the run as\nit was meanwhile (an `update`: `ready`), the state the run's record holds.",
       "$ref": "#/$defs/RunState"
     },
     "live": {
       "description": "Whether the machines and outputs were read from the engine now. False while an operation\nholds the run (in this process or another), whose tools a read would contend with (Vagrant\nrefuses to read a VM's state while a `vagrant up` provisions it): they are then as the\nrunner last read them (none before it ever did), and the outputs the engine itself gives\nare left out.",
       "type": "boolean",
       "default": true
+    },
+    "desired": {
+      "description": "What the user wants of the run (the last operation that set it: `up`, `park`, `down`);\nnone for a run never recorded. With `state`, whether the run is where it should be.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Desired"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failed_cause": {
+      "description": "Why the run failed, when its recorded state is `failed`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "provider": {
       "description": "The Vagrant provider it uses, when it has one.",
@@ -75,9 +97,9 @@
       "description": "Where a run stands.",
       "oneOf": [
         {
-          "description": "Being started.",
+          "description": "Being created by an `up` (2.x wrote `starting`, still read).",
           "type": "string",
-          "const": "starting"
+          "const": "creating"
         },
         {
           "description": "Up, every member machine running.",
@@ -105,14 +127,249 @@
           "const": "resuming"
         },
         {
-          "description": "Being removed.",
+          "description": "Being brought up to date with its manifest by an `update`.",
           "type": "string",
-          "const": "stopping"
+          "const": "updating"
+        },
+        {
+          "description": "Being removed by a `down` (2.x wrote `stopping`, still read).",
+          "type": "string",
+          "const": "destroying"
         },
         {
           "description": "Nothing of it exists.",
           "type": "string",
           "const": "absent"
+        }
+      ]
+    },
+    "Desired": {
+      "description": "What a user wants of a run: set by the commands, never by an observation.",
+      "oneOf": [
+        {
+          "description": "Up and ready.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string",
+          "const": "parked"
+        },
+        {
+          "description": "Nothing of it left.",
+          "type": "string",
+          "const": "gone"
+        }
+      ]
+    },
+    "ErrorCode": {
+      "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
+      "oneOf": [
+        {
+          "description": "The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as\nwritten (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a\n`tcp` condition's port), or it names a value the operation doesn't have (a placeholder\nwith none, a guest delivery's machine whose address no output gives, a Terraform module\nwith no `.tf` file).",
+          "type": "string",
+          "const": "manifest_invalid"
+        },
+        {
+          "description": "The manifest is another version of the contract.",
+          "type": "string",
+          "const": "manifest_version"
+        },
+        {
+          "description": "The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or\nTerraform module, or the files of several formats with none named.",
+          "type": "string",
+          "const": "project_invalid"
+        },
+        {
+          "description": "The manifest needs something this runner doesn't do (a target that doesn't run on this\nhost, a delivery its driver doesn't take, an action of another driver's, a step with no\ncommand for this host), or the call asks the run for something its target can't do (a\nconsole into a Compose service with no VM, a Vagrant VM joined to another network).",
+          "type": "string",
+          "const": "unsupported"
+        },
+        {
+          "description": "A file or folder couldn't be read or written, or a socket on this computer bound.",
+          "type": "string",
+          "const": "io"
+        },
+        {
+          "description": "Another process runs an operation on this run, or holds the home's slot pick.",
+          "type": "string",
+          "const": "locked"
+        },
+        {
+          "description": "A tool a step runs isn't installed.",
+          "type": "string",
+          "const": "tool_missing"
+        },
+        {
+          "description": "A step's tool ran and failed.",
+          "type": "string",
+          "const": "tool_failed"
+        },
+        {
+          "description": "A tool answers at a version older than the run needs.",
+          "type": "string",
+          "const": "tool_too_old"
+        },
+        {
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "A download (what a step needs, fetched in a phase of its own before it: a Compose start's\nimages, a Vagrant start's boxes; or a step the manifest marks a download) showed no\nprogress for as long as a download may, and was stopped.",
+          "type": "string",
+          "const": "download_stalled"
+        },
+        {
+          "description": "A download couldn't be made: its tool failed (the message says why: a registry or a box\ncatalog refusing it, a name it doesn't know, the network). A failure for the network that\npasses (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried\nagain first, up to three more times: the message is the last try's.",
+          "type": "string",
+          "const": "download_failed"
+        },
+        {
+          "description": "The run is already up.",
+          "type": "string",
+          "const": "already_running"
+        },
+        {
+          "description": "The run is recorded on another place (server or account) than the one asked for.",
+          "type": "string",
+          "const": "running_elsewhere"
+        },
+        {
+          "description": "A host port the run publishes is taken.",
+          "type": "string",
+          "const": "port_in_use"
+        },
+        {
+          "description": "The manifest has no park steps for that mode.",
+          "type": "string",
+          "const": "not_parkable"
+        },
+        {
+          "description": "Nothing of the run, or not every one of its machines, is left to resume.",
+          "type": "string",
+          "const": "nothing_to_resume"
+        },
+        {
+          "description": "The run isn't up.",
+          "type": "string",
+          "const": "not_running"
+        },
+        {
+          "description": "A ready condition didn't hold.",
+          "type": "string",
+          "const": "not_ready"
+        },
+        {
+          "description": "A required secret or input has no value.",
+          "type": "string",
+          "const": "secret_missing"
+        },
+        {
+          "description": "A param is unknown, missing or holds a value it doesn't allow.",
+          "type": "string",
+          "const": "param_invalid"
+        },
+        {
+          "description": "A run name that can't name a run.",
+          "type": "string",
+          "const": "run_name"
+        },
+        {
+          "description": "The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or\nlacks its plugin.",
+          "type": "string",
+          "const": "provider_refused"
+        },
+        {
+          "description": "The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt\ndeclined or unanswered, the elevated session not started or ended before the operation\n(the message says which).",
+          "type": "string",
+          "const": "elevation_failed"
+        },
+        {
+          "description": "A machine the run doesn't have.",
+          "type": "string",
+          "const": "machine_unknown"
+        },
+        {
+          "description": "The run has several machines the call could mean, and it named none.",
+          "type": "string",
+          "const": "machine_ambiguous"
+        },
+        {
+          "description": "A network the run doesn't have.",
+          "type": "string",
+          "const": "network_unknown"
+        },
+        {
+          "description": "Every slot of the place is held by another run.",
+          "type": "string",
+          "const": "slots_full"
+        },
+        {
+          "description": "A deployment can't be taken over as a run.",
+          "type": "string",
+          "const": "adopt_refused"
+        },
+        {
+          "description": "A machine a step goes to over SSH never answered.",
+          "type": "string",
+          "const": "unreachable"
+        },
+        {
+          "description": "The run's seal failed: it is up, but not sealed, so not ready.",
+          "type": "string",
+          "const": "not_sealed"
+        },
+        {
+          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended\nonce they have, or 30 seconds later.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "The embedder was asked for something that makes no sense (the command line: a run folder\nwith no manifest, a value missing or malformed), so no operation started.",
+          "type": "string",
+          "const": "usage"
+        },
+        {
+          "description": "The machine has no graphical console to reach: its target or provider gives none (the\nerror says why), it isn't running, or its hypervisor doesn't say where it is.",
+          "type": "string",
+          "const": "no_console"
+        },
+        {
+          "description": "The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API\nanswered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password\nchanged).",
+          "type": "string",
+          "const": "server_auth_failed"
+        },
+        {
+          "description": "A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:\nnot JSON, or another version's shape.",
+          "type": "string",
+          "const": "corrupt"
+        },
+        {
+          "description": "The run's state machine has no such move (a park of a parked run, a resume of a ready\none), or a resource row can't move that way.",
+          "type": "string",
+          "const": "illegal_transition"
+        },
+        {
+          "description": "The run moved between the read and the write that would have moved it: try again.",
+          "type": "string",
+          "const": "state_conflict"
+        },
+        {
+          "description": "The home's store was written by a newer runner.",
+          "type": "string",
+          "const": "store_version"
+        },
+        {
+          "description": "The home's store isn't a database this runner reads, or holds what it doesn't write.",
+          "type": "string",
+          "const": "store_corrupt"
+        },
+        {
+          "description": "A live process holds the lease asked for.",
+          "type": "string",
+          "const": "lease_held"
         }
       ]
     },

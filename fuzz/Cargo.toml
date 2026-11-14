@@ -3,7 +3,7 @@
 # platforms) don't. Each crash a run finds becomes a regression test in the crate it belongs to.
 [package]
 name = "isothrum-fuzz"
-description = "Isothrum's fuzz targets: the compiler's drawing parser, the runner's placeholder filling and step planning."
+description = "Isothrum's fuzz targets: the runner's placeholder filling and step planning."
 version = "0.0.0"
 edition = "2024"
 license = "Apache-2.0"
@@ -15,18 +15,13 @@ cargo-fuzz = true
 # The inputs each target starts from (folders, relative to this one), besides its own corpus:
 # the fixtures, and the inputs a run once found a crash with (`seeds/<target>`).
 [package.metadata.seeds]
-drawing = ["../crates/isothrum-compiler/tests/fixtures", "seeds/drawing"]
 placeholders = []
 plan = ["../crates/isothrum-runner/tests/fixtures"]
 
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-isothrum-compiler = { path = "../crates/isothrum-compiler" }
 isothrum-runner = { path = "../crates/isothrum-runner", features = ["fuzzing"] }
-# The names Isoloom reads a spec from (`SPEC_FILES`), for the drawing target's oracle: the
-# compiler's version.
-isoloom-spec = "2.0.0"
 serde_json = "1"
 
 # The workspace's lint set, copied: a crate outside the workspace can't inherit it. Kept the same
@@ -73,13 +68,6 @@ clone_on_ref_ptr = "deny"
 rc_buffer = "deny"
 str_to_string = "deny"
 get_unwrap = "deny"
-
-[[bin]]
-name = "drawing"
-path = "fuzz_targets/drawing.rs"
-test = false
-doc = false
-bench = false
 
 [[bin]]
 name = "placeholders"

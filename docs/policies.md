@@ -14,7 +14,7 @@ marked **Breaking**.
 
 | Surface | Stable within a major | How it is versioned and checked |
 |---|---|---|
-| **Rust API** of `isothrum-runner`, `isothrum-compiler`, `isothrum-machine` and `isothrum-wasm` | Public items, their signatures and behaviour, every feature included (`fake` too). Not stable: `#[doc(hidden)]` items and the `fuzzing` feature. | The crate version. CI runs `cargo semver-checks` against the last release on crates.io. `#[non_exhaustive]` types may gain variants and fields in a minor release. |
+| **Rust API** of `isothrum-runner` and `isothrum-machine` | Public items, their signatures and behaviour, every feature included (`fake` too). Not stable: `#[doc(hidden)]` items and the `fuzzing` feature. | The crate version. CI runs `cargo semver-checks` against the last release on crates.io. `#[non_exhaustive]` types may gain variants and fields in a minor release. |
 | **The re-exported `isoloom_manifest`** (`isothrum_runner::isoloom_manifest`) | As stable as the Isoloom release it pins. | Raising it to a new major of `isoloom-manifest` is a major release of Isothrum. |
 | **CLI**: commands, flags, exit codes | Names, meanings and exit codes ([Exit codes](reference/exit-codes.md)). | The crate version. New commands and flags may come in a minor release. |
 | **CLI output for machines**: `--json` events, `status --json` | The event schema and the status schema below. | As below. |
