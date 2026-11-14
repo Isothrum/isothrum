@@ -257,16 +257,15 @@ impl Client {
         }
     }
 
-    /// Queues `up` (`fresh`: remove whatever of the run exists first).
+    /// Queues `up`.
     ///
     /// # Errors
     ///
     /// As [`Client::submit`].
-    pub async fn up(&self, target: Target, options: OpOptions, fresh: bool) -> Result<Accepted> {
+    pub async fn up(&self, target: Target, options: OpOptions) -> Result<Accepted> {
         self.submit(Command::Up {
             target,
             options,
-            fresh,
             lifetime_s: None,
         })
         .await
@@ -317,22 +316,28 @@ impl Client {
         self.submit(Command::Retire { target, options, machine }).await
     }
 
-    /// Queues `detach`.
+    /// Queues `attach` of `machine`.
     ///
     /// # Errors
     ///
     /// As [`Client::submit`].
-    pub async fn detach(&self, target: Target, options: OpOptions, machine: Option<String>) -> Result<Accepted> {
-        self.submit(Command::Detach { target, options, machine }).await
+    pub async fn attach(&self, target: Target, options: OpOptions, machine: String) -> Result<Accepted> {
+        self.submit(Command::Attach { target, options, machine }).await
     }
 
-    /// Queues `check`.
+    /// Queues `exec` of `argv` in `machine`.
     ///
     /// # Errors
     ///
     /// As [`Client::submit`].
-    pub async fn check(&self, target: Target, options: OpOptions) -> Result<Accepted> {
-        self.submit(Command::Check { target, options }).await
+    pub async fn exec(&self, target: Target, options: OpOptions, machine: String, argv: Vec<String>) -> Result<Accepted> {
+        self.submit(Command::Exec {
+            target,
+            options,
+            machine,
+            argv,
+        })
+        .await
     }
 
     /// Cancels `operation`: queued, it never begins; running, it is cut short.
@@ -344,16 +349,14 @@ impl Client {
         self.request(Command::Cancel { operation }).await.map(drop)
     }
 
-    /// Run `run`'s status (`path`: where to open it, for a run not recorded yet).
+    /// Run `run`'s status (`target`: where to open it, for a run not recorded yet; else as
+    /// recorded).
     ///
     /// # Errors
     ///
     /// The runner couldn't read it, or the connection ended.
-    pub async fn status(&self, run: &RunName, path: Option<&Path>) -> Result<Status> {
-        let command = Command::Status {
-            run: run.clone(),
-            path: path.map(Path::to_path_buf),
-        };
+    pub async fn status(&self, run: &RunName, target: Option<Target>) -> Result<Status> {
+        let command = Command::Status { run: run.clone(), target };
         match self.request(command).await? {
             Reply::Status { status, .. } => Ok(*status),
             other => Err(unexpected(&other)),
