@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn a_kvm_device_missing_or_not_the_users_or_unusable_says_which() {
         let dir = tempfile::tempdir().unwrap();
-        let mut host = linux(dir.path());
+        let host = linux(dir.path());
         assert_eq!(kvm_problem(&host), Some(Unavailable::NoKvm));
         std::fs::create_dir_all(host.devices.kvm.parent().unwrap()).unwrap();
         std::fs::write(&host.devices.kvm, "").unwrap();
@@ -219,6 +219,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
+            let mut host = host;
             host.devices.kvm = dir.path().to_path_buf();
             assert!(matches!(kvm_problem(&host), Some(Unavailable::KvmUnusable { .. })), "{:?}", kvm_problem(&host));
             let denied = dir.path().join("denied");

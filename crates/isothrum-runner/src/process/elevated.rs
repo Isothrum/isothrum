@@ -17,6 +17,12 @@
 //! than at the session's end (its watcher ending it, its loop broken) says why in `ended`: the
 //! request in flight fails with that reason at once, and so does every later call.
 //!
+//! Only Hyper-V's programs go through the broker (Vagrant and Windows PowerShell,
+//! [`protocol::PROGRAMS`]); every other program of the operation runs as the account. The broker
+//! finds each program itself, at the path an administrator installed it to, and takes none of the
+//! variables that choose which code it loads ([`protocol::passes`]): the session's folder belongs
+//! to the account, so what a request names is never trusted to pick the program or its loader.
+//!
 //! One request failing or cut short never ends the session: a request whose future is dropped
 //! (its step's timeout, a probe given up on) or that fails before its answer is read (its file
 //! not written, its answer unreadable) writes `cancel-<n>`. The broker ends that request's
@@ -115,6 +121,11 @@ impl Elevated {
     }
 
     async fn run_spec(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
+        // Only what Hyper-V needs an administrator for is elevated: any other program runs as the
+        // account, as it would without Hyper-V, and never opens (or waits for) the session.
+        if !protocol::elevates(&spec.program) {
+            return self.inner.run(spec, on_line).await;
+        }
         if self.session() == Session::Unchecked {
             let _opening = self.opening.lock().await;
             if self.session() == Session::Unchecked {
@@ -364,13 +375,22 @@ fn request_file(token: &str, n: u64, spec: &ProcessSpec) -> String {
 }
 
 /// Request `n`'s variables, under the session's `token`: the forwarded ones, then the call's own
-/// (which win).
+/// (which win), less those an elevated program is never given ([`protocol::passes`]: its search
+/// path, Ruby's load path and options, any `VAGRANT_*` not listed). The broker refuses a request
+/// that carries one.
 fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, String)]) -> String {
     let mut env: Vec<(String, String)> = forwarded.to_vec();
     for (k, v) in &spec.env {
         env.retain(|(o, _)| !o.eq_ignore_ascii_case(k));
         env.push((k.clone(), v.clone()));
     }
+    env.retain(|(k, _)| {
+        let passes = protocol::passes(k);
+        if !passes {
+            tracing::debug!(name = %k, "a variable an elevated program isn't given is dropped");
+        }
+        passes
+    });
     serde_json::json!({
         "session": token,
         "seq": n,
