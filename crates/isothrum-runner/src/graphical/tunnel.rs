@@ -94,7 +94,7 @@ pub(super) async fn open(cx: &Cx<'_>, machine: &Machine, to: &To) -> Result<Tunn
         .pick_unreserved(cx.run.name(), Protocol::Tcp)
         .map_err(Error::io("a tcp port on 127.0.0.1", "bound"))?
         .ok_or_else(|| no_console(machine, "no free port on this computer's loopback for its tunnel"))?;
-    let local = free.port;
+    let local = free.port.get();
     drop(free);
     let mut tunnel = started(machine, &spec(cx, to, local)?, SocketAddr::new(LOOPBACK, local))?;
     if !cx.ports().reachable(&LOOPBACK.to_string(), local, OPENING).await {

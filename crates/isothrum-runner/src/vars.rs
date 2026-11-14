@@ -7,6 +7,7 @@ use isoloom_manifest::{Part, Placeholder, RunVar, Template};
 
 use crate::Result;
 use crate::error::Error;
+use crate::port::HostPort;
 
 /// A published port: the machine, and the port's name on it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,12 +34,12 @@ pub(crate) struct Vars {
     run: BTreeMap<RunVar, String>,
     params: BTreeMap<String, String>,
     outputs: BTreeMap<String, String>,
-    published: BTreeMap<PortKey, u16>,
+    published: BTreeMap<PortKey, HostPort>,
     hosts: BTreeMap<String, String>,
     machine: Option<String>,
     /// The host ports a local VM run forwards, by `"<machine>/<port>"`: a free one the runner
     /// pinned, bound from the record so the Vagrant driver and its forwarded-port check agree.
-    vm_pins: BTreeMap<String, u16>,
+    vm_pins: BTreeMap<String, HostPort>,
 }
 
 impl Vars {
@@ -58,17 +59,17 @@ impl Vars {
 
     /// Binds the host ports pinned for a local VM run, by `"<machine>/<port>"` (Vagrant forwards
     /// them from this computer).
-    pub(crate) fn set_vm_pins(&mut self, pins: BTreeMap<String, u16>) {
+    pub(crate) fn set_vm_pins(&mut self, pins: BTreeMap<String, HostPort>) {
         self.vm_pins = pins;
     }
 
     /// The host ports pinned for a local VM run, by `"<machine>/<port>"`.
-    pub(crate) fn vm_pins(&self) -> &BTreeMap<String, u16> {
+    pub(crate) fn vm_pins(&self) -> &BTreeMap<String, HostPort> {
         &self.vm_pins
     }
 
     /// Binds `${published.…}` with what the engine reports.
-    pub(crate) fn set_published(&mut self, published: BTreeMap<PortKey, u16>) {
+    pub(crate) fn set_published(&mut self, published: BTreeMap<PortKey, HostPort>) {
         self.published = published;
     }
 
@@ -78,7 +79,7 @@ impl Vars {
         self.hosts = hosts;
     }
 
-    pub(crate) fn published(&self) -> &BTreeMap<PortKey, u16> {
+    pub(crate) fn published(&self) -> &BTreeMap<PortKey, HostPort> {
         &self.published
     }
 
@@ -163,7 +164,7 @@ impl Vars {
             Placeholder::Run(var) => self.run.get(var).cloned(),
             Placeholder::Param(name) => self.params.get(name.as_str()).cloned(),
             Placeholder::Output(name) => self.outputs.get(name.as_str()).cloned(),
-            Placeholder::Published { machine, port } => self.published.get(&PortKey::new(machine, port)).map(u16::to_string),
+            Placeholder::Published { machine, port } => self.published.get(&PortKey::new(machine, port)).map(HostPort::to_string),
             Placeholder::Host(machine) => self.hosts.get(machine.as_str()).cloned(),
             Placeholder::Value => value.map(str::to_owned),
             Placeholder::Machine => self.machine.clone(),
@@ -184,7 +185,7 @@ mod tests {
         v.set_run(RunVar::Name, "web-portal");
         v.set_run(RunVar::StateDir, "/home/u/.isothrum/runs/web-portal");
         v.set_params(BTreeMap::from([("ISOLOOM_DERIVED".to_owned(), "1".to_owned())]));
-        v.set_published(BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
+        v.set_published(BTreeMap::from([(PortKey::new("web", "portal"), HostPort::new(41873))]));
         v.set_hosts(BTreeMap::from([("web".to_owned(), "127.0.0.1".to_owned())]));
         v.set_output("secret_token", "s3cr3t".into());
         v
@@ -271,7 +272,7 @@ mod proptests {
             let template = Template::parse(&format!("{text}${{published.web.portal}}")).unwrap();
             let mut vars = Vars::default();
             prop_assert_eq!(vars.render_lenient(&template, &BTreeSet::new()), format!("{text}${{published.web.portal}}"));
-            vars.set_published(BTreeMap::from([(PortKey::new("web", "portal"), port)]));
+            vars.set_published(BTreeMap::from([(PortKey::new("web", "portal"), HostPort::new(port))]));
             prop_assert_eq!(vars.render_lenient(&template, &BTreeSet::new()), format!("{text}{port}"));
         }
     }

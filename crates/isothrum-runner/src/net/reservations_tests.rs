@@ -13,7 +13,7 @@ use crate::net::FakePorts;
 const CHILD_HOME: &str = "ISOTHRUM_TEST_RESERVING_CHILD_HOME";
 
 /// The port the child reserves.
-const CHILD_PORT: u16 = 8080;
+const CHILD_PORT: crate::port::HostPort = crate::port::HostPort::new(8080);
 
 /// The reservations of a runner of the home `dir`, its own store handle (another process's,
 /// for what the reservations see).
@@ -33,26 +33,32 @@ fn two_runners_of_one_home_cant_both_reserve_a_port() {
     let home = tempfile::tempdir().unwrap();
     let (a, b) = (reservations(home.path(), []), reservations(home.path(), []));
     let (one, two) = (run("one"), run("two"));
-    assert!(a.reserve(&one, 8080, Protocol::Tcp, None));
-    assert!(!b.reserve(&two, 8080, Protocol::Tcp, None), "a holds it");
-    assert!(b.reserved_elsewhere(&two, 8080, Protocol::Tcp));
-    assert_eq!(b.ensure_free(&two, [(8080, Protocol::Tcp)]).unwrap_err().code(), crate::ErrorCode::PortInUse);
-    assert!(!a.reserved_elsewhere(&one, 8080, Protocol::Tcp), "its own");
-    assert!(a.reserve(&one, 8080, Protocol::Tcp, None), "its own reservation again");
-    assert!(b.reserve(&two, 8080, Protocol::Udp, None), "another protocol");
+    assert!(a.reserve(&one, crate::port::HostPort::new(8080), Protocol::Tcp, None));
+    assert!(!b.reserve(&two, crate::port::HostPort::new(8080), Protocol::Tcp, None), "a holds it");
+    assert!(b.reserved_elsewhere(&two, crate::port::HostPort::new(8080), Protocol::Tcp));
+    assert_eq!(
+        b.ensure_free(&two, [(crate::port::HostPort::new(8080), Protocol::Tcp)]).unwrap_err().code(),
+        crate::ErrorCode::PortInUse
+    );
+    assert!(!a.reserved_elsewhere(&one, crate::port::HostPort::new(8080), Protocol::Tcp), "its own");
+    assert!(
+        a.reserve(&one, crate::port::HostPort::new(8080), Protocol::Tcp, None),
+        "its own reservation again"
+    );
+    assert!(b.reserve(&two, crate::port::HostPort::new(8080), Protocol::Udp, None), "another protocol");
     a.release(&one);
-    assert!(!b.reserved_elsewhere(&two, 8080, Protocol::Tcp), "released");
-    assert!(b.reserve(&two, 8080, Protocol::Tcp, None));
-    assert!(!a.reserve(&one, 8080, Protocol::Tcp, None), "b holds it now");
+    assert!(!b.reserved_elsewhere(&two, crate::port::HostPort::new(8080), Protocol::Tcp), "released");
+    assert!(b.reserve(&two, crate::port::HostPort::new(8080), Protocol::Tcp, None));
+    assert!(!a.reserve(&one, crate::port::HostPort::new(8080), Protocol::Tcp, None), "b holds it now");
 }
 
 #[test]
 fn a_free_port_another_runner_reserved_is_skipped() {
     let home = tempfile::tempdir().unwrap();
     let (a, b) = (reservations(home.path(), []), reservations(home.path(), [41000, 41001]));
-    assert!(a.reserve(&run("one"), 41000, Protocol::Tcp, None));
+    assert!(a.reserve(&run("one"), crate::port::HostPort::new(41000), Protocol::Tcp, None));
     let picked = b.pick_reserved(&run("two"), Protocol::Tcp, None).unwrap().unwrap();
-    assert_eq!(picked.port, 41001, "41000 is reserved in the other runner");
+    assert_eq!(picked.port, crate::port::HostPort::new(41001), "41000 is reserved in the other runner");
 }
 
 #[test]
@@ -62,7 +68,7 @@ fn a_run_another_live_process_holds_gets_no_port() {
     let r = reservations(home.path(), []);
     let other = crate::store::Owner::this_process();
     r.db.write(|tx| tx.acquire_lease("run:one", &other, LEASE_TTL)).unwrap();
-    assert!(!r.reserve(&run("one"), 8080, Protocol::Tcp, None));
+    assert!(!r.reserve(&run("one"), crate::port::HostPort::new(8080), Protocol::Tcp, None));
 }
 
 #[test]
@@ -73,8 +79,11 @@ fn a_reservation_is_journaled_under_its_operation_and_freed_with_the_run() {
     let op =
         r.db.write(|tx| tx.begin_operation(&one, crate::state::Op::Up, &crate::store::Owner::this_process(), None))
             .unwrap();
-    assert!(r.reserve(&one, 8080, Protocol::Tcp, Some(op.id)));
-    let held = r.db.read(|tx| tx.port_holder(8080, Protocol::Tcp)).unwrap().unwrap();
+    assert!(r.reserve(&one, crate::port::HostPort::new(8080), Protocol::Tcp, Some(op.id)));
+    let held =
+        r.db.read(|tx| tx.port_holder(crate::port::HostPort::new(8080), Protocol::Tcp))
+            .unwrap()
+            .unwrap();
     assert_eq!((held.run, held.operation), (one.clone(), Some(op.id)));
     r.release(&one);
     let left = r.db.read(|tx| tx.port_reservations().map(|l| l.len())).unwrap();

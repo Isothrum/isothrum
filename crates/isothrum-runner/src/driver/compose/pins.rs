@@ -4,8 +4,9 @@
 
 use super::config::{self, ConfigPort};
 use crate::Result;
-use crate::driver::port_pick::{self, PortPick};
+use crate::driver::port_pick::PortPick;
 use crate::executor::Cx;
+use crate::port::PreferredPort;
 
 /// The pinned-ports override for `config` (`docker compose config --format json`) that `step`
 /// read, or `None` when nothing is ephemeral. A config that can't be read, or a port with no free
@@ -21,7 +22,7 @@ pub(super) fn pick(cx: &Cx<'_>, step: &str, config: &str) -> Result<Option<Strin
 }
 
 /// The manifest's `preferred` number for the machine port `p` publishes.
-fn preferred(cx: &Cx<'_>, p: &ConfigPort) -> Option<u16> {
+fn preferred(cx: &Cx<'_>, p: &ConfigPort) -> Option<PreferredPort> {
     let machine = cx.manifest().machines.iter().find(|m| crate::driver::native_name(m) == p.service)?;
-    port_pick::preferred(super::machine_port(machine, p.target, p.protocol)?)
+    PreferredPort::of(super::machine_port(machine, p.target, p.protocol)?)
 }

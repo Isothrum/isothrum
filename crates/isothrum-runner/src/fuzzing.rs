@@ -15,7 +15,7 @@ use crate::vars::Vars;
 pub struct Values {
     vars: Vars,
     params: BTreeMap<String, String>,
-    published: BTreeMap<crate::vars::PortKey, u16>,
+    published: BTreeMap<crate::vars::PortKey, crate::port::HostPort>,
 }
 
 impl Values {
@@ -37,7 +37,8 @@ impl Values {
 
     /// Binds `${published.<machine>.<port>}`.
     pub fn published(&mut self, machine: &str, port: &str, host_port: u16) {
-        self.published.insert(crate::vars::PortKey::new(machine, port), host_port);
+        self.published
+            .insert(crate::vars::PortKey::new(machine, port), crate::port::HostPort::new(host_port));
         self.vars.set_published(self.published.clone());
     }
 

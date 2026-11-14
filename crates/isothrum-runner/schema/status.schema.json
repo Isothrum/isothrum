@@ -565,22 +565,16 @@
       "type": "object",
       "properties": {
         "port": {
-          "description": "The machine's port.",
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
+          "description": "The machine's port, inside it.",
+          "$ref": "#/$defs/GuestPort"
         },
         "protocol": {
           "description": "`tcp` or `udp`.",
           "$ref": "#/$defs/Protocol"
         },
         "host_port": {
-          "description": "The host port.",
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
+          "description": "The host port it is reached at, at the machine's host address.",
+          "$ref": "#/$defs/HostPort"
         }
       },
       "required": [
@@ -588,6 +582,13 @@
         "protocol",
         "host_port"
       ]
+    },
+    "GuestPort": {
+      "description": "A port inside a machine: a container's target port, a VM's own port. Reached from this\ncomputer only through the host port its driver gives it ([`HostPort`]).",
+      "type": "integer",
+      "format": "uint16",
+      "minimum": 0,
+      "maximum": 65535
     },
     "Protocol": {
       "description": "A port's transport protocol.",
@@ -603,6 +604,13 @@
           "const": "udp"
         }
       ]
+    },
+    "HostPort": {
+      "description": "The port a published port is reached at, at its machine's host address: on this computer's\nloopback where the engine forwards it here (Compose, a local VM), at the VM's own address\nwhere it doesn't (ESXi, a server). Only a host port is reserved, checked free or reported.",
+      "type": "integer",
+      "format": "uint16",
+      "minimum": 0,
+      "maximum": 65535
     },
     "ConsoleOffer": {
       "description": "What a status says of a machine's graphical console under the run's provider: its protocol,\nor `none` and why ([`isoloom_manifest::Console`]'s, as the manifest says it).",

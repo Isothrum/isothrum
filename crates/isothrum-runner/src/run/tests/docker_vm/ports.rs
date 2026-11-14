@@ -22,8 +22,7 @@ async fn an_ephemeral_port_in_the_vm_answers_at_the_pinned_host_port() {
     let page = started.outputs.iter().find(|o| o.name == "web__portal").unwrap();
     assert_eq!(page.value.as_deref(), Some("http://127.0.0.1:50123/"));
     let status = run.status().await.unwrap();
-    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
-    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 50123)]);
+    assert_eq!(crate::testing::published_numbers(&status.machines, "web"), [(80, 50123)]);
 }
 
 /// On QEMU, vagrant-qemu forwards every VM's SSH (guest 22) to one fixed host port (50022) with

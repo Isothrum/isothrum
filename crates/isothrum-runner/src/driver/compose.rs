@@ -37,11 +37,42 @@ const PROJECT_LABEL: &str = "com.docker.compose.project";
 /// The label, with its value, Compose puts on a `docker compose run` container (a one-off).
 const ONE_OFF_LABEL: &str = "com.docker.compose.oneoff=True";
 
+/// The host port each published machine port is reached at, by machine and port name.
+pub(crate) type Published = BTreeMap<crate::vars::PortKey, crate::port::HostPort>;
+
+/// Where the Docker engine that `ps` reads runs, which says where the ports it publishes are
+/// reached.
+pub(crate) enum EngineAt<'a> {
+    /// On this computer: a port it publishes is a host port.
+    ThisComputer,
+    /// Inside one of the run's VMs (`docker-vm`'s guest): a port it publishes is the VM's (a guest
+    /// port), reached at the host port the VM's driver gives it for machine `m`'s port `p` (`None`
+    /// for a port the manifest doesn't declare); none, and the port is left out, where nothing
+    /// reaches it from here.
+    Vm(&'a VmReach<'a>),
+}
+
+/// How a VM's driver reaches a port published in the VM: machine `m`'s port `p` (`None`: one the
+/// manifest doesn't declare), at the VM's port `on_vm`.
+pub(crate) type VmReach<'r> = dyn Fn(&Machine, Option<&Port>, crate::port::GuestPort) -> Option<crate::port::HostPort> + Sync + 'r;
+
+impl EngineAt<'_> {
+    /// The host port the engine's port `number`, published for machine `m`'s port `p`, is reached
+    /// at.
+    fn reached_at(&self, m: &Machine, p: Option<&Port>, number: u16) -> Option<crate::port::HostPort> {
+        match self {
+            EngineAt::ThisComputer => Some(crate::port::HostPort::new(number)),
+            EngineAt::Vm(reach) => reach(m, p, crate::port::GuestPort::new(number)),
+        }
+    }
+}
+
 /// Every machine of `manifest` as `ps --all --format json`'s output `out` shows it, and the host
-/// port each published machine port got: a project on this computer's Docker, or one Compose runs
-/// inside a VM (`docker-vm`'s guest). `None` when `out` lists no container this runner can read.
-pub(crate) fn read_ps(manifest: &isoloom_manifest::Manifest, out: &str) -> Option<(Vec<crate::status::MachineStatus>, BTreeMap<crate::vars::PortKey, u16>)> {
-    Some(ps::machines(manifest, &ps::parse_ps(out)?))
+/// port each published machine port is reached at, the engine running `at`: a project on this
+/// computer's Docker, or one Compose runs inside a VM (`docker-vm`'s guest). `None` when `out`
+/// lists no container this runner can read.
+pub(crate) fn read_ps(manifest: &isoloom_manifest::Manifest, out: &str, at: &EngineAt<'_>) -> Option<(Vec<crate::status::MachineStatus>, Published)> {
+    Some(ps::machines(manifest, &ps::parse_ps(out)?, at))
 }
 
 /// What an empty pinned-ports file holds: Compose reads it as no override.
@@ -115,8 +146,8 @@ fn protocol(said: &str) -> Option<Protocol> {
 }
 
 /// Machine `m`'s port that Compose publishes as container port `port` over `protocol`.
-fn machine_port(m: &Machine, port: u16, protocol: Protocol) -> Option<&Port> {
-    m.ports.iter().find(|q| q.port.get() == port && q.kind.transport() == protocol)
+fn machine_port(m: &Machine, port: crate::port::GuestPort, protocol: Protocol) -> Option<&Port> {
+    m.ports.iter().find(|q| crate::port::GuestPort::of(q) == port && q.kind.transport() == protocol)
 }
 
 impl Driver for Compose {
@@ -156,7 +187,7 @@ impl Driver for Compose {
 
     async fn observe(&self, cx: &Cx<'_>) -> Result<Observation> {
         let out = super::status_report(cx).await?;
-        let (machines, published) = read_ps(cx.manifest(), &out).ok_or_else(|| ps::unreadable(super::STATUS))?;
+        let (machines, published) = read_ps(cx.manifest(), &out, &EngineAt::ThisComputer).ok_or_else(|| ps::unreadable(super::STATUS))?;
         // Compose publishes on this computer, at the address the manifest binds.
         let publishing = cx
             .manifest()

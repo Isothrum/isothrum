@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::encoding::wire_name;
 use crate::error::Error;
+use crate::port::{GuestPort, HostPort};
 
 /// What this runner reads of `docker compose config --format json`: parsed once, at the boundary,
 /// into the fields it uses, where four readers walked the JSON by hand. Unknown fields are
@@ -86,10 +87,10 @@ pub(super) fn unreadable(step: &str, what: &str, why: &str) -> Error {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ConfigPort {
     pub(super) service: String,
-    pub(super) target: u16,
+    pub(super) target: GuestPort,
     pub(super) protocol: Protocol,
     pub(super) host_ip: Option<String>,
-    pub(super) published: Option<u16>,
+    pub(super) published: Option<HostPort>,
 }
 
 /// The config's published ports, or why the config can't be read: it isn't the JSON Compose
@@ -108,10 +109,11 @@ pub(super) fn ports(config: &str) -> Result<Vec<ConfigPort>, String> {
                     .as_ref()
                     .and_then(PortNumber::as_u16)
                     .filter(|t| *t > 0)
+                    .map(GuestPort::new)
                     .ok_or_else(|| format!("a port of `{service}` has no target"))?,
                 protocol: super::protocol(said).ok_or_else(|| format!("a port of `{service}` has the protocol `{said}`, neither tcp nor udp"))?,
                 host_ip: p.host_ip.as_deref().filter(|i| !i.is_empty()).map(str::to_owned),
-                published: p.published.as_ref().and_then(PortNumber::as_u16).filter(|n| *n > 0),
+                published: p.published.as_ref().and_then(PortNumber::as_u16).filter(|n| *n > 0).map(HostPort::new),
             });
         }
     }
@@ -120,7 +122,7 @@ pub(super) fn ports(config: &str) -> Result<Vec<ConfigPort>, String> {
 
 /// The host ports the config publishes, each with its protocol, or why the config can't be read
 /// ([`ports`]).
-pub(super) fn host_ports(config: &str) -> Result<Vec<(u16, Protocol)>, String> {
+pub(super) fn host_ports(config: &str) -> Result<Vec<(HostPort, Protocol)>, String> {
     Ok(ports(config)?.iter().filter_map(|p| Some((p.published?, p.protocol))).collect())
 }
 
@@ -155,7 +157,7 @@ pub(super) fn networks(config: &str, project: &str) -> Result<Vec<String>, Strin
 /// again (`!override`: Compose would otherwise add the entries), each ephemeral one with the port
 /// `pick` gives (container port, protocol). `None` when nothing is ephemeral; the first failed
 /// pick's error when one fails.
-pub(super) fn pinned_ports<E>(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPort) -> Result<u16, E>) -> Result<Option<String>, E> {
+pub(super) fn pinned_ports<E>(ports: &[ConfigPort], mut pick: impl FnMut(&ConfigPort) -> Result<HostPort, E>) -> Result<Option<String>, E> {
     let mut services: Vec<&str> = Vec::new();
     for p in ports.iter().filter(|p| p.published.is_none()) {
         if !services.contains(&p.service.as_str()) {
@@ -217,7 +219,7 @@ mod tests {
         assert_eq!(ports(zero), Err("a port of `web` has no target".to_owned()));
         let one = r#"{"services": {"web": {"ports": [{"target": 1, "published": "0"}]}}}"#;
         let read = ports(one).unwrap();
-        assert_eq!((read[0].target, read[0].published), (1, None), "port 0 is no published port");
+        assert_eq!((read[0].target, read[0].published), (GuestPort::new(1), None), "port 0 is no published port");
     }
 
     /// Regression: a protocol other than `udp` read as TCP.
@@ -235,7 +237,7 @@ mod tests {
         let mut next = 40000;
         let yaml = pinned_ports(&ports(json).unwrap(), |_| {
             next += 1;
-            Ok::<_, ()>(next)
+            Ok::<_, ()>(HostPort::new(next))
         })
         .unwrap()
         .unwrap();
@@ -257,7 +259,7 @@ mod tests {
         assert!(!yaml.contains("db"));
         assert!(
             pinned_ports(&ports(r#"{"services":{"web":{"ports":[{"target":80,"published":"8080"}]}}}"#).unwrap(), |_| {
-                Ok::<_, ()>(1)
+                Ok::<_, ()>(HostPort::new(1))
             })
             .unwrap()
             .is_none()
@@ -272,7 +274,7 @@ mod tests {
     fn unicode_line_breaks_in_names_stay_inside_their_scalar() {
         for name in ["\u{85}", "a\u{2028}b", "\u{2029}", "na\u{ef}ve \u{1f600}"] {
             let json = serde_json::json!({"services": {name: {"ports": [{"target": 80, "protocol": "tcp"}]}}}).to_string();
-            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
+            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(HostPort::new(40000))).unwrap().unwrap();
             let line = yaml.lines().nth(2).unwrap();
             let quoted = line.trim().trim_end_matches(':');
             assert_eq!(
@@ -286,7 +288,7 @@ mod tests {
     #[test]
     fn ipv6_host_addresses_are_bracketed() {
         let json = r#"{"services":{"a":{"ports":[{"target":80,"host_ip":"::1","protocol":"udp"},{"target":443,"published":"8443","host_ip":""}]}}}"#;
-        let yaml = pinned_ports(&ports(json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
+        let yaml = pinned_ports(&ports(json).unwrap(), |_| Ok::<_, ()>(HostPort::new(40000))).unwrap().unwrap();
         assert!(yaml.contains("- \"[::1]:40000:80/udp\"\n") && yaml.contains("- \"8443:443/tcp\"\n"), "{yaml}");
     }
 
@@ -295,7 +297,14 @@ mod tests {
         let json = r#"{"services":{"a":{"ports":[{"published":"80","target":80}]},"b":{"ports":[{"published":8443,"target":8443}]},"c":{"ports":[{"published":0,"target":5000},{"published":"0","target":5001}]},"d":{"ports":[{"published":70000,"target":9}]},"e":{"ports":[{"published":"53","target":53,"protocol":"udp"}]},"init":{}}}"#;
         let mut found = host_ports(json).unwrap();
         found.sort();
-        assert_eq!(found, [(53, Protocol::Udp), (80, Protocol::Tcp), (8443, Protocol::Tcp)]);
+        assert_eq!(
+            found,
+            [
+                (HostPort::new(53), Protocol::Udp),
+                (HostPort::new(80), Protocol::Tcp),
+                (HostPort::new(8443), Protocol::Tcp)
+            ]
+        );
         assert_eq!(host_ports(r#"{"services":{}}"#), Ok(Vec::new()), "a config that publishes nothing");
         assert!(ports(r#"{"services":{"a":{"ports":[{"published":""}]}}}"#).is_err(), "a port without a target");
     }
@@ -371,7 +380,7 @@ mod proptests {
         #[test]
         fn any_service_name_reads_back_from_the_override(name in "\\PC{1,24}", target in 1u16..) {
             let json = serde_json::json!({"services": {&name: {"ports": [{"target": target}]}}}).to_string();
-            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(40000)).unwrap().unwrap();
+            let yaml = pinned_ports(&ports(&json).unwrap(), |_| Ok::<_, ()>(HostPort::new(40000))).unwrap().unwrap();
             prop_assert_eq!(yaml.lines().count(), 5, "{}", yaml);
             let expected = format!("      - \"40000:{target}/tcp\"\n");
             prop_assert!(yaml.ends_with(&expected));

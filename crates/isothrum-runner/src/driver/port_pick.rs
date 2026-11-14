@@ -8,17 +8,13 @@
 
 use std::collections::BTreeSet;
 
-use isoloom_manifest::{Port, Protocol};
+use isoloom_manifest::Protocol;
 
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
 use crate::net::HeldPort;
-
-/// The host port `p`'s publish asks for (`preferred`), when it is published and names one.
-pub(super) fn preferred(p: &Port) -> Option<u16> {
-    p.publish.as_ref()?.preferred.map(std::num::NonZeroU16::get)
-}
+use crate::port::{HostPort, PreferredPort};
 
 /// The ports picked so far, with the sockets holding the free ones.
 pub(super) struct PortPick<'c, 'a> {
@@ -26,7 +22,7 @@ pub(super) struct PortPick<'c, 'a> {
     /// Whether the run's `ISOLOOM_PUBLISH_FIXED` param asks for each port's `preferred` number.
     fixed: bool,
     held: Vec<HeldPort>,
-    taken: BTreeSet<(u16, Protocol)>,
+    taken: BTreeSet<(HostPort, Protocol)>,
 }
 
 impl<'c, 'a> PortPick<'c, 'a> {
@@ -52,7 +48,7 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// home, or held on the IPv6 loopback): the run would otherwise start on ports nobody pinned,
     /// and a resume would get new addresses. `io` when the loopback couldn't be bound to find one
     /// (no file descriptor left, a loopback that is down).
-    pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<u16>, protocol: Protocol) -> Result<u16> {
+    pub(super) fn pin(&mut self, step: &str, what: &str, preferred: Option<PreferredPort>, protocol: Protocol) -> Result<HostPort> {
         if let Some(port) = preferred.filter(|_| self.fixed).and_then(|n| self.fixed(n, protocol)) {
             return Ok(port);
         }
@@ -68,17 +64,18 @@ impl<'c, 'a> PortPick<'c, 'a> {
     /// other run reserved it: reserved for this run. The number is preferred, not fixed (Isoloom's
     /// spec): one the host holds (another lab's VM forwarding it, any program) moves to a free
     /// port, where the start failed `port_in_use` at its forwarded-port check.
-    fn fixed(&mut self, preferred: u16, protocol: Protocol) -> Option<u16> {
-        let free = !self.taken.contains(&(preferred, protocol)) && !self.cx.ports().in_use(preferred, protocol) && self.cx.run.reserve(preferred, protocol);
+    fn fixed(&mut self, preferred: PreferredPort, protocol: Protocol) -> Option<HostPort> {
+        let port = preferred.picked();
+        let free = !self.taken.contains(&(port, protocol)) && !self.cx.ports().in_use(port, protocol) && self.cx.run.reserve(port, protocol);
         free.then(|| {
-            self.taken.insert((preferred, protocol));
-            preferred
+            self.taken.insert((port, protocol));
+            port
         })
     }
 
     /// A free loopback port over `protocol`, reserved for this run and held until the pick is
     /// dropped; none when none is left.
-    fn free(&mut self, protocol: Protocol) -> std::io::Result<Option<u16>> {
+    fn free(&mut self, protocol: Protocol) -> std::io::Result<Option<HostPort>> {
         let Some(port) = self.cx.run.pick_reserved(protocol)? else {
             return Ok(None);
         };
