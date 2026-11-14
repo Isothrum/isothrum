@@ -1,9 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-test-support", "xtask"]
-# The fuzz targets are their own workspace: they build with nightly and libFuzzer
-# (`cargo run -p xtask -- fuzz`).
-exclude = ["fuzz"]
 
 [workspace.package]
 version = "3.0.0"
@@ -16,11 +13,6 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-# Isoloom's published crates (crates.io), at the release this one pairs with. A change that needs
-# unreleased Isoloom API builds against a local Isoloom checkout through the git-ignored
-# `.cargo/config.toml` patch (CONTRIBUTING.md); the release step raises these pins to it.
-isoloom-targets = "3.0.0"
-isoloom-manifest = "3.0.0"
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
 indexmap = { version = "2", features = ["serde"] }

@@ -10,20 +10,15 @@ use crate::{Res, repo};
 /// Lines of code a source file may have.
 const MAX_CODE_LINES: usize = 400;
 
-/// The fuzz crate: a workspace of its own (`fuzz/`), outside `cargo metadata`'s, held to the same
-/// rules.
-pub(crate) const FUZZ: (&str, &str) = ("isothrum-fuzz", "fuzz");
+/// The folders of a crate whose files the size rule counts: its library and binaries.
+const SOURCE_DIRS: [&str; 1] = ["src"];
 
-/// The folders of a crate whose files the size rule counts: its library and binaries, and the
-/// fuzz crate's targets.
-const SOURCE_DIRS: [&str; 2] = ["src", "fuzz_targets"];
-
-/// The workspace's crates, from `cargo metadata`, and the fuzz crate.
+/// The workspace's crates, from `cargo metadata`.
 pub(crate) fn crates(root: &Path) -> Res<Vec<Crate>> {
     crates_in(&repo::metadata(root)?)
 }
 
-/// The crates `cargo metadata`'s `metadata` lists, and the fuzz crate. A package whose name or
+/// The crates `cargo metadata`'s `metadata` lists. A package whose name or
 /// folder can't be read from it is an error: left out, it would be counted nowhere.
 fn crates_in(metadata: &serde_json::Value) -> Res<Vec<Crate>> {
     let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
@@ -45,10 +40,6 @@ fn crates_in(metadata: &serde_json::Value) -> Res<Vec<Crate>> {
             dir: dir.trim_start_matches('/').to_owned(),
         });
     }
-    out.push(Crate {
-        name: FUZZ.0.to_owned(),
-        dir: FUZZ.1.to_owned(),
-    });
     Ok(out)
 }
 
@@ -302,7 +293,7 @@ mod tests {
         let found = crates_in(&metadata("/w/crates/a/Cargo.toml")).unwrap();
         assert_eq!(
             found.iter().map(|c| (c.name.as_str(), c.dir.as_str())).collect::<Vec<_>>(),
-            [("a", "crates/a"), FUZZ]
+            [("a", "crates/a")]
         );
         assert!(crates_in(&metadata("/elsewhere/a/Cargo.toml")).is_err());
         assert!(crates_in(&serde_json::json!({"workspace_root": "/w"})).is_err());

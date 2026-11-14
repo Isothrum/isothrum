@@ -5,9 +5,7 @@
 //!   `crates/isothrum-runner/schema/`;
 //! - `real-run`: an Isoloom example generated for Docker with the local Isoloom, then the ignored
 //!   real-run test against it (up, status, check, park, resume, down), the event stream kept
-//!   under `target/real-run/`; `real-run cloud <cloud>` runs solo-web on a cloud account whose
-//!   credentials are in the environment (up, status, check, then down and reap whatever
-//!   happened);
+//!   under `target/real-run/`;
 //! - `quality`: the ratchet, the clean-code counts per crate against `quality-baseline.json`;
 //! - `test`: the tests under cargo-nextest, then the doctests, in a temp folder of their own that
 //!   must be empty at the end (`ISOTHRUM_KEEP_TEMP=1` keeps it);
@@ -58,8 +56,7 @@ struct Cli {
 enum Task {
     /// Writes the JSON Schemas of the event stream and of a run's status.
     Schema,
-    /// Runs an Isoloom example on this host's Docker through the `isothrum` command line (`cloud
-    /// <cloud>`: on a cloud account, with its credentials in the environment).
+    /// Runs an Isoloom example on this host's Docker through the `isothrum` command line.
     RealRun(real_run::Args),
     /// The ratchet: every clean-code count per crate against quality-baseline.json; fails when
     /// one goes up (`--update` writes them when they only went down).
