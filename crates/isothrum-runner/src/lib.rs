@@ -124,6 +124,8 @@ mod encoding;
 mod error;
 mod events;
 mod executor;
+#[expect(dead_code, reason = "the format drivers implement it, and the operations call them once runs open folders")]
+mod formats;
 mod future;
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
