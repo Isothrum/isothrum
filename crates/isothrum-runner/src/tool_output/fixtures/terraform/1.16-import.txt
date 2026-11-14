@@ -1,0 +1,10 @@
+terraform_data.web: Importing from ID "0f0e-web-id"...
+terraform_data.web: Import prepared!
+  Prepared terraform_data for import
+terraform_data.web: Refreshing state... [id=0f0e-web-id]
+
+Import successful!
+
+The resources that were imported are shown above. These resources are now in
+your Terraform state and will henceforth be managed by Terraform.
+
