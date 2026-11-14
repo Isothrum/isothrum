@@ -15,6 +15,7 @@
 pub(crate) mod any;
 pub(crate) mod compose;
 pub(crate) mod ledger;
+mod vagrant;
 
 use std::collections::BTreeMap;
 use std::path::Path;
