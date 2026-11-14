@@ -27,10 +27,13 @@
 //! VMs and folders whose name carries the run's key as a word; then it starts once more. A call
 //! another Vagrant process's lock refused is made again ([`lock`]).
 
+mod clear;
 mod dotfile;
 mod lock;
+mod names;
 mod providers;
 mod screen;
+use names::{checked_user, key_of, of_key, one, ours, own_address, verb_word};
 
 use std::time::Duration;
 
@@ -86,32 +89,6 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
     cx.provider.ok_or_else(|| Error::NoProvider {
         providers: providers::listed_for(providers::this_host()),
     })
-}
-
-/// The key a machine's VM is recorded under: `vm:<machine>` on the provider asked for, and
-/// `vm:<machine>@<provider>` for a record left on another one.
-fn key_of(record: &Record, asked: Option<Provider>) -> String {
-    if asked.is_some_and(|p| p.id() == record.provider) {
-        format!("vm:{}", record.machine)
-    } else {
-        format!("vm:{}@{}", record.machine, record.provider)
-    }
-}
-
-/// The machine and provider a key names ([`key_of`]): the provider asked for when it names none.
-fn of_key(key: &str, asked: Option<Provider>) -> Option<(String, Option<String>)> {
-    let rest = key.strip_prefix("vm:")?;
-    Some(match rest.split_once('@') {
-        Some((machine, provider)) => (machine.to_owned(), Some(provider.to_owned())),
-        None => (rest.to_owned(), asked.map(|p| p.id().to_owned())),
-    })
-}
-
-/// Whether `name` (a VM's or its folder's) carries the run's key `key` as a word of its own: a
-/// run of letters and digits between characters that are neither (or its ends). The key is made
-/// from this runner's home and the run's name, so another copy of the project never matches.
-fn ours(name: &str, key: &str) -> bool {
-    !key.is_empty() && name.split(|c: char| !c.is_alphanumeric()).any(|word| word == key)
 }
 
 /// The run's state as `machines` show it: absent when none was made; parked when none of those
@@ -222,146 +199,6 @@ impl Vagrant {
             }
             Err(e) => Err(tool_error(step, e)),
         }
-    }
-
-    /// Removes what the run made, for a start to begin from nothing: `destroy -f` (best effort),
-    /// each VM the dotfile still records by its id, on VirtualBox the VMs and folders whose name
-    /// carries the run's key, then the dotfile.
-    async fn clear(&self, cx: &ToolCx<'_>) -> Result<()> {
-        if let Err(e) = self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await {
-            tracing::debug!(error = %e, "the clearing destroy failed: the VMs are removed by id");
-        }
-        let dot = dot(cx);
-        for r in dot.recorded()? {
-            self.remove_at_hypervisor(cx, &r).await?;
-        }
-        if cx.provider == Some(Provider::Virtualbox) {
-            self.virtualbox_leftovers(cx).await;
-        }
-        dot.reset()
-    }
-
-    /// VirtualBox's VMs and VM folders whose name carries the run's key, removed: what a crashed
-    /// import leaves, unknown to Vagrant, and what makes the next import fail with
-    /// `VERR_ALREADY_EXISTS`. Each failure is a `cleanup_failed` warning: the retried `up` says the
-    /// rest.
-    async fn virtualbox_leftovers(&self, cx: &ToolCx<'_>) {
-        let call = call(cx, READ_LIMIT);
-        match vboxmanage::vms(&call).await {
-            Ok(vms) => {
-                for (name, uuid) in vms.into_iter().filter(|(n, _)| ours(n, cx.key)) {
-                    drop(vboxmanage::discard_state(&call, &uuid).await);
-                    drop(vboxmanage::power_off(&call, &uuid).await);
-                    match vboxmanage::unregister_delete(&call, &uuid).await {
-                        Ok(())
-                        | Err(CliError::Failed {
-                            failure: vboxmanage::Failure::NotFound,
-                            ..
-                        }) => {
-                            (cx.warn)(WarningCode::OrphanRemoved, &format!("removed a VM an earlier run left ({name})"));
-                        }
-                        Err(e) => (cx.warn)(
-                            WarningCode::CleanupFailed,
-                            &format!("a VM an earlier run left ({name}) couldn't be removed: {e}"),
-                        ),
-                    }
-                }
-            }
-            Err(e) => (cx.warn)(
-                WarningCode::CleanupFailed,
-                &format!("VirtualBox's VMs couldn't be listed: none is removed: {e}"),
-            ),
-        }
-        let Ok(base) = vboxmanage::machine_folder(&call).await else { return };
-        let Ok(entries) = std::fs::read_dir(&base) else { return };
-        for entry in entries.flatten() {
-            let is_folder = entry.file_type().is_ok_and(|t| t.is_dir() || t.is_symlink());
-            if is_folder && ours(&entry.file_name().to_string_lossy(), cx.key) {
-                let what = format!("a VM folder an earlier run left ({})", entry.path().display());
-                match crate::store::remove_path(&entry.path()) {
-                    Ok(()) => (cx.warn)(WarningCode::OrphanRemoved, &format!("removed {what}")),
-                    Err(e) => (cx.warn)(WarningCode::CleanupFailed, &format!("{what} couldn't be removed: {e}")),
-                }
-            }
-        }
-    }
-
-    /// Removes `record`'s VM at its hypervisor by its id, Vagrant not involved (a machine the
-    /// Vagrantfile no longer defines, a record Vagrant can't act on); a VM already gone is fine.
-    /// Only VirtualBox has an adapter: any other provider is refused, named.
-    async fn remove_at_hypervisor(&self, cx: &ToolCx<'_>, record: &Record) -> Result<()> {
-        if record.provider != Provider::Virtualbox.id() {
-            return Err(Error::Unsupported {
-                what: format!(
-                    "removing VM `{}` of machine `{}` on `{}` by its id once Vagrant can't (only VirtualBox VMs are)",
-                    record.id, record.machine, record.provider
-                ),
-            });
-        }
-        let call = call(cx, CALL_LIMIT);
-        drop(vboxmanage::power_off(&call, &record.id).await);
-        match vboxmanage::unregister_delete(&call, &record.id).await {
-            Ok(())
-            | Err(CliError::Failed {
-                failure: vboxmanage::Failure::NotFound,
-                ..
-            }) => {}
-            Err(e) => return Err(tool_error("remove", e)),
-        }
-        dot(cx).forget(&record.machine, &record.provider)
-    }
-}
-
-/// Whether a VM of `provider` (as Vagrant names it) is reached at an address of its own, which
-/// `ssh-config` gives: every provider but those that reach it through a port forwarded on this
-/// computer's loopback (VirtualBox, QEMU, UTM).
-fn own_address(provider: &str) -> bool {
-    ![Provider::Virtualbox, Provider::Qemu, Provider::Utm].iter().any(|p| p.id() == provider)
-}
-
-impl Vagrant {
-    /// The address `ssh-config` gives running `machine`, when it is one another computer
-    /// reaches; none when it gives none, or can't be read (traced): the status stands without it.
-    async fn address(&self, cx: &ToolCx<'_>, machine: &str) -> Option<String> {
-        let read = call(cx, READ_LIMIT);
-        match retrying(cx.warn, "ssh-config", Rerun::Read, STATUS_PATIENCE, || vagrant::ssh_host(&read, machine)).await {
-            Ok(host) => host
-                .parse::<std::net::IpAddr>()
-                .map_or(true, |ip| !ip.is_loopback() && !ip.is_unspecified())
-                .then_some(host),
-            Err(e) => {
-                tracing::debug!(machine, error = %e, "the machine's address couldn't be read");
-                None
-            }
-        }
-    }
-}
-
-/// `verb` as Vagrant's command names it, for what is said of it.
-fn verb_word(verb: Verb) -> &'static str {
-    match verb {
-        Verb::Halt => "halt",
-        Verb::Suspend => "suspend",
-        Verb::Provision => "provision",
-        Verb::Destroy => "destroy",
-    }
-}
-
-/// `machine` alone, as a call's machine list.
-fn one(machine: &str) -> Vec<String> {
-    vec![machine.to_owned()]
-}
-
-/// An account name as a console takes it: letters, digits, `.`, `_` and `-`, so nothing in the
-/// script it goes into needs quoting.
-fn checked_user(user: &str) -> Result<&str> {
-    let fine = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if fine {
-        Ok(user)
-    } else {
-        Err(Error::Unsupported {
-            what: format!("a console as `{user}`, which isn't an account name (letters, digits, `.`, `_`, `-`),"),
-        })
     }
 }
 
@@ -516,8 +353,7 @@ impl FormatDriver for Vagrant {
     fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
         let script = user.map(checked_user).transpose()?.map(crate::console::shells::login_shell_as);
         let spec = vagrant::console_spec(&call(cx, READ_LIMIT), machine, script.as_deref());
-        let cwd = spec.cwd.clone().unwrap_or_else(|| cx.project.dir.clone());
-        Ok(ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env))
+        Ok(ShellCommand::of_spec(spec, &cx.project.dir))
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

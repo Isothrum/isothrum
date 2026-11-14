@@ -33,6 +33,13 @@ pub struct ShellCommand {
 }
 
 impl ShellCommand {
+    /// The command `spec` starts, in its folder, else in `dir`, with its variables: a console an
+    /// adapter built.
+    pub(crate) fn of_spec(spec: crate::process::ProcessSpec, dir: &std::path::Path) -> ShellCommand {
+        let cwd = spec.cwd.unwrap_or_else(|| dir.to_path_buf());
+        ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env)
+    }
+
     /// `program` with `args`, run in `cwd`, with no variable of its own.
     #[must_use]
     pub fn new(program: impl Into<String>, args: impl IntoIterator<Item = impl Into<String>>, cwd: impl Into<PathBuf>) -> ShellCommand {
@@ -121,7 +128,6 @@ mod tests {
     /// each argument whole, whatever it holds.
     #[cfg(unix)]
     #[test]
-    #[expect(clippy::disallowed_methods, reason = "the test runs the line in a real shell, to its end")]
     fn a_shell_line_splits_back_into_the_command() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().join("a run's folder");

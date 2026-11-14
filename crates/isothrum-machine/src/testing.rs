@@ -41,3 +41,13 @@ impl ProcessRunner for StuckOn {
         }
     }
 }
+
+/// A Linux x86-64 host whose devices are under `root`, with no package manager known.
+pub(crate) fn linux_host(root: &std::path::Path) -> crate::host::Host {
+    crate::host::Host {
+        os: isothrum_runner::HostOs::Linux,
+        arch: crate::host::Arch::Amd64,
+        packages: None,
+        devices: crate::host::Devices::under(root),
+    }
+}

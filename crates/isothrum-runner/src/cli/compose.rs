@@ -155,7 +155,6 @@ pub(crate) async fn ps(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<Con
 
 /// `config --services`: the services the project's files declare, under its profiles (a service
 /// under another profile only when its profile is given), in the files' order.
-#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) async fn services(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<String>, CliError<Failure>> {
     let out = call.ok(TOOL, project.args(argv(["config", "--services"])), Failure::of).await?;
     Ok(out.stdout.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect())

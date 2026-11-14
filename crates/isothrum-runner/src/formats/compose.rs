@@ -265,8 +265,7 @@ impl FormatDriver for Compose {
             tty: true,
         };
         let spec = compose::exec_spec(&cx.call(READ_LIMIT), &Self::project(cx), &what);
-        let cwd = spec.cwd.clone().unwrap_or_else(|| cx.project.dir.clone());
-        Ok(ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env))
+        Ok(ShellCommand::of_spec(spec, &cx.project.dir))
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

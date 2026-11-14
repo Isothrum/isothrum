@@ -149,15 +149,9 @@ mod tests {
     use isothrum_runner::fake::{FakeProcesses, Reply};
 
     use super::*;
-    use crate::host::{Arch, Devices};
 
     fn linux(root: &std::path::Path) -> Host {
-        Host {
-            os: HostOs::Linux,
-            arch: Arch::Amd64,
-            packages: None,
-            devices: Devices::under(root),
-        }
+        crate::testing::linux_host(root)
     }
 
     #[test]

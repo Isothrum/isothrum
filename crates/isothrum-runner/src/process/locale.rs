@@ -66,7 +66,6 @@ mod tests {
 
     /// The real thing: a tool that localizes its messages speaks C under these settings.
     #[test]
-    #[expect(clippy::disallowed_methods, reason = "the real tool, run to its end, is what the test reads")]
     fn a_localized_tool_speaks_c() {
         let mut cmd = std::process::Command::new("ls");
         cmd.arg("/no/such/path")

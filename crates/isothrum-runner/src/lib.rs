@@ -87,6 +87,13 @@
 //! `run` and `driver`, events for each process), never by printing.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the unit tests start real processes to stand in for a tool or to read what one did; each spawn of the product code says why"
+    )
+)]
 
 mod adopt;
 mod cli;

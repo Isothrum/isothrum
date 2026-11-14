@@ -12,7 +12,7 @@ pub struct RunOptions {
     /// The Vagrant provider (`vagrant up --provider`), for a Vagrant project.
     pub provider: Option<Provider>,
     /// Sensitive values every tool of the operation gets, as its format reads them
-    /// ([`crate::project::inputs`]): never stored, never written to a file, masked in every event.
+    /// (each by its name; Terraform also gets it as `TF_VAR_<name>`): never stored, never written to a file, masked in every event.
     /// Pass them to every operation.
     pub secrets: Secrets,
     /// What the embedder calls the place the run is on (a server or account id): recorded, so a
@@ -22,7 +22,7 @@ pub struct RunOptions {
     /// `expires_at`), which the reaper reads ([`crate::Runner::expired`]).
     pub lifetime: Option<std::time::Duration>,
     /// Values every tool of the operation gets, by name, as its format reads them
-    /// ([`crate::project::inputs`]: Compose's `${NAME}`, a Vagrantfile's `ENV`, Terraform's
+    /// (Compose's `${NAME}`, a Vagrantfile's `ENV`, Terraform's
     /// `TF_VAR_NAME` too). Never stored: pass them to every operation.
     pub env: BTreeMap<String, String>,
     /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which

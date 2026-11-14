@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use super::{Module, machines};
+use super::Module;
 use crate::Result;
 use crate::cli::CliError;
 use crate::cli::proxmox::{self, Api, Credentials};
@@ -61,15 +61,7 @@ async fn target(cx: &ToolCx<'_>, machine: &str) -> Result<(Api, String, String)>
     let module = Module::of(cx);
     let state = module.state()?;
     let held = module.shown(state).await?;
-    let vm = held
-        .managed
-        .iter()
-        .filter(|r| machines::is_vm(&r.kind))
-        .find(|r| machines::machine_name(&r.address, &r.kind) == machine)
-        .ok_or_else(|| Error::MachineUnknown {
-            run: cx.run.to_string(),
-            machine: machine.to_owned(),
-        })?;
+    let vm = super::vm_named(cx, &held, machine)?;
     if !is_proxmox(Some(&vm.kind)) {
         return Err(no_console(machine, format!("a `{}` gives no screen this runner reaches", vm.kind)));
     }

@@ -349,6 +349,10 @@ fn terminate(pid: u32, force: bool) {
 /// Ends process `pid` (`taskkill /F`: Windows has no signal to ask it first, so `force` changes
 /// nothing).
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the client ends a service of another release it replaces, with Windows' own taskkill: the runner's process module isn't the client's"
+)]
 fn terminate(pid: u32, _force: bool) {
     use std::os::windows::process::CommandExt as _;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;

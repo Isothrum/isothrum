@@ -28,6 +28,7 @@
 //!   Remote Desktop (or a VNC server the module names) through an SSH tunnel to the Linux
 //!   machine beside it, as the module's outputs say ([`tunnelled`]).
 
+mod adopt;
 mod machines;
 mod screen;
 mod tunnelled;
@@ -298,6 +299,22 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
         .collect()
 }
 
+/// The VM of `held` whose machine name is `machine`.
+///
+/// # Errors
+///
+/// `machine_unknown` when the state has no such VM.
+fn vm_named<'h>(cx: &ToolCx<'_>, held: &'h tf::Shown, machine: &str) -> Result<&'h tf::Resource> {
+    held.managed
+        .iter()
+        .filter(|r| machines::is_vm(&r.kind))
+        .find(|r| machines::machine_name(&r.address, &r.kind) == machine)
+        .ok_or_else(|| Error::MachineUnknown {
+            run: cx.run.to_string(),
+            machine: machine.to_owned(),
+        })
+}
+
 /// Where a run stands, from its state as `show` read it: absent when it holds nothing; ready
 /// when every managed instance is sound, or when it holds data sources only (a module that reads
 /// and gives back, making nothing, is up once applied); failed with a tainted instance.
@@ -311,69 +328,6 @@ fn run_state(held: &tf::Shown) -> RunState {
         RunState::Failed
     } else {
         RunState::Ready
-    }
-}
-
-impl Terraform {
-    /// Takes over the deployment whose local state is in `from` (applied outside the runner from
-    /// the run's module): its state, and its backup when there is one, move into the run's state
-    /// folder, which later operations use as the run's own.
-    ///
-    /// # Errors
-    ///
-    /// `adopt` when the run has a state already or `from` holds none; `io` when a file can't be
-    /// moved (what moved is put back). The files moved, for [`Terraform::give_back`].
-    pub(crate) fn adopt(cx: &ToolCx<'_>, from: &Path) -> Result<Vec<&'static str>> {
-        let refuse = |reason: String| Error::Adopt {
-            run: cx.run.to_string(),
-            reason,
-        };
-        if cx.state_dir.join(STATE_FILE).exists() {
-            return Err(refuse("the run has a Terraform state already".into()));
-        }
-        if !from.join(STATE_FILE).is_file() {
-            return Err(refuse(format!("{} holds no {STATE_FILE}", from.display())));
-        }
-        let mut moved = Vec::new();
-        for file in [STATE_FILE, BACKUP_FILE] {
-            let (src, dst) = (from.join(file), cx.state_dir.join(file));
-            if !src.exists() {
-                continue;
-            }
-            if let Err(e) = move_file(&src, &dst) {
-                Terraform::give_back(cx, from, &moved);
-                return Err(Error::io(&src, "moved")(e));
-            }
-            moved.push(file);
-        }
-        Ok(moved)
-    }
-
-    /// Puts `files` an [`Terraform::adopt`] moved from `from` back (an adoption whose record
-    /// couldn't be written), best effort.
-    pub(crate) fn give_back(cx: &ToolCx<'_>, from: &Path, files: &[&str]) {
-        for file in files {
-            if let Err(e) = move_file(&cx.state_dir.join(file), &from.join(file)) {
-                tracing::warn!(file, error = %e, "an adopted state file couldn't be put back");
-            }
-        }
-    }
-}
-
-/// Moves `from` to `to`: a rename, else, only when they are on different file systems, a copy
-/// then a removal. Any other failure to rename is the error.
-fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    match std::fs::rename(from, to) {
-        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            std::fs::copy(from, to)?;
-            // Never in both places: when `from` can't be removed, the copy goes too.
-            std::fs::remove_file(from).inspect_err(|_| {
-                if let Err(gone) = std::fs::remove_file(to) {
-                    tracing::warn!(error = %gone, file = %to.display(), "a copy of a taken-over state couldn't be removed");
-                }
-            })
-        }
-        renamed => renamed,
     }
 }
 
@@ -566,15 +520,7 @@ impl FormatDriver for Terraform {
         let module = Module::of(cx);
         let state = module.state()?;
         let held = module.shown(state).await?;
-        let vm = held
-            .managed
-            .iter()
-            .filter(|r| machines::is_vm(&r.kind))
-            .find(|r| machines::machine_name(&r.address, &r.kind) == machine)
-            .ok_or_else(|| Error::MachineUnknown {
-                run: cx.run.to_string(),
-                machine: machine.to_owned(),
-            })?;
+        let vm = vm_named(cx, &held, machine)?;
         if screen::is_proxmox(Some(&vm.kind)) {
             screen::reach(cx, machine).await
         } else {
