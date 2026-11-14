@@ -109,6 +109,32 @@ event and status schemas after changing them), `wasm`, `msrv`, `features`, `fuzz
 `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` regenerates
 `docs/reference/cli.md` and `exit-codes.md` after a change to the command line or the error codes.
 
+## Writing tests
+
+- Script the tools a test's code runs with `FakeProcesses::script()` (`isothrum-runner`'s `fake`
+  feature): each `expect("docker compose ps", reply)` names a program and the arguments its call
+  starts with. A call the script doesn't name fails the test, an expectation never met fails it
+  when the fake is dropped, and of two that match a call the one naming more arguments answers,
+  so the order of a script never matters. Nothing is answered for you: a test of a running Docker
+  answers `docker info` itself. Read what was run with `fake.made("docker compose")` and
+  `CallView` (`flag("--profile")`, `has("-d")`), not by matching the quoted command line.
+  `FakeProcesses::model` is for a model of an engine that answers whatever it is asked, and adds
+  nothing either. `FakeProcesses::new` (a model whose silent `docker info` prints a version) and
+  `FakeProcesses::rules` (a lenient script: first substring match, anything else succeeds) are
+  the old forms, kept until their tests move.
+- A test that starts a real process holds it in `isothrum-test-support`'s `ChildGuard` (spawned in
+  its own process group, killed and reaped when dropped) or, for a process it learnt the id of,
+  `PidGuard`; a helper script's loop is bounded. Nothing a test starts outlives it.
+- Wait for a condition, never for a time: Tokio's paused clock (`start_paused = true`) for code
+  on Tokio's timers, `isothrum_test_support::wait_until` with a deadline for real processes.
+- A test gets its host as an input (`TEST_HOST`, `TEST_ARCH`, a `Host` value), never this
+  machine's; a command it spawns gets a `TempHome` (home, XDG and profile folders, `LC_ALL=C`).
+- A program a test runs (a stand-in tool) is written with `isothrum_test_support::write_executable`,
+  never by the test's own process: a file it has open for writing is open in every process another
+  test thread forks meanwhile, and running it then fails with "Text file busy".
+- `assert_every!` over a collection fails when it is empty, where `iter().all(..)` passes.
+- An error is asserted by its code or its message, never by `is_err()` alone.
+
 ## Tests against real tools
 
 The test suite never starts a real tool: the `fake` feature's scripted processes stand in. Real

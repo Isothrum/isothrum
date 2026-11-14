@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "xtask"]
+members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-test-support", "xtask"]
 # The fuzz targets are their own workspace: they build with nightly and libFuzzer
 # (`cargo run -p xtask -- fuzz`).
 exclude = ["fuzz"]
@@ -25,6 +25,7 @@ isoloom-manifest = "2.0.0"
 isoloom-plan = "2.0.0"
 isothrum-compiler = { path = "crates/isothrum-compiler", version = "3.0.0" }
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
+isothrum-test-support = { path = "crates/isothrum-test-support" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"

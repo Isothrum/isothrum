@@ -49,6 +49,7 @@ windows.workspace = true
 # Isoloom's generator, for the tests that hold the runner's copies of Isoloom's private rules to
 # the files it writes.
 isoloom-targets.workspace = true
+isothrum-test-support.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

@@ -180,7 +180,8 @@ mod tests {
                 .contains("docker, vagrant: choose one with --target")
         );
         assert_eq!(manifest(run.path(), Some("docker")).unwrap(), docker);
-        assert!(manifest(run.path(), Some("proxmox")).is_err());
+        let missing = manifest(run.path(), Some("proxmox")).unwrap_err().to_string();
+        assert!(missing.ends_with("doesn't exist: run `isoloom generate --target proxmox` first"), "{missing}");
     }
 
     /// A target that writes one manifest per cloud (`cloud-vm/aws`) is found by its cloud, by
@@ -267,7 +268,10 @@ mod tests {
         assert_eq!(home(Some("/a".into()), Some("/b".into()), Some("/u".into())).unwrap(), abs("/a"));
         assert_eq!(home(None, Some("/b".into()), Some("/u".into())).unwrap(), abs("/b"));
         assert_eq!(home(None, Some(std::ffi::OsString::new()), Some("/u".into())).unwrap(), abs("/u/.isothrum"));
-        assert!(home(None, None, None).is_err());
+        assert_eq!(
+            home(None, None, None).unwrap_err().to_string(),
+            "no home folder: give --home or set ISOTHRUM_HOME"
+        );
     }
 
     /// Regression: an `ISOTHRUM_HOME` that isn't UTF-8 was read as unset, and the runs went to

@@ -216,6 +216,7 @@ fn a_vm_project_comes_with_its_provisioning_scripts() -> Outcome {
         .filter_map(|f| Some(f.path.strip_prefix(".isoloom/")?.split_once('/')?.0.to_owned()))
         .collect();
     assert!(targets.len() > 1, "{targets:?}");
+    assert!(!own.is_empty(), "the project has files of its own to bundle");
     for target in &targets {
         let got = names(bundle_target_bytes(PAIR, target)?)?;
         assert!(own.iter().all(|o| got.contains(o)), "{target}: {got:?}");

@@ -5,7 +5,7 @@ use crate::process::{Captured, ProcessSpec};
 /// Runs `reply` as step `pull` under `limit`, feeding its progress as a step does: its outcome
 /// and how long it ran.
 async fn run(reply: Reply, limit: Duration) -> (Result<Captured>, Duration) {
-    let fake = FakeProcesses::new(move |_| reply.clone());
+    let fake = FakeProcesses::expect(&[("docker compose up", reply)]);
     let spec = ProcessSpec::new("docker", ["compose", "up"]);
     let started = Instant::now();
     let progress = Progress::new();
@@ -15,7 +15,7 @@ async fn run(reply: Reply, limit: Duration) -> (Result<Captured>, Duration) {
 
 /// [`run`], as a download ([`downloading`]): no ceiling, a stall its own error.
 async fn download(reply: Reply, stall: Duration) -> (Result<Captured>, Duration) {
-    let fake = FakeProcesses::new(move |_| reply.clone());
+    let fake = FakeProcesses::expect(&[("docker compose pull", reply)]);
     let spec = ProcessSpec::new("docker", ["compose", "pull"]);
     let started = Instant::now();
     let progress = Progress::new();

@@ -40,11 +40,11 @@ async fn an_unreachable_host_is_tried_again_every_retry_until_the_deadline() {
 async fn a_public_key_that_cant_be_read_is_an_error_and_no_new_key_is_made() {
     let home = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(key_path(home.path()).with_extension("pub")).unwrap();
-    let fake = std::sync::Arc::new(crate::process::fake::FakeProcesses::new(|_| crate::process::fake::Reply::ok("")));
-    let err = ensure_key(fake.as_ref(), home.path()).await.unwrap_err();
+    // Nothing is scripted: running `ssh-keygen` fails the test.
+    let fake = crate::process::fake::FakeProcesses::script().build();
+    let err = ensure_key(&fake, home.path()).await.unwrap_err();
     assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
     assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
-    assert!(fake.calls().is_empty(), "no ssh-keygen: {:?}", fake.lines());
     assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
 }
 

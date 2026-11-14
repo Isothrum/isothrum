@@ -220,7 +220,8 @@ fn the_archive_holds_the_project_as_the_generated_files_copy_it() {
 fn a_missing_project_is_an_error_and_leaves_no_partial_archive() {
     let state = tempfile::tempdir().unwrap();
     let out = state.path().join(ARCHIVE);
-    assert!(write(&state.path().join("no-such-project"), &[], &out).is_err());
+    let err = write(&state.path().join("no-such-project"), &[], &out).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound, "{err}");
     assert!(!out.exists() && !out.with_file_name(format!("{ARCHIVE}.part")).exists());
 }
 

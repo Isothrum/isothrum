@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+#[cfg(unix)]
+use isothrum_test_support::{ChildGuard, PidGuard, TempHome, alive, read_pid, write_executable};
 use serde_json::Value;
 
 /// A helper's outcome: a failed step is the test's report.
@@ -82,8 +84,9 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
 }
 
 /// A tiny `docker` for `web-portal`: every call answers at once, except the start, which writes
-/// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs until it is stopped. On SIGINT it
-/// runs `$ISOTHRUM_TEST_ON_INT` (default: exit; empty: SIGINT is ignored).
+/// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs until it is stopped (two minutes at
+/// most, should the test binary be killed before its guards ran). On SIGINT it runs
+/// `$ISOTHRUM_TEST_ON_INT` (default: exit; empty: SIGINT is ignored).
 #[cfg(unix)]
 const FAKE_DOCKER: &str = r#"#!/bin/sh
 case " $* " in
@@ -93,31 +96,15 @@ case " $* " in
   *" up --detach "*)
     trap "${ISOTHRUM_TEST_ON_INT-exit 130}" INT
     echo $$ > "$ISOTHRUM_TEST_PIDFILE"; echo starting
-    while :; do sleep 0.1; done ;;
+    i=0; while [ $i -lt 1200 ]; do sleep 0.1; i=$((i+1)); done ;;
 esac
 exit 0
 "#;
 
-/// Whether process `pid` is still there.
-#[cfg(unix)]
-fn alive(pid: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", pid])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
-
 /// Waits up to 20 s for `ready`.
 #[cfg(unix)]
-fn wait_until(ready: impl Fn() -> bool) -> bool {
-    for _ in 0..200 {
-        if ready() {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    false
+fn wait_until(ready: impl FnMut() -> bool) -> bool {
+    isothrum_test_support::wait_until(std::time::Duration::from_secs(20), ready)
 }
 
 #[cfg(unix)]
@@ -154,10 +141,11 @@ fn a_cancelled_command_waits_for_its_tools_to_stop() {
 #[cfg(unix)]
 #[test]
 fn a_second_signal_ends_the_tools_at_once() {
-    let up = Up::start(Some("")).unwrap();
+    // The tool notes it was asked to stop, and runs on.
+    let up = Up::start(Some(r#"echo asked > "$ISOTHRUM_TEST_STOPPED""#)).unwrap();
     let started = std::time::Instant::now();
     up.signal("-INT").unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert!(wait_until(|| up.stopped.exists()), "the first signal reached the tool");
     up.signal("-INT").unwrap();
     up.ended().unwrap().assert_cancelled(130);
     assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
@@ -190,36 +178,39 @@ impl Signalled {
     }
 }
 
-/// `isothrum up --json` on a tool that runs until it is stopped, once the tool runs.
+/// `isothrum up --json` on a tool that runs until it is stopped, once the tool runs. The command
+/// and the tool are killed when it is dropped, whatever way the test ended.
 #[cfg(unix)]
 struct Up {
     /// The command.
-    child: std::process::Child,
-    /// The tool's process id.
-    tool: String,
+    child: ChildGuard,
+    /// The tool.
+    tool: PidGuard,
     /// Where the tool's SIGINT handler may write.
     stopped: std::path::PathBuf,
     /// The home, the run's folder and the fake tool's, kept while the command runs.
     _dirs: [tempfile::TempDir; 3],
+    /// The command's home folder, environment and locale (not the user's).
+    _env: TempHome,
 }
 
 #[cfg(unix)]
 impl Up {
     /// Starts it, the tool running `on_int` on SIGINT (`None`: it exits).
     fn start(on_int: Option<&str>) -> Outcome<Up> {
-        use std::os::unix::fs::PermissionsExt;
-
         let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
         let dir = run_dir.path().join(".isoloom/docker");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json"))?;
-        let docker = bin.path().join("docker");
-        std::fs::write(&docker, FAKE_DOCKER)?;
-        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))?;
+        // Written by a child process: one this test wrote itself could be busy ("Text file busy")
+        // in a process another test forked meanwhile, when the command runs it.
+        write_executable(&bin.path().join("docker"), FAKE_DOCKER)?;
         let (pidfile, stopped) = (bin.path().join("docker.pid"), bin.path().join("stopped"));
         let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
 
+        let env = TempHome::new();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
+        cmd.envs(env.envs());
         cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
             .arg(home.path())
             .arg(run_dir.path())
@@ -232,19 +223,20 @@ impl Up {
         if let Some(on_int) = on_int {
             cmd.env("ISOTHRUM_TEST_ON_INT", on_int);
         }
-        let child = cmd.spawn()?;
-        if !wait_until(|| std::fs::read_to_string(&pidfile).is_ok_and(|p| !p.trim().is_empty())) {
+        let child = ChildGuard::spawn(&mut cmd)?;
+        if !wait_until(|| read_pid(&pidfile).is_some()) {
             return Err("the start never began".into());
         }
-        let tool = std::fs::read_to_string(&pidfile)?.trim().to_owned();
-        if !alive(&tool) {
-            return Err(format!("the tool {tool} wasn't running").into());
+        let tool = PidGuard::from_file(&pidfile).ok_or("the tool's pid")?;
+        if !alive(tool.id()) {
+            return Err(format!("the tool {} wasn't running", tool.id()).into());
         }
         Ok(Up {
             child,
             tool,
             stopped,
             _dirs: [home, run_dir, bin],
+            _env: env,
         })
     }
 
@@ -266,7 +258,7 @@ impl Up {
             code: out.status.code(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             event: last_event(&out)?,
-            tool_stopped: wait_until(|| !alive(&tool)),
+            tool_stopped: wait_until(|| !alive(tool.id())),
             on_int_wrote,
         })
     }

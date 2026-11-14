@@ -28,9 +28,39 @@ fn all() -> Vec<Provider> {
         .collect()
 }
 
-/// Whether this provider can run on the current OS and CPU at all ([`applicable_on`]).
-fn applicable(provider: Provider) -> bool {
-    applicable_on(provider, this_host(), this_arch())
+/// What detection reads of this computer besides its tools: its OS and CPU, KVM's device, UTM's
+/// app bundle and the Hyper-V feature. Tests give their own, so a test takes the same path on
+/// every machine.
+#[derive(Debug, Clone)]
+struct Host {
+    /// Its OS.
+    os: HostOs,
+    /// Its CPU.
+    arch: Arch,
+    /// KVM's device.
+    kvm: std::path::PathBuf,
+    /// Whether UTM's app bundle is installed.
+    utm_installed: bool,
+    /// Whether the Hyper-V feature is on.
+    hyperv_enabled: bool,
+}
+
+impl Host {
+    /// This computer.
+    fn this() -> Host {
+        Host {
+            os: this_host(),
+            arch: this_arch(),
+            kvm: KVM.into(),
+            utm_installed: Path::new(UTM_APP).exists(),
+            hyperv_enabled: hyperv_enabled(),
+        }
+    }
+
+    /// Whether `provider` can run on it at all ([`applicable_on`]).
+    fn applies(&self, provider: Provider) -> bool {
+        applicable_on(provider, self.os, self.arch)
+    }
 }
 
 /// How this computer tells a provider's hypervisor is installed.
@@ -38,7 +68,7 @@ fn applicable(provider: Provider) -> bool {
 enum Check {
     /// A tool that proves it: installed as long as it starts.
     Tool(&'static str, &'static [&'static str]),
-    /// QEMU's system emulator for this machine's CPU ([`qemu_binary`]).
+    /// QEMU's system emulator for this machine's CPU ([`qemu_binary_on`]).
     Qemu,
     /// UTM's app bundle, which also says its version.
     UtmApp,
@@ -128,23 +158,23 @@ async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> O
     (!version.is_empty()).then_some(version)
 }
 
-/// The local tool that proves the hypervisor itself is installed, if there is one.
-fn probe(provider: Provider) -> Option<(&'static str, &'static [&'static str])> {
+/// The local tool that proves the hypervisor itself is installed on a CPU `arch`, if there is one.
+fn probe(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&'static str])> {
     match facts(provider).check {
         Check::Tool(program, args) => Some((program, args)),
-        Check::Qemu => Some((qemu_binary(), &["--version"])),
+        Check::Qemu => Some((qemu_binary_on(arch), &["--version"])),
         Check::UtmApp | Check::HypervFeature | Check::Remote => None,
     }
 }
 
 /// Whether the hypervisor itself is installed here, `None` when there is nothing local to
 /// check (remote providers). UTM is an app bundle; Hyper-V is a Windows feature.
-async fn hypervisor_installed(provider: Provider, runner: &dyn ProcessRunner) -> Option<bool> {
+async fn hypervisor_installed(provider: Provider, host: &Host, runner: &dyn ProcessRunner) -> Option<bool> {
     match facts(provider).check {
-        Check::UtmApp => Some(Path::new(UTM_APP).exists()),
-        Check::HypervFeature => Some(hyperv_enabled()),
+        Check::UtmApp => Some(host.utm_installed),
+        Check::HypervFeature => Some(host.hyperv_enabled),
         Check::Tool(..) | Check::Qemu | Check::Remote => {
-            let (program, args) = probe(provider)?;
+            let (program, args) = probe(provider, host.arch)?;
             Some(tool_starts(runner, program, args).await)
         }
     }
@@ -222,11 +252,6 @@ fn vbox_driver_missing(said: &str) -> bool {
     said.lines().any(|l| l.trim_start().starts_with("WARNING:") && l.contains("vboxdrv"))
 }
 
-/// The QEMU binary for this machine's CPU.
-fn qemu_binary() -> &'static str {
-    qemu_binary_on(this_arch())
-}
-
 /// The QEMU binary for a CPU `arch`.
 fn qemu_binary_on(arch: Arch) -> &'static str {
     match arch {
@@ -291,12 +316,12 @@ const VBOX_PROBE: Duration = Duration::from_secs(8);
 const HYPERV_NEEDS_ADMIN: &str = "Vagrant drives Hyper-V only for an administrator or a member of the Hyper-V Administrators group: \
 add this account to that group and sign out of Windows and back in, or run elevated";
 
-/// What keeps `provider`'s installed hypervisor (`hypervisor`) from starting a VM on this
-/// computer: KVM's device for libvirt, VirtualBox's kernel driver, Windows' hypervisor for
-/// Hyper-V. `None` when nothing does.
-async fn platform_problem(provider: Provider, hypervisor: Option<bool>, runner: &dyn ProcessRunner) -> Option<String> {
+/// What keeps `provider`'s installed hypervisor (`hypervisor`) from starting a VM on `host`:
+/// KVM's device for libvirt, VirtualBox's kernel driver, Windows' hypervisor for Hyper-V. `None`
+/// when nothing does.
+async fn platform_problem(provider: Provider, hypervisor: Option<bool>, host: &Host, runner: &dyn ProcessRunner) -> Option<String> {
     match provider {
-        Provider::Libvirt => kvm_problem(Path::new(KVM)),
+        Provider::Libvirt => kvm_problem(&host.kvm),
         Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
         Provider::Hyperv if hypervisor == Some(true) => hypervisor_stopped(runner).await,
         _ => None,
@@ -308,10 +333,15 @@ async fn platform_problem(provider: Provider, hypervisor: Option<bool>, runner: 
 /// administrator...). Without Vagrant (`vagrant_installed`, the caller's to know) each says so,
 /// and nothing is probed.
 pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
+    detect_on(&Host::this(), runner, vagrant_installed).await
+}
+
+/// [`detect`] on `host`.
+async fn detect_on(host: &Host, runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
     if !vagrant_installed {
         return all()
             .into_iter()
-            .filter(|p| applicable(*p))
+            .filter(|p| host.applies(*p))
             .map(|provider| ProviderStatus {
                 provider,
                 reason: Some(NO_VAGRANT.to_owned()),
@@ -327,10 +357,10 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
     };
     let mut statuses = Vec::new();
     for provider in all() {
-        if !applicable(provider) {
+        if !host.applies(provider) {
             continue;
         }
-        let hypervisor = hypervisor_installed(provider, runner).await;
+        let hypervisor = hypervisor_installed(provider, host, runner).await;
         let hypervisor_version = if hypervisor == Some(true) {
             hypervisor_version(provider, runner).await
         } else {
@@ -342,9 +372,10 @@ pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<
         let plugin_version = installed.and_then(|(_, v)| v.as_deref());
         let unresponsive = provider == Provider::Virtualbox && hypervisor == Some(true) && vbox_wedged(runner).await;
         let needs_admin = needs_admin(provider, hypervisor, runner).await;
-        let platform_problem = platform_problem(provider, hypervisor, runner).await;
+        let platform_problem = platform_problem(provider, hypervisor, host, runner).await;
         let platform_problem = platform_problem.as_deref();
         let detection = Detection {
+            arch: host.arch,
             hypervisor,
             hypervisor_version: hypervisor_version.as_deref(),
             unresponsive,
@@ -386,6 +417,8 @@ async fn vbox_wedged(runner: &dyn ProcessRunner) -> bool {
 /// `detect`'s, so `unavailable_reason` only decides.
 #[derive(Clone, Copy)]
 struct Detection<'a> {
+    /// The machine's CPU (which QEMU binary is its probe).
+    arch: Arch,
     /// Whether the hypervisor is installed, `None` when there is nothing to probe.
     hypervisor: Option<bool>,
     /// The hypervisor's version, when it says one.
@@ -412,6 +445,7 @@ struct Detection<'a> {
 /// layer that is missing.
 fn unavailable_reason(provider: Provider, detection: Detection<'_>) -> Option<String> {
     let Detection {
+        arch,
         hypervisor,
         hypervisor_version,
         unresponsive,
@@ -429,7 +463,7 @@ fn unavailable_reason(provider: Provider, detection: Detection<'_>) -> Option<St
     } else if needs_admin {
         Some(HYPERV_NEEDS_ADMIN.to_owned())
     } else if hypervisor == Some(false) {
-        Some(probe(provider).map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")))
+        Some(probe(provider, arch).map_or_else(|| "not installed".to_owned(), |(program, _)| format!("`{program}` was not found")))
     } else if let Some(why) = platform_problem {
         Some(why.to_owned())
     } else if let Some((name, version, min)) = hypervisor_too_old(provider, hypervisor_version) {
