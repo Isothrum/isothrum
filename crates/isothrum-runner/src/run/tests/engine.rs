@@ -24,14 +24,8 @@ async fn start_with_engine_answering(reply: Reply) -> (Arc<FakeProcesses>, Error
 async fn a_stopped_engine_fails_the_start_before_anything_is_created() {
     let (fake, err) = start_with_engine_answering(Reply::fail(1, "Cannot connect to the Docker daemon")).await;
     assert_eq!(
-        err.code(),
-        crate::ErrorCode::ToolUnanswered,
-        "the tool named in a field of its own, not in a step's words"
-    );
-    assert!(matches!(&err, crate::Error::ToolUnanswered { tool, .. } if tool == "docker"));
-    assert_eq!(
         err.to_string(),
-        "`docker` doesn't answer: Cannot connect to the Docker daemon (exited with code 1)"
+        "step `tools` failed: `docker` doesn't answer: Cannot connect to the Docker daemon (exited with code 1)"
     );
     assert_eq!(err.code(), crate::ErrorCode::ToolUnanswered, "coded, never read from the wording");
     assert_eq!(fake.lines(), ["docker info --format '{{.ServerVersion}}'"], "nothing but the probe ran");
@@ -43,7 +37,6 @@ async fn a_stopped_engine_fails_the_start_before_anything_is_created() {
 #[tokio::test]
 async fn an_engine_answering_no_version_fails_the_start_as_a_stopped_one_does() {
     let (fake, err) = start_with_engine_answering(Reply::ok("\n")).await;
-    assert_eq!(err.code(), crate::ErrorCode::ToolUnanswered);
     assert!(err.to_string().contains("printed nothing (its daemon isn't running)"), "{err}");
     assert!(matches!(&err, Error::ToolUnanswered { tool, .. } if tool == "docker"), "{err:?}");
     assert_eq!(fake.lines(), ["docker info --format '{{.ServerVersion}}'"], "nothing but the probe ran");

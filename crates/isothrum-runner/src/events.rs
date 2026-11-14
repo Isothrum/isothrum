@@ -316,6 +316,9 @@ pub enum WarningCode {
     /// folder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be
     /// there, and the start goes on.
     CleanupFailed,
+    /// A Terraform module keeps its state in a backend of its own: every copy of it shares that
+    /// state.
+    SharedState,
 }
 
 /// Events kept in memory, for tests.
