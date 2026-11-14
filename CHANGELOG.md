@@ -28,6 +28,11 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Changed
 
+- **A run manifest's recovery names its leftovers (`recovery.leftovers`), not the tools' words.**
+  **Breaking, for manifests:** Isoloom 3 writes `leftovers` (`virtualbox_name_taken`,
+  `machine_locked`, `other_provider`, `container_name_taken`, `network_left`) in place of
+  `stale_markers`, and the runner reads each in the words the tools it runs print; a manifest
+  with `stale_markers` is refused. Regenerate it with Isoloom 3.
 - **One transactional store per home: `state.db`.** **Breaking:** the runner keeps its state in
   one SQLite database (WAL, foreign keys, migrations), `isothrum_runner::store::Store`, every
   change one transaction: the runs (what the user wants of each, `desired`, and where each stands),
