@@ -359,7 +359,7 @@ impl FormatDriver for Vagrant {
         }
         let read = call(cx, READ_LIMIT);
         vagrant::supported_version(&read).await.map_err(|e| tool_error("tools", e))?;
-        if let Some(plugin) = providers::plugin(provider) {
+        if let Some(plugin) = provider.plugin() {
             let installed = vagrant::plugins(&read).await.map_err(|e| tool_error("tools", e))?;
             if !installed.iter().any(|(name, _)| name == plugin) {
                 return Err(refuse(format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`")));

@@ -26,10 +26,10 @@ pub enum Arch {
     Arm64,
 }
 
-/// A Vagrant provider: the hypervisor `vagrant up --provider` takes.
+/// A Vagrant provider: the hypervisor `vagrant up --provider` takes. Exhaustive: whoever detects
+/// or offers providers (`isothrum-machine`) fails to compile until a new one has its row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum Provider {
     /// VirtualBox.
     Virtualbox,
@@ -62,6 +62,20 @@ impl Provider {
             Provider::Qemu => "qemu",
             Provider::Utm => "utm",
             Provider::VmwareEsxi => "vmware_esxi",
+        }
+    }
+
+    /// The plugin Vagrant runs it through; `None` for the providers Vagrant has built in.
+    #[must_use]
+    pub const fn plugin(self) -> Option<&'static str> {
+        match self {
+            Provider::Virtualbox | Provider::Hyperv => None,
+            Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
+            Provider::Parallels => Some("vagrant-parallels"),
+            Provider::Libvirt => Some("vagrant-libvirt"),
+            Provider::Qemu => Some("vagrant-qemu"),
+            Provider::Utm => Some("vagrant_utm"),
+            Provider::VmwareEsxi => Some("vagrant-vmware-esxi"),
         }
     }
 

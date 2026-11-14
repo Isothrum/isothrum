@@ -38,20 +38,20 @@ fn status_of(statuses: &[ProviderStatus], provider: Provider) -> &ProviderStatus
 
 const PLUGINS: &str = "vagrant plugin list --machine-readable";
 
-/// The names Isoloom's `Provider` takes, sorted.
-fn isoloom_providers() -> Vec<String> {
+/// The names the runner's `Provider` takes, sorted.
+fn runner_providers() -> Vec<String> {
     let mut names = isothrum_runner::every_name::<Provider>();
     names.sort();
     names
 }
 
-/// Detection covers every provider Isoloom names: one added there fails this until it is
+/// Detection covers every provider the runner names: one added there fails this until it is
 /// listed.
 #[test]
-fn every_provider_isoloom_names_is_listed() {
+fn every_provider_the_runner_names_is_listed() {
     let mut listed: Vec<String> = all().iter().map(isothrum_runner::wire_name).collect();
     listed.sort();
-    assert_eq!(listed, isoloom_providers());
+    assert_eq!(listed, runner_providers());
 }
 
 /// The problem of a device the user may not open: one only its owner reads (root reads any,

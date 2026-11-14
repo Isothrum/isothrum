@@ -1,5 +1,5 @@
-//! Vagrant's providers as this driver runs them: the host systems each runs on, and the plugin
-//! Vagrant needs for it.
+//! Vagrant's providers as this driver runs them: the host systems each runs on (each one's
+//! plugin is [`Provider::plugin`]).
 
 use crate::project::platform::{HostOs, Provider};
 
@@ -25,19 +25,6 @@ pub(super) fn hosts(provider: Provider) -> &'static [HostOs] {
         Provider::Libvirt => &[HostOs::Linux],
         Provider::Qemu => &[HostOs::Linux, HostOs::Macos],
         _ => EVERY,
-    }
-}
-
-/// The plugin Vagrant runs `provider` through; `None` for the providers Vagrant has built in.
-pub(super) fn plugin(provider: Provider) -> Option<&'static str> {
-    match provider {
-        Provider::VmwareDesktop => Some("vagrant-vmware-desktop"),
-        Provider::Parallels => Some("vagrant-parallels"),
-        Provider::Libvirt => Some("vagrant-libvirt"),
-        Provider::Qemu => Some("vagrant-qemu"),
-        Provider::Utm => Some("vagrant_utm"),
-        Provider::VmwareEsxi => Some("vagrant-vmware-esxi"),
-        _ => None,
     }
 }
 
@@ -71,8 +58,8 @@ mod tests {
             "`virtualbox`, `vmware_desktop`, `parallels`, `qemu`, `utm`, `vmware_esxi`"
         );
         assert_eq!(listed_for(HostOs::Linux), "`virtualbox`, `vmware_desktop`, `libvirt`, `qemu`, `vmware_esxi`");
-        assert_eq!(plugin(Provider::Virtualbox), None);
-        assert_eq!(plugin(Provider::Hyperv), None);
-        assert_eq!(plugin(Provider::Libvirt), Some("vagrant-libvirt"));
+        assert_eq!(Provider::Virtualbox.plugin(), None);
+        assert_eq!(Provider::Hyperv.plugin(), None);
+        assert_eq!(Provider::Libvirt.plugin(), Some("vagrant-libvirt"));
     }
 }

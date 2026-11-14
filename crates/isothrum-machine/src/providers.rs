@@ -10,16 +10,14 @@
 use std::path::Path;
 use std::time::Duration;
 
-use isoloom_manifest::{Arch, HostOs};
-use isothrum_runner::{ProcessRunner, this_arch, this_host, version_found};
+use isothrum_runner::{Arch, HostOs, ProcessRunner, this_arch, this_host, version_found};
 
 use crate::exec;
 
-/// A Vagrant provider (the value given to `vagrant up --provider`): Isoloom's, the one its run
-/// manifests name.
-pub use isoloom_manifest::Provider;
+/// A Vagrant provider (the value given to `vagrant up --provider`): the runner's.
+pub use isothrum_runner::Provider;
 
-/// Every provider Isoloom names, in its order: read from its type, so one Isoloom adds is
+/// Every provider the runner names, in its order: read from its type, so one added there is
 /// detected without a list here to keep in step.
 fn all() -> Vec<Provider> {
     isothrum_runner::every_name::<Provider>()
@@ -78,7 +76,7 @@ enum Check {
     Remote,
 }
 
-/// What detection knows of one provider, one row each ([`facts`]): a provider Isoloom adds is
+/// What detection knows of one provider, one row each ([`facts`]): a provider the runner adds is
 /// one row here, not an arm in each check.
 #[derive(Debug, Clone, Copy)]
 struct Facts {
@@ -111,7 +109,7 @@ const fn local(oses: &'static [HostOs], check: Check) -> Facts {
     Facts { oses, check, ..REMOTE }
 }
 
-/// What detection knows of `provider`: a provider Isoloom adds fails to compile here until it
+/// What detection knows of `provider`: a provider the runner adds fails to compile here until it
 /// has its row.
 fn facts(provider: Provider) -> Facts {
     match provider {
