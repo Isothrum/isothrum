@@ -24,7 +24,6 @@ const TF_VAR: &str = "TF_VAR_";
 ///
 /// `param_invalid` for a name that can't be an environment variable's (empty, or holding `=` or
 /// a NUL), or a value holding a NUL.
-#[cfg_attr(not(test), expect(dead_code, reason = "the format drivers pass it to their tools once they run projects"))]
 pub(crate) fn environment(format: Format, values: &BTreeMap<String, String>, secrets: &Secrets) -> Result<Vec<(String, String)>> {
     let mut env = Vec::new();
     for (name, value) in values

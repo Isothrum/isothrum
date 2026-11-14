@@ -190,7 +190,7 @@ pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFai
 pub use project::platform::{Arch, Cloud, HostOs, Provider};
 pub use project::{Format, Project};
 pub use reap::{Orphans, Place, Tagged};
-pub use run::{AccessPick, AttachReport, Running};
+pub use run::{AccessPick, AttachReport, ExecReport, FolderRun, Running};
 pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};

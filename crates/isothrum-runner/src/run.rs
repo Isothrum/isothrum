@@ -11,9 +11,13 @@ mod attach;
 mod boot;
 mod console;
 mod existing;
+mod folder;
 mod graphical;
 mod kept;
 pub(crate) mod recovery;
+
+pub(crate) use folder::recorded_format;
+pub use folder::{ExecReport, FolderRun};
 
 pub(crate) use kept::keep;
 mod operation;

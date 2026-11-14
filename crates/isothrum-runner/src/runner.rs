@@ -204,6 +204,38 @@ impl Runner {
         Running::new(self, loaded, name)
     }
 
+    /// The project in folder `dir` (a file in it names its folder), of format `format` when given,
+    /// else the one its files show ([`crate::Format::detect`]), as run `name` (default: the
+    /// folder's name, made a run name). Nothing runs: a folder that isn't a project is refused
+    /// before any tool.
+    ///
+    /// # Errors
+    ///
+    /// `project_invalid` when the folder holds no format's files, or several with none named;
+    /// `run_name` when the name can't name a run; `unsupported` for a format whose driver this
+    /// build doesn't have.
+    pub fn open_folder(&self, dir: &Path, format: Option<crate::Format>, name: Option<RunName>) -> Result<crate::FolderRun<'_>> {
+        let dir = if dir.is_file() { dir.parent().unwrap_or(dir) } else { dir };
+        let project = crate::Project::open(dir, format)?;
+        let name = match name {
+            Some(name) => name,
+            None => RunName::from_folder(&project.dir)?,
+        };
+        crate::FolderRun::new(self, project, name)
+    }
+
+    /// Recorded run `name`, opened again from the folder and format it was started with.
+    ///
+    /// # Errors
+    ///
+    /// `not_running` when no run of that name is recorded; as [`Runner::open_folder`] for its
+    /// folder.
+    pub fn reopen_folder(&self, name: &RunName) -> Result<crate::FolderRun<'_>> {
+        let record = self.store.record(name)?.ok_or_else(|| Error::NotRunning { run: name.to_string() })?;
+        let format = crate::run::recorded_format(record.driver);
+        self.open_folder(&record.manifest, Some(format), Some(name.clone()))
+    }
+
     /// Every recorded run, with the state its last operation left it in. Reads files only.
     ///
     /// # Errors

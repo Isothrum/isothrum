@@ -19,7 +19,6 @@ pub(crate) fn say(events: &Emitter<'_>, db: &Store, ids: &[ResourceId]) {
 
 /// A row recovery couldn't remove, and why: it stays `destroying` for the next operation.
 #[derive(Debug)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the format drivers' recovery reads it (FormatDriver::destroy_by_id)"))]
 pub(crate) struct NotRemoved {
     /// The row.
     pub(crate) row: ResourceRow,
@@ -35,7 +34,6 @@ pub(crate) struct NotRemoved {
 /// # Errors
 ///
 /// The store's, when a row's move can't be written: nothing is removed past it.
-#[cfg_attr(not(test), expect(dead_code, reason = "the format drivers' core calls it with FormatDriver::destroy_by_id"))]
 pub(crate) async fn destroy_recorded(
     db: &Store,
     events: &Emitter<'_>,

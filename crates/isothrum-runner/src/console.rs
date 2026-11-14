@@ -71,20 +71,33 @@ impl ShellCommand {
 ///
 /// `unsupported` for a name no account has, or a Windows machine.
 pub(crate) fn check_user<'u>(user: &'u str, machine: &Machine) -> Result<&'u str> {
-    let first = |c: char| c.is_ascii_lowercase() || c == '_';
-    let rest = |c: char| first(c) || c.is_ascii_digit() || c == '-';
-    let named = user.len() <= 32 && user.chars().next().is_some_and(first) && user.chars().all(rest);
-    if !named {
-        return Err(Error::Unsupported {
-            what: format!("a console as `{user}`, which names no account (1 to 32 lowercase letters, digits, `_` or `-`, starting with a letter or `_`),"),
-        });
-    }
+    check_name(user)?;
     if machine.windows {
         return Err(Error::Unsupported {
             what: format!("a console as `{user}` into `{}`, which runs Windows,", machine.name),
         });
     }
     Ok(user)
+}
+
+/// Checks `user`, an account a console is asked to open as: a name a Unix account has (1 to 32
+/// lowercase letters, digits, `_` or `-`, starting with a letter or `_`), so it goes into a shell
+/// script, a `docker exec --user` or a `sudo -u` as it is.
+///
+/// # Errors
+///
+/// `unsupported` for a name no account has.
+pub(crate) fn check_name(user: &str) -> Result<&str> {
+    let first = |c: char| c.is_ascii_lowercase() || c == '_';
+    let rest = |c: char| first(c) || c.is_ascii_digit() || c == '-';
+    let named = user.len() <= 32 && user.chars().next().is_some_and(first) && user.chars().all(rest);
+    if named {
+        Ok(user)
+    } else {
+        Err(Error::Unsupported {
+            what: format!("a console as `{user}`, which names no account (1 to 32 lowercase letters, digits, `_` or `-`, starting with a letter or `_`),"),
+        })
+    }
 }
 
 /// `word` as a POSIX shell reads it back: as it is when nothing in it is special, else

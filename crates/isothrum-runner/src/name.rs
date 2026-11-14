@@ -35,6 +35,23 @@ impl RunName {
         }
     }
 
+    /// The name a project in folder `dir` runs as when none is given: the folder's name in
+    /// lower case, each character a run name can't hold as `-`, cut to the longest a name takes
+    /// (Compose names a project after its folder the same way).
+    ///
+    /// # Errors
+    ///
+    /// `run_name` when nothing of the folder's name is left that can name a run.
+    pub fn from_folder(dir: &std::path::Path) -> Result<RunName> {
+        let folder = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let made: String = folder
+            .chars()
+            .map(|c| if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' { c } else { '-' })
+            .collect();
+        let trimmed: String = made.trim_start_matches(['-', '_']).chars().take(MAX_LEN).collect();
+        RunName::new(&trimmed).map_err(|_| Error::RunName { value: folder })
+    }
+
     /// The name.
     #[must_use]
     pub fn as_str(&self) -> &str {
