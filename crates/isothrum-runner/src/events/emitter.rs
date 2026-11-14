@@ -309,12 +309,17 @@ mod tests {
     #[test]
     fn events_emitted_from_several_threads_at_once_reach_the_log_in_their_order() {
         // More threads than an operation ever has, each emitting at once, again and again: the
-        // log's numbers rise line by line, none missing, none twice.
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("events.jsonl");
+        // store's numbers rise event by event, none missing, none twice.
+        let home = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(home.path()).unwrap());
+        let run = crate::name::RunName::new("r").unwrap();
+        let op = store
+            .write(|tx| tx.begin_operation(&run, Op::Up, &crate::store::Owner::this_process(), None))
+            .unwrap();
         let clock = FixedClock(UNIX_EPOCH);
         let sink = Recorder::new();
-        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(std::fs::File::create(&path).unwrap());
+        let e = Emitter::new("r", Op::Up, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
+        e.journal_as(op.id);
         let (threads, each) = (8, 250);
         let start = std::sync::Barrier::new(threads);
         std::thread::scope(|s| {
@@ -329,12 +334,13 @@ mod tests {
             }
         });
         drop(e);
-        let seqs: Vec<u64> = std::fs::read_to_string(&path)
-            .unwrap()
-            .lines()
-            .map(|l| serde_json::from_str::<Event>(l).unwrap().seq)
-            .collect();
-        let expected: Vec<u64> = (1..=u64::try_from(threads * each).unwrap()).collect();
+        let total = threads * each;
+        let (logged, unreadable) = store
+            .read(|tx| tx.events_after(crate::store::EventCursor::default(), Some(&run), total + 1))
+            .unwrap();
+        assert_eq!(unreadable, 0);
+        let seqs: Vec<u64> = logged.into_iter().map(|(_, event)| event.seq).collect();
+        let expected: Vec<u64> = (1..=u64::try_from(total).unwrap()).collect();
         assert_eq!(seqs, expected);
     }
 }
