@@ -23,7 +23,8 @@ it reaches the tool through its environment, as the run manifest's deliveries sa
 | `TF_CLI_CONFIG_FILE` | Terraform's CLI configuration (a provider mirror, credentials): inherited, and handed to a containerised Terraform (below). |
 | `no_proxy` (else `NO_PROXY`) | On macOS, kept in the environment of a Vagrant run on an ESXi host (below). |
 | `USERPROFILE` (Windows) | Whether the home is inside the user's profile (no DACL of its own needed), and the `VAGRANT_HOME` an elevated Hyper-V session gets. |
-| `SystemRoot` (Windows, `isothrum-machine`) | Where Windows' own tools are. |
+| `SystemRoot` (Windows, `isothrum-machine`) | Where Windows' own tools are (Hyper-V's `vmms.exe`). |
+| `ProgramData` (Windows, `isothrum-machine`) | Where the Vagrant VMware Utility's installer puts its certificates, which say it is installed. |
 
 A value that isn't UTF-8 is never taken for an unset variable. Where it names a path
 (`ISOTHRUM_HOME`, `DOCKER_CONFIG`, `PATH`, `TF_PLUGIN_CACHE_DIR`) it is read as it is. Where it is

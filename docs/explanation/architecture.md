@@ -30,7 +30,7 @@ a time, the values of params and secrets, and the event stream.
 |---|---|
 | `isothrum-runner` | The engine: lifecycle, state and locks, drivers, secrets, checks, events. A library with no UI. |
 | `isothrum-cli` | The `isothrum` binary: parses the command line, builds a runner, prints events, maps the outcome to an exit code. |
-| `isothrum-machine` | Detects the Vagrant providers (hypervisors) a computer can drive. |
+| `isothrum-machine` | Machine setup: the host table, and which Vagrant providers (hypervisors) a computer can drive and why not. |
 | `isothrum-compiler` | Turns a drawn topology into an Isoloom spec. Not involved in running. |
 | `isothrum-wasm` | The compiler and Isoloom's targets in WebAssembly, for a browser or a JavaScript runtime. |
 

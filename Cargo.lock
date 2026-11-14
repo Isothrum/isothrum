@@ -817,6 +817,8 @@ dependencies = [
  "isoloom-manifest",
  "isothrum-runner",
  "isothrum-test-support",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

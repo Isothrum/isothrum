@@ -21,11 +21,13 @@ workspace = true
 [dependencies]
 isoloom-manifest.workspace = true
 isothrum-runner.workspace = true
+serde.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
 isothrum-test-support.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 

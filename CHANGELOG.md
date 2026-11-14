@@ -11,6 +11,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Added
 
+- **`isothrum-machine`'s host table: `Host`, `Os`, `Arch`, `Packages`, `LinuxPackages`,
+  `Devices`.** This computer as machine setup reads it: its OS and CPU (one `Arch` with Rust's
+  name, `id()` `x86_64`/`aarch64`, and Docker's, `docker_name()` `amd64`/`arm64`), the package
+  manager setup goes through (Homebrew, winget, apt, dnf; `Host::here` asks `apt-get` and `dnf`
+  through the runner), and the files detection reads (`Devices`: KVM's device, the kernel's module
+  list, UTM's bundle, Hyper-V's service, the VMware Utility's marker and service). A test builds
+  its own (`Devices::under(dir)`), so each OS's rules run on any machine.
 - **`percent_encoded`: a value percent-encoded for a URL's query**, the one encoder the runner's
   links and the command line's masked console ticket use.
 - **Every run has a key, and every tool of the run gets it.** `copy_key(home, name)` (and
@@ -58,6 +65,26 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   the runner now knows the tools running and ends them, with the ones still stopping.
 
 ### Changed
+
+- **One provider detection, with the launcher's stricter checks, its reasons as codes.**
+  **Breaking, for embedders:** `isothrum-machine`'s `providers::detect(&Context, bool)` and
+  `providers::status(&Context, Provider)` work through a `Context` (the runner as an
+  `Arc<dyn ProcessRunner>`, the `Host`, and a probe time limit, `PROBE_TIMEOUT` by default), and
+  `ProviderStatus` says what Vagrant still needs (`needs: Vec<Need>`), whether the hypervisor is
+  installed, the plugin and whether it is installed, the VMware Utility (`UtilityState`), what the
+  account lacks (`AccountLacks`), whether the provider is remote, and `reason:
+  Option<Unavailable>`, a code with its args (`{"code": "pluginMissing", "args": {"plugin":
+  "vagrant-libvirt"}}`) that a UI translates, with an English `message()`. Newly detected:
+  without Vagrant the hypervisors are still probed (each status needs Vagrant); KVM holding the
+  CPU's virtualization (VirtualBox, Linux 6.12+); VirtualBox's kernel driver from the module
+  list, telling a restart (a newer kernel with headers) from a rebuild, with `VBoxManage`'s warning
+  where the list can't be read; `/dev/kvm` for QEMU on Linux too, its group read from the device;
+  a group joined since logging in (`id`); QEMU without `mkisofs` on Linux; HashiCorp's VMware
+  Utility not installed or not running; a plugin older than the minimum reads as not installed (a
+  setup installs it again); a probe that runs out of time reads as installed and slow. On a Mac,
+  VirtualBox is offered on Intel and UTM on Apple silicon unless already installed
+  (`providers::offered`), and QEMU is no longer listed on Windows. The hypervisor table is public
+  (`ProviderRow::of`: OSes, Windows on Arm, Mac CPU, vendor page, folder sharing, minimums).
 
 - **A run manifest's recovery names its leftovers (`recovery.leftovers`), not the tools' words.**
   **Breaking, for manifests:** Isoloom 3 writes `leftovers` (`virtualbox_name_taken`,
