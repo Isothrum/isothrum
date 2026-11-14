@@ -12,7 +12,7 @@ use crate::vars::PortKey;
 
 /// One container, as `ps` prints it.
 #[derive(Debug, Clone, Deserialize)]
-pub(super) struct PsEntry {
+pub(crate) struct PsEntry {
     #[serde(rename = "Service")]
     pub(super) service: String,
     #[serde(rename = "State", default)]
@@ -90,7 +90,7 @@ impl PsEntry {
 /// by its number and why (never the line: a container's line may hold its command): a container
 /// left out would read as a machine absent, and the operations would act on that (a start made
 /// again, a stop skipped).
-pub(super) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
+pub(crate) fn parse_ps(out: &str) -> Option<Vec<PsEntry>> {
     let trimmed = out.trim();
     if trimmed.is_empty() {
         return Some(Vec::new());

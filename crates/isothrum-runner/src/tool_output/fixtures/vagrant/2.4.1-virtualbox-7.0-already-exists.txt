@@ -1,0 +1,6 @@
+There was an error while executing `VBoxManage`, a CLI used by Vagrant
+for controlling VirtualBox. The command and stderr is shown below.
+
+Command: ["import", "/home/u/.vagrant.d/boxes/generic-VAGRANTSLASH-debian12/4.3.12/amd64/virtualbox/box.ovf", "--vsys", "0", "--vmname", "lab · web"]
+
+Stderr: VBoxManage: error: Could not rename the directory '/home/u/VirtualBox VMs/lab · web' (VERR_ALREADY_EXISTS)

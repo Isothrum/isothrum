@@ -3,7 +3,7 @@
 //! actions (each one a run manifest's step names is one driver's, and [`foreign_action`] refuses
 //! another driver's), how it reads status, and its run-state upkeep.
 
-mod compose;
+pub(crate) mod compose;
 mod port_pick;
 pub(crate) mod shells;
 pub(crate) mod terraform;
