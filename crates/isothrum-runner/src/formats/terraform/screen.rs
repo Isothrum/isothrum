@@ -91,7 +91,8 @@ async fn target(cx: &ToolCx<'_>, machine: &str) -> Result<(Api, String, String)>
     let insecure = ["PROXMOX_VE_INSECURE", "PM_TLS_INSECURE"]
         .iter()
         .any(|v| cx.var(v).is_some_and(|v| matches!(v.trim(), "true" | "1")));
-    let api = Api::at(&endpoint, insecure).ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
+    let api = Api::at(&endpoint, insecure)
+        .ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
     Ok((api, node, id))
 }
 
@@ -101,7 +102,9 @@ async fn endpoint_output(module: &Module<'_, '_>, state: StateAt<'_>) -> Result<
         return Ok(None);
     }
     let quiet = |_: Stream, _: &str| {};
-    let outputs = tf::outputs(&module.call(READ_LIMIT, &quiet), state).await.map_err(|e| module.error("output", e))?;
+    let outputs = tf::outputs(&module.call(READ_LIMIT, &quiet), state)
+        .await
+        .map_err(|e| module.error("output", e))?;
     Ok(outputs.get(ENDPOINT_OUTPUT).and_then(|o| o.value.as_str()).map(str::to_owned))
 }
 

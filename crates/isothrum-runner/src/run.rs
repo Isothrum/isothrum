@@ -127,14 +127,24 @@ impl<'r> Running<'r> {
     /// format reads them ([`crate::project::inputs`]).
     fn tool_env(&self, opts: &RunOptions) -> Result<Vec<(String, String)>> {
         let mut env = vec![(crate::RUN_KEY_VAR.to_owned(), self.runner.copy_key(&self.name))];
+        // The values the run's record keeps, under those the caller gives now.
+        let mut values = self.runner.store.record(&self.name)?.map(|r| r.env).unwrap_or_default();
+        values.extend(opts.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         if self.project.format == Format::Terraform {
             // Every run of the runner shares one provider cache, unless the user has their own.
             let cache = crate::formats::terraform::plugin_cache(&self.runner.config);
             std::fs::create_dir_all(&cache).map_err(Error::io(&cache, "create"))?;
             env.push(("TF_PLUGIN_CACHE_DIR".to_owned(), cache.to_string_lossy().into_owned()));
         }
-        env.extend(crate::project::inputs::environment(self.project.format, &opts.env, &opts.secrets)?);
+        env.extend(crate::project::inputs::environment(self.project.format, &values, &opts.secrets)?);
         Ok(env)
+    }
+
+    /// The hypervisor the run takes: the one the caller names, else the one its start recorded (a
+    /// `down` names none, and must reach the VMs its start made on their provider).
+    fn provider(&self, opts: &RunOptions) -> Option<crate::Provider> {
+        opts.provider
+            .or_else(|| self.runner.store.record(&self.name).ok().flatten().and_then(|r| r.provider))
     }
 
     /// The process runner of an operation: its tools recorded in the run's state folder while they
@@ -147,7 +157,7 @@ impl<'r> Running<'r> {
             self.runner.operation_of(&self.name),
         ));
         let windows = self.runner.config.host == crate::project::platform::HostOs::Windows;
-        if windows && self.driver.elevates(opts.provider) {
+        if windows && self.driver.elevates(self.provider(opts)) {
             let config = &self.runner.config;
             let env = config.host_env.for_elevation(config.search_path.as_deref());
             return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
@@ -174,7 +184,7 @@ impl<'r> Running<'r> {
             run: &self.name,
             key: &key,
             state_dir: &state_dir,
-            provider: opts.provider,
+            provider: self.provider(opts),
             env: self.tool_env(opts)?,
             processes,
             host_env: &self.runner.config.host_env,

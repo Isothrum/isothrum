@@ -63,7 +63,8 @@ fn recorded(cx: &ToolCx<'_>, machine: &str) -> Result<(Provider, String)> {
         .find(|r| Some(r.provider.as_str()) == asked)
         .or_else(|| records.first())
         .ok_or_else(|| no_console(machine, "Vagrant records no VM for it: it isn't up"))?;
-    let provider = provider_of(&record.provider).ok_or_else(|| no_console(machine, format!("its provider `{}` isn't one this runner knows", record.provider)))?;
+    let provider =
+        provider_of(&record.provider).ok_or_else(|| no_console(machine, format!("its provider `{}` isn't one this runner knows", record.provider)))?;
     Ok((provider, record.id.clone()))
 }
 
@@ -76,11 +77,19 @@ pub(super) async fn offer(cx: &ToolCx<'_>, machine: &SeenMachine) -> Option<Cons
     let offer = match provider {
         Provider::Virtualbox => {
             let offer = ConsoleOffer::of(ConsoleProtocol::Rdp, Some(VRDE_NOTE));
-            if runs { offer.unavailable(why_not(vrde(cx, &machine.name).await)) } else { offer }
+            if runs {
+                offer.unavailable(why_not(vrde(cx, &machine.name).await))
+            } else {
+                offer
+            }
         }
         Provider::Libvirt | Provider::Qemu => {
             let offer = ConsoleOffer::of(ConsoleProtocol::Vnc, None);
-            if runs { offer.unavailable(why_not(local(cx, &machine.name, provider).await)) } else { offer }
+            if runs {
+                offer.unavailable(why_not(local(cx, &machine.name, provider).await))
+            } else {
+                offer
+            }
         }
         other => match app_of(other, providers::this_host()) {
             Some(app) => ConsoleOffer::none(&format!("its hypervisor gives no screen this runner reaches: open it in {}", app.name)),
@@ -95,7 +104,11 @@ pub(super) async fn reach(cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
     let (provider, _) = recorded(cx, machine)?;
     match provider {
         Provider::Virtualbox => Ok(Console::new(machine, ConsoleProtocol::Rdp, Endpoint::Loopback(vrde(cx, machine).await?)).with_note(Some(VRDE_NOTE))),
-        Provider::Libvirt | Provider::Qemu => Ok(Console::new(machine, ConsoleProtocol::Vnc, Endpoint::Loopback(local(cx, machine, provider).await?))),
+        Provider::Libvirt | Provider::Qemu => Ok(Console::new(
+            machine,
+            ConsoleProtocol::Vnc,
+            Endpoint::Loopback(local(cx, machine, provider).await?),
+        )),
         other => Err(no_console(
             machine,
             match app_of(other, providers::this_host()) {
@@ -108,7 +121,11 @@ pub(super) async fn reach(cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
 
 /// The VNC display of a libvirt or QEMU VM.
 async fn local(cx: &ToolCx<'_>, machine: &str, provider: Provider) -> Result<std::net::SocketAddr> {
-    if provider == Provider::Libvirt { libvirt(cx, machine).await } else { qemu(cx, machine).await }
+    if provider == Provider::Libvirt {
+        libvirt(cx, machine).await
+    } else {
+        qemu(cx, machine).await
+    }
 }
 
 /// VirtualBox's remote display of `machine`: on, and on this computer's loopback.
@@ -123,7 +140,10 @@ async fn vrde(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr> {
             "VirtualBox's remote display is off: it needs the Oracle VM VirtualBox Extension Pack, installed before the VM boots (then restart the VM)",
         )),
         Vrde::NotListening => Err(no_console(machine, "VirtualBox's remote display isn't listening: the VM isn't running")),
-        Vrde::Unreadable(address) => Err(no_console(machine, format!("VirtualBox's remote display address `{address}` isn't an IP address"))),
+        Vrde::Unreadable(address) => Err(no_console(
+            machine,
+            format!("VirtualBox's remote display address `{address}` isn't an IP address"),
+        )),
         Vrde::At(at) => on_loopback(machine, at),
     }
 }
@@ -142,7 +162,10 @@ async fn libvirt(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr>
         .map_err(|e| no_console(machine, format!("libvirt didn't say where its display is: {e}")))?;
     match said {
         Display::Vnc(at) => on_loopback(machine, at),
-        Display::Other(said) => Err(no_console(machine, format!("libvirt gives it no VNC display (`virsh domdisplay` said `{said}`)"))),
+        Display::Other(said) => Err(no_console(
+            machine,
+            format!("libvirt gives it no VNC display (`virsh domdisplay` said `{said}`)"),
+        )),
     }
 }
 
@@ -156,7 +179,16 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
 /// default under Vagrant's own folder (`$VAGRANT_HOME/tmp/vagrant-qemu/<id>/qemu_socket`).
 fn monitor_socket(cx: &ToolCx<'_>, machine: &str) -> Result<PathBuf> {
     let (_, id) = recorded(cx, machine)?;
-    let options = read_if_there(&dot(cx).path.join("machines").join(machine).join("qemu").join(&id).join("run").join("options.yml"))?;
+    let options = read_if_there(
+        &dot(cx)
+            .path
+            .join("machines")
+            .join(machine)
+            .join("qemu")
+            .join(&id)
+            .join("run")
+            .join("options.yml"),
+    )?;
     if let Some(socket) = options.as_deref().and_then(crate::tool_output::qemu::recorded_socket) {
         return Ok(socket);
     }

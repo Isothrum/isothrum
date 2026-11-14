@@ -332,7 +332,16 @@ mod tests {
         let vnc = vncproxy(&call, &api, &token, ("pve", "101"), dir.path()).await.unwrap();
         assert_eq!((vnc.port, vnc.ticket.expose()), (5900, "PVEVNC:x"));
         let refused = vncproxy(&call, &api, &token, ("pve", "101"), dir.path()).await.unwrap_err();
-        assert!(matches!(refused, CliError::Failed { failure: Failure::Refused(401), .. }), "{refused}");
+        assert!(
+            matches!(
+                refused,
+                CliError::Failed {
+                    failure: Failure::Refused(401),
+                    ..
+                }
+            ),
+            "{refused}"
+        );
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "no request's config is left");
     }
 }

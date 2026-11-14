@@ -135,6 +135,12 @@ pub struct RunRecord {
     /// The last operation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last: Option<LastOp>,
+    /// The values (not the secrets, which are never kept) the run was started or last updated
+    /// with ([`crate::RunOptions::with_env`]): every later operation gives them to the tool again
+    /// unless the caller gives a value of the same name, so a `down`, an auto-stop or an update
+    /// sees the variables its start applied (a Terraform module's `region`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 impl RunRecord {
@@ -152,6 +158,7 @@ impl RunRecord {
             started_at: None,
             expires_at: None,
             last: None,
+            env: std::collections::BTreeMap::new(),
         }
     }
 }

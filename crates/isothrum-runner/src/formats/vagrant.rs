@@ -533,7 +533,11 @@ impl FormatDriver for Vagrant {
             // record was left on another).
             let asked = cx.provider.map(Provider::id);
             let mine = records.iter().filter(|r| r.machine == name);
-            let kind = mine.clone().find(|r| Some(r.provider.as_str()) == asked).or_else(|| mine.clone().next()).map(|r| r.provider.clone());
+            let kind = mine
+                .clone()
+                .find(|r| Some(r.provider.as_str()) == asked)
+                .or_else(|| mine.clone().next())
+                .map(|r| r.provider.clone());
             let address = if state == MachineState::Running && kind.as_deref().is_some_and(own_address) {
                 self.address(cx, &name).await
             } else {

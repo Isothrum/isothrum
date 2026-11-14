@@ -347,7 +347,10 @@ async fn a_vm_on_a_provider_that_gives_its_own_address_has_it() {
         .expect("vagrant ssh-config web", Reply::ok("Host web\n  HostName 192.168.121.10\n  User vagrant\n"))
         .build();
     let (seen, _) = Vagrant.observe(&cx(&f, &fake, LIBVIRT)).await.expect("observe");
-    assert_eq!((seen.machines[0].kind.as_deref(), seen.machines[0].address.as_deref()), (Some("libvirt"), Some("192.168.121.10")));
+    assert_eq!(
+        (seen.machines[0].kind.as_deref(), seen.machines[0].address.as_deref()),
+        (Some("libvirt"), Some("192.168.121.10"))
+    );
 
     let f = Fixture::new();
     f.made("web", "virtualbox", "uuid-web");

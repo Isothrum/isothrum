@@ -139,6 +139,11 @@ impl Running<'_> {
             record.host_label.clone_from(&opts.host_label);
             record.started_at = Some(rfc3339(now));
             record.expires_at = opts.lifetime.map(|l| crate::clock::unix_seconds(now + l));
+            // A start keeps the values it was given, and only those.
+            record.env.clone_from(&opts.env);
+        } else if op == Op::Update {
+            // An update keeps what it changed on top of what the start kept.
+            record.env.extend(opts.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
         let Some(id) = self.runner.operation_of(&self.name) else {
             return self.runner.store.save(&record);

@@ -397,7 +397,9 @@ mod tests {
     #[test]
     fn a_screen_takes_its_machine_and_the_values_its_tools_get() {
         let screen = Cli::parse_from(["isothrum", "screen", "web", "--env", "PROXMOX_VE_ENDPOINT=https://pve:8006"]);
-        assert!(matches!(on_runner(screen.command), RunnerCommand::Screen { machine: m, app: false, show_password: false, op } if m == "web" && op.env.len() == 1));
+        assert!(
+            matches!(on_runner(screen.command), RunnerCommand::Screen { machine: m, app: false, show_password: false, op } if m == "web" && op.env.len() == 1)
+        );
         let app = Cli::parse_from(["isothrum", "screen", "--app", "web"]);
         assert!(matches!(on_runner(app.command), RunnerCommand::Screen { app: true, .. }));
     }

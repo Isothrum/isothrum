@@ -74,7 +74,9 @@ mod tests {
             let mut buf = [0u8; 64];
             let n = s.read(&mut buf).await.unwrap();
             assert_eq!(&buf[..n], b"info vnc\n");
-            s.write_all(b"info vnc\r\ndefault:\r\n  Server: 127.0.0.1:5902 (ipv4)\r\n(qemu) ").await.unwrap();
+            s.write_all(b"info vnc\r\ndefault:\r\n  Server: 127.0.0.1:5902 (ipv4)\r\n(qemu) ")
+                .await
+                .unwrap();
         });
         assert_eq!(vnc_server(&socket).await.unwrap(), Some("127.0.0.1:5902".parse().unwrap()));
         monitor.await.unwrap();

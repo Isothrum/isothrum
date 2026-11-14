@@ -132,7 +132,13 @@ mod tests {
     #[test]
     fn virtualbox_says_whether_its_remote_display_is_on_and_where() {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        let on = lines(&["name=\"web\"", "vrde=\"on\"", "vrdeport=3390", "vrdeports=\"3390-3489\"", "vrdeaddress=\"127.0.0.1\""]);
+        let on = lines(&[
+            "name=\"web\"",
+            "vrde=\"on\"",
+            "vrdeport=3390",
+            "vrdeports=\"3390-3489\"",
+            "vrdeaddress=\"127.0.0.1\"",
+        ]);
         assert_eq!(remote_display(&on), Vrde::At("127.0.0.1:3390".parse().unwrap()));
         assert_eq!(remote_display(&lines(&["vrde=\"off\""])), Vrde::Off);
         assert_eq!(remote_display(&lines(&[])), Vrde::Off);

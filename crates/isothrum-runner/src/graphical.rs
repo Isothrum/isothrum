@@ -200,7 +200,10 @@ mod tests {
     fn an_offer_says_its_protocol_and_why_it_cant_be_shown() {
         let offer = ConsoleOffer::of(ConsoleProtocol::Rdp, Some("needs the extension pack")).unavailable(Some("off".into()));
         let json = serde_json::to_value(&offer).unwrap();
-        assert_eq!(json, serde_json::json!({ "protocol": "rdp", "note": "needs the extension pack", "unavailable": "off" }));
+        assert_eq!(
+            json,
+            serde_json::json!({ "protocol": "rdp", "note": "needs the extension pack", "unavailable": "off" })
+        );
         assert_eq!(serde_json::to_value(ConsoleOffer::none("x")).unwrap()["protocol"], "none");
     }
 }

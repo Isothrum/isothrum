@@ -28,9 +28,13 @@ mod tests {
 
     #[test]
     fn a_vm_is_named_by_its_line() {
-        let lines: Vec<String> = ["UUID                                 Status   Name", "AB-12  started  web vm", "CD-34  stopped  db"]
-            .map(str::to_owned)
-            .to_vec();
+        let lines: Vec<String> = [
+            "UUID                                 Status   Name",
+            "AB-12  started  web vm",
+            "CD-34  stopped  db",
+        ]
+        .map(str::to_owned)
+        .to_vec();
         assert_eq!(named(&lines, "AB-12").as_deref(), Some("web vm"));
         assert_eq!(named(&lines, "EF-56"), None);
     }
