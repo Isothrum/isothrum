@@ -34,6 +34,18 @@ impl fmt::Display for OperationId {
     }
 }
 
+/// A page of the event table ([`super::Tx::events_page`]).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct EventPage {
+    /// The events it read, oldest first, each with its cursor.
+    pub events: Vec<(EventCursor, crate::events::Event)>,
+    /// How many of its rows weren't an event this runner reads (another version's kind).
+    pub unreadable: usize,
+    /// The cursor of the last row it scanned, read or not: where the next page starts.
+    pub last: EventCursor,
+}
+
 /// A run, as the store keeps it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]

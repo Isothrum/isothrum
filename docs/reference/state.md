@@ -63,7 +63,7 @@ The home's store, one SQLite database, every change one transaction. It holds no
 | `transitions` | Every move of a run's state, with the operation that made it (none for a status read's). The moves are a closed table: an operation that can't begin from where the run stands is refused (`illegal_transition`). |
 | `operations`, `operation_steps` | The journal: each operation's start, its steps, and its end (`succeeded`, `failed`, `cancelled`, `abandoned`). An operation with no end is one whose process died midway (killed, crashed, the computer off): the next operation on the run, once it holds the run, ends it `abandoned` and records a run it left moving (`creating`, `destroying`, `parking`, `resuming`, `updating`) as `failed` (`cancelled`), so the next `up` clears what it left. |
 | `events` | The runs' events, in order; a run's are trimmed to the newest 2000 once over 4000, by the operation holding the run. |
-| `resources` | What each run made, written ahead: `creating` before the call that makes it, `created` with the tool's id after, `destroying` before the call that removes it, `gone` after (today: a Compose run's anonymous volumes). |
+| `resources` | What each run made or keeps, written ahead: `creating` before the call that makes it, `created` with the tool's id after, `destroying` before the call that removes it, `gone` after. Provider resources (a Compose run's anonymous volumes today) and the runner's own local things (state files, pinned host keys, the project archive, consoles). A resource an operation whose process died left behind is removed by the id the tool gave it, never by a name. Each move is a `resource` event. |
 | `port_reservations`, `leases` | The host ports a start reserved, held under its run's lease, which its process renews while it holds them: a process that dies stops renewing it, and the next start takes the port over. |
 
 The record's fields:
@@ -88,10 +88,44 @@ The record's fields:
 A run's row stays after a successful `down`, with state `absent`. A store a newer Isothrum wrote
 is refused (`store_version`).
 
-**From a 2.x home**: the first time a 3.0 runner opens a home a 2.x runner wrote, it imports each
-run's `record.json`, `seen.json`, `events.jsonl` and `anonymous-volumes` into `state.db`, once,
-and leaves those files beside it read-only. A record it can't read is left as it was, and said.
-The `ports/` folder is no longer used.
+## Migrating a home to 3.0
+
+3.0 keeps a home's state in `state.db` instead of files. Nothing needs doing by hand: the first
+time a 3.0 runner opens a home a 2.x runner wrote, it imports it, once.
+
+| 2.x | 3.0 |
+|---|---|
+| `runs/<run>/record.json` | A row of `runs`: the same fields, its state as it was. What the user wants of the run is read from that state: `ready`, `starting`, `resuming` or `failed` give `running`; `parked` or `parking` give `parked`; `absent` or `stopping` give `gone`. |
+| `runs/<run>/seen.json` | The row's last observation. |
+| `runs/<run>/events.jsonl` | Rows of `events`, as written (`v: 0`). `isothrum events` still replays them. |
+| `runs/<run>/anonymous-volumes` | Live `volume` resources of an operation recorded as abandoned: the run's next `down` or `update` removes them. |
+| `ports/<protocol>-<port>.lock` | No longer used: reservations are rows held under the run's lease. |
+| `runs/<run>/lock`, `slots.lock`, `tools/` | Unchanged. |
+
+The imported files stay beside the store, read-only, and are never read again. A record that
+can't be read is left as it was, writable, and said (the run isn't imported). Don't point a 2.x
+runner at a home a 3.0 runner has opened: it would read the old files, and its first write fails
+on the read-only ones. Going back from 3.0 to 2.x is not supported.
+
+What a reader of the runner's output sees change:
+
+- **Run states.** `starting` is `creating`, `stopping` is `destroying`, and `updating` is new: an
+  `update` moves the run through it, and a failed update leaves the run `failed` (a status read
+  that finds every machine running brings it back to `ready`). 3.0 still reads 2.x's words.
+- **Events v1** (`schema/events-v1.schema.json`): every event's `v` is 1, and an event of an
+  operation carries `operation`, its id in the journal. New kinds: `desired` (what the user now
+  wants of the run, when an operation that sets it begins), `resource` (a move of a resource row),
+  and `operation` (a service's queued, started and ended phases). A reader that ignores the kinds
+  and fields it doesn't know, as the event stream asks, only needs the new state words.
+- **Status.** `status` reconciles: a live read records what it saw, and moves a settled run where
+  the state machine allows (a machine stopped outside: `ready` to `failed`). `--json` carries
+  `desired` and `failed_cause`.
+- **Error codes.** New: `illegal_transition` (the operation can't begin from where the run stands),
+  `state_conflict` (the run moved meanwhile: retry), `store_version` (a newer Isothrum wrote the
+  home's store), `store_corrupt` (`state.db` isn't what the runner wrote), `lease_held` (another
+  live process holds the run). See [Exit codes](exit-codes.md).
+- **The home is absolute.** A relative `--home` (or `ISOTHRUM_HOME`) is resolved once, against
+  the folder the command starts in.
 
 ## Adopting an existing Terraform deployment
 

@@ -28,8 +28,8 @@ use serde::de::DeserializeOwned;
 pub use leases::Reserver;
 pub use owner::Owner;
 pub use rows::{
-    CopyName, Ended, EventCursor, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, PortReservation, ResourceId,
-    ResourceKind, ResourceRow, ResourceState, RunRow, Scope,
+    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, PortReservation,
+    ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope,
 };
 
 use crate::Result;
