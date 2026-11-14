@@ -31,7 +31,7 @@ isothrum up [OPTIONS] [PATH]
 - `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
 - `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--replace`: Remove whatever of the run exists, then start afresh.
-- `--lifetime <MINUTES>`: How long a run that stops itself (a cloud run) may live, in minutes (default: its manifest's)
+- `--lifetime <MINUTES>`: How long a run that stops itself (a cloud run) may live, in minutes, 1 or more (default: its manifest's)
 - `--ssh-jump <USER@HOST>`: A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge this machine can't route to. Recorded when the run starts: every later operation (a resume through `up` too) goes the same way.
 
 ## `isothrum down`
