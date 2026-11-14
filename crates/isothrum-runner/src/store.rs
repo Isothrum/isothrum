@@ -143,7 +143,7 @@ pub struct RunRecord {
     /// The host ports a local VM run forwards from this computer, by `"<machine>/<port>"`: a free
     /// one the runner pinned at the first start, kept so a resume forwards the same port.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub vm_host_ports: BTreeMap<String, u16>,
+    pub vm_host_ports: BTreeMap<String, crate::port::HostPort>,
     /// The boot digest (the manifest's `native.boot_digest`) of the Vagrantfile each VM of the run
     /// was last brought up or updated with, by machine name: what an update compares to reload a
     /// running VM whose boot-time settings changed. Empty for a run recorded before the runner
@@ -207,7 +207,7 @@ pub struct LastObserved {
     /// Every machine of the manifest, as read.
     pub machines: Vec<MachineStatus>,
     /// The host port each published machine port got: its machine, its port's name, the port.
-    pub published: Vec<(String, String, u16)>,
+    pub published: Vec<(String, String, crate::port::HostPort)>,
     /// Where each machine's published ports answer.
     pub hosts: BTreeMap<String, String>,
 }

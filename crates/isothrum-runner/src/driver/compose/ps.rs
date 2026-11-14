@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use isoloom_manifest::Manifest;
 use serde::Deserialize;
 
+use super::EngineAt;
 use crate::error::Error;
+use crate::port::{GuestPort, HostPort};
 use crate::status::{MachineState, MachineStatus, PublishedPort};
 use crate::vars::PortKey;
 
@@ -61,8 +63,8 @@ impl PsEntry {
     }
 
     /// Its published ports, once each (Docker lists one per address family).
-    fn published(&self) -> Vec<PublishedPort> {
-        let mut out: Vec<PublishedPort> = Vec::new();
+    fn published(&self) -> Vec<EnginePort> {
+        let mut out: Vec<EnginePort> = Vec::new();
         for p in self.publishers.iter().filter(|p| p.published_port > 0 && p.target_port > 0) {
             let Some(protocol) = super::protocol(&p.protocol) else {
                 tracing::warn!(
@@ -72,10 +74,10 @@ impl PsEntry {
                 );
                 continue;
             };
-            let port = PublishedPort {
-                port: p.target_port,
+            let port = EnginePort {
+                target: GuestPort::new(p.target_port),
                 protocol,
-                host_port: p.published_port,
+                on_engine: p.published_port,
             };
             if !out.contains(&port) {
                 out.push(port);
@@ -120,20 +122,38 @@ pub(super) fn unreadable(step: &str) -> Error {
     }
 }
 
+/// A container port as the engine publishes it: on the engine's host, which is this computer
+/// or the run's VM ([`EngineAt`]), so not yet a host port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EnginePort {
+    /// The container's port.
+    target: GuestPort,
+    protocol: isoloom_manifest::Protocol,
+    /// The port on the engine's host.
+    on_engine: u16,
+}
+
 /// Every machine of `manifest`, as `entries` show it (absent when none matches its service), and
-/// the host port each published machine port got.
-pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry]) -> (Vec<MachineStatus>, BTreeMap<PortKey, u16>) {
+/// the host port each published machine port is reached at, the engine running `at`.
+pub(super) fn machines(manifest: &Manifest, entries: &[PsEntry], at: &EngineAt<'_>) -> (Vec<MachineStatus>, BTreeMap<PortKey, HostPort>) {
     let mut published = BTreeMap::new();
     let mut out = Vec::new();
     for m in &manifest.machines {
         let service = crate::driver::native_name(m);
         let entry = entries.iter().find(|e| e.service == service && !e.one_off());
-        let ports = entry.map(PsEntry::published).unwrap_or_default();
-        // Each by its name in the manifest (`${published.<machine>.<name>}`).
-        for p in &ports {
-            if let Some(port) = super::machine_port(m, p.port, p.protocol) {
-                published.insert(PortKey::new(m.name.as_str(), port.name.as_str()), p.host_port);
+        let mut ports = Vec::new();
+        for p in entry.map(PsEntry::published).unwrap_or_default() {
+            let declared = super::machine_port(m, p.target, p.protocol);
+            let Some(host_port) = at.reached_at(m, declared, p.on_engine) else { continue };
+            // Each by its name in the manifest (`${published.<machine>.<name>}`).
+            if let Some(declared) = declared {
+                published.insert(PortKey::new(m.name.as_str(), declared.name.as_str()), host_port);
             }
+            ports.push(PublishedPort {
+                port: p.target,
+                protocol: p.protocol,
+                host_port,
+            });
         }
         out.push(MachineStatus {
             name: m.name.to_string(),
@@ -214,14 +234,14 @@ mod tests {
             {"Service":"isoloom-init-web-1","State":"exited","ExitCode":0},
             {"Service":"isoloom-check","State":"running","Labels":"com.docker.compose.oneoff=True"},
             {"Service":"stranger","State":"running"}]"#;
-        let (machines, published) = machines(&docker_manifest(), &read(ps));
+        let (machines, published) = machines(&docker_manifest(), &read(ps), &EngineAt::ThisComputer);
         let state = |n: &str| machines.iter().find(|m| m.name == n).unwrap().state.clone();
         assert_eq!(state("web"), MachineState::Running);
         assert_eq!(state("db"), MachineState::Unhealthy);
         assert_eq!(state("isoloom-init-web-1"), MachineState::Exited(0));
         assert_eq!(state("isoloom-check"), MachineState::Absent, "a one-off isn't the machine");
         assert!(machines.iter().all(|m| m.name != "stranger"));
-        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
+        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), HostPort::new(41873))]));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!((web.published.len(), web.addresses["lab"].as_str()), (1, "10.30.0.10"));
     }
@@ -233,10 +253,10 @@ mod tests {
             {"PublishedPort":41873,"TargetPort":0,"Protocol":"tcp"},
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"},
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"}]}]"#;
-        let udp = PublishedPort {
-            port: 80,
+        let udp = EnginePort {
+            target: GuestPort::new(80),
             protocol: Protocol::Udp,
-            host_port: 41874,
+            on_engine: 41874,
         };
         assert_eq!(read(ps)[0].published(), [udp]);
     }
@@ -248,7 +268,10 @@ mod tests {
             {"PublishedPort":41873,"TargetPort":80,"Protocol":"sctp"},
             {"PublishedPort":41874,"TargetPort":81}]}]"#;
         let (published, traced) = crate::testing::traced(async { read(ps)[0].published() }).await;
-        assert_eq!(published.iter().map(|p| (p.port, p.protocol)).collect::<Vec<_>>(), [(81, Protocol::Tcp)]);
+        assert_eq!(
+            published.iter().map(|p| (p.target, p.protocol)).collect::<Vec<_>>(),
+            [(GuestPort::new(81), Protocol::Tcp)]
+        );
         assert!(traced.contains("WARN") && traced.contains("sctp"), "{traced}");
     }
 
@@ -258,17 +281,40 @@ mod tests {
             {"PublishedPort":41873,"TargetPort":80,"Protocol":"tcp"},
             {"PublishedPort":41874,"TargetPort":80,"Protocol":"udp"},
             {"PublishedPort":41875,"TargetPort":8443,"Protocol":"tcp"}]}]"#;
-        let (machines, published) = machines(&docker_manifest(), &read(ps));
-        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), 41873)]));
+        let (machines, published) = machines(&docker_manifest(), &read(ps), &EngineAt::ThisComputer);
+        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), HostPort::new(41873))]));
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!(web.published.len(), 3, "every published port is shown, named or not");
+    }
+
+    /// Regression (the docker-vm read): a port Compose publishes inside the run's VM is the VM's,
+    /// not this computer's. It is reported only at the host port the VM's driver reaches it at,
+    /// and one the driver doesn't reach (undeclared, so nothing forwards it) is left out instead
+    /// of being reported at the VM's number.
+    #[test]
+    fn a_port_published_in_a_vm_is_reported_at_the_host_port_its_driver_gives() {
+        let ps = r#"[{"Service":"web","State":"running","Publishers":[
+            {"PublishedPort":80,"TargetPort":80,"Protocol":"tcp"},
+            {"PublishedPort":8443,"TargetPort":8443,"Protocol":"tcp"}]}]"#;
+        // The VM forwards its declared port 80 from 50123; nothing forwards the rest.
+        let reach = |_: &isoloom_manifest::Machine, p: Option<&isoloom_manifest::Port>, on_vm: GuestPort| {
+            p.map(|_| {
+                assert_eq!(on_vm, GuestPort::new(80));
+                HostPort::new(50123)
+            })
+        };
+        let (machines, published) = machines(&docker_manifest(), &read(ps), &EngineAt::Vm(&reach));
+        assert_eq!(published, BTreeMap::from([(PortKey::new("web", "portal"), HostPort::new(50123))]));
+        let web = machines.iter().find(|m| m.name == "web").unwrap();
+        let shown: Vec<_> = web.published.iter().map(|p| (p.port, p.host_port)).collect();
+        assert_eq!(shown, [(GuestPort::new(80), HostPort::new(50123))], "never the VM's 8443 as a host port");
     }
 
     #[test]
     fn a_machine_is_found_by_its_compose_service_not_its_name() {
         let manifest = isoloom_manifest::parse(&crate::testing::WEB_PORTAL.replace(r#""service": "web""#, r#""service": "portal""#)).unwrap();
         let ps = r#"[{"Service":"portal","State":"running"},{"Service":"web","State":"exited","ExitCode":1}]"#;
-        let (machines, _) = machines(&manifest, &read(ps));
+        let (machines, _) = machines(&manifest, &read(ps), &EngineAt::ThisComputer);
         let web = machines.iter().find(|m| m.name == "web").unwrap();
         assert_eq!(web.state, MachineState::Running);
     }
@@ -284,7 +330,7 @@ mod proptests {
         #[test]
         fn any_ps_output_is_read_without_panicking(text in "\\PC{0,300}") {
             if let Some(entries) = parse_ps(&text) {
-                let _ = machines(&crate::testing::docker_manifest(), &entries);
+                let _ = machines(&crate::testing::docker_manifest(), &entries, &EngineAt::ThisComputer);
             }
         }
 

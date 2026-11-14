@@ -123,7 +123,7 @@ impl<'r> Running<'r> {
 
     /// Reserves `port` over `protocol` for this run while it starts; false when another run
     /// holds it.
-    pub(crate) fn reserve(&self, port: u16, protocol: isoloom_manifest::Protocol) -> bool {
+    pub(crate) fn reserve(&self, port: crate::port::HostPort, protocol: isoloom_manifest::Protocol) -> bool {
         self.runner.reserve(&self.name, port, protocol)
     }
 
@@ -141,7 +141,7 @@ impl<'r> Running<'r> {
     /// # Errors
     ///
     /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
-    pub(crate) fn ensure_ports_free(&self, ports: impl IntoIterator<Item = (u16, isoloom_manifest::Protocol)>) -> Result<()> {
+    pub(crate) fn ensure_ports_free(&self, ports: impl IntoIterator<Item = (crate::port::HostPort, isoloom_manifest::Protocol)>) -> Result<()> {
         self.runner.ensure_ports_free(&self.name, ports)
     }
 

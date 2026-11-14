@@ -9,7 +9,7 @@ pub(crate) mod shells;
 pub(crate) mod terraform;
 mod vagrant;
 
-pub(crate) use compose::{COMPOSE_SERVICE_LABEL, UNREADABLE_PS, read_ps};
+pub(crate) use compose::{COMPOSE_SERVICE_LABEL, EngineAt, UNREADABLE_PS, read_ps};
 pub(crate) use terraform::plugin_cache;
 
 use std::collections::BTreeMap;
@@ -22,6 +22,7 @@ use crate::console::ShellCommand;
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::executor::Cx;
+use crate::port::{GuestPort, HostPort};
 use crate::process::ProcessSpec;
 use crate::status::MachineStatus;
 use crate::vars::PortKey;
@@ -35,8 +36,8 @@ pub(crate) const REMOVE_LIMIT: std::time::Duration = std::time::Duration::from_s
 pub(crate) struct Observed {
     /// Every machine of the manifest.
     pub(crate) machines: Vec<MachineStatus>,
-    /// The host port each published machine port got.
-    pub(crate) published: BTreeMap<PortKey, u16>,
+    /// The host port each published machine port is reached at.
+    pub(crate) published: BTreeMap<PortKey, HostPort>,
     /// Where each machine's published ports answer (`${host.<machine>}`).
     pub(crate) hosts: BTreeMap<String, String>,
     /// What the engine gives back, by output name (a Terraform state's outputs).
@@ -162,13 +163,15 @@ pub(crate) trait Driver {
     ///
     /// `tool_failed` when no free host port is found for one, `io` when the loopback can't be
     /// bound to look for one ([`port_pick::PortPick::pin`]).
-    fn pin_vm_ports(&self, _cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+    fn pin_vm_ports(&self, _cx: &Cx<'_>) -> Result<BTreeMap<String, HostPort>> {
         Ok(BTreeMap::new())
     }
-    /// The host port this computer reaches `m`'s published port `p` at, where the run's VMs
-    /// forward it here (Vagrant, but on ESXi); `None` by default: where a VM's ports answer at its
-    /// own address (ESXi, a Terraform server or cloud), and for Compose, which reads its own.
-    fn forwarded_port(&self, _cx: &Cx<'_>, _m: &Machine, _p: &isoloom_manifest::Port) -> Option<u16> {
+    /// The host port a port published inside one of this driver's VMs is reached at: `on_vm`,
+    /// the port the VM answers on for machine `m`'s port `p` (`None`: a port the manifest doesn't
+    /// declare). The driver's one way from a guest port to a host port: a local Vagrant VM's
+    /// forward, the VM's own port where it answers at its own address (ESXi, a Terraform server or
+    /// cloud). `None` by default: Compose runs no VM, so nothing in one is reached through it.
+    fn reached_at(&self, _cx: &Cx<'_>, _m: &Machine, _p: Option<&isoloom_manifest::Port>, _on_vm: GuestPort) -> Option<HostPort> {
         None
     }
     /// What step `step` of list `list` needs before it runs, in a phase of its own with its own
@@ -299,13 +302,14 @@ impl AnyDriver {
     /// # Errors
     ///
     /// As [`Driver::pin_vm_ports`].
-    pub(crate) fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+    pub(crate) fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, HostPort>> {
         dispatch!(self, d => d.pin_vm_ports(cx))
     }
 
-    /// The host port this computer reaches `m`'s published port `p` at ([`Driver::forwarded_port`]).
-    pub(crate) fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
-        dispatch!(self, d => d.forwarded_port(cx, m, p))
+    /// The host port a port published inside one of the run's VMs is reached at
+    /// ([`Driver::reached_at`]).
+    pub(crate) fn reached_at(&self, cx: &Cx<'_>, m: &Machine, p: Option<&isoloom_manifest::Port>, on_vm: GuestPort) -> Option<HostPort> {
+        dispatch!(self, d => d.reached_at(cx, m, p, on_vm))
     }
 
     pub(crate) async fn action(&self, cx: &Cx<'_>, list: &str, step: &Step, action: Action) -> Result<()> {

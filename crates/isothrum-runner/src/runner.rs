@@ -295,7 +295,7 @@ impl Runner {
     }
 
     /// Reserves `port` for `name` while it starts; false when another run holds it.
-    pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
+    pub(crate) fn reserve(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
         self.reservations.reserve(name, port, protocol, self.operation_of(name))
     }
 
@@ -323,14 +323,14 @@ impl Runner {
     /// # Errors
     ///
     /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
-    pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (u16, Protocol)>) -> Result<()> {
+    pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (crate::port::HostPort, Protocol)>) -> Result<()> {
         self.reservations.ensure_free(name, ports)
     }
 
     /// Whether another run than `name` holds `port` (the tests read it; the operations go
     /// through the picks).
     #[cfg(test)]
-    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {
+    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
         self.reservations.reserved_elsewhere(name, port, protocol)
     }
 
@@ -408,10 +408,13 @@ mod tests {
         let (a, b) = (runner(a.path()), runner(b.path()));
         let name = RunName::new("demo").unwrap();
         let flight = a.enter(&name, Op::Up, crate::store::OperationId(1));
-        assert!(a.reserve(&name, 8080, Protocol::Tcp));
+        assert!(a.reserve(&name, crate::port::HostPort::new(8080), Protocol::Tcp));
         assert_eq!(a.in_flight(), [(name.clone(), Op::Up)]);
         assert_eq!(b.in_flight(), []);
-        assert!(b.reserve(&RunName::new("other").unwrap(), 8080, Protocol::Tcp), "b's ports aren't a's");
+        assert!(
+            b.reserve(&RunName::new("other").unwrap(), crate::port::HostPort::new(8080), Protocol::Tcp),
+            "b's ports aren't a's"
+        );
         drop(flight);
         assert_eq!(a.in_flight(), []);
     }
@@ -421,13 +424,16 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let r = runner(home.path());
         let (one, two) = (RunName::new("one").unwrap(), RunName::new("two").unwrap());
-        assert!(r.reserve(&one, 41000, Protocol::Tcp));
-        assert!(r.reserve(&one, 41000, Protocol::Tcp), "its own reservation again");
-        assert!(!r.reserve(&two, 41000, Protocol::Tcp));
-        assert!(r.reserved_elsewhere(&two, 41000, Protocol::Tcp) && !r.reserved_elsewhere(&one, 41000, Protocol::Tcp));
-        assert!(r.reserve(&two, 41000, Protocol::Udp), "another protocol");
+        assert!(r.reserve(&one, crate::port::HostPort::new(41000), Protocol::Tcp));
+        assert!(r.reserve(&one, crate::port::HostPort::new(41000), Protocol::Tcp), "its own reservation again");
+        assert!(!r.reserve(&two, crate::port::HostPort::new(41000), Protocol::Tcp));
+        assert!(
+            r.reserved_elsewhere(&two, crate::port::HostPort::new(41000), Protocol::Tcp)
+                && !r.reserved_elsewhere(&one, crate::port::HostPort::new(41000), Protocol::Tcp)
+        );
+        assert!(r.reserve(&two, crate::port::HostPort::new(41000), Protocol::Udp), "another protocol");
         r.release(&one);
-        assert!(r.reserve(&two, 41000, Protocol::Tcp));
+        assert!(r.reserve(&two, crate::port::HostPort::new(41000), Protocol::Tcp));
     }
 }
 

@@ -8,6 +8,7 @@ use isoloom_manifest::{Manifest, OutputRole, Protocol, Provider, Role};
 use serde::{Deserialize, Serialize};
 
 use crate::events::MASK;
+use crate::port::{GuestPort, HostPort};
 use crate::secrets::SecretValue;
 use crate::state::RunState;
 use crate::store::RunRecord;
@@ -60,12 +61,12 @@ impl std::fmt::Display for MachineState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct PublishedPort {
-    /// The machine's port.
-    pub port: u16,
+    /// The machine's port, inside it.
+    pub port: GuestPort,
     /// `tcp` or `udp`.
     pub protocol: Protocol,
-    /// The host port.
-    pub host_port: u16,
+    /// The host port it is reached at, at the machine's host address.
+    pub host_port: HostPort,
 }
 
 /// One machine of the manifest, as it stands.

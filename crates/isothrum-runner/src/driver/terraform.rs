@@ -36,6 +36,7 @@ use isoloom_manifest::{Action, ExpiryUnit, Machine, Step, TerraformIdentity};
 use super::{Driver, GuestUse, Observation, Observed};
 use crate::console::ShellCommand;
 use crate::executor::Cx;
+use crate::port::{GuestPort, HostPort};
 use crate::process::ProcessSpec;
 use crate::status::{MachineState, MachineStatus, PublishedPort};
 use crate::vars::PortKey;
@@ -90,6 +91,11 @@ fn copy_module(cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
 }
 
 impl Driver for Terraform {
+    /// A server's or cloud's VM answers at its own address: its own port, there.
+    fn reached_at(&self, _cx: &Cx<'_>, _m: &Machine, _p: Option<&isoloom_manifest::Port>, on_vm: GuestPort) -> Option<HostPort> {
+        Some(on_vm.at_own_address())
+    }
+
     /// What a failed `down` may print for each instance of the state that is already gone: the
     /// manifest's `identity.terraform.gone`, filled for each instance of its types the state holds.
     fn gone(&self, cx: &Cx<'_>) -> Result<Vec<gone::Gone>> {
@@ -227,7 +233,7 @@ fn observed(manifest: &isoloom_manifest::Manifest, tf: &state::TfState) -> Obser
                 .filter_map(|p| {
                     let host_port = *published.get(&PortKey::new(m.name.as_str(), p.name.as_str()))?;
                     Some(PublishedPort {
-                        port: p.port.get(),
+                        port: GuestPort::of(p),
                         protocol: p.kind.transport(),
                         host_port,
                     })
@@ -272,11 +278,11 @@ async fn on_server(cx: &Cx<'_>, seen: &mut Observed) -> Result<()> {
 /// The host port of each published machine port, as the state's `published` output gives them
 /// (`"<machine>/<port>": "<address>:<port>"`); an entry that doesn't read so is left out, and
 /// traced.
-fn published(tf: &state::TfState) -> BTreeMap<PortKey, u16> {
+fn published(tf: &state::TfState) -> BTreeMap<PortKey, HostPort> {
     let mut out = BTreeMap::new();
     for (key, address) in tf.maps.get(PUBLISHED).into_iter().flatten() {
         if let (Some((machine, port)), Some(host_port)) = (key.split_once('/'), state::port_of(address)) {
-            out.insert(PortKey::new(machine, port), host_port);
+            out.insert(PortKey::new(machine, port), HostPort::new(host_port));
         } else {
             tracing::warn!(
                 key,

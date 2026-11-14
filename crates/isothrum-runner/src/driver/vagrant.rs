@@ -19,14 +19,16 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use isoloom_manifest::{Action, Machine, Native, Provider, Step, VagrantIdentity, VagrantProvider, contract};
+use isoloom_manifest::{Action, Machine, Native, Step, VagrantIdentity, VagrantProvider, contract};
 
+use self::forwarded::Forwarding;
 use super::{Driver, GuestUse, Observation, Observed, native_name};
 use crate::Result;
 use crate::console::ShellCommand;
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, with_delivered};
+use crate::port::{GuestPort, HostPort};
 use crate::process::ProcessSpec;
 use crate::state::Op;
 use crate::status::{MachineStatus, PublishedPort};
@@ -160,12 +162,17 @@ impl Driver for Vagrant {
             .any(|p| scope.runs_on(p.id) && p.elevation == isoloom_manifest::Elevation::Hyperv)
     }
 
-    fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, u16>> {
+    fn pin_vm_ports(&self, cx: &Cx<'_>) -> Result<BTreeMap<String, HostPort>> {
         forwarded::pin(cx)
     }
 
-    fn forwarded_port(&self, cx: &Cx<'_>, m: &Machine, p: &isoloom_manifest::Port) -> Option<u16> {
-        forwarded::local_host_port(cx, m, p)
+    /// A local VM's forward ([`forwarded::reached_at`]: none for an undeclared port, which nothing
+    /// forwards); on ESXi, which forwards nothing, the VM's own port at its address.
+    fn reached_at(&self, cx: &Cx<'_>, m: &Machine, p: Option<&isoloom_manifest::Port>, on_vm: GuestPort) -> Option<HostPort> {
+        match Forwarding::of(cx) {
+            Forwarding::AtVm => Some(on_vm.at_own_address()),
+            local @ Forwarding::Local(_) => forwarded::reached_at(local, m, p?),
+        }
     }
 
     async fn before_step(&self, cx: &Cx<'_>, list: &str, step: &Step) -> Result<()> {
@@ -212,7 +219,7 @@ impl Driver for Vagrant {
         // Vagrantfile reads for its forwards, defaulting each to the port's own `publish` number.
         let forwards = cx.vars.vm_pins();
         if !forwards.is_empty() {
-            let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), (*port).into())).collect();
+            let json: serde_json::Map<String, serde_json::Value> = forwards.iter().map(|(k, port)| (k.clone(), port.get().into())).collect();
             env.push((contract::HOSTPORTS.to_owned(), serde_json::Value::Object(json).to_string()));
         }
         // The consoles the runner chose, passwords and all: the run's own Vagrant processes only
@@ -240,11 +247,7 @@ impl Driver for Vagrant {
             lock::StatusRead::Busy(defines) => return Ok(busy(cx.manifest(), &defines)),
         };
         let read = status::parse(&out);
-        let forwarding = if cx.scope.runs_on(Provider::VmwareEsxi) {
-            Forwarding::AtVm
-        } else {
-            Forwarding::Local(cx.vars.vm_pins())
-        };
+        let forwarding = Forwarding::of(cx);
         let hosts = match forwarding {
             Forwarding::AtVm => self.guest_addresses(cx, &read).await,
             Forwarding::Local(_) => local_hosts(cx)?,
@@ -409,32 +412,17 @@ fn busy(manifest: &isoloom_manifest::Manifest, defines: &[String]) -> Observatio
     Observation::Busy(named)
 }
 
-/// Where a VM's published ports answer: at the VM's own address (ESXi, which forwards nothing),
-/// or on this computer, forwarded at the number chosen for each (keyed `"<machine>/<port>"`),
-/// else its `preferred` fallback.
-#[derive(Clone, Copy)]
-enum Forwarding<'a> {
-    /// The VM answers at its own address, on the port itself.
-    AtVm,
-    /// Forwarded to this computer, at the runner's pick among these first.
-    Local(&'a BTreeMap<String, u16>),
-}
-
-/// The ports `m` publishes, by name, each with its host port ([`Forwarding`]; locally,
-/// [`forwarded::host_port`]). An ephemeral port with no `publish:` number of its own is kept:
+/// The ports `m` publishes, by name, each with the host port it is reached at
+/// ([`forwarded::reached_at`]). An ephemeral port with no `publish:` number of its own is kept:
 /// its host port is the pick.
 fn published_ports(m: &Machine, forwarding: Forwarding<'_>) -> Vec<(String, PublishedPort)> {
     m.ports
         .iter()
         .filter_map(|p| {
-            let host_port = match forwarding {
-                Forwarding::AtVm => p.publish.as_ref().map(|_| p.port.get())?,
-                Forwarding::Local(chosen) => forwarded::host_port(m, p, chosen)?,
-            };
             let port = PublishedPort {
-                port: p.port.get(),
+                port: GuestPort::of(p),
                 protocol: p.kind.transport(),
-                host_port,
+                host_port: forwarded::reached_at(forwarding, m, p)?,
             };
             Some((p.name.to_string(), port))
         })

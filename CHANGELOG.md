@@ -73,6 +73,14 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   `store_corrupt`, `lease_held`.
 - **Events v1.** **Breaking:** an event's `v` is 1 (`schema/events-v1.schema.json`): the state
   words above, and `operation`, the journal id, on every event of an operation.
+- **A port inside a machine and the port it is reached at are two types.** **Breaking, for
+  embedders:** `GuestPort` (a container's or VM's own port) and `HostPort` (where a published
+  port is reached, at the machine's host address) replace `u16` in `PublishedPort::port` and
+  `PublishedPort::host_port`, `Error::PortInUse::port` and `RunRecord::vm_host_ports`; read the
+  number with `.get()`. Both serialize as the bare number: the JSON and the record are unchanged,
+  and the status schema names the two with the same integer range. Inside the runner a guest port becomes a host port only through its driver's
+  one crossing (a Vagrant VM's forward, a VM answering at its own address), so a port read
+  inside a VM can no longer be reported as this computer's.
 - **Three public fields say what they hold.** **Breaking, for embedders:** `Captured::stderr` is
   `Captured::stderr_tail` (it holds the last standard error lines, filtered, not the whole
   stream); `ProcessSpec::tools` is `ProcessSpec::ledger_dir` (the folder the tool is recorded in,

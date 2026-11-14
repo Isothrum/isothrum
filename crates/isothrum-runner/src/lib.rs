@@ -134,6 +134,7 @@ mod network_env;
 mod options;
 mod outputs;
 mod params;
+mod port;
 mod process;
 mod ready;
 mod reap;
@@ -173,6 +174,7 @@ pub use name::RunName;
 pub use net::FakePorts;
 pub use net::HostPorts;
 pub use options::{Occupied, RunOptions};
+pub use port::{GuestPort, HostPort};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 use crate::error::Error;
 use crate::executor::Cx;
+use crate::port::HostPort;
 use crate::secrets::SecretValue;
 
 /// The file, in the run's state folder.
@@ -27,7 +28,8 @@ const PASSWORD_LEN: usize = 8;
 /// One machine's console, as chosen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ConsoleAccount {
-    port: u16,
+    /// The VNC port on this computer's loopback the VM's console listens on.
+    port: HostPort,
     password: String,
 }
 
@@ -60,7 +62,7 @@ pub(crate) fn ensure(cx: &Cx<'_>) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
-    let taken: Vec<u16> = table.values().map(|c| c.port).collect();
+    let taken: Vec<HostPort> = table.values().map(|c| c.port).collect();
     let mut held = Vec::new();
     for machine in missing {
         let port = loop {
@@ -112,7 +114,7 @@ pub(crate) fn var(cx: &Cx<'_>) -> Result<Option<(String, String)>> {
 }
 
 /// The port and password chosen for `machine`.
-pub(crate) fn port_and_password(cx: &Cx<'_>, machine: &Machine) -> Result<(u16, SecretValue)> {
+pub(crate) fn port_and_password(cx: &Cx<'_>, machine: &Machine) -> Result<(HostPort, SecretValue)> {
     match read(cx)?.remove(machine.name.as_str()) {
         Some(c) => Ok((c.port, SecretValue::new(c.password))),
         None => Err(super::no_console(

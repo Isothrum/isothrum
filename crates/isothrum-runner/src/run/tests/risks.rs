@@ -40,7 +40,7 @@ async fn a_pinned_port_another_run_is_picking_is_never_handed_out_twice() {
     let f = fixture();
     let other = crate::RunName::new("other-run").unwrap();
     assert!(
-        f.runner.reserve(&other, 41873, isoloom_manifest::Protocol::Tcp),
+        f.runner.reserve(&other, crate::HostPort::new(41873), isoloom_manifest::Protocol::Tcp),
         "another run starting meanwhile"
     );
     let run = f.runner.open(&f.manifest, None).unwrap();

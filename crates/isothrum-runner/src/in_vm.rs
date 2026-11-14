@@ -22,6 +22,7 @@ use crate::console::sh_quote;
 use crate::driver::{AnyDriver, COMPOSE_SERVICE_LABEL, GuestUse, Observed, REMOVE_LIMIT, console_in_run, shells};
 use crate::error::Error;
 use crate::executor::{Cx, Echo, call_ok, capture_step};
+use crate::port::HostPort;
 use crate::status::{MachineState, MachineStatus};
 use crate::vars::PortKey;
 
@@ -51,14 +52,11 @@ async fn read_in(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest, observed: &mut 
         .find(|m| m.name == guest.machine.as_str())
         .map_or(MachineState::Absent, |m| m.state.clone());
     let host = guest_host(cx, guest, observed);
-    let mut read = if vm == MachineState::Running {
-        read_containers(cx, guest).await
+    let read = if vm == MachineState::Running {
+        read_containers(cx, driver, guest).await
     } else {
         Inside::VmDown
     };
-    if let Inside::Read(inside, published) = &mut read {
-        forwarded(cx, driver, inside, published);
-    }
     overlay_containers(cx.manifest(), observed, &read, &vm);
     if let Inside::Read(_, published) = read {
         merge_published(observed, published, host.as_deref());
@@ -101,7 +99,7 @@ fn overlay_containers(manifest: &isoloom_manifest::Manifest, observed: &mut Obse
 
 /// The host port each container's `published` port got, into `observed`, each such machine
 /// answering at `host` (the VM's) when there is one.
-fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, u16>, host: Option<&str>) {
+fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, HostPort>, host: Option<&str>) {
     for (key, host_port) in published {
         if let Some(host) = host {
             observed.hosts.insert(key.machine.clone(), host.to_owned());
@@ -110,29 +108,11 @@ fn merge_published(observed: &mut Observed, published: BTreeMap<PortKey, u16>, h
     }
 }
 
-/// `inside` and `published`, the ports Compose publishes in the VM, at the host port this computer
-/// reaches each at where `driver` forwards it here (a local VM: its forward runs from the port the
-/// runner pinned, not the VM's); left as read where the VM's ports answer at its own address.
-fn forwarded(cx: &Cx<'_>, driver: &AnyDriver, inside: &mut [MachineStatus], published: &mut BTreeMap<PortKey, u16>) {
-    for m in &cx.manifest().machines {
-        for p in &m.ports {
-            let Some(host_port) = driver.forwarded_port(cx, m, p) else { continue };
-            if let Some(at) = published.get_mut(&PortKey::new(&m.name, &p.name)) {
-                *at = host_port;
-            }
-            let ports = inside.iter_mut().filter(|s| s.name == m.name.as_str()).flat_map(|s| s.published.iter_mut());
-            for port in ports.filter(|x| x.port == p.port.get() && x.protocol == p.kind.transport()) {
-                port.host_port = host_port;
-            }
-        }
-    }
-}
-
 /// What was read of the containers in the run's VM.
 enum Inside {
     /// The containers `guest.status` listed there, and the host port each published machine port
-    /// got.
-    Read(Vec<MachineStatus>, BTreeMap<PortKey, u16>),
+    /// is reached at.
+    Read(Vec<MachineStatus>, BTreeMap<PortKey, HostPort>),
     /// The VM runs but its containers couldn't be read: the last failure's words.
     Unreadable(String),
     /// The VM doesn't run, so nothing was read.
@@ -141,15 +121,19 @@ enum Inside {
 
 /// The containers as `guest.status` lists them in the running VM, read up to [`READS`] times,
 /// [`RETRY`] apart (a read whose output lists no container this runner can read counts as
-/// failed); unreadable, with the last failure's words, otherwise.
-async fn read_containers(cx: &Cx<'_>, guest: &Guest) -> Inside {
+/// failed); unreadable, with the last failure's words, otherwise. Each port Compose publishes in
+/// the VM is a port of the VM's, reached at the host port `driver` (the VM's) gives it
+/// ([`AnyDriver::reached_at`]); one it doesn't reach is left out.
+async fn read_containers(cx: &Cx<'_>, driver: &AnyDriver, guest: &Guest) -> Inside {
+    let reach = |m: &Machine, p: Option<&isoloom_manifest::Port>, on_vm| driver.reached_at(cx, m, p, on_vm);
+    let at = crate::driver::EngineAt::Vm(&reach);
     let mut failed = String::new();
     for attempt in 0..READS {
         if attempt > 0 {
             tokio::time::sleep(RETRY).await;
         }
         match capture_step(cx, "guest.status", &guest.status).await {
-            Ok(out) => match crate::driver::read_ps(cx.manifest(), &out) {
+            Ok(out) => match crate::driver::read_ps(cx.manifest(), &out, &at) {
                 Some((inside, published)) => return Inside::Read(inside, published),
                 None => crate::driver::UNREADABLE_PS.clone_into(&mut failed),
             },

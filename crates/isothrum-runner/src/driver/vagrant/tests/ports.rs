@@ -15,8 +15,7 @@ async fn on_esxi_a_published_port_is_shown_at_its_vms_address() {
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://172.16.1.53:80/"));
     let status = run.status().await.unwrap();
     assert_eq!(status.outputs[0].value.as_deref(), Some("http://172.16.1.53:80/"));
-    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
-    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 80)]);
+    assert_eq!(crate::testing::published_numbers(&status.machines, "web"), [(80, 80)]);
     assert!(f.fake.lines().contains(&"vagrant ssh-config web".to_owned()), "{:?}", f.fake.lines());
     assert!(
         !f.fake.lines().iter().any(|l| l == "vagrant ssh-config isoloom-controller"),
@@ -56,8 +55,7 @@ async fn a_fresh_local_start_pins_a_free_host_port_and_answers_on_it() {
     );
     assert_eq!(started.outputs[0].value.as_deref(), Some("http://127.0.0.1:41000/"));
     let status = run.status().await.unwrap();
-    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
-    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
+    assert_eq!(crate::testing::published_numbers(&status.machines, "web"), [(80, 41000)]);
 }
 
 /// Regression: a VM forwarding to this computer answered at the loopback whatever address the
@@ -84,8 +82,7 @@ async fn a_published_port_with_no_preferred_number_is_still_reported() {
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
     let status = run.status().await.unwrap();
-    let web = status.machines.iter().find(|m| m.name == "web").unwrap();
-    assert_eq!(web.published.iter().map(|p| (p.port, p.host_port)).collect::<Vec<_>>(), [(80, 41000)]);
+    assert_eq!(crate::testing::published_numbers(&status.machines, "web"), [(80, 41000)]);
 }
 
 /// A resume forwards the same pinned port (kept in the record), so the VM's URL doesn't change —
@@ -100,7 +97,7 @@ async fn a_resume_forwards_the_same_pinned_port() {
     assert_eq!(f.fake.last("vagrant up").unwrap().env("ISOLOOM_HOSTPORTS"), Some(r#"{"web/web":41000}"#));
     let status = run.status().await.unwrap();
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
-    assert_eq!(web.published.iter().find(|p| p.port == 80).unwrap().host_port, 41000);
+    assert_eq!(web.published.iter().find(|p| p.port.get() == 80).unwrap().host_port.get(), 41000);
 }
 
 /// With `ISOLOOM_PUBLISH_FIXED`, a VM forwards the run's own port number instead of a free one.
