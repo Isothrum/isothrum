@@ -151,6 +151,65 @@ pub(crate) async fn ps(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<Con
     })
 }
 
+/// The oldest Compose the adapter drives (`ps --format json` one object per line from 2.21 is
+/// read too, `--wait` and profiles need 2.17).
+pub(crate) const MIN_VERSION: &str = "2.17.0";
+
+/// `compose version --short`, checked against [`MIN_VERSION`].
+pub(crate) async fn version(call: &Call<'_>) -> Result<isoloom_manifest::Version, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["compose", "version", "--short"]), Failure::of).await?;
+    super::version(TOOL, &out.stdout.join("\n"), Some(MIN_VERSION))
+}
+
+/// What an `exec` runs in a service's container.
+pub(crate) struct Exec<'a> {
+    /// The service.
+    pub(crate) service: &'a str,
+    /// `--user`, when given.
+    pub(crate) user: Option<&'a str>,
+    /// The command and its arguments.
+    pub(crate) argv: &'a [String],
+    /// A terminal (`-T` when not).
+    pub(crate) tty: bool,
+}
+
+/// `exec` arguments for `what`.
+fn exec_args(project: &Project<'_>, what: &Exec<'_>) -> Vec<String> {
+    let mut rest = argv(["exec"]);
+    if !what.tty {
+        rest.push("-T".into());
+    }
+    if let Some(user) = what.user {
+        rest.extend(["--user".to_owned(), user.to_owned()]);
+    }
+    rest.push(what.service.to_owned());
+    rest.extend(what.argv.iter().cloned());
+    project.args(rest)
+}
+
+/// The console that `exec`s `what`, for the embedder to run: nothing is started.
+pub(crate) fn exec_spec(call: &Call<'_>, project: &Project<'_>, what: &Exec<'_>) -> crate::process::ProcessSpec {
+    call.spec(TOOL, exec_args(project, what))
+}
+
+/// `exec` of `what`, its output captured (a failed command is `Failed` with its reason).
+pub(crate) async fn exec(call: &Call<'_>, project: &Project<'_>, what: &Exec<'_>) -> Result<Captured, CliError<Failure>> {
+    call.ok(TOOL, exec_args(project, what), Failure::of).await
+}
+
+/// `run --rm` of `service` with `argv` (a one-off, a check runner), its output captured; the
+/// project's profiles are the call's.
+pub(crate) async fn run_rm(call: &Call<'_>, project: &Project<'_>, service: &str, argv_: &[String]) -> Result<Captured, CliError<Failure>> {
+    let rest = argv(["run", "--rm", "-T", service]).into_iter().chain(argv_.iter().cloned());
+    call.ok(TOOL, project.args(rest), Failure::of).await
+}
+
+/// `rm --stop --force --volumes` of `services`: their containers and anonymous volumes gone.
+pub(crate) async fn rm_stop_force(call: &Call<'_>, project: &Project<'_>, services: &[String]) -> Result<(), CliError<Failure>> {
+    let rest = argv(["rm", "--stop", "--force", "--volumes"]).into_iter().chain(services.iter().cloned());
+    call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +259,33 @@ mod tests {
         up(&call, &project, &Up { wait: true, ..Up::default() }).await.unwrap();
         assert_eq!(fake.lines(), ["docker compose -p lab -f compose.yaml --profile access up --detach --wait"]);
         assert!(matches!(ps(&call, &project).await, Err(CliError::Unexpected { .. })));
+        let console = exec_spec(
+            &call,
+            &project,
+            &Exec {
+                service: "web",
+                user: Some("root"),
+                argv: &["sh".to_owned()],
+                tty: true,
+            },
+        );
+        assert_eq!(console.line(), "docker compose -p lab -f compose.yaml --profile access exec --user root web sh");
+    }
+
+    #[tokio::test]
+    async fn a_compose_older_than_2_17_is_too_old() {
+        for (said, ok) in [("2.29.7\n", true), ("v2.17.0", true), ("2.16.9-desktop.1", false)] {
+            let fake = FakeProcesses::rules(&[("docker compose version", Reply::ok(said))]);
+            let read = version(&testing::call(&fake)).await;
+            assert_eq!(read.is_ok(), ok, "{said}");
+            if !ok {
+                assert!(matches!(read, Err(CliError::TooOld { min: m, .. }) if m == MIN_VERSION));
+            }
+        }
+        let empty = FakeProcesses::rules(&[("docker compose version", Reply::ok(""))]);
+        assert!(
+            matches!(version(&testing::call(&empty)).await, Err(CliError::Unexpected { .. })),
+            "no version isn't any version"
+        );
     }
 }
