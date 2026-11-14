@@ -18,9 +18,10 @@
 //! request in flight fails with that reason at once, and so does every later call.
 //!
 //! Only Hyper-V's programs go through the broker (Vagrant and Windows PowerShell,
-//! [`protocol::PROGRAMS`]); every other program of the operation runs as the account. A request
-//! carries none of the variables that choose which code the program loads ([`protocol::passes`]),
-//! and the session is handed no `PATH`.
+//! [`protocol::PROGRAMS`]); every other program of the operation runs as the account. The broker
+//! finds each program itself, at the path an administrator installed it to, and takes none of the
+//! variables that choose which code it loads ([`protocol::passes`]): the session's folder belongs
+//! to the account, so what a request names is never trusted to pick the program or its loader.
 //!
 //! One request failing or cut short never ends the session: a request whose future is dropped
 //! (its step's timeout, a probe given up on) or that fails before its answer is read (its file
@@ -375,7 +376,8 @@ fn request_file(token: &str, n: u64, spec: &ProcessSpec) -> String {
 
 /// Request `n`'s variables, under the session's `token`: the forwarded ones, then the call's own
 /// (which win), less those an elevated program is never given ([`protocol::passes`]: its search
-/// path, Ruby's load path and options, any `VAGRANT_*` not listed).
+/// path, Ruby's load path and options, any `VAGRANT_*` not listed). The broker refuses a request
+/// that carries one.
 fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, String)]) -> String {
     let mut env: Vec<(String, String)> = forwarded.to_vec();
     for (k, v) in &spec.env {

@@ -6,6 +6,14 @@
 //! variables set there only; its output lines are appended to `out-<n>.log` (UTF-8) and its exit
 //! code is written to `exit-<n>` whole (renamed into place).
 //!
+//! What it runs is its own choice, not the request's: only Vagrant and Windows PowerShell, each
+//! found by the broker at the path an administrator installed it to and owned by an administrator
+//! (the file and every folder above it), with Windows' own folders as its `PATH`. A request naming
+//! any other program, or setting a variable that chooses which code the program loads (its search
+//! path, Ruby's load path and options, an unlisted `VAGRANT_*`), is refused unrun; those of them
+//! the broker itself inherited (Ruby's and its gems' settings, an unlisted `VAGRANT_*`) are
+//! dropped before it takes a request, so its programs never inherit one either.
+//!
 //! A request is cancelled on its own, never the session: a `cancel-<n>` file ends request `n`'s
 //! process tree if it runs, or skips it if its turn hasn't come (its files deleted unrun), and
 //! the broker moves on to `n + 1`. A cancelled request gets no `exit-<n>`: nobody waits for it.
@@ -71,20 +79,80 @@ pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
          \x20 }}\n\
          }}\n"
     );
-    [preamble.as_str(), watcher.as_str(), REQUEST_JOB, &request_loop()].concat()
+    [preamble.as_str(), &allowed(), watcher.as_str(), REQUEST_JOB, &request_loop()].concat()
+}
+
+/// The account owning a file the broker runs, or a folder holding one: Administrators, SYSTEM,
+/// or `TrustedInstaller`. Anything an administrator installed is owned so; a file or folder any
+/// other account made is not.
+const TRUSTED_OWNERS: [&str; 3] = ["S-1-5-32-544", "S-1-5-18", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"];
+
+/// What the broker allows: each program it runs, found by the broker at paths an administrator
+/// installed it to, and owned (with every folder above it) by an administrator, never on a
+/// `PATH` ([`protocol::PROGRAMS`]); the `PATH` it runs them with, Windows' own folders after the
+/// program's; the variables a request may set ([`protocol::passes`]); and the broker's own
+/// environment rid of those that choose which code its programs load ([`protocol::loads_code`]).
+fn allowed() -> String {
+    let list = |items: &[&str]| items.iter().map(|i| ps_quote(i)).collect::<Vec<_>>().join(", ");
+    let [owners, vagrant_vars, system_vars, loaders] = [
+        &TRUSTED_OWNERS[..],
+        &protocol::VAGRANT_VARS[..],
+        &protocol::SYSTEM_VARS[..],
+        &protocol::LOADER_PREFIXES[..],
+    ]
+    .map(list);
+    format!(
+        "$sys = [System.Environment]::SystemDirectory\n\
+         $programFiles = [System.Environment]::GetFolderPath('ProgramFiles')\n\
+         $programs = @{{\n\
+         \x20 'vagrant' = @((Join-Path $programFiles 'Vagrant\\bin\\vagrant.exe'), (Join-Path $env:SystemDrive 'HashiCorp\\Vagrant\\bin\\vagrant.exe'))\n\
+         \x20 'powershell' = @((Join-Path $sys 'WindowsPowerShell\\v1.0\\powershell.exe'))\n\
+         }}\n\
+         $systemPath = @($sys, (Join-Path $sys 'Wbem'), (Join-Path $sys 'WindowsPowerShell\\v1.0'), (Join-Path $sys 'OpenSSH'), [System.Environment]::GetFolderPath('Windows'))\n\
+         $trustedOwners = @({owners})\n\
+         function Test-Owned($path) {{\n\
+         \x20 $p = $path\n\
+         \x20 while ($p -and $p -ne [System.IO.Path]::GetPathRoot($p)) {{\n\
+         \x20   try {{ $owner = (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value }} catch {{ return $false }}\n\
+         \x20   if ($trustedOwners -notcontains $owner) {{ return $false }}\n\
+         \x20   $p = Split-Path -Parent $p\n\
+         \x20 }}\n\
+         \x20 $true\n\
+         }}\n\
+         function Resolve-Program($name) {{\n\
+         \x20 if ($name -isnot [string] -or -not $programs.ContainsKey($name)) {{ return $null }}\n\
+         \x20 foreach ($p in $programs[$name]) {{ if ((Test-Path -LiteralPath $p -PathType Leaf) -and (Test-Owned $p)) {{ return $p }} }}\n\
+         \x20 $null\n\
+         }}\n\
+         $vagrantVars = @({vagrant_vars})\n\
+         $systemVars = @({system_vars})\n\
+         $loaderPrefixes = @({loaders})\n\
+         function Test-Loader($k) {{\n\
+         \x20 $u = $k.ToUpperInvariant()\n\
+         \x20 if ($u.StartsWith('VAGRANT_')) {{ return $vagrantVars -notcontains $u }}\n\
+         \x20 foreach ($p in $loaderPrefixes) {{ if ($u.StartsWith($p)) {{ return $true }} }}\n\
+         \x20 $false\n\
+         }}\n\
+         function Test-Var($k) {{\n\
+         \x20 if ($k -isnot [string] -or $k -eq '' -or $k.Contains('=')) {{ return $false }}\n\
+         \x20 -not (($systemVars -contains $k.ToUpperInvariant()) -or (Test-Loader $k))\n\
+         }}\n\
+         foreach ($v in @(Get-ChildItem Env:)) {{ if (Test-Loader $v.Name) {{ [System.Environment]::SetEnvironmentVariable($v.Name, $null, 'Process') }} }}\n"
+    )
 }
 
 /// The job a request runs in, a process of its own: its id first (what a cancel ends, its tree),
 /// its variables set there only, its output lines, then its exit code.
 const REQUEST_JOB: &str = "$run = {\n\
-         \x20 param($r, $e)\n\
+         \x20 param($r, $e, $exe, $path)\n\
          \x20 [pscustomobject]@{ isothrumPid = $PID }\n\
          \x20 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false } catch {}\n\
+         \x20 [System.Environment]::SetEnvironmentVariable('PATH', $path, 'Process')\n\
          \x20 foreach ($p in $e.env) { [System.Environment]::SetEnvironmentVariable($p.k, $p.v, 'Process') }\n\
          \x20 try {\n\
          \x20   Set-Location -LiteralPath $r.cwd -ErrorAction Stop\n\
          \x20   $global:LASTEXITCODE = 0\n\
-         \x20   & $r.program @($r.args) 2>&1 | ForEach-Object { [string]$_ }\n\
+         \x20   & $exe @($r.args) 2>&1 | ForEach-Object { [string]$_ }\n\
          \x20   [pscustomobject]@{ isothrumExit = $LASTEXITCODE }\n\
          \x20 } catch { [string]$_; [pscustomobject]@{ isothrumExit = 1 } }\n\
          }\n";
@@ -119,9 +187,15 @@ fn request_loop() -> String {
          \x20 $log.AutoFlush = $true\n\
          \x20 $rc = 1\n\
          \x20 $cancelled = $false\n\
+         \x20 $exe = Resolve-Program $r.program\n\
          \x20 if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n) {{\n\
          \x20   $log.WriteLine('isothrum: refused: the request came without its own variables')\n\
+         \x20 }} elseif ($null -eq $exe) {{\n\
+         \x20   $log.WriteLine('isothrum: refused: the elevated session runs only Vagrant and Windows PowerShell, from where an administrator installed them')\n\
+         \x20 }} elseif (@($e.env | Where-Object {{ -not (Test-Var $_.k) }}).Count -gt 0) {{\n\
+         \x20   $log.WriteLine('isothrum: refused: the request sets a variable an elevated program is never given')\n\
          \x20 }} else {{\n\
+         \x20   $path = (@((Split-Path -Parent $exe)) + $systemPath) -join ';'\n\
          {WATCH_REQUEST}\
          \x20 }}\n\
          \x20 $log.Close()\n\
@@ -140,7 +214,7 @@ fn request_loop() -> String {
 
 /// A request's job, watched: its output logged, its id and exit code read, and its tree ended
 /// when its `cancel-<n>` (or the session's end) comes first.
-const WATCH_REQUEST: &str = "\x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e\n\
+const WATCH_REQUEST: &str = "\x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e, $exe, $path\n\
          \x20   $child = $null\n\
          \x20   while ($true) {\n\
          \x20     foreach ($o in @(Receive-Job -Job $job)) {\n\
@@ -274,11 +348,44 @@ mod tests {
         );
         // One in flight: its own tree ended (the id its job gave first), the broker kept.
         let kill = s.find("taskkill.exe /T /F /PID $child").unwrap();
-        assert!(s.find("[pscustomobject]@{ isothrumPid = $PID }").unwrap() < s.find("& $r.program").unwrap());
+        assert!(s.find("[pscustomobject]@{ isothrumPid = $PID }").unwrap() < s.find("& $exe").unwrap());
         assert!(s.find("$cancelled = $true").unwrap() < kill, "{s}");
         assert!(s.contains("if ($cancelled) {\n    Remove-Quietly @($out, $cancel)"), "{s}");
         // The watcher no longer ends the session on a request's cancel.
         assert!(!s.contains("'cancel'") && !s.contains("the runner cancelled it"), "{s}");
+    }
+
+    #[test]
+    fn the_broker_runs_only_what_it_found_itself_never_what_a_request_names() {
+        let s = broker(Path::new("C:\\e\\t"), "t", 1);
+        // The request's program is a name looked up in the broker's own list, never run as given.
+        assert!(s.contains("& $exe @($r.args)") && !s.contains("& $r.program"), "{s}");
+        assert!(s.contains("$exe = Resolve-Program $r.program"), "{s}");
+        for program in protocol::PROGRAMS {
+            assert!(s.contains(&format!("'{program}' = @(")), "{program}: {s}");
+        }
+        // Found at an administrator's paths, owned by an administrator up to the drive's root.
+        assert!(s.contains("[System.Environment]::GetFolderPath('ProgramFiles')") && s.contains("[System.Environment]::SystemDirectory"));
+        for sid in TRUSTED_OWNERS {
+            assert!(s.contains(sid), "{sid}");
+        }
+        assert!(s.contains("(Test-Path -LiteralPath $p -PathType Leaf) -and (Test-Owned $p)"), "{s}");
+        // Its PATH is the broker's, set before the request's variables, which can't name it.
+        let path = s.find("SetEnvironmentVariable('PATH', $path, 'Process')").unwrap();
+        assert!(path < s.find("foreach ($p in $e.env)").unwrap(), "{s}");
+        assert!(s.contains("Where-Object { -not (Test-Var $_.k) }"), "{s}");
+        for refused in protocol::SYSTEM_VARS.iter().chain(&protocol::LOADER_PREFIXES) {
+            assert!(s.contains(&format!("'{refused}'")), "{refused}");
+        }
+        // What the broker inherits that would choose the code its programs load is dropped
+        // before any request runs: its jobs inherit the rest.
+        let scrub = s
+            .find("if (Test-Loader $v.Name) { [System.Environment]::SetEnvironmentVariable($v.Name, $null, 'Process') }")
+            .unwrap();
+        assert!(scrub < s.find("$job = Start-Job").unwrap(), "{s}");
+        // A refusal runs nothing: the job starts only in the last branch.
+        let refused = s.find("isothrum: refused: the elevated session runs only").unwrap();
+        assert!(refused < s.find("$job = Start-Job").unwrap(), "{s}");
     }
 
     /// The broker is unverified on a real Windows beyond what it is now: any change to the
