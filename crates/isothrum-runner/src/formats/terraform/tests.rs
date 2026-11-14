@@ -471,7 +471,7 @@ async fn what_a_module_cant_do_is_refused_and_nothing_runs() {
         vec![
             Terraform.park(cx, Park::Pause).await.err(),
             Terraform.resume(cx).await.err(),
-            Terraform.provision(cx, None).await.err(),
+            Terraform.provision(cx, None, None).await.err(),
             Terraform.attach(cx, "web").await.err(),
             Terraform.retire(cx, "web").await.err(),
             Terraform.exec(cx, "web", &["true".to_owned()]).await.err(),

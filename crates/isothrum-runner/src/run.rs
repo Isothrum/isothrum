@@ -56,7 +56,7 @@ enum Act<'a> {
     /// Bring the run to the project's files.
     Update,
     /// Run the set-up again, on one machine or all.
-    Provision(Option<&'a str>),
+    Provision(Option<&'a str>, Option<&'a str>),
     /// Start a machine the project leaves down.
     Attach(&'a str),
     /// Remove a machine.
@@ -71,7 +71,7 @@ impl Act<'_> {
             Act::Park(_) => Op::Park,
             Act::Resume => Op::Resume,
             Act::Update => Op::Update,
-            Act::Provision(_) => Op::Provision,
+            Act::Provision(..) => Op::Provision,
             Act::Attach(_) => Op::Attach,
             Act::Retire(_) => Op::Retire,
         }
@@ -229,7 +229,7 @@ impl<'r> Running<'r> {
             Act::Park(mode) => self.driver.park(cx, mode).await,
             Act::Resume => self.driver.resume(cx).await,
             Act::Update => self.driver.update(cx).await,
-            Act::Provision(machine) => self.driver.provision(cx, machine).await,
+            Act::Provision(machine, with) => self.driver.provision(cx, machine, with).await,
             Act::Attach(machine) => self.driver.attach(cx, machine).await,
             Act::Retire(machine) => self.driver.retire(cx, machine).await,
         }
@@ -336,8 +336,9 @@ impl<'r> Running<'r> {
     /// # Errors
     ///
     /// As the tool fails; `unsupported` where the format has no set-up of its own to run again.
-    pub async fn provision(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Provision(machine), opts, events).await.map(drop)
+    /// `with`, when given, runs only the provisioner of that name (a Vagrant project's `checks`).
+    pub async fn provision(&self, machine: Option<&str>, with: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Provision(machine, with), opts, events).await.map(drop)
     }
 
     /// Starts `machine`, one the project leaves down at `up`.

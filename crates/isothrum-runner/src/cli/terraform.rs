@@ -687,7 +687,12 @@ pub(crate) fn shown(json: &str) -> Result<Shown, String> {
                     });
                 }
                 "data" => {
-                    if let Some(id) = r.values.as_ref().filter(|v| r.kind == "aws_ami" && v.windows_image()).and_then(|v| scalar(v.id.as_ref())) {
+                    if let Some(id) = r
+                        .values
+                        .as_ref()
+                        .filter(|v| r.kind == "aws_ami" && v.windows_image())
+                        .and_then(|v| scalar(v.id.as_ref()))
+                    {
                         windows_images.push(id);
                     }
                     out.data.push(r.address);

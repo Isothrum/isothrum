@@ -45,9 +45,11 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
     match command {
         RunnerCommand::Status(run) => status(out, &open(runner, run)?).await,
         RunnerCommand::Exec { machine, op, argv } => exec(out, &open(runner, &op.run)?, machine, argv, &options(op, var)?).await,
-        RunnerCommand::Provision { op, machine } => {
+        RunnerCommand::Provision { op, machine, with } => {
             let run = open(runner, &op.run)?;
-            Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
+            Ok(Verdict::of(
+                run.provision(machine.as_deref(), with.as_deref(), &options(op, var)?, events).await.is_ok(),
+            ))
         }
         RunnerCommand::Attach { op, machine } => {
             let run = open(runner, &op.run)?;

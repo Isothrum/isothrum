@@ -133,6 +133,9 @@ pub enum Command {
         /// Only this machine.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
+        /// Only the provisioner of this name (Vagrant's `--provision-with`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        with: Option<String>,
     },
     /// Runs a command in a machine of the run, with no terminal; its result says how it ended.
     Exec {

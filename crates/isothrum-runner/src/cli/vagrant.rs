@@ -139,6 +139,28 @@ pub(crate) async fn up(call: &Call<'_>, provider: Option<&str>, provision: Provi
     call.ok(TOOL, args, Failure::of).await.map(drop)
 }
 
+/// A provisioner's name as Vagrant takes it on its command line: letters, digits, `-` and `_`
+/// only, so it is never read as an option.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProvisionerName(String);
+
+impl ProvisionerName {
+    /// `name`, when it can name a provisioner.
+    pub(crate) fn new(name: &str) -> Option<ProvisionerName> {
+        let plain = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+        (!name.is_empty() && !name.starts_with('-') && name.chars().all(plain)).then(|| ProvisionerName(name.to_owned()))
+    }
+}
+
+/// `provision --provision-with <name>` on `machines` (all when empty): that provisioner alone, on
+/// the machines that run.
+pub(crate) async fn provision_with(call: &Call<'_>, name: &ProvisionerName, machines: &[String]) -> Result<(), CliError<Failure>> {
+    let mut args = argv(["provision", "--provision-with"]);
+    args.push(name.0.clone());
+    args.extend(machines.iter().cloned());
+    call.ok(TOOL, args, Failure::of).await.map(drop)
+}
+
 /// A verb on `machines` (all when empty): `halt`, `suspend`, `provision`, `destroy -f`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verb {

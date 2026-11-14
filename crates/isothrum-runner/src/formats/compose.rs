@@ -216,7 +216,7 @@ impl FormatDriver for Compose {
         clippy::unused_async_trait_impl,
         reason = "the trait's operations are async; Compose refuses this one before calling anything"
     )]
-    async fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>) -> Result<()> {
+    async fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>, _with: Option<&str>) -> Result<()> {
         Err(Error::Unsupported {
             what: "provisioning a Compose project again (its services set themselves up when they start: update it instead)".to_owned(),
         })

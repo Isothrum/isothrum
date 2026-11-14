@@ -452,7 +452,7 @@ impl FormatDriver for Terraform {
         module.apply("apply", state, tf::Change::Apply).await.map_err(|e| module.error("apply", e))
     }
 
-    fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>) -> impl Future<Output = Result<()>> {
+    fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>, _with: Option<&str>) -> impl Future<Output = Result<()>> {
         std::future::ready(Err(refused("provisioning a machine again")))
     }
 
@@ -553,7 +553,9 @@ impl FormatDriver for Terraform {
     }
 
     fn graphical(&self, _cx: &ToolCx<'_>, seen: &Seen, machine: &SeenMachine) -> impl Future<Output = Result<Option<crate::graphical::ConsoleOffer>>> {
-        std::future::ready(Ok(screen::offer(machine).or_else(|| tunnelled::offer(&tunnelled::texts(&seen.outputs), machine))))
+        std::future::ready(Ok(
+            screen::offer(machine).or_else(|| tunnelled::offer(&tunnelled::texts(&seen.outputs), machine))
+        ))
     }
 
     async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::Console> {
