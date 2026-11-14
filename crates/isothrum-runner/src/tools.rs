@@ -67,22 +67,24 @@ async fn probe_one(cx: &Cx<'_>, tool: &Tool) -> Result<()> {
             reason: "its probe printed nothing (its daemon isn't running)".to_owned(),
         });
     }
-    let Some(min) = &tool.min_version else { return Ok(()) };
-    new_enough(tool.name.as_str(), min, &out)
+    let Some(min) = tool.min_version.as_ref().and_then(|m| crate::project::platform::Version::parse(m.as_str())) else {
+        return Ok(());
+    };
+    new_enough(tool.name.as_str(), &min, &out)
 }
 
 /// Whether `tool`, its probe having printed `said`, is `min` or later: refused when it says an
 /// older version; passed, and traced with what it said, when no version can be read in it.
-fn new_enough(tool: &str, min: &isoloom_manifest::Version, said: &str) -> Result<()> {
+fn new_enough(tool: &str, min: &crate::project::platform::Version, said: &str) -> Result<()> {
     match crate::version_found(said) {
         Some(found) if found < *min => Err(Error::ToolTooOld {
             tool: tool.to_owned(),
-            found: found.as_str().to_owned(),
-            required: min.as_str().to_owned(),
+            found: found.to_string(),
+            required: min.to_string(),
         }),
         Some(_) => Ok(()),
         None => {
-            tracing::warn!(tool, min = min.as_str(), said, "the tool's version couldn't be read: it passes unchecked");
+            tracing::warn!(tool, min = %min, said, "the tool's version couldn't be read: it passes unchecked");
             Ok(())
         }
     }
@@ -137,7 +139,7 @@ mod tests {
     /// Regression: a version that couldn't be read passed without a word.
     #[tokio::test]
     async fn a_version_that_cant_be_read_passes_traced_and_an_older_one_is_refused() {
-        let min = isoloom_manifest::Version::parse("1.6.0").unwrap();
+        let min = crate::project::platform::Version::parse("1.6.0").unwrap();
         let (passed, trace) = crate::testing::traced(async { new_enough("terraform", &min, "no version here") }).await;
         assert!(passed.is_ok());
         assert!(

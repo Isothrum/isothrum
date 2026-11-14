@@ -137,18 +137,18 @@ impl Call<'_> {
 
 /// The version `out` printed, read ([`crate::tool_output::version_found`]); `Unexpected` when it
 /// prints none, `TooOld` when it is older than `min`.
-pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&str>) -> Result<isoloom_manifest::Version, CliError<F>> {
+pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&str>) -> Result<crate::project::platform::Version, CliError<F>> {
     let found = crate::tool_output::version_found(said).ok_or_else(|| CliError::Unexpected {
         tool,
         what: format!("no version in `{}`", said.trim()),
     })?;
-    if let Some(min) = min.and_then(|m| isoloom_manifest::Version::parse(m).ok())
+    if let Some(min) = min.and_then(|m| crate::project::platform::Version::parse(m))
         && found < min
     {
         return Err(CliError::TooOld {
             tool,
-            found: found.as_str().to_owned(),
-            min: min.as_str().to_owned(),
+            found: found.to_string(),
+            min: min.to_string(),
         });
     }
     Ok(found)

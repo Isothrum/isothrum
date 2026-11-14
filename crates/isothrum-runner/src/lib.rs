@@ -187,7 +187,7 @@ pub use options::{Occupied, RunOptions};
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
 pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
-pub use project::platform::{Arch, Cloud, HostOs, Provider};
+pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
 pub use project::{Format, Project};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, ExecReport, FolderRun, Running};

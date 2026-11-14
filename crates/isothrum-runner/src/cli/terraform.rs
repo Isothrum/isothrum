@@ -538,7 +538,7 @@ struct VersionDoc {
 }
 
 /// `terraform version -json`: `TooOld` before [`MIN_VERSION`].
-pub(crate) async fn version(call: &Call<'_>) -> Result<isoloom_manifest::Version, CliError<Failure>> {
+pub(crate) async fn version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["version", "-json"]), Failure::of).await?;
     let doc: VersionDoc = serde_json::from_str(&out.stdout.join("\n")).map_err(|e| CliError::Unexpected {
         tool: TOOL,
@@ -567,7 +567,7 @@ mod tests {
             )
             .build();
         let read = version(&crate::cli::testing::call(&fake)).await.unwrap();
-        assert_eq!(read.as_str(), "1.9.8");
+        assert_eq!(read.to_string(), "1.9.8");
         let old = FakeProcesses::script()
             .expect("terraform version -json", Reply::ok(r#"{"terraform_version":"0.14.11"}"#))
             .build();

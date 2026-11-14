@@ -44,10 +44,10 @@ pub(crate) fn failure_record(program: &str, stdout: &[String]) -> Option<String>
     }
 }
 
-use isoloom_manifest::Version;
+use crate::project::platform::Version;
 
 /// The version `text` says (what a tool prints: `Vagrant 2.4.1`, `v2.29.1`, `1.0.0-rc.1`), as
-/// Isoloom's [`Version`], so versions compare in its order (a pre-release before its release):
+/// a [`Version`], so versions compare in its order (a pre-release before its release):
 /// its first word that is one, else its first `<major>.<minor>[.<patch>]` (`2.3.8.dev` is 2.3.8, a
 /// missing patch 0). `None` when it says none: nothing is held back then. The one reading of a
 /// version for the runner's tool probes and `isothrum-machine`'s minimums.
@@ -55,11 +55,10 @@ use isoloom_manifest::Version;
 pub fn version_found(text: &str) -> Option<Version> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
         .map(|w| w.strip_prefix('v').unwrap_or(w))
-        .find_map(|w| Version::parse(w).ok())
+        .find_map(Version::parse)
         .or_else(|| {
-            // Isoloom's Version is made from its text alone.
             let (major, minor, patch) = numbers_in(text)?;
-            Version::parse(&format!("{major}.{minor}.{patch}")).ok()
+            Some(Version::new(major, minor, patch))
         })
 }
 
@@ -79,7 +78,7 @@ fn numbers_in(text: &str) -> Option<(u64, u64, u64)> {
 mod tests {
     use super::*;
 
-    /// A version as each tool prints it, compared in Isoloom's order: by its numbers (a missing
+    /// A version as each tool prints it, compared in version order: by its numbers (a missing
     /// patch 0), a pre-release before its release.
     #[test]
     fn versions_are_read_from_what_a_tool_prints_in_isoloom_s_order() {
