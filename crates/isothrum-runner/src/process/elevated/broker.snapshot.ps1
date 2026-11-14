@@ -13,6 +13,8 @@ $programs = @{
   'powershell' = @((Join-Path $sys 'WindowsPowerShell\v1.0\powershell.exe'))
 }
 $systemPath = @($sys, (Join-Path $sys 'Wbem'), (Join-Path $sys 'WindowsPowerShell\v1.0'), (Join-Path $sys 'OpenSSH'), [System.Environment]::GetFolderPath('Windows'))
+$modulePath = @((Join-Path $sys 'WindowsPowerShell\v1.0\Modules'), (Join-Path $programFiles 'WindowsPowerShell\Modules')) -join ';'
+[System.Environment]::SetEnvironmentVariable('PSModulePath', $modulePath, 'Process')
 $trustedOwners = @('S-1-5-32-544', 'S-1-5-18', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
 function Test-Owned($path) {
   $p = $path
@@ -57,10 +59,11 @@ $null = Start-Job -ArgumentList $PID, 4242, $d -ScriptBlock {
   }
 }
 $run = {
-  param($r, $e, $exe, $path)
+  param($r, $e, $exe, $path, $modules)
   [pscustomobject]@{ isothrumPid = $PID }
   try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false } catch {}
   [System.Environment]::SetEnvironmentVariable('PATH', $path, 'Process')
+  [System.Environment]::SetEnvironmentVariable('PSModulePath', $modules, 'Process')
   foreach ($p in $e.env) { [System.Environment]::SetEnvironmentVariable($p.k, $p.v, 'Process') }
   try {
     Set-Location -LiteralPath $r.cwd -ErrorAction Stop
@@ -98,7 +101,7 @@ while (-not (Test-Over)) {
     $log.WriteLine('isothrum: refused: the request sets a variable an elevated program is never given')
   } else {
     $path = (@((Split-Path -Parent $exe)) + $systemPath) -join ';'
-    $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e, $exe, $path
+    $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e, $exe, $path, $modulePath
     $child = $null
     while ($true) {
       foreach ($o in @(Receive-Job -Job $job)) {

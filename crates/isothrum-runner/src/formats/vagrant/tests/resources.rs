@@ -79,21 +79,81 @@ async fn destroy_by_id_of_a_machine_no_longer_defined_goes_by_id_at_virtualbox_a
     assert_eq!(f.dot().recorded().unwrap(), Vec::<Record>::new());
 }
 
-#[tokio::test]
-async fn destroy_by_id_refuses_what_it_has_no_way_to_remove_naming_it() {
-    let f = Fixture::new();
-    f.made("old", "libvirt", "uuid-old");
+/// The fake for a machine `old` whose `define` left the Vagrantfile, removed by its id `uuid-old`
+/// through `tool`'s calls `calls` (each answered `reply`).
+fn removed_by(calls: &[&str], reply: &Reply) -> FakeProcesses {
     let not_found = Reply {
         code: 1,
         ..Reply::ok(&fixture("vagrant/2.4.9-machine-not-found.txt"))
     };
-    let fake = FakeProcesses::script().expect("vagrant destroy -f old", not_found).build();
-    let e = Vagrant
-        .destroy_by_id(&cx(&f, &fake, LIBVIRT), "vm:old", ResourceKind::Vm, "uuid-old")
+    let mut script = FakeProcesses::script().expect("vagrant destroy -f old", not_found);
+    for call in calls {
+        script = script.expect(call, reply.clone());
+    }
+    script.build()
+}
+
+/// Regression: a VM whose `define` left the Vagrantfile was removable by its id on VirtualBox
+/// only; on libvirt, Parallels and UTM the removal was refused and the VM kept running.
+#[tokio::test]
+async fn destroy_by_id_of_a_machine_no_longer_defined_goes_through_its_hypervisor() {
+    for (provider, calls) in [
+        (
+            Provider::Libvirt,
+            &[
+                "virsh -c qemu:///system destroy uuid-old",
+                "virsh -c qemu:///system undefine uuid-old --remove-all-storage --nvram",
+            ][..],
+        ),
+        (Provider::Parallels, &["prlctl stop uuid-old --kill", "prlctl delete uuid-old"][..]),
+        (Provider::Utm, &["utmctl stop --kill uuid-old", "utmctl delete uuid-old"][..]),
+    ] {
+        let f = Fixture::new();
+        f.made("old", provider.id(), "uuid-old");
+        let fake = removed_by(calls, &Reply::ok(""));
+        Vagrant
+            .destroy_by_id(&cx(&f, &fake, Some(provider)), "vm:old", ResourceKind::Vm, "uuid-old")
+            .await
+            .unwrap_or_else(|e| panic!("{provider:?}: {e}"));
+        assert_eq!(f.dot().recorded().unwrap(), Vec::<Record>::new(), "{provider:?}: its record goes");
+    }
+}
+
+/// A VM its hypervisor no longer knows is gone already; any other failure fails the removal and
+/// keeps the record.
+#[tokio::test]
+async fn a_vm_its_hypervisor_doesnt_know_is_gone_and_another_failure_keeps_its_record() {
+    let f = Fixture::new();
+    f.made("old", "libvirt", "uuid-old");
+    let calls = ["virsh -c qemu:///system destroy uuid-old", "virsh -c qemu:///system undefine uuid-old"];
+    let gone = removed_by(&calls, &Reply::fail(1, "error: failed to get domain 'uuid-old'"));
+    Vagrant
+        .destroy_by_id(&cx(&f, &gone, LIBVIRT), "vm:old", ResourceKind::Vm, "uuid-old")
         .await
-        .expect_err("no libvirt adapter");
+        .expect("gone already");
+
+    let kept = Fixture::new();
+    kept.made("old", "libvirt", "uuid-old");
+    let refused = removed_by(&calls, &Reply::fail(1, "error: Failed to connect socket: Permission denied"));
+    let e = Vagrant
+        .destroy_by_id(&cx(&kept, &refused, LIBVIRT), "vm:old", ResourceKind::Vm, "uuid-old")
+        .await
+        .expect_err("refused");
+    assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
+    assert_eq!(kept.dot().recorded().unwrap().len(), 1, "the record stays for a later try");
+}
+
+#[tokio::test]
+async fn destroy_by_id_refuses_what_it_has_no_way_to_remove_naming_it() {
+    let f = Fixture::new();
+    f.made("old", "vmware_desktop", "/vms/old.vmx");
+    let fake = removed_by(&[], &Reply::ok(""));
+    let e = Vagrant
+        .destroy_by_id(&cx(&f, &fake, Some(Provider::VmwareDesktop)), "vm:old", ResourceKind::Vm, "/vms/old.vmx")
+        .await
+        .expect_err("no VMware adapter");
     assert!(
-        matches!(&e, Error::Unsupported { what } if what.contains("libvirt") && what.contains("uuid-old")),
+        matches!(&e, Error::Unsupported { what } if what.contains("vmware_desktop") && what.contains("/vms/old.vmx")),
         "{e}"
     );
     let container = Vagrant

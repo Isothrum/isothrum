@@ -1,6 +1,7 @@
 //! Clearing what a run made, for a start to begin from nothing, and removing a machine at its
 //! hypervisor by its recorded id.
 
+use super::screen::LIBVIRT_URI;
 use super::{CALL_LIMIT, CliError, Error, Provider, READ_LIMIT, Record, Result, ToolCx, Vagrant, Verb, WarningCode, call, dot, ours, tool_error, vboxmanage};
 
 impl Vagrant {
@@ -70,24 +71,33 @@ impl Vagrant {
     /// Vagrantfile no longer defines, a record Vagrant can't act on); a VM already gone is fine.
     /// Only VirtualBox has an adapter: any other provider is refused, named.
     pub(super) async fn remove_at_hypervisor(&self, cx: &ToolCx<'_>, record: &Record) -> Result<()> {
-        if record.provider != Provider::Virtualbox.id() {
-            return Err(Error::Unsupported {
+        let call = call(cx, CALL_LIMIT);
+        let removed = match crate::encoding::from_wire_name::<Provider>(&record.provider) {
+            Some(Provider::Virtualbox) => {
+                drop(vboxmanage::power_off(&call, &record.id).await);
+                match vboxmanage::unregister_delete(&call, &record.id).await {
+                    Ok(())
+                    | Err(CliError::Failed {
+                        failure: vboxmanage::Failure::NotFound,
+                        ..
+                    }) => Ok(()),
+                    Err(e) => Err(tool_error("remove", e)),
+                }
+            }
+            Some(Provider::Libvirt) => {
+                let uri = cx.var(crate::host_env::LIBVIRT_DEFAULT_URI).is_none().then_some(LIBVIRT_URI);
+                crate::cli::virsh::remove(&call, uri, &record.id).await.map_err(|e| tool_error("remove", e))
+            }
+            Some(Provider::Parallels) => crate::cli::prlctl::remove(&call, &record.id).await.map_err(|e| tool_error("remove", e)),
+            Some(Provider::Utm) => crate::cli::utmctl::remove(&call, &record.id).await.map_err(|e| tool_error("remove", e)),
+            _ => Err(Error::Unsupported {
                 what: format!(
-                    "removing VM `{}` of machine `{}` on `{}` by its id once Vagrant can't (only VirtualBox VMs are)",
+                    "removing VM `{}` of machine `{}` on `{}` by its id once Vagrant can't (VirtualBox, libvirt, Parallels and UTM VMs are)",
                     record.id, record.machine, record.provider
                 ),
-            });
-        }
-        let call = call(cx, CALL_LIMIT);
-        drop(vboxmanage::power_off(&call, &record.id).await);
-        match vboxmanage::unregister_delete(&call, &record.id).await {
-            Ok(())
-            | Err(CliError::Failed {
-                failure: vboxmanage::Failure::NotFound,
-                ..
-            }) => {}
-            Err(e) => return Err(tool_error("remove", e)),
-        }
+            }),
+        };
+        removed?;
         dot(cx).forget(&record.machine, &record.provider)
     }
 }

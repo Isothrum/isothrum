@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use super::Module;
+use super::{Module, machines};
 use crate::Result;
 use crate::cli::CliError;
 use crate::cli::proxmox::{self, Api, Credentials};

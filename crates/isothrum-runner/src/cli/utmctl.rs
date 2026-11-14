@@ -22,6 +22,23 @@ fn named(lines: &[String], uuid: &str) -> Option<String> {
     })
 }
 
+/// What `utmctl` says of a VM it doesn't know.
+const NO_VM: [&str; 2] = ["virtual machine not found", "no virtual machine"];
+
+/// Removes VM `uuid` by its id: `stop --kill` (one already stopped is fine), then `delete` (its
+/// bundle goes). A VM UTM doesn't know is gone already.
+pub(crate) async fn remove(call: &Call<'_>, uuid: &str) -> Result<(), CliError<String>> {
+    drop(call.run::<String>(TOOL, argv(["stop", "--kill", uuid])).await?);
+    let out = call.run::<String>(TOOL, argv(["delete", uuid])).await?;
+    if out.success() || super::said_any(&out, &NO_VM) {
+        return Ok(());
+    }
+    Err(CliError::Failed {
+        tool: TOOL,
+        failure: out.reason(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
