@@ -113,8 +113,10 @@ fn start_options(opts: RunOptions, fresh: bool, lifetime_s: Option<u64>) -> RunO
     }
 }
 
-/// The access machine an attach adds, where, from what.
-fn access_pick<'a>(machine: Option<&'a str>, network: Option<&'a str>, image: Option<&'a str>) -> AccessPick<'a> {
+/// The access machine an attach adds, where, from what: the runner's pick from the values a
+/// command gives (the service's `attach`, the command line's in-process one).
+#[must_use]
+pub fn access_pick<'a>(machine: Option<&'a str>, network: Option<&'a str>, image: Option<&'a str>) -> AccessPick<'a> {
     let mut pick = AccessPick::default();
     if let Some(m) = machine {
         pick = pick.with_machine(m);

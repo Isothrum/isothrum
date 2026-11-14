@@ -25,7 +25,7 @@ tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The SDDL string of the named pipe's security descriptor.
-widestring = "1"
+widestring.workspace = true
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }

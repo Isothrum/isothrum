@@ -63,6 +63,8 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 interprocess = { version = "2.4", features = ["tokio"] }
 # The client's event stream is a `Stream`.
 futures-core = "0.3"
+# The SDDL string of the service's named pipe security descriptor (Windows).
+widestring = "1"
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now

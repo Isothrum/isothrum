@@ -50,16 +50,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
         RunnerCommand::Attach { op, machine, network, image } => {
-            let mut pick = AccessPick::default();
-            if let Some(m) = machine {
-                pick = pick.with_machine(m);
-            }
-            if let Some(n) = network {
-                pick = pick.with_network(n);
-            }
-            if let Some(i) = image {
-                pick = pick.with_image(i);
-            }
+            let pick = isothrum_service::access_pick(machine.as_deref(), network.as_deref(), image.as_deref());
             attach(out, &open(runner, &op.run)?, pick, &options(op, var)?).await
         }
         RunnerCommand::Detach { op, machine } => {
@@ -112,6 +103,16 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
 pub(crate) fn run_named(command: &Command) -> Option<&str> {
     let Command::Runner(command) = command else { return None };
     let target = match &**command {
+        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Screen { run, .. } | RunnerCommand::Events(run) => run,
+        RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
+        operation => &op_args(operation)?.run,
+    };
+    target.name.as_deref()
+}
+
+/// The run and values of an operation command (`None` for the others).
+pub(crate) fn op_args(command: &RunnerCommand) -> Option<&OpArgs> {
+    match command {
         RunnerCommand::Lifecycle(
             Lifecycle::Up(UpArgs { op, .. })
             | Lifecycle::Down(op)
@@ -123,11 +124,14 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
         | RunnerCommand::Check(op)
         | RunnerCommand::Provision { op, .. }
         | RunnerCommand::Attach { op, .. }
-        | RunnerCommand::Detach { op, .. } => &op.run,
-        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Screen { run, .. } | RunnerCommand::Events(run) => run,
-        RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
-    };
-    target.name.as_deref()
+        | RunnerCommand::Detach { op, .. } => Some(op),
+        RunnerCommand::Status(_)
+        | RunnerCommand::Console { .. }
+        | RunnerCommand::Screen { .. }
+        | RunnerCommand::Events(_)
+        | RunnerCommand::Reap(_)
+        | RunnerCommand::Key => None,
+    }
 }
 
 /// Where a command writes: the terminal (JSON lines with `json`), and its operation's events.

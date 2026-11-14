@@ -33,7 +33,7 @@ use isothrum_runner::SystemProcesses;
 use isothrum_runner::store::{LeaseOutcome, Owner, Store};
 use tokio::sync::Notify;
 
-pub use engine::{Engine, Journal, Refusal, RunnerEngine};
+pub use engine::{Engine, Journal, Refusal, RunnerEngine, access_pick};
 pub use error::ServeError;
 
 use crate::feed::Feed;
@@ -254,16 +254,18 @@ async fn stop_operations(queue: &Queue, tools: Option<&SystemProcesses>, stop: &
 
 /// Ends cancelled the operations a dead service queued and never started: nothing will run them,
 /// and the journal shouldn't show them waiting.
-#[expect(
-    clippy::redundant_closure_for_method_calls,
-    reason = "`Tx::cancel_orphaned_queued` is bound to one transaction's lifetime: it can't be passed as is"
-)]
 fn cancel_orphaned(store: &Store) {
-    match store.write(|tx| tx.cancel_orphaned_queued()) {
+    match store.write(orphans_cancelled) {
         Ok(ids) if !ids.is_empty() => tracing::info!(count = ids.len(), "a dead service's queued operations were cancelled"),
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "a dead service's queued operations couldn't be cancelled"),
     }
+}
+
+/// The orphaned queued operations `tx` cancels: a function of any transaction (the method alone
+/// is bound to one transaction's lifetime).
+fn orphans_cancelled(tx: &mut isothrum_runner::store::Tx<'_>) -> isothrum_runner::Result<Vec<isothrum_runner::store::OperationId>> {
+    tx.cancel_orphaned_queued()
 }
 
 /// A random number (the time's, if the OS has no randomness to give).

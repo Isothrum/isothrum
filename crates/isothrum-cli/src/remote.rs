@@ -9,7 +9,7 @@ use isothrum_runner::{EventKind, RunName, wire_name};
 
 use crate::args::{Cli, Command as CliCommand, Lifecycle, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::cancel::{self, Signal};
-use crate::commands::{Out, park_mode};
+use crate::commands::{Out, op_args, park_mode};
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::locate;
@@ -130,25 +130,6 @@ fn operation(command: &RunnerCommand, var: &Var<'_>) -> Result<(Command, Shown)>
         }
         _ => return Err(Error::Usage("not an operation".into())),
     })
-}
-
-/// The run and values of an operation command.
-fn op_args(command: &RunnerCommand) -> Option<&OpArgs> {
-    match command {
-        RunnerCommand::Lifecycle(
-            Lifecycle::Up(UpArgs { op, .. })
-            | Lifecycle::Down(op)
-            | Lifecycle::Park { op, .. }
-            | Lifecycle::Resume(op)
-            | Lifecycle::Update(op)
-            | Lifecycle::Retire { op, .. },
-        )
-        | RunnerCommand::Check(op)
-        | RunnerCommand::Provision { op, .. }
-        | RunnerCommand::Attach { op, .. }
-        | RunnerCommand::Detach { op, .. } => Some(op),
-        _ => None,
-    }
 }
 
 /// The run `args` names: its manifest, absolute (the service has another working folder), and

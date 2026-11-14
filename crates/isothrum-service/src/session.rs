@@ -206,10 +206,12 @@ async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCurso
 }
 
 /// Every run the store keeps.
-#[expect(
-    clippy::redundant_closure_for_method_calls,
-    reason = "`Tx::runs` is bound to one transaction's lifetime: it can't be passed as is"
-)]
 fn runs(store: &isothrum_runner::store::Store) -> isothrum_runner::Result<Vec<isothrum_client::v1::RunRow>> {
-    store.read(|tx| tx.runs())
+    store.read(every_run)
+}
+
+/// Every run `tx` reads: a function of any transaction (the method alone is bound to one
+/// transaction's lifetime).
+fn every_run(tx: &isothrum_runner::store::Tx<'_>) -> isothrum_runner::Result<Vec<isothrum_client::v1::RunRow>> {
+    tx.runs()
 }

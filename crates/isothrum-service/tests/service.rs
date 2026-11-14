@@ -1,15 +1,13 @@
 //! The service over its real endpoint, with a scripted engine: the queue per run, two clients,
 //! replay after a reconnection, one service per home, cancel, shutdown and the idle stop.
 
-#![expect(clippy::unwrap_used, clippy::panic, reason = "the scripted engine and the helpers fail the test they serve")]
-
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_client::v1::{Event, OperationPhase, is_outcome, phase_of};
-use isothrum_client::{Client, ClientError};
+use isothrum_client::{Client, ClientError, Followed};
 use isothrum_runner::store::OperationId;
 use isothrum_runner::{BoxFuture, ErrorCode, EventKind, RunName, Status};
 use isothrum_service::{Engine, Journal, Refusal, ServeError, ServeOptions, Service, StopSignal};
@@ -22,8 +20,12 @@ struct Scripted {
 }
 
 impl Scripted {
+    fn note(&self, line: String) {
+        self.log.lock().unwrap_or_else(PoisonError::into_inner).push(line);
+    }
+
     fn log(&self) -> Vec<String> {
-        self.log.lock().unwrap().clone()
+        self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
@@ -38,10 +40,11 @@ impl Engine for Scripted {
 
     fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, _operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool> {
         Box::pin(async move {
-            let (_, options) = command.target().unwrap();
-            let op = command.op().unwrap();
-            let sleep: u64 = options.params.get("sleep_ms").map_or(0, |s| s.parse().unwrap());
-            self.log.lock().unwrap().push(format!("begin {run} {op}"));
+            let (Some((_, options)), Some(op)) = (command.target(), command.op()) else {
+                return false;
+            };
+            let sleep: u64 = options.params.get("sleep_ms").and_then(|s| s.parse().ok()).unwrap_or(0);
+            self.note(format!("begin {run} {op}"));
             let step = EventKind::Log {
                 step: "work".into(),
                 stream: isothrum_runner::Stream::Stdout,
@@ -49,7 +52,7 @@ impl Engine for Scripted {
             };
             journal.keep(isothrum_runner::Event::new(1, Some(run.to_string()), Some(op), step));
             tokio::time::sleep(Duration::from_millis(sleep)).await;
-            self.log.lock().unwrap().push(format!("end {run} {op}"));
+            self.note(format!("end {run} {op}"));
             let result = EventKind::Result {
                 ok: true,
                 data: serde_json::json!({ "message": "done" }),
@@ -76,24 +79,27 @@ struct Running {
     task: tokio::task::JoinHandle<Result<(), ServeError>>,
 }
 
-async fn start(idle: Option<Duration>) -> Running {
-    start_in(tempfile::tempdir().unwrap(), idle).await
+/// What a helper's failure fails the test with.
+type Outcome<T> = Result<T, Box<dyn std::error::Error>>;
+
+async fn start(idle: Option<Duration>) -> Outcome<Running> {
+    start_in(tempfile::tempdir()?, idle).await
 }
 
-async fn start_in(home: tempfile::TempDir, idle: Option<Duration>) -> Running {
+async fn start_in(home: tempfile::TempDir, idle: Option<Duration>) -> Outcome<Running> {
     let engine = Arc::new(Scripted::default());
-    let service = Service::hold(home.path()).unwrap();
+    let service = Service::hold(home.path())?;
     let shared: Arc<dyn Engine> = Arc::<Scripted>::clone(&engine);
     let mut options = ServeOptions::new(shared, never());
     options.idle = idle;
     let task = tokio::spawn(service.serve(options));
     for _ in 0..200 {
         if Client::connect_running(home.path()).await.is_ok() {
-            return Running { home, engine, task };
+            return Ok(Running { home, engine, task });
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("the service didn't answer");
+    Err("the service didn't answer".into())
 }
 
 fn up(run: &str, sleep_ms: u64) -> Command {
@@ -116,17 +122,39 @@ fn down(run: &str, sleep_ms: u64) -> Command {
 }
 
 /// Every event of a followed operation.
-async fn events_of(followed: &mut isothrum_client::Followed) -> Vec<Event> {
+async fn events_of(followed: &mut Followed) -> Result<Vec<Event>, ClientError> {
     let mut all = Vec::new();
     while let Some(event) = followed.next().await {
-        all.push(event.unwrap());
+        all.push(event?);
     }
-    all
+    Ok(all)
+}
+
+/// Waits for `followed` to begin.
+async fn begun(followed: &mut Followed) -> Result<(), ClientError> {
+    while let Some(event) = followed.next().await {
+        if phase_of(&event?) == Some(OperationPhase::Started) {
+            return Ok(());
+        }
+    }
+    Err(ClientError::Protocol("it ended before it began".to_owned()))
+}
+
+/// Whether `followed` ends cancelled within 5 seconds.
+async fn ends_cancelled(followed: &mut Followed) -> bool {
+    let outcome = tokio::time::timeout(Duration::from_secs(5), followed.outcome()).await;
+    matches!(
+        outcome,
+        Ok(Err(ClientError::Operation {
+            code: ErrorCode::Cancelled,
+            ..
+        }))
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_clients_operations_on_one_run_run_in_order_and_other_runs_alongside() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let (a, b) = (
         Client::connect_running(s.home.path()).await.unwrap(),
         Client::connect_running(s.home.path()).await.unwrap(),
@@ -136,6 +164,7 @@ async fn two_clients_operations_on_one_run_run_in_order_and_other_runs_alongside
     let mut other = b.follow(up("db", 0)).await.unwrap();
     assert_eq!((first.accepted.position, second.accepted.position, other.accepted.position), (0, 1, 0));
     let (first_events, second_events, _) = tokio::join!(events_of(&mut first), events_of(&mut second), events_of(&mut other));
+    let (first_events, second_events) = (first_events.unwrap(), second_events.unwrap());
     let log = s.engine.log();
     let at = |line: &str| log.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line} in {log:?}"));
     assert!(at("end web up") < at("begin web down"), "one run's operations one after the other: {log:?}");
@@ -152,7 +181,7 @@ async fn two_clients_operations_on_one_run_run_in_order_and_other_runs_alongside
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_reconnecting_subscriber_resumes_after_its_last_cursor_and_misses_nothing() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let mut all = client.subscribe(None, None).await.unwrap();
     client.follow(up("web", 0)).await.unwrap().outcome().await.unwrap();
@@ -180,7 +209,7 @@ async fn a_reconnecting_subscriber_resumes_after_its_last_cursor_and_misses_noth
 
 #[tokio::test]
 async fn one_service_per_home() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let held = Service::hold(s.home.path()).unwrap_err();
     assert!(
         matches!(&held, ServeError::Held { holder: Some(h), .. } if h.pid == std::process::id()),
@@ -192,12 +221,12 @@ async fn one_service_per_home() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let mut long = client.follow(up("web", 60_000)).await.unwrap();
     let mut queued = client.follow(down("web", 0)).await.unwrap();
     client.cancel(queued.accepted.operation).await.unwrap();
-    let dropped = events_of(&mut queued).await;
+    let dropped = events_of(&mut queued).await.unwrap();
     assert!(!dropped.iter().any(|e| phase_of(e) == Some(OperationPhase::Started)), "{dropped:?}");
     assert!(dropped.iter().any(|e| matches!(
         e.kind,
@@ -207,19 +236,9 @@ async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
         }
     )));
     // Wait for the long one to begin, then cut it short.
-    while phase_of(&long.next().await.unwrap().unwrap()) != Some(OperationPhase::Started) {}
+    begun(&mut long).await.unwrap();
     client.cancel(long.accepted.operation).await.unwrap();
-    let cut = tokio::time::timeout(Duration::from_secs(5), long.outcome()).await.unwrap();
-    assert!(
-        matches!(
-            cut,
-            Err(ClientError::Operation {
-                code: ErrorCode::Cancelled,
-                ..
-            })
-        ),
-        "{cut:?}"
-    );
+    assert!(ends_cancelled(&mut long).await);
     assert!(!s.engine.log().contains(&"end web up".to_owned()));
     let refused = client.cancel(long.accepted.operation).await;
     assert!(matches!(refused, Err(ClientError::Refused { .. })), "an ended operation: {refused:?}");
@@ -228,7 +247,7 @@ async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_refused_run_is_answered_at_once() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let refused = client.submit(up("missing", 0)).await;
     assert!(
@@ -246,22 +265,12 @@ async fn a_refused_run_is_answered_at_once() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
-    let s = start(None).await;
+    let s = start(None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let mut long = client.follow(up("web", 60_000)).await.unwrap();
-    while phase_of(&long.next().await.unwrap().unwrap()) != Some(OperationPhase::Started) {}
+    begun(&mut long).await.unwrap();
     client.shutdown().await.unwrap();
-    let cut = tokio::time::timeout(Duration::from_secs(5), long.outcome()).await.unwrap();
-    assert!(
-        matches!(
-            cut,
-            Err(ClientError::Operation {
-                code: ErrorCode::Cancelled,
-                ..
-            })
-        ),
-        "{cut:?}"
-    );
+    assert!(ends_cancelled(&mut long).await);
     tokio::time::timeout(Duration::from_secs(5), s.task).await.unwrap().unwrap().unwrap();
     assert!(!s.home.path().join("service.json").exists(), "it says it is gone");
     assert!(Client::connect_running(s.home.path()).await.is_err());
@@ -269,7 +278,7 @@ async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_idle_service_stops_but_not_while_a_client_is_connected() {
-    let s = start(Some(Duration::from_millis(300))).await;
+    let s = start(Some(Duration::from_millis(300))).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(!s.task.is_finished(), "a client is connected");
@@ -288,7 +297,7 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
         dead.pid = u32::MAX - 1;
         store.write(|tx| tx.queue_operation(&run, isothrum_runner::Op::Up, &dead)).unwrap().id
     };
-    let s = start_in(home, None).await;
+    let s = start_in(home, None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let ops = client.operations(&run, 10).await.unwrap();
     let row = ops.iter().find(|o| o.id == left).unwrap();
