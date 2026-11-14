@@ -7,9 +7,13 @@
 //! about to exit, such as the command line, calls it so none is left running), and
 //! [`Stopping::end_now`] ends them at once (a second Ctrl-C).
 //!
-//! On Windows a tool runs headless (no console), so there is no console to send it Ctrl-Break,
-//! and the call that sends one is raw FFI, which this crate forbids: its job object is
-//! terminated at once.
+//! On Windows a tool runs headless, on a console of its own with no window, so the runner's own
+//! Ctrl-C never reaches it. It is asked to stop with a Ctrl-C on that console, which Terraform, Ruby
+//! (Vagrant) and Python take as SIGINT: the calls that send one are raw FFI, which this crate
+//! forbids, so a short PowerShell helper makes them ([`ctrl_c_script`]: it attaches to the tool's
+//! console, ignores the event itself, and sends it to every process there). Its job object is
+//! terminated once it has exited or after the grace, as on Unix; a tool the helper can't reach
+//! (its console gone, PowerShell missing) is terminated at once.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -50,9 +54,11 @@ impl Stopping {
     }
 
     /// Asks `child`'s tree to stop, and ends it once it has, or after the grace. Where it can't
-    /// be asked (Windows, a tree already gone), it is ended at once.
+    /// be asked (a tree already gone, a console the helper can't reach), it is ended at once. On
+    /// Unix the signal goes now; on Windows asking takes a helper process, so it is asked on the
+    /// thread that waits for it, never in the drop that cut it short.
     pub(super) fn stop(self: &Arc<Self>, mut child: Box<dyn ChildWrapper>, recorded: Option<super::ledger::Recorded>) {
-        if !interrupt(child.as_ref()) {
+        if cfg!(unix) && !interrupt(child.as_ref()) {
             end(child.as_mut());
             return;
         }
@@ -64,7 +70,11 @@ impl Stopping {
         // meanwhile, the next operation ends it.
         let spawned = std::thread::Builder::new().name("isothrum-stop".into()).spawn(move || {
             if let Some(mut tool) = take(&theirs) {
-                stopping.end_when_stopped(tool.as_mut(), since);
+                if cfg!(unix) || interrupt(tool.as_ref()) {
+                    stopping.end_when_stopped(tool.as_mut(), since);
+                } else {
+                    end(tool.as_mut());
+                }
             }
             drop(recorded);
             stopping.count.fetch_sub(1, Ordering::SeqCst);
@@ -141,10 +151,72 @@ fn interrupt(child: &dyn ChildWrapper) -> bool {
     }
 }
 
-/// Nothing to send on Windows (see the module's documentation).
+/// How long the Windows helper that sends Ctrl-C may take (PowerShell compiles its few calls
+/// first).
 #[cfg(windows)]
-fn interrupt(_child: &dyn ChildWrapper) -> bool {
-    false
+const HELPER_LIMIT: Duration = Duration::from_secs(20);
+
+/// A Ctrl-C on the console of the tool `child` (see the module's documentation); whether it was
+/// sent.
+#[cfg(windows)]
+fn interrupt(child: &dyn ChildWrapper) -> bool {
+    use std::os::windows::process::CommandExt as _;
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+    let Some(pid) = child.id() else { return false };
+    tracing::debug!(pid, "asking a process tree cut short to stop (Ctrl-C on its console)");
+    let helper = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ctrl_c_script(pid)])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW.0)
+        .spawn();
+    let mut helper = match helper {
+        Ok(helper) => helper,
+        Err(e) => {
+            tracing::warn!(pid, error = %e, "PowerShell couldn't run to ask a tool to stop: it is ended at once");
+            return false;
+        }
+    };
+    let deadline = Instant::now() + HELPER_LIMIT;
+    loop {
+        match helper.try_wait() {
+            Ok(Some(status)) if status.success() => return true,
+            Ok(Some(status)) => {
+                tracing::debug!(pid, code = ?status.code(), "the tool's console couldn't be sent Ctrl-C: it is ended at once");
+                return false;
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL),
+            Ok(None) | Err(_) => {
+                if let Err(e) = helper.kill() {
+                    tracing::debug!(error = %e, "the Ctrl-C helper had ended");
+                }
+                tracing::warn!(pid, "the Ctrl-C helper didn't answer: the tool is ended at once");
+                return false;
+            }
+        }
+    }
+}
+
+/// The PowerShell that sends Ctrl-C to every process on process `pid`'s console: it leaves its
+/// own console, attaches to the tool's, ignores Ctrl-C itself, and sends it to the console's
+/// processes (group 0). Exit 0 once it was sent.
+#[cfg(any(windows, test))]
+fn ctrl_c_script(pid: u32) -> String {
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         Add-Type -Namespace Isothrum -Name Ctrl -MemberDefinition @'\n\
+         [DllImport(\"kernel32.dll\", SetLastError = true)] public static extern bool FreeConsole();\n\
+         [DllImport(\"kernel32.dll\", SetLastError = true)] public static extern bool AttachConsole(uint pid);\n\
+         [DllImport(\"kernel32.dll\", SetLastError = true)] public static extern bool SetConsoleCtrlHandler(System.IntPtr handler, bool add);\n\
+         [DllImport(\"kernel32.dll\", SetLastError = true)] public static extern bool GenerateConsoleCtrlEvent(uint ctrlEvent, uint group);\n\
+         '@\n\
+         [void][Isothrum.Ctrl]::FreeConsole()\n\
+         if (-not [Isothrum.Ctrl]::AttachConsole({pid})) {{ exit 2 }}\n\
+         [void][Isothrum.Ctrl]::SetConsoleCtrlHandler([System.IntPtr]::Zero, $true)\n\
+         if (-not [Isothrum.Ctrl]::GenerateConsoleCtrlEvent(0, 0)) {{ exit 3 }}\n\
+         exit 0\n"
+    )
 }
 
 /// SIGKILL to the process group, or the job object terminated: nothing the tool started outlives
@@ -153,5 +225,23 @@ fn end(child: &mut dyn ChildWrapper) {
     tracing::debug!(pid = ?child.id(), "ending a process tree cut short");
     if let Err(e) = child.start_kill() {
         tracing::debug!(error = %e, "the process tree had already ended");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Windows helper attaches to the tool's own console and sends Ctrl-C (event 0) to every
+    /// process there (group 0), having first made itself deaf to it.
+    #[test]
+    fn the_ctrl_c_helper_attaches_to_the_tools_console_and_ignores_the_event_itself() {
+        let script = ctrl_c_script(4242);
+        let at = |needle: &str| script.find(needle).unwrap_or_else(|| panic!("{needle} in {script}"));
+        assert!(at("FreeConsole()\n") < at("AttachConsole(4242)"));
+        assert!(at("AttachConsole(4242)") < at("SetConsoleCtrlHandler([System.IntPtr]::Zero, $true)"));
+        assert!(at("SetConsoleCtrlHandler([System.IntPtr]::Zero, $true)") < at("GenerateConsoleCtrlEvent(0, 0)"));
+        // A here-string's end must start its line.
+        assert!(script.contains("\n'@\n"), "{script}");
     }
 }

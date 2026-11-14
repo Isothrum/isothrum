@@ -83,7 +83,7 @@
 //! `timeout_s`, else an hour; 25 s for a probe; two minutes for an action's own Docker calls),
 //! and dropping an operation's future stops the process trees it started: on Unix each gets
 //! SIGINT (so Terraform saves its state) and SIGKILL once it exited or 30 seconds later; on
-//! Windows each is ended at once ([`SystemProcesses`]). The limit counts the time
+//! Windows Ctrl-C on its own console, then its job ended the same way ([`SystemProcesses`]). The limit counts the time
 //! a tool shows no progress: it is stopped once it printed no new line for that long (a line, on
 //! either stream, that isn't blank and isn't one of its last distinct lines; from its start when
 //! it prints nothing), and at the latest six hours after its start, or at its limit when that is

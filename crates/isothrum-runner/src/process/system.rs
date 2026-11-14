@@ -1,7 +1,7 @@
 //! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
 //! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
 //! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
-//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]). Each tool speaks in the C
+//! tool cut short is asked to stop first (see [`super::stopping`]). Each tool speaks in the C
 //! locale ([`super::locale`]).
 
 use std::path::Path;
@@ -20,8 +20,8 @@ use crate::BoxFuture;
 /// an engine context of their own.
 ///
 /// A tool cut short (its operation's future dropped: a cancel, a step's timeout) is asked to stop
-/// on Unix (SIGINT to its process group, so Terraform saves its state) and ended once it has
-/// exited, or 30 seconds later; on Windows it is ended at once. Its clones share the tools
+/// (SIGINT to its process group on Unix, Ctrl-C on its console on Windows, so Terraform saves its
+/// state) and ended once it has exited, or 30 seconds later. Its clones share the tools
 /// stopping: a process about to exit waits for them with [`SystemProcesses::stopped`].
 #[derive(Debug, Clone)]
 pub struct SystemProcesses {
