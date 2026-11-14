@@ -386,6 +386,7 @@ fn the_run_state_rule() {
         published: Vec::new(),
         kind: None,
         address: None,
+        windows: false,
     };
     assert_eq!(run_state(&[]), RunState::Absent);
     assert_eq!(run_state(&[m("a", MachineState::Absent)]), RunState::Absent);

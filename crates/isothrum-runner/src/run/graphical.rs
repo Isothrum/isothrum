@@ -22,7 +22,7 @@ impl Running<'_> {
     pub(super) async fn screens(&self, cx: &ToolCx<'_>, seen: &Seen) -> Vec<Option<ConsoleOffer>> {
         let mut out = Vec::with_capacity(seen.machines.len());
         for m in &seen.machines {
-            out.push(self.driver.graphical(cx, m).await.unwrap_or_else(|e| {
+            out.push(self.driver.graphical(cx, seen, m).await.unwrap_or_else(|e| {
                 tracing::debug!(machine = %m.name, error = %e, "the machine's console couldn't be said");
                 None
             }));
@@ -32,7 +32,14 @@ impl Running<'_> {
 
     /// `machine`'s graphical console (its screen), where its hypervisor keeps it: its protocol
     /// (VNC or RDP), where it answers ([`crate::Endpoint`]: a port of this computer's loopback, or
-    /// Proxmox's VNC websocket) and the password that signs in. A console the hypervisor says
+    /// Proxmox's VNC websocket) and the account and password that sign in. A console that
+    /// answers only on the run's own networks (a module's Windows VM's Remote Desktop) is reached
+    /// through an SSH tunnel to the machine beside it the driver names: `ssh -N -L
+    /// 127.0.0.1:<free port>:<its address>:<its port>`, signed in with the run's key (its
+    /// `ssh_private_key_file`, else the runner's) and checked against the host key the run
+    /// pinned the first time it met that machine. The returned [`Console`] owns the tunnel
+    /// ([`Console::tunnel`]): keep it while the viewer shows the screen; dropping it ends the
+    /// tunnel, and so does a `down` of the run. A console the hypervisor says
     /// listens anywhere but the loopback is refused, and so is one on the loopback that doesn't
     /// answer. `opts` gives what the tools get (a Proxmox server's address and credentials, as
     /// its provider reads them). Emits nothing and never locks the run; while an operation holds
@@ -45,14 +52,20 @@ impl Running<'_> {
     /// its extension pack…), isn't running, its hypervisor doesn't say where its console is or
     /// started it without one, or it doesn't answer there; `server_auth_failed` when Proxmox
     /// refuses the run's credentials; a tool's own failure (`tool_missing` for a missing `virsh`,
-    /// `VBoxManage` or `curl`).
+    /// `VBoxManage`, `curl`, `ssh` or `ssh-keyscan`); `tool_failed` when the machine a tunnel goes
+    /// through gives no SSH host key to pin.
     pub async fn graphical_console(&self, machine: &str, opts: &RunOptions) -> Result<Console> {
-        let console = self
+        let mut console = self
             .query(opts, async |cx: &ToolCx<'_>| {
                 self.running_now(cx, machine).await?;
                 self.driver.reach_graphical(cx, machine).await
             })
             .await?;
+        if let Some(to) = console.through.take() {
+            let tunnel = crate::graphical::tunnel::open(self.runner, &self.name, &self.state_dir(), machine, &to).await?;
+            console.endpoint = Endpoint::Loopback(tunnel.local());
+            console.tunnel = Some(tunnel);
+        }
         if let Endpoint::Loopback(at) = &console.endpoint {
             let at = on_loopback(machine, *at)?;
             if !self.runner.config.ports.reachable(&at.ip().to_string(), at.port(), ANSWER_LIMIT).await {

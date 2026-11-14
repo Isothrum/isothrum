@@ -95,9 +95,14 @@ See [Manage the SSH key](../how-to/ssh-keys.md).
 
 `Running::graphical_console` hands an embedder a machine's console only on this computer's
 loopback: the address the hypervisor gives is refused unless it is a loopback one, and a console
-the manifest reaches through a machine of the run gets an SSH tunnel that listens on `127.0.0.1`
-alone (`ssh -N -L 127.0.0.1:<port>:…`, `ExitOnForwardFailure`), with the run's key and pinned host
-keys, open as long as the embedder holds the `Console`. Proxmox's console goes through its API's
+that answers only on a module's own networks (a Windows VM's Remote Desktop, behind the Linux
+machine its `ip` output names) gets an SSH tunnel that listens on `127.0.0.1` alone (`ssh -N -L
+127.0.0.1:<port>:…`, `ExitOnForwardFailure`), with the run's key (its `ssh_private_key_file`,
+else the runner's) and no user configuration (`-F none`). The machine's host key is pinned in the
+run's own `known_hosts` the first time the run meets it, and checked strictly after
+(`StrictHostKeyChecking=yes`, never `accept-new`); the pins go with the run's `down`. The tunnel is
+open as long as the embedder holds the `Console`, and recorded in the run's tool ledger, so a
+`down` from any process, or the next operation after a crash, ends it. Proxmox's console goes through its API's
 websocket, with a ticket per session the embedder connects with. The passwords a `Console` holds
 (the runner's for VMware, Proxmox's ticket, a Windows account's from a sensitive output) are
 `SecretValue`s, never printed (`isothrum screen` prints one only with `--show-password`).

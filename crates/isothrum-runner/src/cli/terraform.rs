@@ -436,7 +436,28 @@ pub(crate) struct VmFacts {
     /// Its address, as its provider writes it ([`ADDRESSES`], then the addresses its network
     /// interfaces list), loopback and link-local ones left out.
     pub(crate) address: Option<String>,
+    /// Its address on the module's own networks, as its provider writes it ([`PRIVATE_ADDRESSES`],
+    /// then its interfaces' private ones): what a machine beside it reaches it at. None where the
+    /// provider writes only one address (ESXi's, libvirt's: [`VmFacts::address`] is that one).
+    pub(crate) private_address: Option<String>,
+    /// Its attributes say it runs Windows: its type (Azure's Windows VM), its Windows settings
+    /// (`os_profile_windows_config`), its guest OS (ESXi's `guestos`, vSphere's `guest_id`,
+    /// Telmate's `qemu_os`, bpg's `operating_system`), or, for an AWS instance, the AMI it was made
+    /// from, which a data source of the module says is a Windows one ([`Shown`]).
+    pub(crate) windows: bool,
+    /// The image it was made from, when its provider names it by id (AWS's `ami`).
+    pub(crate) image: Option<String>,
 }
+
+/// The attributes a VM's provider writes its address on the module's own networks in: AWS's and
+/// OCI's, Azure's, Linode's, DigitalOcean's, Hetzner's.
+const PRIVATE_ADDRESSES: [&str; 4] = ["private_ip", "private_ip_address", "ipv4_address_private", "private_ipv4"];
+
+/// The resource types that are always a Windows VM.
+const WINDOWS_TYPES: [&str; 1] = ["azurerm_windows_virtual_machine"];
+
+/// The attributes a provider writes a VM's guest OS in, as text: ESXi's, vSphere's, Telmate's.
+const GUEST_OS: [&str; 3] = ["guestos", "guest_id", "qemu_os"];
 
 /// The attributes a VM's provider writes its address in, best first: Telmate/proxmox's, ESXi's
 /// and Linode's, vSphere's, Hetzner's and DigitalOcean's, the clouds' public ones (AWS, OCI,
@@ -561,13 +582,51 @@ struct Attributes {
 }
 
 impl Attributes {
-    /// What they say of the VM.
-    fn vm(&self) -> VmFacts {
+    /// What they say of the VM, a resource of type `kind`.
+    fn vm(&self, kind: &str) -> VmFacts {
         VmFacts {
             node: scalar(self.node_name.as_ref()).or_else(|| scalar(self.target_node.as_ref())),
             vm_id: scalar(self.vm_id.as_ref()).or_else(|| scalar(self.vmid.as_ref())),
             address: self.address(),
+            private_address: self.private_address(),
+            windows: WINDOWS_TYPES.contains(&kind) || self.says_windows(),
+            image: scalar(self.rest.get("ami")),
         }
+    }
+
+    /// Whether its settings or its guest OS say Windows.
+    fn says_windows(&self) -> bool {
+        #[derive(Deserialize)]
+        struct Os {
+            #[serde(default, rename = "type")]
+            kind: Option<String>,
+        }
+        let windows = |os: &str| os.trim().to_ascii_lowercase().starts_with("win");
+        let settings = self
+            .shaped::<Vec<serde_json::Value>>("os_profile_windows_config")
+            .is_some_and(|blocks| !blocks.is_empty());
+        let guest = GUEST_OS.iter().filter_map(|name| scalar(self.rest.get(*name))).any(|os| windows(&os));
+        let typed = self
+            .shaped::<Vec<Os>>("operating_system")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|os| os.kind.as_deref())
+            .any(windows);
+        settings || guest || typed
+    }
+
+    /// Whether this data source is an AWS image whose platform is Windows (`aws_ami`'s
+    /// `platform`).
+    fn windows_image(&self) -> bool {
+        scalar(self.rest.get("platform")).is_some_and(|p| p.eq_ignore_ascii_case("windows"))
+    }
+
+    /// The VM's address on the module's own networks: the first of [`PRIVATE_ADDRESSES`] that is
+    /// one, else the first private one its interfaces list (Google's `network_ip`).
+    fn private_address(&self) -> Option<String> {
+        let named = PRIVATE_ADDRESSES.iter().filter_map(|name| scalar(self.rest.get(*name)));
+        let interfaces: Vec<Interface> = self.shaped("network_interface").unwrap_or_default();
+        named.chain(interfaces.into_iter().filter_map(|i| i.network_ip)).find(|a| reachable_address(a))
     }
 
     /// Attribute `name` in the shape `T`; none when it isn't there or isn't in that shape.
@@ -607,6 +666,7 @@ fn scalar(value: Option<&serde_json::Value>) -> Option<String> {
 pub(crate) fn shown(json: &str) -> Result<Shown, String> {
     let doc: ShowDoc = serde_json::from_str(json).map_err(|e| format!("`show -json` isn't the state's JSON: {e}"))?;
     let mut out = Shown::default();
+    let mut windows_images = Vec::new();
     let mut pending = vec![doc.values.map(|v| v.root_module).unwrap_or_default()];
     while let Some(module) = pending.pop() {
         for r in module.resources {
@@ -617,7 +677,7 @@ pub(crate) fn shown(json: &str) -> Result<Shown, String> {
                         serde_json::Value::Number(n) => Some(n.to_string()),
                         _ => None,
                     });
-                    let vm = r.values.as_ref().map(Attributes::vm).unwrap_or_default();
+                    let vm = r.values.as_ref().map(|v| v.vm(&r.kind)).unwrap_or_default();
                     out.managed.push(Resource {
                         address: r.address,
                         kind: r.kind,
@@ -626,11 +686,22 @@ pub(crate) fn shown(json: &str) -> Result<Shown, String> {
                         vm,
                     });
                 }
-                "data" => out.data.push(r.address),
+                "data" => {
+                    if let Some(id) = r.values.as_ref().filter(|v| r.kind == "aws_ami" && v.windows_image()).and_then(|v| scalar(v.id.as_ref())) {
+                        windows_images.push(id);
+                    }
+                    out.data.push(r.address);
+                }
                 other => return Err(format!("resource `{}` of mode `{other}`", r.address)),
             }
         }
         pending.extend(module.child_modules);
+    }
+    // An instance made from an image a data source says is Windows' runs Windows.
+    for r in &mut out.managed {
+        if r.vm.image.as_ref().is_some_and(|ami| windows_images.contains(ami)) {
+            r.vm.windows = true;
+        }
     }
     Ok(out)
 }

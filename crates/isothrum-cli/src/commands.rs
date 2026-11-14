@@ -233,10 +233,13 @@ async fn exec(out: &Out<'_>, run: &Running<'_>, machine: &str, argv: &[String], 
 }
 
 /// `machine`'s graphical console, reached: where it answers (its password only when `show`), as
-/// one JSON object or lines for a person.
+/// one JSON object or lines for a person. A console reached through an SSH tunnel keeps it open
+/// until the viewer is done: Ctrl-C (the command's cancellation) ends it, and a tunnel that closes
+/// on its own (its machine gone, the connection dropped, a `down`) ends the command, with exit 1.
 async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptions, show: bool) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
-    let console = run.graphical_console(machine, opts).await?;
+    let mut console = run.graphical_console(machine, opts).await?;
+    let tunnel = console.tunnel.as_ref().map(|t| t.via().to_owned());
     let protocol = isothrum_runner::wire_name(&console.protocol);
     let (address, websocket) = match &console.endpoint {
         Endpoint::Loopback(at) => (Some(at.to_string()), None),
@@ -247,7 +250,7 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
     if json {
         let line = serde_json::json!({
             "machine": console.machine, "protocol": protocol, "address": address, "websocket": websocket,
-            "user": console.user, "password": password, "note": console.note,
+            "user": console.user, "password": password, "note": console.note, "tunnel": tunnel,
         });
         term.out(&line.to_string());
     } else {
@@ -263,6 +266,15 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
         if let Some(note) = &console.note {
             term.out(&format!("note: {note}"));
         }
+    }
+    if let Some(tunnel) = console.tunnel.as_mut() {
+        term.err(&format!(
+            "The tunnel through {} stays open while this runs: Ctrl-C closes it once the viewer is done.",
+            tunnel.via()
+        ));
+        let said = tunnel.closed().await;
+        term.err(&format!("The tunnel closed: {said}."));
+        return Ok(Verdict::Fail);
     }
     Ok(Verdict::Pass)
 }

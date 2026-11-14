@@ -35,6 +35,13 @@ use std::time::Duration;
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
 
+/// The extension of a tool's entry.
+const TOOL: &str = "tool";
+
+/// The extension of a console tunnel's entry: a process that lives as long as its console, not
+/// to an operation's end.
+const TUNNEL: &str = "tunnel";
+
 /// How far apart, in seconds, the start the OS stored and the one recorded may be for one
 /// process (both read from the same clock at the same moment; the OS rounds to the second).
 const SLACK: u64 = 2;
@@ -95,9 +102,21 @@ impl Recorded {
     /// Records the tool `pid` just started in `dir`, with the `container` it runs in, if any. A
     /// record that can't be written is traced: the tool runs unrecorded.
     pub(crate) fn write(dir: &Path, pid: u32, container: Option<&str>) -> Option<Recorded> {
+        Recorded::entry(dir, pid, container, TOOL)
+    }
+
+    /// Records the console tunnel `pid` (an `ssh` leading its own process group) just started in
+    /// `dir`: ended as a tool is when its process dies, and by [`end_tunnels`] (a `down`) whatever
+    /// process holds it.
+    pub(crate) fn tunnel(dir: &Path, pid: u32) -> Option<Recorded> {
+        Recorded::entry(dir, pid, None, TUNNEL)
+    }
+
+    /// The entry `<owner>-<pid>.<extension>` of `pid` in `dir`.
+    fn entry(dir: &Path, pid: u32, container: Option<&str>, extension: &str) -> Option<Recorded> {
         let start = recorded_start(pid)?;
         let written = owner_token(dir).and_then(|token| {
-            let path = dir.join(format!("{token}-{pid}.tool"));
+            let path = dir.join(format!("{token}-{pid}.{extension}"));
             std::fs::write(&path, entry_text(pid, &start, container))?;
             Ok(path)
         });
@@ -181,7 +200,7 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
         let prefix = format!("{token}-");
         for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            if Path::new(entry).extension().is_none_or(|x| x != "tool") {
+            if Path::new(entry).extension().is_none_or(|x| x != TOOL && x != TUNNEL) {
                 continue;
             }
             ended.extend(end_entry(&path).await);
@@ -193,6 +212,23 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
         if let Err(e) = crate::store::if_there(std::fs::remove_file(&owner)) {
             tracing::warn!(error = %e, path = %owner.display(), "a dead process's owner file couldn't be removed");
         }
+    }
+    ended
+}
+
+/// Ends every console tunnel recorded in `dir`, whichever process holds it (a `down` from
+/// another process than the viewer's), and removes their entries; the ids it ended. The holder's
+/// own end of it then finds it gone.
+pub(crate) async fn end_tunnels(dir: &Path) -> Vec<u32> {
+    let mut ended = Vec::new();
+    let Ok(read) = std::fs::read_dir(dir) else { return ended };
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|x| x != TUNNEL) {
+            continue;
+        }
+        ended.extend(end_entry(&path).await);
+        remove_entry(&path);
     }
     ended
 }

@@ -116,8 +116,8 @@ impl AnyFormat {
         dispatch!(self, d => d.found(cx).await)
     }
 
-    pub(crate) async fn graphical(&self, cx: &ToolCx<'_>, machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
-        dispatch!(self, d => d.graphical(cx, machine).await)
+    pub(crate) async fn graphical(&self, cx: &ToolCx<'_>, seen: &Seen, machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
+        dispatch!(self, d => d.graphical(cx, seen, machine).await)
     }
 
     pub(crate) async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<Console> {

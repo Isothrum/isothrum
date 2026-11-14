@@ -24,10 +24,13 @@
 //!   values are masked in the lines and errors the driver hands on.
 //! - Parking, resuming, provisioning, attaching, retiring, running a command and a console are
 //!   refused: a module's machines are made and removed by its apply and destroy only.
-//! - A Proxmox VE VM's screen is reached through the server's API ([`screen`]).
+//! - A Proxmox VE VM's screen is reached through the server's API ([`screen`]); a Windows VM's
+//!   Remote Desktop (or a VNC server the module names) through an SSH tunnel to the Linux
+//!   machine beside it, as the module's outputs say ([`tunnelled`]).
 
 mod machines;
 mod screen;
+mod tunnelled;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -290,6 +293,7 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
             published: Vec::new(),
             kind: Some(r.kind.clone()),
             address: r.vm.address.clone(),
+            windows: r.vm.windows,
         })
         .collect()
 }
@@ -548,12 +552,28 @@ impl FormatDriver for Terraform {
             .map_err(|e| module.error("destroy", e))
     }
 
-    fn graphical(&self, _cx: &ToolCx<'_>, machine: &SeenMachine) -> impl Future<Output = Result<Option<crate::graphical::ConsoleOffer>>> {
-        std::future::ready(Ok(screen::offer(machine)))
+    fn graphical(&self, _cx: &ToolCx<'_>, seen: &Seen, machine: &SeenMachine) -> impl Future<Output = Result<Option<crate::graphical::ConsoleOffer>>> {
+        std::future::ready(Ok(screen::offer(machine).or_else(|| tunnelled::offer(&tunnelled::texts(&seen.outputs), machine))))
     }
 
     async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::Console> {
-        screen::reach(cx, machine).await
+        let module = Module::of(cx);
+        let state = module.state()?;
+        let held = module.shown(state).await?;
+        let vm = held
+            .managed
+            .iter()
+            .filter(|r| machines::is_vm(&r.kind))
+            .find(|r| machines::machine_name(&r.address, &r.kind) == machine)
+            .ok_or_else(|| Error::MachineUnknown {
+                run: cx.run.to_string(),
+                machine: machine.to_owned(),
+            })?;
+        if screen::is_proxmox(Some(&vm.kind)) {
+            screen::reach(cx, machine).await
+        } else {
+            tunnelled::reach(&module, state, vm, machine).await
+        }
     }
 
     fn native_app(&self, _cx: &ToolCx<'_>, seen: &Seen) -> Option<crate::graphical::NativeApp> {

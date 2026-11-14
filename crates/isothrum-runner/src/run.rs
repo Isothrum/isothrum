@@ -275,7 +275,8 @@ impl<'r> Running<'r> {
         Ok(Started { record, outputs })
     }
 
-    /// Removes everything the run made.
+    /// Removes everything the run made, the tunnels of its consoles ended first (whichever
+    /// process holds them), and forgets its machines' pinned SSH host keys.
     ///
     /// # Errors
     ///
@@ -284,8 +285,12 @@ impl<'r> Running<'r> {
         self.operate(Op::Down, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, by: OperationId| {
             let processes = self.operation_processes(given);
             self.with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
+                // The consoles' tunnels to the machines that go, whichever process holds them.
+                crate::process::ledger::end_tunnels(&self.state_dir().join(crate::process::ledger::DIR)).await;
                 self.driver.probe(cx).await?;
                 self.driver.down(cx).await?;
+                // The machines' pinned host keys go with them.
+                crate::ssh::forget(&self.state_dir())?;
                 // What the tool's own down left that the run made, by recorded id.
                 self.record_found(cx, emitter, by).await?;
                 let db = self.runner.store.db();
