@@ -77,7 +77,10 @@ struct Running {
 }
 
 async fn start(idle: Option<Duration>) -> Running {
-    let home = tempfile::tempdir().unwrap();
+    start_in(tempfile::tempdir().unwrap(), idle).await
+}
+
+async fn start_in(home: tempfile::TempDir, idle: Option<Duration>) -> Running {
     let engine = Arc::new(Scripted::default());
     let service = Service::hold(home.path()).unwrap();
     let shared: Arc<dyn Engine> = Arc::<Scripted>::clone(&engine);
@@ -272,4 +275,23 @@ async fn an_idle_service_stops_but_not_while_a_client_is_connected() {
     assert!(!s.task.is_finished(), "a client is connected");
     drop(client);
     tokio::time::timeout(Duration::from_secs(5), s.task).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_starts() {
+    let home = tempfile::tempdir().unwrap();
+    let run = RunName::new("web").unwrap();
+    let left = {
+        let store = isothrum_runner::store::Store::open(home.path()).unwrap();
+        let mut dead = isothrum_runner::store::Owner::this_process();
+        // A pid no process has: the owner is gone.
+        dead.pid = u32::MAX - 1;
+        store.write(|tx| tx.queue_operation(&run, isothrum_runner::Op::Up, &dead)).unwrap().id
+    };
+    let s = start_in(home, None).await;
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    let ops = client.operations(&run, 10).await.unwrap();
+    let row = ops.iter().find(|o| o.id == left).unwrap();
+    assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
+    s.task.abort();
 }

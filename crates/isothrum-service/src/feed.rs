@@ -51,16 +51,18 @@ impl Feed {
         self.news.subscribe()
     }
 
-    /// The kept events after `after`, of `run` or of every run, oldest first (a batch of them).
+    /// The kept events after `after`, of `run` or of every run, oldest first (a batch of them),
+    /// and the cursor of the last row scanned, readable or not: where the next batch starts, so
+    /// rows another version wrote never hold a subscriber back.
     ///
     /// # Errors
     ///
     /// The store can't be read.
-    pub(crate) fn after(&self, after: EventCursor, run: Option<&RunName>) -> Result<Vec<(EventCursor, Event)>, Refusal> {
-        let (events, unreadable) = self.store.read(|tx| tx.events_after(after, run, BATCH))?;
-        if unreadable > 0 {
-            tracing::debug!(unreadable, "event rows another version wrote were skipped");
+    pub(crate) fn after(&self, after: EventCursor, run: Option<&RunName>) -> Result<(Vec<(EventCursor, Event)>, EventCursor), Refusal> {
+        let page = self.store.read(|tx| tx.events_page(after, run, BATCH))?;
+        if page.unreadable > 0 {
+            tracing::debug!(unreadable = page.unreadable, "event rows another version wrote were skipped");
         }
-        Ok(events)
+        Ok((page.events, page.last))
     }
 }

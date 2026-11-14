@@ -179,32 +179,29 @@ async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCurso
     loop {
         // Marked seen before reading: an event kept after the read wakes the next wait.
         news.mark_unchanged();
-        let batch = match feed.after(last, run.as_ref()) {
-            Ok(batch) => batch,
+        let (batch, scanned) = match feed.after(last, run.as_ref()) {
+            Ok(page) => page,
             Err(refusal) => {
                 tracing::warn!(error = %refusal.message, "a subscription couldn't read the store");
                 return;
             }
         };
-        if batch.is_empty() {
+        for (cursor, event) in batch {
+            let frame = Reply::Event {
+                cursor,
+                event: Box::new(event),
+            };
+            if outbox.send(frame).await.is_err() {
+                return;
+            }
+        }
+        if scanned == last {
+            // Nothing new: wait until something is kept.
             if news.changed().await.is_err() {
                 return;
             }
-            continue;
         }
-        for (cursor, event) in batch {
-            last = cursor;
-            if outbox
-                .send(Reply::Event {
-                    cursor,
-                    event: Box::new(event),
-                })
-                .await
-                .is_err()
-            {
-                return;
-            }
-        }
+        last = scanned;
     }
 }
 

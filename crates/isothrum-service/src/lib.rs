@@ -162,6 +162,7 @@ impl Service {
         let store = Arc::new(Store::open(self.paths.home())?);
         let owner = Owner::this_process();
         let _lease = HomeLease::take(&self.paths, &store, &owner)?;
+        cancel_orphaned(&store);
         let (listener, endpoint) = endpoint::listen(&self.paths)?;
         let feed = Arc::new(Feed::new(Arc::clone(&store)));
         let queue = Arc::new(Queue::new(Arc::clone(&engine), Arc::clone(&store), Arc::clone(&feed), owner));
@@ -249,6 +250,20 @@ async fn stop_operations(queue: &Queue, tools: Option<&SystemProcesses>, stop: &
     }
     // The subscribers get the operations' last events before the connections close.
     tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// Ends cancelled the operations a dead service queued and never started: nothing will run them,
+/// and the journal shouldn't show them waiting.
+#[expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "`Tx::cancel_orphaned_queued` is bound to one transaction's lifetime: it can't be passed as is"
+)]
+fn cancel_orphaned(store: &Store) {
+    match store.write(|tx| tx.cancel_orphaned_queued()) {
+        Ok(ids) if !ids.is_empty() => tracing::info!(count = ids.len(), "a dead service's queued operations were cancelled"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "a dead service's queued operations couldn't be cancelled"),
+    }
 }
 
 /// A random number (the time's, if the OS has no randomness to give).
