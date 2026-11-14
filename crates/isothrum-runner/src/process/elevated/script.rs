@@ -109,6 +109,8 @@ fn allowed() -> String {
          \x20 'powershell' = @((Join-Path $sys 'WindowsPowerShell\\v1.0\\powershell.exe'))\n\
          }}\n\
          $systemPath = @($sys, (Join-Path $sys 'Wbem'), (Join-Path $sys 'WindowsPowerShell\\v1.0'), (Join-Path $sys 'OpenSSH'), [System.Environment]::GetFolderPath('Windows'))\n\
+         $modulePath = @((Join-Path $sys 'WindowsPowerShell\\v1.0\\Modules'), (Join-Path $programFiles 'WindowsPowerShell\\Modules')) -join ';'\n\
+         [System.Environment]::SetEnvironmentVariable('PSModulePath', $modulePath, 'Process')\n\
          $trustedOwners = @({owners})\n\
          function Test-Owned($path) {{\n\
          \x20 $p = $path\n\
@@ -144,10 +146,11 @@ fn allowed() -> String {
 /// The job a request runs in, a process of its own: its id first (what a cancel ends, its tree),
 /// its variables set there only, its output lines, then its exit code.
 const REQUEST_JOB: &str = "$run = {\n\
-         \x20 param($r, $e, $exe, $path)\n\
+         \x20 param($r, $e, $exe, $path, $modules)\n\
          \x20 [pscustomobject]@{ isothrumPid = $PID }\n\
          \x20 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false } catch {}\n\
          \x20 [System.Environment]::SetEnvironmentVariable('PATH', $path, 'Process')\n\
+         \x20 [System.Environment]::SetEnvironmentVariable('PSModulePath', $modules, 'Process')\n\
          \x20 foreach ($p in $e.env) { [System.Environment]::SetEnvironmentVariable($p.k, $p.v, 'Process') }\n\
          \x20 try {\n\
          \x20   Set-Location -LiteralPath $r.cwd -ErrorAction Stop\n\
@@ -214,7 +217,7 @@ fn request_loop() -> String {
 
 /// A request's job, watched: its output logged, its id and exit code read, and its tree ended
 /// when its `cancel-<n>` (or the session's end) comes first.
-const WATCH_REQUEST: &str = "\x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e, $exe, $path\n\
+const WATCH_REQUEST: &str = "\x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e, $exe, $path, $modulePath\n\
          \x20   $child = $null\n\
          \x20   while ($true) {\n\
          \x20     foreach ($o in @(Receive-Job -Job $job)) {\n\
@@ -342,6 +345,30 @@ mod tests {
         }
         // The exit code appears whole.
         assert!(s.contains("Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force"));
+    }
+
+    /// Windows PowerShell loads the modules a script asks for (Vagrant's Hyper-V provider's
+    /// `Hyper-V`) from `PSModulePath`, which holds the user's own Documents folder: a module the
+    /// user's other processes put there would load as administrator. The session and each
+    /// request's process look in the system's module folders only.
+    #[test]
+    fn the_elevated_programs_load_modules_from_the_systems_folders_only() {
+        let s = broker(Path::new("C:\\e\\t"), "t", 1);
+        let pinned = s.find("SetEnvironmentVariable('PSModulePath', $modulePath, 'Process')").unwrap();
+        assert!(pinned < s.find("$run = {").unwrap(), "the broker's own first: {s}");
+        assert!(
+            s.contains(
+                "$modulePath = @((Join-Path $sys 'WindowsPowerShell\\v1.0\\Modules'), (Join-Path $programFiles 'WindowsPowerShell\\Modules')) -join ';'"
+            ),
+            "{s}"
+        );
+        assert!(!s.contains("Documents") && !s.contains("$env:PSModulePath"), "never the user's: {s}");
+        let job = s.find("$run = {").unwrap();
+        assert!(
+            s.find("SetEnvironmentVariable('PSModulePath', $modules, 'Process')").unwrap() > job,
+            "the request's too: {s}"
+        );
+        assert!(s.contains("-ArgumentList $r, $e, $exe, $path, $modulePath"), "{s}");
     }
 
     #[test]

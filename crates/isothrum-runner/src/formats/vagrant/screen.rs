@@ -32,7 +32,7 @@ use crate::tool_output::vboxmanage::Vrde;
 const READ_LIMIT: Duration = Duration::from_secs(30);
 
 /// The connection vagrant-libvirt uses when nothing names another.
-const LIBVIRT_URI: &str = "qemu:///system";
+pub(super) const LIBVIRT_URI: &str = "qemu:///system";
 
 /// What VirtualBox's remote display needs.
 const VRDE_NOTE: &str = "VirtualBox's remote display needs the Oracle VM VirtualBox Extension Pack, installed before the VM boots";

@@ -1,5 +1,6 @@
 //! A module's Proxmox VE VM's screen: its VNC websocket through the server's API (`vncproxy`),
-//! and its web console, the VM's node and id read from the module's state.
+//! and its web console, the VM's node and id read from the module's state; and each VM's state
+//! as the server has it (`cluster/resources`), for the run's status.
 //!
 //! The server and how to sign in are what the module's Proxmox provider reads itself, from the
 //! run's values and secrets (they reach the tool in its environment): bpg/proxmox's
@@ -11,7 +12,7 @@
 
 use std::time::Duration;
 
-use super::Module;
+use super::{Module, machines};
 use crate::Result;
 use crate::cli::CliError;
 use crate::cli::proxmox::{self, Api, Credentials};
@@ -22,6 +23,7 @@ use crate::formats::{Seen, SeenMachine, ToolCx};
 use crate::graphical::native::host_name;
 use crate::graphical::{Console, ConsoleOffer, ConsoleProtocol, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc, no_console};
 use crate::secrets::SecretValue;
+use crate::status::MachineState;
 
 /// How long a read of the state, or a request to the API, may take.
 const READ_LIMIT: Duration = Duration::from_secs(60);
@@ -80,12 +82,119 @@ async fn target(cx: &ToolCx<'_>, machine: &str) -> Result<(Api, String, String)>
             )
         })?,
     };
+    let api =
+        api_at(cx, &endpoint).ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
+    Ok((api, node, id))
+}
+
+/// The API at `endpoint`, its certificate checked unless the run says the provider's insecure.
+fn api_at(cx: &ToolCx<'_>, endpoint: &str) -> Option<Api> {
     let insecure = ["PROXMOX_VE_INSECURE", "PM_TLS_INSECURE"]
         .iter()
         .any(|v| cx.var(v).is_some_and(|v| matches!(v.trim(), "true" | "1")));
-    let api = Api::at(&endpoint, insecure)
-        .ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
-    Ok((api, node, id))
+    Api::at(endpoint, insecure)
+}
+
+/// Each Proxmox VE VM among `machines` as its server says it stands: a VM removed in the
+/// server's own UI is absent, one powered off there stopped, whatever the module's state still
+/// holds (Terraform's state changes only at its next apply or destroy). A VM the listing leaves
+/// out is absent only when the server says no VM holds its id: the listing holds only the VMs
+/// the credentials may audit. Nothing changes for a run that gives no credentials or names no
+/// server (the module's state then stands), nor for a server that can't be asked (traced).
+///
+/// # Errors
+///
+/// `server_auth_failed` when the server refuses the run's credentials.
+pub(super) async fn on_server(
+    cx: &ToolCx<'_>,
+    outputs: &std::collections::BTreeMap<String, tf::Output>,
+    managed: &[tf::Resource],
+    machines: &mut [SeenMachine],
+) -> Result<()> {
+    let vms: Vec<(String, &str)> = managed
+        .iter()
+        .filter(|r| is_proxmox(Some(&r.kind)))
+        .filter_map(|r| Some((machines::machine_name(&r.address, &r.kind), r.vm.vm_id.as_deref()?)))
+        .collect();
+    if vms.is_empty() {
+        return Ok(());
+    }
+    let Some(credentials) = credentials(cx) else {
+        tracing::debug!("the run gives no Proxmox VE credentials: its VMs' states on the server aren't asked");
+        return Ok(());
+    };
+    let endpoint = cx
+        .var("PROXMOX_VE_ENDPOINT")
+        .or_else(|| cx.var("PM_API_URL"))
+        .or_else(|| outputs.get(ENDPOINT_OUTPUT).and_then(|o| o.value.as_str()).map(str::to_owned));
+    let Some(api) = endpoint.as_deref().and_then(|e| api_at(cx, e)) else {
+        tracing::debug!("the run names no Proxmox VE server: its VMs' states on the server aren't asked");
+        return Ok(());
+    };
+    crate::store::create_dir(cx.state_dir)?;
+    let asked = server_states(cx, &api, &credentials, &vms);
+    let states = match asked.await {
+        Ok(states) => states,
+        Err(CliError::Failed {
+            failure: proxmox::Failure::Refused(status),
+            ..
+        }) => {
+            return Err(Error::ServerAuthFailed {
+                step: "status".to_owned(),
+                server: Some(api.server().to_owned()),
+                reason: format!("HTTP {status}"),
+            });
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Proxmox VE couldn't be asked for its VMs' states: the module's state stands");
+            return Ok(());
+        }
+    };
+    for m in machines.iter_mut() {
+        if let Some((_, state)) = states.iter().find(|(name, _)| *name == m.name)
+            && *state != MachineState::Running
+        {
+            m.state = state.clone();
+        }
+    }
+    Ok(())
+}
+
+/// The state on the server of each of `vms` (machine and id) the server tells: the cluster's
+/// listing, then, for a VM it leaves out, whether its id is free.
+async fn server_states(
+    cx: &ToolCx<'_>,
+    api: &Api,
+    credentials: &Credentials,
+    vms: &[(String, &str)],
+) -> std::result::Result<Vec<(String, MachineState)>, CliError<proxmox::Failure>> {
+    let quiet = |_: Stream, _: &str| {};
+    let module = Module::of(cx);
+    let call = module.call(READ_LIMIT, &quiet);
+    let sign_in = proxmox::sign_in(&call, api, credentials, cx.state_dir).await?;
+    let listed = proxmox::cluster_vms(&call, api, &sign_in, cx.state_dir).await?;
+    let mut states = Vec::new();
+    for (name, id) in vms {
+        let state = match listed.iter().find(|vm| vm.is(id)) {
+            Some(vm) => vm.status.as_deref().map(reading),
+            None if proxmox::id_free(&call, api, &sign_in, id, cx.state_dir).await? => Some(MachineState::Absent),
+            None => {
+                tracing::warn!(vm = %id, "Proxmox VE doesn't list a VM it still holds the id of (credentials without VM.Audit on it?): the module's state stands");
+                None
+            }
+        };
+        states.extend(state.map(|s| (name.clone(), s)));
+    }
+    Ok(states)
+}
+
+/// A VM's state as the API's `status` names it.
+fn reading(status: &str) -> MachineState {
+    match status {
+        "running" => MachineState::Running,
+        "stopped" => MachineState::Stopped,
+        other => MachineState::Unknown(other.to_owned()),
+    }
 }
 
 /// The module's `proxmox_endpoint` output, when it has one that is text.

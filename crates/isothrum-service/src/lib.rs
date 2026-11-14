@@ -17,6 +17,7 @@ mod error;
 mod feed;
 mod lease;
 mod queue;
+mod reaper;
 mod session;
 
 use std::future::Future;
@@ -70,6 +71,9 @@ pub struct ServeOptions {
     pub idle: Option<Duration>,
     /// Asks the service to stop.
     pub stop: StopSignal,
+    /// How often the reaper looks for runs past their lifetime and queues their `down` (never
+    /// when `None`).
+    pub reap_every: Option<Duration>,
 }
 
 impl ServeOptions {
@@ -81,6 +85,7 @@ impl ServeOptions {
             tools: None,
             idle: None,
             stop,
+            reap_every: Some(reaper::EVERY),
         }
     }
 }
@@ -158,7 +163,13 @@ impl Service {
     ///
     /// The endpoint can't be opened, or `service.json` written.
     pub async fn serve(mut self, options: ServeOptions) -> Result<(), ServeError> {
-        let ServeOptions { engine, tools, idle, mut stop } = options;
+        let ServeOptions {
+            engine,
+            tools,
+            idle,
+            mut stop,
+            reap_every,
+        } = options;
         let store = Arc::new(Store::open(self.paths.home())?);
         let owner = Owner::this_process();
         let _lease = HomeLease::take(&self.paths, &store, &owner)?;
@@ -184,8 +195,12 @@ impl Service {
         };
         self.lease.publish(&info)?;
         tracing::info!(home = %self.paths.home().display(), endpoint = %info.endpoint, pid = info.pid, "the runner service listens");
+        let reaping = reap_every.map(|every| tokio::spawn(reaper::reap(Arc::clone(&shared.engine), Arc::clone(&queue), every)));
         let stopped = stop();
         let why = accept(&listener, &shared, idle, stopped).await;
+        if let Some(reaping) = reaping {
+            reaping.abort();
+        }
         tracing::info!(?why, "the runner service stops");
         drop(listener);
         stop_operations(&queue, tools.as_ref(), &mut stop).await;

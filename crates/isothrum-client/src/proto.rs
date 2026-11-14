@@ -157,6 +157,10 @@ pub enum Command {
         /// Where it is opened from (default: where its record says).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<Target>,
+        /// The values and secrets its read gives the tools, beside the recorded ones (a
+        /// server's API token, for its machines' states there).
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
     },
     /// The input variables a Terraform folder declares (not queued: it reads the folder's
     /// files, and runs nothing).
@@ -295,6 +299,14 @@ pub struct OpOptions {
     /// What to call the place the run is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
+}
+
+impl OpOptions {
+    /// Whether it gives nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == OpOptions::default()
+    }
 }
 
 impl fmt::Debug for OpOptions {

@@ -65,8 +65,19 @@ pub trait Engine: Send + Sync + 'static {
     /// reached its goal.
     fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool>;
 
-    /// The status of `run` (opened from `target`, else as its record says).
-    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>>;
+    /// The status of `run` (opened from `target`, else as its record says), its read's tools
+    /// given `options`' values and secrets.
+    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>, options: &'a OpOptions) -> BoxFuture<'a, Result<Status, Refusal>>;
+
+    /// The recorded runs whose lifetime passed and that may still hold something, each as the
+    /// folder its `down` opens: the service's reaper removes them. By default, none.
+    ///
+    /// # Errors
+    ///
+    /// The records can't be read.
+    fn expired(&self) -> Result<Vec<Target>, Refusal> {
+        Ok(Vec::new())
+    }
 
     /// The input variables the Terraform folder `target` declares.
     ///
@@ -177,12 +188,20 @@ impl Engine for RunnerEngine {
         })
     }
 
+    fn expired(&self) -> Result<Vec<Target>, Refusal> {
+        let records = self.runner.expired(std::time::SystemTime::now())?;
+        Ok(records
+            .into_iter()
+            .map(|r| Target::new(r.project, Some(r.name)).with_format(r.format))
+            .collect())
+    }
+
     fn variables(&self, target: &Target) -> Result<Vec<InputVariable>, Refusal> {
         let format = target.format.unwrap_or(Format::Terraform);
         Ok(Project::open(&target.path, Some(format))?.variables()?)
     }
 
-    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {
+    fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>, options: &'a OpOptions) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async move {
             let running = match target {
                 Some(target) => self.open(&Target {
@@ -191,7 +210,7 @@ impl Engine for RunnerEngine {
                 })?,
                 None => self.runner.reopen(run)?,
             };
-            Ok(running.status().await?)
+            Ok(running.status_with(&run_options(options)).await?)
         })
     }
 }

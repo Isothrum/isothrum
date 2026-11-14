@@ -34,6 +34,24 @@ pub(crate) async fn domdisplay(call: &Call<'_>, uri: Option<&str>, domain: &str)
     })
 }
 
+/// What `virsh` says of a domain it doesn't know.
+const NO_DOMAIN: [&str; 2] = ["failed to get domain", "domain not found"];
+
+/// Removes domain `uuid` on connection `uri` (when given) by its id, as vagrant-libvirt would:
+/// `destroy` (powered off; one already off is fine), then `undefine --remove-all-storage
+/// --nvram` (its definition, its volumes and its firmware variables). A domain the connection
+/// doesn't know is gone already.
+pub(crate) async fn remove(call: &Call<'_>, uri: Option<&str>, uuid: &str) -> Result<(), CliError<String>> {
+    let on = |verb: &[&str]| {
+        let mut args: Vec<String> = uri.map(|u| vec!["-c".to_owned(), u.to_owned()]).unwrap_or_default();
+        args.extend(verb.iter().map(|w| (*w).to_owned()));
+        args
+    };
+    drop(call.run::<String>(TOOL, on(&["destroy", uuid])).await?);
+    let out = call.run::<String>(TOOL, on(&["undefine", uuid, "--remove-all-storage", "--nvram"])).await?;
+    super::done_or_gone(TOOL, &out, &NO_DOMAIN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,3 +14,14 @@ pub(crate) async fn home(call: &Call<'_>, uuid: &str) -> Result<String, CliError
         what: format!("a `list --info` of `{uuid}` with no Home"),
     })
 }
+
+/// What `prlctl` says of a VM it doesn't know.
+const NO_VM: [&str; 2] = ["unable to find the vm", "failed to get vm config"];
+
+/// Removes VM `uuid` by its id: `stop --kill` (one already stopped is fine), then `delete` (its
+/// bundle goes). A VM Parallels doesn't know is gone already.
+pub(crate) async fn remove(call: &Call<'_>, uuid: &str) -> Result<(), CliError<String>> {
+    drop(call.run::<String>(TOOL, argv(["stop", uuid, "--kill"])).await?);
+    let out = call.run::<String>(TOOL, argv(["delete", uuid])).await?;
+    super::done_or_gone(TOOL, &out, &NO_VM)
+}

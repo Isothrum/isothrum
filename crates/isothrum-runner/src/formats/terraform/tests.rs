@@ -1,5 +1,6 @@
 mod by_id;
 mod changes;
+mod proxmox;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -83,6 +84,11 @@ impl Lab {
 
 /// Runs `f` with a context for `lab` on `fake`.
 async fn with_cx<T>(lab: &Lab, fake: &FakeProcesses, f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
+    with_cx_given(lab, fake, &[], f).await
+}
+
+/// [`with_cx`], the run given `extra` values too.
+async fn with_cx_given<T>(lab: &Lab, fake: &FakeProcesses, extra: &[(&str, &str)], f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
     let sink = |_: Stream, l: &str| lab.lines.lock().expect("lines").push(l.to_owned());
     let warn = |c: WarningCode, m: &str| lab.warnings.lock().expect("warnings").push((c, m.to_owned()));
     let cx = ToolCx {
@@ -97,7 +103,10 @@ async fn with_cx<T>(lab: &Lab, fake: &FakeProcesses, f: impl AsyncFnOnce(&ToolCx
             ("TF_VAR_name".to_owned(), "web".to_owned()),
             ("TF_VAR_token".to_owned(), SECRET.to_owned()),
             ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
-        ],
+        ]
+        .into_iter()
+        .chain(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())))
+        .collect(),
         host_env: &crate::host_env::EMPTY,
         processes: fake,
         sink: &sink,

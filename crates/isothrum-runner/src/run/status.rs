@@ -10,6 +10,17 @@ impl Running<'_> {
     ///
     /// As the tool fails to answer; the store's.
     pub async fn status(&self) -> Result<Status> {
+        self.status_with(&RunOptions::new()).await
+    }
+
+    /// [`Running::status`], its tools given `opts`' values and secrets beside the recorded ones:
+    /// what a read of the project's own servers needs (a Proxmox VE module's API token, for its
+    /// VMs' states on the server).
+    ///
+    /// # Errors
+    ///
+    /// As [`Running::status`]; `server_auth_failed` when a server refuses the credentials.
+    pub async fn status_with(&self, opts: &RunOptions) -> Result<Status> {
         let record = self.runner.store.record(&self.name)?;
         let recorded = record.as_ref().map_or(RunState::Absent, |r| r.state);
         let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
@@ -17,9 +28,8 @@ impl Running<'_> {
             return Ok(status_of(&Seen::default(), recorded, false, row.as_ref()));
         }
         let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
-        let opts = RunOptions::new();
         let (seen, derived, screens, native) = self
-            .with_cx(&opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
+            .with_cx(opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
                 let (seen, derived) = self.driver.observe(cx).await?;
                 let screens = self.screens(cx, &seen).await;
                 let native = self.driver.native_app(cx, &seen);

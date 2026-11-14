@@ -17,6 +17,8 @@ use isothrum_service::{Engine, Journal, Refusal, ServeError, ServeOptions, Servi
 #[derive(Default)]
 struct Scripted {
     log: Mutex<Vec<String>>,
+    /// The runs past their lifetime, as the reaper reads them.
+    expired: Mutex<Vec<Target>>,
 }
 
 impl Scripted {
@@ -64,7 +66,11 @@ impl Engine for Scripted {
         })
     }
 
-    fn status<'a>(&'a self, _run: &'a RunName, _target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {
+    fn expired(&self) -> Result<Vec<Target>, Refusal> {
+        Ok(self.expired.lock().unwrap_or_else(PoisonError::into_inner).clone())
+    }
+
+    fn status<'a>(&'a self, _run: &'a RunName, _target: Option<&'a Target>, _options: &'a OpOptions) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async { Err(Refusal::new(ErrorCode::NotRunning, "scripted")) })
     }
 }
@@ -89,11 +95,15 @@ async fn start(idle: Option<Duration>) -> Outcome<Running> {
 }
 
 async fn start_in(home: tempfile::TempDir, idle: Option<Duration>) -> Outcome<Running> {
-    let engine = Arc::new(Scripted::default());
+    start_with(home, Scripted::default(), |options| options.idle = idle).await
+}
+
+async fn start_with(home: tempfile::TempDir, engine: Scripted, set: impl FnOnce(&mut ServeOptions)) -> Outcome<Running> {
+    let engine = Arc::new(engine);
     let service = Service::hold(home.path())?;
     let shared: Arc<dyn Engine> = Arc::<Scripted>::clone(&engine);
     let mut options = ServeOptions::new(shared, never());
-    options.idle = idle;
+    set(&mut options);
     let task = tokio::spawn(service.serve(options));
     for _ in 0..200 {
         if Client::connect_running(home.path()).await.is_ok() {
@@ -328,4 +338,35 @@ async fn shutdown_if_idle_is_refused_while_an_operation_runs_and_stops_the_servi
         }
     }
     tokio::time::timeout(Duration::from_secs(5), s.task).await.unwrap().unwrap().unwrap();
+}
+
+/// The reaper runs in the service: a run past its lifetime gets its `down` queued once, with no
+/// client asking, and isn't queued again while the first is recent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_past_its_lifetime_is_brought_down_by_the_service_itself() {
+    let engine = Scripted::default();
+    *engine.expired.lock().unwrap() = vec![Target::new(PathBuf::from("/runs/old"), RunName::new("old").ok())];
+    let s = start_with(tempfile::tempdir().unwrap(), engine, |o| o.reap_every = Some(Duration::from_millis(20)))
+        .await
+        .unwrap();
+    for _ in 0..500 {
+        if s.engine.log().contains(&"end old down".to_owned()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // Several more looks: the run is still listed (the scripted engine keeps it), never queued again.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(s.engine.log(), ["begin old down", "end old down"]);
+    s.task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_service_told_not_to_reap_leaves_an_expired_run() {
+    let engine = Scripted::default();
+    *engine.expired.lock().unwrap() = vec![Target::new(PathBuf::from("/runs/old"), RunName::new("old").ok())];
+    let s = start_with(tempfile::tempdir().unwrap(), engine, |o| o.reap_every = None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(s.engine.log(), Vec::<String>::new());
+    s.task.abort();
 }

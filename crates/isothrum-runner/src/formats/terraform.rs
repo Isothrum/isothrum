@@ -441,8 +441,10 @@ impl FormatDriver for Terraform {
                 .await
                 .map_err(|e| module.error("output", e))?,
         };
+        let mut machines = machines_of(&held.managed);
+        screen::on_server(cx, &outputs, &held.managed, &mut machines).await?;
         let seen = Seen {
-            machines: machines_of(&held.managed),
+            machines,
             outputs: outputs
                 .into_iter()
                 .map(|(name, o)| {
