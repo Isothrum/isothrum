@@ -60,6 +60,21 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A missing working folder no longer reads as a missing tool (#124).** A step whose folder the
+  lab doesn't have failed with "`terraform` isn't installed or isn't on PATH"; it now fails with
+  an `io` error naming the folder.
+- **A runner key left without its public half gets it back (#125).** With `id_ed25519.pub`
+  missing or empty, `ssh-keygen` stopped at its overwrite prompt and every run that needs SSH
+  failed; the public half is now derived again from the private key, and a private key that
+  can't be read is set aside (`id_ed25519.unusable`) and a new one made.
+- **`isothrum screen` ends when its SSH tunnel closes (#126), hides a Proxmox VNC ticket
+  (#127), and its tunnel opens no console window on Windows (#129).** The command waited
+  forever on a tunnel whose `ssh` had exited; it now ends with `no_console` saying how
+  (`Console::tunnel_closed`). The websocket URL it printed carried the VNC ticket without
+  `--show-password`.
+- **A relative `--home` or `ISOTHRUM_HOME` is made absolute (#131).** Each tool resolved it from
+  its own folder, so a run's state (a Vagrant dotfile, a Terraform state) landed under the lab,
+  where the runner found nothing, and `ssh` found neither the key nor `known_hosts`.
 - **A run's clean-up only ever removes its own VMs (#109).** `vagrant.remove_orphans` deleted
   every VirtualBox or Parallels VM named as the manifest named the run's: two runs of one
   environment have the same names, so a second run whose start failed removed the first run's VMs
