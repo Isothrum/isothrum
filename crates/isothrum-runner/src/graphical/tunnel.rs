@@ -263,13 +263,8 @@ mod tests {
         let spec = ProcessSpec::new("sh", ["-c", script.as_str()]);
         let tunnel = start(&spec, "127.0.0.1:1".parse().unwrap()).unwrap();
         let pid = tunnel.ssh.id().unwrap();
-        for _ in 0..100 {
-            if mark.exists() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        assert!(mark.exists(), "the process ran");
+        // A loaded host can take seconds to start `sh`: waited for up to 20 s.
+        assert!(isothrum_test_support::wait_until(Duration::from_secs(20), || mark.exists()), "the process ran");
         drop(tunnel);
         tokio::time::sleep(Duration::from_millis(200)).await;
         // Gone, or a zombie its parent hasn't reaped yet: either way it no longer runs.
