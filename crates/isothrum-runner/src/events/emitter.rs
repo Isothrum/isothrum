@@ -120,6 +120,21 @@ impl<'a> Emitter<'a> {
         secrets.iter().fold(text.to_owned(), |t, s| t.replace(s.as_str(), MASK))
     }
 
+    /// Says what the user now wants of the run.
+    pub(crate) fn desired(&self, desired: crate::state::Desired) {
+        self.emit(EventKind::Desired { desired });
+    }
+
+    /// Says where `row`, a resource of the run, stands now.
+    pub(crate) fn resource(&self, row: &crate::store::ResourceRow) {
+        self.emit(EventKind::Resource {
+            key: row.key.clone(),
+            kind: row.kind,
+            state: row.state,
+            native_id: row.native_id.clone(),
+        });
+    }
+
     /// Emits `kind`, masked.
     pub(crate) fn emit(&self, kind: EventKind) {
         let kind = self.masked(kind);
@@ -162,6 +177,12 @@ impl<'a> Emitter<'a> {
                 message: self.mask(&message),
                 step,
                 timeout: timeout.map(|t| t.masked(|l| self.mask(l))),
+            },
+            EventKind::Resource { key, kind, state, native_id } => EventKind::Resource {
+                key: self.mask(&key),
+                kind,
+                state,
+                native_id: native_id.map(|id| self.mask(&id)),
             },
             EventKind::Ready { condition, state, detail } => EventKind::Ready {
                 condition,

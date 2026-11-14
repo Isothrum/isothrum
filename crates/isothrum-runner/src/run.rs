@@ -13,6 +13,7 @@ mod console;
 mod existing;
 mod graphical;
 mod kept;
+pub(crate) mod recovery;
 
 pub(crate) use kept::keep;
 mod operation;

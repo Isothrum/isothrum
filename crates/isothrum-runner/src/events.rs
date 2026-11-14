@@ -166,6 +166,26 @@ pub enum EventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         position: Option<u32>,
     },
+    /// What the user wants of the run changed: an operation that moves it began (`up`, `resume`:
+    /// running; `park`: parked; `down`: gone).
+    Desired {
+        /// What is wanted now.
+        desired: crate::state::Desired,
+    },
+    /// A resource of the run moved in the home's write-ahead ledger: written `creating` before
+    /// the call that makes it, `created` with the tool's id after it, `destroying` before the call
+    /// that removes it, `gone` after.
+    Resource {
+        /// The resource's key in the run (`container:web-1`, a volume's name, a local thing's kind).
+        key: String,
+        /// What it is.
+        kind: crate::store::ResourceKind,
+        /// Where it stands now.
+        state: crate::store::ResourceState,
+        /// The tool's id for it, once it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        native_id: Option<String>,
+    },
     /// Why the operation failed.
     Error {
         /// The stable code.
