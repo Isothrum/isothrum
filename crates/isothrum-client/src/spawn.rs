@@ -29,6 +29,10 @@ pub(crate) fn binary(binary: Option<&Path>) -> PathBuf {
 /// # Errors
 ///
 /// The home or its log can't be created, or the binary can't be started.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the client starts the service, a detached daemon that outlives it, not a tool call"
+)]
 pub(crate) fn start(binary: &Path, paths: &ServicePaths) -> std::io::Result<Child> {
     create_home(paths.home())?;
     let log_path = paths.log();

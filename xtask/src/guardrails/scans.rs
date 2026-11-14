@@ -13,7 +13,13 @@
 use super::source;
 
 /// The crates whose code the scans read.
-const CRATES: [&str; 3] = ["crates/isothrum-runner/src", "crates/isothrum-machine/src", "crates/isothrum-cli/src"];
+const CRATES: [&str; 5] = [
+    "crates/isothrum-runner/src",
+    "crates/isothrum-machine/src",
+    "crates/isothrum-cli/src",
+    "crates/isothrum-service/src",
+    "crates/isothrum-client/src",
+];
 
 /// Where a tool's answer is read, beside the drivers and `tool_output` (the tool-output module's
 /// own list of the documents read beside their tool).
@@ -34,13 +40,18 @@ const ADAPTERS: [(&str, &str); 4] = [
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 3] = [
+const NOT_TOOL_OUTPUT: [(&str, &str); 5] = [
     ("crates/isothrum-runner/src/store.rs", "the home's own files, which the runner wrote"),
     ("crates/isothrum-runner/src/store/db.rs", "the store's own rows, which the runner wrote"),
     (
         "crates/isothrum-runner/src/process/shim.rs",
         "the Docker CLI's config file, the user's settings, not an answer",
     ),
+    (
+        "crates/isothrum-client/src/discovery.rs",
+        "the service's discovery file, which the service wrote",
+    ),
+    ("crates/isothrum-client/src/wire.rs", "the service protocol's frames, Isothrum's own"),
 ];
 
 /// The scripts a `-c` may run besides the shell scripts' module's, by file and the expression
