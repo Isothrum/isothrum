@@ -42,8 +42,8 @@ use isoloom_manifest::{Cloud, Driver, Provider, Target};
 use serde::{Deserialize, Serialize};
 
 pub use db::{
-    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
-    PortReservation, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
+    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, MIRROR_FILE, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
+    PortReservation, Recovered, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
 };
 pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_new_private, write_private};
 pub(crate) use temp_file::TempFile;

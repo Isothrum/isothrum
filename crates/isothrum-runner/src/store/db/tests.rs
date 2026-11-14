@@ -367,3 +367,5 @@ fn a_queued_operation_is_started_once_or_cancelled_and_never_otherwise_ended() {
 mod leases;
 
 mod queue;
+
+mod robust;

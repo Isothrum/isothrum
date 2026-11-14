@@ -8,6 +8,7 @@
 
 mod journal;
 mod leases;
+mod mirror;
 mod owner;
 mod resources;
 mod rows;
@@ -17,6 +18,7 @@ mod schema;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -25,6 +27,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 pub use leases::Reserver;
+pub use mirror::{MIRROR_FILE, Recovered};
 pub use owner::Owner;
 pub use rows::{
     CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, PortReservation,
@@ -44,6 +47,12 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct Store {
     conn: Mutex<Connection>,
     path: PathBuf,
+    /// The mirror's file ([`MIRROR_FILE`]).
+    mirror: PathBuf,
+    /// The mirror generation the mirror was last written at (-1: not since this open).
+    mirrored: AtomicI64,
+    /// The repair `open` made from the mirror, if it made one.
+    recovered: Option<Recovered>,
 }
 
 impl std::fmt::Debug for Store {
@@ -59,29 +68,125 @@ pub struct Tx<'c> {
 }
 
 impl Store {
-    /// The home's store, `<home>/state.db`: created owner-only when missing, and migrated to this
-    /// runner's schema. Nothing else of the home is read: files another release left in it are
-    /// ignored.
+    /// The home's store, `<home>/state.db`: created owner-only when missing, checked
+    /// (`PRAGMA quick_check`) and migrated to this runner's schema. A store whose file is damaged
+    /// is rebuilt from its mirror (`<home>/state.mirror`, [`MIRROR_FILE`]): the damaged file is
+    /// kept aside for diagnostics (`state.db.corrupt-<unix seconds>`), and [`Store::recovered`]
+    /// says so. Nothing else of the home is read: files another release left in it are ignored.
     ///
     /// # Errors
     ///
-    /// `io` when the home or the file can't be made; `store_corrupt` when the file isn't a
-    /// database; `store_version` when a newer runner wrote it; `locked` when another process's
-    /// write held it past five seconds.
+    /// `io` when the home or the file can't be made; `store_corrupt` when the file isn't a sound
+    /// database and no mirror can rebuild it; `store_version` when a newer runner wrote it;
+    /// `locked` when another process's write held it past five seconds.
     pub fn open(home: &Path) -> Result<Store> {
         let home = &std::path::absolute(home).map_err(Error::io(home, "made absolute"))?;
         crate::store::create_dir(home)?;
         let path = home.join(DB_FILE);
-        let conn = Connection::open(&path).map_err(failed("opened"))?;
-        #[cfg(unix)]
-        restrict(&path)?;
-        conn.busy_timeout(BUSY_TIMEOUT).map_err(failed("opened"))?;
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(failed("opened"))?;
-        conn.pragma_update(None, "foreign_keys", "ON").map_err(failed("opened"))?;
-        conn.pragma_update(None, "synchronous", "NORMAL").map_err(failed("opened"))?;
-        let store = Store { conn: Mutex::new(conn), path };
-        store.migrate()?;
+        let mirror = home.join(MIRROR_FILE);
+        match Store::open_checked(&path, &mirror, Fresh::Suspect) {
+            Ok(store) => {
+                // A sound store's mirror is made current at once: one a writer left ahead of its
+                // commit (killed in between) is replaced.
+                store.sync_mirror();
+                Ok(store)
+            }
+            Err(e) if e.code() == ErrorCode::StoreCorrupt => Store::rebuild(&path, &mirror, &e),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The store at `path`, opened, checked and migrated; a new, empty file beside a mirror that
+    /// holds something is damaged, unless `fresh` says it is the rebuild's own.
+    fn open_checked(path: &Path, mirror: &Path, fresh: Fresh) -> Result<Store> {
+        let conn = connect(path)?;
+        quick_check(&conn)?;
+        let store = Store {
+            conn: Mutex::new(conn),
+            path: path.to_path_buf(),
+            mirror: mirror.to_path_buf(),
+            mirrored: AtomicI64::new(-1),
+            recovered: None,
+        };
+        let was = store.migrate()?;
+        // An empty file where a store was (truncated, replaced) beside a mirror that holds
+        // something: damaged, not new.
+        if was == 0 && fresh == Fresh::Suspect && mirror::read(mirror).is_some_and(|m| m.holds_rows()) {
+            return Err(Error::Store {
+                action: "opened",
+                code: ErrorCode::StoreCorrupt,
+                reason: "its file is empty, but its mirror holds runs, operations or resources".to_owned(),
+            });
+        }
         Ok(store)
+    }
+
+    /// Rebuilds the damaged store at `path` (what was wrong: `cause`) from the mirror at
+    /// `mirror`: the damaged files move aside, a new store is made and filled from the mirror.
+    fn rebuild(path: &Path, mirror: &Path, cause: &Error) -> Result<Store> {
+        let damaged = |reason: String| Error::Store {
+            action: "opened",
+            code: ErrorCode::StoreCorrupt,
+            reason,
+        };
+        let Some(copy) = mirror::read(mirror) else {
+            return Err(damaged(format!("{cause}; and there is no mirror to rebuild it from")));
+        };
+        let known = i64::try_from(schema::MIGRATIONS.len()).unwrap_or(i64::MAX);
+        if copy.schema() != known {
+            return Err(damaged(format!("{cause}; and its mirror is of schema {}, not {known}", copy.schema())));
+        }
+        let kept = set_aside(path)?;
+        tracing::warn!(error = %cause, kept = %kept.display(), "the store was damaged: rebuilt from its mirror");
+        let mut store = Store::open_checked(path, mirror, Fresh::Expected)?;
+        {
+            let mut conn = store.conn.lock().unwrap_or_else(PoisonError::into_inner);
+            copy.restore(&mut conn)?;
+        }
+        store.sync_mirror();
+        store.recovered = Some(Recovered {
+            corrupt_kept_at: kept,
+            mirror_written_at: copy.written_at().to_owned(),
+            reason: cause.to_string(),
+        });
+        Ok(store)
+    }
+
+    /// The repair [`Store::open`] made from the mirror, if it made one: an embedder then reads
+    /// every run's status, which reconciles it with what its tools report.
+    #[must_use]
+    pub fn recovered(&self) -> Option<&Recovered> {
+        self.recovered.as_ref()
+    }
+
+    /// Writes the mirror when the store changed since it was last written (its own snapshot).
+    fn sync_mirror(&self) {
+        let mut conn = self.conn.lock().unwrap_or_else(PoisonError::into_inner);
+        match conn.transaction_with_behavior(TransactionBehavior::Deferred) {
+            Ok(tx) => self.mirror_within(&tx),
+            Err(e) => tracing::warn!(error = %e, "the store's mirror wasn't written"),
+        }
+    }
+
+    /// Writes the mirror from `conn`'s view when the mirror generation moved since it was last
+    /// written. Inside a write transaction, the store's write lock orders the mirrors of every
+    /// process. A mirror that can't be written is said, not failed on: the store holds the rows.
+    fn mirror_within(&self, conn: &Connection) {
+        let written = mirror::generation(conn).map_err(failed("read")).and_then(|n| {
+            if n == self.mirrored.load(Ordering::SeqCst) {
+                Ok(None)
+            } else {
+                mirror::write(conn, n, &self.mirror).map(|()| Some(n))
+            }
+        });
+        match written {
+            Ok(Some(n)) => self.mirrored.store(n, Ordering::SeqCst),
+            Ok(None) => {}
+            Err(e) => {
+                self.mirrored.store(-1, Ordering::SeqCst);
+                tracing::warn!(error = %e, "the store's mirror wasn't written");
+            }
+        }
     }
 
     /// The database's file.
@@ -112,15 +217,27 @@ impl Store {
     /// `f`'s, or the store's (`locked` when another process's write held it too long).
     pub fn write<T>(&self, f: impl FnOnce(&mut Tx<'_>) -> Result<T>) -> Result<T> {
         let mut conn = self.conn.lock().unwrap_or_else(PoisonError::into_inner);
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(failed("written"))?;
-        let mut tx = Tx { tx };
-        let value = f(&mut tx)?;
-        tx.tx.commit().map_err(failed("written"))?;
-        Ok(value)
+        let committed = {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(failed("written"))?;
+            let mut tx = Tx { tx };
+            let value = f(&mut tx)?;
+            // Before the commit, under the write lock: a mirror left ahead by a crash right after
+            // is rewritten at the next open of the sound store.
+            self.mirror_within(&tx.tx);
+            tx.tx.commit().map(|()| value)
+        };
+        committed.map_err(|e| {
+            // The mirror was written ahead of a commit that failed: written again from what is.
+            self.mirrored.store(-1, Ordering::SeqCst);
+            drop(conn);
+            self.sync_mirror();
+            failed("written")(e)
+        })
     }
 
-    /// Runs the migrations the file hasn't had, each in its own transaction.
-    fn migrate(&self) -> Result<()> {
+    /// Runs the migrations the file hasn't had, each in its own transaction: the version it was
+    /// at (0: a new, empty file).
+    fn migrate(&self) -> Result<i64> {
         let mut conn = self.conn.lock().unwrap_or_else(PoisonError::into_inner);
         conn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
             .map_err(failed("migrated"))?;
@@ -145,11 +262,76 @@ impl Store {
             .map_err(failed("migrated"))?;
             tx.commit().map_err(failed("migrated"))?;
         }
-        Ok(())
+        Ok(applied)
     }
 }
 
 impl Tx<'_> {}
+
+/// What a new, empty store file means when [`Store::open`] finds one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fresh {
+    /// A home's first store, or one emptied: damaged when its mirror holds something.
+    Suspect,
+    /// The file a rebuild made.
+    Expected,
+}
+
+/// A connection to the store's file at `path`: owner-only, WAL, foreign keys on.
+fn connect(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path).map_err(failed("opened"))?;
+    #[cfg(unix)]
+    restrict(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT).map_err(failed("opened"))?;
+    conn.pragma_update(None, "journal_mode", "WAL").map_err(failed("opened"))?;
+    conn.pragma_update(None, "foreign_keys", "ON").map_err(failed("opened"))?;
+    conn.pragma_update(None, "synchronous", "NORMAL").map_err(failed("opened"))?;
+    Ok(conn)
+}
+
+/// How many of `quick_check`'s findings an error names.
+const FINDINGS_SAID: usize = 3;
+
+/// Checks the store's pages (`PRAGMA quick_check`, as `chkdsk` checks a volume at mount).
+///
+/// # Errors
+///
+/// `store_corrupt`, naming its first findings, when the check finds a problem.
+fn quick_check(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("PRAGMA quick_check").map_err(failed("checked"))?;
+    let findings: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(failed("checked"))?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(failed("checked"))?;
+    if findings.iter().all(|f| f == "ok") {
+        return Ok(());
+    }
+    let said: Vec<&str> = findings.iter().take(FINDINGS_SAID).map(String::as_str).collect();
+    Err(Error::Store {
+        action: "checked",
+        code: ErrorCode::StoreCorrupt,
+        reason: format!("its integrity check failed ({} findings): {}", findings.len(), said.join("; ")),
+    })
+}
+
+/// Moves the damaged store at `path` (and its `-wal` and `-shm`) aside, to
+/// `state.db.corrupt-<unix seconds>`: where it is now.
+fn set_aside(path: &Path) -> Result<PathBuf> {
+    let kept = path.with_file_name(format!("{DB_FILE}.corrupt-{}", epoch_now()));
+    for suffix in ["", "-wal", "-shm"] {
+        let with = |p: &Path| {
+            let mut name = p.as_os_str().to_owned();
+            name.push(suffix);
+            PathBuf::from(name)
+        };
+        let (from, to) = (with(path), with(&kept));
+        if from.exists() {
+            std::fs::rename(&from, &to).map_err(Error::io(&from, "moved aside"))?;
+        }
+    }
+    Ok(kept)
+}
 
 /// The store's failure to do `action`, with the code SQLite's error has: a database busy past the
 /// wait is `locked`, a file that isn't one `store_corrupt`, anything else `io`.

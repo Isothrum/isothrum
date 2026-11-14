@@ -3,7 +3,7 @@
 
 /// The migrations, by version from 1. A home whose newest recorded version is past the last is
 /// refused (`store_version`): a newer runner wrote it.
-pub(super) const MIGRATIONS: &[&str] = &[V1];
+pub(super) const MIGRATIONS: &[&str] = &[V1, V2];
 
 /// Version 1: the runs, their transitions, the journal, the events, the resources, the port
 /// reservations and the leases.
@@ -106,4 +106,22 @@ CREATE TABLE port_reservations (
   owner_token TEXT NOT NULL,
   PRIMARY KEY (protocol, port)
 );
+";
+
+/// Version 2: the mirror's generation, bumped by every change of the rows the mirror carries
+/// (a run but its last observation, an operation, a resource), so the store rewrites the mirror
+/// only after a transaction that changed them.
+const V2: &str = r"
+CREATE TABLE mirror_generation (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL);
+INSERT INTO mirror_generation (id, n) VALUES (1, 0);
+CREATE TRIGGER mirror_runs_insert AFTER INSERT ON runs BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_runs_update AFTER UPDATE OF name, manifest_path, manifest_digest, target, driver, desired, state,
+  failed_cause, state_op, state_at, record, sealed ON runs BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_runs_delete AFTER DELETE ON runs BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_operations_insert AFTER INSERT ON operations BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_operations_update AFTER UPDATE ON operations BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_operations_delete AFTER DELETE ON operations BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_resources_insert AFTER INSERT ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_resources_update AFTER UPDATE ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_resources_delete AFTER DELETE ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
 ";
