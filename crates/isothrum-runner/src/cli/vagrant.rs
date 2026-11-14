@@ -17,7 +17,17 @@ pub(crate) enum Failure {
     /// rename the directory`): an earlier run's VM.
     AlreadyExists,
     /// Another process holds the machine's lock, its action lock or the index lock.
-    Locked,
+    Locked {
+        /// Whether the refused call had begun acting on a machine before the refusal (it printed
+        /// a `==> <machine>: …` line): a call that provisions or restarts may then not run again.
+        acted: bool,
+        /// The machines (define names) the refusal names, each once.
+        machines: Vec<String>,
+    },
+    /// The call names a machine the Vagrantfile doesn't define (`MachineNotFound`).
+    UnknownMachine,
+    /// The provider can't list forwarded ports (`vagrant port` on libvirt).
+    PortsUnsupported,
     /// The machine is recorded on another provider (`… with a different provider`, `… a single
     /// provider at a time`).
     OtherProvider,
@@ -31,7 +41,12 @@ impl Failure {
     /// What a failed call that printed `out` failed with.
     pub(crate) fn of(out: &Captured) -> Failure {
         match said::Failure::of(out.stdout.iter().chain(&out.stderr_tail)) {
-            said::Failure::Locked => return Failure::Locked,
+            said::Failure::Locked => {
+                return Failure::Locked {
+                    acted: acted(out),
+                    machines: locked_machines(out),
+                };
+            }
             said::Failure::AlreadyOff => return Failure::AlreadyOff,
             said::Failure::Other => {}
         }
@@ -39,6 +54,10 @@ impl Failure {
             Failure::AlreadyExists
         } else if said_any(out, &["different provider", "single provider at a time"]) {
             Failure::OtherProvider
+        } else if said_any(out, &["was not found configured for"]) {
+            Failure::UnknownMachine
+        } else if said_any(out, &["does not support listing forwarded ports"]) {
+            Failure::PortsUnsupported
         } else {
             Failure::Other(out.reason())
         }
@@ -49,13 +68,50 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Failure::AlreadyExists => f.write_str("an earlier VM holds the name"),
-            Failure::Locked => f.write_str("another process holds the machine's lock"),
+            Failure::Locked { .. } => f.write_str("another process holds the machine's lock"),
+            Failure::UnknownMachine => f.write_str("the Vagrantfile defines no such machine"),
+            Failure::PortsUnsupported => f.write_str("the provider can't list forwarded ports"),
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
             Failure::Other(reason) => f.write_str(reason),
         }
     }
 }
+
+/// How Vagrant's human output starts each line it says for a machine (`==> web: Removing
+/// domain...`): what it does to the machine is announced so, before it is done.
+const ACTING: &str = "==> ";
+
+/// Whether `out`, a failed call, announced an action on a machine on either stream.
+fn acted(out: &Captured) -> bool {
+    out.stdout.iter().chain(&out.stderr_tail).any(|line| line.starts_with(ACTING))
+}
+
+/// The machines (define names) a lock refusal `out` names: the action lock's `on the machine
+/// '<define>'`, the index lock's `Name: <define>`, on either stream, each once.
+fn locked_machines(out: &Captured) -> Vec<String> {
+    let mut named: Vec<String> = Vec::new();
+    for line in out.stdout.iter().chain(&out.stderr_tail) {
+        // A machine-readable record keeps the message on one line, its newlines written `\n`.
+        for part in line.split("\\n") {
+            let found = part
+                .split_once("on the machine '")
+                .and_then(|(_, rest)| rest.split_once('\''))
+                .map(|(define, _)| define)
+                .or_else(|| part.trim().strip_prefix("Name:").map(str::trim));
+            if let Some(define) = found.filter(|d| !d.is_empty())
+                && !named.iter().any(|n| n == define)
+            {
+                named.push(define.to_owned());
+            }
+        }
+    }
+    named
+}
+
+/// The oldest Vagrant the driver takes: 2.4.0, the first that honours a box's architecture
+/// (`config.vm.box_architecture`): an older one takes any architecture's build of a box.
+pub(crate) const MIN_VERSION: &str = "2.4.0";
 
 /// Whether an `up` provisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +226,12 @@ pub(crate) async fn version(call: &Call<'_>) -> Result<isoloom_manifest::Version
     super::version(TOOL, &out.stdout.join("\n"), None)
 }
 
+/// `vagrant --version`, [`CliError::TooOld`] below [`MIN_VERSION`].
+pub(crate) async fn supported_version(call: &Call<'_>) -> Result<isoloom_manifest::Version, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["--version"]), Failure::of).await?;
+    super::version(TOOL, &out.stdout.join("\n"), Some(MIN_VERSION))
+}
+
 /// `ssh <machine> -c <script>` arguments, with a terminal (`-t`) or none.
 fn ssh_args(machine: &str, script: &str, tty: bool) -> Vec<String> {
     let mut args = argv(["ssh", machine, "-c", script]);
@@ -182,6 +244,22 @@ fn ssh_args(machine: &str, script: &str, tty: bool) -> Vec<String> {
 /// The console that runs `script` on `machine` over `vagrant ssh`, for the embedder to run.
 pub(crate) fn ssh_spec(call: &Call<'_>, machine: &str, script: &str, tty: bool) -> crate::process::ProcessSpec {
     call.spec(TOOL, ssh_args(machine, script, tty))
+}
+
+/// The console into `machine` over `vagrant ssh` (its login shell, or `script` when given), with a
+/// terminal, for the embedder to run.
+pub(crate) fn console_spec(call: &Call<'_>, machine: &str, script: Option<&str>) -> crate::process::ProcessSpec {
+    let args = match script {
+        None => argv(["ssh", machine]),
+        Some(script) => argv(["ssh", machine, "-c", script]),
+    };
+    call.spec(TOOL, args)
+}
+
+/// `script` run on `machine` over `vagrant ssh -c`, whatever its exit: what it printed and how it
+/// ended (a command that fails in the machine is its result, not the adapter's failure).
+pub(crate) async fn ssh_run(call: &Call<'_>, machine: &str, script: &str) -> Result<Captured, CliError<Failure>> {
+    call.run(TOOL, ssh_args(machine, script, false)).await
 }
 
 /// `script` run on `machine` over `vagrant ssh -c`, its output captured.
@@ -203,7 +281,10 @@ mod tests {
     fn failures_read_as_vagrant_prints_them() {
         assert_eq!(
             failed(include_str!("../tool_output/fixtures/vagrant/2.4.9-error-machine-locked.txt"), ""),
-            Failure::Locked
+            Failure::Locked {
+                acted: false,
+                machines: vec!["probe".to_owned()]
+            }
         );
         assert_eq!(
             failed("", include_str!("../tool_output/fixtures/vagrant/vmware-esxi-2.5.5-halt-already-off.txt")),
@@ -217,7 +298,39 @@ mod tests {
             failed("", include_str!("../tool_output/fixtures/vagrant/2.4.1-other-provider.txt")),
             Failure::OtherProvider
         );
+        assert_eq!(
+            failed(include_str!("../tool_output/fixtures/vagrant/2.4.9-machine-not-found.txt"), ""),
+            Failure::UnknownMachine
+        );
+        assert_eq!(
+            failed(include_str!("../tool_output/fixtures/vagrant/2.4.9-libvirt-port-unsupported.txt"), ""),
+            Failure::PortsUnsupported
+        );
         assert!(matches!(failed("", "The box 'nope' could not be found"), Failure::Other(_)));
+    }
+
+    #[test]
+    fn a_lock_refusal_says_whether_it_had_acted_and_on_which_machines() {
+        let action = "1,,error-exit,Vagrant::Errors::MachineActionLockedError,An action 'up' was attempted on the machine 'web'%!(VAGRANT_COMMA)\\nbut another process is already executing an action on the machine.";
+        assert_eq!(
+            failed(&format!("Bringing machine 'web' up with 'libvirt' provider...\n{action}"), ""),
+            Failure::Locked {
+                acted: false,
+                machines: vec!["web".to_owned()]
+            }
+        );
+        let after = failed(
+            "==> web: Removing domain...",
+            "Vagrant can't use the requested machine because it is locked! This\nName: web\nName: web",
+        );
+        assert_eq!(
+            after,
+            Failure::Locked {
+                acted: true,
+                machines: vec!["web".to_owned()]
+            },
+            "an action announced on stdout, the index lock's name on stderr, named once"
+        );
     }
 
     #[test]

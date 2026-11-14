@@ -13,6 +13,7 @@
 //! - [`Found`]: one resource the tool says belongs to the run, which the [`ledger`] records.
 
 pub(crate) mod ledger;
+mod vagrant;
 
 use std::collections::BTreeMap;
 use std::path::Path;

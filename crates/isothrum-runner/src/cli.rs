@@ -13,6 +13,7 @@ pub(crate) mod compose;
 pub(crate) mod docker;
 pub(crate) mod terraform;
 pub(crate) mod vagrant;
+pub(crate) mod vboxmanage;
 
 use std::fmt::Display;
 use std::path::PathBuf;
