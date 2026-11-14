@@ -476,6 +476,8 @@ version = "3.0.0"
 dependencies = [
  "isothrum-runner",
  "isothrum-test-support",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
