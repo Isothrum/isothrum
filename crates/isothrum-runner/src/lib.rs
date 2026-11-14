@@ -157,7 +157,7 @@ mod vars;
 
 pub use adopt::Adoption;
 pub use checks::{CheckReport, CheckResult};
-pub use clock::rfc3339;
+pub use clock::{rfc3339, rfc3339_seconds};
 pub use console::ShellCommand;
 pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
@@ -178,6 +178,8 @@ pub use port::{GuestPort, HostPort};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
+#[cfg(any(unix, windows))]
+pub use process::process_started_at;
 pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};

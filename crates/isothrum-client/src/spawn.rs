@@ -51,7 +51,7 @@ pub(crate) fn start(binary: &Path, paths: &ServicePaths) -> std::io::Result<Chil
 }
 
 /// Creates `home` when missing (owner-only on Unix; the service makes it owner-only on Windows).
-fn create_home(home: &Path) -> std::io::Result<()> {
+pub(crate) fn create_home(home: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]

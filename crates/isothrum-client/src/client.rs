@@ -14,9 +14,9 @@ use tokio::sync::{mpsc, oneshot};
 use crate::discovery::{ServiceInfo, ServicePaths};
 use crate::error::ClientError;
 use crate::proto::{Command, OpOptions, PROTOCOL, Reply, Request, Target};
-use crate::spawn;
 use crate::v1::{Event, EventCursor, OperationId, OperationPhase, OperationRow, RunRow, is_outcome, phase_of};
 use crate::wire::{Reader, Writer, connect, write_line};
+use crate::{VERSION, replace, spawn};
 
 /// How long a client waits for a service it started to answer.
 const START_WAIT: Duration = Duration::from_secs(10);
@@ -76,7 +76,8 @@ fn resolve(home: &Path) -> PathBuf {
     std::fs::canonicalize(&absolute).unwrap_or(absolute)
 }
 
-/// One connection to the service of `paths`, past its `hello`.
+/// One connection to the service of `paths`, past its `hello`, and what the service says of
+/// itself (its version as its `hello` gives it).
 async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
     let info = paths
         .read_info()
@@ -93,7 +94,7 @@ async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
     )
     .await?;
     match reader.next::<Reply>().await? {
-        Some(Reply::Hello { protocol, .. }) if protocol == PROTOCOL => Ok((reader, writer, info)),
+        Some(Reply::Hello { protocol, version, .. }) if protocol == PROTOCOL => Ok((reader, writer, ServiceInfo { version, ..info })),
         Some(Reply::Hello { protocol, version, .. }) => Err(ClientError::Protocol(format!(
             "the service (Isothrum {version}) speaks protocol {protocol}, this client {PROTOCOL}: stop it to let this version start its own"
         ))),
@@ -118,6 +119,45 @@ impl Client {
             Err(ClientError::Unavailable(_)) => {}
             opened => return opened.map(|(r, w, info)| Client::over(paths, r, w, info)),
         }
+        Client::start(paths, binary).await
+    }
+
+    /// Connects to `home`'s service of this release ([`VERSION`]) and protocol: the one that runs
+    /// when it is, else after replacing the one of another release (stopped, or ended when it
+    /// doesn't answer), else none; a service it then starts as [`Client::connect`] does
+    /// (`binary`: the `isothrum` of this release). How it replaces a service is in the crate's
+    /// documentation.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Busy`] when the service of another release has operations queued or
+    /// running: it is left running; [`ClientError::Version`] when the service started is another
+    /// release (`binary` isn't this one's); [`ClientError::Unavailable`] when the service couldn't
+    /// be stopped (it doesn't answer, and can't be told from another process, or doesn't end) or
+    /// none could be started; [`ClientError::Protocol`] when it refused to stop.
+    pub async fn connect_exact(home: &Path, binary: Option<&Path>) -> Result<Client> {
+        let paths = ServicePaths::new(resolve(home));
+        let _turn = replace::Turn::take(&paths).await?;
+        if let Some((r, w, info)) = replace::make_room(&paths).await? {
+            return Ok(Client::over(paths, r, w, info));
+        }
+        let client = Client::start(paths, binary).await?;
+        if client.info.version == VERSION {
+            return Ok(client);
+        }
+        // Not this release's: it is left as it was found, with no service.
+        if let Err(e) = client.request(Command::ShutdownIfIdle).await {
+            tracing::debug!(error = %e, "the service of another release just started couldn't be stopped");
+        }
+        Err(ClientError::Version {
+            client: VERSION.to_owned(),
+            service: client.info.version.clone(),
+        })
+    }
+
+    /// Starts `binary`'s service for the home of `paths` (see [`Client::connect`]), and connects
+    /// to it.
+    async fn start(paths: ServicePaths, binary: Option<&Path>) -> Result<Client> {
         let binary = spawn::binary(binary);
         let mut child = spawn::start(&binary, &paths).map_err(|e| ClientError::Unavailable(format!("{} couldn't be started: {e}", binary.display())))?;
         let deadline = Instant::now() + START_WAIT;

@@ -35,6 +35,18 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`isothrum-client`: the service's client crate** (what an app links): `Client::connect`
   starts the home's service when none answers, typed commands, `subscribe` as a `Stream`,
   `follow` (an operation's events, none missed) and `wait`.
+- **`Client::connect_exact`: a service of this release, replacing one of another.** An app that
+  bundles Isothrum connects only to a service of its own release (`isothrum_client::VERSION`) and
+  protocol: one of another release is asked to stop when idle (`shutdown_if_idle`), or, when it
+  doesn't answer, ended by its pid only while it holds the home's lock, the process with that pid
+  started no later than the service said (a reused pid is never ended) and the journal shows no
+  operation of it unfinished; then the given `isothrum` is started and its release checked.
+  `ClientError::Busy` (operations queued or running: the service is left running) and
+  `ClientError::Version` (the binary started is another release) say why it couldn't. Every
+  protocol keeps two frames: a `hello` of any protocol is answered with the service's protocol
+  and version, and `shutdown_if_idle` (`Reply::Ok`, or `Reply::Busy` with the operations) is
+  taken from a client of any protocol. The runner gains `Store::read_existing` (a read-only look
+  that never creates nor migrates), `Tx::in_flight`, `process_started_at` and `rfc3339_seconds`.
 - **The command line goes through the service.** The operations and `status` are sent to the
   home's service (started when it isn't running) and print its events as before; Ctrl-C cancels
   the operation in the service and waits for its end. `--no-service` (or `ISOTHRUM_NO_SERVICE=1`)

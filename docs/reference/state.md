@@ -13,6 +13,13 @@ else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.i
       lock                 the OS lock: one operation per run at a time, across processes
       ...                  the run's state folder (${run.state_dir}): what the manifest keeps there
   slots.lock               the OS lock a start holds while it picks its slot (${run.slot})
+  service.lock             the OS lock the runner service holds while it runs: one per home
+  service.json             what the running service says of itself (pid, start, release,
+                           protocol, endpoint); removed when it stops
+  service.sock             its endpoint on Unix (on Windows: a named pipe, named in service.json)
+  service.log              what a service a client started writes (rolled over past 8 MiB)
+  service.replace.lock     the OS lock a client holds while it replaces a service of another
+                           release ([Runner service](service.md#replacing-a-service-of-another-release))
   ssh/
     id_ed25519             the runner's SSH key, and id_ed25519.pub (made on first use)
   terraform-plugins/       the Terraform provider cache every run of this home shares,

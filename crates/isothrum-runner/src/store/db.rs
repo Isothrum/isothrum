@@ -84,6 +84,25 @@ impl Store {
         Ok(store)
     }
 
+    /// Runs `f` in a read-only transaction over `home`'s store as it is: opened read-only, never
+    /// created nor migrated, so a process of another release that owns the store is left as it
+    /// was. `None` when the home has no store.
+    ///
+    /// # Errors
+    ///
+    /// `f`'s (a schema `f` doesn't know reads as `io`), or the store's.
+    pub fn read_existing<T>(home: &Path, f: impl FnOnce(&Tx<'_>) -> Result<T>) -> Result<Option<T>> {
+        let path = home.join(DB_FILE);
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(&path, flags).map_err(failed("opened"))?;
+        conn.busy_timeout(BUSY_TIMEOUT).map_err(failed("opened"))?;
+        let store = Store { conn: Mutex::new(conn), path };
+        store.read(f).map(Some)
+    }
+
     /// The database's file.
     #[must_use]
     pub fn path(&self) -> &Path {

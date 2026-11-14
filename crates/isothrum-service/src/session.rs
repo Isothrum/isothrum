@@ -35,7 +35,7 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
         shared,
         outbox,
         subscription: None,
-        greeted: false,
+        greeted: Greeted::Not,
     };
     loop {
         match reader.next::<Request>().await {
@@ -69,18 +69,32 @@ struct Session {
     shared: Arc<Shared>,
     outbox: mpsc::Sender<Reply>,
     subscription: Option<JoinHandle<()>>,
-    greeted: bool,
+    greeted: Greeted,
+}
+
+/// Whether the client said `hello`, and in which protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Greeted {
+    /// Not yet: only `hello` is taken.
+    Not,
+    /// In this one: every request is taken.
+    Same,
+    /// In another: only what every protocol keeps (`shutdown_if_idle`) is taken.
+    Other,
 }
 
 impl Session {
     /// Answers `request`; false when the connection is to end.
     async fn handle(&mut self, request: Request) -> bool {
         let id = request.id;
-        if !self.greeted {
+        if self.greeted == Greeted::Not {
             return self.greet(request).await;
         }
+        if let Some(refused) = self.refused_as_other(&request) {
+            return self.outbox.send(refused).await.is_ok();
+        }
         let reply = match request.command {
-            Command::Hello { protocol } => hello(id, protocol),
+            Command::Hello { .. } => hello(id),
             Command::Status { run, path } => {
                 // A status reads the tools: it doesn't hold the connection's other requests.
                 let (shared, outbox) = (Arc::clone(&self.shared), self.outbox.clone());
@@ -119,6 +133,7 @@ impl Session {
                 self.shared.request_stop();
                 Reply::Ok { id }
             }
+            Command::ShutdownIfIdle => self.shutdown_if_idle(id),
             command => match self.shared.queue.submit(command) {
                 Ok((operation, run, position)) => Reply::Accepted { id, operation, run, position },
                 Err(refusal) => error(id, refusal.code, refusal.message),
@@ -127,14 +142,40 @@ impl Session {
         self.outbox.send(reply).await.is_ok()
     }
 
-    /// Answers the connection's first request, which must be a `hello` of this protocol.
+    /// The refusal of `request` on a connection greeted in another protocol: it takes only
+    /// `shutdown_if_idle`.
+    fn refused_as_other(&self, request: &Request) -> Option<Reply> {
+        (self.greeted == Greeted::Other && request.command != Command::ShutdownIfIdle).then(|| {
+            error(
+                request.id,
+                ErrorCode::Usage,
+                format!("this service speaks protocol {PROTOCOL}: a client of another takes only `shutdown_if_idle`"),
+            )
+        })
+    }
+
+    /// Stops the service when no operation is queued or running; else the ones that are.
+    fn shutdown_if_idle(&self, id: u64) -> Reply {
+        match self.shared.queue.stop_if_idle() {
+            Ok(()) => {
+                self.shared.request_stop();
+                Reply::Ok { id }
+            }
+            Err(operations) => Reply::Busy { id, operations },
+        }
+    }
+
+    /// Answers the connection's first request, which must be a `hello`: of any protocol, as every
+    /// protocol keeps it, answered with this service's protocol and version.
     async fn greet(&mut self, request: Request) -> bool {
         let reply = match request.command {
-            Command::Hello { protocol } => hello(request.id, protocol),
+            Command::Hello { protocol } => {
+                self.greeted = if protocol == PROTOCOL { Greeted::Same } else { Greeted::Other };
+                hello(request.id)
+            }
             _ => error(request.id, ErrorCode::Usage, "the first request must be `hello`".to_owned()),
         };
-        self.greeted = matches!(reply, Reply::Hello { .. });
-        self.outbox.send(reply).await.is_ok() && self.greeted
+        self.outbox.send(reply).await.is_ok() && self.greeted != Greeted::Not
     }
 
     /// Starts the connection's subscription (replacing one it had), registered before its `ok`
@@ -153,16 +194,12 @@ impl Session {
     }
 }
 
-/// The reply to a `hello` of `protocol`.
-fn hello(id: u64, protocol: u32) -> Reply {
-    if protocol == PROTOCOL {
-        Reply::Hello {
-            id,
-            protocol: PROTOCOL,
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        }
-    } else {
-        error(id, ErrorCode::Usage, format!("this service speaks protocol {PROTOCOL}, the client {protocol}"))
+/// The reply to a `hello`: this service's protocol and version.
+fn hello(id: u64) -> Reply {
+    Reply::Hello {
+        id,
+        protocol: PROTOCOL,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
 
