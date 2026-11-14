@@ -93,11 +93,8 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
 
 fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakeProcesses>, Elevated) {
     let home = tempfile::tempdir().unwrap();
-    let fake = Arc::new(FakeProcesses::rules(&[
-        ("whoami", Reply::ok(groups)),
-        ("powershell", start),
-        ("vagrant status", Reply::ok("direct")),
-    ]));
+    let script = FakeProcesses::script().allow("whoami /groups", Reply::ok(groups)).allow("powershell", start);
+    let fake = Arc::new(script.allow("vagrant status", Reply::ok("direct")).build());
     let own = crate::host_env::HostEnv::of([
         ("USERPROFILE", "C:\\Users\\ada"),
         ("API_TOKEN", "x"),
@@ -134,7 +131,7 @@ async fn an_account_that_may_manage_hyperv_runs_the_tools_as_they_are() {
     let (exit, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
     assert!(exit.unwrap().success());
     assert_eq!(lines, ["direct"]);
-    assert!(!fake.lines().iter().any(|l| l.starts_with("powershell")), "no prompt: {:?}", fake.lines());
+    assert!(fake.made("powershell").is_empty(), "no prompt: {:?}", fake.lines());
 }
 
 #[tokio::test]
@@ -418,7 +415,7 @@ async fn an_answer_that_isnt_an_exit_code_fails_the_request() {
 #[tokio::test]
 async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
     let home = tempfile::tempdir().unwrap();
-    let fake = Arc::new(FakeProcesses::rules(&[("whoami", Reply::missing()), ("powershell", Reply::ok(""))]));
+    let fake = Arc::new(FakeProcesses::expect(&[("whoami /groups", Reply::missing()), ("powershell", Reply::ok(""))]));
     let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), Vec::new());
     let broker = tokio::spawn(broker(e.root.clone(), "ran", 0));
     let ((exit, _), traced) = crate::testing::traced(lines_of(&e, &ProcessSpec::new("vagrant", ["status"]))).await;
@@ -437,16 +434,14 @@ fn a_session_token_is_random_hex() {
 
 #[tokio::test]
 async fn whether_the_account_may_manage_hyperv_is_whoamis_answer_or_unknown() {
-    let elevated = FakeProcesses::rules(&[(
-        "whoami /groups /fo csv /nh",
-        Reply::ok("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\","),
-    )]);
+    let whoami = |groups: &str| FakeProcesses::expect(&[("whoami /groups /fo csv /nh", Reply::ok(groups))]);
+    let elevated = whoami("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\",");
     assert_eq!(may_manage_hyperv(&elevated).await, Some(true));
-    let member = FakeProcesses::rules(&[("whoami", Reply::ok("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\","))]);
+    let member = whoami("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\",");
     assert_eq!(may_manage_hyperv(&member).await, Some(true));
-    let neither = FakeProcesses::rules(&[("whoami", Reply::ok("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\","))]);
+    let neither = whoami("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\",");
     assert_eq!(may_manage_hyperv(&neither).await, Some(false));
-    let failing = FakeProcesses::rules(&[("whoami", Reply::fail(1, "ERROR: access denied"))]);
+    let failing = FakeProcesses::expect(&[("whoami /groups", Reply::fail(1, "ERROR: access denied"))]);
     let (answer, traced) = crate::testing::traced(may_manage_hyperv(&failing)).await;
     assert_eq!(answer, None, "a failed whoami is no answer, not a no");
     assert!(traced.contains("`whoami /groups` failed") && traced.contains("access denied"), "{traced}");

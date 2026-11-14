@@ -47,34 +47,39 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn read_any_exit_returns_the_output_whatever_the_exit() {
-        let fake = FakeProcesses::rules(&[("tool one", Reply::ok("line-a\nline-b"))]);
-        let out = read_any_exit(&fake, "tool", &["one"]).await.unwrap();
-        assert!(out.contains("line-a") && out.contains("line-b"), "{out}");
-
-        let failing = FakeProcesses::rules(&[("tool two", Reply::fail(2, "the reason"))]);
-        assert!(read_any_exit(&failing, "tool", &["two"]).await.is_ok());
+    /// A tool's answer that prints `stdout` and exits `code`.
+    fn exiting(code: i32, stdout: &str) -> Reply {
+        let mut reply = Reply::ok(stdout);
+        reply.code = code;
+        reply
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
+    async fn read_any_exit_returns_the_output_whatever_the_exit() {
+        let fake = FakeProcesses::expect(&[("tool one", Reply::ok("line-a\nline-b"))]);
+        assert_eq!(read_any_exit(&fake, "tool", &["one"]).await.unwrap(), "line-a\nline-b");
+
+        let failing = FakeProcesses::expect(&[("tool two", exiting(2, "partial"))]);
+        assert_eq!(read_any_exit(&failing, "tool", &["two"]).await.unwrap(), "partial");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_failed_read_says_why_as_the_runner_does() {
-        let said = FakeProcesses::rules(&[("tool", Reply::fail(1, "no such plugin"))]);
+        let said = FakeProcesses::expect(&[("tool", Reply::fail(1, "no such plugin"))]);
         assert_eq!(read_ok(&said, "tool", &[]).await, Err("no such plugin (exited with code 1)".to_owned()));
-        let mut on_stdout = Reply::ok("refused: log in as admin");
-        on_stdout.code = 2;
-        let on_stdout = FakeProcesses::rules(&[("tool", on_stdout)]);
+        let on_stdout = FakeProcesses::expect(&[("tool", exiting(2, "refused: log in as admin"))]);
         assert_eq!(
             read_ok(&on_stdout, "tool", &[]).await,
             Err("refused: log in as admin (exited with code 2)".to_owned())
         );
-        let silent = FakeProcesses::rules(&[("tool", Reply::fail(3, ""))]);
+        let silent = FakeProcesses::expect(&[("tool", Reply::fail(3, ""))]);
         assert_eq!(read_ok(&silent, "tool", &[]).await, Err("exited with code 3".to_owned()));
     }
 
-    #[tokio::test]
-    async fn read_fails_when_the_tool_is_missing() {
-        let fake = FakeProcesses::rules(&[("tool", Reply::missing())]);
-        assert!(read_any_exit(&fake, "tool", &[]).await.is_err());
+    #[tokio::test(start_paused = true)]
+    async fn a_missing_tool_is_said_as_missing() {
+        let fake = FakeProcesses::expect(&[("tool", Reply::missing())]);
+        let err = read_any_exit(&fake, "tool", &[]).await.unwrap_err();
+        assert!(matches!(err, ProcessError::Missing { ref program } if program == "tool"), "{err:?}");
     }
 }

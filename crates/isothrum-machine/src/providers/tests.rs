@@ -1,6 +1,42 @@
-use isothrum_runner::fake::{FakeProcesses, Reply};
+use isothrum_runner::fake::{FakeProcesses, Reply, Script};
 
 use super::*;
+
+/// Detection on a host the test gives, its tools scripted strictly.
+mod detection;
+
+/// A Linux amd64 host whose KVM device `kvm` the user may open: VirtualBox, VMware
+/// Workstation, libvirt, QEMU and ESXi apply to it.
+fn linux(kvm: &Path) -> Host {
+    std::fs::write(kvm, "").unwrap();
+    Host {
+        os: HostOs::Linux,
+        arch: Arch::Amd64,
+        kvm: kvm.to_path_buf(),
+        utm_installed: false,
+        hyperv_enabled: false,
+    }
+}
+
+/// A Linux host's hypervisor probes, each hypervisor missing unless the script answers it
+/// already; `script` names what the test is about.
+fn on_linux(script: Script) -> Script {
+    script
+        .allow("VBoxManage", Reply::missing())
+        .allow("vmrun", Reply::missing())
+        .allow("virsh", Reply::missing())
+        .allow("qemu-system-x86_64", Reply::missing())
+}
+
+/// The status `detect` gave `provider`; it must have given one.
+fn status_of(statuses: &[ProviderStatus], provider: Provider) -> &ProviderStatus {
+    statuses
+        .iter()
+        .find(|s| s.provider == provider)
+        .unwrap_or_else(|| panic!("no {provider:?} in {statuses:?}"))
+}
+
+const PLUGINS: &str = "vagrant plugin list --machine-readable";
 
 /// The names Isoloom's `Provider` takes, sorted.
 fn isoloom_providers() -> Vec<String> {
@@ -79,6 +115,7 @@ fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
 #[test]
 fn utm_and_its_plugin_are_held_to_a_version() {
     let detection = |hv: Option<&'static str>, pl: Option<&'static str>, installed: bool| Detection {
+        arch: Arch::Amd64,
         hypervisor: Some(true),
         hypervisor_version: hv,
         unresponsive: false,
@@ -112,47 +149,12 @@ fn utm_and_its_plugin_are_held_to_a_version() {
     assert_eq!(hypervisor_too_old(Provider::Virtualbox, Some("6.0")), None);
 }
 
-#[tokio::test]
-async fn detect_reports_a_ready_qemu_and_an_unavailable_one_by_its_plugin() {
-    // QEMU installed, its plugin present: available. A missing plugin makes it unavailable.
-    let with = FakeProcesses::rules(&[
-        ("qemu-system", Reply::ok("QEMU 10.0")),
-        (
-            "vagrant plugin list --machine-readable",
-            Reply::ok("1,,plugin-name,vagrant-qemu\n1,vagrant-qemu,plugin-version,0.6.3%!(VAGRANT_COMMA) global"),
-        ),
-    ]);
-    let qemu = detect(&with, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-    assert!(qemu.reason.is_none(), "{qemu:?}");
-
-    let without = FakeProcesses::rules(&[("qemu-system", Reply::ok("QEMU 10.0")), ("vagrant plugin list", Reply::ok(""))]);
-    let no_plugin = detect(&without, true).await.into_iter().find(|s| s.provider == Provider::Qemu).unwrap();
-    assert_eq!(no_plugin.reason.as_deref(), Some("Vagrant plugin `vagrant-qemu` is not installed"),);
-}
-
-#[tokio::test]
-async fn a_vagrant_that_cant_list_its_plugins_is_one_reason_not_each_plugin_missing() {
-    let broken = FakeProcesses::rules(&[
-        ("qemu-system", Reply::ok("QEMU 10.0")),
-        ("VBoxManage", Reply::ok("7.1.4")),
-        ("vagrant plugin list", Reply::fail(1, "Vagrant failed to initialize at a very early stage")),
-    ]);
-    let statuses = detect(&broken, true).await;
-    let qemu = statuses.iter().find(|s| s.provider == Provider::Qemu).unwrap();
-    assert_eq!(
-        qemu.reason.as_deref(),
-        Some("Vagrant couldn't say which plugins it has (`vagrant plugin list`: Vagrant failed to initialize at a very early stage (exited with code 1))")
-    );
-    // A provider built into Vagrant needs no plugin: what Vagrant lists doesn't matter to it.
-    let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);
-    assert!(virtualbox.is_none_or(|s| s.reason.is_none()), "{virtualbox:?}");
-}
-
 /// Each missing layer is said for what it is: Hyper-V turned off (a Windows feature, not a
 /// program), a hypervisor whose program isn't installed.
 #[test]
 fn a_hypervisor_that_is_off_or_not_installed_says_which() {
     let absent = Detection {
+        arch: Arch::Amd64,
         hypervisor: Some(false),
         hypervisor_version: None,
         unresponsive: false,
@@ -191,6 +193,7 @@ fn libvirt_without_kvm_or_its_leave_says_which() {
     let denied = denied_device(dir.path());
     let (missing, denied) = (missing.as_str(), denied.as_str());
     let libvirt = |hypervisor, platform_problem| Detection {
+        arch: Arch::Amd64,
         hypervisor: Some(hypervisor),
         hypervisor_version: None,
         unresponsive: false,
@@ -210,26 +213,6 @@ fn libvirt_without_kvm_or_its_leave_says_which() {
     assert_eq!(unavailable_reason(Provider::Libvirt, libvirt(true, None)), None);
 }
 
-#[tokio::test]
-async fn a_virtualbox_that_isnt_installed_is_detected_as_such() {
-    let tools = FakeProcesses::rules(&[("VBoxManage", Reply::missing())]);
-    let statuses = detect(&tools, true).await;
-    let virtualbox = statuses.iter().find(|s| s.provider == Provider::Virtualbox);
-    assert!(
-        virtualbox.is_none_or(|s| s.reason.as_deref() == Some("`VBoxManage` was not found")),
-        "{virtualbox:?}"
-    );
-}
-
-#[tokio::test]
-async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
-    let tools = FakeProcesses::rules(&[]);
-    let statuses = detect(&tools, false).await;
-    assert_eq!(statuses.len(), all().iter().filter(|p| applicable(**p)).count());
-    assert!(statuses.iter().all(|s| s.reason.as_deref() == Some(NO_VAGRANT)), "{statuses:?}");
-    assert_eq!(tools.calls(), [], "no probe runs without Vagrant");
-}
-
 /// A tool that never answers.
 struct Stuck;
 
@@ -246,43 +229,10 @@ impl ProcessRunner for Stuck {
     }
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_virtualbox_whose_service_never_answers_is_wedged() {
-    assert!(vbox_wedged(&Stuck).await);
-    let answering = FakeProcesses::rules(&[("VBoxManage list runningvms", Reply::ok(""))]);
-    assert!(!vbox_wedged(&answering).await);
-}
-
-#[tokio::test]
-async fn only_utm_is_asked_its_version() {
-    let tools = FakeProcesses::rules(&[("defaults read", Reply::ok("4.7.5\n"))]);
-    assert_eq!(hypervisor_version(Provider::Utm, &tools).await.as_deref(), Some("4.7.5"));
-    assert_eq!(hypervisor_version(Provider::Qemu, &tools).await, None);
-    let silent = FakeProcesses::rules(&[("defaults read", Reply::ok(""))]);
-    assert_eq!(hypervisor_version(Provider::Utm, &silent).await, None, "no version said, none read");
-    let call = tools.calls().into_iter().next().unwrap();
-    assert_eq!(call.args, ["read", "/Applications/UTM.app/Contents/Info.plist", "CFBundleShortVersionString"]);
-}
-
-#[tokio::test]
-async fn an_installed_hyperv_needs_admin_only_when_whoami_says_the_account_may_not_manage_it() {
-    let groups = |sid: &str| format!("\"Label\",\"Label\",\"{sid}\",");
-    let not_allowed = FakeProcesses::rules(&[("whoami /groups", Reply::ok(&groups("S-1-16-8192")))]);
-    let allowed = FakeProcesses::rules(&[("whoami /groups", Reply::ok(&groups("S-1-5-32-578")))]);
-    let unknown = FakeProcesses::rules(&[("whoami", Reply::missing())]);
-    assert!(needs_admin(Provider::Hyperv, Some(true), &not_allowed).await);
-    assert!(!needs_admin(Provider::Hyperv, Some(true), &allowed).await);
-    assert!(!needs_admin(Provider::Hyperv, Some(true), &unknown).await, "no answer adds no reason");
-    assert!(!needs_admin(Provider::Hyperv, Some(false), &not_allowed).await, "not installed says so instead");
-    assert!(!needs_admin(Provider::Virtualbox, Some(true), &not_allowed).await);
-    assert_eq!(not_allowed.calls().len(), 1, "whoami is asked for an installed Hyper-V only");
-}
-
 #[test]
 fn hyperv_needs_admin_folds_into_its_reason() {
-    // Hyper-V's `applicable()` gate keeps it out of `detect` off Windows, so `needs_admin` is
-    // tested on its own (above) and through `unavailable_reason` here.
     let hyperv = |needs_admin| Detection {
+        arch: Arch::Amd64,
         hypervisor: Some(true),
         hypervisor_version: None,
         unresponsive: false,
@@ -299,34 +249,38 @@ fn hyperv_needs_admin_folds_into_its_reason() {
 
 /// Regression (#128): with its kernel driver not loaded, `VBoxManage` still answers, after a
 /// warning, and VirtualBox read as ready until `vagrant up` failed.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_virtualbox_whose_kernel_driver_isnt_loaded_isnt_ready() {
     let oracle = "WARNING: The vboxdrv kernel module is not loaded. Either there is no module\n         available for the current kernel (6.8.0-49-generic) or it failed to\n         load. Please recompile the kernel module and install it by\n\n           sudo /sbin/vboxconfig\n\n         You will not be able to start VMs until this problem is fixed.\n7.0.14r161095";
     let distribution = "WARNING: The character device /dev/vboxdrv does not exist.\n\t Please install the virtualbox-dkms package and the appropriate\n\t headers, most likely linux-headers-6.8.0-49-generic.\n\n\t You will not be able to start VMs until this problem is fixed.\n7.0.16_Ubuntur162802";
     for said in [oracle, distribution] {
         assert!(vbox_driver_missing(said), "{said}");
-        let tools = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok(said))]);
+        let tools = FakeProcesses::expect(&[("VBoxManage --version", Reply::ok(said))]);
         assert_eq!(vbox_driver_problem(&tools).await.as_deref(), Some(VBOX_DRIVER_MISSING));
         // Printed on standard error, it is read too.
         let mut on_stderr = Reply::ok("7.0.14r161095");
         on_stderr.stderr = said.lines().map(str::to_owned).collect();
-        let warned_on_stderr = FakeProcesses::rules(&[("VBoxManage --version", on_stderr)]);
+        let warned_on_stderr = FakeProcesses::expect(&[("VBoxManage --version", on_stderr)]);
         assert_eq!(vbox_driver_problem(&warned_on_stderr).await.as_deref(), Some(VBOX_DRIVER_MISSING));
     }
-    let fine = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok("7.1.4r165100"))]);
+    let fine = FakeProcesses::expect(&[("VBoxManage --version", Reply::ok("7.1.4r165100"))]);
     assert_eq!(vbox_driver_problem(&fine).await, None);
-    if applicable(Provider::Virtualbox) {
-        let detected = FakeProcesses::rules(&[("VBoxManage --version", Reply::ok(oracle)), ("vagrant plugin list", Reply::ok(""))]);
-        let virtualbox = detect(&detected, true).await.into_iter().find(|s| s.provider == Provider::Virtualbox).unwrap();
-        assert_eq!(virtualbox.reason.as_deref(), Some(VBOX_DRIVER_MISSING));
-    }
+    // Through detection, on a Linux host whatever the machine running the test.
+    let dir = tempfile::tempdir().unwrap();
+    let detected = on_linux(FakeProcesses::script())
+        .expect("VBoxManage --version", Reply::ok(oracle))
+        .allow("VBoxManage list runningvms", Reply::ok(""))
+        .expect(PLUGINS, Reply::ok(""))
+        .build();
+    let statuses = detect_on(&linux(&dir.path().join("kvm")), &detected, true).await;
+    assert_eq!(status_of(&statuses, Provider::Virtualbox).reason.as_deref(), Some(VBOX_DRIVER_MISSING));
 }
 
 /// Regression (#135): Hyper-V turned on with its hypervisor off (`hypervisorlaunchtype off`,
 /// virtualization off in the firmware) read as ready, and `vagrant up` failed minutes in.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_installed_hyperv_whose_hypervisor_isnt_running_isnt_ready() {
-    let said = |answer: Reply| FakeProcesses::rules(&[("powershell", answer)]);
+    let said = |answer: Reply| FakeProcesses::expect(&[("powershell", answer)]);
     assert_eq!(hypervisor_stopped(&said(Reply::ok("False\r\n"))).await.as_deref(), Some(HYPERVISOR_STOPPED));
     assert_eq!(hypervisor_stopped(&said(Reply::ok("True"))).await, None);
     assert_eq!(
@@ -340,6 +294,7 @@ async fn an_installed_hyperv_whose_hypervisor_isnt_running_isnt_ready() {
     assert_eq!(asked.calls()[0].args.last().map(String::as_str), Some(HYPERVISOR_PRESENT));
     // Folded into Hyper-V's status after the layers before it.
     let off = Detection {
+        arch: Arch::Amd64,
         hypervisor: Some(true),
         hypervisor_version: None,
         unresponsive: false,
