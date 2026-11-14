@@ -11,10 +11,10 @@
 //! The service knows nothing of the tools a run drives: operations go to an [`Engine`]
 //! ([`RunnerEngine`]: the Isothrum runner).
 
-mod bus;
 mod endpoint;
 mod engine;
 mod error;
+mod feed;
 mod lease;
 mod queue;
 mod session;
@@ -30,12 +30,13 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use isothrum_client::proto::PROTOCOL;
 use isothrum_client::{ServiceInfo, ServicePaths};
 use isothrum_runner::SystemProcesses;
+use isothrum_runner::store::{LeaseOutcome, Owner, Store};
 use tokio::sync::Notify;
 
-pub use engine::{Engine, Refusal, RunnerEngine};
+pub use engine::{Engine, Journal, Refusal, RunnerEngine};
 pub use error::ServeError;
 
-use crate::bus::Bus;
+use crate::feed::Feed;
 use crate::lease::Lease;
 use crate::queue::Queue;
 
@@ -88,7 +89,8 @@ impl ServeOptions {
 pub(crate) struct Shared {
     engine: Arc<dyn Engine>,
     queue: Arc<Queue>,
-    bus: Arc<Bus>,
+    feed: Arc<Feed>,
+    store: Arc<Store>,
     clients: AtomicUsize,
     stop: Notify,
 }
@@ -157,14 +159,17 @@ impl Service {
     /// The endpoint can't be opened, or `service.json` written.
     pub async fn serve(mut self, options: ServeOptions) -> Result<(), ServeError> {
         let ServeOptions { engine, tools, idle, mut stop } = options;
+        let store = Arc::new(Store::open(self.paths.home())?);
+        let owner = Owner::this_process();
+        let _lease = HomeLease::take(&self.paths, &store, &owner)?;
         let (listener, endpoint) = endpoint::listen(&self.paths)?;
-        let first = first_number();
-        let bus = Arc::new(Bus::new(first));
-        let queue = Arc::new(Queue::new(Arc::clone(&engine), Arc::clone(&bus), i64::try_from(first).unwrap_or(1)));
+        let feed = Arc::new(Feed::new(Arc::clone(&store)));
+        let queue = Arc::new(Queue::new(Arc::clone(&engine), Arc::clone(&store), Arc::clone(&feed), owner));
         let shared = Arc::new(Shared {
             engine,
             queue: Arc::clone(&queue),
-            bus,
+            feed,
+            store,
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
         });
@@ -229,7 +234,7 @@ async fn accept(
 /// Drops the queued operations and cancels the running ones; once they ended (or after
 /// [`DRAIN`], or on the next stop signal), ends every tool still running at once.
 async fn stop_operations(queue: &Queue, tools: Option<&SystemProcesses>, stop: &mut StopSignal) {
-    queue.close();
+    queue.close_all();
     let again = stop();
     tokio::select! {
         () = queue.drained() => {}
@@ -246,16 +251,76 @@ async fn stop_operations(queue: &Queue, tools: Option<&SystemProcesses>, stop: &
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-/// The first cursor and operation id of this life: the time in microseconds, so they keep
-/// increasing across the service's restarts.
-fn first_number() -> u64 {
-    let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_micros());
-    u64::try_from(micros).unwrap_or(u64::MAX >> 1)
-}
-
 /// A random number (the time's, if the OS has no randomness to give).
 fn random_u64() -> u64 {
-    getrandom::u64().unwrap_or_else(|_| first_number())
+    getrandom::u64().unwrap_or_else(|_| {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos());
+        u64::try_from(nanos % u128::from(u64::MAX)).unwrap_or(1)
+    })
+}
+
+/// The store's `home:service` lease, held while the service runs (renewed, released when
+/// dropped): with the OS lock on `service.lock`, what says the home has a service.
+struct HomeLease {
+    store: Arc<Store>,
+    owner: Owner,
+    renew: tokio::task::JoinHandle<()>,
+}
+
+/// The lease's scope.
+const SERVICE_LEASE: &str = "home:service";
+
+/// How long the lease lasts unless renewed, and how often it is.
+const LEASE_TTL: Duration = Duration::from_secs(60);
+const LEASE_RENEW: Duration = Duration::from_secs(20);
+
+impl HomeLease {
+    /// Takes the lease for `owner`.
+    ///
+    /// # Errors
+    ///
+    /// [`ServeError::Held`] when a live process holds it (a service of another version that
+    /// holds no OS lock); the store's.
+    fn take(paths: &ServicePaths, store: &Arc<Store>, owner: &Owner) -> Result<HomeLease, ServeError> {
+        let outcome = store.write(|tx| tx.acquire_lease(SERVICE_LEASE, owner, LEASE_TTL))?;
+        let LeaseOutcome::Acquired { took_over } = &outcome else {
+            if let LeaseOutcome::Held(lease) = &outcome {
+                tracing::warn!(pid = lease.owner.pid, "another live process holds the home's service lease");
+            }
+            return Err(ServeError::Held {
+                home: paths.home().to_path_buf(),
+                holder: paths.read_info(),
+            });
+        };
+        if let Some(left) = took_over {
+            tracing::info!(pid = left.owner.pid, "took over a dead service's lease");
+        }
+        let (renewing, renewer) = (Arc::clone(store), owner.clone());
+        let renew = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(LEASE_RENEW).await;
+                match renewing.write(|tx| tx.renew_lease(SERVICE_LEASE, &renewer, LEASE_TTL)) {
+                    Ok(true) => {}
+                    Ok(false) => tracing::warn!("the service's lease was lost"),
+                    Err(e) => tracing::warn!(error = %e, "the service's lease couldn't be renewed"),
+                }
+            }
+        });
+        Ok(HomeLease {
+            store: Arc::clone(store),
+            owner: owner.clone(),
+            renew,
+        })
+    }
+}
+
+impl Drop for HomeLease {
+    fn drop(&mut self) {
+        self.renew.abort();
+        if let Err(e) = self.store.write(|tx| tx.release_lease(SERVICE_LEASE, &self.owner)) {
+            tracing::warn!(error = %e, "the service's lease couldn't be released");
+        }
+    }
 }
 
 /// 128 random bits in hex.

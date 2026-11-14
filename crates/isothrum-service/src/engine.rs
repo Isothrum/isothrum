@@ -6,8 +6,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
-use isothrum_client::v1::RunRow;
 use isothrum_runner::isoloom_manifest::Provider;
+use isothrum_runner::store::OperationId;
 use isothrum_runner::{
     AccessPick, BoxFuture, ErrorCode, Event, EventKind, Events, Occupied, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status, from_wire_name,
 };
@@ -35,7 +35,15 @@ impl From<isothrum_runner::Error> for Refusal {
     }
 }
 
-/// What runs the service's operations and answers its reads.
+/// Where an operation's events go. As [`Events`], it is told of each event already kept in the
+/// home's store (the runner keeps its own); [`Journal::keep`] keeps one the engine writes itself.
+pub trait Journal: Events {
+    /// Keeps `event`, one the engine wrote itself, as the operation's, and tells the subscribers.
+    fn keep(&self, event: Event);
+}
+
+/// What runs the service's operations and answers the status reads. It keeps every event of an
+/// operation in the home's store.
 pub trait Engine: Send + Sync + 'static {
     /// The run `target` names, checked enough to queue an operation on it (its name).
     ///
@@ -44,20 +52,14 @@ pub trait Engine: Send + Sync + 'static {
     /// The run can't be opened there.
     fn resolve(&self, target: &Target) -> Result<RunName, Refusal>;
 
-    /// Runs the operation `command` asks for on `run`, its events to `events`: exactly one
-    /// `result` or `error` among them, unless the future is dropped (a cancel), when the engine
-    /// writes what it can. Returns whether it reached its goal.
-    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, events: &'a dyn Events) -> BoxFuture<'a, bool>;
+    /// Runs the operation `command` asks for on `run`, as the journal's queued operation
+    /// `operation`, its events to `journal`: exactly one `result` or `error` among them, unless
+    /// the future is dropped (a cancel), when the engine writes what it can. Returns whether it
+    /// reached its goal.
+    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool>;
 
     /// The status of `run` (opened from `path`, else from where its record says).
     fn status<'a>(&'a self, run: &'a RunName, path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>>;
-
-    /// Every recorded run.
-    ///
-    /// # Errors
-    ///
-    /// The records can't be read.
-    fn list(&self) -> Result<Vec<RunRow>, Refusal>;
 }
 
 /// The Isothrum runner as the service's engine.
@@ -153,14 +155,14 @@ impl Engine for RunnerEngine {
         Ok(self.open(target)?.name().clone())
     }
 
-    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, events: &'a dyn Events) -> BoxFuture<'a, bool> {
+    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool> {
         Box::pin(async move {
             let Some((target, options)) = command.target() else {
                 return false;
             };
             let opened = self
                 .open(&Target::new(&target.path, Some(run.clone())))
-                .and_then(|r| Ok((r, run_options(options)?)));
+                .and_then(|r| Ok((r, run_options(options)?.with_operation(operation))));
             let (running, opts) = match opened {
                 Ok(opened) => opened,
                 Err(refusal) => {
@@ -171,11 +173,11 @@ impl Engine for RunnerEngine {
                         step: None,
                         timeout: None,
                     };
-                    events.emit(&Event::new(1, Some(run.to_string()), command.op(), kind));
+                    journal.keep(Event::new(1, Some(run.to_string()), command.op(), kind));
                     return false;
                 }
             };
-            RunnerEngine::run(&running, command, opts, events).await.unwrap_or(false)
+            RunnerEngine::run(&running, command, opts, journal).await.unwrap_or(false)
         })
     }
 
@@ -192,9 +194,5 @@ impl Engine for RunnerEngine {
             let running = self.open(&Target::new(path, Some(run.clone())))?;
             Ok(running.status().await?)
         })
-    }
-
-    fn list(&self) -> Result<Vec<RunRow>, Refusal> {
-        Ok(self.runner.runs()?)
     }
 }

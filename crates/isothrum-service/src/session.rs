@@ -8,13 +8,11 @@ use isothrum_client::proto::{Command, PROTOCOL, Reply, Request};
 use isothrum_client::v1::EventCursor;
 use isothrum_client::wire::{LineReader, write_line};
 use isothrum_runner::{ErrorCode, RunName};
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::Shared;
-use crate::bus::{Bus, Numbered};
+use crate::feed::Feed;
 
 /// How many replies and events wait for a slow client before its subscription waits too.
 const OUTBOX: usize = 1024;
@@ -95,13 +93,13 @@ impl Session {
                 });
                 return true;
             }
-            Command::List => match self.shared.engine.list() {
+            Command::List => match runs(&self.shared.store) {
                 Ok(runs) => Reply::Runs { id, runs },
-                Err(refusal) => error(id, refusal.code, refusal.message),
+                Err(e) => error(id, e.code(), e.to_string()),
             },
-            Command::Operations { run, limit } => Reply::Operations {
-                id,
-                operations: self.shared.queue.operations(&run, usize::try_from(limit).unwrap_or(usize::MAX)),
+            Command::Operations { run, limit } => match self.shared.queue.operations(&run, usize::try_from(limit).unwrap_or(usize::MAX)) {
+                Ok(operations) => Reply::Operations { id, operations },
+                Err(refusal) => error(id, refusal.code, refusal.message),
             },
             Command::Cancel { operation } => {
                 if self.shared.queue.cancel(operation) {
@@ -146,12 +144,11 @@ impl Session {
         if let Some(old) = self.subscription.take() {
             old.abort();
         }
-        let (replay, live) = self.shared.bus.subscribe(after);
         if self.outbox.send(Reply::Ok { id }).await.is_err() {
             return false;
         }
-        let (bus, outbox) = (Arc::clone(&self.shared.bus), self.outbox.clone());
-        self.subscription = Some(tokio::spawn(forward(bus, run, replay, live, outbox)));
+        let (feed, outbox) = (Arc::clone(&self.shared.feed), self.outbox.clone());
+        self.subscription = Some(tokio::spawn(forward(feed, run, after, outbox)));
         true
     }
 }
@@ -174,38 +171,48 @@ fn error(id: u64, code: ErrorCode, message: String) -> Reply {
     Reply::Error { id, code, message }
 }
 
-/// Sends a subscription's events to `outbox`: the replayed ones, then the live ones, those of
-/// `run` only when it names one. A subscriber that fell behind the live events resumes from the
-/// kept ones after the last it got.
-async fn forward(bus: Arc<Bus>, run: Option<RunName>, replay: Vec<Numbered>, mut live: broadcast::Receiver<Numbered>, outbox: mpsc::Sender<Reply>) {
-    let mut last: Option<EventCursor> = None;
-    let mut pending = replay;
+/// Sends a subscription's events to `outbox`: those the store keeps after `after` (every one
+/// when `None`), then each new one as it is kept, those of `run` only when it names one.
+async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCursor>, outbox: mpsc::Sender<Reply>) {
+    let mut news = feed.news();
+    let mut last = after.unwrap_or_default();
     loop {
-        for (cursor, event) in pending.drain(..) {
-            if last.is_some_and(|l| cursor <= l) {
-                continue;
+        // Marked seen before reading: an event kept after the read wakes the next wait.
+        news.mark_unchanged();
+        let batch = match feed.after(last, run.as_ref()) {
+            Ok(batch) => batch,
+            Err(refusal) => {
+                tracing::warn!(error = %refusal.message, "a subscription couldn't read the store");
+                return;
             }
-            last = Some(cursor);
-            if run.as_ref().is_some_and(|r| event.run.as_deref() != Some(r.as_str())) {
-                continue;
+        };
+        if batch.is_empty() {
+            if news.changed().await.is_err() {
+                return;
             }
-            let frame = Reply::Event {
-                cursor,
-                event: Box::new((*event).clone()),
-            };
-            if outbox.send(frame).await.is_err() {
+            continue;
+        }
+        for (cursor, event) in batch {
+            last = cursor;
+            if outbox
+                .send(Reply::Event {
+                    cursor,
+                    event: Box::new(event),
+                })
+                .await
+                .is_err()
+            {
                 return;
             }
         }
-        match live.recv().await {
-            Ok(numbered) => pending.push(numbered),
-            Err(RecvError::Lagged(missed)) => {
-                tracing::debug!(missed, "a subscriber fell behind: resuming from the kept events");
-                let (kept, resumed) = bus.subscribe(last);
-                pending = kept;
-                live = resumed;
-            }
-            Err(RecvError::Closed) => return,
-        }
     }
+}
+
+/// Every run the store keeps.
+#[expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "`Tx::runs` is bound to one transaction's lifetime: it can't be passed as is"
+)]
+fn runs(store: &isothrum_runner::store::Store) -> isothrum_runner::Result<Vec<isothrum_client::v1::RunRow>> {
+    store.read(|tx| tx.runs())
 }

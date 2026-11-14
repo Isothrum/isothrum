@@ -15,7 +15,7 @@ use crate::discovery::{ServiceInfo, ServicePaths};
 use crate::error::ClientError;
 use crate::proto::{Command, OpOptions, PROTOCOL, Reply, Request, Target};
 use crate::spawn;
-use crate::v1::{Event, EventCursor, OperationId, OperationPhase, OperationRow, RunRow};
+use crate::v1::{Event, EventCursor, OperationId, OperationPhase, OperationRow, RunRow, is_outcome, phase_of};
 use crate::wire::{Reader, Writer, connect, write_line};
 
 /// How long a client waits for a service it started to answer.
@@ -530,7 +530,7 @@ impl OperationEvents {
             if event.operation != Some(self.operation) {
                 continue;
             }
-            if event.phase_of() == Some(OperationPhase::Ended) {
+            if phase_of(&event) == Some(OperationPhase::Ended) {
                 self.ended = true;
             }
             return Some(Ok(event));
@@ -541,7 +541,7 @@ impl OperationEvents {
         let mut outcome = None;
         while let Some(event) = self.next().await {
             let event = event?;
-            if event.is_outcome() {
+            if is_outcome(&event) {
                 outcome = Some(event);
             }
         }
@@ -560,7 +560,7 @@ fn outcome_of(event: Option<Event>) -> Result<Event> {
         });
     };
     match &event.kind {
-        crate::v1::EventKind::Runner(EventKind::Error { code, message, step, .. }) => Err(ClientError::Operation {
+        EventKind::Error { code, message, step, .. } => Err(ClientError::Operation {
             code: *code,
             message: message.clone(),
             step: step.clone(),

@@ -448,7 +448,7 @@ mod tests {
         });
         assert_eq!(refused, r#"{"reply":"error","id":2,"code":"usage","message":"no"}"#);
         let run = RunName::new("web").unwrap();
-        let event = Event::phase(&run, Op::Down, OperationId(4), crate::v1::OperationPhase::Started, None);
+        let event = crate::v1::phase_event(&run, (Op::Down, OperationId(4)), crate::v1::OperationPhase::Started, None, None);
         let frame = round_trip(&Reply::Event {
             cursor: EventCursor(12),
             event: Box::new(event),

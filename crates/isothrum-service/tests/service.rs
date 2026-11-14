@@ -8,10 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
-use isothrum_client::v1::{Event, OperationPhase, RunRow};
+use isothrum_client::v1::{Event, OperationPhase, is_outcome, phase_of};
 use isothrum_client::{Client, ClientError};
-use isothrum_runner::{BoxFuture, ErrorCode, EventKind, Events, RunName, Status};
-use isothrum_service::{Engine, Refusal, ServeError, ServeOptions, Service, StopSignal};
+use isothrum_runner::store::OperationId;
+use isothrum_runner::{BoxFuture, ErrorCode, EventKind, RunName, Status};
+use isothrum_service::{Engine, Journal, Refusal, ServeError, ServeOptions, Service, StopSignal};
 
 /// An engine whose operations sleep for their `sleep_ms` param, logging when each begins and
 /// ends; a run is named after its path's file name.
@@ -35,7 +36,7 @@ impl Engine for Scripted {
         RunName::new(name).map_err(|e| Refusal::new(ErrorCode::RunName, e.to_string()))
     }
 
-    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, events: &'a dyn Events) -> BoxFuture<'a, bool> {
+    fn execute<'a>(&'a self, run: &'a RunName, command: &'a Command, _operation: OperationId, journal: &'a dyn Journal) -> BoxFuture<'a, bool> {
         Box::pin(async move {
             let (_, options) = command.target().unwrap();
             let op = command.op().unwrap();
@@ -46,24 +47,20 @@ impl Engine for Scripted {
                 stream: isothrum_runner::Stream::Stdout,
                 line: format!("{op} on {run}"),
             };
-            events.emit(&isothrum_runner::Event::new(1, Some(run.to_string()), Some(op), step));
+            journal.keep(isothrum_runner::Event::new(1, Some(run.to_string()), Some(op), step));
             tokio::time::sleep(Duration::from_millis(sleep)).await;
             self.log.lock().unwrap().push(format!("end {run} {op}"));
             let result = EventKind::Result {
                 ok: true,
                 data: serde_json::json!({ "message": "done" }),
             };
-            events.emit(&isothrum_runner::Event::new(2, Some(run.to_string()), Some(op), result));
+            journal.keep(isothrum_runner::Event::new(2, Some(run.to_string()), Some(op), result));
             true
         })
     }
 
     fn status<'a>(&'a self, _run: &'a RunName, _path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async { Err(Refusal::new(ErrorCode::NotRunning, "scripted")) })
-    }
-
-    fn list(&self) -> Result<Vec<RunRow>, Refusal> {
-        Ok(Vec::new())
     }
 }
 
@@ -140,9 +137,9 @@ async fn two_clients_operations_on_one_run_run_in_order_and_other_runs_alongside
     let at = |line: &str| log.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line} in {log:?}"));
     assert!(at("end web up") < at("begin web down"), "one run's operations one after the other: {log:?}");
     assert!(at("end db up") < at("end web up"), "another run's alongside: {log:?}");
-    let phases: Vec<_> = second_events.iter().filter_map(Event::phase_of).collect();
+    let phases: Vec<_> = second_events.iter().filter_map(phase_of).collect();
     assert_eq!(phases, [OperationPhase::Queued, OperationPhase::Started, OperationPhase::Ended]);
-    assert!(first_events.iter().any(Event::is_outcome) && second_events.iter().any(Event::is_outcome));
+    assert!(first_events.iter().any(is_outcome) && second_events.iter().any(is_outcome));
     assert!(second_events.iter().all(|e| e.operation == Some(second.accepted.operation)));
     let ops = a.operations(&RunName::new("web").unwrap(), 10).await.unwrap();
     assert_eq!(ops.len(), 2);
@@ -171,7 +168,7 @@ async fn a_reconnecting_subscriber_resumes_after_its_last_cursor_and_misses_noth
     }
     assert!(missed.iter().all(|(c, _)| *c > last), "only what came after");
     assert!(missed.windows(2).all(|w| w[0].0 < w[1].0), "in order");
-    assert_eq!(missed.first().unwrap().1.phase_of(), Some(OperationPhase::Queued), "from the first missed one");
+    assert_eq!(phase_of(&missed.first().unwrap().1), Some(OperationPhase::Queued), "from the first missed one");
     assert!(missed.iter().all(|(_, e)| e.op == Some(isothrum_runner::Op::Down)));
     let only_db = client.subscribe(Some(RunName::new("db").unwrap()), None).await.unwrap();
     drop(only_db);
@@ -198,16 +195,16 @@ async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
     let mut queued = client.follow(down("web", 0)).await.unwrap();
     client.cancel(queued.accepted.operation).await.unwrap();
     let dropped = events_of(&mut queued).await;
-    assert!(!dropped.iter().any(|e| e.phase_of() == Some(OperationPhase::Started)), "{dropped:?}");
+    assert!(!dropped.iter().any(|e| phase_of(e) == Some(OperationPhase::Started)), "{dropped:?}");
     assert!(dropped.iter().any(|e| matches!(
-        e.to_runner().map(|r| r.kind),
-        Some(EventKind::Error {
+        e.kind,
+        EventKind::Error {
             code: ErrorCode::Cancelled,
             ..
-        })
+        }
     )));
     // Wait for the long one to begin, then cut it short.
-    while long.next().await.unwrap().unwrap().phase_of() != Some(OperationPhase::Started) {}
+    while phase_of(&long.next().await.unwrap().unwrap()) != Some(OperationPhase::Started) {}
     client.cancel(long.accepted.operation).await.unwrap();
     let cut = tokio::time::timeout(Duration::from_secs(5), long.outcome()).await.unwrap();
     assert!(
@@ -249,7 +246,7 @@ async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
     let s = start(None).await;
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let mut long = client.follow(up("web", 60_000)).await.unwrap();
-    while long.next().await.unwrap().unwrap().phase_of() != Some(OperationPhase::Started) {}
+    while phase_of(&long.next().await.unwrap().unwrap()) != Some(OperationPhase::Started) {}
     client.shutdown().await.unwrap();
     let cut = tokio::time::timeout(Duration::from_secs(5), long.outcome()).await.unwrap();
     assert!(

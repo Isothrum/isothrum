@@ -7,7 +7,7 @@ use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_client::{Client, Followed};
 use isothrum_runner::{EventKind, RunName, wire_name};
 
-use crate::args::{Cli, Command as CliCommand, Lifecycle, OpArgs, RunArgs, RunnerCommand};
+use crate::args::{Cli, Command as CliCommand, Lifecycle, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::cancel::{self, Signal};
 use crate::commands::{Out, park_mode};
 use crate::error::{Error, Result};
@@ -76,9 +76,9 @@ fn operation(command: &RunnerCommand, var: &Var<'_>) -> Result<(Command, Shown)>
     let op = op_args(command).ok_or_else(|| Error::Usage("not an operation".into()))?;
     let (target, options) = (target(&op.run)?, options(op, var)?);
     Ok(match command {
-        RunnerCommand::Lifecycle(Lifecycle::Up {
+        RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs {
             replace, lifetime, ssh_jump, ..
-        }) => {
+        })) => {
             let options = OpOptions {
                 ssh_jump: ssh_jump.clone(),
                 ..options
@@ -136,7 +136,7 @@ fn operation(command: &RunnerCommand, var: &Var<'_>) -> Result<(Command, Shown)>
 fn op_args(command: &RunnerCommand) -> Option<&OpArgs> {
     match command {
         RunnerCommand::Lifecycle(
-            Lifecycle::Up { op, .. }
+            Lifecycle::Up(UpArgs { op, .. })
             | Lifecycle::Down(op)
             | Lifecycle::Park { op, .. }
             | Lifecycle::Resume(op)
@@ -225,7 +225,7 @@ async fn follow(client: &Client, mut followed: Followed, out: &Out<'_>, shown: S
             }
         };
         let Some(event) = event else { break };
-        let Some(event) = event?.to_runner() else { continue };
+        let event = event?;
         ending.see(&event.kind);
         out.events.emit(&event);
     }
