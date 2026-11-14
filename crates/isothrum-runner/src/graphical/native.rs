@@ -178,7 +178,7 @@ pub(crate) async fn console(cx: &Cx<'_>, machine: &Machine, app: &NativeApp) -> 
             let vm = argument(machine, &vm)?;
             vec![NativeOpen::MacApp {
                 app: PathBuf::from(UTM),
-                args: vec![format!("utm://start?name={}", percent(vm))],
+                args: vec![format!("utm://start?name={}", crate::encoding::percent_encoded(vm))],
             }]
         }
         Some(Provider::VmwareEsxi) => vec![esxi_url(cx, machine)?],
@@ -331,16 +331,6 @@ fn host_name(h: &str) -> bool {
     !h.is_empty() && h.len() <= 253 && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') && !h.starts_with('-')
 }
 
-/// `s` percent-encoded for a URL's query value: unreserved characters as they are.
-fn percent(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => char::from(b).to_string(),
-            other => format!("%{other:02X}"),
-        })
-        .collect()
-}
-
 /// The error a machine whose run has no app gets.
 pub(crate) fn no_app(machine: &Machine) -> Error {
     no_console(machine, "its hypervisor has no app of its own to show it in")
@@ -369,7 +359,7 @@ mod tests {
 
     #[test]
     fn a_name_in_a_link_is_percent_encoded() {
-        assert_eq!(percent("web-vm - web"), "web-vm%20-%20web");
-        assert_eq!(percent("a&b=c"), "a%26b%3Dc");
+        assert_eq!(crate::encoding::percent_encoded("web-vm - web"), "web-vm%20-%20web");
+        assert_eq!(crate::encoding::percent_encoded("a&b=c"), "a%26b%3Dc");
     }
 }

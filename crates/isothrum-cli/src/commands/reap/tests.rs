@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
+use isothrum_runner::Runner;
 use isothrum_runner::fake::{Call, FakeProcesses, Reply};
-use isothrum_runner::{FakePorts, Runner, RunnerConfig};
 
 use crate::args::Cli;
 use crate::commands;
@@ -93,15 +93,10 @@ fn setup_answering(answer: fn(&Path, &Call) -> Reply) -> Setup {
         let home = home.path().to_path_buf();
         move |call| answer(&home, call)
     }));
-    let mut config = RunnerConfig::new(home.path());
-    let processes: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
-    config.processes = processes;
-    config.ports = Arc::new(FakePorts::new([]));
-    let (out, err) = (Buf::default(), Buf::default());
-    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    let (runner, term, out, err) = super::super::tests::runner_with(home.path(), &fake, []);
     Setup {
         home,
-        runner: Runner::new(config).unwrap(),
+        runner,
         run,
         fake,
         term,

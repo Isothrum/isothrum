@@ -40,6 +40,17 @@ fn setup() -> Setup {
     setup_with(WEB_PORTAL)
 }
 
+/// A runner over `home` whose tools are `fake` and whose free host ports are `free`, and a terminal
+/// whose standard output and error are kept.
+pub(super) fn runner_with(home: &std::path::Path, fake: &Arc<FakeProcesses>, free: impl IntoIterator<Item = u16>) -> (Runner, Term, Buf, Buf) {
+    let mut config = RunnerConfig::new(home);
+    config.processes = Arc::<FakeProcesses>::clone(fake);
+    config.ports = Arc::new(FakePorts::new(free));
+    let (out, err) = (Buf::default(), Buf::default());
+    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    (Runner::new(config).unwrap(), term, out, err)
+}
+
 /// [`setup`] with `manifest` as the run's `run.json`.
 fn setup_with(manifest: &str) -> Setup {
     let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -84,14 +95,10 @@ fn setup_with(manifest: &str) -> Setup {
             () => Reply::ok(""),
         }
     }));
-    let mut config = RunnerConfig::new(home.path());
-    config.processes = Arc::<FakeProcesses>::clone(&fake);
-    config.ports = Arc::new(FakePorts::new([41873]));
-    let (out, err) = (Buf::default(), Buf::default());
-    let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
+    let (runner, term, out, err) = runner_with(home.path(), &fake, [41873]);
     Setup {
         home,
-        runner: Runner::new(config).unwrap(),
+        runner,
         run,
         fake,
         term,

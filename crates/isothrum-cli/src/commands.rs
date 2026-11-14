@@ -278,17 +278,7 @@ fn ticket_shown(url: &str, ticket: &str, show: bool) -> String {
     if show || ticket.is_empty() {
         return url.to_owned();
     }
-    url.replace(&percent(ticket), HIDDEN).replace(ticket, HIDDEN)
-}
-
-/// `s` percent-encoded as a query value: unreserved characters as they are.
-fn percent(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => char::from(b).to_string(),
-            other => format!("%{other:02X}"),
-        })
-        .collect()
+    url.replace(&isothrum_runner::percent_encoded(ticket), HIDDEN).replace(ticket, HIDDEN)
 }
 
 /// The run's checks: a pass only when every one passed.
