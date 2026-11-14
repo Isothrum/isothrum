@@ -19,10 +19,10 @@ publish = false
 # Isoloom's published crates (crates.io), at the release this one pairs with. A change that needs
 # unreleased Isoloom API builds against a local Isoloom checkout through the git-ignored
 # `.cargo/config.toml` patch (CONTRIBUTING.md); the release step raises these pins to it.
-isoloom-spec = "2.0.0"
-isoloom-targets = "2.0.0"
-isoloom-manifest = "2.0.0"
-isoloom-plan = "2.0.0"
+isoloom-spec = "3.0.0"
+isoloom-targets = "3.0.0"
+isoloom-manifest = "3.0.0"
+isoloom-plan = "3.0.0"
 isothrum-compiler = { path = "crates/isothrum-compiler", version = "3.0.0" }
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
