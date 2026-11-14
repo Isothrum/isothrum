@@ -94,6 +94,23 @@ pub(crate) enum RunnerCommand {
         #[command(flatten)]
         run: RunArgs,
     },
+    /// Reach a machine's graphical console (its screen) and print where it answers: an address of
+    /// this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. With `--app`,
+    /// what opens it in its hypervisor's own app instead.
+    Screen {
+        /// The machine (a Vagrant machine, a module's VM).
+        machine: String,
+        /// Print its password too (Proxmox's ticket).
+        #[arg(long)]
+        show_password: bool,
+        /// Print what opens it in its hypervisor's own app (a program and its arguments, a macOS
+        /// app, a URL), best first.
+        #[arg(long)]
+        app: bool,
+        /// The values and secrets the run's tools get (a Proxmox server and its credentials).
+        #[command(flatten)]
+        op: OpArgs,
+    },
     /// Print the run's recorded events, oldest first.
     Events(RunArgs),
     /// Remove the recorded runs past their lifetime (`up --lifetime`), each from the folder it
@@ -375,6 +392,14 @@ mod tests {
         assert!(matches!(on_runner(console.command), RunnerCommand::Console { machine: m, run, user: None } if m == "web" && run.path.as_os_str() == "."));
         let as_user = Cli::parse_from(["isothrum", "console", "--user", "user", "web"]);
         assert!(matches!(on_runner(as_user.command), RunnerCommand::Console { user: Some(u), .. } if u == "user"));
+    }
+
+    #[test]
+    fn a_screen_takes_its_machine_and_the_values_its_tools_get() {
+        let screen = Cli::parse_from(["isothrum", "screen", "web", "--env", "PROXMOX_VE_ENDPOINT=https://pve:8006"]);
+        assert!(matches!(on_runner(screen.command), RunnerCommand::Screen { machine: m, app: false, show_password: false, op } if m == "web" && op.env.len() == 1));
+        let app = Cli::parse_from(["isothrum", "screen", "--app", "web"]);
+        assert!(matches!(on_runner(app.command), RunnerCommand::Screen { app: true, .. }));
     }
 
     #[test]
