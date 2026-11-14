@@ -60,6 +60,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **`up --lifetime 0` is a usage error (#136).** A run given no life to live was started and
+  then reaped at once; `--lifetime` now takes a minute at least, and 0 exits 2 before anything
+  starts.
 - **`reap <cloud>` refuses a `--region` or `--project` its cloud's query doesn't read (#134).**
   `reap azure --region westeurope` searched the CLI's default region and said nothing was left,
   while a leftover in the region named kept billing; such a flag is now a usage error (exit 2),

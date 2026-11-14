@@ -134,14 +134,16 @@ impl Setup {
         ];
         assert_eq!(self.run(&up).await, Verdict::Pass);
         self.out.take();
-        let records = self.home.path().join("runs");
-        for entry in std::fs::read_dir(&records).unwrap() {
-            let record = entry.unwrap().path().join("record.json");
-            let mut doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
-            assert!(doc.get("expires_at").is_some_and(|at| !at.is_null()), "the run has an expiry: {doc}");
-            doc["expires_at"] = serde_json::json!(1000);
-            std::fs::write(&record, doc.to_string()).unwrap();
-        }
+        // The run's record is a row of the home's store: its expiry moved long into the past.
+        let db = rusqlite::Connection::open(self.home.path().join("state.db")).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let expired = db
+            .execute(
+                "UPDATE runs SET record = json_set(record, '$.expires_at', 1000) WHERE json_extract(record, '$.expires_at') IS NOT NULL",
+                [],
+            )
+            .unwrap();
+        assert_eq!(expired, 1, "the run has an expiry");
     }
 }
 
