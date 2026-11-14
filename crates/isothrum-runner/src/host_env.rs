@@ -28,6 +28,10 @@ pub(crate) const LIBVIRT_DEFAULT_URI: &str = "LIBVIRT_DEFAULT_URI";
 #[derive(Clone, Default)]
 pub(crate) struct HostEnv(Vec<(String, OsString)>);
 
+/// An environment with nothing in it, for a context that hands nothing on.
+#[cfg(test)]
+pub(crate) static EMPTY: HostEnv = HostEnv(Vec::new());
+
 impl HostEnv {
     /// This process's environment: the variables it hands on.
     pub(crate) fn capture() -> HostEnv {

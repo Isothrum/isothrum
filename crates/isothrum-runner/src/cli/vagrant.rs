@@ -173,10 +173,6 @@ pub(crate) async fn status(call: &Call<'_>) -> Result<said::Reading, CliError<Fa
 }
 
 /// The address `ssh-config <machine>` gives it; [`CliError::Unexpected`] when it names none.
-#[expect(
-    dead_code,
-    reason = "a VM's address in the status (the Vagrant driver's gap (b): ESXi publishes no port here) reads it"
-)]
 pub(crate) async fn ssh_host(call: &Call<'_>, machine: &str) -> Result<String, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["ssh-config", machine]), Failure::of).await?;
     said::host_name(&out.stdout.join("\n")).ok_or_else(|| CliError::Unexpected {

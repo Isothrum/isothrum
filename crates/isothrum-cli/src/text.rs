@@ -51,8 +51,9 @@ pub(crate) fn status_text(name: &str, status: &Status) -> Vec<String> {
                 None => format!("{}->{}", p.host_port, p.port),
             })
             .collect();
+        let at = m.address.as_deref().map(|a| format!("at {a} ")).unwrap_or_default();
         lines.push(
-            format!("  {:<24} {:<12} {}", m.name, m.state.to_string(), ports.join(" "))
+            format!("  {:<24} {:<12} {at}{}", m.name, m.state.to_string(), ports.join(" "))
                 .trim_end()
                 .to_owned(),
         );

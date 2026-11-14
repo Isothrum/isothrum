@@ -4,7 +4,7 @@ mod reap;
 
 use std::borrow::Borrow;
 
-use isothrum_runner::{Events, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+use isothrum_runner::{Endpoint, Events, NativeOpen, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
@@ -54,6 +54,20 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
             Ok(Verdict::of(run.attach(machine, &options(op, var)?, events).await.is_ok()))
         }
         RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref())?),
+        RunnerCommand::Screen {
+            machine,
+            show_password,
+            app,
+            op,
+        } => {
+            let run = open(runner, &op.run)?;
+            let opts = options(op, var)?;
+            if *app {
+                native(out, &run, machine, &opts).await
+            } else {
+                screen(out, &run, machine, &opts, *show_password).await
+            }
+        }
         RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
         RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
         RunnerCommand::Key => {
@@ -82,7 +96,7 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
         RunnerCommand::Exec { .. } => Op::Check,
         RunnerCommand::Provision { .. } => Op::Provision,
         RunnerCommand::Attach { .. } => Op::Attach,
-        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
+        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Screen { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
             return None;
         }
     })
@@ -93,6 +107,7 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
     let Command::Runner(command) = command else { return None };
     let target = match &**command {
         RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Events(run) => run,
+        RunnerCommand::Screen { op, .. } => &op.run,
         RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
         operation => &op_args(operation)?.run,
     };
@@ -113,7 +128,7 @@ pub(crate) fn op_args(command: &RunnerCommand) -> Option<&OpArgs> {
         | RunnerCommand::Exec { op, .. }
         | RunnerCommand::Provision { op, .. }
         | RunnerCommand::Attach { op, .. } => Some(op),
-        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => None,
+        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Screen { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => None,
     }
 }
 
@@ -205,6 +220,97 @@ async fn exec(out: &Out<'_>, run: &Running<'_>, machine: &str, argv: &[String], 
         }
     }
     Ok(Verdict::of(report.exit == 0))
+}
+
+/// `machine`'s graphical console, reached: where it answers (its password only when `show`), as
+/// one JSON object or lines for a person.
+async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptions, show: bool) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
+    let console = run.graphical_console(machine, opts).await?;
+    let protocol = isothrum_runner::wire_name(&console.protocol);
+    let (address, websocket) = match &console.endpoint {
+        Endpoint::Loopback(at) => (Some(at.to_string()), None),
+        Endpoint::ProxmoxVnc(vnc) => (None, Some(websocket_shown(vnc, show))),
+        _ => (None, None),
+    };
+    let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
+    if json {
+        let line = serde_json::json!({
+            "machine": console.machine, "protocol": protocol, "address": address, "websocket": websocket,
+            "user": console.user, "password": password, "note": console.note,
+        });
+        term.out(&line.to_string());
+    } else {
+        term.out(&format!("{protocol} {}", address.or(websocket).unwrap_or_default()));
+        if let Some(user) = &console.user {
+            term.out(&format!("user: {user}"));
+        }
+        match (&password, &console.password) {
+            (Some(p), _) => term.out(&format!("password: {p}")),
+            (None, Some(_)) => term.out("password: (hidden: --show-password prints it)"),
+            (None, None) => {}
+        }
+        if let Some(note) = &console.note {
+            term.out(&format!("note: {note}"));
+        }
+    }
+    Ok(Verdict::Pass)
+}
+
+/// What opens `machine` in its hypervisor's own app (`screen --app`): each way, best first, as
+/// JSON or one line each.
+async fn native(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptions) -> Result<Verdict> {
+    let Out { json, term, .. } = *out;
+    let console = run.native_console(machine, opts).await?;
+    let ways: Vec<serde_json::Value> = console
+        .ways
+        .iter()
+        .map(|way| match way {
+            NativeOpen::Program { program, args } => serde_json::json!({ "program": program, "args": args }),
+            NativeOpen::MacApp { app, args } => serde_json::json!({ "mac_app": app, "args": args }),
+            NativeOpen::Url { url } => serde_json::json!({ "url": url }),
+            _ => serde_json::Value::Null,
+        })
+        .collect();
+    if json {
+        term.out(&serde_json::json!({ "machine": console.machine, "app": console.app, "ways": ways }).to_string());
+    } else {
+        term.out(&format!("{}:", console.app));
+        for way in &console.ways {
+            match way {
+                NativeOpen::Program { program, args } => term.out(&format!("  {}", words(std::iter::once(program.as_str()).chain(args.iter().map(String::as_str))))),
+                NativeOpen::MacApp { app, args } => {
+                    let app = app.to_string_lossy();
+                    term.out(&format!("  {}", words(["open", "-a", &app].into_iter().chain(args.iter().map(String::as_str)))));
+                }
+                NativeOpen::Url { url } => term.out(&format!("  {url}")),
+                _ => {}
+            }
+        }
+    }
+    Ok(Verdict::Pass)
+}
+
+/// `words` as one POSIX shell line, each quoted when it holds anything but letters, digits and
+/// `-_./:=@%+,`.
+fn words<'a>(words: impl IntoIterator<Item = &'a str>) -> String {
+    let plain = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
+    words
+        .into_iter()
+        .map(|w| if plain(w) { w.to_owned() } else { format!("'{}'", w.replace('\'', "'\\''")) })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A Proxmox VE console's websocket as `screen` prints it: its ticket (the console's password, in
+/// its query) masked unless `show` (`--show-password`).
+fn websocket_shown(vnc: &isothrum_runner::ProxmoxVnc, show: bool) -> String {
+    const HIDDEN: &str = "<hidden: --show-password prints it>";
+    let (url, ticket) = (vnc.websocket.expose(), vnc.ticket.expose());
+    if show || ticket.is_empty() {
+        return url.to_owned();
+    }
+    url.replace(&isothrum_runner::percent_encoded(ticket), HIDDEN).replace(ticket, HIDDEN)
 }
 
 /// The command that opens a console into a machine (`console`): one line to paste in a POSIX

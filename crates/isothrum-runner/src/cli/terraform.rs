@@ -15,6 +15,7 @@ use std::fmt;
 use std::path::Path;
 
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use super::{Call, CliError, argv, said_any};
 use crate::events::Stream;
@@ -420,6 +421,77 @@ pub(crate) struct Resource {
     pub(crate) id: Option<String>,
     /// A create or a provisioner of it failed: the next apply makes it again.
     pub(crate) tainted: bool,
+    /// What its attributes say of the VM it is, when it is one.
+    pub(crate) vm: VmFacts,
+}
+
+/// What a VM resource's attributes say of it, read by the names the providers give them; each
+/// none where its provider writes no such attribute.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct VmFacts {
+    /// The Proxmox VE node it runs on (`node_name`, `target_node`).
+    pub(crate) node: Option<String>,
+    /// Its id on its Proxmox VE cluster (`vm_id`, `vmid`).
+    pub(crate) vm_id: Option<String>,
+    /// Its address, as its provider writes it ([`ADDRESSES`], then the addresses its network
+    /// interfaces list), loopback and link-local ones left out.
+    pub(crate) address: Option<String>,
+}
+
+/// The attributes a VM's provider writes its address in, best first: Telmate/proxmox's, ESXi's
+/// and Linode's, vSphere's, Hetzner's and DigitalOcean's, the clouds' public ones (AWS, OCI,
+/// Scaleway, Azure, Vultr, OpenStack), then the private ones and Telmate's SSH host.
+const ADDRESSES: [&str; 11] = [
+    "default_ipv4_address",
+    "ip_address",
+    "default_ip_address",
+    "ipv4_address",
+    "public_ip",
+    "public_ip_address",
+    "main_ip",
+    "access_ip_v4",
+    "private_ip",
+    "private_ip_address",
+    "ssh_host",
+];
+
+/// A network interface as libvirt's and Google's providers write it.
+#[derive(Deserialize)]
+struct Interface {
+    /// libvirt's.
+    #[serde(default)]
+    addresses: Vec<String>,
+    /// Google's private address.
+    #[serde(default)]
+    network_ip: Option<String>,
+    /// Google's public addresses.
+    #[serde(default)]
+    access_config: Vec<AccessConfig>,
+}
+
+/// Google's public address of an interface.
+#[derive(Deserialize)]
+struct AccessConfig {
+    #[serde(default)]
+    nat_ip: Option<String>,
+}
+
+/// `ipv4_addresses`: bpg/proxmox's, by interface; Xen Orchestra's, flat.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Ipv4Addresses {
+    ByInterface(Vec<Vec<String>>),
+    Flat(Vec<String>),
+}
+
+/// Whether `address` is one another computer reaches the VM at: an IP address that isn't
+/// loopback, link-local or unspecified.
+fn reachable_address(address: &str) -> bool {
+    match address.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => !(ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()),
+        Ok(std::net::IpAddr::V6(ip)) => !(ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xffc0) == 0xfe80),
+        Err(_) => false,
+    }
 }
 
 /// What `show -json` says of the state: its managed resources (what the run made, what may cost)
@@ -459,15 +531,75 @@ struct ResourceDoc {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
-    values: Option<IdOnly>,
+    values: Option<Attributes>,
     #[serde(default)]
     tainted: bool,
 }
 
+/// The attributes of a resource the runner reads: its id, and what a VM's say of it.
 #[derive(Deserialize)]
-struct IdOnly {
+struct Attributes {
     #[serde(default)]
     id: Option<serde_json::Value>,
+    /// bpg/proxmox's node.
+    #[serde(default)]
+    node_name: Option<serde_json::Value>,
+    /// Telmate/proxmox's node.
+    #[serde(default)]
+    target_node: Option<serde_json::Value>,
+    /// bpg/proxmox's VM id.
+    #[serde(default)]
+    vm_id: Option<serde_json::Value>,
+    /// Telmate/proxmox's VM id.
+    #[serde(default)]
+    vmid: Option<serde_json::Value>,
+    /// Every other attribute, by name: where a VM's address is read from. Each is read in its own
+    /// shape where a provider writes one, and skipped when it isn't in it, so no provider's own
+    /// attribute of the same name makes the state unreadable.
+    #[serde(flatten)]
+    rest: BTreeMap<String, serde_json::Value>,
+}
+
+impl Attributes {
+    /// What they say of the VM.
+    fn vm(&self) -> VmFacts {
+        VmFacts {
+            node: scalar(self.node_name.as_ref()).or_else(|| scalar(self.target_node.as_ref())),
+            vm_id: scalar(self.vm_id.as_ref()).or_else(|| scalar(self.vmid.as_ref())),
+            address: self.address(),
+        }
+    }
+
+    /// Attribute `name` in the shape `T`; none when it isn't there or isn't in that shape.
+    fn shaped<T: DeserializeOwned>(&self, name: &str) -> Option<T> {
+        self.rest.get(name).cloned().and_then(|v| serde_json::from_value(v).ok())
+    }
+
+    /// The VM's address: the first of [`ADDRESSES`] that is one, else the first its interfaces
+    /// list.
+    fn address(&self) -> Option<String> {
+        let named = ADDRESSES.iter().filter_map(|name| scalar(self.rest.get(*name)));
+        let by_interface: Vec<String> = match self.shaped("ipv4_addresses") {
+            Some(Ipv4Addresses::ByInterface(lists)) => lists.into_iter().flatten().collect(),
+            Some(Ipv4Addresses::Flat(list)) => list,
+            None => Vec::new(),
+        };
+        let interfaces: Vec<Interface> = self.shaped("network_interface").unwrap_or_default();
+        let listed = interfaces.into_iter().flat_map(|i| {
+            let public = i.access_config.into_iter().filter_map(|a| a.nat_ip);
+            public.chain(i.network_ip).chain(i.addresses).collect::<Vec<_>>()
+        });
+        named.chain(by_interface).chain(listed).find(|a| reachable_address(a))
+    }
+}
+
+/// An attribute that is a string or a number, as text; none for anything else, or an empty one.
+fn scalar(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
 }
 
 /// `show -json`'s state, read: an empty state (no `values`) has nothing; a mode other than
@@ -480,16 +612,18 @@ pub(crate) fn shown(json: &str) -> Result<Shown, String> {
         for r in module.resources {
             match r.mode.as_str() {
                 "managed" => {
-                    let id = r.values.and_then(|v| v.id).and_then(|id| match id {
-                        serde_json::Value::String(s) => Some(s),
+                    let id = r.values.as_ref().and_then(|v| match v.id.as_ref()? {
+                        serde_json::Value::String(s) => Some(s.clone()),
                         serde_json::Value::Number(n) => Some(n.to_string()),
                         _ => None,
                     });
+                    let vm = r.values.as_ref().map(Attributes::vm).unwrap_or_default();
                     out.managed.push(Resource {
                         address: r.address,
                         kind: r.kind,
                         id,
                         tainted: r.tainted,
+                        vm,
                     });
                 }
                 "data" => out.data.push(r.address),
@@ -653,12 +787,14 @@ mod tests {
                     kind: "aws_security_group".into(),
                     id: Some("sg-0a1b2c3d".into()),
                     tainted: false,
+                    vm: VmFacts::default(),
                 },
                 Resource {
                     address: "module.web.aws_instance.vm".into(),
                     kind: "aws_instance".into(),
                     id: Some("i-0123456789abcdef0".into()),
                     tainted: false,
+                    vm: VmFacts::default(),
                 },
             ]
         );
@@ -688,6 +824,46 @@ mod tests {
         assert!(read.managed.iter().all(|r| r.id.is_some() && !r.tainted));
         let tainted = shown(include_str!("../tool_output/fixtures/terraform/1.16-show-tainted.json")).unwrap();
         assert!(tainted.managed[0].tainted);
+    }
+
+    /// A Proxmox VM as each provider's state writes it: bpg's `node_name`, `vm_id` and
+    /// `ipv4_addresses` by interface, Telmate's `target_node`, `vmid` and `default_ipv4_address`.
+    #[test]
+    fn a_proxmox_vm_says_its_node_id_and_address() {
+        let json = r#"{"values":{"root_module":{"resources":[
+            {"address":"proxmox_virtual_environment_vm.web","mode":"managed","type":"proxmox_virtual_environment_vm","values":{"id":"101","node_name":"pve","vm_id":101,"ipv4_addresses":[["127.0.0.1"],["10.0.0.5"]]}},
+            {"address":"proxmox_vm_qemu.db","mode":"managed","type":"proxmox_vm_qemu","values":{"id":"pve2/qemu/102","target_node":"pve2","vmid":"102","default_ipv4_address":"10.0.0.6"}},
+            {"address":"terraform_data.x","mode":"managed","type":"terraform_data","values":{"id":"x","node_name":""}}
+        ]}}}"#;
+        let read = shown(json).unwrap();
+        let facts: Vec<(Option<&str>, Option<&str>, Option<&str>)> = read
+            .managed
+            .iter()
+            .map(|r| (r.vm.node.as_deref(), r.vm.vm_id.as_deref(), r.vm.address.as_deref()))
+            .collect();
+        assert_eq!(
+            facts,
+            [(Some("pve"), Some("101"), Some("10.0.0.5")), (Some("pve2"), Some("102"), Some("10.0.0.6")), (None, None, None)]
+        );
+    }
+
+    /// Each provider's own shape: ESXi's and AWS's attributes, libvirt's and Google's interfaces;
+    /// an attribute of another shape under one of those names is skipped, never a state unread.
+    #[test]
+    fn a_vms_address_is_read_where_its_provider_writes_it() {
+        let address = |values: &str| {
+            let json = format!(r#"{{"values":{{"root_module":{{"resources":[{{"address":"x.y","mode":"managed","type":"x","values":{values}}}]}}}}}}"#);
+            shown(&json).unwrap().managed.remove(0).vm.address
+        };
+        assert_eq!(address(r#"{"ip_address":"172.16.1.53"}"#).as_deref(), Some("172.16.1.53"));
+        assert_eq!(address(r#"{"public_ip":"","private_ip":"10.1.0.4"}"#).as_deref(), Some("10.1.0.4"));
+        assert_eq!(address(r#"{"network_interface":[{"addresses":["fe80::1","192.168.121.10"]}]}"#).as_deref(), Some("192.168.121.10"));
+        assert_eq!(
+            address(r#"{"network_interface":[{"network_ip":"10.128.0.2","access_config":[{"nat_ip":"34.1.2.3"}]}]}"#).as_deref(),
+            Some("34.1.2.3")
+        );
+        assert_eq!(address(r#"{"ipv4_addresses":["10.2.0.9"]}"#).as_deref(), Some("10.2.0.9"));
+        assert_eq!(address(r#"{"network_interface":[{"device_index":0,"addresses":7}],"ip_address":"none"}"#), None);
     }
 
     #[tokio::test]

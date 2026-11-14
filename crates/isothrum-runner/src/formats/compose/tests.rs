@@ -26,6 +26,7 @@ fn cx<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses) -> Too
         state_dir: Path::new("/nowhere"),
         provider: None,
         env: vec![("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())],
+        host_env: &crate::host_env::EMPTY,
         processes: fake,
         sink: &quiet,
         warn: &unwarned,
@@ -152,6 +153,8 @@ fn the_runs_state_follows_its_services() {
         name: "x".to_owned(),
         state,
         published: Vec::new(),
+        kind: None,
+        address: None,
     };
     assert_eq!(run_state(&[]), RunState::Absent);
     assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(0))]), RunState::Ready);

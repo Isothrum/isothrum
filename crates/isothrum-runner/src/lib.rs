@@ -97,6 +97,7 @@ mod error;
 mod events;
 mod formats;
 mod future;
+mod graphical;
 mod host_env;
 mod name;
 mod net;
@@ -124,6 +125,7 @@ pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
 pub use events::{Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode, events_schema};
 pub use future::BoxFuture;
+pub use graphical::{Console, ConsoleOffer, ConsoleProtocol, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc};
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]

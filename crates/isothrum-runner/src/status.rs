@@ -76,6 +76,16 @@ pub struct MachineStatus {
     pub state: MachineState,
     /// Its published ports.
     pub published: Vec<PublishedPort>,
+    /// The address it is reached at itself, when its tool says one another computer reaches (a
+    /// VM on a bridged or host-only network, a server's VM, a cloud instance); none for one
+    /// reached only through its published ports. On ESXi, which forwards no port to this
+    /// computer, a machine's ports answer at this address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Its graphical console, as its hypervisor offers it; none for a machine with no screen to
+    /// speak of (a container), and while not [`Status::live`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<crate::graphical::ConsoleOffer>,
 }
 
 /// An output's value (a Terraform module's output). A sensitive one shows as `***` wherever it
@@ -151,6 +161,10 @@ pub struct Status {
     /// What the project gives back (a module's outputs), as read; none while not
     /// [`Status::live`].
     pub outputs: Vec<OutputValue>,
+    /// The hypervisor's own app the run's VMs open in ([`crate::Running::native_console`]); none
+    /// where there is none (containers, QEMU), and while not [`Status::live`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<crate::graphical::NativeApp>,
 }
 
 impl Status {

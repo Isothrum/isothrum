@@ -11,9 +11,14 @@
 
 pub(crate) mod compose;
 pub(crate) mod docker;
+pub(crate) mod prlctl;
+pub(crate) mod proxmox;
+pub(crate) mod qemu;
 pub(crate) mod terraform;
+pub(crate) mod utmctl;
 pub(crate) mod vagrant;
 pub(crate) mod vboxmanage;
+pub(crate) mod virsh;
 
 use std::fmt::Display;
 use std::path::PathBuf;
@@ -95,9 +100,19 @@ impl Call<'_> {
     /// Runs `tool` with `args` to its end within the call's limit, each line to the sink: what it
     /// printed, whatever its exit (see [`Call::ok`]).
     pub(crate) async fn run<F: Display>(&self, tool: &'static str, args: Vec<String>) -> Result<Captured, CliError<F>> {
-        let mut spec = ProcessSpec::new(tool, args);
-        spec.cwd.clone_from(&self.cwd);
-        spec.env.clone_from(&self.env);
+        self.run_spec(tool, self.spec(tool, args)).await
+    }
+
+    /// [`Call::run`], with the file at `input` piped into the tool's standard input (a request's
+    /// credentials, which never go on its command line).
+    pub(crate) async fn run_fed<F: Display>(&self, tool: &'static str, args: Vec<String>, input: &std::path::Path) -> Result<Captured, CliError<F>> {
+        let mut spec = self.spec(tool, args);
+        spec.stdin = Some(input.to_path_buf());
+        self.run_spec(tool, spec).await
+    }
+
+    /// Runs `spec` (of `tool`) to its end within the call's limit, each line to the sink.
+    async fn run_spec<F: Display>(&self, tool: &'static str, spec: ProcessSpec) -> Result<Captured, CliError<F>> {
         let mut echo = |stream: Stream, line: &str| (self.sink)(stream, line);
         match tokio::time::timeout(self.limit, capture_echoing(self.runner, &spec, &mut echo)).await {
             Err(_) => Err(CliError::TimedOut {

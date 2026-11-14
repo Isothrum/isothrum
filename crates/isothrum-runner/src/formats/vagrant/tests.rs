@@ -76,6 +76,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
             ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
             ("ISOLOOM_KEY".to_owned(), "k3y9ab".to_owned()),
         ],
+        host_env: &crate::host_env::EMPTY,
         processes: fake,
         sink: &quiet,
         warn: &*f.warn,
@@ -334,6 +335,30 @@ async fn a_provider_that_cant_list_forwards_has_no_port_proven() {
     assert_eq!(state, RunState::Ready);
 }
 
+/// A VM reached at an address of its own (libvirt's, ESXi's) has it in what is seen; one reached
+/// through a port forwarded on the loopback (VirtualBox's) isn't asked for one.
+#[tokio::test]
+async fn a_vm_on_a_provider_that_gives_its_own_address_has_it() {
+    let f = Fixture::new();
+    f.made("web", "libvirt", "uuid-web");
+    let fake = FakeProcesses::script()
+        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
+        .expect("vagrant port web --machine-readable", Reply::ok(""))
+        .expect("vagrant ssh-config web", Reply::ok("Host web\n  HostName 192.168.121.10\n  User vagrant\n"))
+        .build();
+    let (seen, _) = Vagrant.observe(&cx(&f, &fake, LIBVIRT)).await.expect("observe");
+    assert_eq!((seen.machines[0].kind.as_deref(), seen.machines[0].address.as_deref()), (Some("libvirt"), Some("192.168.121.10")));
+
+    let f = Fixture::new();
+    f.made("web", "virtualbox", "uuid-web");
+    let fake = FakeProcesses::script()
+        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
+        .expect("vagrant port web --machine-readable", Reply::ok(""))
+        .build();
+    let (seen, _) = Vagrant.observe(&cx(&f, &fake, VBOX)).await.expect("observe");
+    assert_eq!(seen.machines[0].address, None, "no ssh-config asked");
+}
+
 #[tokio::test]
 async fn nothing_made_is_absent_as_vagrant_prints_it() {
     let f = Fixture::new();
@@ -356,6 +381,8 @@ fn the_run_state_rule() {
         name: name.into(),
         state,
         published: Vec::new(),
+        kind: None,
+        address: None,
     };
     assert_eq!(run_state(&[]), RunState::Absent);
     assert_eq!(run_state(&[m("a", MachineState::Absent)]), RunState::Absent);
