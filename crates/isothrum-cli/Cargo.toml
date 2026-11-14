@@ -35,6 +35,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
+isothrum-test-support.workspace = true
 proptest.workspace = true
 # A test writes a run row the runner can't read straight into the home's store.
 rusqlite.workspace = true

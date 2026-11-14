@@ -781,6 +781,7 @@ dependencies = [
  "clap_complete",
  "isoloom-manifest",
  "isothrum-runner",
+ "isothrum-test-support",
  "proptest",
  "rusqlite",
  "schemars",
@@ -815,6 +816,7 @@ version = "3.0.0"
 dependencies = [
  "isoloom-manifest",
  "isothrum-runner",
+ "isothrum-test-support",
  "tempfile",
  "tokio",
 ]
@@ -828,6 +830,7 @@ dependencies = [
  "indexmap",
  "isoloom-manifest",
  "isoloom-targets",
+ "isothrum-test-support",
  "nix",
  "process-wrap",
  "proptest",
@@ -844,6 +847,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows",
+]
+
+[[package]]
+name = "isothrum-test-support"
+version = "3.0.0"
+dependencies = [
+ "nix",
+ "tempfile",
 ]
 
 [[package]]

@@ -76,17 +76,15 @@ impl ProcessRunner for Pwsh {
 #[tokio::test]
 #[ignore = "runs the PowerShell broker: needs pwsh (PowerShell 7) on PATH"]
 async fn a_pwsh_broker_cancels_a_request_cut_short_and_takes_the_next() {
-    use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
     let bin = home.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let taskkill = bin.join("taskkill.exe");
-    std::fs::write(
-        &taskkill,
+    // Written by a child process, as every program a test runs.
+    isothrum_test_support::write_executable(
+        &bin.join("taskkill.exe"),
         "#!/bin/sh\neval pid=\\${$#}\nend() { for c in $(pgrep -P \"$1\"); do end \"$c\"; done; kill -9 \"$1\" 2>/dev/null; }\nend \"$pid\"\n",
     )
     .unwrap();
-    std::fs::set_permissions(&taskkill, std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     let processes = Arc::new(Pwsh {
         system: crate::process::SystemProcesses::default(),
