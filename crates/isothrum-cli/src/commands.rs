@@ -1,8 +1,10 @@
 //! Each command, on a runner the caller built.
 
-use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+mod reap;
 
 use std::borrow::Borrow;
+
+use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
@@ -367,6 +369,5 @@ fn options(args: &OpArgs, var: &Var<'_>) -> Result<RunOptions> {
     Ok(opts)
 }
 
-mod reap;
 #[cfg(test)]
 mod tests;
