@@ -11,6 +11,13 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **`isothrum-machine`'s host table: `Host`, `Os`, `Arch`, `Packages`, `LinuxPackages`,
+  `Devices`.** This computer as machine setup reads it: its OS and CPU (one `Arch` with Rust's
+  name, `id()` `x86_64`/`aarch64`, and Docker's, `docker_name()` `amd64`/`arm64`), the package
+  manager setup goes through (Homebrew, winget, apt, dnf; `Host::here` asks `apt-get` and `dnf`
+  through the runner), and the files detection reads (`Devices`: KVM's device, the kernel's module
+  list, UTM's bundle, Hyper-V's service, the VMware Utility's marker and service). A test builds
+  its own (`Devices::under(dir)`), so each OS's rules run on any machine.
 - **`percent_encoded`: a value percent-encoded for a URL's query**, the one encoder the runner's
   links and the command line's masked console ticket use.
 - **Every run has a key, and every tool of the run gets it.** `copy_key(home, name)` (and
@@ -22,9 +29,49 @@ Terraform), usable on any project of those formats.
   embedder hands a project what it reads under its own names (the run's key as the variable a
   Vagrantfile reads, say). Not recorded: pass them to every operation.
 
+- **The runner service: `isothrum serve`, one daemon per home.** It holds the home (an OS lock
+  on `<home>/service.lock`: a second `serve` exits naming the holder), listens on an owner-only
+  endpoint (`<home>/service.sock` on Unix; on Windows a named pipe of a random name only the user
+  may open, remote clients refused), published in `<home>/service.json`, and speaks a
+  newline-delimited JSON protocol: the operations (`up`, `down`, `park`, `resume`, `update`,
+  `attach`, `detach`, `retire`, `provision`, `check`) are queued per run (one at a time per run,
+  runs side by side), `status`, `list`, `operations` and `cancel` answer at once, and `subscribe`
+  streams every operation's events, numbered so a reconnecting client resumes after the last it
+  saw. It stops on `shutdown`, on Ctrl-C/SIGTERM, or after `--idle-timeout` seconds (default 600)
+  with no client and no operation, cancelling its operations and ending their tools.
+- **`isothrum-client`: the service's client crate** (what an app links): `Client::connect`
+  starts the home's service when none answers, typed commands, `subscribe` as a `Stream`,
+  `follow` (an operation's events, none missed) and `wait`.
+- **`Client::connect_exact`: a service of this release, replacing one of another.** An app that
+  bundles Isothrum connects only to a service of its own release (`isothrum_client::VERSION`) and
+  protocol: one of another release is asked to stop when idle (`shutdown_if_idle`), or, when it
+  doesn't answer, ended by its pid only while it holds the home's lock, the process with that pid
+  started no later than the service said (a reused pid is never ended) and the journal shows no
+  operation of it unfinished; then the given `isothrum` is started and its release checked.
+  `ClientError::Busy` (operations queued or running: the service is left running) and
+  `ClientError::Version` (the binary started is another release) say why it couldn't. Every
+  protocol keeps two frames: a `hello` of any protocol is answered with the service's protocol
+  and version, and `shutdown_if_idle` (`Reply::Ok`, or `Reply::Busy` with the operations) is
+  taken from a client of any protocol. The runner gains `Store::read_existing` (a read-only look
+  that never creates nor migrates), `Tx::in_flight`, `process_started_at` and `rfc3339_seconds`.
+- **The command line goes through the service.** The operations and `status` are sent to the
+  home's service (started when it isn't running) and print its events as before; Ctrl-C cancels
+  the operation in the service and waits for its end. `--no-service` (or `ISOTHRUM_NO_SERVICE=1`)
+  runs the command in-process, as before, for tests and CI. In service mode the tools run with
+  the service's environment (the one it started with), not the command's; secrets given with
+  `--secret-from-env` are read by the command and sent over the owner-only endpoint.
 - **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
   drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
   the runner now knows the tools running and ends them, with the ones still stopping.
+- **The home's store repairs itself.** `state.db` is checked at every open (`PRAGMA quick_check`),
+  and `state.mirror` beside it keeps a copy of the rows a later operation needs: the runs, the
+  live resources with their recorded ids, and the operations they refer to or that are open. It is
+  written atomically by each transaction that changes them. A damaged store (it fails the check,
+  isn't a database, or is empty beside a mirror holding rows) is rebuilt from the mirror, and the
+  damaged file is kept aside as `state.db.corrupt-<unix seconds>`. `Store::recovered` and
+  `Runner::recovered` say a repair happened, so an embedder reads each run's status, which
+  reconciles it with its tools. With no mirror, opening fails `store_corrupt`, naming what the
+  check found.
 
 ### Changed
 
@@ -36,6 +83,25 @@ Terraform), usable on any project of those formats.
   `isoloom-spec` or `isoloom-plan`.
 - **docker-vm is gone.** **Breaking:** a run manifest whose containers run inside one of its VMs
   (`guest`) is refused (`unsupported`); run the VM targets.
+- **One provider detection, with the launcher's stricter checks, its reasons as codes.**
+  **Breaking, for embedders:** `isothrum-machine`'s `providers::detect(&Context, bool)` and
+  `providers::status(&Context, Provider)` work through a `Context` (the runner as an
+  `Arc<dyn ProcessRunner>`, the `Host`, and a probe time limit, `PROBE_TIMEOUT` by default), and
+  `ProviderStatus` says what Vagrant still needs (`needs: Vec<Need>`), whether the hypervisor is
+  installed, the plugin and whether it is installed, the VMware Utility (`UtilityState`), what the
+  account lacks (`AccountLacks`), whether the provider is remote, and `reason:
+  Option<Unavailable>`, a code with its args (`{"code": "pluginMissing", "args": {"plugin":
+  "vagrant-libvirt"}}`) that a UI translates, with an English `message()`. Newly detected:
+  without Vagrant the hypervisors are still probed (each status needs Vagrant); KVM holding the
+  CPU's virtualization (VirtualBox, Linux 6.12+); VirtualBox's kernel driver from the module
+  list, telling a restart (a newer kernel with headers) from a rebuild, with `VBoxManage`'s warning
+  where the list can't be read; `/dev/kvm` for QEMU on Linux too, its group read from the device;
+  a group joined since logging in (`id`); QEMU without `mkisofs` on Linux; HashiCorp's VMware
+  Utility not installed or not running; a plugin older than the minimum reads as not installed (a
+  setup installs it again); a probe that runs out of time reads as installed and slow. On a Mac,
+  VirtualBox is offered on Intel and UTM on Apple silicon unless already installed
+  (`providers::offered`), and QEMU is no longer listed on Windows. The hypervisor table is public
+  (`ProviderRow::of`: OSes, Windows on Arm, Mac CPU, vendor page, folder sharing, minimums).
 
 - **A run manifest's recovery names its leftovers (`recovery.leftovers`), not the tools' words.**
   **Breaking, for manifests:** Isoloom 3 writes `leftovers` (`virtualbox_name_taken`,
@@ -48,8 +114,9 @@ Terraform), usable on any project of those formats.
   every state move with the operation that made it, the journal of operations (started, steps,
   ended), the events, the resources each run made (written ahead: `creating` before the call,
   `created` with the id after), the host ports reserved and the leases. It replaces `record.json`,
-  `seen.json`, `events.jsonl`, `anonymous-volumes` and `ports/*.lock`. A 2.x home is imported on
-  its first open, once, its files left read-only beside the store. An operation finds the
+  `seen.json`, `events.jsonl`, `anonymous-volumes` and `ports/*.lock`. A 3.0 home starts empty:
+  nothing of a 2.x home is read (stop and remove 2.x runs with the 2.x command line first). An
+  operation finds the
   operations a dead process left unfinished, ends them `abandoned` and records a run they left
   moving as `failed`. A host port's reservation is held under its run's lease, renewed while held:
   a dead holder's is taken over.
@@ -62,6 +129,14 @@ Terraform), usable on any project of those formats.
   `store_corrupt`, `lease_held`.
 - **Events v1.** **Breaking:** an event's `v` is 1 (`schema/events-v1.schema.json`): the state
   words above, and `operation`, the journal id, on every event of an operation.
+- **A port inside a machine and the port it is reached at are two types.** **Breaking, for
+  embedders:** `GuestPort` (a container's or VM's own port) and `HostPort` (where a published
+  port is reached, at the machine's host address) replace `u16` in `PublishedPort::port` and
+  `PublishedPort::host_port`, `Error::PortInUse::port` and `RunRecord::vm_host_ports`; read the
+  number with `.get()`. Both serialize as the bare number: the JSON and the record are unchanged,
+  and the status schema names the two with the same integer range. Inside the runner a guest port becomes a host port only through its driver's
+  one crossing (a Vagrant VM's forward, a VM answering at its own address), so a port read
+  inside a VM can no longer be reported as this computer's.
 - **Three public fields say what they hold.** **Breaking, for embedders:** `Captured::stderr` is
   `Captured::stderr_tail` (it holds the last standard error lines, filtered, not the whole
   stream); `ProcessSpec::tools` is `ProcessSpec::ledger_dir` (the folder the tool is recorded in,
@@ -137,11 +212,13 @@ Terraform), usable on any project of those formats.
   (`vagrant.discard_aborted_saved`) and the graphical consoles go by the ids Vagrant records
   (`<dotfile>/machines/<define>/<provider>/id`: VirtualBox's and libvirt's UUIDs, Hyper-V's VM
   id, UTM's UUID), never by a name: the manifest's `vm_names` are no longer read.
-- **On Windows, a tool being created as the runner's process is killed is ended by the next
-  operation.** A tool is created suspended, put in its job object, then resumed; a process killed
-  in between left it suspended in no job, never run and never ended. Its creation is now recorded
-  in the run's tools ledger until it is in its job, and the next operation, finding its creator
-  dead, ends it.
+- **On Windows, a tool is created inside its job object, and the runner's tools end with it.** A
+  tool was created suspended, put in its job object, then resumed: a process killed in between
+  left it suspended in no job, never run and never ended. The kernel now creates it in its job
+  (`PROC_THREAD_ATTRIBUTE_JOB_LIST`), and the job ends the tool's tree when the runner's process
+  dies however it dies (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), not at the next operation; a tool
+  that exited on its own leaves what it started running, as before. A tool inherits its own
+  standard handles only, never the runner's others.
 - **One elevated request cut short no longer ends the Hyper-V session.** A request that timed
   out (a `vagrant ssh -c` probe while the controller halts) ended the elevated broker, and every
   later call of the operation failed with `elevation`. The broker now runs each request in a

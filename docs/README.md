@@ -25,6 +25,7 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [Environment variables](reference/environment.md)
 - [Event stream](reference/events.md) and the `status --json` schema
 - [State layout](reference/state.md): the home, `state.db`
+- [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
 - [GNS3 feature coverage](reference/gns3-coverage.md) of the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),
@@ -38,6 +39,6 @@ Organised by what you need: learning, doing a task, looking something up, or und
 ## Project
 
 - [Policies](policies.md): what is stable, run manifest versions, MSRV, supported releases
-- [Migrating a home to 3.0](reference/state.md#migrating-a-home-to-30), [to 2.0](migrating-to-2.0.md) and [to 1.0](migrating-to-1.0.md)
+- [Upgrading from 2.x](reference/state.md#upgrading-from-2x); [Migrating to 2.0](migrating-to-2.0.md) and [to 1.0](migrating-to-1.0.md)
 - [Changelog](../CHANGELOG.md), [Contributing](../CONTRIBUTING.md), [Security](../SECURITY.md),
   [Support](../SUPPORT.md), [Publishing a release](../PUBLISHING.md)

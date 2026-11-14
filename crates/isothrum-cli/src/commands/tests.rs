@@ -391,9 +391,10 @@ async fn attach_with_json_says_where_in_its_result_event() {
 async fn events_says_how_many_lines_of_the_log_it_couldnt_read() {
     let s = setup();
     assert_eq!(s.run(&["up"]).await.unwrap(), Verdict::Pass);
-    let older = r#"{"v":0,"seq":9,"time":"2026-10-15T12:00:01Z","run":"web-portal","op":"up","event":"warning","code":"hook_failed","message":"x"}"#;
+    // A row another version wrote: a kind this one doesn't know.
+    let later = r#"{"v":9,"seq":9,"time":"2026-10-15T12:00:01Z","run":"web-portal","op":"up","event":"a_later_kind"}"#;
     let store = isothrum_runner::store::Store::open(s.home.path()).unwrap();
-    store.write(|tx| tx.append_raw_event(Some("web-portal"), None, older)).unwrap();
+    store.write(|tx| tx.append_raw_event(Some("web-portal"), None, later)).unwrap();
     s.out.take();
     s.err.take();
     assert_eq!(s.run(&["events"]).await.unwrap(), Verdict::Pass);

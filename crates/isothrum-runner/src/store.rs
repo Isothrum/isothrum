@@ -15,9 +15,7 @@
 //!                       state
 //! ```
 //!
-//! A home a 2.x runner wrote is imported into the store the first time it is opened: its
-//! `record.json`, `seen.json`, `events.jsonl` and `anonymous-volumes` files become rows, and stay
-//! beside it read-only (`db/import.rs`).
+//! A home starts empty: files another release left in it are neither read nor removed.
 
 #[cfg(any(windows, test))]
 mod acl;
@@ -31,8 +29,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 pub use db::{
-    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
-    PortReservation, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
+    CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, MIRROR_FILE, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
+    PortReservation, Recovered, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
 };
 pub(crate) use fs::{if_there, private_dir, remove_path, write_private};
 

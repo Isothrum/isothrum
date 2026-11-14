@@ -1,7 +1,9 @@
 #!/bin/sh
 # pre-commit: no staged file over 5 MB unless Git LFS holds it (the pointer is what's committed
 # then), and the staged files are formatted (repo.sh's format_staged: the formatters this
-# repository uses, over the staged files only, so it takes a moment).
+# repository uses, over the staged files only, so it takes a moment). With
+# `git config hooks.regenerate true` (opt-in: it builds), the generated files are written again
+# (regenerate) and a commit that would leave one stale is refused until it is staged.
 # shellcheck source-path=SCRIPTDIR
 set -u
 HOOK=pre-commit
@@ -24,4 +26,11 @@ fi
 
 files=$(staged_files)
 [ -z "$files" ] || format_staged "$files"
+
+if [ "$(git config --bool hooks.regenerate)" = true ]; then
+  "$(dirname "$0")/regenerate" >/dev/null || refuse "the generated files couldn't be written: .githooks/regenerate says why"
+  # shellcheck disable=SC2086 # one path a word: the paths have no spaces
+  changed=$(git diff --name-only -- $GENERATED)
+  [ -z "$changed" ] || refuse "a generated file was stale and is written again: review it, stage it, commit again" "$changed"
+fi
 exit 0

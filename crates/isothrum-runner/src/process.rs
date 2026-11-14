@@ -7,6 +7,8 @@
 mod elevated;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
+#[cfg(windows)]
+mod job;
 pub(crate) mod ledger;
 mod lines;
 mod locale;
@@ -14,6 +16,8 @@ mod shim;
 mod stopping;
 mod system;
 mod tail;
+#[cfg(any(windows, test))]
+mod win_command;
 
 use std::path::PathBuf;
 
@@ -24,6 +28,15 @@ pub(crate) use tail::Tail;
 
 use crate::BoxFuture;
 use crate::events::Stream;
+
+/// When process `pid` started, in whole seconds since the Unix epoch, as the OS stored it (on
+/// Unix `ps`'s `lstart`, on Windows its creation time); none when no process has that pid, or the
+/// OS couldn't say. A process whose start is after a moment can't be one that ran at it: what
+/// tells a reused pid from the process that had it.
+#[cfg(any(unix, windows))]
+pub async fn process_started_at(pid: u32) -> Option<u64> {
+    ledger::os_started_at(pid).await
+}
 
 /// One process to start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

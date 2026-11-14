@@ -25,6 +25,20 @@ pub(crate) fn metadata(root: &Path) -> crate::Res<serde_json::Value> {
     Ok(serde_json::from_str(&crate::process::output(&mut cmd)?)?)
 }
 
+/// The workspace at `root` with every package it builds and the resolved graph between them, as
+/// `cargo metadata` describes it (the product boundary reads which packages reach which).
+///
+/// # Errors
+///
+/// `cargo metadata` fails, or prints no JSON.
+#[cfg(test)]
+pub(crate) fn metadata_resolved(root: &Path) -> crate::Res<serde_json::Value> {
+    let mut cmd = crate::process::cargo(root);
+    cmd.args(["metadata", "--format-version", "1", "--offline", "--manifest-path"])
+        .arg(root.join("Cargo.toml"));
+    Ok(serde_json::from_str(&crate::process::output(&mut cmd)?)?)
+}
+
 /// A path as text with `/` separators, as the tools on every host read it.
 pub(crate) fn slashed(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")

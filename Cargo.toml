@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-test-support", "xtask"]
+members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-client", "crates/isothrum-service", "crates/isothrum-test-support", "xtask"]
 # The fuzz targets are their own workspace: they build with nightly and libFuzzer
 # (`cargo run -p xtask -- fuzz`).
 exclude = ["fuzz"]
@@ -23,6 +23,8 @@ isoloom-targets = "3.0.0"
 isoloom-manifest = "3.0.0"
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
+isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
+isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
@@ -33,8 +35,8 @@ regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "net"] }
-process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group", "job-object", "creation-flags"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
 nix = { version = "0.31", default-features = false, features = ["signal"] }
 clap = { version = "4", features = ["derive", "string"] }
@@ -51,6 +53,12 @@ socket2 = "0.6"
 # The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
 # the same version, so one `libsqlite3-sys` serves both.
 rusqlite = { version = "0.41", features = ["bundled"] }
+# The runner service's local endpoint: a Unix domain socket, a Windows named pipe (with its ACL).
+interprocess = { version = "2.4", features = ["tokio"] }
+# The client's event stream is a `Stream`.
+futures-core = "0.3"
+# The SDDL string of the service's named pipe security descriptor (Windows).
+widestring = "1"
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now
@@ -58,8 +66,10 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 # `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`), which fails when a count
 # goes up. An exception is a local `#[expect(lint, reason = "…")]`, never an `#[allow]`.
 [workspace.lints.rust]
-# No exception: processes are grouped and killed through `process-wrap`, never raw FFI.
-unsafe_code = "forbid"
+# One exception: creating a Windows tool inside its job object, which std can't do
+# (`isothrum-runner`'s `process/job.rs`, each block under `#[expect(unsafe_code)]` with its
+# `SAFETY:` comment). Everything else is grouped and killed through `process-wrap` or std.
+unsafe_code = "deny"
 unused = { level = "deny", priority = -1 }
 missing_docs = "deny"
 unreachable_pub = "deny"

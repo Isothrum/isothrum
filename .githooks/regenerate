@@ -1,0 +1,37 @@
+#!/bin/sh
+# regenerate: the files Isothrum generates from its code, written again (no argument) or checked
+# (--check, the gate's step: exits 1 naming this command when one is stale):
+#   - the event and status schemas, crates/isothrum-runner/schema/ (`cargo run -p xtask -- schema`);
+#   - the reference pages docs/reference/cli.md and exit-codes.md
+#     (`ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference`).
+# pre-commit runs it once `git config hooks.regenerate true` is set (CONTRIBUTING.md, "Git hooks"):
+# it builds, so it is opt-in. Extra arguments go to cargo (CI passes --locked).
+#
+#   .githooks/regenerate [--check] [cargo options]
+# shellcheck source-path=SCRIPTDIR
+set -u
+# shellcheck source=repo.sh
+. "$(dirname "$0")/repo.sh"
+cd "$(git rev-parse --show-toplevel)" || exit 2
+
+check=false
+if [ "${1-}" = --check ]; then
+  check=true
+  shift
+fi
+
+if [ "$check" = true ]; then
+  stale=""
+  cargo test -q "$@" -p xtask -- schema::tests::the_committed_schemas_are_current || stale="$stale schemas"
+  cargo test -q "$@" -p isothrum-cli -- reference || stale="$stale reference"
+  if [ -n "$stale" ]; then
+    printf 'regenerate: stale generated files (%s): run .githooks/regenerate, then commit what it wrote\n' "${stale# }" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+cargo run -q "$@" -p xtask -- schema || exit 1
+ISOTHRUM_WRITE_REFERENCE=1 cargo test -q "$@" -p isothrum-cli -- reference || exit 1
+# shellcheck disable=SC2086 # one path a word: the paths have no spaces
+git status --short -- $GENERATED

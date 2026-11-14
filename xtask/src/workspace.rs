@@ -2,9 +2,11 @@
 //! and the manifests say:
 //!
 //! - **one-way dependencies**: the library (the runner) depends on no other crate of the
-//!   repository and on no UI; the machine-setup domain builds on the runner, and the app (the command line) may depend on the libraries and the domain (it uses
-//!   the libraries), never the reverse; nothing depends on the xtask; the tests' shared support
-//!   depends on no crate of the repository, and any crate's tests may use it;
+//!   repository and on no UI; the machine-setup domain builds on the runner, and the app (the
+//!   command line) may depend on the libraries and the domain (it uses the libraries), never the
+//!   reverse; the runner service builds on the library and the domain (its client), and the app
+//!   runs it; nothing depends on the xtask; the tests' shared support depends on no crate of the
+//!   repository, and any crate's tests may use it;
 //! - **workspace hygiene**: every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -19,6 +21,8 @@ enum Role {
     Library,
     /// A library built on the base libraries that the apps build on: the machine-setup domain.
     Domain,
+    /// The runner service: builds on the library and the domain (its client); the app runs it.
+    Service,
     /// A program a person runs: the command line.
     App,
     /// The development tasks.
@@ -28,11 +32,14 @@ enum Role {
 }
 
 /// The repository's crates and their roles.
-const ROLES: [(&str, Role); 5] = [
+const ROLES: [(&str, Role); 7] = [
     ("isothrum-runner", Role::Library),
     // Builds on the runner and the apps build on it: a tier of its own between the base libraries
     // and the apps (out of this workspace, which consume it too).
     ("isothrum-machine", Role::Domain),
+    // The runner service's client: what an app talks to the service with.
+    ("isothrum-client", Role::Domain),
+    ("isothrum-service", Role::Service),
     ("isothrum-cli", Role::App),
     ("xtask", Role::Xtask),
     ("isothrum-test-support", Role::TestSupport),
@@ -50,9 +57,10 @@ fn role(name: &str) -> Option<Role> {
 fn allowed(from: &str, to: &str) -> bool {
     matches!(
         (role(from), role(to)),
-        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain))
+        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain | Role::Service))
+            | (Some(Role::Service), Some(Role::Library | Role::Domain))
             | (Some(Role::Domain), Some(Role::Library))
-            | (Some(Role::Library | Role::Domain | Role::App), Some(Role::TestSupport))
+            | (Some(Role::Library | Role::Domain | Role::Service | Role::App), Some(Role::TestSupport))
     )
 }
 

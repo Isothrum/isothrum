@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "v": {
-      "description": "The stream's version (1; a 2.x runner's events, imported, are 0).",
+      "description": "The stream's version (1).",
       "type": "integer",
       "format": "uint32",
       "minimum": 0
@@ -482,7 +482,7 @@
       "description": "Where a run stands.",
       "oneOf": [
         {
-          "description": "Being created by an `up` (2.x wrote `starting`, still read).",
+          "description": "Being created by an `up`.",
           "type": "string",
           "const": "creating"
         },
@@ -517,7 +517,7 @@
           "const": "updating"
         },
         {
-          "description": "Being removed by a `down` (2.x wrote `stopping`, still read).",
+          "description": "Being removed by a `down`.",
           "type": "string",
           "const": "destroying"
         },

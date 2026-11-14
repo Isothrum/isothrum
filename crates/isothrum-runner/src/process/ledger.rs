@@ -21,9 +21,8 @@
 //!   the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
-//! - On Windows a tool is also recorded while it is being created, before its pid is known
-//!   ([`Spawning`]): one created as its process was killed stays suspended outside its job, and
-//!   is ended the same way.
+//! - On Windows a tool's job object already ends its tree when this process dies ([`super::job`]):
+//!   its entry is the backstop, for a tree the job didn't hold.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -32,10 +31,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::time::Duration;
-
-#[path = "ledger_spawning.rs"]
-mod spawning;
-pub(crate) use spawning::Spawning;
 
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
@@ -186,19 +181,10 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
         let prefix = format!("{token}-");
         for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            match Path::new(entry).extension().and_then(|x| x.to_str()) {
-                Some("tool") => ended.extend(end_entry(&path).await),
-                #[cfg(windows)]
-                Some(spawning::EXT) => {
-                    if let Some(spawned) = std::fs::read_to_string(&path).ok().and_then(|t| spawning::Entry::parse(&t)) {
-                        ended.extend(spawning::end(&spawned).await);
-                    }
-                }
-                // Off Windows nothing is created suspended: the entry only goes.
-                #[cfg(not(windows))]
-                Some(spawning::EXT) => {}
-                _ => continue,
+            if Path::new(entry).extension().is_none_or(|x| x != "tool") {
+                continue;
             }
+            ended.extend(end_entry(&path).await);
             if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
                 tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
             }
@@ -250,6 +236,10 @@ async fn end_entry(path: &Path) -> Option<u32> {
 
 /// Removes the container `name` a killed operation's tool ran in (`docker rm -f`); one already
 /// gone is traced only.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own clean-up of what a killed operation left: it can't go through the runner it cleans up after"
+)]
 async fn remove_container(name: &str) {
     let mut cmd = tokio::process::Command::new("docker");
     cmd.args(["rm", "-f", name])
@@ -313,7 +303,11 @@ async fn os_start(pid: u32) -> Option<Start> {
 /// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
 /// stored (`lstart`, in UTC and the C locale's words).
 #[cfg(unix)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let out = tokio::process::Command::new("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .env("TZ", "UTC")
@@ -328,7 +322,11 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 
 /// When process `pid` started, as Windows stored its creation time (seconds since the epoch).
 #[cfg(windows)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let script = format!("[DateTimeOffset]::new((Get-Process -Id {pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()");
     let mut cmd = tokio::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -379,6 +377,7 @@ async fn end_group(pid: u32) {
 
 /// Ends process `pid` and its tree (`taskkill /T /F`): Windows has no signal to ask it first.
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own ending of a group a killed operation left")]
 async fn end_group(pid: u32) {
     let mut cmd = tokio::process::Command::new("taskkill");
     cmd.args(["/PID", &pid.to_string(), "/T", "/F"]).stdin(std::process::Stdio::null());

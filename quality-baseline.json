@@ -1,7 +1,7 @@
 {
   "rules": {
     "exception/expect": {
-      "isothrum-runner": 5,
+      "isothrum-runner": 17,
       "isothrum-test-support": 1,
       "xtask": 1
     }

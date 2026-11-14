@@ -29,6 +29,8 @@ allow = [
   "Unicode-3.0",
   "Unlicense",
   "Zlib",
+  # BSD Zero Clause, OSI-approved, no conditions; needed by interprocess's doctest-file and recvmsg.
+  "0BSD",
 ]
 confidence-threshold = 0.9
 # libFuzzer's own licence, in the fuzz crate only (`fuzz/`, checked by `xtask fuzz --check`): a

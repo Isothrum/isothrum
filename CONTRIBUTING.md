@@ -78,6 +78,11 @@ POSIX sh and quick:
   check over them, then `cargo fmt --all --check` and `typos`, in a few seconds. The other gates
   stay in CI.
 
+- `regenerate` writes the files generated from the code again (the event and status schemas,
+  `docs/reference/cli.md` and `exit-codes.md`); `--check` fails naming it when one is stale (a
+  gate). Opt in to running it before each commit, which refuses a commit leaving one stale:
+  `git config hooks.regenerate true`.
+
 `.githooks/test.sh` tests them in a throwaway repository; CI's `hooks` job runs it.
 `git commit --no-verify` skips a hook when you must; the push still checks the commits.
 
@@ -92,6 +97,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p xtask -- test            # nextest, then doctests; fails on what they leave in temp
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo run -p xtask -- quality          # the clean-code ratchet (quality-baseline.json)
+.githooks/regenerate --check           # the generated schemas and reference pages are current
 cargo deny check
 cargo machete
 typos
@@ -100,7 +106,12 @@ cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask
 ```
 
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
-local `#[expect(lint, reason = "...")]`, never an `#[allow]`. CI also runs the tests on Linux,
+local `#[expect(lint, reason = "...")]`, never an `#[allow]`. A process starts through the runner's process
+module only (`disallowed-methods` in clippy.toml): an adapter that must start one itself says why
+in its `#[expect]`. The xtask's `guardrails` tests keep the rest: no Isothrum crate depends on an
+Isoloom crate beyond the listed edges, a tool's output is parsed in its adapter, a `-c` script
+comes from `driver::shells` and chains nothing with `&&`, and every capability a driver claims
+names the test that shows it reach its tool. CI also runs the tests on Linux,
 macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`) and builds the
 WebAssembly package.
 

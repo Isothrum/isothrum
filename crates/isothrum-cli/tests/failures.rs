@@ -1,6 +1,10 @@
 //! How the `isothrum` binary fails, as a CI job sees it: its exit code, and with `--json` an
 //! `error` event on standard output for every failure, one before any operation began included,
 //! and the tools of a cancelled command stopped with it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
+)]
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -14,7 +18,12 @@ type Outcome<T> = Result<T, Box<dyn std::error::Error>>;
 
 /// `isothrum <args>` with `home` as its home.
 fn isothrum(home: &Path, args: &[&str]) -> Outcome<Output> {
-    Ok(Command::new(env!("CARGO_BIN_EXE_isothrum")).args(args).arg("--home").arg(home).output()?)
+    Ok(Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .env("ISOTHRUM_NO_SERVICE", "1")
+        .args(args)
+        .arg("--home")
+        .arg(home)
+        .output()?)
 }
 
 /// The last line of standard output, as JSON.
@@ -70,6 +79,7 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
 
     let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .env("ISOTHRUM_NO_SERVICE", "1")
         .arg("up")
         .arg(run.path())
         .arg("--name")
@@ -218,6 +228,7 @@ impl Up {
         let env = TempHome::new();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
         cmd.envs(env.envs());
+        cmd.env("ISOTHRUM_NO_SERVICE", "1");
         cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
             .arg(home.path())
             .arg(run_dir.path())
@@ -304,6 +315,7 @@ fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
     let user = dir.path().join("user");
     std::fs::create_dir(&user).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .env("ISOTHRUM_NO_SERVICE", "1")
         .arg("key")
         .env("ISOTHRUM_HOME", std::ffi::OsString::from_vec(home))
         .env("HOME", &user)
@@ -319,6 +331,7 @@ fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
 fn a_log_variable_that_isnt_utf8_is_warned_about() {
     use std::os::unix::ffi::OsStringExt;
     let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
+        .env("ISOTHRUM_NO_SERVICE", "1")
         .args(["completions", "bash"])
         .env("ISOTHRUM_LOG", std::ffi::OsString::from_vec(b"bad\xff".to_vec()))
         .output()

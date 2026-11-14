@@ -8,6 +8,10 @@
 //! A test-only crate: it panics where a test should fail.
 
 #![expect(clippy::panic, reason = "a test-support helper fails the test that called it")]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests' helpers start and end real processes to check the product's handling of them"
+)]
 
 use std::path::Path;
 use std::process::{Child, Command};

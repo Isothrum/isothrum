@@ -3,6 +3,10 @@
 # before a commit, the quickest of CI's gates before a push. Sourced by pre-commit and pre-push;
 # refuse (lib.sh) stops git with the reason.
 
+# The files generated from the code (.githooks/regenerate writes and checks them).
+GENERATED="crates/isothrum-runner/schema docs/reference/cli.md docs/reference/exit-codes.md"
+export GENERATED
+
 # format_staged <files>: rustfmt over the staged Rust (rustfmt.toml; the toolchain
 # rust-toolchain.toml pins).
 format_staged() {

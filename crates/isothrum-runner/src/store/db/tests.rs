@@ -340,67 +340,6 @@ fn events_are_appended_in_order_and_read_after_a_cursor() {
     assert_eq!(kept.iter().map(|(c, _)| *c).collect::<Vec<_>>(), [third]);
 }
 
-/// A home a 2.x runner wrote: its records, observations, events and recorded volumes become
-/// rows once, and its files are left read-only beside the store.
-#[test]
-fn a_2x_home_is_imported_once_and_its_files_left_read_only() {
-    let home = tempfile::tempdir().unwrap();
-    let runs = home.path().join("runs");
-    let web = runs.join("web");
-    std::fs::create_dir_all(&web).unwrap();
-    let mut v2 = serde_json::to_value(record("web")).unwrap();
-    // 2.x's words for the moving states.
-    v2["state"] = "starting".into();
-    std::fs::write(web.join("record.json"), serde_json::to_vec(&v2).unwrap()).unwrap();
-    std::fs::write(web.join("seen.json"), r#"{"machines":[],"published":[["web","http",8080]],"hosts":{}}"#).unwrap();
-    let line = r#"{"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web","op":"up","event":"state","from":"absent","to":"starting"}"#;
-    std::fs::write(web.join("events.jsonl"), format!("{line}\n{{\"v\":0,\"se\n")).unwrap();
-    std::fs::write(web.join("anonymous-volumes"), "abc123\ndef456\n").unwrap();
-    let parked = runs.join("parked");
-    std::fs::create_dir_all(&parked).unwrap();
-    let mut p = record("parked");
-    p.state = RunState::Parked;
-    std::fs::write(parked.join("record.json"), serde_json::to_vec(&p).unwrap()).unwrap();
-    let broken = runs.join("broken");
-    std::fs::create_dir_all(&broken).unwrap();
-    std::fs::write(broken.join("record.json"), "{not json").unwrap();
-
-    let store = Store::open(home.path()).unwrap();
-    store
-        .read(|tx| {
-            let rows = tx.runs()?;
-            assert_eq!(rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["parked", "web"]);
-            let web_row = tx.run(&name("web"))?.unwrap();
-            assert_eq!((web_row.state, web_row.desired, web_row.state_op), (RunState::Creating, Desired::Running, None));
-            assert!(web_row.observed.is_some(), "its 2.x observation is kept");
-            assert_eq!(tx.run(&name("parked"))?.unwrap().desired, Desired::Parked);
-            let (events, unreadable) = tx.events_after(EventCursor::default(), Some(&name("web")), 10)?;
-            assert_eq!((events.len(), unreadable), (1, 1));
-            let volumes: Vec<_> = tx.live_resources(&name("web"))?.into_iter().map(|r| (r.kind, r.native_id.unwrap())).collect();
-            assert_eq!(
-                volumes,
-                [(ResourceKind::Volume, "abc123".to_owned()), (ResourceKind::Volume, "def456".to_owned())]
-            );
-            Ok(())
-        })
-        .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(web.join("record.json")).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o400, "left read-only");
-        let broken_mode = std::fs::metadata(broken.join("record.json")).unwrap().permissions().mode();
-        assert_ne!(broken_mode & 0o777, 0o400, "a record not imported stays as it was");
-    }
-    // Once: a record put there later isn't imported.
-    drop(store);
-    let late = runs.join("late");
-    std::fs::create_dir_all(&late).unwrap();
-    std::fs::write(late.join("record.json"), serde_json::to_vec(&record("late")).unwrap()).unwrap();
-    let reopened = Store::open(home.path()).unwrap();
-    assert_eq!(reopened.read(|tx| tx.run(&name("late"))).unwrap(), None);
-}
-
 #[test]
 fn a_queued_operation_is_started_once_or_cancelled_and_never_otherwise_ended() {
     let (_home, store) = store();
@@ -429,3 +368,5 @@ fn a_queued_operation_is_started_once_or_cancelled_and_never_otherwise_ended() {
 mod leases;
 
 mod queue;
+
+mod robust;
