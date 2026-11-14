@@ -56,9 +56,10 @@ pub(crate) fn check_count(topo: &Topology) -> Result<()> {
 /// Each cable becomes its own /29 network, its two ends on it.
 pub(crate) fn allocate(topo: &Topology, draft: &mut Draft) -> Result<()> {
     let mut used_ports: Vec<(&str, &str)> = Vec::new();
-    // `check_count` refused more cables than there are blocks.
-    let blocks = (0..).map_while(link_block);
-    for (i, (link, block)) in topo.links.iter().zip(blocks).enumerate() {
+    for (i, link) in topo.links.iter().enumerate() {
+        // A cable past the block's last is refused here too, not dropped, whether or not
+        // `check_count` ran first.
+        let block = link_block(i).ok_or(Error::TooManyLinks(topo.links.len()))?;
         check(topo, i, link, &mut used_ports)?;
         cable(draft, i, link, block);
     }
@@ -142,6 +143,35 @@ mod tests {
             tc: None,
         });
         assert!(matches!(check_count(&topo), Err(Error::TooManyLinks(8193))));
+    }
+
+    #[test]
+    fn more_cables_than_blocks_are_refused_by_allocate_itself() {
+        let node = || crate::Node {
+            kind: crate::Kind::Router {},
+            access: false,
+            services: Vec::new(),
+            networks: indexmap::IndexMap::new(),
+        };
+        let end = |name: &str, i: usize| crate::Endpoint {
+            node: name.into(),
+            port: format!("p{i}"),
+        };
+        let topo = Topology {
+            name: "many".into(),
+            nodes: [("x".to_owned(), node()), ("y".to_owned(), node())].into_iter().collect(),
+            networks: indexmap::IndexMap::new(),
+            links: (0..=MAX_LINKS)
+                .map(|i| Link {
+                    a: end("x", i),
+                    b: end("y", i),
+                    tc: None,
+                })
+                .collect(),
+        };
+        // Regression: past the last block, the cables were dropped unless `check_count` ran first.
+        let mut draft = Draft::default();
+        assert!(matches!(allocate(&topo, &mut draft), Err(Error::TooManyLinks(8193))));
     }
 
     #[test]
