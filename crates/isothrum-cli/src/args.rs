@@ -126,9 +126,9 @@ pub(crate) struct UpArgs {
     /// Remove whatever of the run exists, then start afresh.
     #[arg(long)]
     pub(crate) replace: bool,
-    /// How long a run that stops itself (a cloud run) may live, in minutes (default: its
-    /// manifest's).
-    #[arg(long, value_name = "MINUTES")]
+    /// How long a run that stops itself (a cloud run) may live, in minutes, 1 or more (default:
+    /// its manifest's).
+    #[arg(long, value_name = "MINUTES", value_parser = clap::value_parser!(u64).range(1..))]
     pub(crate) lifetime: Option<u64>,
     /// A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge
     /// this machine can't route to. Recorded when the run starts: every later operation (a
@@ -317,6 +317,22 @@ mod tests {
                 assert!(script.contains(command), "{shell}: {command}");
             }
         }
+    }
+
+    /// Regression (#136): `--lifetime 0` was taken, and the run expired as it started: the next
+    /// reap destroyed it. A lifetime is a minute or more; anything else is a usage error.
+    #[test]
+    fn a_lifetime_is_a_minute_or_more() {
+        let up = |minutes: &str| Cli::try_parse_from(["isothrum", "up", "--lifetime", minutes]);
+        for refused in ["0", "ten", ""] {
+            let err = up(refused).unwrap_err();
+            assert_eq!(err.exit_code(), 2, "{refused}: {err}");
+            assert!(err.to_string().contains("--lifetime <MINUTES>"), "{refused}: {err}");
+        }
+        // A negative number reads as an unknown flag: refused all the same.
+        assert_eq!(up("-5").unwrap_err().exit_code(), 2);
+        let taken = on_runner(up("90").unwrap().command);
+        assert!(matches!(taken, RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs { lifetime: Some(90), .. }))));
     }
 
     #[test]

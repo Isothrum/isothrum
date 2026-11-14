@@ -69,7 +69,7 @@ fn destroy_breaking_a_record(home: &Path, call: &Call, destroyed: bool) -> Reply
 }
 
 struct Setup {
-    _home: tempfile::TempDir,
+    home: tempfile::TempDir,
     run: tempfile::TempDir,
     runner: Runner,
     fake: Arc<FakeProcesses>,
@@ -100,7 +100,7 @@ fn setup_answering(answer: fn(&Path, &Call) -> Reply) -> Setup {
     let (out, err) = (Buf::default(), Buf::default());
     let term = Term::new(Box::new(out.clone()), Box::new(err.clone()));
     Setup {
-        _home: home,
+        home,
         runner: Runner::new(config).unwrap(),
         run,
         fake,
@@ -118,7 +118,8 @@ impl Setup {
             .unwrap()
     }
 
-    /// The run started with no life left: expired at once.
+    /// The run started, then past its expiry: its record says it ended long ago (`--lifetime`
+    /// takes a minute at least, and the command line's clock is the system's).
     async fn expired_run(&self) {
         let run = self.run.path().display().to_string();
         let up = [
@@ -129,10 +130,18 @@ impl Setup {
             "--param",
             "allowed_cidr=203.0.113.7/32",
             "--lifetime",
-            "0",
+            "1",
         ];
         assert_eq!(self.run(&up).await, Verdict::Pass);
         self.out.take();
+        let records = self.home.path().join("runs");
+        for entry in std::fs::read_dir(&records).unwrap() {
+            let record = entry.unwrap().path().join("record.json");
+            let mut doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+            assert!(doc.get("expires_at").is_some_and(|at| !at.is_null()), "the run has an expiry: {doc}");
+            doc["expires_at"] = serde_json::json!(1000);
+            std::fs::write(&record, doc.to_string()).unwrap();
+        }
     }
 }
 
