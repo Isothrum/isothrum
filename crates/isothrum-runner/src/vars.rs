@@ -52,7 +52,6 @@ impl Vars {
         self.params = params;
     }
 
-    /// The params bound.
     pub(crate) fn params(&self) -> &BTreeMap<String, String> {
         &self.params
     }
@@ -79,7 +78,6 @@ impl Vars {
         self.hosts = hosts;
     }
 
-    /// The published ports bound.
     pub(crate) fn published(&self) -> &BTreeMap<PortKey, u16> {
         &self.published
     }
