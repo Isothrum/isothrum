@@ -5,8 +5,9 @@
 //!   other crate of the repository and on no UI; the WASM build depends on the compiler alone
 //!   (never the runner: Tokio's processes aren't WASM); the machine-setup domain builds on the
 //!   runner, and the app (the command line) may depend on the libraries and the domain (it uses
-//!   the libraries), never the reverse; nothing depends on the xtask; the tests' shared support
-//!   depends on no crate of the repository, and any crate's tests may use it;
+//!   the libraries), never the reverse; the runner service builds on the libraries and the
+//!   domain (its client), and the app runs it; nothing depends on the xtask; the tests' shared
+//!   support depends on no crate of the repository, and any crate's tests may use it;
 //! - **workspace hygiene**: every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -23,6 +24,8 @@ enum Role {
     Domain,
     /// The compiler's WebAssembly build.
     Binding,
+    /// The runner service: builds on the libraries and the domain (its client); the app runs it.
+    Service,
     /// A program a person runs: the command line.
     App,
     /// The development tasks.
@@ -32,12 +35,15 @@ enum Role {
 }
 
 /// The repository's crates and their roles.
-const ROLES: [(&str, Role); 7] = [
+const ROLES: [(&str, Role); 9] = [
     ("isothrum-compiler", Role::Library),
     ("isothrum-runner", Role::Library),
     // Builds on the runner and the apps build on it: a tier of its own between the base libraries
     // and the apps (out of this workspace, which consume it too).
     ("isothrum-machine", Role::Domain),
+    // The runner service's client: what an app talks to the service with.
+    ("isothrum-client", Role::Domain),
+    ("isothrum-service", Role::Service),
     ("isothrum-wasm", Role::Binding),
     ("isothrum-cli", Role::App),
     ("xtask", Role::Xtask),
@@ -59,9 +65,10 @@ fn role(name: &str) -> Option<Role> {
 fn allowed(from: &str, to: &str) -> bool {
     match (role(from), role(to)) {
         (Some(Role::Binding), _) => to == "isothrum-compiler",
-        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain))
+        (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain | Role::Service))
+        | (Some(Role::Service), Some(Role::Library | Role::Domain))
         | (Some(Role::Domain), Some(Role::Library))
-        | (Some(Role::Library | Role::Domain | Role::App), Some(Role::TestSupport)) => true,
+        | (Some(Role::Library | Role::Domain | Role::Service | Role::App), Some(Role::TestSupport)) => true,
         _ => false,
     }
 }
