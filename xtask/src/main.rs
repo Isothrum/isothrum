@@ -26,6 +26,8 @@
 
 #[cfg(all(test, unix))]
 mod ci_scripts;
+#[cfg(test)]
+mod guardrails;
 mod hack;
 mod mutants;
 mod process;

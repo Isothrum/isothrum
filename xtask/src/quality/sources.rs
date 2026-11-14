@@ -291,10 +291,7 @@ mod tests {
     fn a_package_outside_the_workspace_fails_the_count() {
         let metadata = |path: &str| serde_json::json!({"workspace_root": "/w", "packages": [{"name": "a", "manifest_path": path}]});
         let found = crates_in(&metadata("/w/crates/a/Cargo.toml")).unwrap();
-        assert_eq!(
-            found.iter().map(|c| (c.name.as_str(), c.dir.as_str())).collect::<Vec<_>>(),
-            [("a", "crates/a")]
-        );
+        assert_eq!(found.iter().map(|c| (c.name.as_str(), c.dir.as_str())).collect::<Vec<_>>(), [("a", "crates/a")]);
         assert!(crates_in(&metadata("/elsewhere/a/Cargo.toml")).is_err());
         assert!(crates_in(&serde_json::json!({"workspace_root": "/w"})).is_err());
     }
