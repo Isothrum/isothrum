@@ -148,11 +148,13 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
   (`vagrant.discard_aborted_saved`) and the graphical consoles go by the ids Vagrant records
   (`<dotfile>/machines/<define>/<provider>/id`: VirtualBox's and libvirt's UUIDs, Hyper-V's VM
   id, UTM's UUID), never by a name: the manifest's `vm_names` are no longer read.
-- **On Windows, a tool being created as the runner's process is killed is ended by the next
-  operation.** A tool is created suspended, put in its job object, then resumed; a process killed
-  in between left it suspended in no job, never run and never ended. Its creation is now recorded
-  in the run's tools ledger until it is in its job, and the next operation, finding its creator
-  dead, ends it.
+- **On Windows, a tool is created inside its job object, and the runner's tools end with it.** A
+  tool was created suspended, put in its job object, then resumed: a process killed in between
+  left it suspended in no job, never run and never ended. The kernel now creates it in its job
+  (`PROC_THREAD_ATTRIBUTE_JOB_LIST`), and the job ends the tool's tree when the runner's process
+  dies however it dies (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), not at the next operation; a tool
+  that exited on its own leaves what it started running, as before. A tool inherits its own
+  standard handles only, never the runner's others.
 - **One elevated request cut short no longer ends the Hyper-V session.** A request that timed
   out (a `vagrant ssh -c` probe while the controller halts) ended the elevated broker, and every
   later call of the operation failed with `elevation`. The broker now runs each request in a
