@@ -404,3 +404,40 @@ async fn a_down_forgets_the_runs_ssh_files_whatever_the_driver() {
 }
 
 mod config;
+
+#[tokio::test]
+async fn what_the_user_wants_is_said_when_an_operation_changes_it() {
+    let f = fixture();
+    let run = f.runner.open(&f.manifest, None).unwrap();
+    let wants = |events: &Recorder| -> Vec<crate::Desired> {
+        events
+            .events()
+            .into_iter()
+            .filter_map(|e| match e.kind {
+                EventKind::Desired { desired } => Some(desired),
+                _ => None,
+            })
+            .collect()
+    };
+    let up = Recorder::new();
+    run.up(&opts(), &up).await.unwrap();
+    assert_eq!(wants(&up), [crate::Desired::Running]);
+    let park = Recorder::new();
+    run.park(Park::Shutdown, &RunOptions::new(), &park).await.unwrap();
+    assert_eq!(wants(&park), [crate::Desired::Parked]);
+    let resume = Recorder::new();
+    run.resume(&RunOptions::new(), &resume).await.unwrap();
+    assert_eq!(wants(&resume), [crate::Desired::Running]);
+    let update = Recorder::new();
+    run.update(&RunOptions::new(), &update).await.unwrap();
+    assert_eq!(wants(&update), [], "an update leaves what is wanted as it was");
+    let down = Recorder::new();
+    run.down(&RunOptions::new(), &down).await.unwrap();
+    assert_eq!(wants(&down), [crate::Desired::Gone]);
+    let logged = f.runner.events(run.name()).unwrap().events;
+    assert_eq!(
+        logged.iter().filter(|e| matches!(e.kind, EventKind::Desired { .. })).count(),
+        4,
+        "kept in the store with the other events"
+    );
+}

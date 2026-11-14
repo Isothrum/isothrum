@@ -28,7 +28,7 @@ impl Running<'_> {
     pub async fn down(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.operate(Op::Down, opts, events, async |connected: &RunOptions, e: &Emitter<'_>| {
             let (mut record, mut cx) = self.existing(connected, e).await?;
-            self.begin(&mut record, Op::Down)?;
+            self.begin(&mut record, Op::Down, e)?;
             self.driver.before_down(&cx).await?;
             crate::executor::run_down_steps(&mut cx).await?;
             self.driver.after_down(&cx).await?;
@@ -59,7 +59,7 @@ impl Running<'_> {
             if !self.exists(&mut cx).await? {
                 return Err(Error::NotRunning { run: self.name().to_string() });
             }
-            self.begin(&mut record, Op::Park)?;
+            self.begin(&mut record, Op::Park, e)?;
             run_steps(&mut cx, "lifecycle.park", steps).await?;
             Ok(Done::moved(RunState::Parked))
         })
@@ -104,7 +104,7 @@ impl Running<'_> {
                 machines: gone,
             });
         }
-        self.begin(&mut record, Op::Resume)?;
+        self.begin(&mut record, Op::Resume, cx.events)?;
         run_steps(cx, "lifecycle.resume", &self.manifest().lifecycle.resume).await?;
         ready::check(cx, None).await?;
         self.ready(cx, record).await

@@ -79,7 +79,7 @@ impl Running<'_> {
         slot.keep_in(&mut record);
         self.place(&mut record, opts);
         cx.bind_record(&record);
-        self.begin(&mut record, Op::Up)?;
+        self.begin(&mut record, Op::Up, cx.events)?;
         drop(slot);
         crate::executor::state_files::write_all(&cx)?;
         self.converge(&mut cx).await?;
