@@ -96,8 +96,8 @@ fn setup_answering(answer: fn(&Path, &Call) -> Reply) -> Setup {
     let (runner, term, out, err) = super::super::tests::runner_with(home.path(), &fake, []);
     Setup {
         home,
-        runner,
         run,
+        runner,
         fake,
         term,
         out,

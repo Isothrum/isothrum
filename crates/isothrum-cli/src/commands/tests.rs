@@ -98,8 +98,8 @@ fn setup_with(manifest: &str) -> Setup {
     let (runner, term, out, err) = runner_with(home.path(), &fake, [41873]);
     Setup {
         home,
-        runner,
         run,
+        runner,
         fake,
         term,
         out,
