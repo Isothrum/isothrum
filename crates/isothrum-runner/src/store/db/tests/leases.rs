@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// An owner whose process is gone, and this process.
+#[cfg(unix)]
+fn dead_and_me() -> (Owner, Owner) {
+    let mut dead = Owner::this_process();
+    dead.pid = owner::tests::dead_pid();
+    (dead, Owner::this_process())
+}
+
 /// A store with two runs, `one` and `two`, each with an `up` journaled.
 fn two_runs_up() -> (tempfile::TempDir, Store, (RunName, OperationRow), (RunName, OperationRow)) {
     let (home, store) = store();
@@ -40,9 +48,7 @@ fn a_lease_is_refused_while_its_holder_lives_and_taken_over_from_a_dead_one() {
 #[test]
 fn a_lease_whose_holder_died_is_taken_over() {
     let (_home, store) = store();
-    let mut dead = Owner::this_process();
-    dead.pid = owner::tests::dead_pid();
-    let me = Owner::this_process();
+    let (dead, me) = dead_and_me();
     store
         .write(|tx| {
             tx.acquire_lease("run:r", &dead, Duration::from_secs(3600))?;
@@ -109,9 +115,7 @@ fn a_port_is_reserved_by_one_live_operation_and_freed_with_its_lease() {
 #[test]
 fn a_port_a_dead_process_reserved_is_taken_over() {
     let (_home, store, (one, a), (two, b)) = two_runs_up();
-    let mut dead = Owner::this_process();
-    dead.pid = owner::tests::dead_pid();
-    let me = Owner::this_process();
+    let (dead, me) = dead_and_me();
     store
         .write(|tx| {
             tx.acquire_lease("run:one", &dead, Duration::from_secs(3600))?;
