@@ -206,9 +206,7 @@ impl Up {
     /// Starts it, the tool running `on_int` on SIGINT (`None`: it exits).
     fn start(on_int: Option<&str>) -> Outcome<Up> {
         let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
-        let dir = run_dir.path().join(".isoloom/docker");
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("run.json"), include_str!("../../isothrum-runner/tests/fixtures/web-portal.run.json"))?;
+        std::fs::write(run_dir.path().join("compose.yaml"), "services:\n  web:\n    image: nginx\n")?;
         // Written by a child process: one this test wrote itself could be busy ("Text file busy")
         // in a process another test forked meanwhile, when the command runs it.
         write_executable(&bin.path().join("docker"), FAKE_DOCKER)?;

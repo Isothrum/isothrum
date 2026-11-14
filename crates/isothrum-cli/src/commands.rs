@@ -4,7 +4,7 @@ mod reap;
 
 use std::borrow::Borrow;
 
-use isothrum_runner::{AccessPick, Endpoint, Events, Occupied, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
+use isothrum_runner::{Events, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
@@ -12,7 +12,7 @@ use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
 use crate::values::Var;
-use crate::{locate, values};
+use crate::values;
 
 /// Runs `cli`, writing to `term` (each event kept in `trail` too); `var` reads the environment
 /// (for secrets). Every command but `completions` runs on the runner `runner` builds; completions
@@ -43,30 +43,16 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
     let Out { term, events, .. } = *out;
     match command {
         RunnerCommand::Status(run) => status(out, &open(runner, run)?).await,
-        RunnerCommand::Check(op) => check(out, &open(runner, &op.run)?, &options(op, var)?).await,
+        RunnerCommand::Exec { machine, op, argv } => exec(out, &open(runner, &op.run)?, machine, argv, &options(op, var)?).await,
         RunnerCommand::Provision { op, machine } => {
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.provision(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
         }
-        RunnerCommand::Attach { op, machine, network, image } => {
-            let mut pick = AccessPick::default();
-            if let Some(m) = machine {
-                pick = pick.with_machine(m);
-            }
-            if let Some(n) = network {
-                pick = pick.with_network(n);
-            }
-            if let Some(i) = image {
-                pick = pick.with_image(i);
-            }
-            attach(out, &open(runner, &op.run)?, pick, &options(op, var)?).await
-        }
-        RunnerCommand::Detach { op, machine } => {
+        RunnerCommand::Attach { op, machine } => {
             let run = open(runner, &op.run)?;
-            Ok(Verdict::of(run.detach(machine.as_deref(), &options(op, var)?, events).await.is_ok()))
+            Ok(Verdict::of(run.attach(machine, &options(op, var)?, events).await.is_ok()))
         }
         RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref())?),
-        RunnerCommand::Screen { run, machine, show_password } => screen(out, &open(runner, run)?, machine, *show_password).await,
         RunnerCommand::Events(run) => print_events(out, runner, &open(runner, run)?),
         RunnerCommand::Reap(args) => reap::run(args, runner, out, var).await,
         RunnerCommand::Key => {
@@ -92,13 +78,11 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
         RunnerCommand::Lifecycle(Lifecycle::Resume(_)) => Op::Resume,
         RunnerCommand::Lifecycle(Lifecycle::Update(_)) => Op::Update,
         RunnerCommand::Lifecycle(Lifecycle::Retire { .. }) => Op::Retire,
-        RunnerCommand::Check(_) => Op::Check,
+        RunnerCommand::Exec { .. } => Op::Check,
         RunnerCommand::Provision { .. } => Op::Provision,
         RunnerCommand::Attach { .. } => Op::Attach,
-        RunnerCommand::Detach { .. } => Op::Detach,
         RunnerCommand::Status(_)
         | RunnerCommand::Console { .. }
-        | RunnerCommand::Screen { .. }
         | RunnerCommand::Events(_)
         | RunnerCommand::Reap(_)
         | RunnerCommand::Key => {
@@ -119,11 +103,10 @@ pub(crate) fn run_named(command: &Command) -> Option<&str> {
             | Lifecycle::Update(op)
             | Lifecycle::Retire { op, .. },
         )
-        | RunnerCommand::Check(op)
+        | RunnerCommand::Exec { op, .. }
         | RunnerCommand::Provision { op, .. }
-        | RunnerCommand::Attach { op, .. }
-        | RunnerCommand::Detach { op, .. } => &op.run,
-        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Screen { run, .. } | RunnerCommand::Events(run) => run,
+        | RunnerCommand::Attach { op, .. } => &op.run,
+        RunnerCommand::Status(run) | RunnerCommand::Console { run, .. } | RunnerCommand::Events(run) => run,
         RunnerCommand::Reap(_) | RunnerCommand::Key => return None,
     };
     target.name.as_deref()
@@ -142,7 +125,7 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
     match command {
         Lifecycle::Up(up) => {
             let started = open(runner, &up.op.run)?.up(&start_opts(up, var)?, events).await;
-            Ok(report_came_up(json, started.ok(), "The run is up.", term))
+            Ok(report_came_up(json, started.ok().map(|s| s.outputs), "The run is up.", term))
         }
         Lifecycle::Down(op) => Ok(Verdict::of(open(runner, &op.run)?.down(&options(op, var)?, events).await.is_ok())),
         Lifecycle::Park { op, mode } => {
@@ -151,11 +134,11 @@ async fn lifecycle(command: &Lifecycle, runner: &Runner, out: &Out<'_>, var: &Va
         }
         Lifecycle::Resume(op) => {
             let resumed = open(runner, &op.run)?.resume(&options(op, var)?, events).await;
-            Ok(report_came_up(json, resumed.ok(), "The run is up again.", term))
+            Ok(report_came_up(json, resumed.ok().map(|()| Vec::new()), "The run is up again.", term))
         }
         Lifecycle::Update(op) => {
             let updated = open(runner, &op.run)?.update(&options(op, var)?, events).await;
-            Ok(report_came_up(json, updated.ok(), "The run is up to date.", term))
+            Ok(report_came_up(json, updated.ok().map(|()| Vec::new()), "The run is up to date.", term))
         }
         Lifecycle::Retire { op, machine } => {
             let retired = open(runner, &op.run)?.retire(machine, &options(op, var)?, events).await;
@@ -172,12 +155,17 @@ fn park_mode(mode: Mode) -> Park {
     }
 }
 
-/// A run that came up (a start, a resume, an update): its message, or `done`, unless the output is JSON
-/// (its events said it); failed when it didn't come up.
-fn report_came_up(json: bool, run: Option<isothrum_runner::Started>, done: &str, term: &Term) -> Verdict {
-    let Some(run) = run else { return Verdict::Fail };
+/// A run that came up (a start, a resume, an update): `done` and its outputs, unless the output
+/// is JSON (its events said it); failed when it didn't come up.
+fn report_came_up(json: bool, outputs: Option<Vec<isothrum_runner::OutputValue>>, done: &str, term: &Term) -> Verdict {
+    let Some(outputs) = outputs else { return Verdict::Fail };
     if !json {
-        term.out(run.message.as_deref().unwrap_or(done).trim_end());
+        term.out(done);
+        for o in &outputs {
+            if let Some(value) = &o.value {
+                term.out(&format!("{}: {value}", o.name));
+            }
+        }
     }
     Verdict::Pass
 }
@@ -196,18 +184,22 @@ async fn status(out: &Out<'_>, run: &Running<'_>) -> Result<Verdict> {
     Ok(Verdict::Pass)
 }
 
-/// Hot-adds the on-demand access machine, then says where to reach it: in its `result` event's
-/// data with `--json`, else as a line.
-async fn attach(out: &Out<'_>, run: &Running<'_>, pick: AccessPick<'_>, opts: &RunOptions) -> Result<Verdict> {
+/// Runs `argv` in `machine`: what it printed, on the command's own streams (in its `result` with
+/// `--json`), and a pass only when it exited 0.
+async fn exec(out: &Out<'_>, run: &Running<'_>, machine: &str, argv: &[String], opts: &RunOptions) -> Result<Verdict> {
     let Out { json, term, events } = *out;
-    let Ok(report) = run.attach(pick, opts, events).await else {
+    let Ok(report) = run.exec(machine, argv, opts, events).await else {
         return Ok(Verdict::Fail);
     };
     if !json {
-        let at = report.address.as_deref().map(|a| format!(" at {a}")).unwrap_or_default();
-        term.out(&format!("Attached {}{at}.", report.machine));
+        if !report.stdout.is_empty() {
+            term.out(report.stdout.trim_end());
+        }
+        if !report.stderr.is_empty() {
+            term.err(report.stderr.trim_end());
+        }
     }
-    Ok(Verdict::Pass)
+    Ok(Verdict::of(report.exit == 0))
 }
 
 /// The command that opens a console into a machine (`console`): one line to paste in a POSIX
@@ -221,77 +213,6 @@ fn print_command(out: &Out<'_>, cmd: &ShellCommand) -> Result<Verdict> {
         term.out(&cmd.sh_line());
     }
     Ok(Verdict::Pass)
-}
-
-/// `machine`'s graphical console, reached: where it answers (its password only when `show`), as
-/// one JSON object or lines for a person; a tunnel it holds kept open until the command is
-/// stopped.
-async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, show: bool) -> Result<Verdict> {
-    let Out { json, term, .. } = *out;
-    let mut console = run.graphical_console(machine).await?;
-    let protocol = isothrum_runner::wire_name(&console.protocol);
-    let (address, websocket) = match &console.endpoint {
-        Endpoint::Loopback(at) => (Some(at.to_string()), None),
-        Endpoint::ProxmoxVnc(vnc) => (None, Some(websocket_shown(vnc, show))),
-        _ => (None, None),
-    };
-    let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
-    if json {
-        let line = serde_json::json!({
-            "machine": console.machine, "protocol": protocol, "address": address, "websocket": websocket,
-            "user": console.user, "password": password, "tunnelled": console.tunnelled(), "note": console.note,
-        });
-        term.out(&line.to_string());
-    } else {
-        term.out(&format!("{protocol} {}", address.or(websocket).unwrap_or_default()));
-        if let Some(user) = &console.user {
-            term.out(&format!("user: {user}"));
-        }
-        match (&password, &console.password) {
-            (Some(p), _) => term.out(&format!("password: {p}")),
-            (None, Some(_)) => term.out("password: (hidden: --show-password prints it)"),
-            (None, None) => {}
-        }
-        if console.tunnelled() {
-            term.out("The tunnel stays open until this command is stopped (Ctrl-C).");
-        }
-    }
-    if console.tunnelled() {
-        // Held open while it lives: a tunnel that closed ends the command, saying so.
-        match console.tunnel_closed().await {
-            Ok(never) => match never {},
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(Verdict::Pass)
-}
-
-/// A Proxmox VE console's websocket as `screen` prints it: its ticket (the console's password, in
-/// its query) masked unless `show` (`--show-password`).
-fn websocket_shown(vnc: &isothrum_runner::ProxmoxVnc, show: bool) -> String {
-    ticket_shown(vnc.websocket.expose(), vnc.ticket.expose(), show)
-}
-
-/// `url` with `ticket` in it, as it is or percent-encoded, masked unless `show`.
-fn ticket_shown(url: &str, ticket: &str, show: bool) -> String {
-    const HIDDEN: &str = "<hidden: --show-password prints it>";
-    if show || ticket.is_empty() {
-        return url.to_owned();
-    }
-    url.replace(&isothrum_runner::percent_encoded(ticket), HIDDEN).replace(ticket, HIDDEN)
-}
-
-/// The run's checks: a pass only when every one passed.
-async fn check(out: &Out<'_>, run: &Running<'_>, opts: &RunOptions) -> Result<Verdict> {
-    let Out { json, term, events } = *out;
-    let Ok(report) = run.check(opts, events).await else {
-        return Ok(Verdict::Fail);
-    };
-    if !json {
-        let failed = report.results.iter().filter(|r| !r.ok).count();
-        term.out(&format!("{} passed, {failed} failed", report.results.len() - failed));
-    }
-    Ok(Verdict::of(report.ok))
 }
 
 /// The run's recorded events, oldest first: JSON lines, or a line each for a person.
@@ -316,9 +237,9 @@ fn print_events(out: &Out<'_>, runner: &Runner, run: &Running<'_>) -> Result<Ver
     Ok(Verdict::Pass)
 }
 
-/// The run `args` names.
+/// The run `args` names: the project in its folder, of the format `--format` names, else the one
+/// its files show.
 fn open<'r>(runner: &'r Runner, args: &RunArgs) -> Result<Running<'r>> {
-    let manifest = locate::manifest(&args.path, args.target.as_deref())?;
     // A malformed `--name` is a malformed value: a usage error, as clap's own are.
     let name = args
         .name
@@ -326,19 +247,15 @@ fn open<'r>(runner: &'r Runner, args: &RunArgs) -> Result<Running<'r>> {
         .map(RunName::new)
         .transpose()
         .map_err(|e| Error::Usage(format!("--name: {e}")))?;
-    Ok(runner.open(&manifest, name)?)
+    Ok(match args.format {
+        Some(format) => runner.open_as(&args.path, format.into(), name)?,
+        None => runner.open(&args.path, name)?,
+    })
 }
 
-/// The start options `up` gives: its operation's, plus `replace` (remove leftovers first), a
-/// `lifetime` in minutes and the SSH jump the run records.
+/// The start options `up` gives: its operation's, plus a `lifetime` in minutes.
 fn start_opts(up: &UpArgs, var: &Var<'_>) -> Result<RunOptions> {
     let mut opts = options(&up.op, var)?;
-    if let Some(jump) = &up.ssh_jump {
-        opts = opts.with_ssh_jump(jump);
-    }
-    if up.replace {
-        opts = opts.with_occupied(Occupied::Replace);
-    }
     if let Some(minutes) = up.lifetime {
         opts = opts.with_lifetime(std::time::Duration::from_secs(minutes.saturating_mul(60)));
     }
@@ -347,9 +264,10 @@ fn start_opts(up: &UpArgs, var: &Var<'_>) -> Result<RunOptions> {
 
 /// The options `args` gives.
 fn options(args: &OpArgs, var: &Var<'_>) -> Result<RunOptions> {
-    let mut opts = RunOptions::new()
-        .with_params(values::params(&args.params)?)
-        .with_secrets(values::secrets(&args.secrets, var)?);
+    let mut opts = RunOptions::new().with_secrets(values::secrets(&args.secrets, var)?);
+    for (name, value) in values::env(&args.env)? {
+        opts = opts.with_env(name, value);
+    }
     if let Some(label) = &args.host_label {
         opts = opts.with_host_label(label);
     }

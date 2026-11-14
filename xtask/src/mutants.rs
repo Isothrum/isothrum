@@ -1,5 +1,5 @@
-//! `mutants [CRATE...]`: mutation testing (cargo-mutants) of the runner's executor and the pure parts of its drivers (what reads Compose's, Vagrant's and
-//! Terraform's answers). Each mutant is a small change to the code (an operator swapped, a condition
+//! `mutants [CRATE...]`: mutation testing (cargo-mutants) of the pure parts of the runner: its
+//! adapters and readers of what Compose, Vagrant and Terraform answer. Each mutant is a small change to the code (an operator swapped, a condition
 //! negated, a function returning a default) and must make a test of its crate fail. A mutant no
 //! test catches ("missed") fails the run, until a test catches it or `.cargo/mutants.toml` lists
 //! it, with its reason, as one no test can tell apart from the original.
@@ -16,15 +16,12 @@ use crate::{Res, process, repo};
 /// The crates mutated by default, each with the files mutated in it (every file when none).
 const SCOPE: [(&str, &[&str]); 1] = [("isothrum-runner", &RUNNER_FILES)];
 
-/// The runner's files mutated: the executor, and what reads the engines' answers.
-const RUNNER_FILES: [&str; 7] = [
-    "crates/isothrum-runner/src/executor.rs",
-    "crates/isothrum-runner/src/executor/**",
-    "crates/isothrum-runner/src/driver/compose/config.rs",
-    "crates/isothrum-runner/src/driver/compose/ps.rs",
+/// The runner's files mutated: the adapters, and what reads the tools' answers.
+const RUNNER_FILES: [&str; 4] = [
+    "crates/isothrum-runner/src/cli.rs",
+    "crates/isothrum-runner/src/cli/**",
     "crates/isothrum-runner/src/tool_output.rs",
     "crates/isothrum-runner/src/tool_output/**",
-    "crates/isothrum-runner/src/driver/terraform/state.rs",
 ];
 
 /// The arguments of `mutants`.
@@ -33,7 +30,7 @@ pub(crate) struct Args {
     /// How many mutants are built and tested at once.
     #[arg(long, short, default_value_t = 1)]
     jobs: u8,
-    /// The crates (default: isothrum-runner's executor and drivers' readers).
+    /// The crates (default: isothrum-runner's adapters and readers).
     crates: Vec<String>,
 }
 

@@ -19,21 +19,14 @@ pub enum ResultData {
         /// Its outputs, sensitive values shown as `***`.
         outputs: Vec<ShownOutput>,
     },
-    /// A `reap`: the expired runs it destroyed or would, and what a cloud still holds.
+    /// A `reap`: the expired runs it destroyed or would.
     Swept {
-        /// The cloud swept, by its wire name.
-        cloud: String,
         /// The runs destroyed.
         destroyed: Vec<String>,
         /// The runs a dry run would destroy.
         pending: Vec<String>,
         /// The runs whose destroy failed, with why.
         failed: Vec<SweepFailure>,
-        /// The cloud's resources past their expiry that no run records; none when the cloud
-        /// couldn't be searched.
-        orphans: Option<Vec<SweptResource>>,
-        /// What of the cloud couldn't be read; none when it couldn't be searched.
-        unread: Option<Vec<String>>,
     },
     /// An operation on one machine or on all (`attach`, `retire`, `exec`, `provision`): which.
     Machine {
@@ -88,34 +81,6 @@ impl SweepFailure {
     }
 }
 
-/// A cloud resource past its expiry that no run records, as a `reap` shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub struct SweptResource {
-    /// Its id as the cloud names it.
-    pub id: String,
-    /// What it is.
-    pub kind: String,
-    /// When its environment ends, in seconds since the Unix epoch, when it says.
-    pub expires_at: Option<u64>,
-    /// Its environment's name, when it says.
-    pub instance: Option<String>,
-}
-
-impl SweptResource {
-    /// Resource `id`, a `kind`, its environment `instance` ending at `expires_at`, as they say.
-    #[must_use]
-    pub fn new(id: impl Into<String>, kind: impl Into<String>, expires_at: Option<u64>, instance: Option<String>) -> SweptResource {
-        SweptResource {
-            id: id.into(),
-            kind: kind.into(),
-            expires_at,
-            instance,
-        }
-    }
-}
-
 impl ResultData {
     /// The data with every string `mask` returns for it: no sensitive value of the run shows.
     #[must_use]
@@ -133,20 +98,10 @@ impl ResultData {
                     })
                     .collect(),
             },
-            ResultData::Swept {
-                cloud,
-                destroyed,
-                pending,
-                failed,
-                orphans,
-                unread,
-            } => ResultData::Swept {
-                cloud,
+            ResultData::Swept { destroyed, pending, failed } => ResultData::Swept {
                 destroyed,
                 pending,
                 failed: failed.into_iter().map(|f| SweepFailure { run: f.run, error: m(f.error) }).collect(),
-                orphans,
-                unread,
             },
             other => other,
         }
@@ -166,12 +121,9 @@ mod tests {
                 outputs: vec![ShownOutput::new("web", Some("http://127.0.0.1:8080".into()))],
             },
             ResultData::Swept {
-                cloud: "aws".into(),
                 destroyed: vec!["a".into()],
                 pending: Vec::new(),
                 failed: vec![SweepFailure::new("b", "x")],
-                orphans: None,
-                unread: None,
             },
             ResultData::Machine { machine: Some("web".into()) },
             ResultData::Machine { machine: None },

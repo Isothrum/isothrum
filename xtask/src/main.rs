@@ -13,9 +13,8 @@
 //!   must be empty at the end (`ISOTHRUM_KEEP_TEMP=1` keeps it);
 //! - `msrv` and `features`: every crate checked with its declared minimum Rust, and with every
 //!   combination of its features (cargo-hack);
-//! - `fuzz`: the fuzz targets of `fuzz/` (cargo-fuzz), each for a while;
-//! - `mutants`: mutation testing of the compiler, the runner's executor and its readers of what
-//!   Compose, Vagrant and Terraform answer (cargo-mutants).
+//! - `mutants`: mutation testing of the runner's readers of what Compose, Vagrant and Terraform
+//!   answer (its adapters, cargo-mutants).
 //!
 //! CONTRIBUTING lists them with the other gates. Each task is a module; `process` runs the tools they drive, `repo` finds the checkout.
 //! `workspace` holds the tests that keep the workspace's dependencies one-way and its manifests inheriting the workspace's;
@@ -29,7 +28,6 @@
 
 #[cfg(all(test, unix))]
 mod ci_scripts;
-mod fuzz;
 mod hack;
 mod mutants;
 mod process;
@@ -73,10 +71,7 @@ enum Task {
     Msrv,
     /// Every crate checked with every combination of its features (cargo-hack).
     Features,
-    /// The fuzz targets of fuzz/ (cargo-fuzz, nightly), each for a while; exits 1 when one
-    /// crashes.
-    Fuzz(fuzz::Args),
-    /// Mutation testing of the compiler and the runner's executor and drivers' readers
+    /// Mutation testing of the runner's adapters (its readers of the tools' answers)
     /// (cargo-mutants): exits 1 when a mutant survives.
     Mutants(mutants::Args),
 }
@@ -99,7 +94,6 @@ fn run(cli: Cli) -> Res<ExitCode> {
         Task::Test(a) => test::run(&a),
         Task::Msrv => hack::msrv(),
         Task::Features => hack::features(),
-        Task::Fuzz(a) => fuzz::run(&a),
         Task::Mutants(a) => mutants::run(&a),
     }
 }
