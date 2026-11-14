@@ -228,6 +228,7 @@ impl PartialOrd for Version {
 
 /// Two pre-releases, field by field: numbers as numbers, a number before text, text as ASCII,
 /// and fewer fields first when the fields they have tie.
+#[expect(clippy::many_single_char_names, reason = "the two sides of a comparison, field by field")]
 fn pre_release_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let mut xs = a.split('.');

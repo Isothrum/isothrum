@@ -100,6 +100,7 @@ fn a_reserving_child() {
 }
 
 #[test]
+#[expect(clippy::disallowed_methods, reason = "the other process of the test: this test binary, run alone")]
 fn a_reservation_whose_process_dies_is_freed() {
     let home = tempfile::tempdir().unwrap();
     let mut child = Command::new(std::env::current_exe().unwrap())

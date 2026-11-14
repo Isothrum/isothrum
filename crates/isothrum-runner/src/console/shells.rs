@@ -31,6 +31,7 @@ mod tests {
     /// The scripts are sh: a console that runs them doesn't fail on a quote or a brace.
     #[cfg(unix)]
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "the test parses the scripts with a real sh, to its end")]
     fn the_scripts_as_an_account_are_sh() {
         for script in [login_shell_as("user"), container_shell_as()] {
             let parsed = std::process::Command::new("sh").args(["-n", "-c", &script]).status();
@@ -41,6 +42,7 @@ mod tests {
     /// From another account's session (Vagrant's), the script hands over to `sudo -iu` the account.
     #[cfg(unix)]
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "the test runs the script in a real sh, to its end")]
     fn from_another_account_the_login_is_sudo_as_the_account() {
         use std::os::unix::fs::PermissionsExt;
         let bin = tempfile::tempdir().unwrap();

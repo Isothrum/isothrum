@@ -61,6 +61,10 @@ pub(crate) async fn run(cli: &Cli, command: &RunnerCommand, out: &Out<'_>, var: 
         return Ok(Verdict::Pass);
     }
     let (wire, shown) = operation(command, var)?;
+    if let Some((target, _)) = wire.target() {
+        // A folder that holds no project fails here, before a service is started for it.
+        isothrum_runner::Project::open(&target.path, target.format)?;
+    }
     let client = Client::connect(&home, None).await?;
     let followed = client.follow(wire).await?;
     follow(&client, followed, out, shown).await

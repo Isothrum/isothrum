@@ -331,9 +331,15 @@ mod tests {
         assert!(read < s.find("$job = Start-Job -ScriptBlock $run").unwrap(), "{s}");
         assert!(s.contains("if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n)"));
         assert!(s.contains("Remove-Item -LiteralPath $path -Force"));
-        // The variables are set in the request's own process, never the broker's.
+        // The variables are set in the request's own process, never the broker's (which only
+        // clears the loaders' from its own).
         let job = s.find("$run = {").unwrap();
-        assert!(s.find("SetEnvironmentVariable").unwrap() > job, "{s}");
+        for set in [
+            "SetEnvironmentVariable('PATH', $path, 'Process')",
+            "SetEnvironmentVariable($p.k, $p.v, 'Process')",
+        ] {
+            assert!(s.find(set).unwrap() > job, "{set}: {s}");
+        }
         // The exit code appears whole.
         assert!(s.contains("Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force"));
     }

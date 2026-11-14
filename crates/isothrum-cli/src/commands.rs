@@ -269,12 +269,12 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
             term.out(&format!("note: {note}"));
         }
     }
-    if let Some(tunnel) = console.tunnel.as_mut() {
+    if let Some(open) = console.tunnel.as_mut() {
         term.err(&format!(
             "The tunnel through {} stays open while this runs: Ctrl-C closes it once the viewer is done.",
-            tunnel.via()
+            open.via()
         ));
-        let said = tunnel.closed().await;
+        let said = open.closed().await;
         term.err(&format!("The tunnel closed: {said}."));
         return Ok(Verdict::Fail);
     }

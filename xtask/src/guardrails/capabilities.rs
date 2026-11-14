@@ -1,9 +1,8 @@
-//! A claimed capability must change what runs: every capability a driver of the runner claims
-//! (each action of the manifest it takes, each hook of `Driver` it overrides) names the test
-//! that shows the call reach its tool (a scripted process sees the command, or the file the
-//! action owns changes) and what in that test shows it; a hook that reaches no tool (a refusal,
-//! a nothing-to-do, the run's set-up) says so. A claim with neither fails, and so does a row
-//! whose claim the driver no longer makes.
+//! A claimed capability must change what runs: every method of `FormatDriver` a driver of the
+//! runner defines names the test that shows the call reach its tool (a scripted process sees the
+//! command, or the file the method owns changes) and what in that test shows it; a method that
+//! reaches no tool (a refusal, a query, a read of a file the tool wrote) says so. A claim with
+//! neither fails, and so does a row whose claim the driver no longer makes.
 
 use super::source;
 
@@ -18,387 +17,379 @@ enum Proof {
 
 use Proof::{NoTool, Witness};
 
-/// The drivers: their name and the file of their `impl Driver`.
+/// The drivers: their name and the file of their `impl FormatDriver`.
 const DRIVERS: [(&str, &str); 3] = [
-    ("compose", "crates/isothrum-runner/src/driver/compose.rs"),
-    ("vagrant", "crates/isothrum-runner/src/driver/vagrant.rs"),
-    ("terraform", "crates/isothrum-runner/src/driver/terraform.rs"),
+    ("compose", "crates/isothrum-runner/src/formats/compose.rs"),
+    ("vagrant", "crates/isothrum-runner/src/formats/vagrant.rs"),
+    ("terraform", "crates/isothrum-runner/src/formats/terraform.rs"),
 ];
 
-/// Each driver's claims (`action:<Action>` or the hook's name) and how each is shown.
-const CLAIMS: [(&str, &str, Proof); 54] = [
-    // Compose.
+/// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
+const CLAIMS: [(&str, &str, Proof); 52] = [
     (
         "compose",
-        "action:ComposePinPorts",
+        "up",
         Witness {
-            test: "a_run_comes_up_with_its_entry_and_message_then_goes",
-            evidence: "the pinned port",
+            test: "up_waits_for_the_services_and_names_the_project_after_the_run",
+            evidence: "expect_times(UP, 1",
         },
     ),
     (
         "compose",
-        "action:ComposeCheckPortsFree",
+        "down",
         Witness {
-            test: "a_port_held_on_the_host_is_refused_before_anything_starts",
-            evidence: "host port 8080/tcp is in use",
+            test: "down_takes_the_volumes_then_whatever_still_carries_the_label",
+            evidence: "down --volumes --remove-orphans",
         },
     ),
     (
         "compose",
-        "action:ComposeRemoveStaleNetworks",
+        "park",
         Witness {
-            test: "a_stale_network_goes_and_a_defined_one_stays",
-            evidence: "docker network rm web-portal_old",
+            test: "park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_without_remaking",
+            evidence: "docker compose -p lab -f * pause",
         },
     ),
     (
         "compose",
-        "action:ComposeRemoveContainers",
+        "resume",
         Witness {
-            test: "an_interrupted_down_retried_removes_everything_and_ends_absent",
-            evidence: "ctrs.is_empty()",
+            test: "park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_without_remaking",
+            evidence: "unpause",
+        },
+    ),
+    ("compose", "update", NoTool("the same `up`, which its witness shows (`Compose::up`)")),
+    (
+        "compose",
+        "machines",
+        Witness {
+            test: "machines_are_the_services_the_files_declare_and_reapply_is_one_up",
+            evidence: "config --services",
         },
     ),
     (
         "compose",
-        "action:ComposeRemoveNetworks",
+        "reapply",
         Witness {
-            test: "an_interrupted_down_retried_removes_everything_and_ends_absent",
-            evidence: "RunState::Absent",
+            test: "machines_are_the_services_the_files_declare_and_reapply_is_one_up",
+            evidence: "reapplied",
         },
     ),
-    (
-        "compose",
-        "before_step",
-        Witness {
-            test: "a_compose_up_pulls_its_services_with_its_project_files_and_policy",
-            evidence: "pull --policy missing",
-        },
-    ),
-    ("compose", "preflight", NoTool("nothing to check before a start: its tools are probed")),
-    ("compose", "env", NoTool("no variable of its own")),
-    ("compose", "prepare", NoTool("writes the pinned-ports file the calls name, before the first")),
-    (
-        "compose",
-        "observe",
-        Witness {
-            test: "a_run_comes_up_with_its_entry_and_message_then_goes",
-            evidence: "run.status().await",
-        },
-    ),
-    (
-        "compose",
-        "before_change",
-        Witness {
-            test: "an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_orphaned",
-            evidence: "volume rm --force",
-        },
-    ),
-    (
-        "compose",
-        "after_change",
-        Witness {
-            test: "an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_orphaned",
-            evidence: "volume rm --force",
-        },
-    ),
-    (
-        "compose",
-        "after_down",
-        Witness {
-            test: "a_run_comes_up_with_its_entry_and_message_then_goes",
-            evidence: "Containers::None",
-        },
-    ),
-    (
-        "compose",
-        "restart",
-        NoTool("nothing: a service carries no boot digest, up's steps recreate a changed one"),
-    ),
+    ("compose", "provision", NoTool("refused: a Compose project has no provisioning to run again")),
     (
         "compose",
         "attach",
         Witness {
-            test: "attach_brings_the_access_service_up_in_its_profile_with_the_picked_image",
-            evidence: "--profile access up",
+            test: "attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes",
+            evidence: "up --detach --wait attackbox",
         },
     ),
     (
         "compose",
         "retire",
         Witness {
-            test: "retiring_a_compose_service_removes_it_with_its_namespace",
-            evidence: "--profile access rm -sfv user",
+            test: "attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes",
+            evidence: "rm --stop --force --volumes attackbox",
         },
     ),
     (
         "compose",
-        "console_command",
+        "exec",
         Witness {
-            test: "a_console_into_a_compose_service_opens_as_the_account_asked",
-            evidence: " exec --user user web sh -c ",
-        },
-    ),
-    ("compose", "in_guest", NoTool("refused: a Compose run's containers run in no VM")),
-    // Vagrant.
-    (
-        "vagrant",
-        "action:VagrantReconcileProvider",
-        Witness {
-            test: "a_record_on_another_provider_is_cleared_before_the_start",
-            evidence: "vagrant destroy --force",
+            test: "exec_runs_in_the_running_container_or_as_a_one_off_and_says_how_it_ended",
+            evidence: "exec -T web cat /flag",
         },
     ),
     (
-        "vagrant",
-        "action:VagrantDiscardAbortedSaved",
-        Witness {
-            test: "a_virtualbox_vm_whose_saved_state_was_cut_off_boots_fresh",
-            evidence: "vagrant up --provider",
-        },
+        "compose",
+        "console",
+        NoTool("a query: the command an embedder runs with a terminal, nothing runs"),
     ),
     (
-        "vagrant",
-        "action:VagrantRemoveOrphans",
-        Witness {
-            test: "a_down_on_parallels_removes_the_runs_orphaned_vm_by_its_exact_name",
-            evidence: "prlctl stop",
-        },
-    ),
-    (
-        "vagrant",
-        "action:VagrantResetState",
-        Witness {
-            test: "vagrants_record_lives_in_the_runs_state_folder",
-            evidence: "reset once the VMs are gone",
-        },
-    ),
-    (
-        "vagrant",
-        "action:VagrantWakeController",
-        Witness {
-            test: "a_controller_still_halting_is_waited_for_before_it_boots",
-            evidence: "asked_then_booted(&calls, 3)",
-        },
-    ),
-    (
-        "vagrant",
-        "action:VagrantParkController",
-        Witness {
-            test: "a_controller_halts_with_its_lines_in_the_log",
-            evidence: "Attempting graceful shutdown of VM",
-        },
-    ),
-    (
-        "vagrant",
-        "action:VagrantCheckForwardedPorts",
-        Witness {
-            test: "a_forwarded_port_another_lab_holds_stops_the_start_before_the_vm_is_made",
-            evidence: "ErrorCode::PortInUse",
-        },
-    ),
-    (
-        "vagrant",
-        "pin_vm_ports",
-        Witness {
-            test: "a_fresh_local_start_pins_a_free_host_port_and_answers_on_it",
-            evidence: "ISOLOOM_HOSTPORTS",
-        },
-    ),
-    (
-        "vagrant",
-        "forwarded_port",
-        Witness {
-            test: "a_fresh_local_start_pins_a_free_host_port_and_answers_on_it",
-            evidence: "http://127.0.0.1:41000/",
-        },
-    ),
-    (
-        "vagrant",
-        "before_step",
-        Witness {
-            test: "a_start_downloads_the_boxes_its_vms_boot_on_its_provider_before_vagrant_up",
-            evidence: "vagrant box add bento/debian-12 --provider virtualbox",
-        },
-    ),
-    (
-        "vagrant",
-        "run_argv",
-        Witness {
-            test: "an_up_refused_by_a_machines_lock_runs_again_and_is_no_leftover",
-            evidence: "vagrant up --provider virtualbox",
-        },
-    ),
-    (
-        "vagrant",
-        "preflight",
-        Witness {
-            test: "vagrant_attach_boots_the_access_vm_with_the_picked_box",
-            evidence: "plugin list",
-        },
-    ),
-    ("vagrant", "prepare", NoTool("creates the run's own folder the dotfile goes in")),
-    (
-        "vagrant",
-        "env",
-        Witness {
-            test: "vagrants_record_lives_in_the_runs_state_folder",
-            evidence: "VAGRANT_DOTFILE_PATH",
-        },
-    ),
-    (
-        "vagrant",
+        "compose",
         "observe",
         Witness {
-            test: "a_vm_run_comes_up_is_checked_parked_resumed_and_goes",
-            evidence: "RunState::Parked",
+            test: "observe_reads_each_service_and_its_published_ports_and_derives_the_runs_state",
+            evidence: "ps --all --format json",
+        },
+    ),
+    (
+        "compose",
+        "found",
+        Witness {
+            test: "the_resources_are_what_the_project_label_marks_by_id",
+            evidence: "found",
+        },
+    ),
+    (
+        "compose",
+        "destroy_by_id",
+        Witness {
+            test: "the_resources_are_what_the_project_label_marks_by_id",
+            evidence: "docker volume rm v9",
         },
     ),
     (
         "vagrant",
-        "after_down",
-        NoTool("nothing: the manifest's own `vagrant.reset_state` clears the state"),
+        "elevates",
+        NoTool("a query: whether a provider's commands go through the elevated session (hyper_v_takes_its_commands_elevated)"),
     ),
     (
         "vagrant",
-        "restart",
+        "probe",
         Witness {
-            test: "an_update_restarts_only_the_running_vm_whose_boot_settings_changed",
-            evidence: "vagrant reload web --no-provision",
+            test: "probe_refuses_a_provider_this_host_doesnt_run_a_missing_plugin_and_an_old_vagrant",
+            evidence: "vagrant plugin list --machine-readable",
+        },
+    ),
+    (
+        "vagrant",
+        "up",
+        Witness {
+            test: "up_runs_on_the_provider_asked_with_the_dotfile_in_the_state_folder_and_the_key_in_the_environment",
+            evidence: "vagrant up --provider libvirt",
+        },
+    ),
+    (
+        "vagrant",
+        "down",
+        Witness {
+            test: "down_destroys_then_resets_the_dotfile_and_a_failed_destroy_keeps_it",
+            evidence: "vagrant destroy -f",
+        },
+    ),
+    (
+        "vagrant",
+        "park",
+        Witness {
+            test: "park_suspends_or_halts_and_esxi_refusing_a_vm_already_off_is_halted",
+            evidence: "vagrant suspend",
+        },
+    ),
+    (
+        "vagrant",
+        "resume",
+        Witness {
+            test: "resume_boots_without_provisioning_and_update_and_provision_provision",
+            evidence: "--no-provision",
+        },
+    ),
+    (
+        "vagrant",
+        "update",
+        Witness {
+            test: "resume_boots_without_provisioning_and_update_and_provision_provision",
+            evidence: "vagrant up --provider libvirt --provision",
+        },
+    ),
+    (
+        "vagrant",
+        "machines",
+        Witness {
+            test: "reapply_adds_removes_and_provisions_machine_by_machine",
+            evidence: "vagrant status --machine-readable",
+        },
+    ),
+    (
+        "vagrant",
+        "reapply",
+        Witness {
+            test: "reapply_adds_removes_and_provisions_machine_by_machine",
+            evidence: "vagrant destroy -f old",
+        },
+    ),
+    (
+        "vagrant",
+        "provision",
+        Witness {
+            test: "resume_boots_without_provisioning_and_update_and_provision_provision",
+            evidence: "provision",
         },
     ),
     (
         "vagrant",
         "attach",
         Witness {
-            test: "vagrant_attach_boots_the_access_vm_with_the_picked_box",
-            evidence: "ACCESS_BOX",
+            test: "attach_boots_one_machine_and_retire_destroys_it",
+            evidence: "vagrant up --provider libvirt attack",
         },
     ),
     (
         "vagrant",
         "retire",
         Witness {
-            test: "retiring_a_vagrant_machine_destroys_only_its_define",
-            evidence: "destroy -f user",
+            test: "attach_boots_one_machine_and_retire_destroys_it",
+            evidence: "vagrant destroy -f attack",
         },
     ),
     (
         "vagrant",
-        "console_command",
+        "exec",
         Witness {
-            test: "a_console_opens_any_vagrant_define_by_name",
-            evidence: "login_shell_as(\"user\")",
+            test: "exec_runs_the_command_over_ssh_quoted_and_a_failing_command_is_its_result",
+            evidence: "vagrant ssh web -c",
         },
     ),
     (
         "vagrant",
-        "in_guest",
-        Witness {
-            test: "a_console_into_a_service_goes_through_the_vm_into_its_container",
-            evidence: "[\"ssh\", \"default\", \"-c\"]",
-        },
+        "console",
+        NoTool("a query: the command an embedder runs with a terminal, nothing runs"),
     ),
-    // Terraform.
     (
-        "terraform",
-        "action:TerraformClearLock",
+        "vagrant",
+        "observe",
         Witness {
-            test: "removing_what_isnt_there_is_fine",
-            evidence: "LOCK_FILE",
+            test: "observe_reads_each_machine_and_the_ports_of_those_running_without_guessing_a_protocol",
+            evidence: "vagrant port web --machine-readable",
         },
     ),
     (
-        "terraform",
-        "action:TerraformReadState",
+        "vagrant",
+        "found",
+        NoTool("reads the run's dotfile, a file Vagrant wrote: no tool runs (found_is_the_dotfiles_machine_ids_by_machine)"),
+    ),
+    (
+        "vagrant",
+        "destroy_by_id",
         Witness {
-            test: "a_state_that_cannot_be_read_is_an_error_not_an_empty_state",
-            evidence: "read(dir.path())",
+            test: "destroy_by_id_of_a_machine_no_longer_defined_goes_by_id_at_virtualbox_and_gone_is_fine",
+            evidence: "VBoxManage unregistervm uuid-old --delete",
+        },
+    ),
+    (
+        "vagrant",
+        "graphical",
+        Witness {
+            test: "each_provider_has_its_own_app_or_none",
+            evidence: "Provider::Virtualbox",
+        },
+    ),
+    ("vagrant", "native_app", NoTool("a query: the app a provider's VMs open in, nothing runs")),
+    (
+        "terraform",
+        "probe",
+        Witness {
+            test: "the_probe_reads_the_version",
+            evidence: "terraform version -json",
         },
     ),
     (
         "terraform",
-        "action:TerraformCopyModule",
+        "up",
         Witness {
-            test: "the_labs_own_module_is_copied_into_the_run_and_destroyed_as_applied",
-            evidence: "the start copied the module",
+            test: "up_inits_then_applies_on_the_runs_own_state_with_inputs_in_the_environment_only",
+            evidence: "terraform init -input=false -no-color",
         },
     ),
     (
         "terraform",
-        "gone",
+        "down",
         Witness {
-            test: "a_destroy_that_failed_on_a_resource_already_gone_drops_it_and_destroys_again",
-            evidence: "\"state\", \"rm\"",
-        },
-    ),
-    (
-        "terraform",
-        "forget_gone",
-        Witness {
-            test: "a_destroy_that_failed_on_a_resource_already_gone_drops_it_and_destroys_again",
+            test: "a_destroy_failing_for_another_reason_fails_and_keeps_the_state",
             evidence: "terraform destroy",
         },
     ),
     (
         "terraform",
-        "reapplies",
+        "park",
+        NoTool("refused: a module has no stopped state Terraform keeps (what_a_module_cant_do_is_refused_and_nothing_runs)"),
+    ),
+    (
+        "terraform",
+        "resume",
+        NoTool("refused: a module has no stopped state Terraform keeps (what_a_module_cant_do_is_refused_and_nothing_runs)"),
+    ),
+    (
+        "terraform",
+        "update",
         Witness {
-            test: "an_apply_that_converges_on_a_second_try_is_applied_again",
-            evidence: "terraform apply",
+            test: "update_is_the_same_apply",
+            evidence: "terraform apply -auto-approve",
         },
     ),
-    ("terraform", "preflight", NoTool("checks the module has a `.tf` file, on disk")),
-    ("terraform", "prepare", NoTool("creates the runner's plugin cache folder")),
-    ("terraform", "env", NoTool("names the plugin cache and the run's expiry for the calls")),
+    (
+        "terraform",
+        "machines",
+        Witness {
+            test: "machines_are_the_vms_the_state_keeps_and_those_the_plan_makes",
+            evidence: "terraform show -json",
+        },
+    ),
+    (
+        "terraform",
+        "reapply",
+        Witness {
+            test: "reapply_plans_then_applies_and_writes_no_plan_file",
+            evidence: "terraform plan -input=false -json",
+        },
+    ),
+    (
+        "terraform",
+        "provision",
+        NoTool("refused: Terraform has no provisioning of its own to run again"),
+    ),
+    ("terraform", "attach", NoTool("refused: a module's machines are all applied together")),
+    ("terraform", "retire", NoTool("refused: a module's machines are all applied together")),
+    ("terraform", "exec", NoTool("refused: Terraform reaches no machine to run a command in")),
+    ("terraform", "console", NoTool("refused: Terraform reaches no machine to open a console in")),
     (
         "terraform",
         "observe",
         Witness {
-            test: "an_applied_state_runs_every_machine_and_publishes_at_the_routers_address",
-            evidence: "MachineState::Running",
+            test: "observe_reads_the_vms_and_the_outputs_sensitivity_kept",
+            evidence: "terraform show -json -no-color",
         },
     ),
-    ("terraform", "after_down", NoTool("forgets the run's state files, on disk")),
-    ("terraform", "attach", NoTool("refused: the module makes every machine at up")),
     (
         "terraform",
-        "retire",
-        NoTool("nothing for a machine the module makes (the update's apply removes it); refused otherwise"),
-    ),
-    (
-        "terraform",
-        "console_command",
+        "found",
         Witness {
-            test: "a_console_over_ssh_opens_as_the_account_asked",
-            evidence: "admin@198.51.100.10",
+            test: "found_is_every_managed_instance_by_address_and_id",
+            evidence: "terraform show -json",
         },
     ),
     (
         "terraform",
-        "in_guest",
+        "destroy_by_id",
         Witness {
-            test: "a_guest_step_waits_for_its_machine_to_answer_over_ssh",
-            evidence: "doesn't answer over SSH yet",
+            test: "destroy_by_id_imports_an_instance_the_state_lost_first",
+            evidence: "terraform destroy -auto-approve -input=false -json",
         },
     ),
+    (
+        "terraform",
+        "graphical",
+        Witness {
+            test: "only_a_proxmox_vm_offers_a_screen",
+            evidence: "proxmox_virtual_environment_vm",
+        },
+    ),
+    ("terraform", "native_app", NoTool("a query: the app a module's VMs open in, nothing runs")),
 ];
 
 /// The claims whose witness is owed: each a test to write (a scripted process seeing the call),
 /// and the list only shrinks. A claim added to a driver never goes here: it comes with its test.
-const OWED: [(&str, &str, &str); 2] = [
+const OWED: [(&str, &str, &str); 5] = [
+    ("compose", "probe", "`docker compose version` read, an old or missing Compose refused"),
     (
-        "compose",
-        "before_down",
-        "a down records the project's anonymous volumes (`docker volume ls`) before its steps",
+        "vagrant",
+        "reach_graphical",
+        "a VM's screen read from its provider (VBoxManage's remote display, virsh domdisplay) by a scripted process",
     ),
-    ("vagrant", "elevates", "a Hyper-V run's management commands go through the elevated broker"),
+    ("vagrant", "native_console", "a VM's own window opened through its provider's app"),
+    (
+        "terraform",
+        "reach_graphical",
+        "a Proxmox VE VM's VNC websocket asked of its API (curl's vncproxy) from the module's state",
+    ),
+    ("terraform", "native_console", "a Proxmox VE VM's web console address from the module's state"),
 ];
 
-/// What `impl Driver for …` in `text` claims: each method it defines, each action it matches.
+/// What `impl FormatDriver for …` in `text` claims: each method it defines.
 fn claims_in(text: &str) -> Vec<String> {
-    let Some(start) = text.find("impl Driver for ") else { return Vec::new() };
+    let Some(start) = text.find("impl FormatDriver for ") else {
+        return Vec::new();
+    };
     let block = text.get(start..).unwrap_or("");
     let block = block.get(..block.find("\n}").unwrap_or(block.len())).unwrap_or("");
     let mut found = Vec::new();
@@ -407,11 +398,6 @@ fn claims_in(text: &str) -> Vec<String> {
         let line = line.strip_prefix("async ").unwrap_or(line);
         if let Some(rest) = line.strip_prefix("fn ") {
             found.extend(rest.split(['(', '<']).next().map(str::to_owned));
-        }
-        if let Some(rest) = line.strip_prefix("Action::")
-            && let Some((name, _)) = rest.split_once(" =>")
-        {
-            found.push(format!("action:{name}"));
         }
     }
     found
@@ -466,18 +452,23 @@ mod tests {
 
     #[test]
     fn a_claim_without_a_witness_and_a_witness_without_its_claim_are_named() {
-        let text = "impl Driver for Compose {\n    async fn attach(&self) {}\n    fn shiny(&self) {}\n    fn action(&self, a: Action) {\n        match a {\n            Action::ComposePinPorts => x,\n            Action::ComposeNew => y,\n        }\n    }\n}\nfn outside() {}\n";
+        let text = "impl FormatDriver for Compose {\n    async fn attach(&self) {}\n    fn shiny(&self) {}\n}\nfn outside() {}\n";
         let claims = claims_in(text);
-        assert_eq!(claims, ["attach", "shiny", "action", "action:ComposePinPorts", "action:ComposeNew"]);
+        assert_eq!(claims, ["attach", "shiny"]);
         let tests = [source::File {
             path: "t.rs".to_owned(),
-            text: "#[test]\nfn attach_brings_the_access_service_up_in_its_profile_with_the_picked_image() { x(\"--profile access up\") }".to_owned(),
+            text:
+                "#[test]\nfn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes() { x(\"up --detach --wait attackbox\") }"
+                    .to_owned(),
         }];
         let found = unproven(&[("compose", claims)], &tests);
-        for want in ["claims `shiny`", "claims `action:ComposeNew`", "claims `action` with"] {
-            assert!(found.iter().any(|f| f.contains(want)), "{want}: {found:#?}");
-        }
-        assert!(found.iter().any(|f| f.contains("no longer claims `retire`")), "{found:#?}");
+        assert!(found.iter().any(|f| f.starts_with("compose claims `shiny` with no test")), "{found:#?}");
+        assert!(
+            found
+                .iter()
+                .any(|f| f == "compose no longer claims `retire`: take its row out (xtask/src/guardrails/capabilities.rs)"),
+            "{found:#?}"
+        );
         assert!(
             !found.iter().any(|f| f.starts_with("compose") && f.contains("`attach`")),
             "attach has its witness: {found:#?}"
@@ -490,10 +481,7 @@ mod tests {
             .iter()
             .map(|(name, path)| {
                 let text = std::fs::read_to_string(crate::repo::path_in(&crate::repo::root(), path)).unwrap_or_default();
-                let mut claims = claims_in(&source::code(&text));
-                // `action` is the dispatcher of the `action:` claims, not one of its own.
-                claims.retain(|c| c != "action");
-                (*name, claims)
+                (*name, claims_in(&source::code(&text)))
             })
             .collect();
         assert!(

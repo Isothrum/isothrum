@@ -308,6 +308,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a child spawned by hand without its pipes, which the runner's spawner never makes"
+    )]
     async fn a_child_whose_output_isnt_piped_is_an_error_not_a_panic() {
         // An `expect("piped stdout")` panicked here.
         let program = if cfg!(windows) { "cmd" } else { "true" };

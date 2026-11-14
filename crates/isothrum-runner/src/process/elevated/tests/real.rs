@@ -60,15 +60,15 @@ struct Pwsh {
 #[cfg(unix)]
 fn here(launcher: &str, bin: &Path) -> String {
     let marker = "'-EncodedCommand','";
-    let start = launcher.find(marker).unwrap() + marker.len();
-    let end = start + launcher[start..].find('\'').unwrap();
-    let units: Vec<u16> = unbase64(&launcher[start..end]).chunks(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+    let (head, rest) = launcher.split_at(launcher.find(marker).unwrap() + marker.len());
+    let (encoded, tail) = rest.split_at(rest.find('\'').unwrap());
+    let units: Vec<u16> = unbase64(encoded).chunks(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
     let script = String::from_utf16(&units).unwrap();
     let vagrant = super::script::ps_quote(&bin.join("vagrant").display().to_string());
     let stand_ins = format!("$programs = @{{ 'vagrant' = @({vagrant}) }}\n$systemPath = @()\nfunction Test-Owned($path) {{ $true }}\n$vagrantVars = @(");
     let script = script.replacen("$vagrantVars = @(", &stand_ins, 1);
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    format!("{}{}{}", &launcher[..start], crate::encoding::base64(&bytes), &launcher[end..])
+    format!("{head}{}{tail}", crate::encoding::base64(&bytes))
 }
 
 /// Standard base64 (RFC 4648, padded) read back.

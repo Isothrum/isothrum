@@ -37,22 +37,32 @@ fn last_event(out: &Output) -> Outcome<Value> {
 }
 
 #[test]
-fn a_folder_without_a_manifest_is_a_usage_error_event_with_json() {
+fn a_folder_that_holds_no_project_is_a_project_invalid_error_event_with_json() {
     let (home, run_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let run_dir = run_dir.path().to_str().unwrap();
     let out = isothrum(home.path(), &["up", run_dir, "--name", "ci-run", "--json"]).unwrap();
-    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(out.status.code(), Some(1));
     let event = last_event(&out).unwrap();
-    assert_eq!((event["event"].as_str(), event["code"].as_str()), (Some("error"), Some("usage")), "{event}");
+    assert_eq!(
+        (event["event"].as_str(), event["code"].as_str()),
+        (Some("error"), Some("project_invalid")),
+        "{event}"
+    );
     assert_eq!(
         (event["op"].as_str(), event["run"].as_str(), event["seq"].as_u64()),
         (Some("up"), Some("ci-run"), Some(1))
     );
-    assert!(event["message"].as_str().unwrap().contains("isoloom generate"), "{event}");
+    assert!(
+        event["message"]
+            .as_str()
+            .unwrap()
+            .ends_with("not a project to run: it holds no Compose file (compose.yaml), Vagrantfile or Terraform module (*.tf)"),
+        "{event}"
+    );
     assert!(out.stderr.is_empty(), "nothing else: {}", String::from_utf8_lossy(&out.stderr));
 
     let text = isothrum(home.path(), &["status", run_dir]).unwrap();
-    assert_eq!(text.status.code(), Some(2));
+    assert_eq!(text.status.code(), Some(1));
     assert!(text.stdout.is_empty() && String::from_utf8_lossy(&text.stderr).starts_with("error: "));
 }
 

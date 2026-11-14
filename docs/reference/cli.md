@@ -2,7 +2,7 @@
 
 # The `isothrum` command line
 
-isothrum: run what Isoloom generates from the command line.
+isothrum: run a Compose project, a Vagrantfile or a Terraform module from the command line.
 
 ```text
 isothrum [OPTIONS] <COMMAND>
@@ -13,27 +13,25 @@ Every command takes the global options. Exit codes: [exit-codes.md](exit-codes.m
 ## Global options
 
 - `--home <DIR>`: The runner's home, where runs are recorded (default: `$ISOTHRUM_HOME`, else `~/.isothrum`)
-- `--json`: Machine-readable output on standard output: an operation's events, and the ones `events` replays, one JSON object per line; `status`, `console`, `screen` and `key` print one JSON document; any failure is an `error` event. `completions` prints its script either way.
+- `--json`: Machine-readable output on standard output: an operation's events, and the ones `events` replays, one JSON object per line; `status`, `console` and `key` print one JSON document; any failure is an `error` event. `completions` prints its script either way.
 - `--no-service`: Run the command in this process rather than through the home's runner service (also `ISOTHRUM_NO_SERVICE=1`): for tests and CI, where nothing should outlive the command.
 
 ## `isothrum up`
 
-Start the run (a parked run is resumed; leftovers are removed first)
+Start the run, and wait until the project says it's ready.
 
 ```text
 isothrum up [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
-- `--replace`: Remove whatever of the run exists, then start afresh.
-- `--lifetime <MINUTES>`: How long a run that stops itself (a cloud run) may live, in minutes, 1 or more (default: its manifest's)
-- `--ssh-jump <USER@HOST>`: A login (`user@host`) the run's SSH goes through first: a Proxmox node whose run bridge this machine can't route to. Recorded when the run starts: every later operation (a resume through `up` too) goes the same way.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `--lifetime <MINUTES>`: How long the run may live, in minutes, 1 or more: recorded, and `reap` removes it after.
 
 ## `isothrum down`
 
@@ -43,13 +41,13 @@ Remove everything the run created.
 isothrum down [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum park`
 
@@ -59,13 +57,13 @@ Stop the run, keeping what it created.
 isothrum park [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--mode <MODE>`: `pause` or `shutdown`. One of `pause`, `shutdown`. Default: `shutdown`.
 
 ## `isothrum resume`
@@ -76,157 +74,144 @@ Start a parked run again.
 isothrum resume [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum update`
 
-Bring a running run up to date with its manifest, regenerated since it started (a machine added or taken out): its start steps again, with the params it was started with.
+Bring a running run to what the project's files now say.
 
 ```text
 isothrum update [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum retire`
 
-Take a machine out of the running run, ahead of its removal from the manifest and the `update` after.
-
-What the update wouldn't remove itself: a Vagrant VM is destroyed, a Compose service stopped and removed (also one only moved out of the run's start).
+Take a machine out of the running run (a Vagrant machine destroyed, a Compose service stopped and removed)
 
 ```text
 isothrum retire [OPTIONS] <MACHINE> [PATH]
 ```
 
-- `<MACHINE>`: The machine, by its manifest name.
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<MACHINE>`: The machine.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum status`
 
-Show the run: its state, machines, outputs and message.
+Show the run: its state, its machines and the ports they publish, and its outputs.
 
 ```text
 isothrum status [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
 
-## `isothrum check`
+## `isothrum exec`
 
-Run the run's checks (exit 1 when one fails)
+Run a command in a machine of the running run, with no terminal (`exec web -- id -u`): what it prints, and its exit status as the command's.
 
 ```text
-isothrum check [OPTIONS] [PATH]
+isothrum exec [OPTIONS] <MACHINE> [PATH] -- <ARGV>...
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<MACHINE>`: The machine (a Compose service, a Vagrant machine)
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<ARGV>`: The command and its arguments, after `--`.
 
 ## `isothrum provision`
 
-Run the set-up again on the running machines (a VM run's provisioners)
+Run the set-up again on the running machines (a Vagrant project's provisioners)
 
 ```text
 isothrum provision [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--machine <MACHINE>`: Only this machine.
+- `--with <WITH>`: Only the provisioner of this name (Vagrant's `--provision-with`, a lab's `checks`)
 
 ## `isothrum attach`
 
-Hot-add the run's on-demand access machine into the running run.
+Start a machine the project leaves down at `up` (a Compose service under a profile, a Vagrant machine with `autostart: false`)
 
 ```text
-isothrum attach [OPTIONS] [PATH]
+isothrum attach [OPTIONS] <MACHINE> [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
-- `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
-- `--network <NETWORK>`: The run's network to attach it to (default: its first)
-- `--image <IMAGE>`: What to run it from (default: the run's): a container image for a Compose access service, the Vagrant box an access VM boots.
-
-## `isothrum detach`
-
-Hot-remove the on-demand access machine from the running run.
-
-```text
-isothrum detach [OPTIONS] [PATH]
-```
-
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
-- `--param <NAME=VALUE>`: A param's value (repeatable)
-- `--secret-from-env <NAME[=VAR]>`: A secret or input slot's value, read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
-- `--host-label <LABEL>`: What to call the place the run is on (recorded; a later operation elsewhere is refused)
-- `--provider <PROVIDER>`: The Vagrant provider a VM run runs on, one of the manifest's; a run keeps the one it was started with. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
-- `--machine <MACHINE>`: Which on-demand machine, when the run has more than one (default: its only one)
+- `<MACHINE>`: The machine.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum console`
 
-Print the command that opens an interactive console into any machine of the run.
+Print the command that opens an interactive console into a machine of the run.
 
 ```text
 isothrum console [OPTIONS] <MACHINE> [PATH]
 ```
 
-- `<MACHINE>`: The machine, by its manifest name.
-- `--user <USER>`: The account to open it as, in its home, rather than the one the way in logs in as (a container's own, Vagrant's `vagrant`, a module's SSH user): the machine must have it, and on a VM that login must be allowed to `sudo`. Not on a Windows machine.
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
+- `<MACHINE>`: The machine (a Compose service, a Vagrant machine, a module's VM)
+- `--user <USER>`: The account to open it as, in its home, rather than the one the way in logs in as (a container's own, Vagrant's `vagrant`): the machine must have it, and on a VM that login must be allowed to `sudo`.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
 
 ## `isothrum screen`
 
-Reach a machine's graphical console (its screen) and print where it answers: an address of this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. One reached through an SSH tunnel is held open until the command is stopped (Ctrl-C)
+Reach a machine's graphical console (its screen) and print where it answers: an address of this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. A module's Windows VM's Remote Desktop is reached through an SSH tunnel to the Linux machine beside it, open until Ctrl-C. With `--app`, what opens it in its hypervisor's own app instead.
 
 ```text
 isothrum screen [OPTIONS] <MACHINE> [PATH]
 ```
 
-- `<MACHINE>`: The machine, by its manifest name.
-- `--show-password`: Print its password too (the VNC password, or the account's for RDP)
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
+- `<MACHINE>`: The machine (a Vagrant machine, a module's VM)
+- `--show-password`: Print its password too (Proxmox's ticket, a Windows VM's administrator password)
+- `--app`: Print what opens it in its hypervisor's own app (a program and its arguments, a macOS app, a URL), best first.
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
+- `--env <NAME=VALUE>`: A value the project's tools get (`NAME=VALUE`, repeatable): Compose's `${NAME}`, a Vagrantfile's `ENV["NAME"]`, a Terraform variable `NAME`.
+- `--secret-from-env <NAME[=VAR]>`: A secret the project's tools get as a value is, read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
+- `--host-label <LABEL>`: What to call the place the run is on (recorded)
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 
 ## `isothrum events`
 
@@ -236,27 +221,25 @@ Print the run's recorded events, oldest first.
 isothrum events [OPTIONS] [PATH]
 ```
 
-- `<PATH>`: The run's folder (the manifest Isoloom generated under its `.isoloom/`, or an instance's `.isoloom-<n>/`, is read), or a run.json. Default: `.`.
-- `--target <TARGET>`: The target whose manifest to run (`docker`, `cloud-vm/aws`, an instance's `.isoloom-2/docker`), when the run was generated for several.
-- `--name <NAME>`: The name to run it under, so one manifest can run several times side by side (default: the environment's name in the manifest)
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--name <NAME>`: The name to run it under, so one project can run several times side by side (default: the folder's name)
 
 ## `isothrum reap`
 
-Destroy a cloud's runs past their expiry (each with the params it was applied with), then list what the cloud still holds past its expiry that no run records. Exit 1 when a destroy failed, something is left or the cloud couldn't be searched in full.
+Remove the recorded runs past their lifetime (`up --lifetime`), each from the folder it was started from. Exit 1 when a removal failed, or one is left (`--dry-run`)
 
 ```text
-isothrum reap [OPTIONS] <CLOUD>
+isothrum reap [OPTIONS]
 ```
 
-- `<CLOUD>`: The cloud. One of `aws`, `azure`, `gcp`, `digitalocean`, `linode`, `oci`.
-- `--dry-run`: Say what would be destroyed, destroying nothing.
-- `--region <REGION>`: An AWS region to look for leftovers in (repeatable; default: the AWS command line's)
-- `--project <PROJECT>`: The Google Cloud project to look for leftovers in (default: gcloud's)
-- `--secret-from-env <NAME[=VAR]>`: A connection slot's value (the account's keys), read from an environment variable (default: the slot's own name). Repeatable. Values never go on the command line.
+- `--dry-run`: Say what would be removed, removing nothing.
+- `--env <NAME=VALUE>`: A value every removal's tools get (`NAME=VALUE`, repeatable): an account's region, say.
+- `--secret-from-env <NAME[=VAR]>`: A secret every removal's tools get (the account's keys), read from an environment variable (default: the secret's own name). Repeatable. Values never go on the command line.
 
 ## `isothrum key`
 
-Print the runner's SSH public key (made when it has none): authorize it where a run's SSH goes through (a Proxmox node, with `--ssh-jump`). With `--json`, `{"public_key": …}`.
+Print the runner's SSH public key (made when it has none): authorize it where a run's tools reach a machine as the runner. With `--json`, `{"public_key": …}`.
 
 ```text
 isothrum key [OPTIONS]

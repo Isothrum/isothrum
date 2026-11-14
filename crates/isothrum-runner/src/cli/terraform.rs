@@ -461,7 +461,7 @@ const GUEST_OS: [&str; 3] = ["guestos", "guest_id", "qemu_os"];
 
 /// The attributes a VM's provider writes its address in, best first: Telmate/proxmox's, ESXi's
 /// and Linode's, vSphere's, Hetzner's and DigitalOcean's, the clouds' public ones (AWS, OCI,
-/// Scaleway, Azure, Vultr, OpenStack), then the private ones and Telmate's SSH host.
+/// Scaleway, Azure, Vultr, `OpenStack`), then the private ones and Telmate's SSH host.
 const ADDRESSES: [&str; 11] = [
     "default_ipv4_address",
     "ip_address",

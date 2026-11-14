@@ -23,6 +23,10 @@
     clippy::print_stderr,
     reason = "the tasks report on the terminal: printing is their interface, not stray debugging output"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the xtask drives the tools of the gates (cargo, git, the hooks' scripts) itself: it is no part of the runner"
+)]
 
 #[cfg(all(test, unix))]
 mod ci_scripts;

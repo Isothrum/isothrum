@@ -352,14 +352,14 @@ async fn a_vm_on_a_provider_that_gives_its_own_address_has_it() {
         (Some("libvirt"), Some("192.168.121.10"))
     );
 
-    let f = Fixture::new();
-    f.made("web", "virtualbox", "uuid-web");
-    let fake = FakeProcesses::script()
+    let vbox = Fixture::new();
+    vbox.made("web", "virtualbox", "uuid-web");
+    let forwarded = FakeProcesses::script()
         .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
         .expect("vagrant port web --machine-readable", Reply::ok(""))
         .build();
-    let (seen, _) = Vagrant.observe(&cx(&f, &fake, VBOX)).await.expect("observe");
-    assert_eq!(seen.machines[0].address, None, "no ssh-config asked");
+    let (on_loopback, _) = Vagrant.observe(&cx(&vbox, &forwarded, VBOX)).await.expect("observe");
+    assert_eq!(on_loopback.machines[0].address, None, "no ssh-config asked");
 }
 
 #[tokio::test]

@@ -229,6 +229,10 @@ mod tests {
         helper_process(role, home).spawn().unwrap()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the other process of the test: this test binary as a service of another release"
+    )]
     fn helper_process(role: &str, home: &Path) -> Process {
         let mut process = Process::new(std::env::current_exe().unwrap());
         process

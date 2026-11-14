@@ -101,9 +101,9 @@ pub struct Running<'r> {
 
 impl<'r> Running<'r> {
     /// Run `name` of `project` on `runner`.
-    pub(crate) fn new(runner: &'r Runner, project: Project, name: RunName) -> Result<Running<'r>> {
-        let driver = AnyFormat::of(project.format)?;
-        Ok(Running { runner, project, name, driver })
+    pub(crate) fn new(runner: &'r Runner, project: Project, name: RunName) -> Running<'r> {
+        let driver = AnyFormat::of(project.format);
+        Running { runner, project, name, driver }
     }
 
     /// The run's name.
@@ -473,7 +473,7 @@ impl<'r> Running<'r> {
 impl Running<'_> {
     /// A tool context of this run for work that runs no tool and says nothing (moving files in
     /// its state folder).
-    fn quiet<T>(&self, work: impl FnOnce(&ToolCx<'_>) -> T) -> Result<T> {
+    fn quiet<T>(&self, work: impl FnOnce(&ToolCx<'_>) -> T) -> T {
         let state_dir = self.state_dir();
         let key = self.runner.copy_key(&self.name);
         let quiet = |_: Stream, _: &str| {};
@@ -490,20 +490,18 @@ impl Running<'_> {
             sink: &quiet,
             warn: &unwarned,
         };
-        Ok(work(&cx))
+        work(&cx)
     }
 
     /// Moves the Terraform state in `from` into the run's state folder ([`crate::Runner::adopt`]):
     /// the files moved.
     pub(crate) fn take_state(&self, from: &std::path::Path) -> Result<Vec<&'static str>> {
-        self.quiet(|cx| crate::formats::terraform::Terraform::adopt(cx, from))?
+        self.quiet(|cx| crate::formats::terraform::Terraform::adopt(cx, from))
     }
 
     /// Puts the state files `moved` back in `from`, best effort (an adoption that failed after).
     pub(crate) fn give_state_back(&self, from: &std::path::Path, moved: &[&str]) {
-        if let Err(e) = self.quiet(|cx| crate::formats::terraform::Terraform::give_back(cx, from, moved)) {
-            tracing::warn!(error = %e, "an adopted state couldn't be put back");
-        }
+        self.quiet(|cx| crate::formats::terraform::Terraform::give_back(cx, from, moved));
     }
 }
 

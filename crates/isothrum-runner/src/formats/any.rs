@@ -37,17 +37,13 @@ macro_rules! dispatch {
 }
 
 impl AnyFormat {
-    /// The driver of `format`.
-    ///
-    /// # Errors
-    ///
-    /// None today: every format has its driver. Kept fallible for a format a build may lack.
-    pub(crate) fn of(format: Format) -> Result<AnyFormat> {
-        Ok(match format {
+    /// The driver of `format`: every format has its driver.
+    pub(crate) fn of(format: Format) -> AnyFormat {
+        match format {
             Format::Compose => AnyFormat::Compose(Compose),
             Format::Vagrant => AnyFormat::Vagrant(Vagrant),
             Format::Terraform => AnyFormat::Terraform(Terraform),
-        })
+        }
     }
 
     pub(crate) async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {

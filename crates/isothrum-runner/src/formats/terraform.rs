@@ -364,8 +364,8 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
             std::fs::copy(from, to)?;
             // Never in both places: when `from` can't be removed, the copy goes too.
             std::fs::remove_file(from).inspect_err(|_| {
-                if let Err(e) = std::fs::remove_file(to) {
-                    tracing::warn!(error = %e, file = %to.display(), "a copy of a taken-over state couldn't be removed");
+                if let Err(gone) = std::fs::remove_file(to) {
+                    tracing::warn!(error = %gone, file = %to.display(), "a copy of a taken-over state couldn't be removed");
                 }
             })
         }
