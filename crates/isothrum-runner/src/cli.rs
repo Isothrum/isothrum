@@ -177,6 +177,15 @@ pub(crate) fn said_any(out: &Captured, wordings: &[&str]) -> bool {
     })
 }
 
+/// A removal `out` of `tool` that succeeded, or that failed saying (`gone`) the object was
+/// gone already: either is done. Any other failure, with what the tool said.
+pub(crate) fn done_or_gone(tool: &'static str, out: &Captured, gone: &[&str]) -> Result<(), CliError<String>> {
+    if out.success() || said_any(out, gone) {
+        return Ok(());
+    }
+    Err(CliError::Failed { tool, failure: out.reason() })
+}
+
 /// `args` as owned strings.
 pub(crate) fn argv<const N: usize>(args: [&str; N]) -> Vec<String> {
     args.map(str::to_owned).to_vec()

@@ -30,13 +30,7 @@ const NO_VM: [&str; 2] = ["virtual machine not found", "no virtual machine"];
 pub(crate) async fn remove(call: &Call<'_>, uuid: &str) -> Result<(), CliError<String>> {
     drop(call.run::<String>(TOOL, argv(["stop", "--kill", uuid])).await?);
     let out = call.run::<String>(TOOL, argv(["delete", uuid])).await?;
-    if out.success() || super::said_any(&out, &NO_VM) {
-        return Ok(());
-    }
-    Err(CliError::Failed {
-        tool: TOOL,
-        failure: out.reason(),
-    })
+    super::done_or_gone(TOOL, &out, &NO_VM)
 }
 
 #[cfg(test)]

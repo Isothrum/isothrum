@@ -49,13 +49,7 @@ pub(crate) async fn remove(call: &Call<'_>, uri: Option<&str>, uuid: &str) -> Re
     };
     drop(call.run::<String>(TOOL, on(&["destroy", uuid])).await?);
     let out = call.run::<String>(TOOL, on(&["undefine", uuid, "--remove-all-storage", "--nvram"])).await?;
-    if out.success() || super::said_any(&out, &NO_DOMAIN) {
-        return Ok(());
-    }
-    Err(CliError::Failed {
-        tool: TOOL,
-        failure: out.reason(),
-    })
+    super::done_or_gone(TOOL, &out, &NO_DOMAIN)
 }
 
 #[cfg(test)]
