@@ -202,6 +202,11 @@
           "const": "tool_failed"
         },
         {
+          "description": "A tool the run needs is installed, but its probe got no answer from it (Docker's engine\nstopped, or not this account's to reach): the message says what the tool said.",
+          "type": "string",
+          "const": "tool_unanswered"
+        },
+        {
           "description": "A tool answers at a version older than the run needs.",
           "type": "string",
           "const": "tool_too_old"
