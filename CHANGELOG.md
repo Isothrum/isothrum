@@ -62,6 +62,12 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **A Proxmox VM left out of the server's listing no longer reads absent on that alone.**
+  `cluster/resources` lists only the VMs the credentials may audit, and was asked once, of the
+  first VM's server, for every VM; a token without `VM.Audit` on one VM, or VMs on another
+  server, made a healthy VM absent (the run failed, and the next up destroyed it). Each server is
+  now asked as its VMs sign in, and a VM it leaves out reads absent only when `cluster/nextid`
+  says no VM holds its id.
 - **`up --lifetime 0` is a usage error (#136).** A run given no life to live was started and
   then reaped at once; `--lifetime` now takes a minute at least, and 0 exits 2 before anything
   starts.

@@ -1,6 +1,6 @@
 //! What Proxmox VE's API answers, parsed once, here, into the fields the runner reads: every
 //! answer is `{"data": …}`, and each call's `data` has its own shape ([`Ticket`], [`VncProxy`],
-//! [`ClusterVm`]). Unknown fields are skipped.
+//! [`ClusterVm`], [`FreeId`]). Unknown fields are skipped.
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -54,6 +54,18 @@ impl ClusterVm {
     /// Whether it is the VM `id` names.
     pub(super) fn is(&self, id: &str) -> bool {
         self.vmid.as_ref().is_some_and(|v| v.text() == id)
+    }
+}
+
+/// `cluster/nextid?vmid=<id>`'s answer: the id, when no VM of the cluster holds it.
+#[derive(Debug, Deserialize)]
+#[serde(transparent)]
+pub(super) struct FreeId(NumberOrText);
+
+impl FreeId {
+    /// Whether it is the id `id` names.
+    pub(super) fn is(&self, id: &str) -> bool {
+        self.0.text() == id
     }
 }
 
@@ -115,6 +127,15 @@ mod tests {
         assert_eq!((of("101"), of("102"), of("103")), (Some("running"), Some("stopped"), None));
         let texts: Vec<ClusterVm> = data(r#"{"data":[{"vmid":"104","status":"running"}]}"#).unwrap().unwrap();
         assert!(texts[0].is("104"));
+    }
+
+    #[test]
+    fn nextid_answers_the_id_it_was_asked_when_it_is_free() {
+        let free: FreeId = data(r#"{"data":"104"}"#).unwrap().unwrap();
+        assert!(free.is("104") && !free.is("105"));
+        let number: FreeId = data(r#"{"data":104}"#).unwrap().unwrap();
+        assert!(number.is("104"));
+        assert!(data::<FreeId>(r#"{"data":null,"errors":{"vmid":"VM 104 already exists"}}"#).unwrap().is_none());
     }
 
     #[test]
