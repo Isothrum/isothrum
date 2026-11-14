@@ -230,6 +230,14 @@ impl Runner {
         copy_key(&self.config.home, name)
     }
 
+    /// The repair opening the home's store made from its mirror, if it made one (its file was
+    /// damaged): an embedder then reads each run's status, which reconciles the run with what its
+    /// tools report ([`crate::store::Store::recovered`]).
+    #[must_use]
+    pub fn recovered(&self) -> Option<&crate::store::Recovered> {
+        self.store.db().recovered()
+    }
+
     /// Run `name`'s logged events, oldest first, with how many of its lines it couldn't read as
     /// one (written by another version of the runner, or cut short).
     ///

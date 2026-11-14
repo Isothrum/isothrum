@@ -95,6 +95,32 @@ The record's fields:
 A run's row stays after a successful `down`, with state `absent`. A store a newer Isothrum wrote
 is refused (`store_version`).
 
+### When `state.db` is damaged
+
+The store is kept the way a journaling file system keeps a volume. Every change is one SQLite
+transaction in WAL mode, so a process killed mid-change (kill -9, a crash, a power cut) leaves no
+trace of it. Every open runs `PRAGMA quick_check` first.
+
+Beside the store, `state.mirror` holds a copy of the rows a later operation can't do without:
+- every run, but its last observation;
+- every live resource with the tool's id for it;
+- the operations those refer to, and every open one.
+
+It is rewritten whole (temporary file, `fsync`, rename) by each transaction that changes those
+rows, and only by those.
+
+When `state.db` is damaged (it fails its check, isn't a database, or is empty beside a mirror that
+holds rows), the runner rebuilds it from the mirror:
+- The damaged file and its `-wal` and `-shm` are moved to `state.db.corrupt-<unix seconds>` for
+  whoever looks at them.
+- Its event cursor moves past the old one.
+- A repaired run's open operation is recovered by its next operation, and what it made is removed
+  by recorded id.
+- Each run's state is reconciled with what its tools report at its next `status`.
+
+The history (events, steps, state moves) is what a repair loses. With no mirror to rebuild from,
+opening fails with `store_corrupt`, naming what the check found.
+
 ## Upgrading from 2.x
 
 3.0 doesn't read a home a 2.x runner wrote. Before upgrading, stop and remove every 2.x run with

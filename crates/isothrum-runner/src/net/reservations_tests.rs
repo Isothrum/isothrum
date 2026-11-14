@@ -1,8 +1,5 @@
 //! The reservations across runners and processes of one home.
 
-use std::io::{BufRead as _, BufReader};
-use std::process::{Command, Stdio};
-
 use std::path::Path;
 
 use super::*;
@@ -107,15 +104,7 @@ fn a_reserving_child() {
 #[test]
 fn a_reservation_whose_process_dies_is_freed() {
     let home = tempfile::tempdir().unwrap();
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "net::reservations::tests::a_reserving_child", "--nocapture", "--test-threads=1"])
-        .env(CHILD_HOME, home.path())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-    let reserved = lines.by_ref().map_while(Result::ok).any(|line| line.contains("reserved"));
+    let (mut child, reserved) = crate::testing::child_test_saying("net::reservations::tests::a_reserving_child", CHILD_HOME, home.path(), "reserved");
     let here = reservations(home.path(), []);
     let me = run("me");
     let refused = !here.reserve(&me, CHILD_PORT, Protocol::Tcp, None);

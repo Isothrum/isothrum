@@ -63,6 +63,15 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 - **`SystemProcesses::end_all_now`: no tool outlives an embedder's exit.** An app exiting never
   drops the futures of its operations, so a status read's `docker compose ps` ran on after it;
   the runner now knows the tools running and ends them, with the ones still stopping.
+- **The home's store repairs itself.** `state.db` is checked at every open (`PRAGMA quick_check`),
+  and `state.mirror` beside it keeps a copy of the rows a later operation needs: the runs, the
+  live resources with their recorded ids, and the operations they refer to or that are open. It is
+  written atomically by each transaction that changes them. A damaged store (it fails the check,
+  isn't a database, or is empty beside a mirror holding rows) is rebuilt from the mirror, and the
+  damaged file is kept aside as `state.db.corrupt-<unix seconds>`. `Store::recovered` and
+  `Runner::recovered` say a repair happened, so an embedder reads each run's status, which
+  reconciles it with its tools. With no mirror, opening fails `store_corrupt`, naming what the
+  check found.
 
 ### Changed
 

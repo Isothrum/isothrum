@@ -334,3 +334,20 @@ pub(crate) fn published_numbers(machines: &[crate::MachineStatus], name: &str) -
     let machine = machines.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("no machine `{name}`"));
     machine.published.iter().map(|p| (p.port.get(), p.host_port.get())).collect()
 }
+
+/// Runs this test binary's test `exact` alone, as a child process, with `var` set to `home`: the
+/// other process of a test across processes (it acts only when it finds `var`). Returns the child
+/// and whether it printed a line holding `said` (read until it did, or ended its output).
+pub(crate) fn child_test_saying(exact: &str, var: &str, home: &Path, said: &str) -> (std::process::Child, bool) {
+    use std::io::BufRead as _;
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", exact, "--nocapture", "--test-threads=1"])
+        .env(var, home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    let saying = lines.by_ref().map_while(Result::ok).any(|line| line.contains(said));
+    (child, saying)
+}
