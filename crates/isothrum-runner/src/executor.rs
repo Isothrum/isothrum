@@ -440,7 +440,7 @@ mod tests {
     fn a_step_naming_an_output_or_a_host_without_a_value_awaits_the_drivers_state() {
         let step = |json: &str| serde_json::from_str::<Step>(json).unwrap();
         let ssh = step(r#"{"id":"copy","action":"ssh.run","with":{"host":"${outputs.ip}","command":"true"}}"#);
-        let piped = step(r#"{"id":"open","argv":["curl","http://${host.web}/"]}"#);
+        let piped = step(r#"{"id":"open","argv":["docker","login","${host.web}"]}"#);
         let plain = step(r#"{"id":"apply","argv":["terraform","apply"],"env":{"TF_DATA_DIR":"${run.state_dir}/.terraform"}}"#);
         let mut vars = Vars::default();
         assert!(awaits_state(&vars, &ssh) && awaits_state(&vars, &piped));
