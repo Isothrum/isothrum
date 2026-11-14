@@ -351,7 +351,7 @@ impl<'r> Running<'r> {
             .manifest()
             .recovery
             .as_ref()
-            .map(|r| LineWatch::any_case(&r.stale_markers))
+            .map(|r| LineWatch::any_case(&crate::tool_output::leftover::markers_of(&r.leftovers)))
             .unwrap_or_default();
         Ok(Cx {
             run: self,

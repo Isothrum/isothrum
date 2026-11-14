@@ -22,6 +22,7 @@
 
 pub(crate) mod docker;
 pub(crate) mod download;
+pub(crate) mod leftover;
 pub(crate) mod qemu;
 pub(crate) mod ruby;
 pub(crate) mod sign_in;

@@ -177,10 +177,10 @@ impl<'a> Cx<'a> {
 
 /// Texts watched for in every line an argv or `ssh.run` step prints (a driver action's own calls
 /// aren't watched): any line of the step's, not only one of the last it printed. Two watch the
-/// steps: the manifest's `recovery.stale_markers`, whatever their case
-/// ([`LineWatch::any_case`]: Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS` in capitals, the
-/// manifest writes it in lower case), and, exactly as written, what a destroy prints for a
-/// resource already gone ([`run_down_steps`]).
+/// steps: the words of the manifest's `recovery.leftovers` ([`crate::tool_output::leftover`]),
+/// whatever their case ([`LineWatch::any_case`]: Vagrant prints VirtualBox's `VERR_ALREADY_EXISTS`
+/// in capitals, the runner's words are in lower case), and, exactly as written, what a destroy
+/// prints for a resource already gone ([`run_down_steps`]).
 #[derive(Debug, Default)]
 pub(crate) struct LineWatch {
     /// Whether a text is seen whatever its case (the texts are then kept in lower case).

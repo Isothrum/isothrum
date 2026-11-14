@@ -192,13 +192,14 @@ impl Running<'_> {
         });
     }
 
-    /// The start steps; a failure after a step printed one of `recovery.stale_markers` (any line
-    /// of an argv or `ssh.run` step's, see [`crate::executor::LineWatch`]) runs the recovery steps
+    /// The start steps; a failure after a step printed the words of one of `recovery.leftovers`
+    /// ([`crate::tool_output::leftover`]; any line of an argv or `ssh.run` step's, see
+    /// [`crate::executor::LineWatch`]) runs the recovery steps
     /// and starts again, up to `recovery.retries` times. A genuine failure never retries.
     pub(super) async fn start(&self, cx: &mut Cx<'_>) -> Result<Ran> {
         let up = self.manifest().lifecycle.up.as_slice();
         let none = Recovery {
-            stale_markers: Vec::new(),
+            leftovers: Vec::new(),
             steps: Vec::new(),
             retries: isoloom_manifest::Retries::default(),
             apply_retries: None,
