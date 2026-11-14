@@ -299,7 +299,7 @@ impl Host {
 /// The Linux distribution's package manager `runner` finds: apt-get, else dnf.
 async fn linux_packages(runner: &dyn ProcessRunner) -> Option<LinuxPackages> {
     for (packages, program) in [(LinuxPackages::Apt, "apt-get"), (LinuxPackages::Dnf, "dnf")] {
-        if exec::read_ok(runner, program, &["--version"]).await.is_ok() {
+        if exec::read_ok(runner, crate::context::PROBE_TIMEOUT, program, &["--version"]).await.is_ok() {
             return Some(packages);
         }
     }
