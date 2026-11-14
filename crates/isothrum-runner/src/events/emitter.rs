@@ -172,11 +172,18 @@ impl<'a> Emitter<'a> {
                 code,
                 message: self.mask(&message),
             },
-            EventKind::Error { code, message, step, timeout } => EventKind::Error {
+            EventKind::Error {
+                code,
+                message,
+                step,
+                timeout,
+                detail,
+            } => EventKind::Error {
                 code,
                 message: self.mask(&message),
                 step,
                 timeout: timeout.map(|t| t.masked(|l| self.mask(l))),
+                detail,
             },
             EventKind::Resource { key, kind, state, native_id } => EventKind::Resource {
                 key: self.mask(&key),
@@ -216,6 +223,7 @@ impl<'a> Emitter<'a> {
             message: err.to_string(),
             step: err.step().map(str::to_owned),
             timeout: err.timed_out().cloned(),
+            detail: err.detail(),
         });
     }
 }

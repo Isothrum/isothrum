@@ -236,7 +236,7 @@ impl Client {
             return Err(e.into());
         }
         match rx.await.map_err(|_| ClientError::closed())? {
-            Reply::Error { code, message, .. } => Err(ClientError::Refused { code, message }),
+            Reply::Error { code, message, detail, .. } => Err(ClientError::Refused { code, message, detail }),
             reply => Ok(reply),
         }
     }
@@ -426,7 +426,7 @@ impl Client {
             match reader.next::<Reply>().await? {
                 Some(Reply::Hello { .. }) => {}
                 Some(Reply::Ok { id: 1 }) => break,
-                Some(Reply::Error { code, message, .. }) => return Err(ClientError::Refused { code, message }),
+                Some(Reply::Error { code, message, detail, .. }) => return Err(ClientError::Refused { code, message, detail }),
                 Some(other) => return Err(unexpected(&other)),
                 None => return Err(ClientError::closed()),
             }
@@ -600,13 +600,17 @@ fn outcome_of(event: Option<Event>) -> Result<Event> {
             code: ErrorCode::Cancelled,
             message: "the operation was cancelled before it began".to_owned(),
             step: None,
+            detail: None,
         });
     };
     match &event.kind {
-        EventKind::Error { code, message, step, .. } => Err(ClientError::Operation {
+        EventKind::Error {
+            code, message, step, detail, ..
+        } => Err(ClientError::Operation {
             code: *code,
             message: message.clone(),
             step: step.clone(),
+            detail: detail.clone(),
         }),
         _ => Ok(event),
     }

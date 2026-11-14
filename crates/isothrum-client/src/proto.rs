@@ -361,6 +361,9 @@ pub enum Reply {
         code: ErrorCode,
         /// What went wrong.
         message: String,
+        /// The runner's typed fields, when the runner refused it ([`isothrum_runner::ErrorDetail`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<isothrum_runner::ErrorDetail>,
     },
     /// To `shutdown_if_idle`, refused: the operations queued or running, which the service goes on
     /// with.
@@ -466,6 +469,7 @@ mod tests {
             id: 2,
             code: ErrorCode::Usage,
             message: "no".into(),
+            detail: None,
         });
         assert_eq!(refused, r#"{"reply":"error","id":2,"code":"usage","message":"no"}"#);
         let run = RunName::new("web").unwrap();

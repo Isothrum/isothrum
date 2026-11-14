@@ -20,6 +20,8 @@ pub enum ClientError {
         code: ErrorCode,
         /// What it said.
         message: String,
+        /// The runner's typed fields, when it has them.
+        detail: Option<isothrum_runner::ErrorDetail>,
     },
     /// The operation failed (its `error` event), or was cancelled.
     #[error("{message}")]
@@ -30,6 +32,8 @@ pub enum ClientError {
         message: String,
         /// The step that failed, when one did.
         step: Option<String>,
+        /// The runner's typed fields, when it has them.
+        detail: Option<isothrum_runner::ErrorDetail>,
     },
     /// The home's service is another release and has operations queued or running: it was left
     /// running ([`Client::connect_exact`](crate::Client::connect_exact)).
