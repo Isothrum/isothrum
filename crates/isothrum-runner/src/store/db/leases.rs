@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use isoloom_manifest::Protocol;
+use crate::project::platform::Protocol;
 use rusqlite::{OptionalExtension, params};
 
 use super::{Lease, LeaseOutcome, OperationId, Owner, PortReservation, Tx, epoch_now, failed, from_word, now, word};

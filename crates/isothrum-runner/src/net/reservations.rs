@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 
-use isoloom_manifest::Protocol;
+use crate::project::platform::Protocol;
 
 use super::{HeldPort, HostPorts};
 use crate::Result;
 use crate::encoding::wire_name;
 use crate::error::Error;
 use crate::name::RunName;
+use crate::port::HostPort;
 use crate::store::{LeaseOutcome, OperationId, Owner, Reserver, Store};
 
 /// How long a run's lease holds unless renewed.
@@ -86,7 +87,7 @@ impl PortReservations {
     /// Reserves `port` for `name` while it starts; false when another run holds it, in this
     /// runner or another process of the home. A reservation that can't be written refuses the
     /// port (fails closed): the pick moves to another one.
-    pub(crate) fn reserve(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol, by: Option<OperationId>) -> bool {
+    pub(crate) fn reserve(&self, name: &RunName, port: HostPort, protocol: Protocol, by: Option<OperationId>) -> bool {
         let mut holders = self.holders.lock().unwrap_or_else(PoisonError::into_inner);
         if !holders.contains_key(name) {
             let Some(holder) = self.hold(name) else {
@@ -135,7 +136,7 @@ impl PortReservations {
 
     /// A free loopback port over `protocol` that `take` accepts; one it refuses is held meanwhile
     /// so it isn't offered again. None when none is left.
-    fn pick_where(&self, protocol: Protocol, take: impl Fn(crate::port::HostPort) -> bool) -> std::io::Result<Option<HeldPort>> {
+    fn pick_where(&self, protocol: Protocol, take: impl Fn(HostPort) -> bool) -> std::io::Result<Option<HeldPort>> {
         let mut refused = Vec::new();
         for _ in 0..64 {
             let Some(port) = self.ports.pick_free(protocol)? else {
@@ -151,7 +152,7 @@ impl PortReservations {
 
     /// Whether another run than `name` holds `port`, in this runner or another process of the
     /// home. A store that can't be read reads as held (fails closed).
-    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
+    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: HostPort, protocol: Protocol) -> bool {
         match self.db.read(|tx| tx.port_holder(port, protocol)) {
             Ok(holder) => holder.is_some_and(|h| h.run != *name),
             Err(e) => {
@@ -167,7 +168,7 @@ impl PortReservations {
     /// # Errors
     ///
     /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
-    pub(crate) fn ensure_free(&self, name: &RunName, ports: impl IntoIterator<Item = (crate::port::HostPort, Protocol)>) -> Result<()> {
+    pub(crate) fn ensure_free(&self, name: &RunName, ports: impl IntoIterator<Item = (HostPort, Protocol)>) -> Result<()> {
         for (port, protocol) in ports {
             if self.reserved_elsewhere(name, port, protocol) || self.ports.in_use(port, protocol) {
                 return Err(Error::PortInUse {

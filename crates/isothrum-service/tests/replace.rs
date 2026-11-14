@@ -108,7 +108,7 @@ mod tests {
             Box::pin(async { false })
         }
 
-        fn status<'a>(&'a self, _run: &'a RunName, _path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>> {
+        fn status<'a>(&'a self, _run: &'a RunName, _target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {
             Box::pin(async { Err(Refusal::new(ErrorCode::NotRunning, "nothing runs here")) })
         }
     }

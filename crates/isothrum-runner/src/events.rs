@@ -1,23 +1,23 @@
 //! The event stream: what an operation does, as JSON values an embedder shows or a command line
-//! prints one per line (`isothrum … --json`). It evolves from Isoloom's lifecycle events (the
-//! `event` tag, `step`/`log`/`check`/`result`), adding the run, the operation, a sequence number,
-//! the time on every event, and its own version `v`, independent of the manifest's.
+//! prints one per line (`isothrum … --json`): the `event` tag, `step`/`log`/`result`, with the
+//! run, the operation, a sequence number, the time on every event, and the stream's version `v`.
 //!
 //! Rules: a secret's value never appears (masked before the event is built); `log` lines are
 //! decoded lossily; an operation ends with exactly one `result` or `error`.
 
 mod emitter;
+mod result_data;
 
 #[cfg(test)]
 use std::sync::{Mutex, PoisonError};
 
-use isoloom_manifest::OutputRole;
 use serde::{Deserialize, Serialize};
 
 pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
 use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
+pub use result_data::{ResultData, ShownOutput, SweepFailure};
 
 /// The event stream's version.
 pub(crate) const EVENTS_VERSION: u32 = 1;
@@ -46,19 +46,6 @@ pub enum Stream {
     Stdout,
     /// Its standard error.
     Stderr,
-}
-
-/// Where a ready condition stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum ReadyState {
-    /// Not yet; polled again.
-    Waiting,
-    /// It holds.
-    Ok,
-    /// It doesn't hold: the operation fails (`not_ready`).
-    Failed,
 }
 
 /// Where a journaled operation stands.
@@ -92,8 +79,7 @@ pub enum EventKind {
         step: String,
         /// Where it stands.
         state: StepState,
-        /// What it does, said when it starts: the manifest's line for a manifest step, the
-        /// runner's own for a step of its own (the tool probes, the boot, a guest delivery).
+        /// What it does, said when it starts.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
@@ -106,38 +92,14 @@ pub enum EventKind {
         /// The line, without its line break.
         line: String,
     },
-    /// A ready condition was checked.
-    Ready {
-        /// The condition (`step_ok up`).
-        condition: String,
-        /// Where it stands.
-        state: ReadyState,
-        /// What was seen.
-        detail: String,
-    },
     /// An output's value, once the run is up.
     Output {
         /// The output's name.
         name: String,
-        /// What it is for.
-        role: OutputRole,
         /// Its value (`***` when sensitive), or null when it can't be read.
         value: Option<String>,
         /// Whether the value is sensitive.
         sensitive: bool,
-    },
-    /// One check's result.
-    Check {
-        /// The check runner's id.
-        runner: String,
-        /// Where it ran from.
-        from: String,
-        /// The check's name.
-        name: String,
-        /// Whether it passed.
-        ok: bool,
-        /// Why it failed (empty when it passed).
-        detail: String,
     },
     /// Something the embedder may show, that didn't fail the operation.
     Warning {
@@ -150,8 +112,8 @@ pub enum EventKind {
     Result {
         /// Whether it reached its goal (false: a check failed).
         ok: bool,
-        /// What it found or produced.
-        data: serde_json::Value,
+        /// What it found or produced, by operation.
+        data: ResultData,
     },
     /// A journaled operation was queued, started or ended: what a runner service says of the
     /// operations it queues (the runner's own operation stream doesn't carry it: it still ends
@@ -314,6 +276,9 @@ pub enum WarningCode {
     /// folder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be
     /// there, and the start goes on.
     CleanupFailed,
+    /// A Terraform module keeps its state in a backend of its own: every copy of it shares that
+    /// state.
+    SharedState,
 }
 
 /// Events kept in memory, for tests.

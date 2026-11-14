@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use isoloom_manifest::{Driver, Protocol, Target};
+use crate::project::Format;
+use crate::project::platform::Protocol;
 
 use super::*;
 use crate::events::{Event, EventKind, StepState};
@@ -13,7 +14,7 @@ fn name(n: &str) -> RunName {
 }
 
 fn record(n: &str) -> RunRecord {
-    RunRecord::fresh(name(n), "/work/x/run.json".into(), Target::Docker, Driver::Compose)
+    RunRecord::fresh(name(n), "/work/x".into(), Format::Compose)
 }
 
 fn store() -> (tempfile::TempDir, Store) {
@@ -108,11 +109,11 @@ fn a_record_saved_keeps_its_state_which_only_a_transition_moves() {
             tx.apply(&r, begun)?;
             let mut changed = record("r");
             changed.state = RunState::Ready;
-            changed.params.insert("A".into(), "1".into());
+            changed.host_label = Some("a".into());
             tx.save_record(&changed, Desired::Running)?;
             let row = tx.run(&r)?.unwrap();
             assert_eq!((row.state, row.record.state), (RunState::Creating, RunState::Creating));
-            assert_eq!(row.record.params["A"], "1");
+            assert_eq!(row.record.host_label.as_deref(), Some("a"));
             assert_eq!(row.state_op, Some(op.id));
             tx.apply(&r, Transition::succeed(begun))?;
             assert_eq!(
@@ -316,7 +317,7 @@ fn events_are_appended_in_order_and_read_after_a_cursor() {
             Some(Op::Up),
             EventKind::Result {
                 ok: true,
-                data: serde_json::Value::Null,
+                data: crate::ResultData::Moved { state: crate::RunState::Ready },
             },
         )
     };

@@ -117,13 +117,18 @@ async fn a_resource_recorded_in_the_mirror_is_still_removed_by_its_id() {
     let clock = crate::clock::FixedClock(std::time::UNIX_EPOCH);
     let sink = crate::events::Recorder::new();
     let events = crate::events::Emitter::new("web", Op::Down, &clock, &sink);
+    /// Notes the id of each row it is asked to remove.
+    struct Noted<'a>(&'a mut Vec<Option<String>>);
+    impl crate::run::recovery::Remover for Noted<'_> {
+        async fn remove(&mut self, row: &ResourceRow) -> crate::Result<()> {
+            self.0.push(row.native_id.clone());
+            Ok(())
+        }
+    }
     let mut removed = Vec::new();
-    let failed = crate::run::recovery::destroy_recorded(&rebuilt, &events, next.id, &left, async |row: &ResourceRow| {
-        removed.push(row.native_id.clone());
-        Ok(())
-    })
-    .await
-    .unwrap();
+    let failed = crate::run::recovery::destroy_recorded(&rebuilt, &events, next.id, &left, Noted(&mut removed))
+        .await
+        .unwrap();
     assert!(failed.is_empty());
     assert_eq!(removed, [Some("uuid-web".to_owned())], "by the tool's own id");
     let vm = rebuilt.read(|tx| tx.resource(left[0].id)).unwrap().unwrap();

@@ -1,42 +1,34 @@
-//! Three kinds of port number, kept apart by type so one is never stored or reported where
-//! another is meant:
+//! Two kinds of port number, kept apart by type so one is never stored or reported where the
+//! other is meant:
 //!
-//! - [`GuestPort`]: a port inside a machine (a container's target port, a VM's own port, the
-//!   port Compose publishes inside the run's VM). Nothing on this computer answers at it as it is.
-//! - [`HostPort`]: the port a published port is reached at, at the machine's host address
-//!   (`${host.<machine>}`: this computer's loopback where the engine forwards it here, the VM's
-//!   own address where it doesn't). What status, the outputs, `${published.…}`, the port
-//!   reservations and the free-port check carry.
-//! - `PreferredPort` (crate-private): the host port a manifest asks for (`publish.preferred`). A
-//!   wish: it becomes a [`HostPort`] only through a pick that found it free, or as the number a
-//!   forward takes when nothing was picked.
+//! - [`GuestPort`]: a port inside a machine (a container's target port, a VM's own port). Nothing
+//!   on this computer answers at it as it is.
+//! - [`HostPort`]: the port a published port is reached at, at the machine's host address. What
+//!   status, the port reservations and the free-port check carry.
 //!
-//! A guest port turns into the host port it is reached at through its driver's one function
-//! (`AnyDriver::reached_at`), never by reading its number. Each type serializes as the bare number,
-//! so the JSON and the schemas read as they did.
+//! A guest port turns into the host port it is reached at only through its driver: the host port
+//! is the one its tool reports for it (Compose's `PublishedPort`, a Vagrant forward's host side),
+//! read by that driver's adapter, never its own number reused. Each type serializes as the bare
+//! number, and its schema is the bare number's, inlined, so the JSON and the schemas read as
+//! they did.
 
+use std::borrow::Cow;
 use std::fmt;
 
-use isoloom_manifest::Port;
 use serde::{Deserialize, Serialize};
 
 /// A port inside a machine: a container's target port, a VM's own port. Reached from this
 /// computer only through the host port its driver gives it ([`HostPort`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct GuestPort(u16);
 
 /// The port a published port is reached at, at its machine's host address: on this computer's
-/// loopback where the engine forwards it here (Compose, a local VM), at the VM's own address
-/// where it doesn't (ESXi, a server). Only a host port is reserved, checked free or reported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+/// loopback where the engine forwards it here (Compose, a local VM). Only a host port is
+/// reserved, checked free or reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct HostPort(u16);
-
-/// The host port a manifest's publish asks for (`preferred`): taken only when free, so not a
-/// [`HostPort`] until a pick says so.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct PreferredPort(u16);
 
 impl GuestPort {
     /// The port `number` inside a machine (an engine's report, a test's value).
@@ -45,28 +37,10 @@ impl GuestPort {
         GuestPort(number)
     }
 
-    /// The manifest's port `p`: the machine's own.
-    pub(crate) fn of(p: &Port) -> GuestPort {
-        GuestPort(p.port.get())
-    }
-
     /// Its number.
     #[must_use]
     pub const fn get(self) -> u16 {
         self.0
-    }
-
-    /// The host port it is reached at where its machine answers at its own address (an ESXi VM,
-    /// a server's VM): the same number, at the machine's address. Only a driver whose machines
-    /// answer there calls this; a driver that forwards ports gives the forward's.
-    pub(crate) const fn at_own_address(self) -> HostPort {
-        HostPort(self.0)
-    }
-
-    /// The host port a forward takes it from when nothing named one (no pick, no preferred
-    /// number): a Vagrantfile forwards the port from its own number.
-    pub(crate) const fn forwarded_from_its_own_number(self) -> HostPort {
-        HostPort(self.0)
     }
 }
 
@@ -84,23 +58,28 @@ impl HostPort {
     }
 }
 
-impl PreferredPort {
-    /// What the manifest's port `p` asks for, when it is published and names a number.
-    pub(crate) fn of(p: &Port) -> Option<PreferredPort> {
-        p.publish.as_ref()?.preferred.map(|n| PreferredPort(n.get()))
-    }
+/// The bare number's schema, inlined where the port appears (no definition of its own), so a
+/// schema that carries a port reads as it did with a `u16`.
+macro_rules! number_schema {
+    ($port:ident) => {
+        impl schemars::JsonSchema for $port {
+            fn inline_schema() -> bool {
+                true
+            }
 
-    /// The host port it is, once a pick found it free and reserved it for the run.
-    pub(crate) const fn picked(self) -> HostPort {
-        HostPort(self.0)
-    }
+            fn schema_name() -> Cow<'static, str> {
+                Cow::Borrowed(stringify!($port))
+            }
 
-    /// The host port a forward takes when the run recorded no pick for it (the Vagrantfile's
-    /// fallback): the number as asked.
-    pub(crate) const fn unpicked(self) -> HostPort {
-        HostPort(self.0)
-    }
+            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                u16::json_schema(generator)
+            }
+        }
+    };
 }
+
+number_schema!(GuestPort);
+number_schema!(HostPort);
 
 impl fmt::Display for GuestPort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -109,12 +88,6 @@ impl fmt::Display for GuestPort {
 }
 
 impl fmt::Display for HostPort {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl fmt::Display for PreferredPort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }

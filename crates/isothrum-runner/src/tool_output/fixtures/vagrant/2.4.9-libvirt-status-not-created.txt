@@ -1,0 +1,11 @@
+1794660234,web,metadata,provider,libvirt
+1794660234,attack,metadata,provider,libvirt
+1794660234,web,provider-name,libvirt
+1794660234,web,state,not_created
+1794660234,web,state-human-short,not created
+1794660234,web,state-human-long,The Libvirt domain is not created. Run `vagrant up` to create it.
+1794660234,attack,provider-name,libvirt
+1794660234,attack,state,not_created
+1794660234,attack,state-human-short,not created
+1794660234,attack,state-human-long,The Libvirt domain is not created. Run `vagrant up` to create it.
+1794660234,,ui,info,Current machine states:\n\nweb                       not created (libvirt)\nattack                    not created (libvirt)\n\nThis environment represents multiple VMs. The VMs are all listed\nabove with their current state. For more information about a specific\nVM%!(VAGRANT_COMMA) run `vagrant status NAME`.

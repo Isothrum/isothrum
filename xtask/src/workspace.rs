@@ -1,13 +1,12 @@
 //! The tests that keep the repository's crates to the standard, read from what `cargo metadata`
 //! and the manifests say:
 //!
-//! - **one-way dependencies**: the libraries (the compiler and the runner) depend on no
-//!   other crate of the repository and on no UI; the WASM build depends on the compiler alone
-//!   (never the runner: Tokio's processes aren't WASM); the machine-setup domain builds on the
-//!   runner, and the app (the command line) may depend on the libraries and the domain (it uses
-//!   the libraries), never the reverse; the runner service builds on the libraries and the
-//!   domain (its client), and the app runs it; nothing depends on the xtask; the tests' shared
-//!   support depends on no crate of the repository, and any crate's tests may use it;
+//! - **one-way dependencies**: the library (the runner) depends on no other crate of the
+//!   repository and on no UI; the machine-setup domain builds on the runner, and the app (the
+//!   command line) may depend on the libraries and the domain (it uses the libraries), never the
+//!   reverse; the runner service builds on the library and the domain (its client), and the app
+//!   runs it; nothing depends on the xtask; the tests' shared support depends on no crate of the
+//!   repository, and any crate's tests may use it;
 //! - **workspace hygiene**: every crate inherits the workspace's package fields, lints
 //!   and dependencies, so each dependency is declared once, with one version.
 
@@ -18,13 +17,11 @@ use crate::repo;
 /// What a crate is, for the dependency rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Role {
-    /// A library every app builds on: the compiler, the runner.
+    /// A library every app builds on: the runner.
     Library,
     /// A library built on the base libraries that the apps build on: the machine-setup domain.
     Domain,
-    /// The compiler's WebAssembly build.
-    Binding,
-    /// The runner service: builds on the libraries and the domain (its client); the app runs it.
+    /// The runner service: builds on the library and the domain (its client); the app runs it.
     Service,
     /// A program a person runs: the command line.
     App,
@@ -35,8 +32,7 @@ enum Role {
 }
 
 /// The repository's crates and their roles.
-const ROLES: [(&str, Role); 9] = [
-    ("isothrum-compiler", Role::Library),
+const ROLES: [(&str, Role); 7] = [
     ("isothrum-runner", Role::Library),
     // Builds on the runner and the apps build on it: a tier of its own between the base libraries
     // and the apps (out of this workspace, which consume it too).
@@ -44,7 +40,6 @@ const ROLES: [(&str, Role); 9] = [
     // The runner service's client: what an app talks to the service with.
     ("isothrum-client", Role::Domain),
     ("isothrum-service", Role::Service),
-    ("isothrum-wasm", Role::Binding),
     ("isothrum-cli", Role::App),
     ("xtask", Role::Xtask),
     ("isothrum-test-support", Role::TestSupport),
@@ -54,23 +49,19 @@ const ROLES: [(&str, Role); 9] = [
 /// crate's own dependencies, `cargo metadata --no-deps`).
 const UI: [&str; 7] = ["tauri", "tauri-build", "wasm-bindgen", "js-sys", "web-sys", "clap", "tracing-subscriber"];
 
-/// What the compiler and its WASM build never depend on directly: they run in a browser.
-const NOT_WASM: [&str; 2] = ["tokio", "process-wrap"];
-
 fn role(name: &str) -> Option<Role> {
     ROLES.iter().find(|(n, _)| *n == name).map(|(_, r)| *r)
 }
 
 /// Whether crate `from` may depend on the repository's crate `to`.
 fn allowed(from: &str, to: &str) -> bool {
-    match (role(from), role(to)) {
-        (Some(Role::Binding), _) => to == "isothrum-compiler",
+    matches!(
+        (role(from), role(to)),
         (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain | Role::Service))
-        | (Some(Role::Service), Some(Role::Library | Role::Domain))
-        | (Some(Role::Domain), Some(Role::Library))
-        | (Some(Role::Library | Role::Domain | Role::Service | Role::App), Some(Role::TestSupport)) => true,
-        _ => false,
-    }
+            | (Some(Role::Service), Some(Role::Library | Role::Domain))
+            | (Some(Role::Domain), Some(Role::Library))
+            | (Some(Role::Library | Role::Domain | Role::Service | Role::App), Some(Role::TestSupport))
+    )
 }
 
 /// Every dependency of `from` on `to` (`kind` its kind, `None` for a normal one) that breaks the
@@ -81,8 +72,6 @@ fn problem(from: &str, to: &str, kind: Option<&str>) -> Option<String> {
         "dependencies go one way: the libraries, then the domain built on them, then the apps, never the reverse"
     } else if normal && role(from) == Some(Role::Library) && UI.contains(&to) {
         "a library never depends on a UI"
-    } else if normal && matches!(from, "isothrum-compiler" | "isothrum-wasm") && NOT_WASM.contains(&to) {
-        "the compiler and its WASM build run in a browser"
     } else {
         return None;
     };
@@ -118,7 +107,7 @@ fn not_inherited(name: &str, manifest: &toml::Table) -> Vec<String> {
     let inherited = |v: Option<&toml::Value>| v.and_then(|v| v.get("workspace")).and_then(toml::Value::as_bool) == Some(true);
     let package = manifest.get("package");
     // `publish` is deliberately not here: publishability varies per crate (the library crates go
-    // to crates.io, xtask and the fuzz targets do not), so it is set per package, not inherited.
+    // to crates.io and xtask does not), so it is set per package, not inherited.
     let mut found: Vec<String> = ["version", "edition", "rust-version", "license", "repository"]
         .into_iter()
         .filter(|field| !inherited(package.and_then(|p| p.get(*field))))
@@ -174,20 +163,18 @@ mod tests {
     #[test]
     fn the_apps_depend_on_the_libraries_and_never_the_reverse() {
         let ok = check(&[
-            package("isothrum-compiler", &[("serde", None)]),
             package("isothrum-runner", &[("tokio", None), ("tempfile", Some("dev"))]),
-            package("isothrum-wasm", &[("isothrum-compiler", None), ("wasm-bindgen", None)]),
+            package("isothrum-machine", &[("isothrum-runner", None)]),
             package("isothrum-cli", &[("isothrum-runner", None), ("clap", None)]),
             package("xtask", &[("isothrum-runner", None)]),
         ]);
         assert!(ok.is_empty(), "{ok:?}");
         let wrong = check(&[
             package("isothrum-runner", &[("isothrum-cli", Some("dev")), ("tauri", None)]),
-            package("isothrum-compiler", &[("isothrum-runner", None), ("tokio", None)]),
-            package("isothrum-wasm", &[("isothrum-runner", None)]),
+            package("isothrum-machine", &[("isothrum-cli", None)]),
             package("isothrum-cli", &[("xtask", None)]),
         ]);
-        assert_eq!(wrong.len(), 6, "{wrong:#?}");
+        assert_eq!(wrong.len(), 4, "{wrong:#?}");
     }
 
     #[test]

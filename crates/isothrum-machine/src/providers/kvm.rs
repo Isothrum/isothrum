@@ -5,7 +5,7 @@
 
 use super::{Provider, Unavailable};
 use crate::context::Context;
-use crate::host::{Host, Os};
+use crate::host::{Host, HostOs};
 
 /// Why KVM's hypervisors can't run VMs on `host` although they are installed: vagrant-libvirt
 /// and vagrant-qemu boot KVM guests (QEMU with `accel=kvm`, as Vagrantfiles ask on Linux), so they
@@ -26,7 +26,7 @@ pub(super) fn kvm_problem(host: &Host) -> Option<Unavailable> {
 /// there whatever is installed. Not off Linux, when it doesn't, or when it can't be told
 /// (`/proc/modules` unreadable).
 pub(super) fn holds_virtualization(host: &Host) -> bool {
-    if host.os != Os::Linux {
+    if host.os != HostOs::Linux {
         return false;
     }
     let Ok(modules) = std::fs::read_to_string(&host.devices.proc_modules) else {
@@ -85,8 +85,8 @@ const LIBVIRT_GROUPS: [&str; 2] = ["libvirt", "kvm"];
 /// Whether `provider` boots KVM guests on `os`, through `/dev/kvm`: libvirt, and QEMU on Linux
 /// (vagrant-qemu asks for `accel=kvm` there; HVF on a Mac).
 #[must_use]
-pub fn uses_kvm(provider: Provider, os: Os) -> bool {
-    provider == Provider::Libvirt || (provider == Provider::Qemu && os == Os::Linux)
+pub fn uses_kvm(provider: Provider, os: HostOs) -> bool {
+    provider == Provider::Libvirt || (provider == Provider::Qemu && os == HostOs::Linux)
 }
 
 /// The groups a user joins to use `provider` on `host`, which apply from their next login:
@@ -123,7 +123,7 @@ pub(super) fn new_login_group(provider: Provider, host: &Host) -> String {
 /// login. `id -nG <user>` reads the group database, `id -nG` this process's own groups. Empty
 /// elsewhere, or when it can't be told.
 pub(super) async fn groups_pending(cx: &Context) -> Vec<String> {
-    if cx.host.os != Os::Linux {
+    if cx.host.os != HostOs::Linux {
         return Vec::new();
     }
     let Ok(user) = cx.read_ok("id", &["-un"]).await else {
@@ -153,8 +153,8 @@ mod tests {
 
     fn linux(root: &std::path::Path) -> Host {
         Host {
-            os: Os::Linux,
-            arch: Arch::X86_64,
+            os: HostOs::Linux,
+            arch: Arch::Amd64,
             packages: None,
             devices: Devices::under(root),
         }
@@ -191,7 +191,7 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         assert!(holds_virtualization(&host));
-        host.os = Os::Macos;
+        host.os = HostOs::Macos;
         assert!(!holds_virtualization(&host));
     }
 
@@ -236,12 +236,15 @@ mod tests {
     fn libvirt_and_qemu_on_linux_boot_through_kvm_and_join_its_groups() {
         let dir = tempfile::tempdir().unwrap();
         let host = linux(dir.path());
-        assert!(uses_kvm(Provider::Libvirt, Os::Linux) && uses_kvm(Provider::Qemu, Os::Linux));
-        assert!(!uses_kvm(Provider::Qemu, Os::Macos) && !uses_kvm(Provider::Qemu, Os::Windows) && !uses_kvm(Provider::Virtualbox, Os::Linux));
+        assert!(uses_kvm(Provider::Libvirt, HostOs::Linux) && uses_kvm(Provider::Qemu, HostOs::Linux));
+        assert!(!uses_kvm(Provider::Qemu, HostOs::Macos) && !uses_kvm(Provider::Qemu, HostOs::Windows) && !uses_kvm(Provider::Virtualbox, HostOs::Linux));
         assert_eq!(login_groups(Provider::Libvirt, &host), ["libvirt", "kvm"]);
         assert_eq!(login_groups(Provider::Qemu, &host), ["kvm"]);
         assert_eq!(login_groups(Provider::Virtualbox, &host), Vec::<String>::new());
-        let mac = Host { os: Os::Macos, ..host.clone() };
+        let mac = Host {
+            os: HostOs::Macos,
+            ..host.clone()
+        };
         assert_eq!(login_groups(Provider::Qemu, &mac), Vec::<String>::new());
         assert_eq!(new_login_group(Provider::Libvirt, &host), "libvirt");
         assert_eq!(new_login_group(Provider::Qemu, &host), "kvm");
@@ -275,7 +278,7 @@ mod tests {
         let mac = Context::new(
             nothing,
             Host {
-                os: Os::Macos,
+                os: HostOs::Macos,
                 ..linux(dir.path())
             },
         );

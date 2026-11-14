@@ -27,11 +27,9 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [State layout](reference/state.md): the home, `state.db`
 - [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
-- [GNS3 feature coverage](reference/gns3-coverage.md) of the compiler and the runner
+- [GNS3 feature coverage](reference/gns3-coverage.md) of the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),
-  [isothrum-compiler](https://docs.rs/isothrum-compiler),
-  [isothrum-machine](https://docs.rs/isothrum-machine),
-  [isothrum-wasm](https://docs.rs/isothrum-wasm)
+  [isothrum-machine](https://docs.rs/isothrum-machine)
 
 ## Explanation
 

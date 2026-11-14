@@ -9,28 +9,14 @@
 //! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, the `error-exit`
 //!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
 //! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
-//! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.
-//! - [`docker`]: the networks `docker inspect` says a container is on. [`prlctl`]: where a
-//!   Parallels VM's bundle is.
-//! - [`download`]: a failed download's network error that passes, as Docker, Vagrant and curl
-//!   print it. [`sign_in`]: a server refusing the run's sign-in, in each server tool's words.
 //! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
 //!
-//! Tools whose whole answer is a document are read beside their driver, each in one module of
-//! its own: Compose's `ps` and `config` (`driver::compose::{ps, config}`), Terraform's state
-//! (`driver::terraform::state`), the clouds' CLIs (`reap::tags`) and Proxmox's API
-//! (`graphical::proxmox::answer`).
+//! Tools whose whole answer is a document are read in their adapter ([`crate::cli`]): Compose's
+//! `ps`, Terraform's JSON UI, state and outputs.
 
-pub(crate) mod docker;
-pub(crate) mod download;
-pub(crate) mod leftover;
-pub(crate) mod prlctl;
-pub(crate) mod qemu;
 pub(crate) mod ruby;
-pub(crate) mod sign_in;
 pub(crate) mod vagrant;
 pub(crate) mod vboxmanage;
-pub(crate) mod virsh;
 
 pub use vagrant::plugins as vagrant_plugins;
 
@@ -46,10 +32,10 @@ pub(crate) fn failure_record(program: &str, stdout: &[String]) -> Option<String>
     }
 }
 
-use isoloom_manifest::Version;
+use crate::project::platform::Version;
 
 /// The version `text` says (what a tool prints: `Vagrant 2.4.1`, `v2.29.1`, `1.0.0-rc.1`), as
-/// Isoloom's [`Version`], so versions compare in its order (a pre-release before its release):
+/// a [`Version`], so versions compare in its order (a pre-release before its release):
 /// its first word that is one, else its first `<major>.<minor>[.<patch>]` (`2.3.8.dev` is 2.3.8, a
 /// missing patch 0). `None` when it says none: nothing is held back then. The one reading of a
 /// version for the runner's tool probes and `isothrum-machine`'s minimums.
@@ -57,11 +43,10 @@ use isoloom_manifest::Version;
 pub fn version_found(text: &str) -> Option<Version> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
         .map(|w| w.strip_prefix('v').unwrap_or(w))
-        .find_map(|w| Version::parse(w).ok())
+        .find_map(Version::parse)
         .or_else(|| {
-            // Isoloom's Version is made from its text alone.
             let (major, minor, patch) = numbers_in(text)?;
-            Version::parse(&format!("{major}.{minor}.{patch}")).ok()
+            Some(Version::new(major, minor, patch))
         })
 }
 
@@ -81,10 +66,10 @@ fn numbers_in(text: &str) -> Option<(u64, u64, u64)> {
 mod tests {
     use super::*;
 
-    /// A version as each tool prints it, compared in Isoloom's order: by its numbers (a missing
+    /// A version as each tool prints it, compared in version order: by its numbers (a missing
     /// patch 0), a pre-release before its release.
     #[test]
-    fn versions_are_read_from_what_a_tool_prints_in_isoloom_s_order() {
+    fn versions_are_read_from_what_a_tool_prints_in_version_order() {
         let v = |text: &str| version_found(text).unwrap();
         let parsed = |text: &str| Version::parse(text).unwrap();
         assert_eq!(v("5.5.1"), parsed("5.5.1"));

@@ -5,7 +5,7 @@
 
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_client::{Client, Followed};
-use isothrum_runner::{EventKind, RunName, wire_name};
+use isothrum_runner::{EventKind, ResultData, RunName};
 
 use crate::args::{Cli, Command as CliCommand, Lifecycle, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::cancel::{self, Signal};
@@ -26,12 +26,7 @@ pub(crate) fn command<'c>(cli: &'c Cli, var: &Var<'_>) -> Option<&'c RunnerComma
     let CliCommand::Runner(command) = &cli.command else { return None };
     let through_service = matches!(
         **command,
-        RunnerCommand::Lifecycle(_)
-            | RunnerCommand::Status(_)
-            | RunnerCommand::Check(_)
-            | RunnerCommand::Provision { .. }
-            | RunnerCommand::Attach { .. }
-            | RunnerCommand::Detach { .. }
+        RunnerCommand::Lifecycle(_) | RunnerCommand::Status(_) | RunnerCommand::Exec { .. } | RunnerCommand::Provision { .. } | RunnerCommand::Attach { .. }
     );
     (!in_process && through_service).then_some(&**command)
 }
@@ -39,13 +34,9 @@ pub(crate) fn command<'c>(cli: &'c Cli, var: &Var<'_>) -> Option<&'c RunnerComma
 /// What a finished operation prints for a person.
 #[derive(Debug, Clone, Copy)]
 enum Shown {
-    /// A run that came up: its message, else this.
+    /// A run that came up: this, then its outputs.
     Started(&'static str),
-    /// The machine attached, and where.
-    Attached,
-    /// How many checks passed and failed.
-    Checked,
-    /// Nothing more than its events.
+    /// Nothing more than its events (an `exec`'s output is among them).
     Plain,
 }
 
@@ -53,9 +44,13 @@ enum Shown {
 pub(crate) async fn run(cli: &Cli, command: &RunnerCommand, out: &Out<'_>, var: &Var<'_>) -> Result<Verdict> {
     let home = locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), std::env::home_dir())?;
     if let RunnerCommand::Status(run) = command {
-        let (name, path) = (run_name(run)?, manifest(run)?);
+        let target = target(run)?;
+        let name = match &target.name {
+            Some(name) => name.clone(),
+            None => RunName::from_folder(&target.path)?,
+        };
         let client = Client::connect(&home, None).await?;
-        let status = client.status(&name, Some(&path)).await?;
+        let status = client.status(&name, Some(target)).await?;
         if out.json {
             out.term.out(&serde_json::to_string(&status)?);
         } else {
@@ -76,98 +71,74 @@ fn operation(command: &RunnerCommand, var: &Var<'_>) -> Result<(Command, Shown)>
     let op = op_args(command).ok_or_else(|| Error::Usage("not an operation".into()))?;
     let (target, options) = (target(&op.run)?, options(op, var)?);
     Ok(match command {
-        RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs {
-            replace, lifetime, ssh_jump, ..
-        })) => {
-            let options = OpOptions {
-                ssh_jump: ssh_jump.clone(),
-                ..options
-            };
+        RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs { lifetime, .. })) => {
             let lifetime_s = lifetime.map(|minutes| minutes.saturating_mul(60));
-            let fresh = *replace;
-            (
-                Command::Up {
-                    target,
-                    options,
-                    fresh,
-                    lifetime_s,
-                },
-                Shown::Started("The run is up."),
-            )
+            (Command::Up { target, options, lifetime_s }, Shown::Started("The run is up."))
         }
         RunnerCommand::Lifecycle(Lifecycle::Down(_)) => (Command::Down { target, options }, Shown::Plain),
         RunnerCommand::Lifecycle(Lifecycle::Park { mode, .. }) => {
             let mode = park_mode(*mode);
             (Command::Park { target, options, mode }, Shown::Plain)
         }
-        RunnerCommand::Lifecycle(Lifecycle::Resume(_)) => (Command::Resume { target, options }, Shown::Started("The run is up again.")),
-        RunnerCommand::Lifecycle(Lifecycle::Update(_)) => (Command::Update { target, options }, Shown::Started("The run is up to date.")),
+        RunnerCommand::Lifecycle(Lifecycle::Resume(_)) => (Command::Resume { target, options }, Shown::Plain),
+        RunnerCommand::Lifecycle(Lifecycle::Update(_)) => (Command::Update { target, options }, Shown::Plain),
         RunnerCommand::Lifecycle(Lifecycle::Retire { machine, .. }) => {
             let machine = machine.clone();
             (Command::Retire { target, options, machine }, Shown::Plain)
         }
-        RunnerCommand::Check(_) => (Command::Check { target, options }, Shown::Checked),
+        RunnerCommand::Exec { machine, argv, .. } => {
+            let (machine, argv) = (machine.clone(), argv.clone());
+            (
+                Command::Exec {
+                    target,
+                    options,
+                    machine,
+                    argv,
+                },
+                Shown::Plain,
+            )
+        }
         RunnerCommand::Provision { machine, .. } => {
             let machine = machine.clone();
             (Command::Provision { target, options, machine }, Shown::Plain)
         }
-        RunnerCommand::Attach { machine, network, image, .. } => {
-            let (machine, network, image) = (machine.clone(), network.clone(), image.clone());
-            (
-                Command::Attach {
-                    target,
-                    options,
-                    machine,
-                    network,
-                    image,
-                },
-                Shown::Attached,
-            )
-        }
-        RunnerCommand::Detach { machine, .. } => {
+        RunnerCommand::Attach { machine, .. } => {
             let machine = machine.clone();
-            (Command::Detach { target, options, machine }, Shown::Plain)
+            (Command::Attach { target, options, machine }, Shown::Plain)
         }
         _ => return Err(Error::Usage("not an operation".into())),
     })
 }
 
-/// The run `args` names: its manifest, absolute (the service has another working folder), and
-/// its `--name`.
+/// The run `args` names: its project's folder, absolute (the service has another working
+/// folder), its format when given, and its `--name`.
 fn target(args: &RunArgs) -> Result<Target> {
-    let name = args.name.as_deref().map(parse_name).transpose()?;
-    Ok(Target::new(manifest(args)?, name))
-}
-
-/// The manifest `args` names, absolute.
-fn manifest(args: &RunArgs) -> Result<std::path::PathBuf> {
-    let manifest = locate::manifest(&args.path, args.target.as_deref())?;
-    std::path::absolute(&manifest).map_err(|source| Error::Read { path: manifest, source })
-}
-
-/// `--name`'s value as a run's name (a malformed one is a usage error, as clap's own are).
-fn parse_name(name: &str) -> Result<RunName> {
-    RunName::new(name).map_err(|e| Error::Usage(format!("--name: {e}")))
-}
-
-/// The run's name `args` gives: `--name`, else its manifest's environment's.
-fn run_name(args: &RunArgs) -> Result<RunName> {
-    if let Some(name) = &args.name {
-        return parse_name(name);
-    }
-    let loaded = isothrum_runner::load_manifest(&manifest(args)?)?;
-    Ok(RunName::new(loaded.manifest.environment.name.as_str())?)
+    // A malformed `--name` is a malformed value: a usage error, as clap's own are.
+    let name = args
+        .name
+        .as_deref()
+        .map(RunName::new)
+        .transpose()
+        .map_err(|e| Error::Usage(format!("--name: {e}")))?;
+    let path = std::path::absolute(&args.path).map_err(|source| Error::Read {
+        path: args.path.clone(),
+        source,
+    })?;
+    let target = Target::new(path, name);
+    Ok(match args.format {
+        Some(format) => target.with_format(format.into()),
+        None => target,
+    })
 }
 
 /// The values `args` gives, for the wire.
 fn options(args: &OpArgs, var: &Var<'_>) -> Result<OpOptions> {
     let secrets = values::secrets(&args.secrets, var)?;
     Ok(OpOptions {
-        provider: args.provider.map(|p| wire_name(&p)),
-        params: values::params(&args.params)?,
+        provider: args.provider,
+        env: values::env(&args.env)?,
         secrets: secrets.iter().map(|(k, v)| (k.to_owned(), v.expose().to_owned())).collect(),
         host_label: args.host_label.clone(),
-        ssh_jump: None,
     })
 }
 
@@ -216,46 +187,32 @@ async fn follow(client: &Client, mut followed: Followed, out: &Out<'_>, shown: S
     Ok(ending.verdict(out, shown))
 }
 
-/// What the operation's events said of its end.
+/// What the operation's events said of its end: its `result`, whether it reached its goal and
+/// its data.
 #[derive(Debug, Default)]
-struct Ending {
-    /// Its `result`: whether it reached its goal, and its data.
-    result: Option<(bool, serde_json::Value)>,
-    passed: usize,
-    failed: usize,
-}
+struct Ending(Option<(bool, ResultData)>);
 
 impl Ending {
     /// Notes `kind`.
     fn see(&mut self, kind: &EventKind) {
-        match kind {
-            EventKind::Result { ok, data } => self.result = Some((*ok, data.clone())),
-            EventKind::Check { ok: true, .. } => self.passed += 1,
-            EventKind::Check { ok: false, .. } => self.failed += 1,
-            _ => {}
+        if let EventKind::Result { ok, data } = kind {
+            self.0 = Some((*ok, data.clone()));
         }
     }
 
     /// The verdict, and what a person reads of it.
     fn verdict(self, out: &Out<'_>, shown: Shown) -> Verdict {
-        let Some((ok, data)) = self.result else { return Verdict::Fail };
-        if !out.json {
-            match shown {
-                Shown::Started(done) => out.term.out(text(&data, "message").unwrap_or(done).trim_end()),
-                Shown::Attached => {
-                    let machine = text(&data, "machine").unwrap_or_default();
-                    let at = text(&data, "address").map(|a| format!(" at {a}")).unwrap_or_default();
-                    out.term.out(&format!("Attached {machine}{at}."));
+        let Some((ok, data)) = self.0 else { return Verdict::Fail };
+        if let (false, Shown::Started(done)) = (out.json, shown) {
+            out.term.out(done);
+            if let ResultData::Started { outputs, .. } = &data {
+                for o in outputs {
+                    if let Some(value) = &o.value {
+                        out.term.out(&format!("{}: {value}", o.name));
+                    }
                 }
-                Shown::Checked => out.term.out(&format!("{} passed, {} failed", self.passed, self.failed)),
-                Shown::Plain => {}
             }
         }
         Verdict::of(ok)
     }
-}
-
-/// The text of field `name` of a `result`'s data, when it has one.
-fn text<'d>(data: &'d serde_json::Value, name: &str) -> Option<&'d str> {
-    data.get(name).and_then(serde_json::Value::as_str)
 }

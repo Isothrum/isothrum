@@ -7,14 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorCode {
-    /// The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as
-    /// written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a
-    /// `tcp` condition's port), or it names a value the operation doesn't have (a placeholder
-    /// with none, a guest delivery's machine whose address no output gives, a Terraform module
-    /// with no `.tf` file).
-    ManifestInvalid,
-    /// The manifest is another version of the contract.
-    ManifestVersion,
+    /// The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or
+    /// Terraform module, or the files of several formats with none named.
+    ProjectInvalid,
     /// The manifest needs something this runner doesn't do (a target that doesn't run on this
     /// host, a delivery its driver doesn't take, an action of another driver's, a step with no
     /// command for this host), or the call asks the run for something its target can't do (a
@@ -61,8 +56,9 @@ pub enum ErrorCode {
     NotReady,
     /// A required secret or input has no value.
     SecretMissing,
-    /// A param is unknown, missing or holds a value it doesn't allow.
-    ParamInvalid,
+    /// A value or secret that can't be handed to the tools (its name empty or holding `=`, a
+    /// NUL in it).
+    InputInvalid,
     /// A run name that can't name a run.
     RunName,
     /// The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or
@@ -78,14 +74,8 @@ pub enum ErrorCode {
     MachineAmbiguous,
     /// A network the run doesn't have.
     NetworkUnknown,
-    /// Every slot of the place is held by another run.
-    SlotsFull,
     /// A deployment can't be taken over as a run.
     AdoptRefused,
-    /// A machine a step goes to over SSH never answered.
-    Unreachable,
-    /// The run's seal failed: it is up, but not sealed, so not ready.
-    NotSealed,
     /// The operation was cut short before it ended (its future dropped: an embedder's cancel, the
     /// command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended
     /// once they have, or 30 seconds later.
@@ -121,8 +111,7 @@ impl ErrorCode {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            ErrorCode::ManifestInvalid => "manifest_invalid",
-            ErrorCode::ManifestVersion => "manifest_version",
+            ErrorCode::ProjectInvalid => "project_invalid",
             ErrorCode::Unsupported => "unsupported",
             ErrorCode::Io => "io",
             ErrorCode::Corrupt => "corrupt",
@@ -142,17 +131,14 @@ impl ErrorCode {
             ErrorCode::NotRunning => "not_running",
             ErrorCode::NotReady => "not_ready",
             ErrorCode::SecretMissing => "secret_missing",
-            ErrorCode::ParamInvalid => "param_invalid",
+            ErrorCode::InputInvalid => "input_invalid",
             ErrorCode::RunName => "run_name",
             ErrorCode::ProviderRefused => "provider_refused",
             ErrorCode::ElevationFailed => "elevation_failed",
             ErrorCode::MachineUnknown => "machine_unknown",
             ErrorCode::MachineAmbiguous => "machine_ambiguous",
             ErrorCode::NetworkUnknown => "network_unknown",
-            ErrorCode::SlotsFull => "slots_full",
             ErrorCode::AdoptRefused => "adopt_refused",
-            ErrorCode::Unreachable => "unreachable",
-            ErrorCode::NotSealed => "not_sealed",
             ErrorCode::NoConsole => "no_console",
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Usage => "usage",

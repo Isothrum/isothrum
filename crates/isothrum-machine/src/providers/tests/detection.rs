@@ -58,7 +58,7 @@ async fn a_qemu_without_its_plugin_says_so_and_needs_it() {
 async fn an_arm_host_probes_its_own_qemu() {
     let dir = tempfile::tempdir().unwrap();
     let host = Host {
-        arch: Arch::Aarch64,
+        arch: Arch::Arm64,
         ..linux(dir.path())
     };
     let tools = FakeProcesses::script()
@@ -347,7 +347,7 @@ async fn a_remote_server_is_checked_alone_with_nothing_installed_here() {
 
 /// A Mac on `arch` whose devices are under `root`, with UTM's bundle when `utm`.
 fn mac(arch: Arch, root: &Path, utm: bool) -> Host {
-    let host = host(Os::Macos, arch, root);
+    let host = host(HostOs::Macos, arch, root);
     if utm {
         std::fs::create_dir_all(&host.devices.utm_app).unwrap();
     }
@@ -366,14 +366,14 @@ fn on_mac(script: Script, arch: Arch) -> Script {
         .allow("VBoxManage", Reply::missing())
         .allow("vmrun", Reply::missing())
         .allow("prlctl", Reply::missing())
-        .allow(arch.qemu_system(), Reply::missing())
+        .allow(crate::host::qemu_system(arch), Reply::missing())
 }
 
 #[tokio::test(start_paused = true)]
 async fn an_apple_silicon_mac_is_offered_utm_and_not_virtualbox() {
     let dir = tempfile::tempdir().unwrap();
-    let host = mac(Arch::Aarch64, dir.path(), true);
-    let tools = on_mac(FakeProcesses::script(), Arch::Aarch64)
+    let host = mac(Arch::Arm64, dir.path(), true);
+    let tools = on_mac(FakeProcesses::script(), Arch::Arm64)
         .expect(&utm_version_call(&host), Reply::ok("4.7.5\n"))
         .expect(PLUGINS, listing(&[("vagrant_utm", "0.2.1")]))
         .build();
@@ -401,9 +401,9 @@ async fn an_apple_silicon_mac_is_offered_utm_and_not_virtualbox() {
 #[tokio::test(start_paused = true)]
 async fn utm_and_its_plugin_too_old_say_which_to_update() {
     let dir = tempfile::tempdir().unwrap();
-    let host = mac(Arch::Aarch64, dir.path(), true);
+    let host = mac(Arch::Arm64, dir.path(), true);
     let utm = |version: &str, plugin: &str| {
-        let tools = on_mac(FakeProcesses::script(), Arch::Aarch64)
+        let tools = on_mac(FakeProcesses::script(), Arch::Arm64)
             .expect(&utm_version_call(&host), Reply::ok(version))
             .expect(PLUGINS, listing(&[("vagrant_utm", plugin)]))
             .build();
@@ -437,13 +437,13 @@ async fn utm_and_its_plugin_too_old_say_which_to_update() {
 #[tokio::test(start_paused = true)]
 async fn an_intel_mac_is_offered_virtualbox_and_utm_only_once_installed() {
     let dir = tempfile::tempdir().unwrap();
-    let tools = on_mac(FakeProcesses::script(), Arch::X86_64)
+    let tools = on_mac(FakeProcesses::script(), Arch::Amd64)
         .expect("VBoxManage --version", Reply::ok("7.1.4r165100"))
         .expect("VBoxManage list runningvms", Reply::ok(""))
         .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, _) = context(tools, mac(Arch::X86_64, dir.path(), false));
+    let (cx, _) = context(tools, mac(Arch::Amd64, dir.path(), false));
     let statuses = detect(&cx, true).await;
     assert_eq!(
         providers(&statuses),
@@ -467,7 +467,7 @@ async fn an_intel_mac_is_offered_virtualbox_and_utm_only_once_installed() {
 /// A Windows PC on `arch` whose devices are under `root`, with the Hyper-V feature on when
 /// `hyperv`.
 fn windows(arch: Arch, root: &Path, hyperv: bool) -> Host {
-    let host = host(Os::Windows, arch, root);
+    let host = host(HostOs::Windows, arch, root);
     if hyperv {
         write(&host.devices.hyperv_service, "");
     }
@@ -495,7 +495,7 @@ async fn a_pc_with_hyperv_on_and_its_hypervisor_running_is_ready_and_offers_no_q
         .expect("powershell", Reply::ok("True\r\n"))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, tools) = context(tools, windows(Arch::X86_64, dir.path(), true));
+    let (cx, tools) = context(tools, windows(Arch::Amd64, dir.path(), true));
     let statuses = detect(&cx, true).await;
     assert_eq!(
         providers(&statuses),
@@ -514,7 +514,7 @@ async fn on_windows_an_account_that_may_not_manage_hyperv_is_told_how_to() {
         .allow("powershell", Reply::ok("True"))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, _) = context(tools, windows(Arch::X86_64, dir.path(), true));
+    let (cx, _) = context(tools, windows(Arch::Amd64, dir.path(), true));
     let hyperv = status_of(&detect(&cx, true).await, Provider::Hyperv).clone();
     assert_eq!(hyperv.reason, Some(Unavailable::HypervNeedsAdmin));
     assert_eq!(hyperv.account_lacks, Some(AccountLacks::HypervAdmin));
@@ -531,7 +531,7 @@ async fn an_installed_hyperv_whose_hypervisor_isnt_running_isnt_ready() {
             .expect("powershell", answer)
             .expect(PLUGINS, Reply::ok(""))
             .build();
-        context(tools, windows(Arch::X86_64, dir.path(), true))
+        context(tools, windows(Arch::Amd64, dir.path(), true))
     };
     for (answer, reason) in [
         (Reply::ok("False\r\n"), Some(Unavailable::HypervisorStopped)),
@@ -550,7 +550,7 @@ async fn whoami_and_powershell_are_asked_for_an_installed_hyperv_only() {
     let dir = tempfile::tempdir().unwrap();
     // Neither is scripted: asking either fails the test.
     let tools = on_windows(FakeProcesses::script()).expect(PLUGINS, Reply::ok("")).build();
-    let (cx, _) = context(tools, windows(Arch::X86_64, dir.path(), false));
+    let (cx, _) = context(tools, windows(Arch::Amd64, dir.path(), false));
     let hyperv = status_of(&detect(&cx, true).await, Provider::Hyperv).clone();
     assert_eq!((hyperv.hypervisor, hyperv.reason), (Some(false), Some(Unavailable::HypervOff)));
 }
@@ -563,7 +563,7 @@ async fn windows_on_arm_offers_hyperv_and_neither_virtualbox_nor_vmware() {
         .expect("powershell", Reply::ok("True"))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, _) = context(tools, windows(Arch::Aarch64, dir.path(), true));
+    let (cx, _) = context(tools, windows(Arch::Arm64, dir.path(), true));
     let statuses = detect(&cx, true).await;
     assert_eq!(providers(&statuses), [Provider::Hyperv, Provider::VmwareEsxi]);
 }

@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::exec;
-use crate::host::{Arch, Host, Os};
+use crate::host::{Arch, Host, HostOs};
 
 /// A Vagrant provider (the value given to `vagrant up --provider`).
-pub use isoloom_manifest::Provider;
+pub use isothrum_runner::Provider;
 
 mod hyperv;
 mod kvm;
@@ -43,7 +43,7 @@ fn all() -> Vec<Provider> {
 enum Check {
     /// A tool that proves it: installed as long as it starts.
     Tool(&'static str, &'static [&'static str]),
-    /// QEMU's system emulator for this machine's CPU ([`Arch::qemu_system`]).
+    /// QEMU's system emulator for this machine's CPU ([`qemu_system`](crate::host::qemu_system)).
     Qemu,
     /// UTM's app bundle ([`crate::Devices::utm_app`]), which also says its version.
     UtmApp,
@@ -60,7 +60,7 @@ enum Check {
 #[non_exhaustive]
 pub struct ProviderRow {
     /// The OSes it exists on.
-    pub oses: &'static [Os],
+    pub oses: &'static [HostOs],
     /// Whether it is built for Windows on Arm.
     pub windows_on_arm: bool,
     /// The Mac CPU it is made for, when it is made for one: offered on the other only once
@@ -70,7 +70,7 @@ pub struct ProviderRow {
     /// a Windows feature the user turns on by hand).
     pub vendor: Option<&'static str>,
     /// The OSes where its VMs share a folder of this computer two-way.
-    pub shares_folders: &'static [Os],
+    pub shares_folders: &'static [HostOs],
     /// The oldest version of its plugin that works: `vagrant_utm` before 0.2.0 reads a VM's
     /// forwarded ports through a script UTM refuses (`-600`, `-1743`) and has no `started` state.
     pub plugin_minimum: Option<&'static str>,
@@ -89,11 +89,11 @@ impl ProviderRow {
         // A hypervisor built for every OS and CPU, its VMs sharing a folder two-way, held to no
         // version; each row says how it differs.
         const EVERYWHERE: ProviderRow = ProviderRow {
-            oses: &Os::ALL,
+            oses: &crate::host::ALL_OSES,
             windows_on_arm: true,
             mac_cpu: None,
             vendor: None,
-            shares_folders: &Os::ALL,
+            shares_folders: &crate::host::ALL_OSES,
             plugin_minimum: None,
             hypervisor_minimum: None,
             check: Check::Remote,
@@ -106,7 +106,7 @@ impl ProviderRow {
             // Mac's VMs on Intel only.
             Provider::Virtualbox => ProviderRow {
                 windows_on_arm: false,
-                mac_cpu: Some(Arch::X86_64),
+                mac_cpu: Some(Arch::Amd64),
                 ..found_by(Check::Tool("VBoxManage", &["--version"]))
             },
             Provider::VmwareDesktop => ProviderRow {
@@ -116,34 +116,34 @@ impl ProviderRow {
             },
             // Hyper-V's SMB folders ask for a password at every start.
             Provider::Hyperv => ProviderRow {
-                oses: &[Os::Windows],
+                oses: &[HostOs::Windows],
                 vendor: Some("https://learn.microsoft.com/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"),
                 shares_folders: &[],
                 ..found_by(Check::HypervFeature)
             },
             Provider::Parallels => ProviderRow {
-                oses: &[Os::Macos],
+                oses: &[HostOs::Macos],
                 vendor: Some("https://www.parallels.com/products/desktop/"),
                 ..found_by(Check::Tool("prlctl", &["--version"]))
             },
             // UTM is the hypervisor made for Apple silicon.
             Provider::Utm => ProviderRow {
-                oses: &[Os::Macos],
-                mac_cpu: Some(Arch::Aarch64),
+                oses: &[HostOs::Macos],
+                mac_cpu: Some(Arch::Arm64),
                 plugin_minimum: Some("0.2.0"),
                 hypervisor_minimum: Some(("UTM", "4.6.5")),
                 ..found_by(Check::UtmApp)
             },
             Provider::Libvirt => ProviderRow {
-                oses: &[Os::Linux],
+                oses: &[HostOs::Linux],
                 ..found_by(Check::Tool("virsh", &["--version"]))
             },
             // vagrant-qemu builds a networked VM's cloud-init seed with `oscdimg` on Windows (the
             // Windows ADK's), and Isoloom gives the qemu provider Linux and macOS hosts only; it
             // shares a folder two-way through virtiofsd, on Linux only.
             Provider::Qemu => ProviderRow {
-                oses: &[Os::Macos, Os::Linux],
-                shares_folders: &[Os::Linux],
+                oses: &[HostOs::Macos, HostOs::Linux],
+                shares_folders: &[HostOs::Linux],
                 ..found_by(Check::Qemu)
             },
             // A server: reached from any computer, sharing none of its folders.
@@ -174,7 +174,7 @@ pub fn applicable(provider: Provider, host: &Host) -> bool {
 /// `installed` is offered wherever it applies: the user chose it.
 #[must_use]
 pub fn offered(provider: Provider, host: &Host, installed: bool) -> bool {
-    let for_this_mac = host.os != Os::Macos || ProviderRow::of(provider).mac_cpu.is_none_or(|cpu| cpu == host.arch);
+    let for_this_mac = host.os != HostOs::Macos || ProviderRow::of(provider).mac_cpu.is_none_or(|cpu| cpu == host.arch);
     applicable(provider, host) && (installed || for_this_mac)
 }
 
@@ -182,8 +182,8 @@ pub fn offered(provider: Provider, host: &Host, installed: bool) -> bool {
 /// private network its settings in a cloud-init seed, an ISO Vagrant builds with `mkisofs` on Linux
 /// (`hdiutil` on macOS, which every Mac has). Without it, `vagrant up` fails at the first VM.
 #[must_use]
-pub fn needs_mkisofs(provider: Provider, os: Os) -> bool {
-    provider == Provider::Qemu && os == Os::Linux
+pub fn needs_mkisofs(provider: Provider, os: HostOs) -> bool {
+    provider == Provider::Qemu && os == HostOs::Linux
 }
 
 /// Whether Vagrant drives `provider` through HashiCorp's Vagrant VMware Utility, a system service
@@ -198,7 +198,7 @@ pub fn needs_vmware_utility(provider: Provider) -> bool {
 fn probe_of(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&'static str])> {
     match ProviderRow::of(provider).check {
         Check::Tool(program, args) => Some((program, args)),
-        Check::Qemu => Some((arch.qemu_system(), &["--version"])),
+        Check::Qemu => Some((crate::host::qemu_system(arch), &["--version"])),
         Check::UtmApp | Check::HypervFeature | Check::Remote => None,
     }
 }
@@ -599,7 +599,7 @@ fn hypervisor_too_old(provider: Provider, installed: Option<&str>) -> Option<(&'
     older(version, min).then_some((name, version, min))
 }
 
-/// Whether the version `installed` says is before `min`, in Isoloom's order (a pre-release before
+/// Whether the version `installed` says is before `min`, in the runner's order (a pre-release before
 /// its release); not when either says no version.
 fn older(installed: &str, min: &str) -> bool {
     isothrum_runner::version_found(installed)

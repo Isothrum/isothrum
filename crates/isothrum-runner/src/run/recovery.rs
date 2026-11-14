@@ -19,7 +19,6 @@ pub(crate) fn say(events: &Emitter<'_>, db: &Store, ids: &[ResourceId]) {
 
 /// A row recovery couldn't remove, and why: it stays `destroying` for the next operation.
 #[derive(Debug)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the format drivers' recovery reads it (FormatDriver::destroy_by_id)"))]
 pub(crate) struct NotRemoved {
     /// The row.
     pub(crate) row: ResourceRow,
@@ -27,27 +26,34 @@ pub(crate) struct NotRemoved {
     pub(crate) error: Error,
 }
 
+/// What removes a recorded resource by the id its tool gave (the format driver's
+/// `destroy_by_id`). A trait, not a closure: an operation's future stays `Send` whatever the
+/// remover borrows.
+pub(crate) trait Remover {
+    /// Removes `row`'s resource; nothing there any more is fine.
+    async fn remove(&mut self, row: &ResourceRow) -> Result<()>;
+}
+
 /// Removes `rows` (newest first, as [`crate::store::Tx::left_by_dead_operations`] gives them) for
-/// operation `by`: each is written `destroying` before `destroy` (the driver's removal by the
-/// row's recorded id) and `gone` after it, each move said on `events`. A removal that fails leaves
-/// its row `destroying`, and the next operation tries again; the others go on.
+/// operation `by`: each is written `destroying` before `remover` removes it by the row's recorded
+/// id and `gone` after it, each move said on `events`. A removal that fails leaves its row
+/// `destroying`, and the next operation tries again; the others go on.
 ///
 /// # Errors
 ///
 /// The store's, when a row's move can't be written: nothing is removed past it.
-#[cfg_attr(not(test), expect(dead_code, reason = "the format drivers' core calls it with FormatDriver::destroy_by_id"))]
 pub(crate) async fn destroy_recorded(
     db: &Store,
     events: &Emitter<'_>,
     by: OperationId,
     rows: &[ResourceRow],
-    mut destroy: impl AsyncFnMut(&ResourceRow) -> Result<()>,
+    mut remover: impl Remover,
 ) -> Result<Vec<NotRemoved>> {
     let mut not_removed = Vec::new();
     for row in rows {
         db.write(|tx| tx.destroying(row.id, by))?;
         say(events, db, &[row.id]);
-        match destroy(row).await {
+        match remover.remove(row).await {
             Ok(()) => {
                 db.write(|tx| tx.gone(row.id))?;
                 say(events, db, &[row.id]);
@@ -127,16 +133,19 @@ mod tests {
         let clock = FixedClock(std::time::UNIX_EPOCH);
         let sink = Recorder::new();
         let events = Emitter::new("r", Op::Up, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
-        let mut asked = Vec::new();
-        let failed = destroy_recorded(&store, &events, current, &rows, async |row: &ResourceRow| {
-            asked.push(row.native_id.clone().unwrap_or_default());
-            if row.key == "vm:c" {
-                return Err(Error::NotRunning { run: "r".into() });
+        /// Removes each row asked for, but `vm:c`, and notes the ids it was asked.
+        struct Asked<'a>(&'a mut Vec<String>);
+        impl Remover for Asked<'_> {
+            async fn remove(&mut self, row: &ResourceRow) -> Result<()> {
+                self.0.push(row.native_id.clone().unwrap_or_default());
+                if row.key == "vm:c" {
+                    return Err(Error::NotRunning { run: "r".into() });
+                }
+                Ok(())
             }
-            Ok(())
-        })
-        .await
-        .unwrap();
+        }
+        let mut asked = Vec::new();
+        let failed = destroy_recorded(&store, &events, current, &rows, Asked(&mut asked)).await.unwrap();
         assert_eq!(asked, ["uuid-c", "uuid-a"], "newest first, by the tool's own id");
         assert_eq!(failed.iter().map(|n| n.row.key.as_str()).collect::<Vec<_>>(), ["vm:c"]);
         assert_eq!(failed[0].error.code(), crate::ErrorCode::NotRunning, "with why");

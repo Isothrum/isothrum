@@ -1,7 +1,7 @@
 //! The service over its real endpoint, with a scripted engine: the queue per run, two clients,
 //! replay after a reconnection, one service per home, cancel, shutdown and the idle stop.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -43,7 +43,7 @@ impl Engine for Scripted {
             let (Some((_, options)), Some(op)) = (command.target(), command.op()) else {
                 return false;
             };
-            let sleep: u64 = options.params.get("sleep_ms").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let sleep: u64 = options.env.get("sleep_ms").and_then(|s| s.parse().ok()).unwrap_or(0);
             self.note(format!("begin {run} {op}"));
             let step = EventKind::Log {
                 step: "work".into(),
@@ -55,14 +55,16 @@ impl Engine for Scripted {
             self.note(format!("end {run} {op}"));
             let result = EventKind::Result {
                 ok: true,
-                data: serde_json::json!({ "message": "done" }),
+                data: isothrum_runner::ResultData::Moved {
+                    state: isothrum_runner::RunState::Ready,
+                },
             };
             journal.keep(isothrum_runner::Event::new(2, Some(run.to_string()), Some(op), result));
             true
         })
     }
 
-    fn status<'a>(&'a self, _run: &'a RunName, _path: Option<&'a Path>) -> BoxFuture<'a, Result<Status, Refusal>> {
+    fn status<'a>(&'a self, _run: &'a RunName, _target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async { Err(Refusal::new(ErrorCode::NotRunning, "scripted")) })
     }
 }
@@ -106,10 +108,9 @@ fn up(run: &str, sleep_ms: u64) -> Command {
     Command::Up {
         target: Target::new(PathBuf::from("/runs").join(run), None),
         options: OpOptions {
-            params: [("sleep_ms".to_owned(), sleep_ms.to_string())].into(),
+            env: [("sleep_ms".to_owned(), sleep_ms.to_string())].into(),
             ..OpOptions::default()
         },
-        fresh: false,
         lifetime_s: None,
     }
 }

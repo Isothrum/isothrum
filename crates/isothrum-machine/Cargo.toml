@@ -19,7 +19,6 @@ publish = true
 workspace = true
 
 [dependencies]
-isoloom-manifest.workspace = true
 isothrum-runner.workspace = true
 serde.workspace = true
 tokio.workspace = true

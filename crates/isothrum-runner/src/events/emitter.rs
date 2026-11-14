@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use super::WarningCode;
-use super::{EVENTS_VERSION, Event, EventKind, Events, ReadyState, StepState, Stream};
+use super::{EVENTS_VERSION, Event, EventKind, Events, Stream};
 use crate::clock::{Clock, rfc3339};
 use crate::error::Error;
 use crate::state::Op;
@@ -184,57 +184,12 @@ impl<'a> Emitter<'a> {
                 state,
                 native_id: native_id.map(|id| self.mask(&id)),
             },
-            EventKind::Ready { condition, state, detail } => EventKind::Ready {
-                condition,
-                state,
-                detail: self.mask(&detail),
-            },
-            EventKind::Check {
-                runner,
-                from,
-                name,
-                ok,
-                detail,
-            } => EventKind::Check {
-                runner,
-                from,
-                name,
-                ok,
-                detail: self.mask(&detail),
-            },
             EventKind::Result { ok, data } => EventKind::Result {
                 ok,
-                data: self.mask_json(data),
+                data: data.masked(|s| self.mask(s)),
             },
             other => other,
         }
-    }
-
-    fn mask_json(&self, data: serde_json::Value) -> serde_json::Value {
-        match data {
-            serde_json::Value::String(s) => serde_json::Value::String(self.mask(&s)),
-            serde_json::Value::Array(items) => items.into_iter().map(|v| self.mask_json(v)).collect(),
-            serde_json::Value::Object(map) => map.into_iter().map(|(k, v)| (k, self.mask_json(v))).collect(),
-            other => other,
-        }
-    }
-
-    /// A step's state.
-    pub(crate) fn step(&self, step: &str, state: StepState, note: Option<&str>) {
-        self.emit(EventKind::Step {
-            step: step.to_owned(),
-            state,
-            note: note.map(str::to_owned),
-        });
-    }
-
-    /// Runs `work` as step `step`: its `running` event (with `note`) first, then `done` or
-    /// `failed` as it ended.
-    pub(crate) async fn stepped<T>(&self, step: &str, note: Option<&str>, work: impl Future<Output = crate::Result<T>>) -> crate::Result<T> {
-        self.step(step, StepState::Running, note);
-        let done = work.await;
-        self.step(step, if done.is_ok() { StepState::Done } else { StepState::Failed }, None);
-        done
     }
 
     /// A line a step's tool printed.
@@ -251,15 +206,6 @@ impl<'a> Emitter<'a> {
         self.emit(EventKind::Warning {
             code,
             message: message.to_owned(),
-        });
-    }
-
-    /// A ready condition's state.
-    pub(crate) fn ready(&self, condition: &str, state: ReadyState, detail: &str) {
-        self.emit(EventKind::Ready {
-            condition: condition.to_owned(),
-            state,
-            detail: detail.to_owned(),
         });
     }
 
@@ -290,7 +236,10 @@ mod tests {
         e.log("up", Stream::Stderr, "seeding token-x-long and token-x");
         e.emit(EventKind::Result {
             ok: true,
-            data: serde_json::json!({"message": ["at token-x"]}),
+            data: crate::ResultData::Started {
+                state: crate::RunState::Ready,
+                outputs: vec![crate::ShownOutput::new("url", Some("at token-x".into()))],
+            },
         });
         let got = sink.events();
         assert_eq!(got.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2]);
@@ -303,7 +252,9 @@ mod tests {
             "{:?}",
             got[0]
         );
-        assert!(matches!(&got[1].kind, EventKind::Result { data, .. } if data["message"][0] == "at ***"));
+        assert!(
+            matches!(&got[1].kind, EventKind::Result { data: crate::ResultData::Started { outputs, .. }, .. } if outputs[0].value.as_deref() == Some("at ***"))
+        );
     }
 
     #[test]
@@ -318,13 +269,17 @@ mod tests {
         let sink = Recorder::new();
         let e = Emitter::new("r", Op::Down, &clock, &sink).with_log(StoreLog::new(Arc::clone(&store)));
         e.journal_as(op.id);
-        e.step("down", StepState::Done, None);
+        e.emit(EventKind::Step {
+            step: "down".into(),
+            state: crate::events::StepState::Done,
+            note: None,
+        });
         e.warning(WarningCode::StepTolerated, "a tolerated step failed");
         drop(e);
         let (logged, unreadable) = store.read(|tx| tx.events_after(crate::store::EventCursor::default(), Some(&run), 10)).unwrap();
         assert_eq!(unreadable, 0);
         assert_eq!(logged.into_iter().map(|(_, event)| event).collect::<Vec<_>>(), sink.events());
-        assert_eq!(store.read(|tx| tx.steps(op.id)).unwrap(), [("down".to_owned(), StepState::Done)]);
+        assert_eq!(store.read(|tx| tx.steps(op.id)).unwrap(), [("down".to_owned(), crate::events::StepState::Done)]);
     }
 
     #[test]

@@ -12,14 +12,14 @@ use std::time::Duration;
 
 use super::Unavailable;
 use crate::context::Context;
-use crate::host::Os;
+use crate::host::HostOs;
 
 /// Why VirtualBox's kernel driver doesn't run here, `said` being what `VBoxManage --version`
 /// printed: from the module list on Linux, else from its warning; `None` when it is loaded, or
 /// warns of nothing.
 pub(super) async fn driver_problem(cx: &Context, said: &str) -> Option<Unavailable> {
     let devices = &cx.host.devices;
-    if cx.host.os == Os::Linux
+    if cx.host.os == HostOs::Linux
         && let (Ok(modules), Ok(running)) = (std::fs::read_to_string(&devices.proc_modules), std::fs::read_to_string(&devices.kernel_release))
     {
         return from_modules(&modules, running.trim(), &devices.lib_modules);

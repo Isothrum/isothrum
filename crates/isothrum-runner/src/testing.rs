@@ -1,148 +1,18 @@
-//! What the crate's tests share: the run manifests Isoloom writes, a run folder holding one, and
-//! a runner configuration on fakes with a fixed clock.
-//!
-//! The manifests in `tests/fixtures/` are `isoloom generate --target <target>` output, copied
-//! as written, for specs Isoloom's own tests use: web-portal is the run-manifest design's spec
-//! (`isoloom-targets`' `tests/targets/run_manifest.rs`), web-vm the Linux Vagrant one
-//! (`vagrant_manifest.rs`), solo-web Isoloom's example. An `-access` variant adds
-//! `user: { access: true, os: debian@12, networks: { lab: 99 } }` (Isoloom refuses an access
-//! machine with no `os` on every target but `external`, unless its image table gives one); the
-//! AWS one gives solo-web `inputs: [DEMO_SECRET]` and `web`
-//! the file `/srv/secret.txt` from it. To take them again, generate each from Isoloom's checkout
-//! and copy `.isoloom/<target>/run.json` over its fixture; the docker, docker-vm and proxmox ones
-//! are then the same as `isoloom-manifest`'s fixtures.
+//! What the crate's tests share: a runner configuration on fakes with a fixed clock, a test's
+//! model of an engine, what a test traces, and the checks every named enum takes.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-
-use isoloom_manifest::{Arch, HostOs, Manifest};
 
 use crate::clock::FixedClock;
 use crate::net::FakePorts;
 use crate::process::fake::{Call, FakeProcesses, Reply};
+use crate::project::platform::HostOs;
 use crate::{HostPorts, ProcessRunner, RunnerConfig};
-
-/// The `web-portal` docker manifest's text.
-pub(crate) const WEB_PORTAL: &str = include_str!("../tests/fixtures/web-portal.run.json");
-
-/// `web-portal` with an on-demand access machine (a Compose `user` service in the `access`
-/// profile, and Isoloom's stand-in for it while the checks run): the hot-add op's docker fixture.
-pub(crate) const WEB_PORTAL_ACCESS: &str = include_str!("../tests/fixtures/web-portal-access.run.json");
-
-/// `web-vm` with an on-demand access VM (a Vagrant `user` define): the hot-add op's VM fixture.
-pub(crate) const WEB_VM_ACCESS: &str = include_str!("../tests/fixtures/web-vm-access.run.json");
-
-/// Isoloom's `proxmox` fixture (the solo-web example): Terraform, ready files and checks over SSH.
-pub(crate) const SOLO_WEB_PROXMOX: &str = include_str!("../tests/fixtures/solo-web.proxmox.run.json");
-
-/// The solo-web example's cloud-vm manifest on AWS, with a secret input: its region and profile
-/// as params, its credentials as connection slots, an expiry, the project copied and the secret
-/// delivered into the guest over SSH, its machine's address and login outputs.
-pub(crate) const SOLO_WEB_AWS: &str = include_str!("../tests/fixtures/solo-web.cloud-vm-aws.run.json");
-
-/// The `web-vm` vagrant manifest's text (Isoloom's Linux vagrant fixture): a Debian web VM
-/// with its secret as a file, its page forwarded to a host port the runner picks, checked from
-/// the controller.
-pub(crate) const WEB_VM: &str = include_str!("../tests/fixtures/web-vm.run.json");
-
-/// Isoloom's `docker-vm` fixture (web-portal): Compose inside a VM Vagrant makes.
-pub(crate) const DOCKER_VM: &str = include_str!("../tests/fixtures/web-portal.docker-vm.run.json");
-
-/// Isoloom's `docker-vm` fixture on Proxmox: Compose inside a VM Terraform makes, over SSH.
-pub(crate) const DOCKER_VM_PROXMOX: &str = include_str!("../tests/fixtures/web-portal.docker-vm-proxmox.run.json");
-
-/// The Terraform state a Proxmox host's reset left of a cut-short apply: its IP set, gone from the
-/// server, as a real run kept it.
-pub(crate) const IPSET_LEFT: &str = r#"{"version":4,"terraform_version":"1.16.7","serial":24,"outputs":{},"resources":[{"mode":"managed","type":"proxmox_virtual_environment_firewall_ipset","name":"test","provider":"provider[\"registry.terraform.io/bpg/proxmox\"]","instances":[{"schema_version":0,"attributes":{"cidr":[{"comment":"","name":"10.254.250.0/24","nomatch":false}],"comment":"network test","container_id":null,"id":"iso1n0","name":"iso1n0","node_name":null,"vm_id":null},"sensitive_attributes":[]}]}]}"#;
 
 /// When the tests' clock stands: 2026-10-15T12:00:00Z.
 pub(crate) const TEST_TIME: u64 = 1_792_065_600;
-
-/// The host the tests' runner is on, whatever the machine running them: a test takes the same
-/// branch on every OS, and one about another host says which.
-pub(crate) const TEST_HOST: HostOs = HostOs::Linux;
-
-/// The CPU architecture the tests' runner is on, whatever the machine running them.
-pub(crate) const TEST_ARCH: Arch = Arch::Amd64;
-
-/// The solo-web `proxmox` manifest.
-pub(crate) fn proxmox_manifest() -> Manifest {
-    isoloom_manifest::parse(SOLO_WEB_PROXMOX).unwrap()
-}
-
-/// The solo-web `cloud-vm` manifest on AWS.
-pub(crate) fn solo_web_aws_manifest() -> Manifest {
-    isoloom_manifest::parse(SOLO_WEB_AWS).unwrap()
-}
-
-/// The `web-portal` docker manifest.
-pub(crate) fn docker_manifest() -> Manifest {
-    isoloom_manifest::parse(WEB_PORTAL).unwrap()
-}
-
-/// `web-portal` with an output whose format can't be filled: it names a sensitive output (the
-/// published port again, `token`), which is never bound for a template.
-pub(crate) fn unfillable_format() -> String {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
-    let mut token = m["outputs"][0].clone();
-    token["name"] = "token".into();
-    token["sensitive"] = true.into();
-    token.as_object_mut().unwrap().remove("format");
-    m["outputs"][0]["format"] = "http://127.0.0.1:${value}/?token=${outputs.token}".into();
-    m["outputs"].as_array_mut().unwrap().push(token);
-    m.to_string()
-}
-
-/// The `web-vm` vagrant manifest.
-pub(crate) fn vagrant_manifest() -> Manifest {
-    isoloom_manifest::parse(WEB_VM).unwrap()
-}
-
-/// `manifest` (JSON) with machine `machine`'s `native.boot_digest` set to `digest`, or taken out
-/// (a manifest written before Isoloom wrote one): a regenerated Vagrantfile whose VM boots
-/// otherwise.
-pub(crate) fn with_boot_digest(manifest: &str, machine: &str, digest: Option<&str>) -> String {
-    let mut m: serde_json::Value = serde_json::from_str(manifest).unwrap();
-    let native = m["machines"].as_array_mut().unwrap().iter_mut().find(|x| x["name"] == machine).unwrap()["native"]
-        .as_object_mut()
-        .unwrap();
-    match digest {
-        Some(d) => native.insert("boot_digest".into(), d.into()),
-        None => native.remove("boot_digest"),
-    };
-    m.to_string()
-}
-
-/// A run generated for one target, and a runner home beside it; both go when it is dropped.
-pub(crate) struct RunFolder {
-    /// The runner's home.
-    pub(crate) home: tempfile::TempDir,
-    /// The run's folder, kept while the test runs.
-    _run: tempfile::TempDir,
-    /// Its run manifest, `.isoloom/<target>/run.json`.
-    pub(crate) manifest: PathBuf,
-}
-
-impl RunFolder {
-    /// `manifest` written for `target`.
-    pub(crate) fn new(target: &str, manifest: &str) -> RunFolder {
-        let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let dir = run.path().join(".isoloom").join(target);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("run.json"), manifest).unwrap();
-        RunFolder {
-            manifest: dir.join("run.json"),
-            home,
-            _run: run,
-        }
-    }
-
-    /// The folder the manifest is in (the target's generated files).
-    pub(crate) fn target_dir(&self) -> &Path {
-        self.manifest.parent().unwrap()
-    }
-}
 
 /// A test's model of an engine (a Compose project, a Vagrantfile's VMs), and fake processes that
 /// `answer` from it: the test reads and changes the model, the runner's calls see it.
@@ -171,70 +41,13 @@ pub(crate) fn runner_config(home: &Path, processes: Arc<dyn ProcessRunner>, port
         host,
         search_path: None,
         tf_plugin_cache: None,
-        arch: TEST_ARCH,
         host_env: crate::host_env::HostEnv::default(),
     }
-}
-
-/// What a fake `ssh-keygen` does: writes the runner's key pair under `home`.
-pub(crate) fn keygen(home: &Path) -> Reply {
-    let key = crate::ssh::key_path(home);
-    std::fs::write(&key, "private").unwrap();
-    std::fs::write(key.with_extension("pub"), "ssh-ed25519 AAAAfake isothrum\n").unwrap();
-    Reply::ok("")
 }
 
 /// No host port to give.
 pub(crate) fn no_ports() -> Arc<dyn HostPorts> {
     Arc::new(FakePorts::new([]))
-}
-
-/// The options a VM run's tests start with: VirtualBox, `secret` given as the main secret.
-pub(crate) fn virtualbox_options(secret: &str) -> crate::RunOptions {
-    let mut secrets = crate::secrets::Secrets::new();
-    secrets.insert("DEMO_SECRET", crate::secrets::SecretValue::new(secret));
-    crate::RunOptions::new()
-        .with_provider(isoloom_manifest::Provider::Virtualbox)
-        .with_secrets(secrets)
-}
-
-/// `run`'s access machine attached, as [`crate::Running::attach`] picks it, with no options.
-pub(crate) async fn attach(
-    run: &crate::Running<'_>,
-    machine: Option<&str>,
-    network: Option<&str>,
-    image: Option<&str>,
-    events: &dyn crate::Events,
-) -> crate::Result<crate::AttachReport> {
-    let pick = crate::AccessPick { machine, network, image };
-    run.attach(pick, &crate::RunOptions::new(), events).await
-}
-
-/// `run`'s access machine `machine` detached, with no options.
-pub(crate) async fn detach(run: &crate::Running<'_>, machine: Option<&str>, events: &dyn crate::Events) -> crate::Result<()> {
-    run.detach(machine, &crate::RunOptions::new(), events).await
-}
-
-/// A running `run` that declares no access machine has none to attach: an attach and a
-/// detach are each refused (`unsupported`, saying why), and nothing is run.
-pub(crate) async fn refuses_a_box_it_has_none_of(run: &crate::Running<'_>, fake: &FakeProcesses) {
-    let calls = fake.calls().len();
-    let err = attach(run, None, None, Some("me/toolbox:2026"), &crate::Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::Unsupported);
-    assert!(err.to_string().contains("this run declares no access machine"), "{err}");
-    assert_eq!(
-        detach(run, None, &crate::Recorder::new()).await.unwrap_err().code(),
-        crate::ErrorCode::Unsupported
-    );
-    assert_eq!(fake.calls().len(), calls, "nothing ran: {:?}", &fake.lines()[calls..]);
-}
-
-/// A resume of `run`, whose machine `machine` was removed outside the runner, is refused
-/// (`nothing_to_resume`, naming it).
-pub(crate) async fn refuses_to_resume_without(run: &crate::Running<'_>, machine: &str) {
-    let err = run.resume(&crate::RunOptions::new(), &crate::Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::NothingToResume);
-    assert!(err.to_string().contains(&format!("machine `{machine}` is gone")), "{err}");
 }
 
 /// What `f` traces while it runs (every level, as text), with what it gives. One global test
@@ -310,8 +123,7 @@ fn every_variant_is_read_from_the_schema_in_order() {
     use crate::{ErrorCode, Park};
     assert_eq!(every_variant::<Park>(), [Park::Pause, Park::Shutdown]);
     let codes = every_variant::<ErrorCode>();
-    assert_eq!(codes.first(), Some(&ErrorCode::ManifestInvalid));
-    assert!(codes.contains(&ErrorCode::NotSealed), "the last variant too: {codes:?}");
+    assert!(codes.contains(&ErrorCode::ProjectInvalid), "{codes:?}");
 }
 
 #[tokio::test]
@@ -326,13 +138,6 @@ async fn a_capture_holds_its_own_threads_events_and_none_of_another_threads() {
     .await;
     assert!(here.contains("what=\"here\"") || here.contains("what=here"), "{here}");
     assert!(!here.contains("elsewhere"), "another thread's trace isn't this capture's: {here}");
-}
-
-/// Machine `name`'s published ports among `machines`, each as its own port and the host port it
-/// is reached at, by number: what a test compares a status with.
-pub(crate) fn published_numbers(machines: &[crate::MachineStatus], name: &str) -> Vec<(u16, u16)> {
-    let machine = machines.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("no machine `{name}`"));
-    machine.published.iter().map(|p| (p.port.get(), p.host_port.get())).collect()
 }
 
 /// Runs this test binary's test `exact` alone, as a child process, with `var` set to `home`: the

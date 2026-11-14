@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use isothrum_runner::{ErrorCode, Op, Park, RunName, Status};
+use isothrum_runner::{ErrorCode, Format, Op, Park, Provider, RunName, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
@@ -65,9 +65,6 @@ pub enum Command {
         /// The values it runs with.
         #[serde(default)]
         options: OpOptions,
-        /// Remove whatever of the run exists, then start afresh.
-        #[serde(default)]
-        fresh: bool,
         /// How long a run that stops itself may live, in seconds.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lifetime_s: Option<u64>,
@@ -98,7 +95,7 @@ pub enum Command {
         #[serde(default)]
         options: OpOptions,
     },
-    /// Bring the running run up to date with its manifest.
+    /// Bring the running run up to date with its project.
     Update {
         /// The run.
         target: Target,
@@ -106,33 +103,15 @@ pub enum Command {
         #[serde(default)]
         options: OpOptions,
     },
-    /// Hot-add the on-demand access machine.
+    /// Bring a machine of the project that isn't running into the running run.
     Attach {
         /// The run.
         target: Target,
         /// The values it runs with.
         #[serde(default)]
         options: OpOptions,
-        /// Which on-demand machine.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        machine: Option<String>,
-        /// The network to attach it to.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        network: Option<String>,
-        /// The image or box to run it from.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        image: Option<String>,
-    },
-    /// Hot-remove the on-demand access machine.
-    Detach {
-        /// The run.
-        target: Target,
-        /// The values it runs with.
-        #[serde(default)]
-        options: OpOptions,
-        /// Which on-demand machine.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        machine: Option<String>,
+        /// The machine.
+        machine: String,
     },
     /// Take a machine out of the running run.
     Retire {
@@ -155,21 +134,26 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
     },
-    /// Run the run's checks.
-    Check {
+    /// Runs a command in a machine of the run, with no terminal; its result says how it ended.
+    Exec {
         /// The run.
         target: Target,
         /// The values it runs with.
         #[serde(default)]
         options: OpOptions,
+        /// The machine.
+        machine: String,
+        /// The command and its arguments.
+        argv: Vec<String>,
     },
-    /// The run's status (not queued: it reads). `path` is needed for a run not recorded yet.
+    /// The run's status (not queued: it reads). `target` is needed for a run not recorded yet;
+    /// without it the run is reopened as recorded.
     Status {
         /// The run.
         run: RunName,
         /// Where it is opened from (default: where its record says).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<PathBuf>,
+        target: Option<Target>,
     },
     /// Every recorded run.
     List,
@@ -218,10 +202,9 @@ impl Command {
             Command::Resume { .. } => Op::Resume,
             Command::Update { .. } => Op::Update,
             Command::Attach { .. } => Op::Attach,
-            Command::Detach { .. } => Op::Detach,
             Command::Retire { .. } => Op::Retire,
             Command::Provision { .. } => Op::Provision,
-            Command::Check { .. } => Op::Check,
+            Command::Exec { .. } => Op::Check,
             Command::Hello { .. }
             | Command::Status { .. }
             | Command::List
@@ -244,32 +227,45 @@ impl Command {
             | Command::Resume { target, options }
             | Command::Update { target, options }
             | Command::Attach { target, options, .. }
-            | Command::Detach { target, options, .. }
             | Command::Retire { target, options, .. }
             | Command::Provision { target, options, .. }
-            | Command::Check { target, options } => Some((target, options)),
+            | Command::Exec { target, options, .. } => Some((target, options)),
             _ => None,
         }
     }
 }
 
-/// Which run: the path the runner opens it from, absolute (the service doesn't share the
-/// client's working folder), and the name to run it under (default: the one the runner reads
-/// there). The protocol knows nothing of what is there: the runner recognizes it.
+/// Which run: its project's folder, absolute (the service doesn't share the client's working
+/// folder), the name to run it under (default: the folder's), and its format when the folder
+/// holds several (default: the one the runner recognizes there).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
-    /// The run's folder (or file), as the runner opens it.
+    /// The project's folder (a file in it means the folder).
     pub path: PathBuf,
     /// The run's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<RunName>,
+    /// The project's format, for a folder that holds several.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<Format>,
 }
 
 impl Target {
-    /// The run at `path`, under `name`.
+    /// The project at `path`, under `name`, its format recognized.
     #[must_use]
     pub fn new(path: impl Into<PathBuf>, name: Option<RunName>) -> Target {
-        Target { path: path.into(), name }
+        Target {
+            path: path.into(),
+            name,
+            format: None,
+        }
+    }
+
+    /// The same, as a project of `format`.
+    #[must_use]
+    pub fn with_format(mut self, format: Format) -> Target {
+        self.format = Some(format);
+        self
     }
 }
 
@@ -277,32 +273,27 @@ impl Target {
 /// never stored or logged.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpOptions {
-    /// The backend of a tool that has several, by the tool's own name for it (a run keeps the one
-    /// it started with).
+    /// The Vagrant provider, for a Vagrant project (a run keeps the one it started with).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    /// Params, by name.
+    pub provider: Option<Provider>,
+    /// Values every tool of the operation gets, by name, as its format reads them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub params: BTreeMap<String, String>,
-    /// Secret and input slot values, by slot name.
+    pub env: BTreeMap<String, String>,
+    /// Sensitive values, by name: as `env`, but masked in every event and never stored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<String, String>,
     /// What to call the place the run is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
-    /// The login the run's SSH goes through first (read by an `up` that starts it).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ssh_jump: Option<String>,
 }
 
 impl fmt::Debug for OpOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpOptions")
             .field("provider", &self.provider)
-            .field("params", &self.params)
+            .field("env", &self.env)
             .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
             .field("host_label", &self.host_label)
-            .field("ssh_jump", &self.ssh_jump)
             .finish()
     }
 }
@@ -418,20 +409,19 @@ mod tests {
         let up = Request {
             id: 7,
             command: Command::Up {
-                target: Target::new("/runs/web/.isoloom/docker/run.json", Some(RunName::new("web").unwrap())),
+                target: Target::new("/labs/web", Some(RunName::new("web").unwrap())).with_format(Format::Compose),
                 options: OpOptions::default(),
-                fresh: true,
-                lifetime_s: None,
+                lifetime_s: Some(3600),
             },
         };
         assert_eq!(
             round_trip(&up),
-            r#"{"id":7,"cmd":"up","target":{"path":"/runs/web/.isoloom/docker/run.json","name":"web"},"options":{},"fresh":true}"#
+            r#"{"id":7,"cmd":"up","target":{"path":"/labs/web","name":"web","format":"compose"},"options":{},"lifetime_s":3600}"#
         );
         let park = round_trip(&Request {
             id: 8,
             command: Command::Park {
-                target: Target::new("/m.json", None),
+                target: Target::new("/labs/web", None),
                 options: OpOptions::default(),
                 mode: Park::Pause,
             },

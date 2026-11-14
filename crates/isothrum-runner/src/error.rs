@@ -16,14 +16,6 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The manifest was refused (its own error names the field and the fix).
-    #[error("{}: {source}", path.display())]
-    Manifest {
-        /// The manifest's file.
-        path: PathBuf,
-        /// Why, with Isoloom's stable code (`source.code()`).
-        source: isoloom_manifest::Error,
-    },
     /// The manifest needs something this runner doesn't do, or the call asks the run for
     /// something its target can't do.
     #[error("{what} isn't supported")]
@@ -31,14 +23,6 @@ pub enum Error {
         /// What, in a few words: target `cloud-vm` on this host; step `up`: the action
         /// `ssh.run` on a compose run.
         what: String,
-    },
-    /// A value the manifest gives that can't be used as written.
-    #[error("{at}: {reason}")]
-    Malformed {
-        /// Where (`lifecycle.up.copy.with.wait_s`).
-        at: String,
-        /// What is wrong with it.
-        reason: String,
     },
     /// A file or folder couldn't be read or written, or a loopback port bound.
     #[error("{} couldn't be {action}: {source}", path.display())]
@@ -55,12 +39,6 @@ pub enum Error {
     Locked {
         /// The run.
         run: String,
-    },
-    /// Another start held the home's slot pick for as long as a start waits for it.
-    #[error("another start has held this home's slot pick for {waited_s} s; it may hang")]
-    SlotsLocked {
-        /// How long this start waited, in seconds.
-        waited_s: u64,
     },
     /// A step's tool isn't on PATH.
     #[error("step `{step}`: `{tool}` isn't installed or isn't on PATH")]
@@ -197,21 +175,22 @@ pub enum Error {
         /// The slot.
         name: String,
     },
-    /// A param that can't be used as given.
-    #[error("param `{name}`: {reason}")]
-    Param {
-        /// The param.
+    /// A folder that isn't a project Isothrum runs.
+    #[error("{}: not a project to run: {reason}", dir.display())]
+    Project {
+        /// The folder.
+        dir: PathBuf,
+        /// Why, with the fix.
+        reason: String,
+    },
+    /// A value or secret that can't be handed to the tools (its name empty or holding `=`, a NUL
+    /// in it).
+    #[error("input `{name}`: {reason}")]
+    Input {
+        /// Its name.
         name: String,
         /// Why.
         reason: String,
-    },
-    /// A placeholder with no value at run time.
-    #[error("{at}: `${{{placeholder}}}` has no value in this operation")]
-    Unbound {
-        /// Where (`lifecycle.up.up`).
-        at: String,
-        /// The placeholder.
-        placeholder: String,
     },
     /// A machine the run doesn't have (to provision, console into, attach, detach or retire).
     #[error("run `{run}` has no machine `{machine}`")]
@@ -239,15 +218,6 @@ pub enum Error {
         /// The network asked for.
         network: String,
     },
-    /// The macOS relays to an ESXi host couldn't be set up (a relay that can't listen on the
-    /// loopback, a `PATH` that isn't UTF-8, the ovftool wrapper's folder that can't be written).
-    #[error("the relays to ESXi host `{host}` couldn't be set up: {source}")]
-    Relay {
-        /// The ESXi host.
-        host: String,
-        /// Why.
-        source: std::io::Error,
-    },
     /// The elevation the run's commands need couldn't be had.
     #[error("elevation: {reason}")]
     Elevation {
@@ -267,35 +237,6 @@ pub enum Error {
     NoProvider {
         /// The run's providers, as the manifest names them (`` `virtualbox`, `libvirt` ``).
         providers: String,
-    },
-    /// Every slot of the run's place is held by another run.
-    #[error("no slot is free on `{place}`: {held} runs hold one; stop one first")]
-    SlotsFull {
-        /// The place (the embedder's label for it, or `this host`).
-        place: String,
-        /// How many runs hold a slot there.
-        held: usize,
-    },
-    /// A machine a step goes to over SSH never answered within the step's `wait_s` (a guest
-    /// delivery's: 15 minutes).
-    #[error("step `{step}`: {login} didn't answer over SSH within {after_s}s: {reason}")]
-    Unreachable {
-        /// The step.
-        step: String,
-        /// The login it tried (`user@host`).
-        login: String,
-        /// How long it tried, in seconds.
-        after_s: u64,
-        /// ssh's last word.
-        reason: String,
-    },
-    /// The run's seal failed: it is up, unsealed, and never reported ready.
-    #[error("run `{run}` couldn't be sealed, so it isn't ready (stop it to remove it): {reason}")]
-    Unsealed {
-        /// The run.
-        run: String,
-        /// Why the seal failed.
-        reason: String,
     },
     /// A deployment that can't be taken over as a run.
     #[error("run `{run}` can't take the deployment over: {reason}")]
@@ -404,15 +345,11 @@ impl Error {
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
-            Error::Manifest {
-                source: isoloom_manifest::Error::Version { .. },
-                ..
-            } => ErrorCode::ManifestVersion,
-            Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } => ErrorCode::Unsupported,
-            Error::Io { .. } | Error::Relay { .. } => ErrorCode::Io,
+            Error::Project { .. } => ErrorCode::ProjectInvalid,
+            Error::Io { .. } => ErrorCode::Io,
             Error::Corrupt { .. } => ErrorCode::Corrupt,
-            Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
+            Error::Locked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
@@ -428,17 +365,14 @@ impl Error {
             Error::NotRunning { .. } => ErrorCode::NotRunning,
             Error::NotReady { .. } => ErrorCode::NotReady,
             Error::SecretMissing { .. } => ErrorCode::SecretMissing,
-            Error::Param { .. } => ErrorCode::ParamInvalid,
+            Error::Input { .. } => ErrorCode::InputInvalid,
             Error::RunName { .. } => ErrorCode::RunName,
             Error::Provider { .. } | Error::NoProvider { .. } => ErrorCode::ProviderRefused,
             Error::Elevation { .. } => ErrorCode::ElevationFailed,
             Error::MachineUnknown { .. } => ErrorCode::MachineUnknown,
             Error::MachineAmbiguous { .. } => ErrorCode::MachineAmbiguous,
             Error::NetworkUnknown { .. } => ErrorCode::NetworkUnknown,
-            Error::SlotsFull { .. } => ErrorCode::SlotsFull,
             Error::Adopt { .. } => ErrorCode::AdoptRefused,
-            Error::Unreachable { .. } => ErrorCode::Unreachable,
-            Error::Unsealed { .. } => ErrorCode::NotSealed,
             Error::NoConsole { .. } => ErrorCode::NoConsole,
             Error::ServerAuthFailed { .. } => ErrorCode::ServerAuthFailed,
             Error::Store { code, .. } => *code,
@@ -495,18 +429,5 @@ mod tests {
             reason: "the elevated session ended: the broker stopped".into(),
         };
         assert_eq!((lost.code(), lost.code().as_str()), (ErrorCode::ElevationFailed, "elevation_failed"));
-    }
-
-    #[test]
-    fn another_manifest_version_has_its_own_code() {
-        for other in [0, 2] {
-            let err = isoloom_manifest::parse(&format!(r#"{{"manifest_version": {other}}}"#)).unwrap_err();
-            let err = Error::Manifest {
-                path: "run.json".into(),
-                source: err,
-            };
-            assert_eq!(err.code(), ErrorCode::ManifestVersion);
-            assert!(err.to_string().starts_with(&format!("run.json: manifest_version {other}")), "{err}");
-        }
     }
 }

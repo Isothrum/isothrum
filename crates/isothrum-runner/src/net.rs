@@ -2,13 +2,17 @@
 //! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's `FakePorts` answers
 //! from a test's setup.
 
+#[expect(
+    dead_code,
+    reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them"
+)]
 mod reservations;
 pub(crate) use reservations::PortReservations;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, UdpSocket};
 use std::time::Duration;
 
-use isoloom_manifest::Protocol;
+use crate::project::platform::Protocol;
 
 use crate::BoxFuture;
 use crate::port::HostPort;
@@ -21,10 +25,6 @@ pub trait HostPorts: Send + Sync + sealed::Ports {}
 
 impl<T: sealed::Ports> HostPorts for T {}
 
-/// The loopback address the runner's own listeners and tunnels take, and where a port published
-/// on every interface of this computer answers.
-pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-
 /// The real host: sockets on the loopback. Nothing listens on all interfaces: binding 0.0.0.0
 /// made Windows Firewall ask whether the embedder's app may accept connections from the network
 /// ([`held_on_all`] only binds there, and not on Windows).
@@ -35,7 +35,7 @@ pub(crate) struct LoopbackPorts;
 pub(crate) mod sealed {
     use std::time::Duration;
 
-    use isoloom_manifest::Protocol;
+    use crate::project::platform::Protocol;
 
     use crate::BoxFuture;
     use crate::port::HostPort;
@@ -221,27 +221,6 @@ impl FakePorts {
             free: std::sync::Mutex::new(free.into_iter().collect()),
             ..FakePorts::default()
         }
-    }
-
-    /// Marks `port` taken over `protocol`.
-    #[cfg(test)]
-    pub(crate) fn take(&self, port: u16, protocol: Protocol) {
-        self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((port, protocol));
-    }
-
-    /// Makes every pick of a free port fail as a bind refused with `kind` would.
-    #[cfg(test)]
-    pub(crate) fn refuse_binds(&self, kind: std::io::ErrorKind) {
-        *self.unbindable.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(kind);
-    }
-
-    /// Makes `host:port` answer.
-    #[cfg(test)]
-    pub(crate) fn answer(&self, host: &str, port: u16) {
-        self.answering
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert((host.to_owned(), port));
     }
 }
 

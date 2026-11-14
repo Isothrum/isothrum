@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use isoloom_manifest::Protocol;
+use crate::project::platform::Protocol;
 use serde::{Deserialize, Serialize};
 
 use super::owner::Owner;
@@ -52,10 +52,11 @@ pub struct EventPage {
 pub struct RunRow {
     /// The run's name.
     pub name: RunName,
-    /// The manifest it was last brought up or updated from.
-    pub manifest: PathBuf,
-    /// The SHA-256 of that manifest's file, hex; empty when it wasn't read (an import).
-    pub manifest_digest: String,
+    /// The project folder it was last brought up or updated from.
+    pub project: PathBuf,
+    /// The digest of that project's files ([`crate::Project::digest`]); empty when it wasn't
+    /// read (an import, a run that never set it).
+    pub source_digest: String,
     /// What the user wants of it.
     pub desired: Desired,
     /// Where it stands.

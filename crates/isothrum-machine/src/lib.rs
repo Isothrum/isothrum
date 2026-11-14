@@ -15,4 +15,4 @@ pub mod providers;
 mod testing;
 
 pub use context::{Context, PROBE_TIMEOUT};
-pub use host::{Arch, Devices, Host, LinuxPackages, Os, Packages};
+pub use host::{Arch, Devices, Host, HostOs, LinuxPackages, Packages};

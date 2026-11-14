@@ -7,17 +7,16 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use isoloom_manifest::{Arch, HostOs, Protocol};
-
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
 use crate::error::Error;
 use crate::events::EventLog;
 use crate::host_env::HostEnv;
-use crate::manifest::load_manifest;
 use crate::name::RunName;
 use crate::net::{HostPorts, LoopbackPorts, PortReservations};
 use crate::process::{ProcessRunner, SystemProcesses};
+use crate::project::platform::{Arch, HostOs, Protocol};
+use crate::project::{Format, Project};
 use crate::run::Running;
 use crate::state::{Op, Transition};
 use crate::store::{Home, OperationId, RunLocks, RunRecord};
@@ -36,7 +35,7 @@ pub struct RunnerConfig {
     pub ports: Arc<dyn HostPorts>,
     /// The time.
     pub(crate) clock: Arc<dyn Clock>,
-    /// The host's operating system (it picks per-host argv and filters steps).
+    /// The host's operating system (it picks the providers a Vagrant run may use, and elevation).
     pub host: HostOs,
     /// The `PATH` the runner hands on where it isn't inherited: to an elevated Hyper-V session,
     /// and to Vagrant on an ESXi host from macOS, whose relays look for the real `ovftool` in it
@@ -49,8 +48,6 @@ pub struct RunnerConfig {
     /// The variables of the runner's environment it hands on where they aren't inherited (the
     /// proxies, the CA bundles: [`HostEnv`]).
     pub(crate) host_env: HostEnv,
-    /// The host's CPU architecture: which build of a Vagrant box counts as there already.
-    pub(crate) arch: Arch,
 }
 
 /// The PATH the tools are found on: this process's, and on Windows the folders VirtualBox and
@@ -95,7 +92,6 @@ impl RunnerConfig {
             search_path: tool_path(std::env::var_os("PATH"), |name| std::env::var_os(name)),
             tf_plugin_cache: std::env::var_os("TF_PLUGIN_CACHE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from),
             host_env: HostEnv::capture(),
-            arch: this_arch(),
         }
     }
 }
@@ -164,8 +160,8 @@ pub fn copy_key(home: &Path, name: &RunName) -> String {
 impl Runner {
     /// A runner with `config`; its home (with its missing parents) and the home's `runs/` folder
     /// are created, owner-only (on Windows, a home outside the user's profile gets an owner-only
-    /// DACL), and its store (`state.db`) opened: made or migrated
-    /// ([`crate::store::Store::open`]).
+    /// DACL), and its store (`state.db`) opened: made, migrated, or imported from a 2.x home's
+    /// files ([`crate::store::Store::open`]).
     ///
     /// # Errors
     ///
@@ -187,21 +183,47 @@ impl Runner {
         })
     }
 
-    /// Reads and checks the manifest at `manifest`, as run `name` (default: the manifest's
-    /// `environment.name`).
+    /// The project in folder `dir` (a file in it names its folder), of the format its files show
+    /// ([`Format::detect`]), as run `name` (default: the folder's name, made a run name). Nothing
+    /// runs: a folder that isn't a project is refused before any tool.
     ///
     /// # Errors
     ///
-    /// Fails as [`load_manifest`](crate::load_manifest) does; with `run_name` when the run's name
-    /// can't name a run; with `unsupported` when this runner can't run the manifest here (its target
-    /// doesn't run on this host, or it has a delivery its driver doesn't take).
-    pub fn open(&self, manifest: &Path, name: Option<RunName>) -> Result<Running<'_>> {
-        let loaded = load_manifest(manifest)?;
+    /// `project_invalid` when the folder holds no format's files, or several; `run_name` when the
+    /// name can't name a run.
+    pub fn open(&self, dir: &Path, name: Option<RunName>) -> Result<Running<'_>> {
+        self.open_project(dir, None, name)
+    }
+
+    /// The project in folder `dir`, of format `format` (the one to run when its files show
+    /// several), as run `name` ([`Runner::open`]).
+    ///
+    /// # Errors
+    ///
+    /// `project_invalid` when the folder holds no `format` files; `run_name` when the name can't
+    /// name a run.
+    pub fn open_as(&self, dir: &Path, format: Format, name: Option<RunName>) -> Result<Running<'_>> {
+        self.open_project(dir, Some(format), name)
+    }
+
+    fn open_project(&self, dir: &Path, format: Option<Format>, name: Option<RunName>) -> Result<Running<'_>> {
+        let dir = if dir.is_file() { dir.parent().unwrap_or(dir) } else { dir };
+        let project = Project::open(dir, format)?;
         let name = match name {
             Some(name) => name,
-            None => RunName::new(loaded.manifest.environment.name.as_str())?,
+            None => RunName::from_folder(&project.dir)?,
         };
-        Running::new(self, loaded, name)
+        Running::new(self, project, name)
+    }
+
+    /// Recorded run `name`, opened again from the folder and format it was started with.
+    ///
+    /// # Errors
+    ///
+    /// `not_running` when no run of that name is recorded; as [`Runner::open_as`] for its folder.
+    pub fn reopen(&self, name: &RunName) -> Result<Running<'_>> {
+        let record = self.store.record(name)?.ok_or_else(|| Error::NotRunning { run: name.to_string() })?;
+        self.open_as(&record.project, record.format, Some(name.clone()))
     }
 
     /// Every recorded run, with the state its last operation left it in. Reads files only.
@@ -228,14 +250,6 @@ impl Runner {
     #[must_use]
     pub fn copy_key(&self, name: &RunName) -> String {
         copy_key(&self.config.home, name)
-    }
-
-    /// The repair opening the home's store made from its mirror, if it made one (its file was
-    /// damaged): an embedder then reads each run's status, which reconciles the run with what its
-    /// tools report ([`crate::store::Store::recovered`]).
-    #[must_use]
-    pub fn recovered(&self) -> Option<&crate::store::Recovered> {
-        self.store.db().recovered()
     }
 
     /// Run `name`'s logged events, oldest first, with how many of its lines it couldn't read as
@@ -302,6 +316,24 @@ impl Runner {
         }
     }
 
+    /// Whether another run than `name` holds `port` (the tests read it; the operations go
+    /// through the picks).
+    #[cfg(test)]
+    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
+        self.reservations.reserved_elsewhere(name, port, protocol)
+    }
+
+    /// Frees every port `name` reserved.
+    pub(crate) fn release(&self, name: &RunName) {
+        self.reservations.release(name);
+    }
+}
+
+#[expect(
+    dead_code,
+    reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them"
+)]
+impl Runner {
     /// Reserves `port` for `name` while it starts; false when another run holds it.
     pub(crate) fn reserve(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
         self.reservations.reserve(name, port, protocol, self.operation_of(name))
@@ -333,18 +365,6 @@ impl Runner {
     /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
     pub(crate) fn ensure_ports_free(&self, name: &RunName, ports: impl IntoIterator<Item = (crate::port::HostPort, Protocol)>) -> Result<()> {
         self.reservations.ensure_free(name, ports)
-    }
-
-    /// Whether another run than `name` holds `port` (the tests read it; the operations go
-    /// through the picks).
-    #[cfg(test)]
-    pub(crate) fn reserved_elsewhere(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
-        self.reservations.reserved_elsewhere(name, port, protocol)
-    }
-
-    /// Frees every port `name` reserved.
-    pub(crate) fn release(&self, name: &RunName) {
-        self.reservations.release(name);
     }
 }
 

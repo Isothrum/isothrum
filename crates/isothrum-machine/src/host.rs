@@ -1,8 +1,9 @@
 //! This computer as machine setup reads it: its OS, its CPU and its package manager, each a closed
 //! set, and the files detection reads (KVM's device, UTM's bundle, the kernel's module list...).
 //! It is worked out once ([`Host::here`]) and handed to every rule that depends on it. A rule
-//! matches on these enums, never on `std::env::consts` strings: an OS, CPU or package manager added
-//! here is a compile error at every rule that doesn't say what it does there yet.
+//! matches on these enums (the OS and CPU are the runner's [`HostOs`] and [`Arch`]), never on
+//! `std::env::consts` strings: an OS, CPU or package manager added is a compile error at every
+//! rule that doesn't say what it does there yet.
 //!
 //! A test builds its own (`Host { os, arch, packages, devices: Devices::under(dir) }`), so each
 //! OS's rules run on any machine.
@@ -10,112 +11,47 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
-use isothrum_runner::ProcessRunner;
-use serde::{Deserialize, Serialize};
+use isothrum_runner::{ProcessRunner, this_arch, this_host};
 
 use crate::exec;
 
-/// An OS machine setup runs on, by the id Rust gives it (`std::env::consts::OS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Os {
-    /// macOS.
-    Macos,
-    /// Windows.
-    Windows,
-    /// Linux.
-    Linux,
-}
+/// The OS and the CPU machine setup runs on: the runner's ([`isothrum_runner::this_host`],
+/// [`isothrum_runner::this_arch`]), written as the runner writes them (`macos`, `amd64`).
+pub use isothrum_runner::{Arch, HostOs};
 
-impl Os {
-    /// Every OS.
-    pub const ALL: [Os; 3] = [Os::Macos, Os::Windows, Os::Linux];
+/// Every OS.
+pub const ALL_OSES: [HostOs; 3] = [HostOs::Macos, HostOs::Windows, HostOs::Linux];
 
-    /// The OS this build runs on: Windows, macOS, else Linux (the runner's rule for any other
-    /// Unix).
-    pub const HERE: Os = if cfg!(windows) {
-        Os::Windows
-    } else if cfg!(target_os = "macos") {
-        Os::Macos
-    } else {
-        Os::Linux
-    };
+/// Every CPU.
+pub const ALL_ARCHES: [Arch; 2] = [Arch::Amd64, Arch::Arm64];
 
-    /// Its id, `std::env::consts::OS`'s (`macos`), as its serde form writes it.
-    #[must_use]
-    pub fn id(self) -> &'static str {
-        match self {
-            Os::Macos => "macos",
-            Os::Windows => "windows",
-            Os::Linux => "linux",
-        }
-    }
-
-    /// Its name as people write it (`macOS`).
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Os::Macos => "macOS",
-            Os::Windows => "Windows",
-            Os::Linux => "Linux",
-        }
-    }
-
-    /// The package manager setup installs through on this OS when the machine has it: the one to
-    /// name when it is missing (Linux's first, apt).
-    #[must_use]
-    pub fn usual_packages(self) -> &'static str {
-        match self {
-            Os::Macos => "Homebrew",
-            Os::Windows => "winget",
-            Os::Linux => "apt",
-        }
+/// `os`'s name as people write it (`macOS`).
+#[must_use]
+pub fn os_name(os: HostOs) -> &'static str {
+    match os {
+        HostOs::Macos => "macOS",
+        HostOs::Windows => "Windows",
+        HostOs::Linux => "Linux",
     }
 }
 
-/// A CPU machine setup runs on, by the name Rust gives it (`std::env::consts::ARCH`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Arch {
-    /// 64-bit x86 (Intel, AMD).
-    #[serde(rename = "x86_64")]
-    X86_64,
-    /// 64-bit Arm (Apple silicon, Windows on Arm, Arm Linux).
-    #[serde(rename = "aarch64")]
-    Aarch64,
+/// The package manager setup installs through on `os` when the machine has it: the one to name
+/// when it is missing (Linux's first, apt).
+#[must_use]
+pub fn usual_packages(os: HostOs) -> &'static str {
+    match os {
+        HostOs::Macos => "Homebrew",
+        HostOs::Windows => "winget",
+        HostOs::Linux => "apt",
+    }
 }
 
-impl Arch {
-    /// Every CPU.
-    pub const ALL: [Arch; 2] = [Arch::X86_64, Arch::Aarch64];
-
-    /// The CPU this build runs on: Arm for an `aarch64` build, else x86-64 (the runner's rule).
-    pub const HERE: Arch = if cfg!(target_arch = "aarch64") { Arch::Aarch64 } else { Arch::X86_64 };
-
-    /// Its id, `std::env::consts::ARCH`'s (`aarch64`), as its serde form writes it.
-    #[must_use]
-    pub fn id(self) -> &'static str {
-        match self {
-            Arch::X86_64 => "x86_64",
-            Arch::Aarch64 => "aarch64",
-        }
-    }
-
-    /// Its name for Docker images, Vagrant boxes and vendors' downloads (`amd64`, `arm64`).
-    #[must_use]
-    pub fn docker_name(self) -> &'static str {
-        match self {
-            Arch::X86_64 => "amd64",
-            Arch::Aarch64 => "arm64",
-        }
-    }
-
-    /// QEMU's system emulator for it (`qemu-system-x86_64`).
-    #[must_use]
-    pub fn qemu_system(self) -> &'static str {
-        match self {
-            Arch::X86_64 => "qemu-system-x86_64",
-            Arch::Aarch64 => "qemu-system-aarch64",
-        }
+/// QEMU's system emulator for a CPU `arch` (`qemu-system-x86_64`).
+#[must_use]
+pub fn qemu_system(arch: Arch) -> &'static str {
+    match arch {
+        Arch::Amd64 => "qemu-system-x86_64",
+        Arch::Arm64 => "qemu-system-aarch64",
     }
 }
 
@@ -214,14 +150,14 @@ pub const VMWARE_UTILITY_PORT: u16 = 9922;
 impl Devices {
     /// This computer's, on `os`: where each OS keeps them.
     #[must_use]
-    pub fn here(os: Os) -> Devices {
+    pub fn here(os: HostOs) -> Devices {
         let windows_folder = |var: &str, default: &str| std::env::var_os(var).map_or_else(|| PathBuf::from(default), PathBuf::from);
         let vmware_utility = match os {
-            Os::Windows => windows_folder("ProgramData", "C:\\ProgramData")
+            HostOs::Windows => windows_folder("ProgramData", "C:\\ProgramData")
                 .join("HashiCorp")
                 .join("vagrant-vmware-desktop")
                 .join("certificates"),
-            Os::Macos | Os::Linux => PathBuf::from("/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),
+            HostOs::Macos | HostOs::Linux => PathBuf::from("/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),
         };
         Devices {
             kvm: PathBuf::from("/dev/kvm"),
@@ -263,7 +199,7 @@ impl Devices {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Host {
     /// The OS.
-    pub os: Os,
+    pub os: HostOs,
     /// The CPU.
     pub arch: Arch,
     /// The package manager, when the machine has one setup goes through.
@@ -276,23 +212,24 @@ impl Host {
     /// This computer, its package manager looked up now: Homebrew where its installer puts it;
     /// `apt-get`, else `dnf`, when it answers `--version` (through `runner`).
     pub async fn here(runner: &dyn ProcessRunner) -> Host {
-        let packages = match Os::HERE {
-            Os::Macos => HOMEBREW.into_iter().find(|brew| Path::new(brew).exists()).map(Packages::Homebrew),
-            Os::Windows => Some(Packages::Winget),
-            Os::Linux => linux_packages(runner).await.map(Packages::Linux),
+        let os = this_host();
+        let packages = match os {
+            HostOs::Macos => HOMEBREW.into_iter().find(|brew| Path::new(brew).exists()).map(Packages::Homebrew),
+            HostOs::Windows => Some(Packages::Winget),
+            HostOs::Linux => linux_packages(runner).await.map(Packages::Linux),
         };
         Host {
-            os: Os::HERE,
-            arch: Arch::HERE,
+            os,
+            arch: this_arch(),
             packages,
-            devices: Devices::here(Os::HERE),
+            devices: Devices::here(os),
         }
     }
 
     /// Whether it is a PC with Windows on Arm.
     #[must_use]
     pub fn is_windows_on_arm(&self) -> bool {
-        self.os == Os::Windows && self.arch == Arch::Aarch64
+        self.os == HostOs::Windows && self.arch == Arch::Arm64
     }
 }
 
@@ -313,30 +250,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_os_and_cpu_here_are_rusts() {
-        assert_eq!(Os::HERE.id(), std::env::consts::OS);
-        assert_eq!(Arch::HERE.id(), std::env::consts::ARCH);
+    fn every_os_and_cpu_is_listed_once() {
+        for os in [HostOs::Linux, HostOs::Macos, HostOs::Windows] {
+            assert_eq!(ALL_OSES.iter().filter(|o| **o == os).count(), 1, "{os:?}");
+        }
+        for arch in [Arch::Amd64, Arch::Arm64] {
+            assert_eq!(ALL_ARCHES.iter().filter(|a| **a == arch).count(), 1, "{arch:?}");
+        }
     }
 
     #[test]
-    fn each_os_and_cpu_is_written_by_its_id() {
-        for os in Os::ALL {
-            assert_eq!(serde_json::to_value(os).unwrap(), os.id());
-            assert_eq!(serde_json::from_value::<Os>(os.id().into()).unwrap(), os);
-        }
-        for arch in Arch::ALL {
-            assert_eq!(serde_json::to_value(arch).unwrap(), arch.id());
-            assert_eq!(serde_json::from_value::<Arch>(arch.id().into()).unwrap(), arch);
-        }
-        assert_eq!(Os::Macos.name(), "macOS");
+    fn each_os_has_its_name_and_its_usual_package_manager() {
+        let named: Vec<_> = ALL_OSES.iter().map(|os| (os_name(*os), usual_packages(*os))).collect();
+        assert_eq!(named, [("macOS", "Homebrew"), ("Windows", "winget"), ("Linux", "apt")]);
     }
 
     #[test]
-    fn a_cpu_has_rusts_name_and_dockers() {
-        assert_eq!((Arch::X86_64.id(), Arch::X86_64.docker_name()), ("x86_64", "amd64"));
-        assert_eq!((Arch::Aarch64.id(), Arch::Aarch64.docker_name()), ("aarch64", "arm64"));
-        assert_eq!(Arch::Aarch64.qemu_system(), "qemu-system-aarch64");
-        assert_eq!(Arch::X86_64.qemu_system(), "qemu-system-x86_64");
+    fn a_cpu_has_its_qemu_system() {
+        assert_eq!(qemu_system(Arch::Arm64), "qemu-system-aarch64");
+        assert_eq!(qemu_system(Arch::Amd64), "qemu-system-x86_64");
     }
 
     #[test]
@@ -368,9 +300,9 @@ mod tests {
             packages: None,
             devices: Devices::under(dir),
         };
-        assert!(on(Os::Windows, Arch::Aarch64).is_windows_on_arm());
-        assert!(!on(Os::Windows, Arch::X86_64).is_windows_on_arm());
-        assert!(!on(Os::Macos, Arch::Aarch64).is_windows_on_arm());
+        assert!(on(HostOs::Windows, Arch::Arm64).is_windows_on_arm());
+        assert!(!on(HostOs::Windows, Arch::Amd64).is_windows_on_arm());
+        assert!(!on(HostOs::Macos, Arch::Arm64).is_windows_on_arm());
     }
 
     #[test]
@@ -397,18 +329,18 @@ mod tests {
 
     #[test]
     fn each_oss_devices_are_where_it_keeps_them() {
-        let linux = Devices::here(Os::Linux);
+        let linux = Devices::here(HostOs::Linux);
         assert_eq!(linux.kvm, Path::new("/dev/kvm"));
         assert_eq!(linux.vmware_utility, Path::new("/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"));
         assert_eq!(linux.vmware_utility_service, SocketAddr::from((Ipv4Addr::LOCALHOST, 9922)));
-        let windows = Devices::here(Os::Windows);
+        let windows = Devices::here(HostOs::Windows);
         assert!(
             windows.vmware_utility.ends_with("HashiCorp/vagrant-vmware-desktop/certificates"),
             "{:?}",
             windows.vmware_utility
         );
         assert!(windows.hyperv_service.ends_with("System32/vmms.exe"), "{:?}", windows.hyperv_service);
-        assert_eq!(Devices::here(Os::Macos).utm_app, Path::new("/Applications/UTM.app"));
+        assert_eq!(Devices::here(HostOs::Macos).utm_app, Path::new("/Applications/UTM.app"));
     }
 
     #[tokio::test(start_paused = true)]
@@ -434,12 +366,12 @@ mod tests {
             .allow("dnf --version", Reply::missing())
             .build();
         let host = Host::here(&tools).await;
-        assert_eq!((host.os, host.arch), (Os::HERE, Arch::HERE));
-        assert_eq!(host.devices, Devices::here(Os::HERE));
+        assert_eq!((host.os, host.arch), (this_host(), this_arch()));
+        assert_eq!(host.devices, Devices::here(this_host()));
         match (host.os, host.packages) {
-            (Os::Macos, None | Some(Packages::Homebrew(_)))
-            | (Os::Windows, Some(Packages::Winget))
-            | (Os::Linux, Some(Packages::Linux(LinuxPackages::Apt))) => {}
+            (HostOs::Macos, None | Some(Packages::Homebrew(_)))
+            | (HostOs::Windows, Some(Packages::Winget))
+            | (HostOs::Linux, Some(Packages::Linux(LinuxPackages::Apt))) => {}
             other => panic!("{other:?}"),
         }
     }

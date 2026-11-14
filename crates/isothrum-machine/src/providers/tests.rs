@@ -11,7 +11,7 @@ use isothrum_runner::ProcessRunner;
 mod detection;
 
 /// A host on `os` and `arch` whose devices are under `root` (none there until a test makes it).
-fn host(os: Os, arch: Arch, root: &Path) -> Host {
+fn host(os: HostOs, arch: Arch, root: &Path) -> Host {
     Host {
         os,
         arch,
@@ -23,7 +23,7 @@ fn host(os: Os, arch: Arch, root: &Path) -> Host {
 /// A Linux x86-64 host whose devices are under `root`, with a KVM device the user may open:
 /// VirtualBox, VMware Workstation, libvirt, QEMU and ESXi apply to it.
 fn linux(root: &Path) -> Host {
-    let host = host(Os::Linux, Arch::X86_64, root);
+    let host = host(HostOs::Linux, Arch::Amd64, root);
     write(&host.devices.kvm, "");
     host
 }
@@ -97,12 +97,12 @@ fn every_provider_is_listed_with_the_id_vagrant_uses() {
 #[test]
 fn a_provider_applies_where_its_hypervisor_runs() {
     let platforms = [
-        (Os::Linux, Arch::X86_64),
-        (Os::Linux, Arch::Aarch64),
-        (Os::Macos, Arch::Aarch64),
-        (Os::Macos, Arch::X86_64),
-        (Os::Windows, Arch::X86_64),
-        (Os::Windows, Arch::Aarch64),
+        (HostOs::Linux, Arch::Amd64),
+        (HostOs::Linux, Arch::Arm64),
+        (HostOs::Macos, Arch::Arm64),
+        (HostOs::Macos, Arch::Amd64),
+        (HostOs::Windows, Arch::Amd64),
+        (HostOs::Windows, Arch::Arm64),
     ];
     let table = [
         (Provider::Virtualbox, [true, true, true, true, true, false]),
@@ -127,15 +127,15 @@ fn a_provider_applies_where_its_hypervisor_runs() {
 #[test]
 fn a_mac_is_offered_the_hypervisor_made_for_its_cpu_and_keeps_one_installed() {
     let root = Path::new("unused");
-    let (apple, intel) = (host(Os::Macos, Arch::Aarch64, root), host(Os::Macos, Arch::X86_64, root));
+    let (apple, intel) = (host(HostOs::Macos, Arch::Arm64, root), host(HostOs::Macos, Arch::Amd64, root));
     assert!(!offered(Provider::Virtualbox, &apple, false));
     assert!(offered(Provider::Utm, &apple, false));
     assert!(offered(Provider::Virtualbox, &intel, false));
     assert!(!offered(Provider::Utm, &intel, false));
     assert!(offered(Provider::Virtualbox, &apple, true), "installed: the user chose it");
-    assert!(offered(Provider::Virtualbox, &host(Os::Linux, Arch::Aarch64, root), false));
+    assert!(offered(Provider::Virtualbox, &host(HostOs::Linux, Arch::Arm64, root), false));
     assert!(
-        !offered(Provider::Utm, &host(Os::Linux, Arch::Aarch64, root), true),
+        !offered(Provider::Utm, &host(HostOs::Linux, Arch::Arm64, root), true),
         "never where it doesn't apply"
     );
     assert!(!offered(Provider::Hyperv, &apple, true));
@@ -150,14 +150,18 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
         ProviderRow::of(Provider::Hyperv).shares_folders.is_empty(),
         "SMB folders ask for a password at every start"
     );
-    assert_eq!(ProviderRow::of(Provider::Qemu).shares_folders, [Os::Linux]);
+    assert_eq!(ProviderRow::of(Provider::Qemu).shares_folders, [HostOs::Linux]);
     for p in [Provider::VmwareDesktop, Provider::Hyperv, Provider::Parallels] {
         assert!(ProviderRow::of(p).vendor.is_some_and(|url| url.starts_with("https://")), "{p:?}");
     }
     assert_eq!(ProviderRow::of(Provider::Utm).plugin_minimum, Some("0.2.0"));
     assert_eq!(ProviderRow::of(Provider::Utm).hypervisor_minimum, Some(("UTM", "4.6.5")));
-    assert!(needs_mkisofs(Provider::Qemu, Os::Linux));
-    for (p, os) in [(Provider::Qemu, Os::Macos), (Provider::Libvirt, Os::Linux), (Provider::Virtualbox, Os::Linux)] {
+    assert!(needs_mkisofs(Provider::Qemu, HostOs::Linux));
+    for (p, os) in [
+        (Provider::Qemu, HostOs::Macos),
+        (Provider::Libvirt, HostOs::Linux),
+        (Provider::Virtualbox, HostOs::Linux),
+    ] {
         assert!(!needs_mkisofs(p, os), "{p:?} on {os:?}");
     }
     assert!(needs_vmware_utility(Provider::VmwareDesktop));
@@ -166,14 +170,14 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
 
 #[test]
 fn a_hypervisors_probe_is_its_tool_and_qemus_is_for_the_cpu() {
-    assert_eq!(probe_of(Provider::Virtualbox, Arch::X86_64).unwrap().0, "VBoxManage");
-    assert_eq!(probe_of(Provider::VmwareDesktop, Arch::X86_64).unwrap().0, "vmrun");
-    assert_eq!(probe_of(Provider::Parallels, Arch::Aarch64).unwrap().0, "prlctl");
-    assert_eq!(probe_of(Provider::Libvirt, Arch::X86_64).unwrap().0, "virsh");
-    assert_eq!(probe_of(Provider::Qemu, Arch::Aarch64).unwrap().0, "qemu-system-aarch64");
-    assert_eq!(probe_of(Provider::Qemu, Arch::X86_64).unwrap().0, "qemu-system-x86_64");
+    assert_eq!(probe_of(Provider::Virtualbox, Arch::Amd64).unwrap().0, "VBoxManage");
+    assert_eq!(probe_of(Provider::VmwareDesktop, Arch::Amd64).unwrap().0, "vmrun");
+    assert_eq!(probe_of(Provider::Parallels, Arch::Arm64).unwrap().0, "prlctl");
+    assert_eq!(probe_of(Provider::Libvirt, Arch::Amd64).unwrap().0, "virsh");
+    assert_eq!(probe_of(Provider::Qemu, Arch::Arm64).unwrap().0, "qemu-system-aarch64");
+    assert_eq!(probe_of(Provider::Qemu, Arch::Amd64).unwrap().0, "qemu-system-x86_64");
     for none in [Provider::Hyperv, Provider::Utm, Provider::VmwareEsxi] {
-        assert!(probe_of(none, Arch::X86_64).is_none(), "{none:?}");
+        assert!(probe_of(none, Arch::Amd64).is_none(), "{none:?}");
     }
 }
 
@@ -345,7 +349,7 @@ fn utm_and_its_plugin_are_held_to_a_version() {
     };
     assert_eq!(plugin_too_old(Provider::Utm, Some("0.1.6")), Some(("0.1.6", "0.2.0")));
     // Regression: a suffix was dropped, so a pre-release of the minimum passed for it; it comes
-    // before its release, as the runner's tool probes (Isoloom's Version) order it.
+    // before its release, as the runner's tool probes order it.
     assert_eq!(plugin_too_old(Provider::Utm, Some("0.2.0-beta")), Some(("0.2.0-beta", "0.2.0")));
     assert_eq!(plugin_too_old(Provider::Utm, Some("unknown")), None, "no version to judge");
     assert_eq!(plugin_too_old(Provider::Utm, Some("0.10.0")), None, "10 > 2, not \"1\" < \"2\"");

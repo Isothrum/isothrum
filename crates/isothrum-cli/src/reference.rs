@@ -176,22 +176,17 @@ const EXIT_CODES: [(u8, &str); 5] = [
 /// What to do about `code`.
 fn remedy(code: ErrorCode) -> Option<&'static str> {
     Some(match code {
-        ErrorCode::ManifestInvalid => {
-            "Generate the run's files again with the Isoloom this runner was built for; a value the message names is the run's own to fix."
+        ErrorCode::ProjectInvalid => {
+            "Point the command at the folder of one Compose project, Vagrantfile or Terraform module, or keep one format's files in it when it holds several."
         }
-        ErrorCode::ManifestVersion => "Use the Isothrum release that reads this manifest version, or regenerate the run with a matching Isoloom.",
-        ErrorCode::Unsupported => "Upgrade Isothrum, generate the run for another target, or ask the run for what its target does.",
+        ErrorCode::Unsupported => "Upgrade Isothrum, or ask the run for what its format does (the message says what it doesn't).",
         ErrorCode::Io => {
             "Check the path in the message: free space, permissions, the runner's home (`--home`, `ISOTHRUM_HOME`); for a port, the open-file limit (`ulimit -n`) and the loopback."
         }
         ErrorCode::Corrupt => {
-            "The file the message names is the runner's own and isn't what it wrote: another version's, or damaged. Remove it (a record: the run's folder), or regenerate the run."
+            "The file the message names is the runner's own and isn't what it wrote: another version's, or damaged. Remove it (a record: the run's folder)."
         }
-        ErrorCode::Locked => "Wait for the other operation on the run (or the other start's slot pick) to end, or stop the process running it.",
-        ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
-        ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
-        ErrorCode::ToolUnanswered => "Start the tool's service (Docker's engine), or let this account reach it, then run the command again.",
-        ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
+        ErrorCode::Locked => "Wait for the other operation on the run to end, or stop the process running it.",
         ErrorCode::Timeout => {
             "See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
         }
@@ -201,15 +196,15 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::DownloadFailed => {
             "Read the reason in the message: a registry refusing the image (its rate limit, a sign-in), a box or version the catalog doesn't have, a name it doesn't know, the network. Fix it, then retry."
         }
-        ErrorCode::AlreadyRunning => "Use it as it is, `down` it first, or `up --replace`.",
+        ErrorCode::AlreadyRunning => "Use it as it is, or `down` it first.",
         ErrorCode::RunningElsewhere => "Act on the run with the `--host-label` it was started with.",
         ErrorCode::PortInUse => "Stop what holds the port, or start the run with other published ports.",
         ErrorCode::NotParkable => "Park it in the other mode (`--mode`), or `down` it.",
         ErrorCode::NothingToResume => "Start it again with `up`.",
         ErrorCode::NotRunning => "Start it with `up` (or `resume` a parked run) first.",
-        ErrorCode::NotReady => "Read the `ready` events: the service the condition waits for didn't come up. `status`, then `down` and `up` again.",
+        ErrorCode::NotReady => "The project didn't say it was ready: `status`, then `down` and `up` again.",
         ErrorCode::SecretMissing => "Give the value: `--secret-from-env NAME[=VAR]`, with the variable set.",
-        ErrorCode::ParamInvalid => "Fix the `--param NAME=VALUE` the message names (a value the manifest allows).",
+        ErrorCode::InputInvalid => "Fix the `--env NAME=VALUE` or `--secret-from-env NAME` the message names: no `=` in a name, no NUL anywhere.",
         ErrorCode::RunName => {
             "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)."
         }
@@ -217,22 +212,30 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ElevationFailed => {
             "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session."
         }
-        ErrorCode::MachineUnknown => "Name a machine of the manifest.",
+        ErrorCode::MachineUnknown => "Name a machine of the project (`isothrum status` lists them).",
         ErrorCode::MachineAmbiguous => "Name the machine (`--machine`): the message lists the run's.",
-        ErrorCode::NetworkUnknown => "Name a network of the manifest.",
-        ErrorCode::SlotsFull => "`down` a run on the same place first.",
+        ErrorCode::NetworkUnknown => "Name a network of the project.",
         ErrorCode::AdoptRefused => "The message says why the deployment can't be taken over; start the run with `up` instead.",
-        ErrorCode::Unreachable => "Check the machine booted and its network (SSH, `--ssh-jump`), then retry.",
-        ErrorCode::NotSealed => "`down` the run, which isn't ready, then `up` again.",
         ErrorCode::NoConsole => {
             "Read why in the message: start the machine, install what its hypervisor needs (VirtualBox's extension pack), or use its console (`isothrum console`) instead."
         }
         ErrorCode::Cancelled => "Nothing was left running by the tools; `status` shows what the run holds, and `up` clears what a cut start left.",
         ErrorCode::Usage => "Fix the command line: `isothrum <command> --help`.",
         ErrorCode::ServerAuthFailed => {
-            "The server took the run's credentials no more: give the run its new API token or password (its connection's slot), then retry."
+            "The server took the run's credentials no more: give the run its new API token or password (`--secret-from-env`), then retry."
         }
-        _ => return store_remedy(code),
+        _ => return tool_remedy(code).or_else(|| store_remedy(code)),
+    })
+}
+
+/// What to do about `code`, one of a tool's (missing, failed, too old, unanswered).
+fn tool_remedy(code: ErrorCode) -> Option<&'static str> {
+    Some(match code {
+        ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
+        ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
+        ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
+        ErrorCode::ToolUnanswered => "Start the tool's service (Docker Desktop, the Docker engine) or give this account access to it, then retry.",
+        _ => return None,
     })
 }
 

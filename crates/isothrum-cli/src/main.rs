@@ -1,11 +1,11 @@
-//! `isothrum`: runs what Isoloom generates, from the command line. The imperative shell around
+//! `isothrum`: runs a project folder (Compose, Vagrant, Terraform) from the command line. The imperative shell around
 //! the runner: it reads the environment and the arguments once, builds the runner, races the
 //! command against the signals that cancel it, and maps the outcome to an exit code.
 //!
 //! `args` is the command line's grammar and `commands` runs each command on the runner; `remote`
 //! runs the operations and `status` through the home's runner service instead (started when it
 //! isn't running), and `serve` is that service. What they
-//! share: where things are (`locate`), the values an operation runs with (`values`), where the
+//! share: where the home is (`locate`), the values an operation runs with (`values`), where the
 //! command writes (`term`), what a person reads (`text`), the error that stops a command (`error`),
 //! the signals that cancel it (`cancel`), the exit code it gives (`exit`) and its tracing (`log`).
 

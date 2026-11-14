@@ -53,7 +53,6 @@
 //! let up = Command::Up {
 //!     target: Target::new("/labs/web", None),
 //!     options: OpOptions::default(),
-//!     fresh: false,
 //!     lifetime_s: None,
 //! };
 //! let mut operation = client.follow(up).await?;

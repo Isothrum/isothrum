@@ -1,5 +1,0 @@
-An error occurred while downloading the remote file. The error
-message, if any, is reproduced below. Please fix this error and try
-again.
-
-curl:(28) Operation timed out after 30001 milliseconds with 0 bytes received (exited with code 1)

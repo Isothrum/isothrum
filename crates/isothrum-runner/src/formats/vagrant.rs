@@ -1,0 +1,567 @@
+//! The Vagrant driver: a Vagrantfile's machines, on the provider the run asks for, through
+//! `vagrant` with its dotfile folder in the run's state folder ([`dotfile`]), so a replaced
+//! project folder never loses track of its VMs. The run's inputs and key reach the Vagrantfile in
+//! the tool's environment ([`ToolCx::env`]), which it reads with `ENV.fetch`: the file is never
+//! rewritten.
+//!
+//! | Operation | Vagrant |
+//! |---|---|
+//! | up | the preamble, then `up --provider <p>`: ready once it exits 0, after the last provisioner |
+//! | down | `destroy -f`, then the dotfile reset (what is left by id goes to [`FormatDriver::destroy_by_id`]) |
+//! | park | `suspend` (Pause), `halt` (Shutdown) |
+//! | resume | the preamble, then `up --provider <p> --no-provision` |
+//! | update, provision | `up --provider <p> --provision [machine]` |
+//! | attach, retire | `up --provider <p> <machine>`, `destroy -f <machine>` |
+//! | exec, console | `ssh <machine> -c <command>`; a console is `ssh <machine>` with a terminal |
+//! | observe | `status --machine-readable`, then `port <machine>` of each running one |
+//! | found | the dotfile's `machines/<machine>/<provider>/id` |
+//! | machines | the machines `status` lists, whether made or not |
+//! | reapply | `up <added>`, `destroy -f <removed>`, `provision <changed>` |
+//!
+//! The preamble: a record of the run on another provider than the one asked is destroyed and the
+//! dotfile reset (`up` would refuse "a machine with a different provider"); a VirtualBox VM whose
+//! saved state was cut off (`aborted-saved`) has it discarded. Recovery: an `up` refused because
+//! an earlier VM holds the name (`VERR_ALREADY_EXISTS`, a folder that can't be renamed) or a record
+//! is on another provider removes what the run made, by the dotfile's ids and, on VirtualBox, the
+//! VMs and folders whose name carries the run's key as a word; then it starts once more. A call
+//! another Vagrant process's lock refused is made again ([`lock`]).
+
+mod dotfile;
+mod lock;
+mod providers;
+
+use std::time::Duration;
+
+use self::dotfile::{Dotfile, Record};
+use self::lock::{PATIENCE, Rerun, STATUS_PATIENCE, retrying};
+use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
+use crate::Result;
+use crate::cli::vagrant::{self, Failure, Provision, Verb};
+use crate::cli::{Call, CliError, vboxmanage};
+use crate::console::ShellCommand;
+use crate::error::Error;
+use crate::events::WarningCode;
+use crate::project::platform::Provider;
+use crate::state::{Park, RunState};
+use crate::status::MachineState;
+use crate::store::{Lifetime, ResourceKind};
+
+/// How long an `up` may take: boxes fetched, every VM booted and provisioned.
+const UP_LIMIT: Duration = Duration::from_secs(3600);
+
+/// How long a lifecycle call that makes nothing may take (halt, suspend, destroy).
+const CALL_LIMIT: Duration = Duration::from_secs(900);
+
+/// How long the clean-up destroy of a record on another provider may take before the record is
+/// dropped anyway: a wedged hypervisor must not hang a start.
+const RECONCILE_LIMIT: Duration = Duration::from_secs(180);
+
+/// How long a read may take (`status`, `port`, a version, the plugins, a VM's state).
+const READ_LIMIT: Duration = Duration::from_secs(120);
+
+/// How long a command run in a machine may take.
+const EXEC_LIMIT: Duration = Duration::from_secs(900);
+
+/// The Vagrant driver.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Vagrant;
+
+/// A call of `vagrant` (or of the hypervisor's tool) for `cx`, with the dotfile folder set.
+fn call<'a>(cx: &'a ToolCx<'_>, limit: Duration) -> Call<'a> {
+    let mut call = cx.call(limit);
+    call.env.retain(|(k, _)| k != dotfile::VAR);
+    call.env.push((dotfile::VAR.to_owned(), dot(cx).path.display().to_string()));
+    call
+}
+
+/// The run's dotfile folder.
+fn dot(cx: &ToolCx<'_>) -> Dotfile {
+    Dotfile::in_state(cx.state_dir)
+}
+
+/// The provider asked for, refused when there is none.
+fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
+    cx.provider.ok_or_else(|| Error::NoProvider {
+        providers: providers::listed_for(providers::this_host()),
+    })
+}
+
+/// The key a machine's VM is recorded under: `vm:<machine>` on the provider asked for, and
+/// `vm:<machine>@<provider>` for a record left on another one.
+fn key_of(record: &Record, asked: Option<Provider>) -> String {
+    if asked.is_some_and(|p| p.id() == record.provider) {
+        format!("vm:{}", record.machine)
+    } else {
+        format!("vm:{}@{}", record.machine, record.provider)
+    }
+}
+
+/// The machine and provider a key names ([`key_of`]): the provider asked for when it names none.
+fn of_key(key: &str, asked: Option<Provider>) -> Option<(String, Option<String>)> {
+    let rest = key.strip_prefix("vm:")?;
+    Some(match rest.split_once('@') {
+        Some((machine, provider)) => (machine.to_owned(), Some(provider.to_owned())),
+        None => (rest.to_owned(), asked.map(|p| p.id().to_owned())),
+    })
+}
+
+/// Whether `name` (a VM's or its folder's) carries the run's key `key` as a word of its own: a
+/// run of letters and digits between characters that are neither (or its ends). The key is made
+/// from this runner's home and the run's name, so another copy of the project never matches.
+fn ours(name: &str, key: &str) -> bool {
+    !key.is_empty() && name.split(|c: char| !c.is_alphanumeric()).any(|word| word == key)
+}
+
+/// The run's state as `machines` show it: absent when none was made; parked when none of those
+/// made runs; ready when every one made runs; failed otherwise (one stopped or in a state of its
+/// own among running ones). A machine never made (one the Vagrantfile leaves down at `up`,
+/// `autostart: false`) doesn't count: a start that failed midway fails its own operation.
+pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
+    let made: Vec<&SeenMachine> = machines.iter().filter(|m| m.state != MachineState::Absent).collect();
+    if made.is_empty() {
+        return RunState::Absent;
+    }
+    if !made.iter().any(|m| m.state.runs()) {
+        return RunState::Parked;
+    }
+    if made.iter().all(|m| m.state == MachineState::Running) {
+        RunState::Ready
+    } else {
+        RunState::Failed
+    }
+}
+
+impl Vagrant {
+    /// `up` of `machines` (all when empty) on the provider asked for, made again while another
+    /// process's lock refuses it and a second run is safe.
+    async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
+        let provider = cx.provider.map(Provider::id);
+        let rerun = if provision == Provision::Yes { Rerun::Repeats } else { Rerun::Converges };
+        let call = call(cx, UP_LIMIT);
+        retrying(cx.warn, step, rerun, PATIENCE, || vagrant::up(&call, provider, provision, machines)).await
+    }
+
+    /// `verb` on `machines` (all when empty), made again as [`Rerun`] allows.
+    async fn act(&self, cx: &ToolCx<'_>, verb: Verb, machines: &[String], limit: Duration) -> std::result::Result<(), CliError<Failure>> {
+        let rerun = match verb {
+            Verb::Halt | Verb::Suspend | Verb::Destroy => Rerun::Converges,
+            Verb::Provision => Rerun::Repeats,
+        };
+        let call = call(cx, limit);
+        retrying(cx.warn, verb_word(verb), rerun, PATIENCE, || vagrant::act(&call, verb, machines)).await
+    }
+
+    /// Each machine `status` lists, with its state label.
+    async fn status(&self, cx: &ToolCx<'_>) -> Result<std::collections::BTreeMap<String, String>> {
+        let call = call(cx, READ_LIMIT);
+        let read = retrying(cx.warn, "status", Rerun::Read, STATUS_PATIENCE, || vagrant::status(&call))
+            .await
+            .map_err(|e| tool_error("status", e))?;
+        Ok(read.states)
+    }
+
+    /// The preamble of `up` and `resume`: a record on another provider cleared, a cut-off saved
+    /// state discarded.
+    async fn preamble(&self, cx: &ToolCx<'_>, provider: Provider) -> Result<()> {
+        self.reconcile_provider(cx, provider).await?;
+        self.discard_aborted_saved(cx, provider).await
+    }
+
+    /// A run recorded under another provider than `provider` (it last ran on VirtualBox, now on
+    /// libvirt) is destroyed, given [`RECONCILE_LIMIT`] and best effort, and its record dropped.
+    async fn reconcile_provider(&self, cx: &ToolCx<'_>, provider: Provider) -> Result<()> {
+        let dot = dot(cx);
+        if !dot.recorded()?.iter().any(|r| r.provider != provider.id()) {
+            return Ok(());
+        }
+        (cx.warn)(WarningCode::OtherProvider, "this run last ran on another provider: clearing that run first");
+        if let Err(e) = self.act(cx, Verb::Destroy, &[], RECONCILE_LIMIT).await {
+            (cx.warn)(WarningCode::CleanupFailed, &format!("the run on the other provider couldn't be destroyed: {e}"));
+        }
+        dot.reset()
+    }
+
+    /// A VirtualBox VM of the run whose saved state was cut off (a suspend killed midway, a host
+    /// crash) has it discarded, so it boots fresh from its disk: VirtualBox refuses every change to
+    /// such a VM. A VM whose state can't be read is left as it is (`up` says what is wrong).
+    async fn discard_aborted_saved(&self, cx: &ToolCx<'_>, provider: Provider) -> Result<()> {
+        if provider != Provider::Virtualbox {
+            return Ok(());
+        }
+        let call = call(cx, READ_LIMIT);
+        for r in dot(cx).recorded()?.into_iter().filter(|r| r.provider == provider.id()) {
+            match vboxmanage::vm_state(&call, &r.id).await {
+                Ok(vboxmanage::VmState::AbortedSaved) => {
+                    (cx.warn)(
+                        WarningCode::SavedStateDiscarded,
+                        &format!("{}: its saved state was cut off; it boots fresh", r.machine),
+                    );
+                    vboxmanage::discard_state(&call, &r.id).await.map_err(|e| tool_error("discard-saved", e))?;
+                }
+                Ok(vboxmanage::VmState::Other(_)) => {}
+                Err(e) => tracing::debug!(vm = %r.machine, error = %e, "the VM's state couldn't be read: its saved state, if any, is left as it is"),
+            }
+        }
+        Ok(())
+    }
+
+    /// `up` as asked, with one recovery: a name an earlier VM holds, or a record on another
+    /// provider, clears what the run made ([`Vagrant::clear`]) and starts once more.
+    async fn up_recovering(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> Result<()> {
+        match self.up_call(cx, step, provision, machines).await {
+            Ok(()) => Ok(()),
+            Err(CliError::Failed {
+                failure: Failure::AlreadyExists | Failure::OtherProvider,
+                ..
+            }) => {
+                tracing::info!(run = %cx.run, "an earlier start's VM holds a name of the run: removing what the run made, then starting again");
+                self.clear(cx).await?;
+                self.up_call(cx, step, provision, machines).await.map_err(|e| tool_error(step, e))
+            }
+            Err(e) => Err(tool_error(step, e)),
+        }
+    }
+
+    /// Removes what the run made, for a start to begin from nothing: `destroy -f` (best effort),
+    /// each VM the dotfile still records by its id, on VirtualBox the VMs and folders whose name
+    /// carries the run's key, then the dotfile.
+    async fn clear(&self, cx: &ToolCx<'_>) -> Result<()> {
+        if let Err(e) = self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await {
+            tracing::debug!(error = %e, "the clearing destroy failed: the VMs are removed by id");
+        }
+        let dot = dot(cx);
+        for r in dot.recorded()? {
+            self.remove_at_hypervisor(cx, &r).await?;
+        }
+        if cx.provider == Some(Provider::Virtualbox) {
+            self.virtualbox_leftovers(cx).await;
+        }
+        dot.reset()
+    }
+
+    /// VirtualBox's VMs and VM folders whose name carries the run's key, removed: what a crashed
+    /// import leaves, unknown to Vagrant, and what makes the next import fail with
+    /// `VERR_ALREADY_EXISTS`. Each failure is a `cleanup_failed` warning: the retried `up` says the
+    /// rest.
+    async fn virtualbox_leftovers(&self, cx: &ToolCx<'_>) {
+        let call = call(cx, READ_LIMIT);
+        match vboxmanage::vms(&call).await {
+            Ok(vms) => {
+                for (name, uuid) in vms.into_iter().filter(|(n, _)| ours(n, cx.key)) {
+                    drop(vboxmanage::discard_state(&call, &uuid).await);
+                    drop(vboxmanage::power_off(&call, &uuid).await);
+                    match vboxmanage::unregister_delete(&call, &uuid).await {
+                        Ok(())
+                        | Err(CliError::Failed {
+                            failure: vboxmanage::Failure::NotFound,
+                            ..
+                        }) => {
+                            (cx.warn)(WarningCode::OrphanRemoved, &format!("removed a VM an earlier run left ({name})"));
+                        }
+                        Err(e) => (cx.warn)(
+                            WarningCode::CleanupFailed,
+                            &format!("a VM an earlier run left ({name}) couldn't be removed: {e}"),
+                        ),
+                    }
+                }
+            }
+            Err(e) => (cx.warn)(
+                WarningCode::CleanupFailed,
+                &format!("VirtualBox's VMs couldn't be listed: none is removed: {e}"),
+            ),
+        }
+        let Ok(base) = vboxmanage::machine_folder(&call).await else { return };
+        let Ok(entries) = std::fs::read_dir(&base) else { return };
+        for entry in entries.flatten() {
+            let is_folder = entry.file_type().is_ok_and(|t| t.is_dir() || t.is_symlink());
+            if is_folder && ours(&entry.file_name().to_string_lossy(), cx.key) {
+                let what = format!("a VM folder an earlier run left ({})", entry.path().display());
+                match crate::store::remove_path(&entry.path()) {
+                    Ok(()) => (cx.warn)(WarningCode::OrphanRemoved, &format!("removed {what}")),
+                    Err(e) => (cx.warn)(WarningCode::CleanupFailed, &format!("{what} couldn't be removed: {e}")),
+                }
+            }
+        }
+    }
+
+    /// Removes `record`'s VM at its hypervisor by its id, Vagrant not involved (a machine the
+    /// Vagrantfile no longer defines, a record Vagrant can't act on); a VM already gone is fine.
+    /// Only VirtualBox has an adapter: any other provider is refused, named.
+    async fn remove_at_hypervisor(&self, cx: &ToolCx<'_>, record: &Record) -> Result<()> {
+        if record.provider != Provider::Virtualbox.id() {
+            return Err(Error::Unsupported {
+                what: format!(
+                    "removing VM `{}` of machine `{}` on `{}` by its id once Vagrant can't (only VirtualBox VMs are)",
+                    record.id, record.machine, record.provider
+                ),
+            });
+        }
+        let call = call(cx, CALL_LIMIT);
+        drop(vboxmanage::power_off(&call, &record.id).await);
+        match vboxmanage::unregister_delete(&call, &record.id).await {
+            Ok(())
+            | Err(CliError::Failed {
+                failure: vboxmanage::Failure::NotFound,
+                ..
+            }) => {}
+            Err(e) => return Err(tool_error("remove", e)),
+        }
+        dot(cx).forget(&record.machine, &record.provider)
+    }
+}
+
+/// `verb` as Vagrant's command names it, for what is said of it.
+fn verb_word(verb: Verb) -> &'static str {
+    match verb {
+        Verb::Halt => "halt",
+        Verb::Suspend => "suspend",
+        Verb::Provision => "provision",
+        Verb::Destroy => "destroy",
+    }
+}
+
+/// `machine` alone, as a call's machine list.
+fn one(machine: &str) -> Vec<String> {
+    vec![machine.to_owned()]
+}
+
+/// An account name as a console takes it: letters, digits, `.`, `_` and `-`, so nothing in the
+/// script it goes into needs quoting.
+fn checked_user(user: &str) -> Result<&str> {
+    let fine = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if fine {
+        Ok(user)
+    } else {
+        Err(Error::Unsupported {
+            what: format!("a console as `{user}`, which isn't an account name (letters, digits, `.`, `_`, `-`),"),
+        })
+    }
+}
+
+impl FormatDriver for Vagrant {
+    /// Hyper-V takes its management commands from an administrator only.
+    fn elevates(&self, provider: Option<Provider>) -> bool {
+        provider == Some(Provider::Hyperv)
+    }
+
+    async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let provider = asked(cx)?;
+        let host = providers::this_host();
+        let refuse = |reason: String| Error::Provider {
+            provider: provider.id().to_owned(),
+            reason,
+        };
+        if !providers::hosts(provider).contains(&host) {
+            return Err(refuse(format!(
+                "doesn't run on this computer's system; these do: {}",
+                providers::listed_for(host)
+            )));
+        }
+        let read = call(cx, READ_LIMIT);
+        vagrant::supported_version(&read).await.map_err(|e| tool_error("tools", e))?;
+        if let Some(plugin) = provider.plugin() {
+            let installed = vagrant::plugins(&read).await.map_err(|e| tool_error("tools", e))?;
+            if !installed.iter().any(|(name, _)| name == plugin) {
+                return Err(refuse(format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`")));
+            }
+        }
+        Ok(())
+    }
+
+    async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let provider = asked(cx)?;
+        crate::store::create_dir(cx.state_dir)?;
+        self.preamble(cx, provider).await?;
+        self.up_recovering(cx, "up", Provision::Default, &[]).await
+    }
+
+    async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
+        self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await.map_err(|e| tool_error("down", e))?;
+        // What `destroy` took is gone from the dotfile; a VM it left keeps its resource row, which
+        // the core removes by id (`destroy_by_id`), with its record written back if need be.
+        dot(cx).reset()
+    }
+
+    async fn park(&self, cx: &ToolCx<'_>, mode: Park) -> Result<()> {
+        let verb = match mode {
+            Park::Pause => Verb::Suspend,
+            Park::Shutdown => Verb::Halt,
+        };
+        match self.act(cx, verb, &[], CALL_LIMIT).await {
+            // ESXi refuses to halt a VM already off: halted is what was asked.
+            Ok(())
+            | Err(CliError::Failed {
+                failure: Failure::AlreadyOff, ..
+            }) => Ok(()),
+            Err(e) => Err(tool_error("park", e)),
+        }
+    }
+
+    async fn resume(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let provider = asked(cx)?;
+        self.preamble(cx, provider).await?;
+        self.up_recovering(cx, "resume", Provision::No, &[]).await
+    }
+
+    async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
+        asked(cx)?;
+        self.up_call(cx, "update", Provision::Yes, &[]).await.map_err(|e| tool_error("update", e))
+    }
+
+    async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
+        Ok(self.status(cx).await?.into_keys().collect())
+    }
+
+    async fn reapply(&self, cx: &ToolCx<'_>, change: &Change) -> Result<()> {
+        if !change.added.is_empty() {
+            asked(cx)?;
+            self.up_call(cx, "reapply", Provision::Default, &change.added)
+                .await
+                .map_err(|e| tool_error("reapply", e))?;
+        }
+        if !change.removed.is_empty() {
+            // Vagrant acts only on machines the Vagrantfile defines: one it no longer does is
+            // removed by its recorded id.
+            let defined = self.machines(cx).await?;
+            let (known, gone): (Vec<String>, Vec<String>) = change.removed.iter().cloned().partition(|m| defined.contains(m));
+            if !known.is_empty() {
+                self.act(cx, Verb::Destroy, &known, CALL_LIMIT).await.map_err(|e| tool_error("reapply", e))?;
+            }
+            for r in dot(cx).recorded()?.into_iter().filter(|r| gone.contains(&r.machine)) {
+                self.remove_at_hypervisor(cx, &r).await?;
+            }
+        }
+        if !change.changed.is_empty() {
+            self.act(cx, Verb::Provision, &change.changed, UP_LIMIT)
+                .await
+                .map_err(|e| tool_error("reapply", e))?;
+        }
+        Ok(())
+    }
+
+    async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>) -> Result<()> {
+        asked(cx)?;
+        let machines: Vec<String> = machine.map(one).unwrap_or_default();
+        self.up_call(cx, "provision", Provision::Yes, &machines)
+            .await
+            .map_err(|e| tool_error("provision", e))
+    }
+
+    async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
+        asked(cx)?;
+        self.up_call(cx, "attach", Provision::Default, &one(machine))
+            .await
+            .map_err(|e| tool_error("attach", e))
+    }
+
+    async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
+        self.act(cx, Verb::Destroy, &one(machine), CALL_LIMIT)
+            .await
+            .map_err(|e| tool_error("retire", e))
+    }
+
+    async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
+        let script = argv.iter().map(|w| crate::console::sh_word(w)).collect::<Vec<_>>().join(" ");
+        let out = vagrant::ssh_run(&call(cx, EXEC_LIMIT), machine, &script)
+            .await
+            .map_err(|e| tool_error("exec", e))?;
+        Ok(Ran {
+            exit: out.exit.code.unwrap_or(-1),
+            stdout: out.stdout.join("\n"),
+            stderr: out.stderr_tail.join("\n"),
+        })
+    }
+
+    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+        let script = user.map(checked_user).transpose()?.map(crate::console::shells::login_shell_as);
+        let spec = vagrant::console_spec(&call(cx, READ_LIMIT), machine, script.as_deref());
+        let cwd = spec.cwd.clone().unwrap_or_else(|| cx.project.dir.clone());
+        Ok(ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env))
+    }
+
+    async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {
+        let read = call(cx, READ_LIMIT);
+        let mut machines = Vec::new();
+        for (name, label) in self.status(cx).await? {
+            let state = crate::tool_output::vagrant::machine_state(&label);
+            let mut published = Vec::new();
+            if state == MachineState::Running {
+                match retrying(cx.warn, "port", Rerun::Read, STATUS_PATIENCE, || vagrant::port(&read, &name)).await {
+                    // `port` doesn't say a forward's protocol: it is left unknown, never guessed.
+                    Ok(forwards) => published.extend(forwards.into_iter().map(|f| SeenPort {
+                        guest: f.guest,
+                        host: f.host,
+                        protocol: None,
+                    })),
+                    // libvirt can't list forwards, and ESXi forwards nothing: no port is proven.
+                    Err(CliError::Failed {
+                        failure: Failure::PortsUnsupported,
+                        ..
+                    }) => {}
+                    Err(e) => return Err(tool_error("status", e)),
+                }
+            }
+            machines.push(SeenMachine { name, state, published });
+        }
+        let state = run_state(&machines);
+        Ok((Seen { machines, ..Seen::default() }, state))
+    }
+
+    /// Read from the dotfile: no call.
+    fn found(&self, cx: &ToolCx<'_>) -> impl Future<Output = Result<Vec<Found>>> {
+        let found = dot(cx).recorded().map(|records| {
+            records
+                .into_iter()
+                .map(|r| Found {
+                    key: key_of(&r, cx.provider),
+                    kind: ResourceKind::Vm,
+                    native_id: r.id,
+                    lifetime: Lifetime::Machines,
+                })
+                .collect()
+        });
+        std::future::ready(found)
+    }
+
+    async fn destroy_by_id(&self, cx: &ToolCx<'_>, key: &str, kind: ResourceKind, native_id: &str) -> Result<()> {
+        let refused = || Error::Unsupported {
+            what: format!("removing the {kind:?} resource `{key}` through Vagrant"),
+        };
+        if kind != ResourceKind::Vm {
+            return Err(refused());
+        }
+        let (machine, provider) = of_key(key, cx.provider).ok_or_else(refused)?;
+        let dot = dot(cx);
+        let recorded = dot.recorded()?;
+        let record = if let Some(r) = recorded.into_iter().find(|r| r.id == native_id) {
+            r
+        } else {
+            let Some(provider) = provider else {
+                return Err(Error::NoProvider {
+                    providers: providers::listed_for(providers::this_host()),
+                });
+            };
+            let lost = Record {
+                machine,
+                provider,
+                id: native_id.to_owned(),
+            };
+            // Vagrant acts on a VM by the id its dotfile records: written back, `destroy` takes
+            // the VM whose record a reset or a crash lost.
+            dot.write_back(&lost)?;
+            lost
+        };
+        match self.act(cx, Verb::Destroy, &one(&record.machine), CALL_LIMIT).await {
+            Ok(()) => dot.forget(&record.machine, &record.provider),
+            // A machine the Vagrantfile no longer defines: its VM goes at the hypervisor.
+            Err(CliError::Failed {
+                failure: Failure::UnknownMachine,
+                ..
+            }) => self.remove_at_hypervisor(cx, &record).await,
+            Err(e) => Err(tool_error("remove", e)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
