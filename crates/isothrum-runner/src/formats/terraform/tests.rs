@@ -9,6 +9,7 @@ use crate::process::fake::{Call as Made, FakeProcesses, Reply};
 use crate::project::{Format, Project};
 
 const SHOW: &str = include_str!("../../tool_output/fixtures/terraform/1.16-show.json");
+const DATA_ONLY: &str = include_str!("../../tool_output/fixtures/terraform/1.16-show-data-only.json");
 const OUTPUT: &str = include_str!("../../tool_output/fixtures/terraform/1.16-output.json");
 const APPLY: &str = include_str!("../../tool_output/fixtures/terraform/1.16-apply.jsonl");
 const PLAN: &str = include_str!("../../tool_output/fixtures/terraform/1.16-plan.jsonl");
@@ -204,7 +205,7 @@ async fn a_lock_left_on_a_backends_state_is_released_once_and_the_apply_made_aga
 }
 
 #[tokio::test]
-async fn a_local_states_lock_is_a_live_processs_and_is_never_forced() {
+async fn a_local_states_lock_is_a_live_processes_and_is_never_forced() {
     let lab = lab();
     let fake = FakeProcesses::script()
         .expect("terraform init", Reply::ok(""))
@@ -306,7 +307,27 @@ async fn a_run_with_no_state_yet_is_absent_and_nothing_runs() {
 #[test]
 fn every_instance_ready_is_a_ready_run() {
     let ready = tf::shown(&show_of(&[("aws_instance", "vm", "i-1", false)])).expect("a state");
-    assert_eq!(run_state(&ready.managed), RunState::Ready);
+    assert_eq!(run_state(&ready), RunState::Ready);
+    assert_eq!(run_state(&tf::shown(r#"{"format_version":"1.0"}"#).expect("no state")), RunState::Absent);
+}
+
+/// A module that only reads (its state holds data sources and outputs, no managed instance) is
+/// up once applied, has no machine, makes nothing to remove, and gives its outputs back.
+#[tokio::test]
+async fn a_state_of_data_sources_only_is_a_ready_run_with_its_outputs_and_nothing_to_remove() {
+    let lab = lab().with_state();
+    let fake = FakeProcesses::script()
+        .expect_times("terraform show -json -no-color", 2, Reply::ok(DATA_ONLY))
+        .expect(
+            &format!("terraform output -json -no-color {}", lab.state_flag()),
+            Reply::ok(r#"{"account_id":{"sensitive":false,"type":"string","value":"123456789012"}}"#),
+        )
+        .build();
+    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    assert_eq!((seen.machines.len(), state), (0, RunState::Ready));
+    assert_eq!(seen.outputs["account_id"].value, "123456789012");
+    let found = with_cx(&lab, &fake, async |cx| Terraform.found(cx).await).await.expect("found");
+    assert_eq!(found, Vec::<Found>::new(), "a data source is no resource");
 }
 
 #[tokio::test]

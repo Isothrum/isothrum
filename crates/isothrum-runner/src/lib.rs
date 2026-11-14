@@ -139,6 +139,7 @@ pub use process::fake;
 pub use process::process_started_at;
 pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
+pub use project::variables::{InputVariable, variables_of};
 pub use project::{Format, Project};
 pub use run::{ExecReport, Running};
 pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};

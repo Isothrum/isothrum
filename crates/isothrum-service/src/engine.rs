@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_runner::store::OperationId;
-use isothrum_runner::{BoxFuture, ErrorCode, Event, EventKind, Events, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status};
+use isothrum_runner::{
+    BoxFuture, ErrorCode, Event, EventKind, Events, Format, InputVariable, Project, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status,
+};
 
 /// Why the engine refused a request: a code and a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +67,16 @@ pub trait Engine: Send + Sync + 'static {
 
     /// The status of `run` (opened from `target`, else as its record says).
     fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>>;
+
+    /// The input variables the Terraform folder `target` declares.
+    ///
+    /// # Errors
+    ///
+    /// The folder isn't a Terraform module; by default, an engine that reads no folder.
+    fn variables(&self, target: &Target) -> Result<Vec<InputVariable>, Refusal> {
+        let _ = target;
+        Err(Refusal::new(ErrorCode::Unsupported, "this engine reads no folder's variables"))
+    }
 }
 
 /// The Isothrum runner as the service's engine.
@@ -163,6 +175,11 @@ impl Engine for RunnerEngine {
             let opts = run_options(options).with_operation(operation);
             RunnerEngine::run(&running, command, opts, journal).await.unwrap_or(false)
         })
+    }
+
+    fn variables(&self, target: &Target) -> Result<Vec<InputVariable>, Refusal> {
+        let format = target.format.unwrap_or(Format::Terraform);
+        Ok(Project::open(&target.path, Some(format))?.variables()?)
     }
 
     fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>) -> BoxFuture<'a, Result<Status, Refusal>> {

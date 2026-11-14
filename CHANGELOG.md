@@ -11,6 +11,16 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A Terraform folder's input variables: `Project::variables`, `Client::variables`, the
+  service's `variables` command.** Each `variable` block of any module's `*.tf` and `*.tf.json`
+  files (name, type, default, sensitive, description), read from the files, nothing run. Any
+  hand-written module runs as Isoloom's do: values as `TF_VAR_<name>`, a sensitive one as a secret
+  no record keeps, the outputs back in `up`'s result and in the status.
+- **`up`'s result carries the project's outputs** (`ResultData::Started`, sensitive ones masked)
+  through the service and the client, as the status does; it was `moved`.
+- **A Terraform state of data sources only reads as a ready run**, with its outputs and nothing
+  to remove; it read absent.
+
 - **A Vagrant project runs on UTM again.** Isoloom's `vagrant` target has a UTM provider again
   (each network an isolated vmnet network its Vagrantfile attaches the VMs to, a UTM box per
   machine), and the Vagrant driver already runs `--provider utm` on macOS (vagrant_utm, UTM's

@@ -108,6 +108,10 @@ impl Session {
                 });
                 return true;
             }
+            Command::Variables { target } => match self.shared.engine.variables(&target) {
+                Ok(variables) => Reply::Variables { id, variables },
+                Err(refusal) => refused(id, refusal),
+            },
             Command::List => match runs(&self.shared.store) {
                 Ok(runs) => Reply::Runs { id, runs },
                 Err(e) => refused(id, e.into()),

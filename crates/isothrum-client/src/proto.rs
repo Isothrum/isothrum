@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use isothrum_runner::{ErrorCode, Format, Op, Park, Provider, RunName, Status};
+use isothrum_runner::{ErrorCode, Format, InputVariable, Op, Park, Provider, RunName, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
@@ -158,6 +158,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<Target>,
     },
+    /// The input variables a Terraform folder declares (not queued: it reads the folder's
+    /// files, and runs nothing).
+    Variables {
+        /// The folder (its `name` is unused).
+        target: Target,
+    },
     /// Every recorded run.
     List,
     /// The run's latest operations, newest first.
@@ -210,6 +216,7 @@ impl Command {
             Command::Exec { .. } => Op::Check,
             Command::Hello { .. }
             | Command::Status { .. }
+            | Command::Variables { .. }
             | Command::List
             | Command::Operations { .. }
             | Command::Cancel { .. }
@@ -334,6 +341,13 @@ pub enum Reply {
         /// The status.
         status: Box<Status>,
     },
+    /// To `variables`.
+    Variables {
+        /// The request's id.
+        id: u64,
+        /// The folder's input variables, by name.
+        variables: Vec<InputVariable>,
+    },
     /// To `list`.
     Runs {
         /// The request's id.
@@ -391,6 +405,7 @@ impl Reply {
             | Reply::Accepted { id, .. }
             | Reply::Status { id, .. }
             | Reply::Runs { id, .. }
+            | Reply::Variables { id, .. }
             | Reply::Operations { id, .. }
             | Reply::Ok { id }
             | Reply::Busy { id, .. }

@@ -11,6 +11,7 @@
 
 pub(crate) mod inputs;
 pub(crate) mod platform;
+pub(crate) mod variables;
 
 use std::path::{Path, PathBuf};
 
