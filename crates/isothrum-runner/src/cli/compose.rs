@@ -88,6 +88,8 @@ pub(crate) struct Up<'a> {
     pub(crate) wait: bool,
     /// `--remove-orphans`.
     pub(crate) remove_orphans: bool,
+    /// `--no-recreate`: start what exists as it is (a resume), never make it again.
+    pub(crate) no_recreate: bool,
 }
 
 /// `up --detach`.
@@ -98,6 +100,9 @@ pub(crate) async fn up(call: &Call<'_>, project: &Project<'_>, how: &Up<'_>) -> 
     }
     if how.remove_orphans {
         rest.push("--remove-orphans".into());
+    }
+    if how.no_recreate {
+        rest.push("--no-recreate".into());
     }
     rest.extend(how.services.iter().cloned());
     call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
@@ -149,6 +154,13 @@ pub(crate) async fn ps(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<Con
         tool: TOOL,
         what: "a `compose ps` listing that isn't JSON containers".into(),
     })
+}
+
+/// `config --services`: the services the project's files declare, under its profiles (a service
+/// under another profile only when its profile is given), in the files' order.
+pub(crate) async fn services(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<String>, CliError<Failure>> {
+    let out = call.ok(TOOL, project.args(argv(["config", "--services"])), Failure::of).await?;
+    Ok(out.stdout.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect())
 }
 
 /// The oldest Compose the adapter drives (`ps --format json` one object per line from 2.21 is

@@ -45,12 +45,22 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) ->
 }
 
 impl PsEntry {
+    /// Its service.
+    pub(crate) fn service(&self) -> &str {
+        &self.service
+    }
+
+    /// Whether it is paused (`compose pause`): what a resume unpauses.
+    pub(crate) fn is_paused(&self) -> bool {
+        self.state == "paused"
+    }
+
     /// A `docker compose run` container (a check runner): not one of the run's machines.
-    pub(super) fn one_off(&self) -> bool {
+    pub(crate) fn one_off(&self) -> bool {
         self.labels.split(',').any(|l| l.trim() == super::ONE_OFF_LABEL)
     }
 
-    fn machine_state(&self) -> MachineState {
+    pub(crate) fn machine_state(&self) -> MachineState {
         match (self.state.as_str(), self.health.as_str()) {
             ("running", "unhealthy") => MachineState::Unhealthy,
             ("running", _) => MachineState::Running,
@@ -61,7 +71,7 @@ impl PsEntry {
     }
 
     /// Its published ports, once each (Docker lists one per address family).
-    fn published(&self) -> Vec<PublishedPort> {
+    pub(crate) fn published(&self) -> Vec<PublishedPort> {
         let mut out: Vec<PublishedPort> = Vec::new();
         for p in self.publishers.iter().filter(|p| p.published_port > 0 && p.target_port > 0) {
             let Some(protocol) = super::protocol(&p.protocol) else {

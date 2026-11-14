@@ -12,6 +12,7 @@
 //!   outputs, and the run's state derived from them.
 //! - [`Found`]: one resource the tool says belongs to the run, which the [`ledger`] records.
 
+pub(crate) mod compose;
 pub(crate) mod ledger;
 
 use std::collections::BTreeMap;
