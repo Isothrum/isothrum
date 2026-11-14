@@ -22,6 +22,9 @@ pub enum ErrorCode {
     ManifestInvalid,
     /// The manifest is another version of the contract.
     ManifestVersion,
+    /// The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or
+    /// Terraform module, or the files of several formats with none named.
+    ProjectInvalid,
     /// The manifest needs something this runner doesn't do (a target that doesn't run on this
     /// host, a delivery its driver doesn't take, an action of another driver's, a step with no
     /// command for this host), or the call asks the run for something its target can't do (a
@@ -127,6 +130,7 @@ impl ErrorCode {
         match self {
             ErrorCode::ManifestInvalid => "manifest_invalid",
             ErrorCode::ManifestVersion => "manifest_version",
+            ErrorCode::ProjectInvalid => "project_invalid",
             ErrorCode::Unsupported => "unsupported",
             ErrorCode::Io => "io",
             ErrorCode::Corrupt => "corrupt",
@@ -345,6 +349,14 @@ pub enum Error {
         /// The slot.
         name: String,
     },
+    /// A folder that isn't a project Isothrum runs.
+    #[error("{}: not a project to run: {reason}", dir.display())]
+    Project {
+        /// The folder.
+        dir: PathBuf,
+        /// Why, with the fix.
+        reason: String,
+    },
     /// A param that can't be used as given.
     #[error("param `{name}`: {reason}")]
     Param {
@@ -557,6 +569,7 @@ impl Error {
             } => ErrorCode::ManifestVersion,
             Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } => ErrorCode::Unsupported,
+            Error::Project { .. } => ErrorCode::ProjectInvalid,
             Error::Io { .. } | Error::Relay { .. } => ErrorCode::Io,
             Error::Corrupt { .. } => ErrorCode::Corrupt,
             Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,

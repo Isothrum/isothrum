@@ -139,6 +139,7 @@ mod options;
 mod outputs;
 mod params;
 mod process;
+mod project;
 mod ready;
 mod reap;
 mod relay;
@@ -181,6 +182,8 @@ pub use options::{Occupied, RunOptions};
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
 pub use process::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
+pub use project::platform::{Arch, Cloud, HostOs, Provider};
+pub use project::{Format, Project};
 pub use reap::{Orphans, Place, Tagged};
 pub use run::{AccessPick, AttachReport, Running};
 pub use runner::{Runner, RunnerConfig, this_arch, this_host};
