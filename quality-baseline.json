@@ -1,6 +1,8 @@
 {
   "rules": {
     "exception/expect": {
+      "isothrum-runner": 2,
+      "isothrum-test-support": 1,
       "xtask": 1
     }
   }
