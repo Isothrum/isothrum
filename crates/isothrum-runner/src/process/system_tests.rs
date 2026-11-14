@@ -366,3 +366,28 @@ async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
         .collect();
     assert!(tools.is_empty(), "{tools:?}");
 }
+
+/// Regression (#132): on Windows a tool cut short was terminated at once, so a `terraform apply`
+/// cancelled mid-way lost the state of what it had made. It is sent Ctrl-C on its console first:
+/// a PowerShell loop's `finally` runs.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_tool_cut_short_on_windows_gets_ctrl_c_before_it_is_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let (pid, said) = (dir.path().join("pid"), dir.path().join("said"));
+    let script = format!(
+        "try {{ Set-Content -LiteralPath '{}' $PID; while ($true) {{ Start-Sleep -Milliseconds 100 }} }} finally {{ Set-Content -LiteralPath '{}' 'stopped' }}",
+        pid.display(),
+        said.display()
+    );
+    let job = spec("powershell", &["-NoProfile", "-NonInteractive", "-Command", &script]);
+    let runner = SystemProcesses::default();
+    let started = cancelled_once_started(&runner, &job, &pid).await;
+    tokio::time::timeout(Duration::from_secs(40), runner.stopped()).await.expect("it stopped");
+    assert_eq!(
+        std::fs::read_to_string(&said).map(|s| s.trim().to_owned()).ok().as_deref(),
+        Some("stopped"),
+        "its Ctrl-C handler ran"
+    );
+    assert!(gone(&started).await);
+}
