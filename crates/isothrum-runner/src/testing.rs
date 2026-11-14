@@ -140,13 +140,6 @@ async fn a_capture_holds_its_own_threads_events_and_none_of_another_threads() {
     assert!(!here.contains("elsewhere"), "another thread's trace isn't this capture's: {here}");
 }
 
-/// Machine `name`'s published ports among `machines`, each as its own port and the host port it
-/// is reached at, by number: what a test compares a status with.
-pub(crate) fn published_numbers(machines: &[crate::MachineStatus], name: &str) -> Vec<(u16, u16)> {
-    let machine = machines.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("no machine `{name}`"));
-    machine.published.iter().map(|p| (p.port.get(), p.host_port.get())).collect()
-}
-
 /// Runs this test binary's test `exact` alone, as a child process, with `var` set to `home`: the
 /// other process of a test across processes (it acts only when it finds `var`). Returns the child
 /// and whether it printed a line holding `said` (read until it did, or ended its output).

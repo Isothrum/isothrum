@@ -329,7 +329,10 @@ impl Runner {
     }
 }
 
-#[expect(dead_code, reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them")]
+#[expect(
+    dead_code,
+    reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them"
+)]
 impl Runner {
     /// Reserves `port` for `name` while it starts; false when another run holds it.
     pub(crate) fn reserve(&self, name: &RunName, port: u16, protocol: Protocol) -> bool {

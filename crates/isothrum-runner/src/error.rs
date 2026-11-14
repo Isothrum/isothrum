@@ -127,8 +127,8 @@ pub enum Error {
     /// A host port the run publishes is taken.
     #[error("host port {port}/{protocol} is in use")]
     PortInUse {
-        /// The port, on the host.
-        port: crate::port::HostPort,
+        /// The port.
+        port: u16,
         /// `tcp` or `udp`.
         protocol: String,
     },

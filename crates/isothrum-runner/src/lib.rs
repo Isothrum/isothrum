@@ -117,14 +117,11 @@ mod testing;
 mod tool_output;
 
 pub use adopt::Adoption;
-pub use clock::rfc3339;
+pub use clock::{rfc3339, rfc3339_seconds};
 pub use console::ShellCommand;
 pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{Error, ErrorCode, Result, TimedOut};
-pub use events::{
-    Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode,
-    events_schema,
-};
+pub use events::{Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode, events_schema};
 pub use future::BoxFuture;
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
@@ -135,6 +132,7 @@ pub use options::RunOptions;
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
+pub use process::process_started_at;
 pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
 pub use project::{Format, Project};

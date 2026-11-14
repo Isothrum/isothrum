@@ -32,7 +32,7 @@ pub use db::{
     CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, MIRROR_FILE, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
     PortReservation, Recovered, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,
 };
-pub(crate) use fs::{if_there, private_dir, remove_path, write_private};
+pub(crate) use fs::{create_private, if_there, private_dir, remove_path, write_private};
 
 /// Creates `dir` (with its missing parents) owner-only ([`private_dir`]); [`Error::Io`] naming it
 /// when that fails.
@@ -182,10 +182,7 @@ impl Home {
         let runs = home.join("runs");
         create_dir(&runs)?;
         let db = Arc::new(Store::open(home)?);
-        Ok(Home {
-            runs,
-            db,
-        })
+        Ok(Home { runs, db })
     }
 
     /// Run `name`'s folder, created owner-only.
@@ -262,22 +259,6 @@ impl Home {
             unreadable,
         })
     }
-}
-
-/// The JSON file at `path`, read; `None` when there is none.
-///
-/// # Errors
-///
-/// It exists but can't be read (`io`), or doesn't hold a `T` (`corrupt`).
-pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    let Some(bytes) = if_there(std::fs::read(path)).map_err(Error::io(path, "read"))? else {
-        return Ok(None);
-    };
-    serde_json::from_slice(&bytes).map(Some).map_err(|source| Error::Corrupt {
-        path: path.to_path_buf(),
-        what: "JSON",
-        source,
-    })
 }
 
 #[cfg(test)]

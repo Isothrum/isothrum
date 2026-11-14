@@ -252,7 +252,9 @@ mod tests {
             "{:?}",
             got[0]
         );
-        assert!(matches!(&got[1].kind, EventKind::Result { data: crate::ResultData::Started { outputs, .. }, .. } if outputs[0].value.as_deref() == Some("at ***")));
+        assert!(
+            matches!(&got[1].kind, EventKind::Result { data: crate::ResultData::Started { outputs, .. }, .. } if outputs[0].value.as_deref() == Some("at ***"))
+        );
     }
 
     #[test]

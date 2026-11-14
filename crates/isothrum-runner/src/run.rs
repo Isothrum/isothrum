@@ -293,9 +293,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails, or as the run's state refuses a park.
     pub async fn park(&self, mode: Park, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Park(mode), opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Park(mode), opts, events).await.map(drop)
     }
 
     /// Starts the parked machines again.
@@ -304,9 +302,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails, or as the run's state refuses a resume.
     pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Resume, opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Resume, opts, events).await.map(drop)
     }
 
     /// Brings the running run to what the project's files now say.
@@ -315,9 +311,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails, or as the run's state refuses an update.
     pub async fn update(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Update, opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Update, opts, events).await.map(drop)
     }
 
     /// Runs the project's set-up again (its provisioners), on `machine` or on every machine.
@@ -326,9 +320,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails; `unsupported` where the format has no set-up of its own to run again.
     pub async fn provision(&self, machine: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Provision(machine), opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Provision(machine), opts, events).await.map(drop)
     }
 
     /// Starts `machine`, one the project leaves down at `up`.
@@ -337,9 +329,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails; `unsupported` where the format has no such machine.
     pub async fn attach(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Attach(machine), opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Attach(machine), opts, events).await.map(drop)
     }
 
     /// Removes `machine` from the running run.
@@ -348,9 +338,7 @@ impl<'r> Running<'r> {
     ///
     /// As the tool fails.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
-        self.drive(Act::Retire(machine), opts, events)
-            .await
-            .map(drop)
+        self.drive(Act::Retire(machine), opts, events).await.map(drop)
     }
 
     /// Runs `argv` in `machine`, with no terminal: what it said and how it ended. A command that

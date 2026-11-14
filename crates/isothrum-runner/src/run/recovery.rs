@@ -42,7 +42,13 @@ pub(crate) trait Remover {
 /// # Errors
 ///
 /// The store's, when a row's move can't be written: nothing is removed past it.
-pub(crate) async fn destroy_recorded(db: &Store, events: &Emitter<'_>, by: OperationId, rows: &[ResourceRow], mut remover: impl Remover) -> Result<Vec<NotRemoved>> {
+pub(crate) async fn destroy_recorded(
+    db: &Store,
+    events: &Emitter<'_>,
+    by: OperationId,
+    rows: &[ResourceRow],
+    mut remover: impl Remover,
+) -> Result<Vec<NotRemoved>> {
     let mut not_removed = Vec::new();
     for row in rows {
         db.write(|tx| tx.destroying(row.id, by))?;

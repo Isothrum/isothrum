@@ -64,6 +64,12 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Creates `path` (emptying it when it exists) for writing, owner-only: a file written as a
+/// stream, then renamed into place by its writer.
+pub(crate) fn create_private(path: &Path) -> io::Result<File> {
+    open(path, std::fs::OpenOptions::new().write(true).create(true).truncate(true))
+}
+
 /// What a read gave, `None` when there was nothing to read (`NotFound`); any other failure is
 /// the error.
 pub(crate) fn if_there<T>(read: io::Result<T>) -> io::Result<Option<T>> {

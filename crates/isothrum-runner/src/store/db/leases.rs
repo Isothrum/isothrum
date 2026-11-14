@@ -9,7 +9,6 @@ use rusqlite::{OptionalExtension, params};
 use super::{Lease, LeaseOutcome, OperationId, Owner, PortReservation, Tx, epoch_now, failed, from_word, now, word};
 use crate::Result;
 use crate::name::RunName;
-use crate::port::HostPort;
 
 /// Who reserves a port: a run, its operation when journaled, and the lease (its scope, and its
 /// owner) the reservation is held under.
@@ -146,7 +145,7 @@ impl Tx<'_> {
     /// # Errors
     ///
     /// The store can't be written.
-    pub fn reserve_port(&mut self, reserver: &Reserver<'_>, port: HostPort, protocol: Protocol) -> Result<bool> {
+    pub fn reserve_port(&mut self, reserver: &Reserver<'_>, port: u16, protocol: Protocol) -> Result<bool> {
         let Reserver { run, by, lease, owner } = *reserver;
         if let Some(held) = self.port_holder(port, protocol)? {
             return Ok(held.run == *run);
@@ -156,7 +155,7 @@ impl Tx<'_> {
                 "INSERT INTO port_reservations (protocol, port, run, operation, lease, owner_token) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(protocol, port) DO UPDATE SET run = excluded.run, operation = excluded.operation,
                    lease = excluded.lease, owner_token = excluded.owner_token",
-                params![word(&protocol), port.get(), run.as_str(), by.map(|id| id.0), lease, owner.token],
+                params![word(&protocol), port, run.as_str(), by.map(|id| id.0), lease, owner.token],
             )
             .map_err(failed("written"))?;
         Ok(true)
@@ -168,12 +167,12 @@ impl Tx<'_> {
     /// # Errors
     ///
     /// The store can't be read.
-    pub fn port_holder(&self, port: HostPort, protocol: Protocol) -> Result<Option<PortReservation>> {
+    pub fn port_holder(&self, port: u16, protocol: Protocol) -> Result<Option<PortReservation>> {
         let row: Option<(String, Option<i64>, String, String)> = self
             .tx
             .query_row(
                 "SELECT run, operation, lease, owner_token FROM port_reservations WHERE protocol = ?1 AND port = ?2",
-                params![word(&protocol), port.get()],
+                params![word(&protocol), port],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()
@@ -221,7 +220,7 @@ impl Tx<'_> {
         let mut keys = Vec::new();
         for row in rows {
             let (protocol, port) = row.map_err(failed("read"))?;
-            keys.push((from_word::<Protocol>("protocol", &protocol)?, HostPort::new(port)));
+            keys.push((from_word::<Protocol>("protocol", &protocol)?, port));
         }
         let mut live = Vec::new();
         for (protocol, port) in keys {

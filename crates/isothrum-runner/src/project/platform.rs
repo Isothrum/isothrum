@@ -161,7 +161,12 @@ impl Version {
     /// `major.minor.patch`, released.
     #[must_use]
     pub const fn new(major: u64, minor: u64, patch: u64) -> Version {
-        Version { major, minor, patch, pre: None }
+        Version {
+            major,
+            minor,
+            patch,
+            pre: None,
+        }
     }
 
     /// The version `text` is exactly (three numbers joined by dots, then optionally `-` and a

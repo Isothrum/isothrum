@@ -277,17 +277,4 @@ impl Tx<'_> {
             .map_err(failed("written"))?;
         Ok(())
     }
-
-    /// Puts run `name` in `state` with no move recorded, as a process killed mid-operation leaves
-    /// it: for the tests only, which stand in for that process.
-    #[cfg(test)]
-    pub(crate) fn force_state(&mut self, name: &RunName, state: RunState) -> Result<()> {
-        self.tx
-            .execute(
-                "UPDATE runs SET state = ?2, failed_cause = NULL WHERE name = ?1",
-                params![name.as_str(), word(&state)],
-            )
-            .map_err(failed("written"))?;
-        Ok(())
-    }
 }

@@ -2,7 +2,10 @@
 //! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's `FakePorts` answers
 //! from a test's setup.
 
-#[expect(dead_code, reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them")]
+#[expect(
+    dead_code,
+    reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them"
+)]
 mod reservations;
 pub(crate) use reservations::PortReservations;
 
@@ -12,7 +15,6 @@ use std::time::Duration;
 use crate::project::platform::Protocol;
 
 use crate::BoxFuture;
-use crate::port::HostPort;
 pub(crate) use sealed::HeldPort;
 
 /// The host's ports. Sealed: [`RunnerConfig::new`](crate::RunnerConfig::new) gives the real
@@ -35,12 +37,11 @@ pub(crate) mod sealed {
     use crate::project::platform::Protocol;
 
     use crate::BoxFuture;
-    use crate::port::HostPort;
 
     /// A free port, held until dropped so it isn't handed out twice while others are picked.
     pub struct HeldPort {
         /// The port.
-        pub port: HostPort,
+        pub port: u16,
         _hold: Box<dyn Send + Sync>,
     }
 
@@ -52,7 +53,7 @@ pub(crate) mod sealed {
 
     impl HeldPort {
         /// `port`, held by `hold` (a socket, or nothing for a fake).
-        pub(crate) fn new(port: HostPort, hold: impl Send + Sync + 'static) -> HeldPort {
+        pub(crate) fn new(port: u16, hold: impl Send + Sync + 'static) -> HeldPort {
             HeldPort { port, _hold: Box::new(hold) }
         }
     }
@@ -60,7 +61,7 @@ pub(crate) mod sealed {
     /// The host's ports, as the runner asks them. Implemented by this crate's ports only.
     pub trait Ports: Send + Sync {
         /// Whether `port` is taken over `protocol` on the loopback.
-        fn in_use(&self, port: HostPort, protocol: Protocol) -> bool;
+        fn in_use(&self, port: u16, protocol: Protocol) -> bool;
         /// A free loopback port over `protocol`, held; none when none is left.
         ///
         /// # Errors
@@ -78,8 +79,7 @@ impl sealed::Ports for LoopbackPorts {
     /// Taken when the IPv4 loopback can't be bound, or the IPv6 one is held (a browser opening
     /// `localhost` may reach it first), or a program holds it on all interfaces
     /// ([`held_on_all`]); an absent IPv6 loopback doesn't count.
-    fn in_use(&self, port: HostPort, protocol: Protocol) -> bool {
-        let port = port.get();
+    fn in_use(&self, port: u16, protocol: Protocol) -> bool {
         let v4 = bind(Ipv4Addr::LOCALHOST.into(), port, protocol);
         let v6 = bind(Ipv6Addr::LOCALHOST.into(), port, protocol);
         v4.is_err() || v6.is_err_and(|e| held_elsewhere(&e)) || held_on_all(port, protocol)
@@ -91,11 +91,11 @@ impl sealed::Ports for LoopbackPorts {
         free_on_both(protocol, || match protocol {
             Protocol::Udp => {
                 let s = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))?;
-                Ok(HeldPort::new(HostPort::new(s.local_addr()?.port()), s))
+                Ok(HeldPort::new(s.local_addr()?.port(), s))
             }
             Protocol::Tcp => {
                 let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-                Ok(HeldPort::new(HostPort::new(l.local_addr()?.port()), l))
+                Ok(HeldPort::new(l.local_addr()?.port(), l))
             }
         })
     }
@@ -134,7 +134,7 @@ fn free_on_both(protocol: Protocol, mut next: impl FnMut() -> std::io::Result<He
     let mut passed = Vec::new();
     for _ in 0..PICKS {
         let held = next()?;
-        if bind(Ipv6Addr::LOCALHOST.into(), held.port.get(), protocol).is_err_and(|e| held_elsewhere(&e)) {
+        if bind(Ipv6Addr::LOCALHOST.into(), held.port, protocol).is_err_and(|e| held_elsewhere(&e)) {
             passed.push(held);
         } else {
             return Ok(Some(held));
@@ -223,11 +223,8 @@ impl FakePorts {
 
 #[cfg(any(test, feature = "fake"))]
 impl sealed::Ports for FakePorts {
-    fn in_use(&self, port: HostPort, protocol: Protocol) -> bool {
-        self.taken
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(&(port.get(), protocol))
+    fn in_use(&self, port: u16, protocol: Protocol) -> bool {
+        self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&(port, protocol))
     }
 
     fn pick_free(&self, _protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
@@ -239,7 +236,7 @@ impl sealed::Ports for FakePorts {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .pop_front()
-            .map(|p| HeldPort::new(HostPort::new(p), ())))
+            .map(|p| HeldPort::new(p, ())))
     }
 
     fn reachable<'a>(&'a self, host: &'a str, port: u16, within: Duration) -> BoxFuture<'a, bool> {
@@ -266,7 +263,7 @@ mod tests {
         let within = Duration::from_secs(5);
         // Nothing listening.
         let free = ports.pick_free(Protocol::Tcp).unwrap().unwrap().port;
-        assert!(!ports.reachable("127.0.0.1", free.get(), within).await);
+        assert!(!ports.reachable("127.0.0.1", free, within).await);
         // A proxy's accept: closed at once.
         let closing = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let closing_port = closing.local_addr().unwrap().port();
@@ -303,7 +300,7 @@ mod tests {
         let start = 20_000 + u16::try_from(std::process::id() % 10_000).unwrap();
         (start..32_768)
             .chain(20_000..start)
-            .find(|&p| !LoopbackPorts.in_use(HostPort::new(p), Protocol::Tcp) && !LoopbackPorts.in_use(HostPort::new(p), Protocol::Udp))
+            .find(|&p| !LoopbackPorts.in_use(p, Protocol::Tcp) && !LoopbackPorts.in_use(p, Protocol::Udp))
             .unwrap()
     }
 
@@ -311,15 +308,12 @@ mod tests {
     fn a_held_port_is_in_use_over_its_protocol_only() {
         let tcp_port = port_free_over_both();
         let _tcp = TcpListener::bind(("127.0.0.1", tcp_port)).unwrap();
-        assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
-        assert!(!LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Udp));
+        assert!(LoopbackPorts.in_use(tcp_port, Protocol::Tcp));
+        assert!(!LoopbackPorts.in_use(tcp_port, Protocol::Udp));
         let udp_port = port_free_over_both();
         let _udp = UdpSocket::bind(("127.0.0.1", udp_port)).unwrap();
-        assert!(
-            LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp),
-            "a UDP holder (dnsmasq on 53) is caught"
-        );
-        assert!(!LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Tcp));
+        assert!(LoopbackPorts.in_use(udp_port, Protocol::Udp), "a UDP holder (dnsmasq on 53) is caught");
+        assert!(!LoopbackPorts.in_use(udp_port, Protocol::Tcp));
     }
 
     /// Regression: only the loopback was bound, which macOS allows while another program listens
@@ -330,17 +324,17 @@ mod tests {
         let tcp_port = port_free_over_both();
         assert!(!held_on_all(tcp_port, Protocol::Tcp));
         let _tcp = TcpListener::bind((Ipv4Addr::UNSPECIFIED, tcp_port)).unwrap();
-        assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
+        assert!(LoopbackPorts.in_use(tcp_port, Protocol::Tcp));
         #[cfg(not(windows))]
         assert!(held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} held on 0.0.0.0");
         let udp_port = port_free_over_both();
         let _udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, udp_port)).unwrap();
-        assert!(LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp));
+        assert!(LoopbackPorts.in_use(udp_port, Protocol::Udp));
         #[cfg(not(windows))]
         assert!(held_on_all(udp_port, Protocol::Udp), "{udp_port} held on 0.0.0.0");
         if let Ok(v6) = TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)) {
             let port = v6.local_addr().unwrap().port();
-            assert!(LoopbackPorts.in_use(HostPort::new(port), Protocol::Tcp), "{port} held on ::");
+            assert!(LoopbackPorts.in_use(port, Protocol::Tcp), "{port} held on ::");
         }
     }
 
@@ -386,17 +380,17 @@ mod tests {
         let Ok(v4) = TcpListener::bind((Ipv4Addr::LOCALHOST, held)) else {
             return; // The OS took the IPv4 port too: nothing to pass over.
         };
-        let mut offers = vec![HeldPort::new(HostPort::new(held), v4)].into_iter();
+        let mut offers = vec![HeldPort::new(held, v4)].into_iter();
         let picked = free_on_both(Protocol::Tcp, || {
             Ok(offers.next().unwrap_or_else(|| {
                 let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-                HeldPort::new(HostPort::new(l.local_addr().unwrap().port()), l)
+                HeldPort::new(l.local_addr().unwrap().port(), l)
             }))
         })
         .unwrap()
         .unwrap();
-        assert_ne!(picked.port, HostPort::new(held));
-        assert!(LoopbackPorts.in_use(HostPort::new(held), Protocol::Tcp), "{held} held on ::1");
+        assert_ne!(picked.port, held);
+        assert!(LoopbackPorts.in_use(held, Protocol::Tcp), "{held} held on ::1");
     }
 
     #[tokio::test]
