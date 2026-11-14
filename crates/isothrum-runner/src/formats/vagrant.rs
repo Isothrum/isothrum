@@ -549,6 +549,7 @@ impl FormatDriver for Vagrant {
                 published,
                 kind,
                 address,
+                windows: false,
             });
         }
         let state = run_state(&machines);

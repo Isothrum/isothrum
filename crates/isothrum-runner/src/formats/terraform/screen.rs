@@ -203,6 +203,7 @@ mod tests {
             published: Vec::new(),
             kind: Some(kind.into()),
             address: None,
+            windows: false,
         };
         assert_eq!(offer(&m("proxmox_vm_qemu")).map(|o| o.protocol), Some(ConsoleProtocol::Vnc));
         assert_eq!(offer(&m("aws_instance")), None);

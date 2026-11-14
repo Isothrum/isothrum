@@ -290,6 +290,7 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
             published: Vec::new(),
             kind: Some(r.kind.clone()),
             address: r.vm.address.clone(),
+            windows: r.vm.windows,
         })
         .collect()
 }
