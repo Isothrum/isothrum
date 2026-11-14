@@ -36,6 +36,11 @@ impl ChildGuard {
         self.child.as_ref().map_or(0, Child::id)
     }
 
+    /// Its standard error, to read while it runs (when it was piped), taken once.
+    pub fn take_stderr(&mut self) -> Option<std::process::ChildStderr> {
+        self.child.as_mut()?.stderr.take()
+    }
+
     /// Waits for it to end and gives what it printed (when its output was piped); the guard is
     /// then spent.
     ///

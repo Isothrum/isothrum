@@ -141,11 +141,14 @@ fn a_cancelled_command_waits_for_its_tools_to_stop() {
 #[cfg(unix)]
 #[test]
 fn a_second_signal_ends_the_tools_at_once() {
-    // The tool notes it was asked to stop, and runs on.
-    let up = Up::start(Some(r#"echo asked > "$ISOTHRUM_TEST_STOPPED""#)).unwrap();
+    // The tool ignores the request to stop.
+    let up = Up::start(Some("")).unwrap();
     let started = std::time::Instant::now();
     up.signal("-INT").unwrap();
-    assert!(wait_until(|| up.stopped.exists()), "the first signal reached the tool");
+    // The second signal goes once the command says it waits for the tools: sent as soon as the
+    // tool had the first, two signals that close read as one, and the tools were waited for
+    // their whole 30 s.
+    assert!(wait_until(|| up.said("Waiting for the tools to stop")), "the command took the first signal");
     up.signal("-INT").unwrap();
     up.ended().unwrap().assert_cancelled(130);
     assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
@@ -192,6 +195,10 @@ struct Up {
     _dirs: [tempfile::TempDir; 3],
     /// The command's home folder, environment and locale (not the user's).
     _env: TempHome,
+    /// What the command printed on standard error so far, read as it prints it.
+    stderr: std::sync::Arc<std::sync::Mutex<String>>,
+    /// The thread reading it, done once the command closed it.
+    reading: std::thread::JoinHandle<()>,
 }
 
 #[cfg(unix)]
@@ -223,7 +230,19 @@ impl Up {
         if let Some(on_int) = on_int {
             cmd.env("ISOTHRUM_TEST_ON_INT", on_int);
         }
-        let child = ChildGuard::spawn(&mut cmd)?;
+        let mut child = ChildGuard::spawn(&mut cmd)?;
+        let stderr = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let reading = {
+            let (pipe, said) = (child.take_stderr().ok_or("the command's stderr")?, std::sync::Arc::clone(&stderr));
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                for line in std::io::BufReader::new(pipe).lines().map_while(Result::ok) {
+                    let mut said = said.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    said.push_str(&line);
+                    said.push('\n');
+                }
+            })
+        };
         if !wait_until(|| read_pid(&pidfile).is_some()) {
             return Err("the start never began".into());
         }
@@ -237,7 +256,14 @@ impl Up {
             stopped,
             _dirs: [home, run_dir, bin],
             _env: env,
+            stderr,
+            reading,
         })
+    }
+
+    /// Whether the command printed `text` on standard error yet.
+    fn said(&self, text: &str) -> bool {
+        self.stderr.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(text)
     }
 
     /// Sends the command `signal`, as `kill` names it.
@@ -252,11 +278,13 @@ impl Up {
     /// What the command showed once it ended.
     fn ended(self) -> Outcome<Signalled> {
         let out = self.child.wait_with_output()?;
+        self.reading.join().map_err(|_| "the stderr reader panicked")?;
+        let stderr = self.stderr.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let on_int_wrote = std::fs::read_to_string(&self.stopped).unwrap_or_default();
         let tool = self.tool;
         Ok(Signalled {
             code: out.status.code(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            stderr,
             event: last_event(&out)?,
             tool_stopped: wait_until(|| !alive(tool.id())),
             on_int_wrote,
