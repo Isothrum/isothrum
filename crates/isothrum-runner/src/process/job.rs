@@ -204,17 +204,7 @@ impl Attributes {
         #[expect(unsafe_code, reason = "UpdateProcThreadAttribute on the list owned here")]
         // SAFETY: `list` was initialized by `new`; `value` points to `value.len()` handles, which
         // the caller keeps alive until the process is created.
-        let set = unsafe {
-            UpdateProcThreadAttribute(
-                list,
-                0,
-                attribute,
-                Some(value.as_ptr().cast()),
-                std::mem::size_of_val(value),
-                None,
-                None,
-            )
-        };
+        let set = unsafe { UpdateProcThreadAttribute(list, 0, attribute, Some(value.as_ptr().cast()), std::mem::size_of_val(value), None, None) };
         set.map_err(io::Error::from)
     }
 }
