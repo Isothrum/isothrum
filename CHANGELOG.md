@@ -60,6 +60,9 @@ plus its WASM build. It executes what Isoloom generates; the apps that embed it 
 
 ### Fixed
 
+- **On Windows, a tool cut short gets Ctrl-C before it is ended (#132).** It was ended at once,
+  so a cancelled `terraform apply` couldn't save its state; it now gets Ctrl-C on a console of its
+  own (Ruby and Python see SIGINT), and its job is ended after the grace period, as on Unix.
 - **A missing working folder no longer reads as a missing tool (#124).** A step whose folder the
   lab doesn't have failed with "`terraform` isn't installed or isn't on PATH"; it now fails with
   an `io` error naming the folder.
