@@ -250,6 +250,10 @@ async fn end_entry(path: &Path) -> Option<u32> {
 
 /// Removes the container `name` a killed operation's tool ran in (`docker rm -f`); one already
 /// gone is traced only.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own clean-up of what a killed operation left: it can't go through the runner it cleans up after"
+)]
 async fn remove_container(name: &str) {
     let mut cmd = tokio::process::Command::new("docker");
     cmd.args(["rm", "-f", name])
@@ -313,6 +317,10 @@ async fn os_start(pid: u32) -> Option<Start> {
 /// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
 /// stored (`lstart`, in UTC and the C locale's words).
 #[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
 async fn os_started_at(pid: u32) -> Option<u64> {
     let out = tokio::process::Command::new("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
@@ -328,6 +336,10 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 
 /// When process `pid` started, as Windows stored its creation time (seconds since the epoch).
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
 async fn os_started_at(pid: u32) -> Option<u64> {
     let script = format!("[DateTimeOffset]::new((Get-Process -Id {pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()");
     let mut cmd = tokio::process::Command::new("powershell");
@@ -379,6 +391,7 @@ async fn end_group(pid: u32) {
 
 /// Ends process `pid` and its tree (`taskkill /T /F`): Windows has no signal to ask it first.
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own ending of a group a killed operation left")]
 async fn end_group(pid: u32) {
     let mut cmd = tokio::process::Command::new("taskkill");
     cmd.args(["/PID", &pid.to_string(), "/T", "/F"]).stdin(std::process::Stdio::null());

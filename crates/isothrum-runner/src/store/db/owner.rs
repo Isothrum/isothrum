@@ -80,6 +80,10 @@ fn pid_alive(pid: u32) -> bool {
 /// Windows: whether `tasklist` lists the pid (a check this rare needs no FFI). A listing that
 /// can't be read says alive: the lease's expiry decides then.
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "whether a store owner's process lives, read where the store has no process runner"
+)]
 fn pid_alive(pid: u32) -> bool {
     let filter = format!("PID eq {pid}");
     match std::process::Command::new("tasklist").args(["/FI", &filter, "/FO", "CSV", "/NH"]).output() {

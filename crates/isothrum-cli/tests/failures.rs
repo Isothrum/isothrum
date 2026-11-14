@@ -1,6 +1,10 @@
 //! How the `isothrum` binary fails, as a CI job sees it: its exit code, and with `--json` an
 //! `error` event on standard output for every failure, one before any operation began included,
 //! and the tools of a cancelled command stopped with it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
+)]
 
 use std::path::Path;
 use std::process::{Command, Output};

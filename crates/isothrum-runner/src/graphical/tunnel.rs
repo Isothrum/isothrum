@@ -126,6 +126,10 @@ fn started(machine: &Machine, spec: &ProcessSpec, local: SocketAddr) -> Result<T
 
 /// Starts `spec` as a tunnel listening at `local`, stopped when the tunnel is dropped; its
 /// standard error kept for [`Tunnel::why_closed`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the SSH tunnel is a long-lived child its `Tunnel` owns and stops, not a call the process module waits on"
+)]
 pub(super) fn start(spec: &ProcessSpec, local: SocketAddr) -> std::io::Result<Tunnel> {
     let mut command = tokio::process::Command::new(&spec.program);
     command

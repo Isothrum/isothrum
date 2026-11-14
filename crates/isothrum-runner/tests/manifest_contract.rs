@@ -1,6 +1,10 @@
 //! The contract with Isoloom: every run-manifest fixture Isoloom ships (`isoloom-manifest`'s
 //! `fixtures/`, found through Cargo wherever that crate lives) loads in the runner, and every
 //! invalid one is refused with the code its `.error.json` names.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
+)]
 
 use std::error::Error as _;
 use std::path::{Path, PathBuf};

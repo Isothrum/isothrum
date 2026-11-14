@@ -171,6 +171,7 @@ impl SystemProcesses {
     }
 
     /// The command for `spec`: its own group or job, its output piped, headless.
+    #[expect(clippy::disallowed_methods, reason = "the process module's spawner: every tool call of the runner starts here")]
     fn command(&self, spec: &ProcessSpec) -> std::io::Result<CommandWrap> {
         let stdin = match &spec.stdin {
             Some(path) => Stdio::from(std::fs::File::open(path)?),
@@ -268,6 +269,7 @@ fn kill_tree(pid: u32) {
 
 /// Kills process `pid` and its tree (`taskkill /T /F`), waiting for taskkill.
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own ending of a process tree")]
 fn kill_tree(pid: u32) {
     use std::os::windows::process::CommandExt as _;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;

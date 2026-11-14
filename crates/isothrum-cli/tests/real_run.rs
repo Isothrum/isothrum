@@ -2,6 +2,10 @@
 //! run Isoloom generated in `$ISOTHRUM_REAL_RUN_DIR` goes up, answers on its entry, passes its
 //! checks, parks, resumes on the same address, and goes, leaving nothing. Every event is kept in
 //! `$ISOTHRUM_REAL_EVENTS` when it is set.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
+)]
 
 use std::error::Error;
 use std::io::{Read, Write};

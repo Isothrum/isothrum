@@ -19,3 +19,14 @@ doc-valid-idents = [
     "OrbStack", "PCIe", "SeaBIOS", "SELinux", "StefanScherer", "VirtIO", "VirtualBox", "VMware", "VNet",
     "WinFsp", "WinNAT", "WinRM", "..",
 ]
+
+# A process starts in an adapter only: the runner's process module (`ProcessRunner`, which every
+# tool call goes through, so it is recorded, grouped, timed and killable) and the few modules
+# that drive a tool of their own. Each such site carries `#[expect(clippy::disallowed_methods,
+# reason = "…")]` naming why it can't go through the process module; tests and the xtask, which
+# start tools to stand in for them or to drive them, say so once at their crate's root.
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "a process starts through the runner's process module (`ProcessRunner`): an adapter that can't says why with an #[expect]" },
+    { path = "tokio::process::Command::new", reason = "a process starts through the runner's process module (`ProcessRunner`): an adapter that can't says why with an #[expect]" },
+    { path = "process_wrap::tokio::CommandWrap::with_new", reason = "a process starts through the runner's process module (`ProcessRunner`): an adapter that can't says why with an #[expect]" },
+]

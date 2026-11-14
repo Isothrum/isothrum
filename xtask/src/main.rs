@@ -21,8 +21,13 @@
 //!
 //! CONTRIBUTING lists them with the other gates. Each task is a module; `process` runs the tools they drive, `repo` finds the checkout.
 //! `workspace` holds the tests that keep the workspace's dependencies one-way and its manifests inheriting the workspace's;
-//! `ci_scripts` those of the workflows' scripts.
+//! `ci_scripts` those of the workflows' scripts; `guardrails` those that keep the products apart, tool
+//! output and shell scripts in their adapters, and every driver capability witnessed by a test.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tasks drive tools (cargo, wasm-pack, the isothrum binary): that is what they are for"
+)]
 #![expect(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -32,6 +37,8 @@
 #[cfg(all(test, unix))]
 mod ci_scripts;
 mod fuzz;
+#[cfg(test)]
+mod guardrails;
 mod hack;
 mod mutants;
 mod process;

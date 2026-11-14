@@ -161,6 +161,10 @@ const HELPER_LIMIT: Duration = Duration::from_secs(20);
 /// A Ctrl-C on the console of the tool `child` (see the module's documentation); whether it was
 /// sent.
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own interrupt of a child it started (a console-control helper)"
+)]
 fn interrupt(child: &dyn ChildWrapper) -> bool {
     use std::os::windows::process::CommandExt as _;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;
@@ -241,6 +245,7 @@ pub(super) struct Removal {
 impl Removal {
     /// Removes the container, waiting for it. One its client removed already (it exited when
     /// asked), or no engine answering, is traced only.
+    #[expect(clippy::disallowed_methods, reason = "the process module's own stopping helper, started by the runner it serves")]
     pub(super) fn run(&self) {
         let mut cmd = std::process::Command::new(&self.program);
         cmd.args(["rm", "-f", &self.name])

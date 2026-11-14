@@ -133,6 +133,7 @@ pub(super) async fn end(entry: &Entry) -> Vec<u32> {
 /// The processes `parent`'s id started that still run (Windows keeps a process's parent id after
 /// the parent is gone).
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own listing of a process's children")]
 async fn children_of(parent: u32) -> Vec<Child> {
     let script = format!(
         "Get-CimInstance Win32_Process -Filter 'ParentProcessId={parent}' | ForEach-Object {{ '{{0}} {{1}} {{2}}' -f $_.ProcessId, ([DateTimeOffset]$_.CreationDate).ToUnixTimeSeconds(), $_.Name }}"

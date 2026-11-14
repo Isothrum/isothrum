@@ -10,7 +10,8 @@
 //!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
 //! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
 //! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.
-//! - [`docker`]: the networks `docker inspect` says a container is on.
+//! - [`docker`]: the networks `docker inspect` says a container is on. [`prlctl`]: where a
+//!   Parallels VM's bundle is.
 //! - [`download`]: a failed download's network error that passes, as Docker, Vagrant and curl
 //!   print it. [`sign_in`]: a server refusing the run's sign-in, in each server tool's words.
 //! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
@@ -23,6 +24,7 @@
 pub(crate) mod docker;
 pub(crate) mod download;
 pub(crate) mod leftover;
+pub(crate) mod prlctl;
 pub(crate) mod qemu;
 pub(crate) mod ruby;
 pub(crate) mod sign_in;
