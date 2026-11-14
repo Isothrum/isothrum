@@ -195,13 +195,34 @@ async fn request(cx: &Cx<'_>, step: &str, (url, method): (&str, Method), insecur
         text.push('\n');
     }
     let config = Transient::write_unique(cx.state_dir(), CONFIG, text.as_bytes(), "a Proxmox API request's curl config")?;
-    let mut args = vec!["--silent", "--show-error", "--fail-with-body", "--max-time", "25", "--config", "-"];
+    // The HTTP status on a line of its own after the body: `--fail-with-body` would say it, but
+    // only from curl 7.76 on, and an older one refuses the whole command line.
+    let mut args = vec!["--silent", "--show-error", "--write-out", STATUS_LINE, "--max-time", "25", "--config", "-"];
     if insecure {
         args.push("--insecure");
     }
     let mut spec = ProcessSpec::new("curl", args);
     spec.stdin = Some(config.path().to_path_buf());
-    config.remove_after(call(cx, step, &spec, LIMIT, Echo::Quiet).await)
+    config.remove_after(call(cx, step, &spec, LIMIT, Echo::Quiet).await.map(http_answer))
+}
+
+/// What `--write-out` prints after the body: the HTTP status on a line of its own.
+const STATUS_LINE: &str = "\\n%{http_code}";
+
+/// What `curl` answered, the HTTP status line [`STATUS_LINE`] added taken off its output: an
+/// answer of 400 or more fails as `--fail-with-body` fails it (exit 22, `The requested URL
+/// returned error: <status>` on standard error, its body kept on standard output), so a refused
+/// sign-in reads as one.
+fn http_answer(mut out: crate::process::Captured) -> crate::process::Captured {
+    let status = out.stdout.pop().and_then(|line| line.trim().parse::<u16>().ok());
+    match status {
+        Some(code) if code >= 400 && out.success() => {
+            let mut stderr = out.stderr_tail.clone();
+            stderr.push(format!("curl: (22) The requested URL returned error: {code}"));
+            crate::process::Captured::new("curl", crate::process::Exit::new(Some(22)), out.stdout, stderr)
+        }
+        _ => out,
+    }
 }
 
 /// Where each VM of the run with Proxmox's console stands on its server, by machine name, as the
@@ -394,6 +415,30 @@ mod tests {
         assert_eq!(quoted(r#"a"b\c"#), r#""a\"b\\c""#);
         assert_eq!(quoted("x\ny"), "\"x\\ny\"", "a new line can't start another option");
         assert!(plain("pve-1") && !plain("pve/../x") && !plain(""));
+    }
+
+    fn curl(code: i32, stdout: &[&str]) -> crate::process::Captured {
+        let lines = stdout.iter().map(|l| (*l).to_owned()).collect();
+        crate::process::Captured::new("curl", crate::process::Exit::new(Some(code)), lines, Vec::new())
+    }
+
+    /// Regression (#133): `--fail-with-body` exists only from curl 7.76 on; the status is read
+    /// from `--write-out` instead, and an error status fails the request as it did.
+    #[test]
+    fn the_http_status_is_read_after_the_body_on_any_curl() {
+        assert_eq!(STATUS_LINE, "\\n%{http_code}", "curl writes the line break itself");
+        let ok = http_answer(curl(0, &[r#"{"data":{"port":"5900"}}"#, "200"]));
+        assert!(ok.success());
+        assert_eq!(ok.stdout, [r#"{"data":{"port":"5900"}}"#]);
+        let refused = http_answer(curl(0, &[r#"{"data":null}"#, "401"]));
+        assert!(!refused.success());
+        assert_eq!(refused.stdout, [r#"{"data":null}"#], "the body is kept");
+        assert!(crate::tool_output::sign_in::refused(&refused.reason()), "{}", refused.reason());
+        let failed = http_answer(curl(0, &["", "500"]));
+        assert_eq!(failed.reason(), "curl: (22) The requested URL returned error: 500 (exited with code 22)");
+        // curl itself failing (no server) is left as it said.
+        let unreachable = http_answer(curl(7, &["000"]));
+        assert_eq!(unreachable.exit.code, Some(7));
     }
 
     #[test]
