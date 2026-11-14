@@ -18,6 +18,8 @@
 
 use std::path::Path;
 
+use super::protocol::{self, DONE, ENDED, READY};
+
 /// `s` as a PowerShell single-quoted string; the typographic single quotes PowerShell also takes
 /// as quotes are doubled too.
 pub(super) fn ps_quote(s: &str) -> String {
@@ -42,35 +44,34 @@ pub(super) fn passes_intact(arg: &str) -> bool {
 /// The broker for the session in `dir`, taking only requests that carry `token`, ended with the
 /// runner's process `runner`: its settings, its watcher, the job a request runs in, and its loop.
 pub(super) fn broker(dir: &Path, token: &str, runner: u32) -> String {
-    let dir = ps_quote(&dir.display().to_string());
-    let token = ps_quote(token);
+    let [dir, token, done, ended] = [&*dir.display().to_string(), token, DONE, ENDED].map(ps_quote);
     let preamble = format!(
         "$ErrorActionPreference = 'Continue'\n\
          $ProgressPreference = 'SilentlyContinue'\n\
          try {{ [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false }} catch {{}}\n\
          $d = {dir}\n\
          $token = {token}\n\
-         function Write-Ended($why) {{ if (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{ try {{ [System.IO.File]::WriteAllText((Join-Path $d 'ended'), $why) }} catch {{}} }} }}\n\
+         function Write-Ended($why) {{ if (-not (Test-Path -LiteralPath (Join-Path $d {done}))) {{ try {{ [System.IO.File]::WriteAllText((Join-Path $d {ended}), $why) }} catch {{}} }} }}\n\
          function Remove-Quietly($paths) {{ foreach ($p in $paths) {{ Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }} }}\n\
-         function Test-Over {{ (-not (Test-Path -LiteralPath $d)) -or (Test-Path -LiteralPath (Join-Path $d 'done')) }}\n"
+         function Test-Over {{ (-not (Test-Path -LiteralPath $d)) -or (Test-Path -LiteralPath (Join-Path $d {done})) }}\n"
     );
     let watcher = format!(
         "$null = Start-Job -ArgumentList $PID, {runner}, $d -ScriptBlock {{\n\
          \x20 param($main, $runnerId, $d)\n\
          \x20 $runner = Get-Process -Id $runnerId -ErrorAction SilentlyContinue\n\
-         \x20 while (-not (Test-Path -LiteralPath (Join-Path $d 'done'))) {{\n\
+         \x20 while (-not (Test-Path -LiteralPath (Join-Path $d {done}))) {{\n\
          \x20   $why = $null\n\
          \x20   if (-not (Test-Path -LiteralPath $d)) {{ $why = 'its folder is gone' }}\n\
          \x20   elseif ($null -eq $runner -or $runner.HasExited) {{ $why = 'the runner is gone' }}\n\
          \x20   if ($null -ne $why) {{\n\
-         \x20     try {{ [System.IO.File]::WriteAllText((Join-Path $d 'ended'), $why) }} catch {{}}\n\
+         \x20     try {{ [System.IO.File]::WriteAllText((Join-Path $d {ended}), $why) }} catch {{}}\n\
          \x20     & taskkill.exe /T /F /PID $main | Out-Null; return\n\
          \x20   }}\n\
          \x20   Start-Sleep -Milliseconds 500\n\
          \x20 }}\n\
          }}\n"
     );
-    [preamble.as_str(), watcher.as_str(), REQUEST_JOB, REQUEST_LOOP].concat()
+    [preamble.as_str(), watcher.as_str(), REQUEST_JOB, &request_loop()].concat()
 }
 
 /// The job a request runs in, a process of its own: its id first (what a cancel ends, its tree),
@@ -89,34 +90,57 @@ const REQUEST_JOB: &str = "$run = {\n\
          }\n";
 
 /// The broker's loop over the session's requests, in turn: each skipped when its `cancel-<n>`
-/// came first, else run in a [`REQUEST_JOB`] watched for its `cancel-<n>` (or the session's
+/// came first, else run in a [`REQUEST_JOB`] ([`WATCH_REQUEST`]) watched for its `cancel-<n>` (or the session's
 /// end), answered in `exit-<n>` unless it was cancelled. A job whose tree was ended is let go,
 /// never stopped or removed: PowerShell waits a minute on a job whose process is gone, and the
 /// next request would wait with it.
-const REQUEST_LOOP: &str = "function Read-Once($path) { $text = [System.IO.File]::ReadAllText($path); Remove-Item -LiteralPath $path -Force; $text | ConvertFrom-Json }\n\
-         [System.IO.File]::WriteAllText((Join-Path $d 'ready'), '')\n\
+fn request_loop() -> String {
+    let ready = ps_quote(READY);
+    let [request, variables, cancel, output, exit] =
+        [protocol::request, protocol::variables, protocol::cancel, protocol::output, protocol::exit].map(|name| name("$n"));
+    format!(
+        "function Read-Once($path) {{ $text = [System.IO.File]::ReadAllText($path); Remove-Item -LiteralPath $path -Force; $text | ConvertFrom-Json }}\n\
+         [System.IO.File]::WriteAllText((Join-Path $d {ready}), '')\n\
          $n = 1\n\
-         try {\n\
-         while (-not (Test-Over)) {\n\
-         \x20 $req = Join-Path $d \"req-$n.json\"\n\
-         \x20 $envFile = Join-Path $d \"env-$n.json\"\n\
-         \x20 $cancel = Join-Path $d \"cancel-$n\"\n\
-         \x20 if (Test-Path -LiteralPath $cancel) { Remove-Quietly @($req, $envFile, $cancel); $n++; continue }\n\
-         \x20 if (-not (Test-Path -LiteralPath $req -PathType Leaf)) { Start-Sleep -Milliseconds 200; continue }\n\
+         try {{\n\
+         while (-not (Test-Over)) {{\n\
+         \x20 $req = Join-Path $d \"{request}\"\n\
+         \x20 $envFile = Join-Path $d \"{variables}\"\n\
+         \x20 $cancel = Join-Path $d \"{cancel}\"\n\
+         \x20 if (Test-Path -LiteralPath $cancel) {{ Remove-Quietly @($req, $envFile, $cancel); $n++; continue }}\n\
+         \x20 if (-not (Test-Path -LiteralPath $req -PathType Leaf)) {{ Start-Sleep -Milliseconds 200; continue }}\n\
          \x20 $r = Read-Once $req\n\
-         \x20 if ($r.session -ne $token -or $r.seq -ne $n) { continue }\n\
+         \x20 if ($r.session -ne $token -or $r.seq -ne $n) {{ continue }}\n\
          \x20 $e = $null\n\
-         \x20 if (Test-Path -LiteralPath $envFile) { $e = Read-Once $envFile }\n\
-         \x20 $out = Join-Path $d \"out-$n.log\"\n\
+         \x20 if (Test-Path -LiteralPath $envFile) {{ $e = Read-Once $envFile }}\n\
+         \x20 $out = Join-Path $d \"{output}\"\n\
          \x20 $f = [System.IO.File]::Open($out, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)\n\
          \x20 $log = New-Object System.IO.StreamWriter -ArgumentList $f, (New-Object System.Text.UTF8Encoding -ArgumentList $false)\n\
          \x20 $log.AutoFlush = $true\n\
          \x20 $rc = 1\n\
          \x20 $cancelled = $false\n\
-         \x20 if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n) {\n\
+         \x20 if ($null -eq $e -or $e.session -ne $token -or $e.seq -ne $n) {{\n\
          \x20   $log.WriteLine('isothrum: refused: the request came without its own variables')\n\
-         \x20 } else {\n\
-         \x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e\n\
+         \x20 }} else {{\n\
+         {WATCH_REQUEST}\
+         \x20 }}\n\
+         \x20 $log.Close()\n\
+         \x20 if ($cancelled) {{\n\
+         \x20   Remove-Quietly @($out, $cancel)\n\
+         \x20 }} else {{\n\
+         \x20   $exit = Join-Path $d \"{exit}\"\n\
+         \x20   [System.IO.File]::WriteAllText(\"$exit.tmp\", [string]$rc)\n\
+         \x20   Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force\n\
+         \x20 }}\n\
+         \x20 $n++\n\
+         }}\n\
+         }} finally {{ Write-Ended 'the elevated broker stopped' }}\n"
+    )
+}
+
+/// A request's job, watched: its output logged, its id and exit code read, and its tree ended
+/// when its `cancel-<n>` (or the session's end) comes first.
+const WATCH_REQUEST: &str = "\x20   $job = Start-Job -ScriptBlock $run -ArgumentList $r, $e\n\
          \x20   $child = $null\n\
          \x20   while ($true) {\n\
          \x20     foreach ($o in @(Receive-Job -Job $job)) {\n\
@@ -134,19 +158,7 @@ const REQUEST_LOOP: &str = "function Read-Once($path) { $text = [System.IO.File]
          \x20     }\n\
          \x20     Start-Sleep -Milliseconds 100\n\
          \x20   }\n\
-         \x20   if ($null -ne $job) { Remove-Job -Job $job -Force }\n\
-         \x20 }\n\
-         \x20 $log.Close()\n\
-         \x20 if ($cancelled) {\n\
-         \x20   Remove-Quietly @($out, $cancel)\n\
-         \x20 } else {\n\
-         \x20   $exit = Join-Path $d \"exit-$n\"\n\
-         \x20   [System.IO.File]::WriteAllText(\"$exit.tmp\", [string]$rc)\n\
-         \x20   Move-Item -LiteralPath \"$exit.tmp\" -Destination $exit -Force\n\
-         \x20 }\n\
-         \x20 $n++\n\
-         }\n\
-         } finally { Write-Ended 'the elevated broker stopped' }\n";
+         \x20   if ($null -ne $job) { Remove-Job -Job $job -Force }\n";
 
 /// The arguments of `powershell` running `script`, encoded (UTF-16LE in base64), so no shell
 /// reads anything into it.
@@ -267,6 +279,23 @@ mod tests {
         assert!(s.contains("if ($cancelled) {\n    Remove-Quietly @($out, $cancel)"), "{s}");
         // The watcher no longer ends the session on a request's cancel.
         assert!(!s.contains("'cancel'") && !s.contains("the runner cancelled it"), "{s}");
+    }
+
+    /// The broker is unverified on a real Windows beyond what it is now: any change to the
+    /// PowerShell it generates must be deliberate. `broker.snapshot.ps1` is its text for fixed
+    /// inputs, compared byte for byte; `ISOTHRUM_WRITE_BROKER=1` rewrites it after such a change.
+    #[test]
+    fn the_broker_is_its_snapshot_byte_for_byte() {
+        let s = broker(Path::new("C:\\Users\\ada\\runs\\r\\elevated\\0f1e"), "0f1e2d", 4242);
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/process/elevated/broker.snapshot.ps1");
+        if std::env::var_os("ISOTHRUM_WRITE_BROKER").is_some() {
+            std::fs::write(&file, &s).unwrap();
+        }
+        let snapshot = std::fs::read_to_string(&file).unwrap_or_default();
+        assert!(
+            s == snapshot,
+            "the broker's PowerShell changed: review it, then `ISOTHRUM_WRITE_BROKER=1 cargo test -p isothrum-runner broker_is_its_snapshot`"
+        );
     }
 
     #[test]
