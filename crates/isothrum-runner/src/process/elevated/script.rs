@@ -269,6 +269,23 @@ mod tests {
         assert!(!s.contains("'cancel'") && !s.contains("the runner cancelled it"), "{s}");
     }
 
+    /// The broker is unverified on a real Windows beyond what it is now: any change to the
+    /// PowerShell it generates must be deliberate. `broker.snapshot.ps1` is its text for fixed
+    /// inputs, compared byte for byte; `ISOTHRUM_WRITE_BROKER=1` rewrites it after such a change.
+    #[test]
+    fn the_broker_is_its_snapshot_byte_for_byte() {
+        let s = broker(Path::new("C:\\Users\\ada\\runs\\r\\elevated\\0f1e"), "0f1e2d", 4242);
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/process/elevated/broker.snapshot.ps1");
+        if std::env::var_os("ISOTHRUM_WRITE_BROKER").is_some() {
+            std::fs::write(&file, &s).unwrap();
+        }
+        let snapshot = std::fs::read_to_string(&file).unwrap_or_default();
+        assert!(
+            s == snapshot,
+            "the broker's PowerShell changed: review it, then `ISOTHRUM_WRITE_BROKER=1 cargo test -p isothrum-runner broker_is_its_snapshot`"
+        );
+    }
+
     #[test]
     fn the_script_travels_encoded() {
         let args = encoded("echo 1");
