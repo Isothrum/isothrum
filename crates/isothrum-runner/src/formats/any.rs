@@ -7,6 +7,8 @@ use super::vagrant::Vagrant;
 use super::{Change, FormatDriver, Found, Ran, Seen, ToolCx};
 use crate::Result;
 use crate::console::ShellCommand;
+use crate::formats::SeenMachine;
+use crate::graphical::{Console, ConsoleOffer, NativeApp, NativeConsole};
 use crate::project::Format;
 use crate::project::platform::Provider;
 use crate::state::{Park, RunState};
@@ -112,6 +114,22 @@ impl AnyFormat {
 
     pub(crate) async fn found(&self, cx: &ToolCx<'_>) -> Result<Vec<Found>> {
         dispatch!(self, d => d.found(cx).await)
+    }
+
+    pub(crate) async fn graphical(&self, cx: &ToolCx<'_>, machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
+        dispatch!(self, d => d.graphical(cx, machine).await)
+    }
+
+    pub(crate) async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
+        dispatch!(self, d => d.reach_graphical(cx, machine).await)
+    }
+
+    pub(crate) fn native_app(self, cx: &ToolCx<'_>, seen: &Seen) -> Option<NativeApp> {
+        dispatch!(self, d => d.native_app(cx, seen))
+    }
+
+    pub(crate) async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<NativeConsole> {
+        dispatch!(self, d => d.native_console(cx, machine).await)
     }
 
     pub(crate) async fn destroy_by_id(&self, cx: &ToolCx<'_>, key: &str, kind: ResourceKind, native_id: &str) -> Result<()> {

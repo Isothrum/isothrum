@@ -420,6 +420,18 @@ pub(crate) struct Resource {
     pub(crate) id: Option<String>,
     /// A create or a provisioner of it failed: the next apply makes it again.
     pub(crate) tainted: bool,
+    /// What its attributes say of the VM it is, when it is one.
+    pub(crate) vm: VmFacts,
+}
+
+/// What a VM resource's attributes say of it, read by the names the providers give them; each
+/// none where its provider writes no such attribute.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct VmFacts {
+    /// The Proxmox VE node it runs on (`node_name`, `target_node`).
+    pub(crate) node: Option<String>,
+    /// Its id on its Proxmox VE cluster (`vm_id`, `vmid`).
+    pub(crate) vm_id: Option<String>,
 }
 
 /// What `show -json` says of the state: its managed resources (what the run made, what may cost)
@@ -459,15 +471,47 @@ struct ResourceDoc {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
-    values: Option<IdOnly>,
+    values: Option<Attributes>,
     #[serde(default)]
     tainted: bool,
 }
 
+/// The attributes of a resource the runner reads: its id, and what a VM's say of it.
 #[derive(Deserialize)]
-struct IdOnly {
+struct Attributes {
     #[serde(default)]
     id: Option<serde_json::Value>,
+    /// bpg/proxmox's node.
+    #[serde(default)]
+    node_name: Option<serde_json::Value>,
+    /// Telmate/proxmox's node.
+    #[serde(default)]
+    target_node: Option<serde_json::Value>,
+    /// bpg/proxmox's VM id.
+    #[serde(default)]
+    vm_id: Option<serde_json::Value>,
+    /// Telmate/proxmox's VM id.
+    #[serde(default)]
+    vmid: Option<serde_json::Value>,
+}
+
+impl Attributes {
+    /// What they say of the VM.
+    fn vm(&self) -> VmFacts {
+        VmFacts {
+            node: scalar(self.node_name.as_ref()).or_else(|| scalar(self.target_node.as_ref())),
+            vm_id: scalar(self.vm_id.as_ref()).or_else(|| scalar(self.vmid.as_ref())),
+        }
+    }
+}
+
+/// An attribute that is a string or a number, as text; none for anything else, or an empty one.
+fn scalar(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
 }
 
 /// `show -json`'s state, read: an empty state (no `values`) has nothing; a mode other than
@@ -480,16 +524,18 @@ pub(crate) fn shown(json: &str) -> Result<Shown, String> {
         for r in module.resources {
             match r.mode.as_str() {
                 "managed" => {
-                    let id = r.values.and_then(|v| v.id).and_then(|id| match id {
-                        serde_json::Value::String(s) => Some(s),
+                    let id = r.values.as_ref().and_then(|v| match v.id.as_ref()? {
+                        serde_json::Value::String(s) => Some(s.clone()),
                         serde_json::Value::Number(n) => Some(n.to_string()),
                         _ => None,
                     });
+                    let vm = r.values.as_ref().map(Attributes::vm).unwrap_or_default();
                     out.managed.push(Resource {
                         address: r.address,
                         kind: r.kind,
                         id,
                         tainted: r.tainted,
+                        vm,
                     });
                 }
                 "data" => out.data.push(r.address),
@@ -653,12 +699,14 @@ mod tests {
                     kind: "aws_security_group".into(),
                     id: Some("sg-0a1b2c3d".into()),
                     tainted: false,
+                    vm: VmFacts::default(),
                 },
                 Resource {
                     address: "module.web.aws_instance.vm".into(),
                     kind: "aws_instance".into(),
                     id: Some("i-0123456789abcdef0".into()),
                     tainted: false,
+                    vm: VmFacts::default(),
                 },
             ]
         );
@@ -688,6 +736,20 @@ mod tests {
         assert!(read.managed.iter().all(|r| r.id.is_some() && !r.tainted));
         let tainted = shown(include_str!("../tool_output/fixtures/terraform/1.16-show-tainted.json")).unwrap();
         assert!(tainted.managed[0].tainted);
+    }
+
+    /// A Proxmox VM as each provider's state writes it: bpg's `node_name` and `vm_id`, Telmate's
+    /// `target_node` and `vmid`.
+    #[test]
+    fn a_proxmox_vm_says_its_node_and_id() {
+        let json = r#"{"values":{"root_module":{"resources":[
+            {"address":"proxmox_virtual_environment_vm.web","mode":"managed","type":"proxmox_virtual_environment_vm","values":{"id":"101","node_name":"pve","vm_id":101}},
+            {"address":"proxmox_vm_qemu.db","mode":"managed","type":"proxmox_vm_qemu","values":{"id":"pve2/qemu/102","target_node":"pve2","vmid":"102"}},
+            {"address":"terraform_data.x","mode":"managed","type":"terraform_data","values":{"id":"x","node_name":""}}
+        ]}}}"#;
+        let read = shown(json).unwrap();
+        let facts: Vec<(Option<&str>, Option<&str>)> = read.managed.iter().map(|r| (r.vm.node.as_deref(), r.vm.vm_id.as_deref())).collect();
+        assert_eq!(facts, [(Some("pve"), Some("101")), (Some("pve2"), Some("102")), (None, None)]);
     }
 
     #[tokio::test]

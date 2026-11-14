@@ -26,6 +26,7 @@ use crate::Result;
 use crate::cli::{Call, CliError};
 use crate::console::ShellCommand;
 use crate::error::{Error, TimedOut};
+use crate::graphical::{Console, ConsoleOffer, NativeApp, NativeConsole};
 use crate::events::Stream;
 use crate::events::WarningCode;
 use crate::name::RunName;
@@ -53,6 +54,9 @@ pub(crate) struct ToolCx<'a> {
     /// Every variable the tool gets: the run's inputs ([`crate::project::inputs`]), the run's
     /// key and the operation's id.
     pub(crate) env: Vec<(String, String)>,
+    /// The runner's own environment, which the tools inherit (`LIBVIRT_DEFAULT_URI`,
+    /// `VAGRANT_HOME`).
+    pub(crate) host_env: &'a crate::host_env::HostEnv,
     /// What runs the tool.
     pub(crate) processes: &'a dyn ProcessRunner,
     /// Where each line the tool prints goes (the operation's step output events).
@@ -73,6 +77,18 @@ impl ToolCx<'_> {
             limit,
             sink: self.sink,
         }
+    }
+
+    /// Variable `name` as the tool sees it: the run's own, else the runner's environment's; none
+    /// when unset or empty.
+    pub(crate) fn var(&self, name: &str) -> Option<String> {
+        self.env
+            .iter()
+            .rev()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.clone())
+            .or_else(|| self.host_env.text(name).map(str::to_owned))
+            .filter(|v| !v.is_empty())
     }
 }
 
@@ -123,6 +139,9 @@ pub(crate) struct SeenMachine {
     pub(crate) state: MachineState,
     /// Where its published ports answer on the host.
     pub(crate) published: Vec<SeenPort>,
+    /// What its tool says it is, when it says: Vagrant's provider (`virtualbox`), a module's
+    /// resource type (`proxmox_virtual_environment_vm`). What a driver tells its consoles by.
+    pub(crate) kind: Option<String>,
 }
 
 /// One published port of a machine, as its tool reports it.
@@ -237,4 +256,24 @@ pub(crate) trait FormatDriver {
     /// Removes the resource recorded under `key` ([`Found::key`]), of `kind`, whose tool id is
     /// `native_id` (a recovery's, an orphan's). Nothing there any more is fine.
     async fn destroy_by_id(&self, cx: &ToolCx<'_>, key: &str, kind: ResourceKind, native_id: &str) -> Result<()>;
+    /// What a status says of `machine`'s graphical console, as [`FormatDriver::observe`] saw it:
+    /// its protocol, or `none` and why, and, when it runs, why it can't be shown now. `None` where
+    /// the format has no screen to speak of (a container): the default.
+    async fn graphical(&self, _cx: &ToolCx<'_>, _machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
+        Ok(None)
+    }
+    /// Reaches running `machine`'s graphical console, where its hypervisor says it is. The core
+    /// then refuses one off this computer's loopback, and one that doesn't answer there.
+    async fn reach_graphical(&self, _cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
+        Err(crate::graphical::no_console(machine, "its format has no graphical console"))
+    }
+    /// The hypervisor's own app the run's machines open in (`seen`: what exists of them); none
+    /// where there is none: the default.
+    fn native_app(&self, _cx: &ToolCx<'_>, _seen: &Seen) -> Option<NativeApp> {
+        None
+    }
+    /// What opens running `machine` in its hypervisor's own app.
+    async fn native_console(&self, _cx: &ToolCx<'_>, machine: &str) -> Result<NativeConsole> {
+        Err(crate::graphical::native::no_app(machine))
+    }
 }

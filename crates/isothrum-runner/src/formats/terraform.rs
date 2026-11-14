@@ -24,8 +24,10 @@
 //!   values are masked in the lines and errors the driver hands on.
 //! - Parking, resuming, provisioning, attaching, retiring, running a command and a console are
 //!   refused: a module's machines are made and removed by its apply and destroy only.
+//! - A Proxmox VE VM's screen is reached through the server's API ([`screen`]).
 
 mod machines;
+mod screen;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -286,6 +288,7 @@ fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
             name: machines::machine_name(&r.address, &r.kind),
             state: if r.tainted { MachineState::Unhealthy } else { MachineState::Running },
             published: Vec::new(),
+            kind: Some(r.kind.clone()),
         })
         .collect()
 }
@@ -542,6 +545,22 @@ impl FormatDriver for Terraform {
             .apply("destroy", state, tf::Change::DestroyOne(key))
             .await
             .map_err(|e| module.error("destroy", e))
+    }
+
+    fn graphical(&self, _cx: &ToolCx<'_>, machine: &SeenMachine) -> impl Future<Output = Result<Option<crate::graphical::ConsoleOffer>>> {
+        std::future::ready(Ok(screen::offer(machine)))
+    }
+
+    async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::Console> {
+        screen::reach(cx, machine).await
+    }
+
+    fn native_app(&self, _cx: &ToolCx<'_>, seen: &Seen) -> Option<crate::graphical::NativeApp> {
+        screen::app(seen)
+    }
+
+    async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::NativeConsole> {
+        screen::native(cx, machine).await
     }
 }
 

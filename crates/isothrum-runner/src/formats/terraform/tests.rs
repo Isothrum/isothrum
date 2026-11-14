@@ -95,6 +95,7 @@ async fn with_cx<T>(lab: &Lab, fake: &FakeProcesses, f: impl AsyncFnOnce(&ToolCx
             ("TF_VAR_token".to_owned(), SECRET.to_owned()),
             ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
         ],
+        host_env: &crate::host_env::EMPTY,
         processes: fake,
         sink: &sink,
         warn: &warn,

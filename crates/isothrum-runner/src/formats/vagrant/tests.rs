@@ -76,6 +76,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
             ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
             ("ISOLOOM_KEY".to_owned(), "k3y9ab".to_owned()),
         ],
+        host_env: &crate::host_env::EMPTY,
         processes: fake,
         sink: &quiet,
         warn: &*f.warn,
@@ -356,6 +357,7 @@ fn the_run_state_rule() {
         name: name.into(),
         state,
         published: Vec::new(),
+        kind: None,
     };
     assert_eq!(run_state(&[]), RunState::Absent);
     assert_eq!(run_state(&[m("a", MachineState::Absent)]), RunState::Absent);

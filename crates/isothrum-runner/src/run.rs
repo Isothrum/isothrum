@@ -4,6 +4,7 @@
 //! way for every format; only the driver knows its tool. `operate` is what every operation does
 //! around its own work, `recovery` what it does about what dead operations left.
 
+mod graphical;
 mod operate;
 pub(crate) mod recovery;
 #[cfg(test)]
@@ -176,6 +177,7 @@ impl<'r> Running<'r> {
             provider: opts.provider,
             env: self.tool_env(opts)?,
             processes,
+            host_env: &self.runner.config.host_env,
             sink: &sink,
             warn: &warn,
         };
@@ -389,6 +391,7 @@ impl<'r> Running<'r> {
             state_dir: &state_dir,
             provider: None,
             env: self.tool_env(&opts)?,
+            host_env: &self.runner.config.host_env,
             processes: self.runner.config.processes.as_ref(),
             sink: &quiet,
             warn: &unwarned,
@@ -411,9 +414,12 @@ impl<'r> Running<'r> {
         }
         let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
         let opts = RunOptions::new();
-        let (seen, derived) = self
+        let (seen, derived, screens, native) = self
             .with_cx(&opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
-                self.driver.observe(cx).await
+                let (seen, derived) = self.driver.observe(cx).await?;
+                let screens = self.screens(cx, &seen).await;
+                let native = self.driver.native_app(cx, &seen);
+                Ok((seen, derived, screens, native))
             })
             .await?;
         let observed = LastObserved {
@@ -429,7 +435,12 @@ impl<'r> Running<'r> {
             derived
         };
         let settled = self.runner.store.db().read(|tx| tx.run(&self.name))?;
-        Ok(status_of(&seen, state, true, settled.as_ref()))
+        let mut status = status_of(&seen, state, true, settled.as_ref());
+        for (machine, console) in status.machines.iter_mut().zip(screens) {
+            machine.console = console;
+        }
+        status.native = native;
+        Ok(status)
     }
 
     /// What the project gives back now (a module's outputs), read from the tool.
@@ -459,6 +470,7 @@ impl Running<'_> {
             state_dir: &state_dir,
             provider: None,
             env: Vec::new(),
+            host_env: &self.runner.config.host_env,
             processes: self.runner.config.processes.as_ref(),
             sink: &quiet,
             warn: &unwarned,
@@ -495,6 +507,7 @@ fn status_of(seen: &Seen, state: RunState, live: bool, row: Option<&crate::store
         provider: row.and_then(|r| r.record.provider),
         machines: machine_statuses(&seen.machines),
         outputs,
+        native: None,
     }
 }
 
@@ -525,6 +538,7 @@ fn machine_statuses(machines: &[SeenMachine]) -> Vec<MachineStatus> {
                     host_port: p.host,
                 })
                 .collect(),
+            console: None,
         })
         .collect()
 }

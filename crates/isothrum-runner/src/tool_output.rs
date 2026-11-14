@@ -9,14 +9,19 @@
 //! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, the `error-exit`
 //!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
 //! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
+//! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.
+//! - [`prlctl`]: where a Parallels VM's bundle is.
 //! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
 //!
 //! Tools whose whole answer is a document are read in their adapter ([`crate::cli`]): Compose's
-//! `ps`, Terraform's JSON UI, state and outputs.
+//! `ps`, Terraform's JSON UI, state and outputs, Proxmox VE's API.
 
+pub(crate) mod prlctl;
+pub(crate) mod qemu;
 pub(crate) mod ruby;
 pub(crate) mod vagrant;
 pub(crate) mod vboxmanage;
+pub(crate) mod virsh;
 
 pub use vagrant::plugins as vagrant_plugins;
 

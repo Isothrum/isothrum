@@ -17,6 +17,7 @@
 //! | found | the dotfile's `machines/<machine>/<provider>/id` |
 //! | machines | the machines `status` lists, whether made or not |
 //! | reapply | `up <added>`, `destroy -f <removed>`, `provision <changed>` |
+//! | graphical, native console | the hypervisor, by the VM's recorded id ([`screen`]) |
 //!
 //! The preamble: a record of the run on another provider than the one asked is destroyed and the
 //! dotfile reset (`up` would refuse "a machine with a different provider"); a VirtualBox VM whose
@@ -29,6 +30,7 @@
 mod dotfile;
 mod lock;
 mod providers;
+mod screen;
 
 use std::time::Duration;
 
@@ -481,6 +483,7 @@ impl FormatDriver for Vagrant {
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {
         let read = call(cx, READ_LIMIT);
+        let records = dot(cx).recorded()?;
         let mut machines = Vec::new();
         for (name, label) in self.status(cx).await? {
             let state = crate::tool_output::vagrant::machine_state(&label);
@@ -501,7 +504,12 @@ impl FormatDriver for Vagrant {
                     Err(e) => return Err(tool_error("status", e)),
                 }
             }
-            machines.push(SeenMachine { name, state, published });
+            // The provider it was made on, as the dotfile records it (the one asked for, unless a
+            // record was left on another).
+            let asked = cx.provider.map(Provider::id);
+            let mine = records.iter().filter(|r| r.machine == name);
+            let kind = mine.clone().find(|r| Some(r.provider.as_str()) == asked).or_else(|| mine.clone().next()).map(|r| r.provider.clone());
+            machines.push(SeenMachine { name, state, published, kind });
         }
         let state = run_state(&machines);
         Ok((Seen { machines, ..Seen::default() }, state))
@@ -560,6 +568,22 @@ impl FormatDriver for Vagrant {
             }) => self.remove_at_hypervisor(cx, &record).await,
             Err(e) => Err(tool_error("remove", e)),
         }
+    }
+
+    async fn graphical(&self, cx: &ToolCx<'_>, machine: &SeenMachine) -> Result<Option<crate::graphical::ConsoleOffer>> {
+        Ok(screen::offer(cx, machine).await)
+    }
+
+    async fn reach_graphical(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::Console> {
+        screen::reach(cx, machine).await
+    }
+
+    fn native_app(&self, cx: &ToolCx<'_>, seen: &Seen) -> Option<crate::graphical::NativeApp> {
+        screen::app(cx, seen)
+    }
+
+    async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::NativeConsole> {
+        screen::native(cx, machine).await
     }
 }
 

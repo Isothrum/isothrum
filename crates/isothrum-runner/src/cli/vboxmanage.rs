@@ -1,5 +1,6 @@
 //! The VirtualBox adapter: what a Vagrant run needs of `VBoxManage` by a VM's own id (its UUID,
-//! the one Vagrant records): its state, discarding a saved state, powering it off and deleting it.
+//! the one Vagrant records): its state and remote display, discarding a saved state, powering it
+//! off and deleting it.
 
 use std::fmt;
 
@@ -68,6 +69,13 @@ pub(crate) async fn vm_state(call: &Call<'_>, uuid: &str) -> Result<VmState, Cli
         tool: TOOL,
         what: format!("a `showvminfo` of `{uuid}` with no VMState"),
     })
+}
+
+/// Where VM `uuid`'s remote display (VRDE) listens, as `showvminfo --machinereadable` says;
+/// [`Failure::NotFound`] when VirtualBox has no such VM.
+pub(crate) async fn remote_display(call: &Call<'_>, uuid: &str) -> Result<crate::tool_output::vboxmanage::Vrde, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["showvminfo", uuid, "--machinereadable"]), Failure::of).await?;
+    Ok(crate::tool_output::vboxmanage::remote_display(&out.stdout))
 }
 
 /// `discardstate <uuid>`: its saved state dropped, so it boots fresh from its disk.

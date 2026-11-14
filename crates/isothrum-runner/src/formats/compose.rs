@@ -287,6 +287,7 @@ impl FormatDriver for Compose {
                         protocol: p.protocol,
                     })
                     .collect(),
+                kind: None,
             })
             .collect();
         let state = run_state(&machines);
