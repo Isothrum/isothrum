@@ -843,7 +843,11 @@ mod tests {
             .collect();
         assert_eq!(
             facts,
-            [(Some("pve"), Some("101"), Some("10.0.0.5")), (Some("pve2"), Some("102"), Some("10.0.0.6")), (None, None, None)]
+            [
+                (Some("pve"), Some("101"), Some("10.0.0.5")),
+                (Some("pve2"), Some("102"), Some("10.0.0.6")),
+                (None, None, None)
+            ]
         );
     }
 
@@ -857,7 +861,10 @@ mod tests {
         };
         assert_eq!(address(r#"{"ip_address":"172.16.1.53"}"#).as_deref(), Some("172.16.1.53"));
         assert_eq!(address(r#"{"public_ip":"","private_ip":"10.1.0.4"}"#).as_deref(), Some("10.1.0.4"));
-        assert_eq!(address(r#"{"network_interface":[{"addresses":["fe80::1","192.168.121.10"]}]}"#).as_deref(), Some("192.168.121.10"));
+        assert_eq!(
+            address(r#"{"network_interface":[{"addresses":["fe80::1","192.168.121.10"]}]}"#).as_deref(),
+            Some("192.168.121.10")
+        );
         assert_eq!(
             address(r#"{"network_interface":[{"network_ip":"10.128.0.2","access_config":[{"nat_ip":"34.1.2.3"}]}]}"#).as_deref(),
             Some("34.1.2.3")

@@ -96,7 +96,12 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
         RunnerCommand::Exec { .. } => Op::Check,
         RunnerCommand::Provision { .. } => Op::Provision,
         RunnerCommand::Attach { .. } => Op::Attach,
-        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Screen { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
+        RunnerCommand::Status(_)
+        | RunnerCommand::Console { .. }
+        | RunnerCommand::Screen { .. }
+        | RunnerCommand::Events(_)
+        | RunnerCommand::Reap(_)
+        | RunnerCommand::Key => {
             return None;
         }
     })
@@ -128,7 +133,12 @@ pub(crate) fn op_args(command: &RunnerCommand) -> Option<&OpArgs> {
         | RunnerCommand::Exec { op, .. }
         | RunnerCommand::Provision { op, .. }
         | RunnerCommand::Attach { op, .. } => Some(op),
-        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Screen { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => None,
+        RunnerCommand::Status(_)
+        | RunnerCommand::Console { .. }
+        | RunnerCommand::Screen { .. }
+        | RunnerCommand::Events(_)
+        | RunnerCommand::Reap(_)
+        | RunnerCommand::Key => None,
     }
 }
 
@@ -278,7 +288,10 @@ async fn native(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
         term.out(&format!("{}:", console.app));
         for way in &console.ways {
             match way {
-                NativeOpen::Program { program, args } => term.out(&format!("  {}", words(std::iter::once(program.as_str()).chain(args.iter().map(String::as_str))))),
+                NativeOpen::Program { program, args } => term.out(&format!(
+                    "  {}",
+                    words(std::iter::once(program.as_str()).chain(args.iter().map(String::as_str)))
+                )),
                 NativeOpen::MacApp { app, args } => {
                     let app = app.to_string_lossy();
                     term.out(&format!("  {}", words(["open", "-a", &app].into_iter().chain(args.iter().map(String::as_str)))));
