@@ -248,8 +248,9 @@ async fn libvirt(cx: &Cx<'_>, machine: &Machine) -> Result<Vec<NativeOpen>> {
     let domain = argument(machine, &domain)?;
     let uri = vagrant::libvirt_uri(cx.host_env());
     let mut ways = vec![program("virt-viewer", ["--connect", argument(machine, &uri)?, domain])];
-    if let Ok(super::Endpoint::Loopback(at)) = vagrant::libvirt(cx, machine).await {
-        let display = at.port().saturating_sub(5900);
+    if let Ok(super::Endpoint::Loopback(at)) = vagrant::libvirt(cx, machine).await
+        && let Some(display) = crate::tool_output::virsh::vnc_display_number(at.port())
+    {
         ways.push(program("remote-viewer", [format!("vnc://{}:{display}", at.ip()).as_str()]));
     }
     Ok(ways)
