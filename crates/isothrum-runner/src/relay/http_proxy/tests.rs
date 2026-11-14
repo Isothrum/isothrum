@@ -1,5 +1,7 @@
 //! The WinRM proxy: what it forwards, what it refuses, and how it reads a request.
 
+use tokio::net::TcpListener;
+
 use super::*;
 
 #[test]

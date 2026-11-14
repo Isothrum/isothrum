@@ -21,14 +21,17 @@ const LINKS_PER_THIRD: usize = 32;
 /// A /16 holds 256 such /24s.
 const MAX_LINKS: usize = 256 * LINKS_PER_THIRD;
 
+/// What starts the network name of every cable (`link-<n>`).
+const LINK_PREFIX: &str = "link-";
+
 /// The network name of the `i`th cable.
 fn link_network(i: usize) -> String {
-    format!("link-{i}")
+    format!("{LINK_PREFIX}{i}")
 }
 
 /// Whether `name` starts as the cables' networks do (`link-<n>`), which no LAN or switch may.
 pub(crate) fn is_link_network(name: &str) -> bool {
-    name.starts_with("link-")
+    name.starts_with(LINK_PREFIX)
 }
 
 /// The /29 of the `i`th cable and the last octets of its two ends, the first two a machine may

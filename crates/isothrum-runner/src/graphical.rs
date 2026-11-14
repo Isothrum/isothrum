@@ -23,7 +23,7 @@ mod proxmox;
 mod tunnel;
 mod vagrant;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use isoloom_manifest::{ConsoleProtocol, ConsoleSource, Machine, Provider};
 use serde::{Deserialize, Serialize};
@@ -139,8 +139,7 @@ impl Console {
     }
 }
 
-/// The loopback address the runner's own listeners and tunnels take.
-pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+pub(crate) use crate::net::LOOPBACK;
 
 /// [`Error::NoConsole`] for `machine`, saying `why`.
 pub(crate) fn no_console(machine: &Machine, why: impl Into<String>) -> Error {

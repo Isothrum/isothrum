@@ -80,7 +80,7 @@ fn tf_vars(valued: &[(&str, String, &NonEmpty<Delivery>)]) -> Vec<(String, Strin
                 Delivery::TfVar {
                     var,
                     shape: TfVarShape::String,
-                } => plain.push((format!("TF_VAR_{var}"), value.clone())),
+                } => plain.push((crate::host_env::tf_var(var.as_str()), value.clone())),
                 Delivery::TfVar {
                     var,
                     shape: TfVarShape::MapEntry,
@@ -95,7 +95,7 @@ fn tf_vars(valued: &[(&str, String, &NonEmpty<Delivery>)]) -> Vec<(String, Strin
     }
     let objects = maps
         .into_iter()
-        .map(|(var, o)| (format!("TF_VAR_{var}"), serde_json::Value::Object(o).to_string()));
+        .map(|(var, o)| (crate::host_env::tf_var(&var), serde_json::Value::Object(o).to_string()));
     plain.into_iter().chain(objects).collect()
 }
 

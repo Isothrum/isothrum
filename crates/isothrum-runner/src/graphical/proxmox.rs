@@ -113,9 +113,8 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         return Err(no_console(machine, "it has no Proxmox console"));
     };
     let at = |f: &str| format!("machines.{}.consoles.source.{f}", machine.name);
-    let base = cx.vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
+    let (base, insecure) = api_target(&cx.vars, (endpoint, insecure), at)?;
     let (node, vm_id) = (cx.vars.render(node, &at("node"))?, cx.vars.render(vm_id, &at("vm_id"))?);
-    let insecure = cx.vars.render(insecure, &at("insecure"))?.trim() == "true";
     let host = base
         .strip_prefix("https://")
         .ok_or_else(|| no_console(machine, format!("the Proxmox API `{base}` isn't https")))?;
@@ -140,6 +139,18 @@ pub(super) async fn vnc(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manife
         authorization: sign_in.header(),
         insecure,
     })
+}
+
+/// The API a console's `endpoint` names, filled, without its last `/`, and whether its `insecure`
+/// says not to verify the server's certificate (`true`); `at` names a field in errors.
+fn api_target(
+    vars: &crate::vars::Vars,
+    (endpoint, insecure): (&isoloom_manifest::Template, &isoloom_manifest::Template),
+    at: impl Fn(&str) -> String,
+) -> Result<(String, bool)> {
+    let base = vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
+    let insecure = vars.render(insecure, &at("insecure"))?.trim() == "true";
+    Ok((base, insecure))
 }
 
 /// How the API is signed in to: the run's connection's API token (`token`), else the user's
@@ -290,8 +301,7 @@ fn proxmox_vms<'m>(cx: &Cx<'m>, vars: &crate::vars::Vars) -> Result<Vec<(String,
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
-        let base = vars.render(endpoint, &at("endpoint"))?.trim_end_matches('/').to_owned();
-        let insecure = vars.render(insecure, &at("insecure"))?.trim() == "true";
+        let (base, insecure) = api_target(vars, (endpoint, insecure), at)?;
         out.push((
             m.name.to_string(),
             ApiVm {

@@ -11,8 +11,8 @@
 //! responses are already its origin's.
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use super::{Relay, pump, serve};
@@ -72,9 +72,7 @@ fn on_local_network(ip: std::net::IpAddr) -> bool {
 
 /// The proxy, on a free loopback port, forwarding to `targets` only.
 pub(crate) async fn start_http_proxy(targets: Targets) -> std::io::Result<Relay> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-    let local = listener.local_addr()?.port();
-    let task = serve(listener, move |inbound| {
+    serve(move |inbound| {
         let targets = targets.clone();
         async move {
             // A client gone mid-request ends its connection, never the proxy.
@@ -82,8 +80,8 @@ pub(crate) async fn start_http_proxy(targets: Targets) -> std::io::Result<Relay>
                 tracing::debug!(error = %e, "a proxied connection ended early");
             }
         }
-    });
-    Ok(Relay { port: local, task })
+    })
+    .await
 }
 
 /// The request head's target as (host:port, origin-form path), from an absolute `http://` URI.
