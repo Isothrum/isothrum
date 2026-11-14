@@ -11,8 +11,8 @@ use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
-use crate::values::Var;
 use crate::values;
+use crate::values::Var;
 
 /// Runs `cli`, writing to `term` (each event kept in `trail` too); `var` reads the environment
 /// (for secrets). Every command but `completions` runs on the runner `runner` builds; completions
@@ -82,11 +82,7 @@ pub(crate) fn op_of(command: &Command) -> Option<Op> {
         RunnerCommand::Exec { .. } => Op::Check,
         RunnerCommand::Provision { .. } => Op::Provision,
         RunnerCommand::Attach { .. } => Op::Attach,
-        RunnerCommand::Status(_)
-        | RunnerCommand::Console { .. }
-        | RunnerCommand::Events(_)
-        | RunnerCommand::Reap(_)
-        | RunnerCommand::Key => {
+        RunnerCommand::Status(_) | RunnerCommand::Console { .. } | RunnerCommand::Events(_) | RunnerCommand::Reap(_) | RunnerCommand::Key => {
             return None;
         }
     })
