@@ -611,7 +611,7 @@ impl FormatDriver for Vagrant {
         }
     }
 
-    async fn graphical(&self, cx: &ToolCx<'_>, machine: &SeenMachine) -> Result<Option<crate::graphical::ConsoleOffer>> {
+    async fn graphical(&self, cx: &ToolCx<'_>, _seen: &Seen, machine: &SeenMachine) -> Result<Option<crate::graphical::ConsoleOffer>> {
         Ok(screen::offer(cx, machine).await)
     }
 

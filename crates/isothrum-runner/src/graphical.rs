@@ -14,11 +14,15 @@
 //! - **QEMU** (vagrant-qemu): `info vnc` on the VM's monitor socket.
 //! - **Proxmox VE** (Terraform): `vncproxy` over its API, the VM's node and id from the module's
 //!   state.
+//! - **A module's Windows VM** (Terraform): its Remote Desktop (or a VNC server the module names),
+//!   which answers only on the module's own networks, through an SSH tunnel from this computer's
+//!   loopback to the Linux machine beside it ([`tunnel`]): a [`Tunnel`] the [`Console`] owns.
 //!
 //! The other hypervisors give no screen the runner reaches: their VMs open in the hypervisor's
 //! own app ([`native`]).
 
 pub(crate) mod native;
+pub(crate) mod tunnel;
 
 use std::net::SocketAddr;
 
@@ -28,6 +32,7 @@ use crate::error::Error;
 use crate::secrets::SecretValue;
 
 pub use native::{NativeApp, NativeConsole, NativeNeed, NativeOpen};
+pub use tunnel::Tunnel;
 
 /// The protocol a graphical console speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
@@ -121,13 +126,23 @@ pub struct Console {
     pub protocol: ConsoleProtocol,
     /// Where it answers.
     pub endpoint: Endpoint,
-    /// The account to sign in as, when it signs in to the machine's own OS (none the runner knows
-    /// of today: kept for one that does).
+    /// The account to sign in as, when it signs in to the machine's own OS (a Windows VM's
+    /// Remote Desktop: its administrator).
     pub user: Option<String>,
-    /// Its password (Proxmox's ticket). Never print or log it.
+    /// Its password (Proxmox's ticket, a Windows VM's administrator password, from the module's
+    /// sensitive output). Never print or log it.
     pub password: Option<SecretValue>,
-    /// What to know of it (the extension pack VirtualBox's takes).
+    /// What to know of it (the extension pack VirtualBox's takes, the machine a tunnel goes
+    /// through).
     pub note: Option<String>,
+    /// The SSH tunnel it is reached through, when it is ([`Endpoint::Loopback`] is the tunnel's
+    /// end): open for as long as this console is kept, ended when it is dropped. A viewer keeps
+    /// the console while it shows the screen, and can wait on [`Tunnel::closed`] beside its own
+    /// end.
+    pub tunnel: Option<Tunnel>,
+    /// Where the tunnel goes, as the driver read it, until the core opens it
+    /// ([`crate::Running::graphical_console`]): the endpoint is no address until then.
+    pub(crate) through: Option<tunnel::To>,
 }
 
 impl Console {
@@ -140,7 +155,18 @@ impl Console {
             user: None,
             password: None,
             note: None,
+            tunnel: None,
+            through: None,
         }
+    }
+
+    /// `machine`'s console speaking `protocol`, reached through a tunnel to `to` the core opens:
+    /// its endpoint is the tunnel's end once it is.
+    pub(crate) fn tunnelled(machine: &str, protocol: ConsoleProtocol, to: tunnel::To) -> Console {
+        let unopened = Endpoint::Loopback(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let mut console = Console::new(machine, protocol, unopened);
+        console.through = Some(to);
+        console
     }
 
     /// The console, saying `note`.

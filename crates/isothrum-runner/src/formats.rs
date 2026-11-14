@@ -262,14 +262,16 @@ pub(crate) trait FormatDriver {
     /// Removes the resource recorded under `key` ([`Found::key`]), of `kind`, whose tool id is
     /// `native_id` (a recovery's, an orphan's). Nothing there any more is fine.
     async fn destroy_by_id(&self, cx: &ToolCx<'_>, key: &str, kind: ResourceKind, native_id: &str) -> Result<()>;
-    /// What a status says of `machine`'s graphical console, as [`FormatDriver::observe`] saw it:
-    /// its protocol, or `none` and why, and, when it runs, why it can't be shown now. `None` where
-    /// the format has no screen to speak of (a container): the default.
-    async fn graphical(&self, _cx: &ToolCx<'_>, _machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
+    /// What a status says of `machine`'s graphical console, as [`FormatDriver::observe`] saw it
+    /// (`seen`: the run's machines and outputs, `machine` among them): its protocol, or `none` and
+    /// why, and, when it runs, why it can't be shown now. `None` where the format has no screen to
+    /// speak of (a container): the default.
+    async fn graphical(&self, _cx: &ToolCx<'_>, _seen: &Seen, _machine: &SeenMachine) -> Result<Option<ConsoleOffer>> {
         Ok(None)
     }
-    /// Reaches running `machine`'s graphical console, where its hypervisor says it is. The core
-    /// then refuses one off this computer's loopback, and one that doesn't answer there.
+    /// Reaches running `machine`'s graphical console, where its hypervisor says it is, or says
+    /// where the SSH tunnel that reaches it goes ([`Console::tunnelled`]), which the core opens.
+    /// The core then refuses one off this computer's loopback, and one that doesn't answer there.
     async fn reach_graphical(&self, _cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
         Err(crate::graphical::no_console(machine, "its format has no graphical console"))
     }

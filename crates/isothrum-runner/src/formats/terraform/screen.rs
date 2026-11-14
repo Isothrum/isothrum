@@ -37,7 +37,7 @@ const ENDPOINT_OUTPUT: &str = "proxmox_endpoint";
 const APP: &str = "Proxmox VE";
 
 /// Whether a machine of `kind` is a Proxmox VE VM.
-fn is_proxmox(kind: Option<&str>) -> bool {
+pub(super) fn is_proxmox(kind: Option<&str>) -> bool {
     kind.is_some_and(|k| PROXMOX_VMS.contains(&k))
 }
 
