@@ -164,6 +164,31 @@ pub(crate) async fn plugins(call: &Call<'_>) -> Result<Vec<(String, Option<Strin
     Ok(said::plugins(&out.stdout.join("\n")))
 }
 
+/// `vagrant --version`.
+pub(crate) async fn version(call: &Call<'_>) -> Result<isoloom_manifest::Version, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["--version"]), Failure::of).await?;
+    super::version(TOOL, &out.stdout.join("\n"), None)
+}
+
+/// `ssh <machine> -c <script>` arguments, with a terminal (`-t`) or none.
+fn ssh_args(machine: &str, script: &str, tty: bool) -> Vec<String> {
+    let mut args = argv(["ssh", machine, "-c", script]);
+    if tty {
+        args.extend(["--".to_owned(), "-t".to_owned()]);
+    }
+    args
+}
+
+/// The console that runs `script` on `machine` over `vagrant ssh`, for the embedder to run.
+pub(crate) fn ssh_spec(call: &Call<'_>, machine: &str, script: &str, tty: bool) -> crate::process::ProcessSpec {
+    call.spec(TOOL, ssh_args(machine, script, tty))
+}
+
+/// `script` run on `machine` over `vagrant ssh -c`, its output captured.
+pub(crate) async fn ssh_c(call: &Call<'_>, machine: &str, script: &str) -> Result<Captured, CliError<Failure>> {
+    call.ok(TOOL, ssh_args(machine, script, false), Failure::of).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

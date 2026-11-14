@@ -185,10 +185,37 @@ pub(crate) async fn outputs(call: &Call<'_>) -> Result<BTreeMap<String, Output>,
     })
 }
 
+/// `terraform version -json`'s answer.
+#[derive(Deserialize)]
+struct VersionDoc {
+    terraform_version: String,
+}
+
+/// `terraform version -json`.
+pub(crate) async fn version(call: &Call<'_>) -> Result<isoloom_manifest::Version, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["version", "-json"]), Failure::of).await?;
+    let doc: VersionDoc = serde_json::from_str(&out.stdout.join("\n")).map_err(|e| CliError::Unexpected {
+        tool: TOOL,
+        what: format!("`version -json` isn't its JSON: {e}"),
+    })?;
+    super::version(TOOL, &doc.terraform_version, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::process::Exit;
+
+    #[tokio::test]
+    async fn the_version_is_read_from_its_json() {
+        use crate::process::fake::{FakeProcesses, Reply};
+        let fake = FakeProcesses::rules(&[(
+            "terraform version",
+            Reply::ok(include_str!("../tool_output/fixtures/terraform/1.9-version.json")),
+        )]);
+        let read = version(&crate::cli::testing::call(&fake)).await.unwrap();
+        assert_eq!(read.as_str(), "1.9.8");
+    }
 
     #[test]
     fn a_held_lock_is_read_with_its_id() {

@@ -123,6 +123,36 @@ impl Call<'_> {
     }
 }
 
+impl Call<'_> {
+    /// The spec of `tool` with `args` in the call's folder with its variables, for the embedder to
+    /// run (a console): nothing is started.
+    pub(crate) fn spec(&self, tool: &str, args: Vec<String>) -> ProcessSpec {
+        let mut spec = ProcessSpec::new(tool, args);
+        spec.cwd.clone_from(&self.cwd);
+        spec.env.clone_from(&self.env);
+        spec
+    }
+}
+
+/// The version `out` printed, read ([`crate::tool_output::version_found`]); `Unexpected` when it
+/// prints none, `TooOld` when it is older than `min`.
+pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&str>) -> Result<isoloom_manifest::Version, CliError<F>> {
+    let found = crate::tool_output::version_found(said).ok_or_else(|| CliError::Unexpected {
+        tool,
+        what: format!("no version in `{}`", said.trim()),
+    })?;
+    if let Some(min) = min.and_then(|m| isoloom_manifest::Version::parse(m).ok())
+        && found < min
+    {
+        return Err(CliError::TooOld {
+            tool,
+            found: found.as_str().to_owned(),
+            min: min.as_str().to_owned(),
+        });
+    }
+    Ok(found)
+}
+
 /// Whether any line `out` printed, in lower case, holds any of `wordings` (lower case).
 pub(crate) fn said_any(out: &Captured, wordings: &[&str]) -> bool {
     out.stdout.iter().chain(&out.stderr_tail).any(|l| {
