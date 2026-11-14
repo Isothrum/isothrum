@@ -95,12 +95,13 @@ pub(crate) enum RunnerCommand {
         run: RunArgs,
     },
     /// Reach a machine's graphical console (its screen) and print where it answers: an address of
-    /// this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. With `--app`,
-    /// what opens it in its hypervisor's own app instead.
+    /// this computer's loopback for a VNC or RDP viewer, or Proxmox's VNC websocket. A module's
+    /// Windows VM's Remote Desktop is reached through an SSH tunnel to the Linux machine beside it,
+    /// open until Ctrl-C. With `--app`, what opens it in its hypervisor's own app instead.
     Screen {
         /// The machine (a Vagrant machine, a module's VM).
         machine: String,
-        /// Print its password too (Proxmox's ticket).
+        /// Print its password too (Proxmox's ticket, a Windows VM's administrator password).
         #[arg(long)]
         show_password: bool,
         /// Print what opens it in its hypervisor's own app (a program and its arguments, a macOS

@@ -246,8 +246,8 @@ fn own_group(command: &mut tokio::process::Command) {
 /// a GUI app it would get one of its own, open as long as the tunnel, and closing it ends `ssh`.
 #[cfg(windows)]
 fn own_group(command: &mut tokio::process::Command) {
-    use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
-    command.creation_flags(CREATE_NO_WINDOW.0 | CREATE_NEW_PROCESS_GROUP.0);
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+    command.creation_flags(CREATE_NO_WINDOW.0);
 }
 
 #[cfg(test)]
