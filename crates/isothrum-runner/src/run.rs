@@ -158,8 +158,7 @@ impl<'r> Running<'r> {
         ));
         let windows = self.runner.config.host == crate::project::platform::HostOs::Windows;
         if windows && self.driver.elevates(self.provider(opts)) {
-            let config = &self.runner.config;
-            let env = config.host_env.for_elevation(config.search_path.as_deref());
+            let env = self.runner.config.host_env.for_elevation();
             return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
         }
         recorded

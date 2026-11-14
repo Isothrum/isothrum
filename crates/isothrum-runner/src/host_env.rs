@@ -77,20 +77,12 @@ impl HostEnv {
     }
 
     /// What an elevated Hyper-V session's broker, which inherits nothing, is handed: the Vagrant
-    /// and network variables (a box download goes out the way this account's does), `path` as
-    /// `PATH` (the tools found here are found there), and `VAGRANT_HOME` pinned to this account's
-    /// boxes, whoever approved the prompt, when none is set. A `path` that isn't UTF-8 can't be
-    /// handed on as a variable: it is left out, and traced.
-    pub(crate) fn for_elevation(&self, path: Option<&OsStr>) -> Vec<(String, String)> {
+    /// and network variables (a box download goes out the way this account's does), and
+    /// `VAGRANT_HOME` pinned to this account's boxes, whoever approved the prompt, when none is
+    /// set. Never a `PATH`: the broker finds the programs it runs itself, at paths only an
+    /// administrator can write.
+    pub(crate) fn for_elevation(&self) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self.vars().filter(|(k, _)| is_vagrant_var(k) || is_network_var(k)).collect();
-        let path = path.and_then(|p| {
-            let text = p.to_str();
-            if text.is_none() {
-                tracing::warn!("the PATH isn't UTF-8: an elevated session is handed none");
-            }
-            text
-        });
-        out.extend(path.map(|p| ("PATH".to_owned(), p.to_owned())));
         if self.get("VAGRANT_HOME").is_none()
             && let Some(profile) = self.text("USERPROFILE")
         {
@@ -160,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn an_elevated_session_gets_the_path_vagrants_and_the_networks_variables() {
+    fn an_elevated_session_gets_vagrants_and_the_networks_variables_and_no_path() {
         let env = HostEnv::of([
             ("HTTPS_PROXY", "http://proxy.corp:3128"),
             ("TF_CLI_CONFIG_FILE", "C:\\terraformrc"),
@@ -168,17 +160,16 @@ mod tests {
             ("VAGRANT_LOG", "info"),
         ]);
         assert_eq!(
-            env.for_elevation(Some(OsStr::new("C:\\HashiCorp\\Vagrant\\bin"))),
+            env.for_elevation(),
             [
                 ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
                 ("VAGRANT_LOG".to_owned(), "info".to_owned()),
-                ("PATH".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
                 ("VAGRANT_HOME".to_owned(), "C:\\Users\\ada\\.vagrant.d".to_owned()),
             ],
             "Terraform's and the profile's own aren't Vagrant's"
         );
         let own_home = HostEnv::of([("VAGRANT_HOME", "D:\\boxes"), ("USERPROFILE", "C:\\Users\\ada")]);
-        assert_eq!(own_home.for_elevation(None), [("VAGRANT_HOME".to_owned(), "D:\\boxes".to_owned())]);
+        assert_eq!(own_home.for_elevation(), [("VAGRANT_HOME".to_owned(), "D:\\boxes".to_owned())]);
     }
 
     #[test]
@@ -199,7 +190,7 @@ mod tests {
             (OsString::from("SSL_CERT_FILE"), not_utf8()),
         ]);
         assert_eq!(env.get("VAGRANT_HOME"), Some(not_utf8().as_os_str()), "kept as it is");
-        let (elevated, elevation_traces) = crate::testing::traced(async { env.for_elevation(None) }).await;
+        let (elevated, elevation_traces) = crate::testing::traced(async { env.for_elevation() }).await;
         assert_eq!(elevated, [], "neither left out in silence nor replaced by the profile's boxes");
         assert!(
             elevation_traces.contains("WARN") && elevation_traces.contains("VAGRANT_HOME") && elevation_traces.contains("isn't UTF-8"),

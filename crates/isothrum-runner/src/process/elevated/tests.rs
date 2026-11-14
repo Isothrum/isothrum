@@ -25,9 +25,9 @@ async fn session_dir(root: &Path) -> PathBuf {
 /// Plays the broker as the PowerShell one does, in the session the runner opens under `root`:
 /// once `ready`, each request of the session (its token, its turn) answered with `lines` and
 /// `code`, its files read and deleted first; any other request deleted unrun. A request whose
-/// turn comes with its `cancel-<n>` there is skipped unrun; one whose program is `hang` runs
-/// until its `cancel-<n>` comes, then gets no answer; one whose program is `slow` is answered
-/// after 600 ms.
+/// turn comes with its `cancel-<n>` there is skipped unrun; one whose first argument is `hang`
+/// runs until its `cancel-<n>` comes, then gets no answer; one whose first argument is `slow` is
+/// answered after 600 ms.
 async fn broker(root: PathBuf, lines: &'static str, code: i32) {
     broker_after(root, |_| {}, lines, code).await;
 }
@@ -59,7 +59,7 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
             let env_file = dir.join(protocol::variables(n));
             let e: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&env_file).unwrap()).unwrap();
             std::fs::remove_file(&env_file).unwrap();
-            match r["program"].as_str().unwrap() {
+            match r["args"][0].as_str().unwrap() {
                 "hang" => {
                     while !cancel.exists() && !over(&dir) {
                         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -93,7 +93,10 @@ async fn broker_after(root: PathBuf, obstacle: fn(&Path), lines: &'static str, c
 
 fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakeProcesses>, Elevated) {
     let home = tempfile::tempdir().unwrap();
-    let script = FakeProcesses::script().allow("whoami /groups", Reply::ok(groups)).allow("powershell", start);
+    let script = FakeProcesses::script()
+        .allow("whoami /groups", Reply::ok(groups))
+        .allow("powershell", start)
+        .allow("ssh", Reply::ok("as the account"));
     let fake = Arc::new(script.allow("vagrant status", Reply::ok("direct")).build());
     let own = crate::host_env::HostEnv::of([
         ("USERPROFILE", "C:\\Users\\ada"),
@@ -102,7 +105,7 @@ fn session(groups: &'static str, start: Reply) -> (tempfile::TempDir, Arc<FakePr
         ("no_proxy", ".corp"),
         ("SSL_CERT_FILE", "C:\\certs\\corp.pem"),
     ]);
-    let forwarded = own.for_elevation(Some(std::ffi::OsStr::new("C:\\HashiCorp\\Vagrant\\bin")));
+    let forwarded = own.for_elevation();
     let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), forwarded);
     (home, fake, e)
 }
@@ -146,10 +149,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     assert!(exit.unwrap().success());
     assert_eq!(lines[..2], ["vagrant up".to_owned(), "==> dc01: Booting VM...".to_owned()]);
     let env = &lines[2];
-    assert!(
-        env.contains("PATH=C:\\HashiCorp\\Vagrant\\bin") && env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d"),
-        "{env}"
-    );
+    assert!(env.contains("VAGRANT_HOME=C:\\Users\\ada\\.vagrant.d") && !env.contains("PATH="), "{env}");
     assert!(env.contains("DEMO_SECRET=token-x") && !env.contains("API_TOKEN"), "only what it needs: {env}");
     assert!(
         env.contains("HTTPS_PROXY=http://proxy.corp:3128") && env.contains("no_proxy=.corp") && env.contains("SSL_CERT_FILE=C:\\certs\\corp.pem"),
@@ -294,7 +294,7 @@ async fn a_request_cut_short_cancels_itself_alone_and_the_session_goes_on() {
     let (_home, fake, e) = session("", Reply::ok(""));
     let root = e.root.clone();
     let broker = tokio::spawn(broker(root.clone(), "ran", 0));
-    let cut = tokio::time::timeout(Duration::from_millis(600), lines_of(&e, &ProcessSpec::new("hang", ["ssh"]))).await;
+    let cut = tokio::time::timeout(Duration::from_millis(600), lines_of(&e, &ProcessSpec::new("vagrant", ["hang"]))).await;
     assert!(cut.is_err(), "nobody answered");
     let dir = session_dir(&root).await;
     // The broker ends request 1 alone and deletes its files.
@@ -317,12 +317,12 @@ async fn two_requests_at_once_one_cut_short_leave_the_other_answered() {
     let broker = tokio::spawn(broker(root.clone(), "ran", 0));
     let (opened, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["status"])).await;
     assert!(opened.unwrap().success());
-    let (slow, ssh) = (ProcessSpec::new("slow", ["up"]), ProcessSpec::new("vagrant", ["ssh"]));
+    let (slow, ssh) = (ProcessSpec::new("vagrant", ["slow"]), ProcessSpec::new("vagrant", ["ssh"]));
     let running = lines_of(&e, &slow);
     let behind = tokio::time::timeout(Duration::from_millis(200), lines_of(&e, &ssh));
     let ((ran, lines), cut) = tokio::join!(running, behind);
     assert!(ran.unwrap().success(), "{lines:?}");
-    assert_eq!(lines[..2], ["slow up".to_owned(), "ran".to_owned()]);
+    assert_eq!(lines[..2], ["vagrant slow".to_owned(), "ran".to_owned()]);
     assert!(cut.is_err(), "the request behind was cut short");
     let (later, later_lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
     assert!(later.unwrap().success(), "{later_lines:?}");
@@ -461,3 +461,32 @@ fn the_groups_that_may_manage_hyperv_are_read_by_sid() {
 }
 
 mod real;
+
+/// Only Hyper-V's programs go through the broker: another program of the operation runs as the
+/// account, and what a request is handed never sets the elevated program's search path or loader.
+#[tokio::test]
+async fn only_hyperv_s_programs_are_elevated_and_never_with_a_loader_variable() {
+    let (_home, fake, e) = session("", Reply::ok(""));
+    let root = e.root.clone();
+    let broker = tokio::spawn(broker(root.clone(), "ran", 0));
+    let (direct, lines) = lines_of(&e, &ProcessSpec::new("ssh", ["dc01"])).await;
+    assert!(direct.unwrap().success());
+    assert_eq!(lines, ["as the account"]);
+    assert_eq!(fake.made("ssh").len(), 1, "ran as the account: {:?}", fake.lines());
+    let mut up = ProcessSpec::new("vagrant", ["up"]);
+    up.env = vec![
+        ("RUBYOPT".into(), "-rC:\\Users\\ada\\x.rb".into()),
+        ("PATH".into(), "C:\\Users\\ada\\bin".into()),
+        ("VAGRANT_INSTALLER_EMBEDDED_DIR".into(), "C:\\Users\\ada\\e".into()),
+        ("DEMO_SECRET".into(), "token-x".into()),
+    ];
+    let (exit, lines) = lines_of(&e, &up).await;
+    assert!(exit.unwrap().success());
+    let env = &lines[2];
+    assert!(env.contains("DEMO_SECRET=token-x"), "{env}");
+    for dropped in ["RUBYOPT", "PATH=", "VAGRANT_INSTALLER_EMBEDDED_DIR"] {
+        assert!(!env.contains(dropped), "{dropped}: {env}");
+    }
+    drop(e);
+    broker.await.unwrap();
+}

@@ -34,8 +34,8 @@ async fn a_real_broker_runs_a_command_elevated_and_reads_back_its_exit() {
         home.path().join("elevated"),
         Vec::new(),
     );
-    let script = "echo hello & whoami /groups /fo csv /nh | findstr S-1-16-12288 & exit 3";
-    let (exit, lines) = lines_of(&e, &ProcessSpec::new("cmd", ["/c", script])).await;
+    let script = "echo hello; whoami /groups /fo csv /nh | findstr S-1-16-12288; exit 3";
+    let (exit, lines) = lines_of(&e, &ProcessSpec::new("powershell", ["-NoProfile", "-Command", script])).await;
     assert_eq!(exit.unwrap().code, Some(3), "{lines:?}");
     assert!(lines.iter().any(|l| l.trim() == "hello"), "{lines:?}");
     assert!(lines.iter().any(|l| l.contains("S-1-16-12288")), "high integrity: {lines:?}");
@@ -44,8 +44,9 @@ async fn a_real_broker_runs_a_command_elevated_and_reads_back_its_exit() {
 }
 
 /// The real processes, the broker's launch run by PowerShell 7 (`pwsh`) unelevated and the
-/// broker given a stand-in `taskkill.exe` on `path` (it ends a process and its children), so the
-/// broker's own PowerShell runs here; `whoami` says the account may not manage Hyper-V.
+/// broker given a stand-in `taskkill.exe` (it ends a process and its children) and a stand-in
+/// `vagrant` (it runs its arguments) on `path`, so the broker's own PowerShell runs here; `whoami`
+/// says the account may not manage Hyper-V.
 #[cfg(unix)]
 struct Pwsh {
     system: crate::process::SystemProcesses,
@@ -85,22 +86,24 @@ async fn a_pwsh_broker_cancels_a_request_cut_short_and_takes_the_next() {
         "#!/bin/sh\neval pid=\\${$#}\nend() { for c in $(pgrep -P \"$1\"); do end \"$c\"; done; kill -9 \"$1\" 2>/dev/null; }\nend \"$pid\"\n",
     )
     .unwrap();
+    // Only Vagrant and PowerShell are elevated: the requests are commands the stand-in runs.
+    isothrum_test_support::write_executable(&bin.join("vagrant"), "#!/bin/sh\nexec \"$@\"\n").unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     let processes = Arc::new(Pwsh {
         system: crate::process::SystemProcesses::default(),
         path,
     });
     let e = Elevated::new(processes, home.path().join("elevated"), Vec::new());
-    let mut first = ProcessSpec::new("sh", ["-c", "echo $DEMO; exit 3"]);
+    let mut first = ProcessSpec::new("vagrant", ["sh", "-c", "echo $DEMO; exit 3"]);
     first.env = vec![("DEMO".into(), "from-the-request".into())];
     let (exit, lines) = lines_of(&e, &first).await;
     assert_eq!(exit.unwrap().code, Some(3), "{lines:?}");
     assert_eq!(lines, ["from-the-request"]);
     let started = std::time::Instant::now();
-    let cut = tokio::time::timeout(Duration::from_secs(4), lines_of(&e, &ProcessSpec::new("sleep", ["300"]))).await;
+    let cut = tokio::time::timeout(Duration::from_secs(4), lines_of(&e, &ProcessSpec::new("vagrant", ["sleep", "300"]))).await;
     assert!(cut.is_err(), "a request cut short");
     let dir = session_dir(&e.root).await;
-    let (after, after_lines) = within_30s(&e, &ProcessSpec::new("sh", ["-c", "echo after; echo ${DEMO:-unset}"])).await;
+    let (after, after_lines) = within_30s(&e, &ProcessSpec::new("vagrant", ["sh", "-c", "echo after; echo ${DEMO:-unset}"])).await;
     assert!(after.unwrap().success(), "{after_lines:?}");
     assert_eq!(after_lines, ["after", "unset"], "the next request ran, without the earlier one's variables");
     assert!(started.elapsed() < Duration::from_secs(60), "the cut request didn't run to its end");
