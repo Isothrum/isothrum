@@ -5,16 +5,17 @@ use super::*;
 /// Detection on a host the test gives, its tools scripted strictly.
 mod detection;
 
-/// A Linux amd64 host whose KVM device `kvm` the user may open: VirtualBox, VMware
-/// Workstation, libvirt, QEMU and ESXi apply to it.
-fn linux(kvm: &Path) -> Host {
-    std::fs::write(kvm, "").unwrap();
+/// A Linux x86-64 host whose devices are under `root`, with a KVM device the user may open:
+/// VirtualBox, VMware Workstation, libvirt, QEMU and ESXi apply to it.
+fn linux(root: &Path) -> Host {
+    let devices = crate::host::Devices::under(root);
+    std::fs::create_dir_all(devices.kvm.parent().unwrap()).unwrap();
+    std::fs::write(&devices.kvm, "").unwrap();
     Host {
-        os: HostOs::Linux,
-        arch: Arch::Amd64,
-        kvm: kvm.to_path_buf(),
-        utm_installed: false,
-        hyperv_enabled: false,
+        os: Os::Linux,
+        arch: Arch::X86_64,
+        packages: None,
+        devices,
     }
 }
 
@@ -76,12 +77,12 @@ fn denied_device(dir: &Path) -> String {
 #[test]
 fn a_provider_applies_where_its_hypervisor_runs() {
     let platforms = [
-        (HostOs::Linux, Arch::Amd64),
-        (HostOs::Linux, Arch::Arm64),
-        (HostOs::Macos, Arch::Arm64),
-        (HostOs::Macos, Arch::Amd64),
-        (HostOs::Windows, Arch::Amd64),
-        (HostOs::Windows, Arch::Arm64),
+        (Os::Linux, Arch::X86_64),
+        (Os::Linux, Arch::Aarch64),
+        (Os::Macos, Arch::Aarch64),
+        (Os::Macos, Arch::X86_64),
+        (Os::Windows, Arch::X86_64),
+        (Os::Windows, Arch::Aarch64),
     ];
     let table = [
         (Provider::Virtualbox, [true, true, true, true, true, false]),
@@ -99,8 +100,8 @@ fn a_provider_applies_where_its_hypervisor_runs() {
             assert_eq!(applicable_on(provider, *os, *arch), applies, "{provider:?} on {os:?} {arch:?}");
         }
     }
-    assert_eq!(qemu_binary_on(Arch::Arm64), "qemu-system-aarch64");
-    assert_eq!(qemu_binary_on(Arch::Amd64), "qemu-system-x86_64");
+    assert_eq!(qemu_binary_on(Arch::Aarch64), "qemu-system-aarch64");
+    assert_eq!(qemu_binary_on(Arch::X86_64), "qemu-system-x86_64");
 }
 
 #[test]
@@ -115,7 +116,7 @@ fn a_providers_id_is_the_one_vagrant_and_the_manifest_use() {
 #[test]
 fn utm_and_its_plugin_are_held_to_a_version() {
     let detection = |hv: Option<&'static str>, pl: Option<&'static str>, installed: bool| Detection {
-        arch: Arch::Amd64,
+        arch: Arch::X86_64,
         hypervisor: Some(true),
         hypervisor_version: hv,
         unresponsive: false,
@@ -154,7 +155,7 @@ fn utm_and_its_plugin_are_held_to_a_version() {
 #[test]
 fn a_hypervisor_that_is_off_or_not_installed_says_which() {
     let absent = Detection {
-        arch: Arch::Amd64,
+        arch: Arch::X86_64,
         hypervisor: Some(false),
         hypervisor_version: None,
         unresponsive: false,
@@ -193,7 +194,7 @@ fn libvirt_without_kvm_or_its_leave_says_which() {
     let denied = denied_device(dir.path());
     let (missing, denied) = (missing.as_str(), denied.as_str());
     let libvirt = |hypervisor, platform_problem| Detection {
-        arch: Arch::Amd64,
+        arch: Arch::X86_64,
         hypervisor: Some(hypervisor),
         hypervisor_version: None,
         unresponsive: false,
@@ -232,7 +233,7 @@ impl ProcessRunner for Stuck {
 #[test]
 fn hyperv_needs_admin_folds_into_its_reason() {
     let hyperv = |needs_admin| Detection {
-        arch: Arch::Amd64,
+        arch: Arch::X86_64,
         hypervisor: Some(true),
         hypervisor_version: None,
         unresponsive: false,
@@ -294,7 +295,7 @@ async fn an_installed_hyperv_whose_hypervisor_isnt_running_isnt_ready() {
     assert_eq!(asked.calls()[0].args.last().map(String::as_str), Some(HYPERVISOR_PRESENT));
     // Folded into Hyper-V's status after the layers before it.
     let off = Detection {
-        arch: Arch::Amd64,
+        arch: Arch::X86_64,
         hypervisor: Some(true),
         hypervisor_version: None,
         unresponsive: false,

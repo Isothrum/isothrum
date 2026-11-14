@@ -10,10 +10,10 @@
 use std::path::Path;
 use std::time::Duration;
 
-use isoloom_manifest::{Arch, HostOs};
-use isothrum_runner::{ProcessRunner, this_arch, this_host, version_found};
+use isothrum_runner::{ProcessRunner, version_found};
 
 use crate::exec;
+use crate::host::{Arch, Host, Os};
 
 /// A Vagrant provider (the value given to `vagrant up --provider`): Isoloom's, the one its run
 /// manifests name.
@@ -26,41 +26,6 @@ fn all() -> Vec<Provider> {
         .iter()
         .filter_map(|name| isothrum_runner::from_wire_name(name))
         .collect()
-}
-
-/// What detection reads of this computer besides its tools: its OS and CPU, KVM's device, UTM's
-/// app bundle and the Hyper-V feature. Tests give their own, so a test takes the same path on
-/// every machine.
-#[derive(Debug, Clone)]
-struct Host {
-    /// Its OS.
-    os: HostOs,
-    /// Its CPU.
-    arch: Arch,
-    /// KVM's device.
-    kvm: std::path::PathBuf,
-    /// Whether UTM's app bundle is installed.
-    utm_installed: bool,
-    /// Whether the Hyper-V feature is on.
-    hyperv_enabled: bool,
-}
-
-impl Host {
-    /// This computer.
-    fn this() -> Host {
-        Host {
-            os: this_host(),
-            arch: this_arch(),
-            kvm: KVM.into(),
-            utm_installed: Path::new(UTM_APP).exists(),
-            hyperv_enabled: hyperv_enabled(),
-        }
-    }
-
-    /// Whether `provider` can run on it at all ([`applicable_on`]).
-    fn applies(&self, provider: Provider) -> bool {
-        applicable_on(provider, self.os, self.arch)
-    }
 }
 
 /// How this computer tells a provider's hypervisor is installed.
@@ -83,7 +48,7 @@ enum Check {
 #[derive(Debug, Clone, Copy)]
 struct Facts {
     /// The OSes it runs on; empty for any.
-    oses: &'static [HostOs],
+    oses: &'static [Os],
     /// Whether it runs on Windows on Arm (VirtualBox and VMware Workstation don't).
     windows_arm: bool,
     /// How its hypervisor is found.
@@ -107,7 +72,7 @@ const REMOTE: Facts = Facts {
 };
 
 /// A local hypervisor's facts: it runs on `oses` (any, when empty), found by `check`.
-const fn local(oses: &'static [HostOs], check: Check) -> Facts {
+const fn local(oses: &'static [Os], check: Check) -> Facts {
     Facts { oses, check, ..REMOTE }
 }
 
@@ -123,34 +88,34 @@ fn facts(provider: Provider) -> Facts {
             windows_arm: false,
             ..local(&[], Check::Tool("vmrun", &[]))
         },
-        Provider::Hyperv => local(&[HostOs::Windows], Check::HypervFeature),
-        Provider::Parallels => local(&[HostOs::Macos], Check::Tool("prlctl", &["--version"])),
+        Provider::Hyperv => local(&[Os::Windows], Check::HypervFeature),
+        Provider::Parallels => local(&[Os::Macos], Check::Tool("prlctl", &["--version"])),
         Provider::Utm => Facts {
             plugin_minimum: Some("0.2.0"),
             hypervisor_minimum: Some(("UTM", "4.6.5")),
-            ..local(&[HostOs::Macos], Check::UtmApp)
+            ..local(&[Os::Macos], Check::UtmApp)
         },
-        Provider::Libvirt => local(&[HostOs::Linux], Check::Tool("virsh", &["--version"])),
+        Provider::Libvirt => local(&[Os::Linux], Check::Tool("virsh", &["--version"])),
         Provider::Qemu => local(&[], Check::Qemu),
         Provider::VmwareEsxi => REMOTE,
     }
 }
 
-/// Whether `provider` can run on OS `os` and CPU `arch` (the runner's [`this_host`] and
-/// [`this_arch`]): local hypervisors are platform-specific, remote ones apply anywhere.
-fn applicable_on(provider: Provider, os: HostOs, arch: Arch) -> bool {
+/// Whether `provider` can run on OS `os` and CPU `arch`: local hypervisors are platform-specific, remote ones apply anywhere.
+fn applicable_on(provider: Provider, os: Os, arch: Arch) -> bool {
     let f = facts(provider);
-    let windows_arm = os == HostOs::Windows && arch == Arch::Arm64;
+    let windows_arm = os == Os::Windows && arch == Arch::Aarch64;
     (f.oses.is_empty() || f.oses.contains(&os)) && (f.windows_arm || !windows_arm)
 }
 
 /// The hypervisor's own version, when it is installed and says it: UTM's app bundle
 /// (`CFBundleShortVersionString`); the others aren't held to a version yet.
-async fn hypervisor_version(provider: Provider, runner: &dyn ProcessRunner) -> Option<String> {
+async fn hypervisor_version(provider: Provider, host: &Host, runner: &dyn ProcessRunner) -> Option<String> {
     if !matches!(facts(provider).check, Check::UtmApp) {
         return None;
     }
-    let plist = format!("{UTM_APP}/Contents/Info.plist");
+    let plist = host.devices.utm_app.join("Contents").join("Info.plist");
+    let plist = plist.to_string_lossy();
     let out = exec::read_any_exit(runner, "defaults", &["read", &plist, "CFBundleShortVersionString"])
         .await
         .ok()?;
@@ -171,22 +136,13 @@ fn probe(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&'st
 /// check (remote providers). UTM is an app bundle; Hyper-V is a Windows feature.
 async fn hypervisor_installed(provider: Provider, host: &Host, runner: &dyn ProcessRunner) -> Option<bool> {
     match facts(provider).check {
-        Check::UtmApp => Some(host.utm_installed),
-        Check::HypervFeature => Some(host.hyperv_enabled),
+        Check::UtmApp => Some(host.devices.utm_app.exists()),
+        Check::HypervFeature => Some(host.devices.hyperv_service.is_file()),
         Check::Tool(..) | Check::Qemu | Check::Remote => {
             let (program, args) = probe(provider, host.arch)?;
             Some(tool_starts(runner, program, args).await)
         }
     }
-}
-
-/// Where UTM is installed on macOS.
-const UTM_APP: &str = "/Applications/UTM.app";
-
-/// Whether the Hyper-V feature is on: its Virtual Machine Management service is installed with it.
-fn hyperv_enabled() -> bool {
-    let root = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from("C:\\Windows"), std::path::PathBuf::from);
-    root.join("System32").join("vmms.exe").is_file()
 }
 
 /// Why an installed Hyper-V can't start a VM: Windows' hypervisor isn't running (virtualization
@@ -211,9 +167,6 @@ const HYPERVISOR_PRESENT: &str = "(Get-CimInstance -ClassName Win32_ComputerSyst
 /// What an installed Hyper-V whose hypervisor doesn't run needs.
 const HYPERVISOR_STOPPED: &str = "Hyper-V is turned on but Windows' hypervisor isn't running: turn virtualization on in the firmware, \
 or run `bcdedit /set hypervisorlaunchtype auto` as an administrator, then restart Windows";
-
-/// KVM's device, which vagrant-libvirt's guests run on.
-const KVM: &str = "/dev/kvm";
 
 /// Why libvirt can't run VMs here although `virsh` is installed: vagrant-libvirt boots KVM guests,
 /// so it needs KVM's device `dev`, and the user must be allowed to open it. `None` when it is
@@ -255,8 +208,8 @@ fn vbox_driver_missing(said: &str) -> bool {
 /// The QEMU binary for a CPU `arch`.
 fn qemu_binary_on(arch: Arch) -> &'static str {
     match arch {
-        Arch::Arm64 => "qemu-system-aarch64",
-        Arch::Amd64 => "qemu-system-x86_64",
+        Arch::Aarch64 => "qemu-system-aarch64",
+        Arch::X86_64 => "qemu-system-x86_64",
     }
 }
 
@@ -321,7 +274,7 @@ add this account to that group and sign out of Windows and back in, or run eleva
 /// when nothing does.
 async fn platform_problem(provider: Provider, hypervisor: Option<bool>, host: &Host, runner: &dyn ProcessRunner) -> Option<String> {
     match provider {
-        Provider::Libvirt => kvm_problem(&host.kvm),
+        Provider::Libvirt => kvm_problem(&host.devices.kvm),
         Provider::Virtualbox if hypervisor == Some(true) => vbox_driver_problem(runner).await,
         Provider::Hyperv if hypervisor == Some(true) => hypervisor_stopped(runner).await,
         _ => None,
@@ -333,7 +286,7 @@ async fn platform_problem(provider: Provider, hypervisor: Option<bool>, host: &H
 /// administrator...). Without Vagrant (`vagrant_installed`, the caller's to know) each says so,
 /// and nothing is probed.
 pub async fn detect(runner: &dyn ProcessRunner, vagrant_installed: bool) -> Vec<ProviderStatus> {
-    detect_on(&Host::this(), runner, vagrant_installed).await
+    detect_on(&Host::here(runner).await, runner, vagrant_installed).await
 }
 
 /// [`detect`] on `host`.
@@ -341,7 +294,7 @@ async fn detect_on(host: &Host, runner: &dyn ProcessRunner, vagrant_installed: b
     if !vagrant_installed {
         return all()
             .into_iter()
-            .filter(|p| host.applies(*p))
+            .filter(|p| applicable_on(*p, host.os, host.arch))
             .map(|provider| ProviderStatus {
                 provider,
                 reason: Some(NO_VAGRANT.to_owned()),
@@ -357,12 +310,12 @@ async fn detect_on(host: &Host, runner: &dyn ProcessRunner, vagrant_installed: b
     };
     let mut statuses = Vec::new();
     for provider in all() {
-        if !host.applies(provider) {
+        if !applicable_on(provider, host.os, host.arch) {
             continue;
         }
         let hypervisor = hypervisor_installed(provider, host, runner).await;
         let hypervisor_version = if hypervisor == Some(true) {
-            hypervisor_version(provider, runner).await
+            hypervisor_version(provider, host, runner).await
         } else {
             None
         };

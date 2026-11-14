@@ -7,7 +7,7 @@ use super::*;
 /// tools `tools`.
 async fn detect_on_linux(tools: &FakeProcesses) -> Vec<ProviderStatus> {
     let dir = tempfile::tempdir().unwrap();
-    detect_on(&linux(&dir.path().join("kvm")), tools, true).await
+    detect_on(&linux(dir.path()), tools, true).await
 }
 
 #[tokio::test(start_paused = true)]
@@ -40,8 +40,8 @@ async fn a_qemu_without_its_plugin_says_so() {
 async fn an_arm_host_probes_its_own_qemu() {
     let dir = tempfile::tempdir().unwrap();
     let host = Host {
-        arch: Arch::Arm64,
-        ..linux(&dir.path().join("kvm"))
+        arch: Arch::Aarch64,
+        ..linux(dir.path())
     };
     let tools = FakeProcesses::script()
         .allow("VBoxManage", Reply::missing())
@@ -87,10 +87,8 @@ async fn a_virtualbox_that_isnt_installed_is_detected_as_such() {
 #[tokio::test(start_paused = true)]
 async fn libvirt_on_a_host_without_kvm_says_so_once_virsh_is_there() {
     let dir = tempfile::tempdir().unwrap();
-    let host = Host {
-        kvm: dir.path().join("no-kvm"),
-        ..linux(&dir.path().join("kvm"))
-    };
+    let mut host = linux(dir.path());
+    host.devices.kvm = dir.path().join("no-kvm");
     let tools = on_linux(FakeProcesses::script())
         .expect("virsh --version", Reply::ok("10.0.0"))
         .expect(PLUGINS, Reply::ok("1,,plugin-name,vagrant-libvirt"))
@@ -105,7 +103,7 @@ async fn without_vagrant_every_provider_says_so_and_nothing_is_probed() {
     let dir = tempfile::tempdir().unwrap();
     // No call is scripted: any probe fails the test.
     let tools = FakeProcesses::script().build();
-    let statuses = detect_on(&linux(&dir.path().join("kvm")), &tools, false).await;
+    let statuses = detect_on(&linux(dir.path()), &tools, false).await;
     let providers: Vec<Provider> = statuses.iter().map(|s| s.provider).collect();
     assert_eq!(
         providers,
@@ -127,20 +125,32 @@ async fn a_virtualbox_whose_service_never_answers_is_wedged() {
     assert!(!vbox_wedged(&answering).await);
 }
 
+/// A Mac whose devices are where macOS keeps them (none is read).
+fn mac_with_utm_at_its_place() -> Host {
+    Host {
+        os: Os::Macos,
+        arch: Arch::Aarch64,
+        packages: None,
+        devices: crate::host::Devices::here(Os::Macos),
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn utm_is_asked_its_version_from_its_bundle() {
+    let host = mac_with_utm_at_its_place();
     let plist = "defaults read /Applications/UTM.app/Contents/Info.plist CFBundleShortVersionString";
     let tools = FakeProcesses::expect(&[(plist, Reply::ok("4.7.5\n"))]);
-    assert_eq!(hypervisor_version(Provider::Utm, &tools).await.as_deref(), Some("4.7.5"));
+    assert_eq!(hypervisor_version(Provider::Utm, &host, &tools).await.as_deref(), Some("4.7.5"));
     let silent = FakeProcesses::expect(&[(plist, Reply::ok(""))]);
-    assert_eq!(hypervisor_version(Provider::Utm, &silent).await, None, "no version said, none read");
+    assert_eq!(hypervisor_version(Provider::Utm, &host, &silent).await, None, "no version said, none read");
 }
 
 #[tokio::test(start_paused = true)]
 async fn no_hypervisor_but_utm_is_asked_its_version() {
     let nothing = FakeProcesses::script().build();
+    let host = mac_with_utm_at_its_place();
     for provider in all().into_iter().filter(|p| *p != Provider::Utm) {
-        assert_eq!(hypervisor_version(provider, &nothing).await, None, "{provider:?}");
+        assert_eq!(hypervisor_version(provider, &host, &nothing).await, None, "{provider:?}");
     }
 }
 
@@ -172,10 +182,11 @@ async fn whoami_is_asked_for_an_installed_hyperv_only() {
 async fn on_windows_an_account_that_may_not_manage_hyperv_is_told_how_to() {
     let dir = tempfile::tempdir().unwrap();
     let host = Host {
-        os: HostOs::Windows,
-        hyperv_enabled: true,
-        ..linux(&dir.path().join("kvm"))
+        os: Os::Windows,
+        ..linux(dir.path())
     };
+    std::fs::create_dir_all(host.devices.hyperv_service.parent().unwrap()).unwrap();
+    std::fs::write(&host.devices.hyperv_service, "").unwrap();
     let tools = FakeProcesses::script()
         .expect_times("whoami /groups", 1, groups("S-1-16-8192"))
         .allow("powershell", Reply::ok("True"))
