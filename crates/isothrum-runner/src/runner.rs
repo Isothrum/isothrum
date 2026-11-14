@@ -11,6 +11,7 @@ use isoloom_manifest::{Arch, HostOs, Protocol};
 
 use crate::Result;
 use crate::clock::{Clock, SystemClock};
+use crate::error::Error;
 use crate::events::EventLog;
 use crate::host_env::HostEnv;
 use crate::manifest::load_manifest;
@@ -148,7 +149,10 @@ impl Runner {
     /// Fails with `io` when the home can't be created or made owner-only (on Windows, its owner
     /// can't be read or its DACL set), or its `runs/` folder can't be created; as
     /// [`crate::store::Store::open`] does for the store.
-    pub fn new(config: RunnerConfig) -> Result<Runner> {
+    pub fn new(mut config: RunnerConfig) -> Result<Runner> {
+        // A relative home is resolved once, here: the tools run in other folders (the run's, its
+        // state folder) and would read it against theirs.
+        config.home = std::path::absolute(&config.home).map_err(Error::io(&config.home, "made absolute"))?;
         let store = Home::open(&config.home, config.host_env.get("USERPROFILE").map(Path::new))?;
         let reservations = PortReservations::new(Arc::clone(&config.ports), Arc::clone(store.db()));
         Ok(Runner {
@@ -343,6 +347,18 @@ mod tests {
 
     fn runner(home: &Path) -> Runner {
         Runner::new(RunnerConfig::new(home)).unwrap()
+    }
+
+    #[test]
+    fn a_relative_home_is_made_absolute_once() {
+        // Refs #131: a relative home was kept as given, and the tools, run in other folders,
+        // read it against theirs (a Terraform state under the lab's folder, no SSH key found).
+        let dir = tempfile::tempdir_in(".").unwrap();
+        let relative = PathBuf::from(dir.path().file_name().unwrap());
+        let r = runner(&relative);
+        assert!(r.config.home.is_absolute(), "{}", r.config.home.display());
+        assert_eq!(r.config.home, std::env::current_dir().unwrap().join(&relative));
+        assert!(r.store.db().path().is_absolute());
     }
 
     #[test]

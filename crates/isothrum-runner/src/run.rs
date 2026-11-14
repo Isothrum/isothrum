@@ -452,7 +452,15 @@ impl<'r> Running<'r> {
             crate::driver::Observation::Read(observed) => observed,
             busy @ crate::driver::Observation::Busy(_) => return Ok(busy),
         };
-        if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
+        // An operation's read is kept even before its run has a row (a start's first read).
+        let kept = self
+            .runner
+            .op_of(&self.name)
+            .is_some()
+            .then(|| self.record_or_fresh())
+            .transpose()
+            .and_then(|fresh| self.runner.store.keep_seen(&self.name, &observed.seen(), fresh));
+        if let Err(e) = kept {
             tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
         }
         Ok(crate::driver::Observation::Read(observed))

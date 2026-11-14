@@ -276,10 +276,19 @@ impl Home {
         Ok(self.db.read(|tx| tx.run(name))?.and_then(|r| r.observed))
     }
 
-    /// Keeps `seen` as what the runner last saw of run `name` (a run with no row yet keeps
-    /// nothing).
-    pub(crate) fn keep_seen(&self, name: &RunName, seen: &LastObserved) -> Result<()> {
-        self.db.write(|tx| tx.keep_observed(name, seen).map(drop))
+    /// Keeps `seen` as what the runner last saw of run `name`. A run with no row yet gets the
+    /// one `fresh` gives, if any (an operation's run); else keeps nothing (a query's).
+    pub(crate) fn keep_seen(&self, name: &RunName, seen: &LastObserved, fresh: Option<RunRecord>) -> Result<()> {
+        self.db.write(|tx| {
+            if tx.keep_observed(name, seen)? {
+                return Ok(());
+            }
+            if let Some(record) = fresh {
+                tx.save_record(&record, Desired::Running)?;
+                tx.keep_observed(name, seen)?;
+            }
+            Ok(())
+        })
     }
 
     /// Status = reconcile(desired, observed): keeps `seen`, and moves a settled run to `state`,

@@ -110,7 +110,7 @@ async fn every_operation_ends_with_exactly_one_result_or_error_and_is_logged() {
     assert_eq!(seqs, (1..=u64::try_from(seqs.len()).unwrap()).collect::<Vec<_>>());
     let logged = f.runner.events(run.name()).unwrap().events;
     assert_eq!(logged.len(), a.events().len() + b.events().len());
-    assert!(logged.iter().all(|e| e.time == "2026-10-15T12:00:00Z" && e.v == 0));
+    assert!(logged.iter().all(|e| e.time == "2026-10-15T12:00:00Z" && e.v == 1));
 }
 
 #[tokio::test]
@@ -223,15 +223,27 @@ async fn an_operation_cut_short_leaves_its_record_and_the_next_removes_what_it_o
     let f = fixture_answering(crate::testing::WEB_PORTAL, a_volume_dangles);
     let run = f.runner.open(&f.manifest, None).unwrap();
     run.up(&opts(), &Recorder::new()).await.unwrap();
-    let record = f.runner.store.run_dir_path(run.name()).join("anonymous-volumes");
-    std::fs::write(&record, "vol-cut\n").unwrap();
+    // The cut operation's row: a volume it recorded, live, the operation never ended.
+    let gone = crate::store::Owner::this_process();
+    f.runner
+        .store
+        .db()
+        .write(|tx| {
+            let cut = tx.begin_operation(run.name(), crate::Op::Attach, &gone, None)?;
+            let id = tx.creating(
+                &crate::store::NewResource::new(run.name(), "vol-cut", crate::store::ResourceKind::Volume, cut.id).living(crate::store::Lifetime::Run),
+            )?;
+            tx.created(id, "vol-cut")
+        })
+        .unwrap();
     run.update(&RunOptions::new(), &Recorder::new()).await.unwrap();
     let removed = f.fake.lines().into_iter().filter(|l| l.contains("volume rm --force")).collect::<Vec<_>>();
     assert!(
         removed.iter().any(|l| l.contains("vol-cut")),
         "the cut operation's volume is removed: {removed:?}"
     );
-    assert!(!record.exists(), "the record is consumed");
+    let live = f.runner.store.db().read(|tx| tx.live_resources(run.name())).unwrap();
+    assert!(live.iter().all(|r| r.native_id.as_deref() != Some("vol-cut")), "its row is gone: {live:?}");
 }
 
 /// One run's record is read alone: another run's record that can't be read doesn't fail it.

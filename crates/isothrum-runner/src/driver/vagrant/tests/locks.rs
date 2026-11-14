@@ -98,7 +98,8 @@ async fn a_status_while_an_update_brings_a_vm_up_reports_the_run_ready_as_last_r
     let (updated, status) = tokio::join!(regenerated.update(&opts, &events), status);
     updated.unwrap();
     let status = status.unwrap();
-    assert_eq!((status.state, status.live), (RunState::Ready, false));
+    // The update moves the run through `updating` (3.0), and its machines show as last read.
+    assert_eq!((status.state, status.live), (RunState::Updating, false));
     let web = status.machines.iter().find(|m| m.name == "web").unwrap();
     assert_eq!(web.state, crate::MachineState::Running);
     assert!(
