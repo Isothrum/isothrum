@@ -26,7 +26,7 @@ use crate::cli::CliError;
 use crate::cli::compose::{self, Exec, Failure, Project, Up, Verb};
 use crate::cli::docker::{self, Object};
 use crate::console::ShellCommand;
-use crate::driver::shells;
+use crate::console::shells;
 use crate::error::Error;
 use crate::state::{Park, RunState};
 use crate::status::MachineState;
@@ -274,6 +274,7 @@ impl FormatDriver for Compose {
             .containers(cx)
             .await?
             .iter()
+            .filter(|c| !c.one_off())
             .map(|c| SeenMachine {
                 name: c.service().to_owned(),
                 state: c.machine_state(),
@@ -281,9 +282,9 @@ impl FormatDriver for Compose {
                     .published()
                     .into_iter()
                     .map(|p| SeenPort {
-                        guest: p.port,
-                        host: p.host_port,
-                        protocol: Some(p.protocol),
+                        guest: p.guest,
+                        host: p.host,
+                        protocol: p.protocol,
                     })
                     .collect(),
             })

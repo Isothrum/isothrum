@@ -100,7 +100,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use isoloom_manifest::Provider;
+    use crate::project::platform::Provider;
     use proptest::prelude::*;
 
     use super::*;
@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn a_manifest_value_is_named_without_json_quotes() {
-        assert_eq!(wire_name(&isoloom_manifest::Provider::VmwareDesktop), "vmware_desktop");
-        assert_eq!(wire_name(&isoloom_manifest::Target::Docker), "docker");
+        assert_eq!(wire_name(&Provider::VmwareDesktop), "vmware_desktop");
+        assert_eq!(wire_name(&crate::project::Format::Compose), "compose");
         assert_eq!(wire_name(&3), "3", "not written as a string: its JSON text");
         let map_with_a_list_key = std::collections::BTreeMap::from([(vec![1], 1)]);
         assert!(wire_name(&map_with_a_list_key).starts_with("<key must be a string"), "named by why");

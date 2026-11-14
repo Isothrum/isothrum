@@ -1,7 +1,6 @@
-//! What `VBoxManage` prints, read: `list vms`, `list systemproperties`'s machine folder and
-//! `showvminfo --machinereadable`'s remote display. Its fixtures are in `fixtures/vboxmanage/`.
+//! What `VBoxManage` prints, read: `list vms` and `list systemproperties`'s machine folder. Its
+//! fixtures are in `fixtures/vboxmanage/`.
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 /// `(name, uuid)` of each VM `VBoxManage list vms` prints (`"<name>" {<uuid>}` per line).
@@ -23,47 +22,6 @@ pub(crate) fn machine_folder(out: &str) -> Option<PathBuf> {
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
-}
-
-/// What `showvminfo --machinereadable` says of the remote display.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Vrde {
-    /// Off (no extension pack when the VM booted).
-    Off,
-    /// On, but bound to no port (the VM is off).
-    NotListening,
-    /// Listening at an address that isn't an IP address, as said.
-    Unreadable(String),
-    /// Listening there.
-    At(SocketAddr),
-}
-
-/// Reads `vrde="on"`, `vrdeport=<port in use>` and `vrdeaddress="<address>"`. An empty address
-/// is VirtualBox's default, every interface (`0.0.0.0`), which [`on_loopback`] then refuses.
-pub(crate) fn remote_display(lines: &[String]) -> Vrde {
-    let value = |key: &str| {
-        lines
-            .iter()
-            .find_map(|l| l.strip_prefix(key)?.strip_prefix('=').map(|v| v.trim().trim_matches('"').to_owned()))
-    };
-    if value("vrde").as_deref() != Some("on") {
-        return Vrde::Off;
-    }
-    let Some(port) = value("vrdeport")
-        .and_then(|p| p.parse::<i32>().ok())
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p > 0)
-    else {
-        return Vrde::NotListening;
-    };
-    let address = value("vrdeaddress").unwrap_or_default();
-    if address.is_empty() {
-        return Vrde::At(SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), port));
-    }
-    match address.parse() {
-        Ok(ip) => Vrde::At(SocketAddr::new(ip, port)),
-        Err(_) => Vrde::Unreadable(address),
-    }
 }
 
 #[cfg(test)]
@@ -93,32 +51,6 @@ mod tests {
     }
 
     #[test]
-    fn virtualbox_says_whether_its_remote_display_is_on_and_where() {
-        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        let on = lines(&[
-            "name=\"web\"",
-            "vrde=\"on\"",
-            "vrdeport=3390",
-            "vrdeports=\"3390-3489\"",
-            "vrdeaddress=\"127.0.0.1\"",
-        ]);
-        assert_eq!(remote_display(&on), Vrde::At("127.0.0.1:3390".parse().unwrap()));
-        assert_eq!(remote_display(&lines(&["vrde=\"off\""])), Vrde::Off);
-        assert_eq!(remote_display(&lines(&[])), Vrde::Off);
-        assert_eq!(remote_display(&lines(&["vrde=\"on\"", "vrdeport=-1"])), Vrde::NotListening);
-        assert_eq!(
-            remote_display(&lines(&["vrde=\"on\"", "vrdeport=3389", "vrdeaddress=\"\""])),
-            Vrde::At("0.0.0.0:3389".parse().unwrap()),
-            "every interface: refused by on_loopback"
-        );
-        assert_eq!(
-            remote_display(&lines(&["vrde=\"on\"", "vrdeport=3389", "vrdeaddress=\"vbox-host\""])),
-            Vrde::Unreadable("vbox-host".into()),
-            "regression: read as every interface, and refused as listening there"
-        );
-    }
-
-    #[test]
     fn fixtures_read_as_vboxmanage_prints_them() {
         let names = |text: &str| vms(text).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
         assert_eq!(
@@ -139,15 +71,6 @@ mod tests {
         assert_eq!(
             machine_folder(include_str!("fixtures/vboxmanage/7.1.4-windows-systemproperties.txt")),
             Some(PathBuf::from("C:\\Users\\ada\\VirtualBox VMs"))
-        );
-        let lines = |text: &str| text.lines().map(str::to_owned).collect::<Vec<_>>();
-        assert_eq!(
-            remote_display(&lines(include_str!("fixtures/vboxmanage/7.0.20-showvminfo-vrde-on.txt"))),
-            Vrde::At("127.0.0.1:3390".parse().unwrap())
-        );
-        assert_eq!(
-            remote_display(&lines(include_str!("fixtures/vboxmanage/7.0.20-showvminfo-vrde-off.txt"))),
-            Vrde::Off
         );
     }
 }

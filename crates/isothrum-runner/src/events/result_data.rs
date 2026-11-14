@@ -3,7 +3,6 @@
 //! operation wrote by hand before: the enum is untagged, each shape told apart by its fields (the
 //! embedder knows which operation it asked for).
 
-use isoloom_manifest::OutputRole;
 use serde::{Deserialize, Serialize};
 
 use crate::state::RunState;
@@ -13,23 +12,12 @@ use crate::state::RunState;
 #[serde(untagged, deny_unknown_fields)]
 #[non_exhaustive]
 pub enum ResultData {
-    /// An `up` that came up: where the run stands, its outputs, and its message.
+    /// An `up` that came up: where the run stands, and its outputs.
     Started {
         /// Where the run stands (`ready`).
         state: RunState,
         /// Its outputs, sensitive values shown as `***`.
         outputs: Vec<ShownOutput>,
-        /// Its message to the user, its placeholders filled, when the manifest gives one.
-        message: Option<String>,
-    },
-    /// A `check`: how its checks went.
-    Checked {
-        /// How many passed.
-        passed: usize,
-        /// How many failed.
-        failed: usize,
-        /// The check runners that didn't finish (no `END` line).
-        unfinished: Vec<String>,
     },
     /// A `reap`: the expired runs it destroyed or would, and what a cloud still holds.
     Swept {
@@ -47,29 +35,9 @@ pub enum ResultData {
         /// What of the cloud couldn't be read; none when it couldn't be searched.
         unread: Option<Vec<String>>,
     },
-    /// A `detach`: the access machine taken out.
-    Detached {
-        /// Its manifest name.
-        machine: String,
-        /// Its native name (the Compose service / Vagrant define).
-        native: String,
-    },
-    /// An `attach`: the access machine brought up, and where to reach it.
-    Attached {
-        /// Its manifest name.
-        machine: String,
-        /// Its native name.
-        native: String,
-        /// The run's network it is on.
-        network: Option<String>,
-        /// Its address on that network.
-        address: Option<String>,
-        /// The image or box it was brought up with, when the user picked one.
-        image: Option<String>,
-    },
-    /// An operation on one machine or on all (`retire`, `provision`): which.
+    /// An operation on one machine or on all (`attach`, `retire`, `exec`, `provision`): which.
     Machine {
-        /// Its manifest name; none for every machine (a `provision` of the whole run).
+        /// Its name in the project; none for every machine (a `provision` of the whole run).
         machine: Option<String>,
     },
     /// An operation that moved the run (`down`, `park`, `resume`): where it stands.
@@ -86,21 +54,15 @@ pub enum ResultData {
 pub struct ShownOutput {
     /// Its name.
     pub name: String,
-    /// What it is for.
-    pub role: OutputRole,
     /// Its value, when it can be read; `***` when it is sensitive.
     pub value: Option<String>,
 }
 
 impl ShownOutput {
-    /// `name`, for `role`, showing `value`.
+    /// `name`, showing `value`.
     #[must_use]
-    pub fn new(name: impl Into<String>, role: OutputRole, value: Option<String>) -> ShownOutput {
-        ShownOutput {
-            name: name.into(),
-            role,
-            value,
-        }
+    pub fn new(name: impl Into<String>, value: Option<String>) -> ShownOutput {
+        ShownOutput { name: name.into(), value }
     }
 }
 
@@ -161,30 +123,15 @@ impl ResultData {
         let m = |s: String| mask(&s);
         let mo = |s: Option<String>| s.map(|s| mask(&s));
         match self {
-            ResultData::Started { state, outputs, message } => ResultData::Started {
+            ResultData::Started { state, outputs } => ResultData::Started {
                 state,
                 outputs: outputs
                     .into_iter()
                     .map(|o| ShownOutput {
                         name: m(o.name),
-                        role: o.role,
                         value: mo(o.value),
                     })
                     .collect(),
-                message: mo(message),
-            },
-            ResultData::Attached {
-                machine,
-                native,
-                network,
-                address,
-                image,
-            } => ResultData::Attached {
-                machine: m(machine),
-                native: m(native),
-                network: mo(network),
-                address: mo(address),
-                image: mo(image),
             },
             ResultData::Swept {
                 cloud,
@@ -216,13 +163,7 @@ mod tests {
         let shapes = [
             ResultData::Started {
                 state: RunState::Ready,
-                outputs: vec![ShownOutput::new("web", OutputRole::Entry, Some("http://127.0.0.1:8080".into()))],
-                message: None,
-            },
-            ResultData::Checked {
-                passed: 2,
-                failed: 0,
-                unfinished: Vec::new(),
+                outputs: vec![ShownOutput::new("web", Some("http://127.0.0.1:8080".into()))],
             },
             ResultData::Swept {
                 cloud: "aws".into(),
@@ -231,17 +172,6 @@ mod tests {
                 failed: vec![SweepFailure::new("b", "x")],
                 orphans: None,
                 unread: None,
-            },
-            ResultData::Detached {
-                machine: "user".into(),
-                native: "user".into(),
-            },
-            ResultData::Attached {
-                machine: "user".into(),
-                native: "user".into(),
-                network: None,
-                address: None,
-                image: None,
             },
             ResultData::Machine { machine: Some("web".into()) },
             ResultData::Machine { machine: None },
@@ -259,12 +189,8 @@ mod tests {
         let up = ResultData::Started {
             state: RunState::Ready,
             outputs: Vec::new(),
-            message: Some("hi".into()),
         };
-        assert_eq!(
-            serde_json::to_value(&up).unwrap(),
-            serde_json::json!({ "state": "ready", "outputs": [], "message": "hi" })
-        );
+        assert_eq!(serde_json::to_value(&up).unwrap(), serde_json::json!({ "state": "ready", "outputs": [] }));
         let moved = ResultData::Moved { state: RunState::Parked };
         assert_eq!(serde_json::to_value(&moved).unwrap(), serde_json::json!({ "state": "parked" }));
     }

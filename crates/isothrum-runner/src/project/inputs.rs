@@ -54,7 +54,7 @@ fn check(name: &str, value: &str) -> Result<()> {
         None
     };
     match reason {
-        Some(reason) => Err(Error::Param {
+        Some(reason) => Err(Error::Input {
             name: name.to_owned(),
             reason: format!("{reason} can't be passed to the tool's environment"),
         }),
@@ -91,7 +91,7 @@ mod tests {
     fn a_name_no_environment_carries_is_refused_without_its_value() {
         for (name, value) in [("", "x"), ("A=B", "x"), ("A", "x\0y")] {
             let e = environment(Format::Compose, &values(&[(name, value)]), &Secrets::new()).expect_err("refused");
-            assert_eq!(e.code(), crate::ErrorCode::ParamInvalid, "{name:?}");
+            assert_eq!(e.code(), crate::ErrorCode::InputInvalid, "{name:?}");
         }
         let mut secrets = Secrets::new();
         secrets.insert("BAD\0NAME", SecretValue::new("hidden-value"));

@@ -10,9 +10,9 @@ use crate::process::Captured;
 /// The tool Compose runs as.
 const TOOL: &str = "docker";
 
-/// One container of the project, as `ps --all --format json` lists it (Compose 2.21 and later
-/// print one object per line, older ones one array).
-pub(crate) use crate::driver::compose::ps::PsEntry as Container;
+mod ps;
+
+pub(crate) use ps::Container;
 
 /// A failed Compose call, as far as a driver acts on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,14 +120,12 @@ pub(crate) async fn down(call: &Call<'_>, project: &Project<'_>, volumes: bool, 
     call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
 }
 
-/// A lifecycle verb with no options of its own on `services` (all when empty): `stop`, `start`,
-/// `pause`, `unpause`.
+/// A lifecycle verb with no options of its own on `services` (all when empty): `stop`, `pause`,
+/// `unpause`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verb {
     /// `stop`.
     Stop,
-    /// `start`.
-    Start,
     /// `pause`.
     Pause,
     /// `unpause`.
@@ -138,7 +136,6 @@ pub(crate) enum Verb {
 pub(crate) async fn act(call: &Call<'_>, project: &Project<'_>, verb: Verb, services: &[String]) -> Result<(), CliError<Failure>> {
     let word = match verb {
         Verb::Stop => "stop",
-        Verb::Start => "start",
         Verb::Pause => "pause",
         Verb::Unpause => "unpause",
     };
@@ -150,7 +147,7 @@ pub(crate) async fn act(call: &Call<'_>, project: &Project<'_>, verb: Verb, serv
 /// can't read whole is [`CliError::Unexpected`], never fewer containers.
 pub(crate) async fn ps(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<Container>, CliError<Failure>> {
     let out = call.ok(TOOL, project.args(argv(["ps", "--all", "--format", "json"])), Failure::of).await?;
-    crate::driver::compose::ps::parse_ps(&out.stdout.join("\n")).ok_or_else(|| CliError::Unexpected {
+    ps::parse(&out.stdout.join("\n")).ok_or_else(|| CliError::Unexpected {
         tool: TOOL,
         what: "a `compose ps` listing that isn't JSON containers".into(),
     })
@@ -158,6 +155,7 @@ pub(crate) async fn ps(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<Con
 
 /// `config --services`: the services the project's files declare, under its profiles (a service
 /// under another profile only when its profile is given), in the files' order.
+#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) async fn services(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<String>, CliError<Failure>> {
     let out = call.ok(TOOL, project.args(argv(["config", "--services"])), Failure::of).await?;
     Ok(out.stdout.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect())

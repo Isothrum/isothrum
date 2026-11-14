@@ -145,7 +145,7 @@ impl Vagrant {
     async fn act(&self, cx: &ToolCx<'_>, verb: Verb, machines: &[String], limit: Duration) -> std::result::Result<(), CliError<Failure>> {
         let rerun = match verb {
             Verb::Halt | Verb::Suspend | Verb::Destroy => Rerun::Converges,
-            Verb::Resume | Verb::Provision => Rerun::Repeats,
+            Verb::Provision => Rerun::Repeats,
         };
         let call = call(cx, limit);
         retrying(cx.warn, verb_word(verb), rerun, PATIENCE, || vagrant::act(&call, verb, machines)).await
@@ -315,7 +315,6 @@ fn verb_word(verb: Verb) -> &'static str {
     match verb {
         Verb::Halt => "halt",
         Verb::Suspend => "suspend",
-        Verb::Resume => "resume",
         Verb::Provision => "provision",
         Verb::Destroy => "destroy",
     }
@@ -333,9 +332,8 @@ fn checked_user(user: &str) -> Result<&str> {
     if fine {
         Ok(user)
     } else {
-        Err(Error::Malformed {
-            at: "user".to_owned(),
-            reason: format!("`{user}` isn't an account name (letters, digits, `.`, `_`, `-`)"),
+        Err(Error::Unsupported {
+            what: format!("a console as `{user}`, which isn't an account name (letters, digits, `.`, `_`, `-`),"),
         })
     }
 }
@@ -475,7 +473,7 @@ impl FormatDriver for Vagrant {
     }
 
     fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
-        let script = user.map(checked_user).transpose()?.map(crate::driver::shells::login_shell_as);
+        let script = user.map(checked_user).transpose()?.map(crate::console::shells::login_shell_as);
         let spec = vagrant::console_spec(&call(cx, READ_LIMIT), machine, script.as_deref());
         let cwd = spec.cwd.clone().unwrap_or_else(|| cx.project.dir.clone());
         Ok(ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env))

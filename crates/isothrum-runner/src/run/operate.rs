@@ -1,4 +1,4 @@
-//! What every operation of a folder run does around its work: its events numbered, masked and
+//! What every operation of a run does around its work: its events numbered, masked and
 //! logged; the run locked and journaled; what dead operations left settled; the run's state moved
 //! when the work begins and when it ends; and exactly one `result` or `error` at the end.
 
@@ -6,17 +6,47 @@ use std::sync::Arc;
 
 use tracing::Instrument;
 
-use super::super::operation::Done;
-use super::FolderRun;
+use super::Running;
 use crate::Result;
 use crate::clock::rfc3339;
 use crate::error::{Error, ErrorCode};
-use crate::events::{Emitter, EventKind, Events, StoreLog, WarningCode};
+use crate::events::{Emitter, EventKind, Events, ResultData, StoreLog, WarningCode};
 use crate::options::RunOptions;
 use crate::state::{Desired, Op, RunState, Transition};
 use crate::store::{LastOp, OperationId, Outcome, Owner, RunRecord};
 
-impl FolderRun<'_> {
+/// What an operation's own work produced.
+pub(crate) struct Done<T> {
+    /// What the operation returns.
+    pub(crate) value: T,
+    /// Whether it reached its goal (a check can fail while the operation succeeds).
+    pub(crate) ok: bool,
+    /// The `result` event's data.
+    pub(crate) data: ResultData,
+}
+
+impl<T> Done<T> {
+    /// An operation that reached its goal, returning `value`, its `result` event carrying `data`.
+    pub(crate) fn settled(value: T, data: ResultData) -> Done<T> {
+        Done { value, ok: true, data }
+    }
+
+    /// An operation whose own report decides whether it reached its goal (an `exec`'s exit):
+    /// `ok` is read before the report moves in.
+    pub(crate) fn checked(ok: bool, value: T, data: ResultData) -> Done<T> {
+        Done { value, ok, data }
+    }
+}
+
+impl Done<()> {
+    /// An operation that moved the run to `state` and returns nothing else: its event says the
+    /// state.
+    pub(crate) fn moved(state: RunState) -> Done<()> {
+        Done::settled((), ResultData::Moved { state })
+    }
+}
+
+impl Running<'_> {
     /// Runs `work`, the body of `op`, with the run locked, journaled as operation `by` (its third
     /// argument), and its events going to `events`, every secret of `opts` masked.
     pub(super) async fn operate<T>(
@@ -94,19 +124,21 @@ impl FolderRun<'_> {
 
     /// The run's record, or a fresh one for this project.
     fn record_or_fresh(&self) -> Result<RunRecord> {
-        let (target, driver) = legacy_words(self.project.format);
-        let fresh = || RunRecord::fresh(self.name.clone(), self.project.dir.clone(), target, driver);
+        let fresh = || RunRecord::fresh(self.name.clone(), self.project.dir.clone(), self.project.format);
         Ok(self.runner.store.record(&self.name)?.unwrap_or_else(fresh))
     }
 
     /// Saves the run's record and moves the run to the state `op` holds it in, in one transaction.
     fn begin(&self, op: Op, opts: &RunOptions, emitter: &Emitter<'_>) -> Result<()> {
         let mut record = self.record_or_fresh()?;
-        record.manifest.clone_from(&self.project.dir);
+        record.project.clone_from(&self.project.dir);
+        record.format = self.project.format;
         if op == Op::Up {
+            let now = self.runner.config.clock.now();
             record.provider = opts.provider;
             record.host_label.clone_from(&opts.host_label);
-            record.started_at = Some(rfc3339(self.runner.config.clock.now()));
+            record.started_at = Some(rfc3339(now));
+            record.expires_at = opts.lifetime.map(|l| crate::clock::unix_seconds(now + l));
         }
         let Some(id) = self.runner.operation_of(&self.name) else {
             return self.runner.store.save(&record);
@@ -202,18 +234,6 @@ impl FolderRun<'_> {
     }
 }
 
-/// The run manifest's target and driver words for a record of a `format` project, while records
-/// still carry them. Removed with the manifest.
-fn legacy_words(format: crate::project::Format) -> (isoloom_manifest::Target, isoloom_manifest::Driver) {
-    use crate::project::Format;
-    use isoloom_manifest::{Driver, Target};
-    match format {
-        Format::Compose => (Target::Docker, Driver::Compose),
-        Format::Vagrant => (Target::Vagrant, Driver::Vagrant),
-        Format::Terraform => (Target::CloudVm, Driver::Terraform),
-    }
-}
-
 /// An operation in flight: dropped before it ended, it ends the event stream with a `cancelled`
 /// error, so an operation still ends with exactly one `result` or `error`.
 struct CutShort<'e> {
@@ -237,7 +257,7 @@ impl Drop for CutShort<'_> {
 /// An operation's work on a locked run: dropped before it ended, the run's record says
 /// `cancelled` while the run is still locked.
 struct Unfinished<'r, 'e> {
-    run: &'r FolderRun<'r>,
+    run: &'r Running<'r>,
     op: Op,
     before: RunState,
     emitter: &'e Emitter<'e>,

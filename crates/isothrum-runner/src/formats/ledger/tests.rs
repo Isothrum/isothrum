@@ -16,12 +16,7 @@ fn with_operation(op: Op) -> (tempfile::TempDir, Store, RunName, OperationId) {
     let home = tempfile::tempdir().expect("a home");
     let store = Store::open(home.path()).expect("a store");
     let run = RunName::new("r").expect("a name");
-    let record = crate::store::RunRecord::fresh(
-        run.clone(),
-        home.path().join("run.json"),
-        isoloom_manifest::Target::Docker,
-        isoloom_manifest::Driver::Compose,
-    );
+    let record = crate::store::RunRecord::fresh(run.clone(), home.path().to_path_buf(), crate::project::Format::Compose);
     let by = store
         .write(|tx| {
             tx.save_record(&record, Desired::Running)?;

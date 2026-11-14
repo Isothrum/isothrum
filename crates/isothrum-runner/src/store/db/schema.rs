@@ -12,10 +12,9 @@ CREATE TABLE store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE TABLE runs (
   name            TEXT PRIMARY KEY,
-  manifest_path   TEXT NOT NULL,
-  manifest_digest TEXT NOT NULL,
-  target          TEXT NOT NULL,
-  driver          TEXT NOT NULL,
+  project_path    TEXT NOT NULL,
+  source_digest   TEXT NOT NULL,
+  format          TEXT NOT NULL,
   desired         TEXT NOT NULL,
   state           TEXT NOT NULL,
   failed_cause    TEXT,
@@ -23,8 +22,7 @@ CREATE TABLE runs (
   state_at        TEXT NOT NULL,
   record          TEXT NOT NULL,
   observed        TEXT,
-  observed_at     TEXT,
-  sealed          TEXT
+  observed_at     TEXT
 );
 
 CREATE TABLE operations (

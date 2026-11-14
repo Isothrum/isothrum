@@ -310,8 +310,8 @@ impl Terraform {
     /// # Errors
     ///
     /// `adopt` when the run has a state already or `from` holds none; `io` when a file can't be
-    /// moved (what moved is put back).
-    pub(crate) fn adopt(cx: &ToolCx<'_>, from: &Path) -> Result<()> {
+    /// moved (what moved is put back). The files moved, for [`Terraform::give_back`].
+    pub(crate) fn adopt(cx: &ToolCx<'_>, from: &Path) -> Result<Vec<&'static str>> {
         let refuse = |reason: String| Error::Adopt {
             run: cx.run.to_string(),
             reason,
@@ -328,24 +328,47 @@ impl Terraform {
             if !src.exists() {
                 continue;
             }
-            if let Err(e) = std::fs::rename(&src, &dst) {
+            if let Err(e) = move_file(&src, &dst) {
                 Terraform::give_back(cx, from, &moved);
                 return Err(Error::io(&src, "moved")(e));
             }
             moved.push(file);
         }
-        Ok(())
+        Ok(moved)
     }
 
     /// Puts `files` an [`Terraform::adopt`] moved from `from` back (an adoption whose record
     /// couldn't be written), best effort.
     pub(crate) fn give_back(cx: &ToolCx<'_>, from: &Path, files: &[&str]) {
         for file in files {
-            if let Err(e) = std::fs::rename(cx.state_dir.join(file), from.join(file)) {
+            if let Err(e) = move_file(&cx.state_dir.join(file), &from.join(file)) {
                 tracing::warn!(file, error = %e, "an adopted state file couldn't be put back");
             }
         }
     }
+}
+
+/// Moves `from` to `to`: a rename, else, only when they are on different file systems, a copy
+/// then a removal. Any other failure to rename is the error.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(from, to)?;
+            // Never in both places: when `from` can't be removed, the copy goes too.
+            std::fs::remove_file(from).inspect_err(|_| {
+                if let Err(e) = std::fs::remove_file(to) {
+                    tracing::warn!(error = %e, file = %to.display(), "a copy of a taken-over state couldn't be removed");
+                }
+            })
+        }
+        renamed => renamed,
+    }
+}
+
+/// The plugin cache the runs use: the user's own (`TF_PLUGIN_CACHE_DIR`), else the one every run
+/// of the runner shares, under its home.
+pub(crate) fn plugin_cache(config: &crate::RunnerConfig) -> PathBuf {
+    config.tf_plugin_cache.clone().unwrap_or_else(|| config.home.join("terraform-plugins"))
 }
 
 impl FormatDriver for Terraform {

@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 
-use isoloom_manifest::Protocol;
+use crate::project::platform::Protocol;
 
 use super::{HeldPort, HostPorts};
 use crate::Result;

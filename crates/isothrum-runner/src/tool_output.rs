@@ -9,26 +9,14 @@
 //! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, the `error-exit`
 //!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
 //! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
-//! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.
-//! - [`docker`]: the networks `docker inspect` says a container is on.
-//! - [`download`]: a failed download's network error that passes, as Docker, Vagrant and curl
-//!   print it. [`sign_in`]: a server refusing the run's sign-in, in each server tool's words.
 //! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
 //!
-//! Tools whose whole answer is a document are read beside their driver, each in one module of
-//! its own: Compose's `ps` and `config` (`driver::compose::{ps, config}`), Terraform's state
-//! (`driver::terraform::state`), the clouds' CLIs (`reap::tags`) and Proxmox's API
-//! (`graphical::proxmox::answer`).
+//! Tools whose whole answer is a document are read in their adapter ([`crate::cli`]): Compose's
+//! `ps`, Terraform's JSON UI, state and outputs.
 
-pub(crate) mod docker;
-pub(crate) mod download;
-pub(crate) mod leftover;
-pub(crate) mod qemu;
 pub(crate) mod ruby;
-pub(crate) mod sign_in;
 pub(crate) mod vagrant;
 pub(crate) mod vboxmanage;
-pub(crate) mod virsh;
 
 pub use vagrant::plugins as vagrant_plugins;
 

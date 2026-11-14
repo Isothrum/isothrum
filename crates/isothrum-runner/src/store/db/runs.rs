@@ -10,12 +10,12 @@ use crate::state::{Desired, RunState, Transition};
 use crate::store::{LastObserved, RunRecord};
 
 /// The columns a [`RunRow`] is read from, in [`run_row`]'s order.
-const RUN_COLUMNS: &str = "name, manifest_path, manifest_digest, desired, state, failed_cause, state_op, state_at, record, observed, observed_at";
+const RUN_COLUMNS: &str = "name, project_path, source_digest, desired, state, failed_cause, state_op, state_at, record, observed, observed_at";
 
 /// The text columns of a run's row, before they are parsed.
 struct RawRun {
     name: String,
-    manifest: String,
+    project: String,
     digest: String,
     desired: String,
     state: String,
@@ -30,7 +30,7 @@ struct RawRun {
 fn raw_run(r: &Row<'_>) -> rusqlite::Result<RawRun> {
     Ok(RawRun {
         name: r.get(0)?,
-        manifest: r.get(1)?,
+        project: r.get(1)?,
         digest: r.get(2)?,
         desired: r.get(3)?,
         state: r.get(4)?,
@@ -50,8 +50,8 @@ fn run_row(raw: RawRun) -> Result<RunRow> {
     record.state = state;
     Ok(RunRow {
         name: RunName::new(&raw.name).map_err(|_| super::corrupt("run name", &raw.name))?,
-        manifest: raw.manifest.into(),
-        manifest_digest: raw.digest,
+        project: raw.project.into(),
+        source_digest: raw.digest,
         desired: from_word("desired", &raw.desired)?,
         state,
         failed_cause: raw.failed_cause.as_deref().map(|c| from_word("failed_cause", c)).transpose()?,
@@ -100,18 +100,17 @@ impl Tx<'_> {
     /// The store can't be written.
     pub fn save_record(&mut self, record: &RunRecord, desired: Desired) -> Result<()> {
         let json = to_json(record)?;
-        let manifest = record.manifest.to_string_lossy().into_owned();
+        let project = record.project.to_string_lossy().into_owned();
         self.tx
             .execute(
-                "INSERT INTO runs (name, manifest_path, manifest_digest, target, driver, desired, state, state_at, record)
-                 VALUES (?1, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT(name) DO UPDATE SET manifest_path = excluded.manifest_path, target = excluded.target,
-                   driver = excluded.driver, record = excluded.record",
+                "INSERT INTO runs (name, project_path, source_digest, format, desired, state, state_at, record)
+                 VALUES (?1, ?2, '', ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(name) DO UPDATE SET project_path = excluded.project_path, format = excluded.format,
+                   record = excluded.record",
                 params![
                     record.name.as_str(),
-                    manifest,
-                    word(&record.target),
-                    word(&record.driver),
+                    project,
+                    word(&record.format),
                     word(&desired),
                     word(&record.state),
                     now(),
@@ -122,14 +121,15 @@ impl Tx<'_> {
         Ok(())
     }
 
-    /// Records the digest of the manifest run `name` now runs from.
+    /// Records the digest of the project files run `name` now runs from
+    /// ([`crate::Project::digest`]).
     ///
     /// # Errors
     ///
     /// The store can't be written.
-    pub fn set_manifest_digest(&mut self, name: &RunName, digest: &str) -> Result<()> {
+    pub fn set_source_digest(&mut self, name: &RunName, digest: &str) -> Result<()> {
         self.tx
-            .execute("UPDATE runs SET manifest_digest = ?2 WHERE name = ?1", params![name.as_str(), digest])
+            .execute("UPDATE runs SET source_digest = ?2 WHERE name = ?1", params![name.as_str(), digest])
             .map_err(failed("written"))?;
         Ok(())
     }
@@ -290,10 +290,4 @@ impl Tx<'_> {
         Ok(())
     }
 
-    /// Puts run `name` in `state` with no move recorded, as a process killed mid-operation leaves
-    /// it: for the tests only, which stand in for that process.
-    #[cfg(test)]
-    pub(crate) fn force_state(&mut self, name: &RunName, state: RunState) -> Result<()> {
-        self.import_state(name, state, None)
-    }
 }

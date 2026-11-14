@@ -165,6 +165,7 @@ struct Event {
     #[serde(default)]
     diagnostic: Option<DiagnosticDoc>,
     #[serde(default)]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     change: Option<ChangeDoc>,
 }
 
@@ -321,6 +322,7 @@ pub(crate) async fn apply(call: &Call<'_>, state: StateAt<'_>, change: Change<'_
 
 /// What a plan would do to one resource instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) struct Planned {
     /// Its address.
     pub(crate) address: String,
@@ -332,6 +334,7 @@ pub(crate) struct Planned {
 
 /// What a plan would do to a resource instance (`planned_change`'s `action`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) enum Action {
     /// Made.
     Create,
@@ -346,6 +349,7 @@ pub(crate) enum Action {
 }
 
 impl Action {
+    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     fn of(word: &str) -> Action {
         match word {
             "create" => Action::Create,
@@ -358,6 +362,7 @@ impl Action {
 }
 
 /// The planned changes among `lines`, a `plan -json`'s.
+#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 fn planned(lines: &[String]) -> Vec<Planned> {
     lines
         .iter()
@@ -374,6 +379,7 @@ fn planned(lines: &[String]) -> Vec<Planned> {
 
 /// `plan -json` on the state at `state` (no plan file is written: a saved plan holds the
 /// variables' values), and what it would change.
+#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) async fn plan(call: &Call<'_>, state: StateAt<'_>) -> Result<Vec<Planned>, CliError<Failure>> {
     let mut args = argv(["plan", "-input=false", "-json"]);
     args.extend(state.option());

@@ -231,59 +231,6 @@ fn pre_release_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// The run manifest's words for the same things, read into Isothrum's while the runner still
-/// reads manifests. Removed with the manifest.
-mod from_manifest {
-    use super::{Arch, Cloud, HostOs, Provider};
-
-    impl From<isoloom_manifest::HostOs> for HostOs {
-        fn from(os: isoloom_manifest::HostOs) -> HostOs {
-            match os {
-                isoloom_manifest::HostOs::Linux => HostOs::Linux,
-                isoloom_manifest::HostOs::Macos => HostOs::Macos,
-                isoloom_manifest::HostOs::Windows => HostOs::Windows,
-            }
-        }
-    }
-
-    impl From<isoloom_manifest::Arch> for Arch {
-        fn from(arch: isoloom_manifest::Arch) -> Arch {
-            match arch {
-                isoloom_manifest::Arch::Amd64 => Arch::Amd64,
-                isoloom_manifest::Arch::Arm64 => Arch::Arm64,
-            }
-        }
-    }
-
-    impl From<isoloom_manifest::Provider> for Provider {
-        fn from(p: isoloom_manifest::Provider) -> Provider {
-            match p {
-                isoloom_manifest::Provider::Virtualbox => Provider::Virtualbox,
-                isoloom_manifest::Provider::VmwareDesktop => Provider::VmwareDesktop,
-                isoloom_manifest::Provider::Hyperv => Provider::Hyperv,
-                isoloom_manifest::Provider::Parallels => Provider::Parallels,
-                isoloom_manifest::Provider::Libvirt => Provider::Libvirt,
-                isoloom_manifest::Provider::Qemu => Provider::Qemu,
-                isoloom_manifest::Provider::Utm => Provider::Utm,
-                isoloom_manifest::Provider::VmwareEsxi => Provider::VmwareEsxi,
-            }
-        }
-    }
-
-    impl From<isoloom_manifest::Cloud> for Cloud {
-        fn from(c: isoloom_manifest::Cloud) -> Cloud {
-            match c {
-                isoloom_manifest::Cloud::Aws => Cloud::Aws,
-                isoloom_manifest::Cloud::Azure => Cloud::Azure,
-                isoloom_manifest::Cloud::Gcp => Cloud::Gcp,
-                isoloom_manifest::Cloud::Digitalocean => Cloud::Digitalocean,
-                isoloom_manifest::Cloud::Linode => Cloud::Linode,
-                isoloom_manifest::Cloud::Oci => Cloud::Oci,
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,33 +247,6 @@ mod tests {
         assert_eq!(v("2.17.0-desktop.1").to_string(), "2.17.0-desktop.1");
         for bad in ["1.0", "1.0.0-", "v1.0.0", "1..0", "1.0.0.0"] {
             assert_eq!(Version::parse(bad), None, "{bad}");
-        }
-    }
-
-    /// Every word reads as the manifest's did, so a record or an embedder's setting written with
-    /// one reads with the other.
-    #[test]
-    fn the_words_are_the_manifests() {
-        for p in [
-            isoloom_manifest::Provider::Virtualbox,
-            isoloom_manifest::Provider::VmwareDesktop,
-            isoloom_manifest::Provider::Hyperv,
-            isoloom_manifest::Provider::Parallels,
-            isoloom_manifest::Provider::Libvirt,
-            isoloom_manifest::Provider::Qemu,
-            isoloom_manifest::Provider::Utm,
-            isoloom_manifest::Provider::VmwareEsxi,
-        ] {
-            let ours = Provider::from(p);
-            assert_eq!(serde_json::to_value(ours).ok(), serde_json::to_value(p).ok());
-            assert_eq!(ours.id(), p.id());
-        }
-        for c in [
-            isoloom_manifest::Cloud::Aws,
-            isoloom_manifest::Cloud::Oci,
-            isoloom_manifest::Cloud::Digitalocean,
-        ] {
-            assert_eq!(serde_json::to_value(Cloud::from(c)).ok(), serde_json::to_value(c).ok());
         }
     }
 }

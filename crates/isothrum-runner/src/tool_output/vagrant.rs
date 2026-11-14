@@ -28,6 +28,7 @@ pub(crate) fn parse(out: &str) -> Reading {
 
 /// The address `vagrant ssh-config <vm>` gives its VM (`HostName`): on ESXi, the one its VMware
 /// Tools report.
+#[cfg_attr(not(test), expect(dead_code, reason = "a VM's address in the status (the Vagrant driver's gap (b): ESXi publishes no port here) reads it"))]
 pub(crate) fn host_name(out: &str) -> Option<String> {
     out.lines()
         .filter_map(|line| line.trim().strip_prefix("HostName"))

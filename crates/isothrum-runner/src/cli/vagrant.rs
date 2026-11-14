@@ -139,16 +139,15 @@ pub(crate) async fn up(call: &Call<'_>, provider: Option<&str>, provision: Provi
     call.ok(TOOL, args, Failure::of).await.map(drop)
 }
 
-/// A verb on `machines` (all when empty): `halt`, `suspend`, `resume`, `provision`, `destroy -f`.
+/// A verb on `machines` (all when empty): `halt`, `suspend`, `provision`, `destroy -f`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verb {
     /// `halt`.
     Halt,
     /// `suspend`.
     Suspend,
-    /// `resume`.
-    Resume,
     /// `provision`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     Provision,
     /// `destroy -f`.
     Destroy,
@@ -159,7 +158,6 @@ pub(crate) async fn act(call: &Call<'_>, verb: Verb, machines: &[String]) -> Res
     let mut args = match verb {
         Verb::Halt => argv(["halt"]),
         Verb::Suspend => argv(["suspend"]),
-        Verb::Resume => argv(["resume"]),
         Verb::Provision => argv(["provision"]),
         Verb::Destroy => argv(["destroy", "-f"]),
     };
@@ -175,6 +173,7 @@ pub(crate) async fn status(call: &Call<'_>) -> Result<said::Reading, CliError<Fa
 }
 
 /// The address `ssh-config <machine>` gives it; [`CliError::Unexpected`] when it names none.
+#[expect(dead_code, reason = "a VM's address in the status (the Vagrant driver's gap (b): ESXi publishes no port here) reads it")]
 pub(crate) async fn ssh_host(call: &Call<'_>, machine: &str) -> Result<String, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["ssh-config", machine]), Failure::of).await?;
     said::host_name(&out.stdout.join("\n")).ok_or_else(|| CliError::Unexpected {
@@ -220,30 +219,15 @@ pub(crate) async fn plugins(call: &Call<'_>) -> Result<Vec<(String, Option<Strin
     Ok(said::plugins(&out.stdout.join("\n")))
 }
 
-/// `vagrant --version`.
-pub(crate) async fn version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
-    let out = call.ok(TOOL, argv(["--version"]), Failure::of).await?;
-    super::version(TOOL, &out.stdout.join("\n"), None)
-}
-
 /// `vagrant --version`, [`CliError::TooOld`] below [`MIN_VERSION`].
 pub(crate) async fn supported_version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["--version"]), Failure::of).await?;
     super::version(TOOL, &out.stdout.join("\n"), Some(MIN_VERSION))
 }
 
-/// `ssh <machine> -c <script>` arguments, with a terminal (`-t`) or none.
-fn ssh_args(machine: &str, script: &str, tty: bool) -> Vec<String> {
-    let mut args = argv(["ssh", machine, "-c", script]);
-    if tty {
-        args.extend(["--".to_owned(), "-t".to_owned()]);
-    }
-    args
-}
-
-/// The console that runs `script` on `machine` over `vagrant ssh`, for the embedder to run.
-pub(crate) fn ssh_spec(call: &Call<'_>, machine: &str, script: &str, tty: bool) -> crate::process::ProcessSpec {
-    call.spec(TOOL, ssh_args(machine, script, tty))
+/// `ssh <machine> -c <script>` arguments, with no terminal.
+fn ssh_args(machine: &str, script: &str) -> Vec<String> {
+    argv(["ssh", machine, "-c", script])
 }
 
 /// The console into `machine` over `vagrant ssh` (its login shell, or `script` when given), with a
@@ -259,12 +243,7 @@ pub(crate) fn console_spec(call: &Call<'_>, machine: &str, script: Option<&str>)
 /// `script` run on `machine` over `vagrant ssh -c`, whatever its exit: what it printed and how it
 /// ended (a command that fails in the machine is its result, not the adapter's failure).
 pub(crate) async fn ssh_run(call: &Call<'_>, machine: &str, script: &str) -> Result<Captured, CliError<Failure>> {
-    call.run(TOOL, ssh_args(machine, script, false)).await
-}
-
-/// `script` run on `machine` over `vagrant ssh -c`, its output captured.
-pub(crate) async fn ssh_c(call: &Call<'_>, machine: &str, script: &str) -> Result<Captured, CliError<Failure>> {
-    call.ok(TOOL, ssh_args(machine, script, false), Failure::of).await
+    call.run(TOOL, ssh_args(machine, script)).await
 }
 
 #[cfg(test)]

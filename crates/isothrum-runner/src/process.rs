@@ -19,7 +19,6 @@ use std::path::PathBuf;
 
 pub(crate) use elevated::Elevated;
 pub use elevated::{HyperVRights, may_manage_hyperv};
-pub(crate) use shim::TERRAFORM_PROGRAMS;
 pub use system::SystemProcesses;
 pub(crate) use tail::Tail;
 

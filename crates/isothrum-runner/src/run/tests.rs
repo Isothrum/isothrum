@@ -1,329 +1,145 @@
-//! Scripted end-to-end runs: the `web-portal` manifest through a fake Compose engine (every
-//! `docker` call answered from a small model of a project's containers), fake host ports and a
-//! fixed clock. No real tool ever runs.
-
-mod access;
-mod cancel;
-mod checks;
-mod cloud;
-mod disruptions;
-mod engine;
-mod event_log;
-mod graphical;
-mod leaks;
-mod lifecycle;
-mod ready;
-mod refusals;
-mod risks;
-mod seen;
-mod terraform;
-mod timeouts;
-
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
 
-use crate::net::FakePorts;
-use crate::process::fake::{Call, FakeProcesses, Reply};
-use crate::testing::{RunFolder, WEB_PORTAL, modelled, processes, runner_config};
-use crate::{Event, EventKind, Recorder, RunOptions, Runner, SecretValue, Secrets};
+use crate::events::{EventKind, Recorder};
+use crate::process::fake::{Call, Reply};
+use crate::state::RunState;
+use crate::status::MachineState;
+use crate::store::ResourceState;
+use crate::testing::{modelled, no_ports, processes, runner_config};
+use crate::{ErrorCode, Format, RunName, RunOptions, Runner};
 
-/// The secret the tests deliver.
-const SECRET: &str = "token-fake-0001";
-
-/// Where the project's containers are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Containers {
-    #[default]
-    None,
-    Up,
-    Stopped,
-}
-
-/// A small model of one Compose project.
+/// What a modelled Docker engine holds of a Compose project.
 #[derive(Debug, Default)]
 struct Engine {
-    containers: Containers,
-    /// How long each check runner takes, by service.
-    check_time: Vec<(String, Duration)>,
-    /// The `END` line the check runners print instead of their own, if any.
-    end_line: Option<&'static str>,
-    /// What the `isoloom-check` runner prints instead of its own lines, if anything.
-    check_said: Option<&'static str>,
-    /// The networks labelled as the project's (`docker network ls`).
-    networks: Vec<String>,
-    /// Whether `docker compose config` prints something that isn't its JSON.
-    unreadable_config: bool,
-    /// Whether `docker compose ps` prints something that isn't its JSON while containers exist.
-    unreadable_ps: bool,
-    /// Whether web's set-up job (`isoloom-init-web-1`) exits non-zero.
-    failing_job: bool,
-    /// The calls that fail, by a text their line contains.
-    failing: Vec<&'static str>,
-    /// Where the project's images are.
-    images: Images,
+    up: bool,
+    paused: bool,
 }
 
-/// Whether the project's images are on this computer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Images {
-    /// Not yet: whatever starts first downloads them.
-    #[default]
-    Missing,
-    /// Downloaded.
-    Here,
-}
-
-/// A test's runner and its fakes.
-struct Fixture {
-    folder: RunFolder,
-    manifest: PathBuf,
-    fake: Arc<FakeProcesses>,
-    ports: Arc<FakePorts>,
-    engine: Arc<Mutex<Engine>>,
-    runner: Runner,
-}
-
-fn fixture() -> Fixture {
-    fixture_with(WEB_PORTAL)
-}
-
-fn fixture_with(manifest: &str) -> Fixture {
-    fixture_answering(manifest, answer)
-}
-
-/// [`fixture_with`], its engine answering with `answer`.
-fn fixture_answering(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply) -> Fixture {
-    fixture_of(manifest, answer, [41873, 41874, 41875])
-}
-
-/// [`fixture_with`], the host ports `free` the only free ones.
-fn fixture_with_ports(manifest: &str, free: impl IntoIterator<Item = u16>) -> Fixture {
-    fixture_of(manifest, answer, free)
-}
-
-fn fixture_of(manifest: &str, answer: fn(&Mutex<Engine>, &Call) -> Reply, free: impl IntoIterator<Item = u16>) -> Fixture {
-    let folder = RunFolder::new("docker", manifest);
-    let (engine, fake) = modelled(answer);
-    let ports = Arc::new(FakePorts::new(free));
-    let host_ports: Arc<dyn crate::HostPorts> = Arc::<FakePorts>::clone(&ports);
-    let runner = Runner::new(runner_config(folder.home.path(), processes(&fake), host_ports, crate::testing::TEST_HOST)).unwrap();
-    Fixture {
-        manifest: folder.manifest.clone(),
-        folder,
-        fake,
-        ports,
-        engine,
-        runner,
-    }
-}
-
-impl Fixture {
-    /// The runner's home: everything it writes.
-    fn home(&self) -> &std::path::Path {
-        self.folder.home.path()
-    }
-
-    fn containers(&self) -> Containers {
-        self.engine.lock().unwrap_or_else(PoisonError::into_inner).containers
-    }
-
-    fn set(&self, containers: Containers) {
-        self.engine.lock().unwrap_or_else(PoisonError::into_inner).containers = containers;
-    }
-
-    fn check_takes(&self, service: &str, time: Duration) {
-        self.engine
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .check_time
-            .push((service.into(), time));
-    }
-
-    /// The compose calls whose line contains `text`.
-    fn called(&self, text: &str) -> usize {
-        self.fake.lines().iter().filter(|l| l.contains(text)).count()
-    }
-}
-
-/// The options the tests start with: the secret given.
-fn opts() -> RunOptions {
-    let mut secrets = Secrets::new();
-    secrets.insert("DEMO_SECRET", SecretValue::new(SECRET));
-    RunOptions {
-        secrets,
-        ..RunOptions::default()
-    }
-}
-
-/// Every event's kind, in order.
-/// Leaves run `name` of `runner` in `state` as a process killed mid-operation leaves it: the
-/// operation that moved it there journaled and never ended, its owner a process that died.
-pub(crate) fn killed_in(runner: &Runner, name: &str, state: crate::RunState) {
-    let name = crate::RunName::new(name).unwrap();
-    let mut dead = crate::store::Owner::this_process();
-    dead.pid = u32::MAX;
-    dead.boot = "a boot before this one".into();
-    runner
-        .store
-        .db()
-        .write(|tx| {
-            if let Some(op) = state.moved_by() {
-                tx.begin_operation(&name, op, &dead, None)?;
-            }
-            tx.force_state(&name, state)
-        })
-        .unwrap();
-}
-
-fn kinds(events: &Recorder) -> Vec<EventKind> {
-    events.events().into_iter().map(|e: Event| e.kind).collect()
-}
-
-/// A runner on `f`'s home whose Compose `up` answers `up`.
-fn whose_up_answers(f: &Fixture, up: Reply) -> Runner {
-    let mut config = f.runner.config.clone();
-    config.processes = Arc::new(FakeProcesses::rules(&[
-        (" config --format json", Reply::ok(r#"{"services":{}}"#)),
-        (" up --detach ", up),
-    ]));
-    Runner::new(config).unwrap()
-}
-
-/// The fake engine's answer to `call`.
+/// The engine's answer to `call`.
 fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
-    let line = call.line();
     let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
-    let up = e.containers == Containers::Up;
-    if line.contains(" ps --all ") || line.contains(" ps --format json") {
-        if e.unreadable_ps && e.containers != Containers::None {
-            return Reply::ok("not json");
-        }
-        return Reply::ok(&ps(e.containers, line.contains("--all"), pinned(call)));
+    let line = call.line();
+    let has = |words: &str| line.contains(words);
+    if has("compose version") {
+        Reply::ok("2.29.7")
+    } else if has(" up ") {
+        e.up = true;
+        e.paused = false;
+        Reply::ok("")
+    } else if has(" down ") {
+        e.up = false;
+        Reply::ok("")
+    } else if has(" pause") {
+        e.paused = true;
+        Reply::ok("")
+    } else if has(" ps ") {
+        let state = if e.paused { "paused" } else { "running" };
+        let listed = format!(
+            r#"{{"Service":"web","State":"{state}","Health":"healthy","ExitCode":0,"Publishers":[{{"PublishedPort":41001,"TargetPort":80,"Protocol":"tcp"}}],"Labels":""}}"#
+        );
+        Reply::ok(if e.up { &listed } else { "" })
+    } else if has("container ls") {
+        Reply::ok(if e.up { "c1\n" } else { "" })
+    } else if has("network ls") {
+        Reply::ok(if e.up { "n1\n" } else { "" })
+    } else {
+        Reply::ok("")
     }
-    if line.contains(" config --format json") {
-        if e.unreadable_config {
-            return Reply::ok("not json");
-        }
-        let published = if call.env("ISOLOOM_PUBLISH_FIXED").is_some() {
-            Some(8080)
-        } else {
-            pinned(call)
-        };
-        return Reply::ok(&config(published));
-    }
-    if line.contains(" up --detach ") {
-        e.containers = Containers::Up;
-        return Reply::ok(&format!(" Container web  Started\nseeding {}", call.env("DEMO_SECRET").unwrap_or("no secret")));
-    }
-    if e.failing_job && line.contains("--exit-code-from isoloom-init-web-1") {
-        return Reply::fail(1, "set-up failed");
-    }
-    if let Some(text) = e.failing.iter().find(|t| line.contains(**t)) {
-        return Reply::fail(1, &format!("{text} failed"));
-    }
-    if line.starts_with("docker network ls ") {
-        return Reply::ok(&e.networks.join("\n"));
-    }
-    if line.contains("--profile check run") {
-        return check_runner(&e, &line);
-    }
-    let next = match () {
-        () if line.ends_with(" stop") && up => Containers::Stopped,
-        () if line.ends_with(" start") && e.containers == Containers::Stopped => Containers::Up,
-        () if line.contains(" down --volumes") => Containers::None,
-        () if line.starts_with("docker ps -aq") => {
-            return Reply::ok(if e.containers == Containers::None { "" } else { "c1\nc2" });
-        }
-        () => e.containers,
-    };
-    e.containers = next;
-    Reply::ok("")
 }
 
-/// The host port pinned in the call's pinned-ports file, if any.
-fn pinned(call: &Call) -> Option<u16> {
-    let file = call.args.iter().find(|a| a.ends_with("ports.yml"))?;
-    let text = std::fs::read_to_string(file).ok()?;
-    let (_, after) = text.split_once("127.0.0.1:")?;
-    after.split(':').next()?.parse().ok()
+/// A Compose project in a temporary folder named `my-Lab`, and a runner with a temporary home on
+/// the modelled engine.
+fn setup() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Engine>>) {
+    let root = tempfile::tempdir().expect("a folder");
+    let project = root.path().join("my-Lab");
+    std::fs::create_dir(&project).expect("the project");
+    std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n").expect("a compose file");
+    let (engine, fake) = modelled::<Engine>(answer);
+    let config = runner_config(&root.path().join("home"), processes(&fake), no_ports(), crate::runner::this_host());
+    let runner = Runner::new(config).expect("a runner");
+    (root, project, runner, engine)
 }
 
-fn ps(containers: Containers, all: bool, port: Option<u16>) -> String {
-    let (state, running) = match containers {
-        Containers::None => return String::new(),
-        Containers::Up => ("running", true),
-        Containers::Stopped => ("exited", false),
-    };
-    let publishers = port.map_or_else(String::new, |p| {
-        format!(r#"{{"URL":"127.0.0.1","PublishedPort":{p},"TargetPort":80,"Protocol":"tcp"}}"#)
-    });
-    let mut lines: Vec<String> = ["web", "db", "isoloom-routes-web", "isoloom-routes-db", "isoloom-probe-amd64"]
-        .iter()
-        .map(|s| {
-            format!(
-                r#"{{"Service":"{s}","State":"{state}","Health":"","Publishers":[{}]}}"#,
-                if *s == "web" { publishers.as_str() } else { "" }
-            )
-        })
+#[tokio::test]
+async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_recorded() {
+    let (_root, project, runner, engine) = setup();
+    let run = runner.open(&project, None).expect("opened");
+    assert_eq!(run.name().as_str(), "my-lab", "named after its folder");
+    assert_eq!(run.project().format, Format::Compose);
+
+    let events = Recorder::new();
+    run.up(&RunOptions::new(), &events).await.expect("up");
+    let results: Vec<_> = events
+        .events()
+        .into_iter()
+        .filter(|e| matches!(e.kind, EventKind::Result { ok: true, .. }))
         .collect();
-    if all {
-        lines.push(r#"{"Service":"isoloom-init-web-1","State":"exited","ExitCode":0}"#.into());
-    }
-    if !running && !all {
-        return String::new();
-    }
-    lines.join("\n")
-}
+    assert_eq!(results.len(), 1, "exactly one result");
 
-fn config(published: Option<u16>) -> String {
-    let published = published.map_or_else(|| "\"\"".to_owned(), |p| format!("\"{p}\""));
-    format!(
-        r#"{{"services":{{"web":{{"ports":[{{"target":80,"host_ip":"127.0.0.1","published":{published},"protocol":"tcp"}}]}},"db":{{}}}},"networks":{{"lab":{{"name":"web-portal_lab"}}}}}}"#
-    )
-}
+    let status = run.status().await.expect("status");
+    assert_eq!(status.state, RunState::Ready);
+    let web = status.machines.iter().find(|m| m.name == "web").expect("web");
+    assert_eq!(web.state, MachineState::Running);
+    assert_eq!((web.published[0].port, web.published[0].host_port), (80, 41001));
 
-/// A check runner: every check of the fixture's runner passes, after its scripted time.
-fn check_runner(e: &Engine, line: &str) -> Reply {
-    let service = line.rsplit(' ').next().unwrap_or_default();
-    let names: &[&str] = match service {
-        "isoloom-check" => &["http://web/", "db:3306", "build/check/check.sh"],
-        "isoloom-check-db" => &["web:80 from db", "no internet from db"],
-        _ => &["db:3306 from web", "no internet from web"],
-    };
-    let mut out: Vec<String> = names.iter().map(|n| format!("isoloom-check: PASS {n}")).collect();
-    out.push(
-        e.end_line
-            .map_or_else(|| format!("isoloom-check: END {} passed, 0 failed", names.len()), str::to_owned),
-    );
-    let time = e.check_time.iter().find(|(s, _)| s == service).map_or(Duration::ZERO, |(_, t)| *t);
-    let said = e
-        .check_said
-        .filter(|_| service == "isoloom-check")
-        .map_or_else(|| out.join("\n"), str::to_owned);
-    Reply::ok(&said).after(time)
-}
-
-#[test]
-fn an_elevated_session_is_handed_what_the_runner_read_of_its_environment_and_its_path() {
-    let folder = RunFolder::new("docker", WEB_PORTAL);
-    let mut config = runner_config(
-        folder.home.path(),
-        processes(&Arc::new(FakeProcesses::rules(&[]))),
-        crate::testing::no_ports(),
-        crate::testing::TEST_HOST,
-    );
-    config.host_env = crate::host_env::HostEnv::of([("HTTPS_PROXY", "http://proxy.corp:3128"), ("VAGRANT_HOME", "D:\\boxes")]);
-    config.search_path = Some("C:\\HashiCorp\\Vagrant\\bin".into());
-    let runner = Runner::new(config).unwrap();
-    let run = runner.open(&folder.manifest, None).unwrap();
-    let handed = run.elevated_env();
+    let name = RunName::new("my-lab").expect("a name");
+    let live = runner.store.db().read(|tx| tx.live_resources(&name)).expect("rows");
+    let ids: Vec<_> = live.iter().map(|r| (r.key.as_str(), r.state, r.native_id.as_deref())).collect();
     assert_eq!(
-        handed,
+        ids,
         [
-            ("HTTPS_PROXY".to_owned(), "http://proxy.corp:3128".to_owned()),
-            ("VAGRANT_HOME".to_owned(), "D:\\boxes".to_owned()),
-            ("PATH".to_owned(), "C:\\HashiCorp\\Vagrant\\bin".to_owned()),
+            ("container:c1", ResourceState::Created, Some("c1")),
+            ("network:n1", ResourceState::Created, Some("n1"))
         ]
     );
+
+    run.down(&RunOptions::new(), &Recorder::new()).await.expect("down");
+    assert!(!engine.lock().unwrap_or_else(PoisonError::into_inner).up);
+    assert_eq!(run.status().await.expect("status").state, RunState::Absent);
+    let left = runner.store.db().read(|tx| tx.live_resources(&name)).expect("rows");
+    assert!(left.is_empty(), "every row gone: {left:?}");
+}
+
+#[tokio::test]
+async fn a_parked_run_reads_parked_and_a_resume_brings_it_back() {
+    let (_root, project, runner, _engine) = setup();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    run.park(crate::Park::Pause, &RunOptions::new(), &Recorder::new()).await.expect("parked");
+    assert_eq!(run.status().await.expect("status").state, RunState::Parked);
+    run.resume(&RunOptions::new(), &Recorder::new()).await.expect("resumed");
+    assert_eq!(run.status().await.expect("status").state, RunState::Ready);
+}
+
+#[tokio::test]
+async fn a_recorded_run_reopens_from_its_folder_and_a_folder_of_nothing_is_refused_before_any_tool() {
+    let (root, project, runner, _engine) = setup();
+    let name = RunName::new("lab-1").expect("a name");
+    runner
+        .open(&project, Some(name.clone()))
+        .expect("opened")
+        .up(&RunOptions::new(), &Recorder::new())
+        .await
+        .expect("up");
+    let again = runner.reopen(&name).expect("reopened");
+    assert_eq!(again.project().dir, project);
+    assert_eq!(again.status().await.expect("status").state, RunState::Ready);
+
+    let empty = root.path().join("empty");
+    std::fs::create_dir(&empty).expect("a folder");
+    let refused = runner.open(&empty, None).err().expect("nothing to run");
+    assert_eq!(refused.code(), ErrorCode::ProjectInvalid);
+}
+
+#[tokio::test]
+async fn a_value_given_reaches_the_tool_and_a_secret_never_shows_in_an_event() {
+    let (_root, project, runner, _engine) = setup();
+    let run = runner.open(&project, None).expect("opened");
+    let mut secrets = crate::Secrets::new();
+    secrets.insert("TOKEN", crate::SecretValue::new("s3cr3t-value"));
+    let opts = RunOptions::new().with_env("ATTACK_IMAGE", "kali").with_secrets(secrets);
+    let events = Recorder::new();
+    run.up(&opts, &events).await.expect("up");
+    let json = serde_json::to_string(&events.events()).expect("json");
+    assert!(!json.contains("s3cr3t-value"), "{json}");
 }

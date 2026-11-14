@@ -3,7 +3,7 @@
 
 use std::error::Error;
 
-use isothrum_runner::{CheckReport, Event, Park, RunOptions, Runner, RunnerConfig, Running, Started, Status, SystemProcesses};
+use isothrum_runner::{Event, ExecReport, Park, RunOptions, Runner, RunnerConfig, Running, Started, Status, SystemProcesses};
 
 /// A test's outcome: a failed step is its report.
 type Outcome<T = ()> = Result<T, Box<dyn Error>>;
@@ -22,7 +22,7 @@ fn the_types_an_embedder_shares_between_threads_are_send_and_sync() {
     send_sync::<isothrum_runner::Error>();
     send_sync::<Status>();
     send_sync::<Started>();
-    send_sync::<CheckReport>();
+    send_sync::<ExecReport>();
     send_sync::<SystemProcesses>();
 }
 
@@ -30,16 +30,16 @@ fn the_types_an_embedder_shares_between_threads_are_send_and_sync() {
 fn an_operation_can_run_on_any_thread() -> Outcome {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
-    let manifest = dir.path().join("run.json");
-    std::fs::write(&manifest, include_str!("fixtures/web-portal.run.json"))?;
+    std::fs::write(dir.path().join("compose.yaml"), "services:\n  web:\n    image: nginx\n")?;
     let runner = Runner::new(RunnerConfig::new(home.path()))?;
-    let run = runner.open(&manifest, None)?;
+    let run = runner.open(dir.path(), None)?;
     let (opts, events) = (RunOptions::new(), |_: &Event| {});
+    let argv = ["true".to_owned()];
     send(&run.up(&opts, &events));
     send(&run.down(&opts, &events));
     send(&run.park(Park::Pause, &opts, &events));
     send(&run.resume(&opts, &events));
-    send(&run.check(&opts, &events));
+    send(&run.exec("web", &argv, &opts, &events));
     send(&run.status());
     Ok(())
 }

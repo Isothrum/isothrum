@@ -11,7 +11,7 @@ pub(crate) const CONTAINER_SHELL: &str = "if command -v bash >/dev/null 2>&1; th
 /// A login shell on a VM as `user`, from the session the way in opens (a VM's own login: Vagrant's
 /// `vagrant`, a module's user): that session's shell when it is `user`'s already, else `sudo -i`
 /// as `user` (its login shell, in its home). `user` is a checked account name
-/// ([`crate::console::check_user`]): nothing in it needs quoting, and the script has no double
+/// ([`crate::console::check_name`]): nothing in it needs quoting, and the script has no double
 /// quote, which a Windows host's command line would have to escape on its way to `vagrant` or
 /// `ssh` (`id -un` prints one word).
 pub(crate) fn login_shell_as(user: &str) -> String {

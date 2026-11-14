@@ -1,7 +1,6 @@
 //! The Docker adapter: the objects a project's label marks (its containers, networks and volumes,
 //! the anonymous ones included), their removal by id, and the networks a container is on.
 
-use std::collections::BTreeSet;
 use std::fmt;
 
 use super::{Call, CliError, argv, said_any};
@@ -91,18 +90,6 @@ pub(crate) async fn remove(call: &Call<'_>, kind: Object, ids: &[String]) -> Res
         | Ok(_) => Ok(()),
         Err(e) => Err(e),
     }
-}
-
-/// The networks container `id` is on ([`crate::tool_output::docker::networks`]).
-pub(crate) async fn networks_of(call: &Call<'_>, id: &str) -> Result<BTreeSet<String>, CliError<Failure>> {
-    let args = vec![
-        "inspect".into(),
-        "--format".into(),
-        crate::tool_output::docker::NETWORKS_FORMAT.into(),
-        id.to_owned(),
-    ];
-    let out = call.ok(TOOL, args, Failure::of).await?;
-    crate::tool_output::docker::networks(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
 }
 
 #[cfg(test)]

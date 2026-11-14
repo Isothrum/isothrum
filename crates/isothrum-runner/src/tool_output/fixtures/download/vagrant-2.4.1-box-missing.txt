@@ -1,8 +1,0 @@
-The box 'nope/nope' could not be found or
-could not be accessed in the remote catalog. If this is a private
-box on HashiCorp's Vagrant Cloud, please verify you're logged in via
-`vagrant login`. Also, please double-check the name. The expanded
-URL and error message are shown below:
-
-URL: ["https://vagrantcloud.com/nope/nope"]
-Error: The requested URL returned error: 404 (exited with code 1)
