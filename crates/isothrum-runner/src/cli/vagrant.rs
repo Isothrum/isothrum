@@ -169,7 +169,6 @@ pub(crate) enum Verb {
     /// `suspend`.
     Suspend,
     /// `provision`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     Provision,
     /// `destroy -f`.
     Destroy,

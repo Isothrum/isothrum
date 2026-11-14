@@ -7,6 +7,7 @@
 mod graphical;
 mod operate;
 pub(crate) mod recovery;
+mod status;
 #[cfg(test)]
 mod tests;
 
@@ -227,11 +228,31 @@ impl<'r> Running<'r> {
             Act::Up => self.driver.up(cx).await,
             Act::Park(mode) => self.driver.park(cx, mode).await,
             Act::Resume => self.driver.resume(cx).await,
-            Act::Update => self.driver.update(cx).await,
+            Act::Update => {
+                self.driver.update(cx).await?;
+                self.retire_undeclared(cx).await
+            }
             Act::Provision(machine, with) => self.driver.provision(cx, machine, with).await,
             Act::Attach(machine) => self.driver.attach(cx, machine).await,
             Act::Retire(machine) => self.driver.retire(cx, machine).await,
         }
+    }
+
+    /// After an update: the running machines the project's files no longer declare, brought down
+    /// by the driver's re-apply (a Vagrant machine whose `define` left the Vagrantfile, which
+    /// `vagrant up` leaves running; Compose's `--remove-orphans` and Terraform's apply leave none).
+    async fn retire_undeclared(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let declared = self.driver.machines(cx).await?;
+        let (seen, _) = self.driver.observe(cx).await?;
+        let removed: Vec<String> = seen.machines.into_iter().map(|m| m.name).filter(|m| !declared.contains(m)).collect();
+        if removed.is_empty() {
+            return Ok(());
+        }
+        let change = crate::formats::Change {
+            removed,
+            ..crate::formats::Change::default()
+        };
+        self.driver.reapply(cx, &change).await
     }
 
     /// Runs `act` as an operation: what dead operations left removed, the tool probed and driven,
@@ -421,61 +442,6 @@ impl<'r> Running<'r> {
             warn: &unwarned,
         };
         self.driver.console(&cx, machine, user)
-    }
-
-    /// The run as its tool reports it now, reconciled with its record: an operation of this
-    /// process on the run leaves the machines as last read (not live).
-    ///
-    /// # Errors
-    ///
-    /// As the tool fails to answer; the store's.
-    pub async fn status(&self) -> Result<Status> {
-        let record = self.runner.store.record(&self.name)?;
-        let recorded = record.as_ref().map_or(RunState::Absent, |r| r.state);
-        let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
-        if self.runner.op_of(&self.name).is_some() || recorded.is_moving() {
-            return Ok(status_of(&Seen::default(), recorded, false, row.as_ref()));
-        }
-        let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
-        let opts = RunOptions::new();
-        let (seen, derived, screens, native) = self
-            .with_cx(&opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
-                let (seen, derived) = self.driver.observe(cx).await?;
-                let screens = self.screens(cx, &seen).await;
-                let native = self.driver.native_app(cx, &seen);
-                Ok((seen, derived, screens, native))
-            })
-            .await?;
-        let observed = LastObserved {
-            machines: machine_statuses(&seen.machines),
-        };
-        let state = if row.is_some() {
-            self.runner
-                .store
-                .db()
-                .write(|tx| tx.observe(&self.name, &observed, derived))?
-                .map_or(recorded, |t| t.to())
-        } else {
-            derived
-        };
-        let settled = self.runner.store.db().read(|tx| tx.run(&self.name))?;
-        let mut status = status_of(&seen, state, true, settled.as_ref());
-        for (machine, console) in status.machines.iter_mut().zip(screens) {
-            machine.console = console;
-        }
-        status.native = native;
-        Ok(status)
-    }
-
-    /// What the project gives back now (a module's outputs), read from the tool.
-    async fn outputs(&self, opts: &RunOptions) -> Result<Vec<OutputValue>> {
-        let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
-        let (seen, _) = self
-            .with_cx(opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
-                self.driver.observe(cx).await
-            })
-            .await?;
-        Ok(status_of(&seen, RunState::Ready, true, None).outputs)
     }
 }
 

@@ -164,7 +164,6 @@ pub(crate) struct SeenPort {
 /// What changed in a project between what the run runs and its files now, by machine name: what
 /// [`FormatDriver::reapply`] brings the running run to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
 pub(crate) struct Change {
     /// Machines the files declare that the run doesn't have.
     pub(crate) added: Vec<String>,
@@ -236,12 +235,10 @@ pub(crate) trait FormatDriver {
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()>;
     /// The machines the project's files declare, by name (Compose's services, the
     /// Vagrantfile's machines, the module's VMs), whether or not they run: what a re-apply diffs.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>>;
     /// Brings the running run to the project's files machine by machine, with the tool's own
     /// incremental apply (Compose's `up` on the files, Vagrant's `up`/`destroy` per machine,
     /// Terraform's plan and apply): `change` names what moved.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it"))]
     async fn reapply(&self, cx: &ToolCx<'_>, change: &Change) -> Result<()>;
     /// Runs the set-up again, on `machine` or on every machine.
     /// `with`, when given, runs only the provisioner of that name (Vagrant's

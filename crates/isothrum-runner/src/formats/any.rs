@@ -74,12 +74,10 @@ impl AnyFormat {
         dispatch!(self, d => d.update(cx).await)
     }
 
-    #[expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it")]
     pub(crate) async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
         dispatch!(self, d => d.machines(cx).await)
     }
 
-    #[expect(dead_code, reason = "the re-apply of a changed project (no-manifest N9) calls it")]
     pub(crate) async fn reapply(&self, cx: &ToolCx<'_>, change: &Change) -> Result<()> {
         dispatch!(self, d => d.reapply(cx, change).await)
     }

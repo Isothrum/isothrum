@@ -55,7 +55,6 @@ fn the_oss_start_reads_from_proc_and_from_ps() {
 
 /// `sleep` in a process group of its own, as the runner starts every tool.
 #[cfg(unix)]
-#[expect(clippy::disallowed_methods, reason = "a stand-in tool the ledger's own ending is tested on")]
 fn tool() -> std::process::Child {
     use std::os::unix::process::CommandExt;
     std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap()

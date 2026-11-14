@@ -99,7 +99,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::project::platform::Provider;
     use proptest::prelude::*;
 
@@ -118,7 +118,7 @@ mod tests {
     }
 
     /// RFC 4648 decoding, for the tests: what `base64 -d` does.
-    fn decoded(text: &str) -> Vec<u8> {
+    pub(crate) fn decoded(text: &str) -> Vec<u8> {
         const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let values: Vec<u32> = text
             .bytes()

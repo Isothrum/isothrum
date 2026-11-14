@@ -74,19 +74,7 @@ fn here(launcher: &str, bin: &Path) -> String {
 /// Standard base64 (RFC 4648, padded) read back.
 #[cfg(unix)]
 fn unbase64(text: &str) -> Vec<u8> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let sextets: Vec<u32> = text
-        .bytes()
-        .filter(|b| *b != b'=')
-        .map(|b| u32::try_from(TABLE.iter().position(|t| *t == b).unwrap()).unwrap())
-        .collect();
-    sextets
-        .chunks(4)
-        .flat_map(|c| {
-            let n = c.iter().fold(0, |n, s| (n << 6) | s) << (6 * (4 - c.len()));
-            n.to_be_bytes()[1..c.len()].to_vec()
-        })
-        .collect()
+    crate::encoding::tests::decoded(text)
 }
 
 #[cfg(unix)]

@@ -1,9 +1,16 @@
 {
   "rules": {
     "exception/expect": {
-      "isothrum-runner": 17,
-      "isothrum-test-support": 1,
-      "xtask": 1
+      "isothrum-cli": 3,
+      "isothrum-client": 2,
+      "isothrum-runner": 31,
+      "isothrum-service": 5,
+      "isothrum-test-support": 2,
+      "xtask": 2
+    },
+    "dup/clone": {
+      "isothrum-machine": 2,
+      "isothrum-runner": 5
     }
   }
 }

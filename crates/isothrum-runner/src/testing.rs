@@ -143,7 +143,6 @@ async fn a_capture_holds_its_own_threads_events_and_none_of_another_threads() {
 /// Runs this test binary's test `exact` alone, as a child process, with `var` set to `home`: the
 /// other process of a test across processes (it acts only when it finds `var`). Returns the child
 /// and whether it printed a line holding `said` (read until it did, or ended its output).
-#[expect(clippy::disallowed_methods, reason = "the other process of a test: this test binary, run alone")]
 pub(crate) fn child_test_saying(exact: &str, var: &str, home: &Path, said: &str) -> (std::process::Child, bool) {
     use std::io::BufRead as _;
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())

@@ -217,9 +217,9 @@ async fn qemu(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr> {
 /// QEMU's VNC display of `machine`: none on a host without Unix sockets, where vagrant-qemu's
 /// monitor is out of reach.
 #[cfg(not(unix))]
-async fn qemu(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr> {
-    let _ = monitor_socket(cx, machine)?;
-    Err(no_console(machine, "vagrant-qemu's monitor is a Unix socket, which this host doesn't have"))
+fn qemu(cx: &ToolCx<'_>, machine: &str) -> impl Future<Output = Result<std::net::SocketAddr>> {
+    let answer = monitor_socket(cx, machine).and_then(|_| Err(no_console(machine, "vagrant-qemu's monitor is a Unix socket, which this host doesn't have")));
+    std::future::ready(answer)
 }
 
 /// The app VMs of `provider` show in on `host`; none where it has none.

@@ -120,7 +120,6 @@ pub(crate) mod tests {
 
     /// The pid of a process that ran and exited.
     #[cfg(unix)]
-    #[expect(clippy::disallowed_methods, reason = "a process run to its end for its pid")]
     pub(crate) fn dead_pid() -> u32 {
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let pid = child.id();

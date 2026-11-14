@@ -18,19 +18,15 @@ publish = true
 fake = []
 
 [dependencies]
-indexmap = { workspace = true }
-flate2.workspace = true
 # The random token of an elevated session (`process/elevated.rs`).
 getrandom.workspace = true
 # A Terraform module's input variables, read from its HCL (`project/variables.rs`).
 hcl.workspace = true
 process-wrap.workspace = true
-regex.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tar.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

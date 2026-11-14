@@ -75,16 +75,10 @@ pub async fn vmware_utility(host: &Host) -> UtilityState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::{Arch, Devices, HostOs};
 
     /// A Linux host whose devices are under `root`.
     fn host(root: &std::path::Path) -> Host {
-        Host {
-            os: HostOs::Linux,
-            arch: Arch::Amd64,
-            packages: None,
-            devices: Devices::under(root),
-        }
+        crate::testing::linux_host(root)
     }
 
     #[test]
