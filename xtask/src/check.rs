@@ -264,8 +264,17 @@ fn isoloom_free(root: &Path) -> Res<bool> {
 /// What ties the workspace to Isoloom, read from its lockfile `lock` and its cargo configuration
 /// `config`.
 fn isoloom_found(lock: &str, config: &str) -> Vec<String> {
+    // The linked packages only (`[[package]]`): a patch the build had no use for is listed under
+    // `[[patch.unused]]` and links nothing.
+    let mut section = "";
     let mut found: Vec<String> = lock
         .lines()
+        .filter(|l| {
+            if l.starts_with('[') {
+                section = l.trim();
+            }
+            section == "[[package]]"
+        })
         .filter_map(|l| l.strip_prefix("name = \""))
         .filter_map(|n| n.strip_suffix('"'))
         .filter(|n| n.starts_with("isoloom"))
@@ -349,6 +358,8 @@ mod tests {
         assert_eq!(isoloom_found(clean, "[alias]\nxtask = \"run -p xtask --\"\n"), Vec::<String>::new());
         let linked = "[[package]]\nname = \"isoloom-spec\"\n";
         assert_eq!(isoloom_found(linked, ""), ["Cargo.lock lists the Isoloom crate `isoloom-spec`"]);
+        let unused = "[[package]]\nname = \"isothrum-runner\"\n\n[[patch.unused]]\nname = \"isoloom-spec\"\nversion = \"3.0.0\"\n";
+        assert_eq!(isoloom_found(unused, ""), Vec::<String>::new(), "an unused patch links nothing");
         assert_eq!(isoloom_found(clean, "[patch.crates-io]\nisoloom-spec = { path = \"../isoloom\" }\n").len(), 1);
         let ours = std::fs::read_to_string(repo::root().join("Cargo.lock")).expect("Cargo.lock");
         assert_eq!(isoloom_found(&ours, ""), Vec::<String>::new(), "this workspace links no Isoloom crate");
