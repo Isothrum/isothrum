@@ -2,6 +2,12 @@
 //! retried, slow tests reported: `.config/nextest.toml`), then the doctests, which nextest
 //! doesn't run, with `cargo test --doc`. Both run, so a failure in one doesn't hide the other.
 //!
+//! xtask's ignored tests run too: those need cargo (`#[ignore = "needs cargo: ..."]`), which a
+//! player's machine doesn't have, so the test programs run as they are on a fresh machine (the
+//! products' workspace runs them in a VM) list them as ignored, with their reason, instead of
+//! failing; here, with the toolchain, they run. The other crates' ignored tests stay opt-in (a
+//! real run, an elevated prompt).
+//!
 //! Both run with a temp folder of their own (`TMPDIR`, `TMP` and `TEMP` name a fresh folder), and
 //! anything a test leaves there fails the task: a test removes what it makes, and a leak caught
 //! here never piles up in the developer's temp folder. The folder goes at the end, unless
@@ -32,9 +38,11 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     process::require_cargo_tool(&root, "nextest")?;
     let temp = TempRoot::new()?;
     let tests = process::passed(temp.apply(process::cargo(&root).args(["nextest", "run", "--workspace"]).args(&a.nextest)))?;
+    let needs_cargo =
+        !a.nextest.is_empty() || process::passed(temp.apply(process::cargo(&root).args(["nextest", "run", "-p", "xtask", "--run-ignored", "only"])))?;
     let doctests = !a.nextest.is_empty() || process::passed(temp.apply(process::cargo(&root).args(["test", "--workspace", "--doc"])))?;
     let clean = temp.finish(std::env::var_os(KEEP).is_some_and(|v| !v.is_empty()))?;
-    Ok(process::exit_code(tests && doctests && clean))
+    Ok(process::exit_code(tests && needs_cargo && doctests && clean))
 }
 
 /// The temp folder the tests run with, fresh for the run.
