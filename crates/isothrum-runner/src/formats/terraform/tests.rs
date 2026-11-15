@@ -1,6 +1,6 @@
 mod by_id;
 mod changes;
-mod contract;
+pub(crate) mod contract;
 mod proxmox;
 use std::path::PathBuf;
 use std::sync::Mutex;

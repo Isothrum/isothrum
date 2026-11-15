@@ -120,6 +120,16 @@ impl OutputValue {
         }
     }
 
+    /// The same, a sensitive one with its own value instead of the mask (a status read asked to
+    /// reveal it, [`crate::RunOptions::reveal`]).
+    #[must_use]
+    pub(crate) fn unmasked(mut self) -> OutputValue {
+        if let Some(secret) = &self.secret {
+            self.value = Some(secret.expose().to_owned());
+        }
+        self
+    }
+
     /// The value itself, a sensitive one unmasked. Never print or log it. `None` when it can't be
     /// read, and for a sensitive output read back from JSON (which holds only the mask).
     #[must_use]

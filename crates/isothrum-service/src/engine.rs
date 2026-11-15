@@ -151,6 +151,9 @@ fn run_options(options: &OpOptions) -> RunOptions {
     if let Some(provider) = options.provider {
         opts = opts.with_provider(provider);
     }
+    if options.reveal {
+        opts = opts.with_reveal();
+    }
     opts
 }
 

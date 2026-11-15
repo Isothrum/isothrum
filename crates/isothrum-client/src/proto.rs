@@ -299,6 +299,10 @@ pub struct OpOptions {
     /// What to call the place the run is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
+    /// A status read only: each sensitive output's own value instead of `***`. The service gives
+    /// it only over its owner-only endpoint; it is never in an event, never stored. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reveal: bool,
 }
 
 impl OpOptions {
@@ -316,6 +320,7 @@ impl fmt::Debug for OpOptions {
             .field("env", &self.env)
             .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
             .field("host_label", &self.host_label)
+            .field("reveal", &self.reveal)
             .finish()
     }
 }
@@ -481,6 +486,19 @@ mod tests {
         };
         let shown = format!("{options:?}");
         assert!(shown.contains("TOKEN") && !shown.contains("hunter2"), "{shown}");
+    }
+
+    #[test]
+    fn reveal_is_off_unless_asked_and_travels_only_when_on() {
+        assert_eq!(serde_json::to_string(&OpOptions::default()).unwrap(), "{}");
+        let on = OpOptions {
+            reveal: true,
+            ..OpOptions::default()
+        };
+        let json = serde_json::to_string(&on).unwrap();
+        assert_eq!(json, r#"{"reveal":true}"#);
+        assert!(serde_json::from_str::<OpOptions>(&json).unwrap().reveal);
+        assert!(!serde_json::from_str::<OpOptions>("{}").unwrap().reveal, "off when not said");
     }
 
     #[test]

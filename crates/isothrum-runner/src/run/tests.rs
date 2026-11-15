@@ -8,6 +8,7 @@ mod pins;
 mod qemu;
 mod quiet_reads;
 mod refusals;
+mod reveal;
 mod vagrant;
 
 use std::sync::{Arc, Mutex, PoisonError};
