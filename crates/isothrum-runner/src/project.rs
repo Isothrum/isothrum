@@ -97,7 +97,10 @@ impl Format {
             [one] => Ok(*one),
             [] => Err(Error::Project {
                 dir: dir.to_path_buf(),
-                reason: "it holds no Compose file (compose.yaml), Vagrantfile or Terraform module (*.tf)".to_owned(),
+                reason: format!(
+                    "it holds no Compose file ({}), Vagrantfile or Terraform module (*.tf)",
+                    COMPOSE_FILES.join(", ")
+                ),
             }),
             many => Err(Error::Project {
                 dir: dir.to_path_buf(),

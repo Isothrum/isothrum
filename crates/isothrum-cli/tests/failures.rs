@@ -56,7 +56,7 @@ fn a_folder_that_holds_no_project_is_a_project_invalid_error_event_with_json() {
         event["message"]
             .as_str()
             .unwrap()
-            .ends_with("not a project to run: it holds no Compose file (compose.yaml), Vagrantfile or Terraform module (*.tf)"),
+            .ends_with("not a project to run: it holds no Compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), Vagrantfile or Terraform module (*.tf)"),
         "{event}"
     );
     assert!(out.stderr.is_empty(), "nothing else: {}", String::from_utf8_lossy(&out.stderr));
