@@ -7,16 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
 
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_client::{Client, ClientError, InputVariable};
-use isothrum_runner::fake::{Call, FakeProcesses, Reply};
-use isothrum_runner::{ErrorCode, EventKind, ResultData, RunName, RunState, Runner, RunnerConfig};
-use isothrum_service::{Engine, RunnerEngine, ServeOptions, Service, StopSignal};
+use isothrum_runner::fake::{Call, Reply};
+use isothrum_runner::{ErrorCode, EventKind, ResultData, RunName, RunState};
 
-/// What a helper's failure fails the test with.
-type Outcome<T> = Result<T, Box<dyn std::error::Error>>;
+mod common;
+use common::Outcome;
 
 /// The fixture's folder.
 fn fixture(part: &str) -> PathBuf {
@@ -92,11 +90,6 @@ fn files_holding(dir: &Path, needle: &[u8]) -> Vec<PathBuf> {
     found
 }
 
-/// A stop signal that never fires.
-fn never() -> StopSignal {
-    Box::new(|| Box::pin(std::future::pending()))
-}
-
 /// A service over a runner whose Terraform is `terraform`, on a fresh home; the module copied to
 /// a folder of its own.
 struct Lab {
@@ -104,7 +97,7 @@ struct Lab {
     module: tempfile::TempDir,
     terraform: Arc<Terraform>,
     client: Client,
-    task: tokio::task::JoinHandle<Result<(), isothrum_service::ServeError>>,
+    task: common::Serving,
 }
 
 async fn lab() -> Outcome<Lab> {
@@ -112,24 +105,14 @@ async fn lab() -> Outcome<Lab> {
     std::fs::copy(fixture("module/main.tf"), module.path().join("main.tf"))?;
     let terraform = Arc::new(Terraform::default());
     let answering = Arc::clone(&terraform);
-    let mut config = RunnerConfig::new(home.path());
-    config.processes = Arc::new(FakeProcesses::model(move |call| answering.answer(call)));
-    let engine: Arc<dyn Engine> = Arc::new(RunnerEngine::new(Arc::new(Runner::new(config)?)));
-    let service = Service::hold(home.path())?;
-    let task = tokio::spawn(service.serve(ServeOptions::new(engine, never())));
-    for _ in 0..200 {
-        if let Ok(client) = Client::connect_running(home.path()).await {
-            return Ok(Lab {
-                home,
-                module,
-                terraform,
-                client,
-                task,
-            });
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    Err("the service didn't answer".into())
+    let (client, task) = common::serve(home.path(), move |call| answering.answer(call)).await?;
+    Ok(Lab {
+        home,
+        module,
+        terraform,
+        client,
+        task,
+    })
 }
 
 impl Lab {
