@@ -79,6 +79,18 @@ impl Act<'_> {
     }
 }
 
+/// The host ports run `run` pins, reserved through its runner for the operation.
+struct RunPorts<'a> {
+    runner: &'a Runner,
+    run: &'a RunName,
+}
+
+impl crate::formats::PickPorts for RunPorts<'_> {
+    fn pick(&self, protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.runner.pick_reserved(self.run, protocol)
+    }
+}
+
 /// Removes a recorded resource through the run's driver, by the id its tool gave.
 struct ById<'a, 'c> {
     driver: AnyFormat,
@@ -179,6 +191,10 @@ impl<'r> Running<'r> {
         let step = emitter.operation_name();
         let sink = |stream: Stream, line: &str| emitter.log(step, stream, line);
         let warn = |code: WarningCode, message: &str| emitter.warning(code, message);
+        let ports = RunPorts {
+            runner: self.runner,
+            run: &self.name,
+        };
         let cx = ToolCx {
             project: &self.project,
             run: &self.name,
@@ -187,6 +203,7 @@ impl<'r> Running<'r> {
             provider: self.provider(opts),
             env: self.tool_env(opts)?,
             processes,
+            ports: &ports,
             host_env: &self.runner.config.host_env,
             sink: &sink,
             warn: &warn,
@@ -446,6 +463,7 @@ impl<'r> Running<'r> {
             env: self.tool_env(&opts)?,
             host_env: &self.runner.config.host_env,
             processes: self.runner.config.processes.as_ref(),
+            ports: &crate::formats::NoPorts,
             sink: &quiet,
             warn: &unwarned,
         };
@@ -470,6 +488,7 @@ impl Running<'_> {
             env: Vec::new(),
             host_env: &self.runner.config.host_env,
             processes: self.runner.config.processes.as_ref(),
+            ports: &crate::formats::NoPorts,
             sink: &quiet,
             warn: &unwarned,
         };

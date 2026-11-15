@@ -18,6 +18,8 @@
 //! earlier start left) removes the project's labelled leftovers by id and starts once more. A
 //! host port taken is `port_in_use`. Compose has no set-up to run again: `provision` is refused.
 
+mod pins;
+
 use std::time::Duration;
 
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
@@ -54,6 +56,7 @@ impl Compose {
         Project {
             name: cx.run.as_str(),
             files: &cx.project.files,
+            pins: pins::file(cx),
             profiles: &[],
         }
     }
@@ -167,6 +170,7 @@ impl FormatDriver for Compose {
             remove_orphans: true,
             ..Up::default()
         };
+        pins::pin(cx).await?;
         self.up_recovering(cx, "up", &how).await
     }
 
@@ -176,7 +180,8 @@ impl FormatDriver for Compose {
             .map_err(|e| tool_error("down", e))?;
         // What `down` doesn't take (a container a killed client left unnamed, a volume another
         // file's service made), by the project's label.
-        self.remove_labelled(cx).await
+        self.remove_labelled(cx).await?;
+        pins::forget(cx)
     }
 
     async fn park(&self, cx: &ToolCx<'_>, mode: Park) -> Result<()> {

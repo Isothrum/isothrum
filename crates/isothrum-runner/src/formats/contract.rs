@@ -125,6 +125,7 @@ impl<M: Model> Bench<M> {
             ],
             host_env: &crate::host_env::EMPTY,
             processes: &self.fake,
+            ports: &crate::formats::NoPorts,
             sink: &quiet,
             warn: &unwarned,
         }

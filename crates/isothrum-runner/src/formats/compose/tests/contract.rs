@@ -63,6 +63,7 @@ impl Docker {
                 Reply::ok(&lines.join("\n"))
             }
             ["config", "--services"] => Reply::ok("web\ndb\n"),
+            ["config", "--format", "json"] => Reply::ok(r#"{"services": {"web": {}, "db": {}}}"#),
             ["down", "--volumes", "--remove-orphans"] => {
                 self.held.lock().expect("the world").clear();
                 Reply::ok("")

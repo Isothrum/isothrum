@@ -44,6 +44,26 @@ use crate::store::{Lifetime, ResourceKind};
 /// timeout, with its last line, well before the operation's caller gives up on it.
 pub(crate) const CHECK_LIMIT: Duration = Duration::from_secs(300);
 
+/// What picks the host ports a run pins (Compose's ephemeral publishes): a free loopback port no
+/// other run holds, reserved for the run until its operation ends, held until dropped.
+pub(crate) trait PickPorts: Send + Sync {
+    /// A port over `protocol`; none when none is left.
+    ///
+    /// # Errors
+    ///
+    /// The loopback couldn't be bound.
+    fn pick(&self, protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>>;
+}
+
+/// Picks nothing: a context that starts nothing (a console, a status read).
+pub(crate) struct NoPorts;
+
+impl PickPorts for NoPorts {
+    fn pick(&self, _protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        Ok(None)
+    }
+}
+
 /// What a format driver gets for one operation.
 pub(crate) struct ToolCx<'a> {
     /// The project the run runs.
@@ -66,6 +86,8 @@ pub(crate) struct ToolCx<'a> {
     pub(crate) host_env: &'a crate::host_env::HostEnv,
     /// What runs the tool.
     pub(crate) processes: &'a dyn ProcessRunner,
+    /// What picks the host ports the run pins.
+    pub(crate) ports: &'a dyn PickPorts,
     /// Where each line the tool prints goes (the operation's step output events).
     pub(crate) sink: &'a (dyn Fn(Stream, &str) + Send + Sync),
     /// Where a driver says what it did that the operation's caller should know (a recovery, a

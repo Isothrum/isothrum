@@ -37,6 +37,7 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
             Reply::ok(&lines.join("\n"))
         }
         ["config", "--services"] => Reply::ok("web\ncache\n"),
+        ["config", "--format", "json"] => Reply::ok(r#"{"services": {"web": {}, "cache": {}}}"#),
         ["down", ..] => {
             lab.present.clear();
             Reply::ok("")

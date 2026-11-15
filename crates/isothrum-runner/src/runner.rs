@@ -293,6 +293,15 @@ impl Runner {
     pub(crate) fn release(&self, name: &RunName) {
         self.reservations.release(name);
     }
+
+    /// A free loopback port over `protocol` reserved for `name` ([`PortReservations::pick_reserved`]).
+    ///
+    /// # Errors
+    ///
+    /// The loopback couldn't be bound.
+    pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.reservations.pick_reserved(name, protocol, self.operation_of(name))
+    }
 }
 
 #[expect(
@@ -303,15 +312,6 @@ impl Runner {
     /// Reserves `port` for `name` while it starts; false when another run holds it.
     pub(crate) fn reserve(&self, name: &RunName, port: crate::port::HostPort, protocol: Protocol) -> bool {
         self.reservations.reserve(name, port, protocol, self.operation_of(name))
-    }
-
-    /// A free loopback port over `protocol` reserved for `name` ([`PortReservations::pick_reserved`]).
-    ///
-    /// # Errors
-    ///
-    /// The loopback couldn't be bound.
-    pub(crate) fn pick_reserved(&self, name: &RunName, protocol: Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
-        self.reservations.pick_reserved(name, protocol, self.operation_of(name))
     }
 
     /// A free loopback port over `protocol` no other run holds, not reserved

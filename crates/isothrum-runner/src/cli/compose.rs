@@ -10,8 +10,10 @@ use crate::process::Captured;
 /// The tool Compose runs as.
 const TOOL: &str = "docker";
 
+mod config;
 mod ps;
 
+pub(crate) use config::{ConfigPort, pins_override, ports as config_ports};
 pub(crate) use ps::Container;
 
 /// A failed Compose call, as far as a driver acts on it.
@@ -93,6 +95,9 @@ pub(crate) struct Project<'a> {
     pub(crate) name: &'a str,
     /// `-f`, in order.
     pub(crate) files: &'a [PathBuf],
+    /// The run's own override, after the project's files (its pinned host ports), when it has
+    /// one.
+    pub(crate) pins: Option<PathBuf>,
     /// `--profile`.
     pub(crate) profiles: &'a [String],
 }
@@ -101,7 +106,7 @@ impl Project<'_> {
     /// `compose -p <name> -f <file>… --profile <profile>…` then `rest`.
     fn args(&self, rest: impl IntoIterator<Item = String>) -> Vec<String> {
         let mut args = argv(["compose", "-p", self.name]);
-        for file in self.files {
+        for file in self.files.iter().chain(&self.pins) {
             args.extend(["-f".to_owned(), file.to_string_lossy().into_owned()]);
         }
         for profile in self.profiles {
@@ -307,6 +312,7 @@ mod tests {
         let project = Project {
             name: "lab",
             files: &files,
+            pins: None,
             profiles: &["access".to_owned()],
         };
         up(&call, &project, &Up { wait: true, ..Up::default() }).await.unwrap();
