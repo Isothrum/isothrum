@@ -121,7 +121,8 @@ fn mac_with_app_tool(plugin: &'static str, app_tool: &Path, said: Reply) -> Fake
     FakeProcesses::model(move |call| match (call.program.as_str(), call.args.first().map(String::as_str)) {
         ("vagrant", Some("--version")) => Reply::ok("Vagrant 2.4.9"),
         ("vagrant", Some("plugin")) => listing(&[(plugin, "3.0.5")]),
-        (program, _) if program == app_tool => said.clone(),
+        // As paths: one the code joins for a Mac has `/` where Windows would write `\\`.
+        (program, _) if Path::new(program) == Path::new(&app_tool) => said.clone(),
         _ => Reply::missing(),
     })
 }
@@ -152,7 +153,7 @@ async fn vmware_fusion_off_path_is_found_in_its_app() {
         .expect("checked");
     assert_eq!(installed, Some(true), "{ran:?}");
     assert!(
-        ran.contains(&"vmrun".to_owned()) && ran.contains(&vmrun.display().to_string()),
+        ran.contains(&"vmrun".to_owned()) && ran.iter().any(|r| Path::new(r) == vmrun),
         "PATH first, then the app's: {ran:?}"
     );
 }
@@ -166,7 +167,7 @@ async fn parallels_desktop_off_path_is_found_in_its_app() {
         .await
         .expect("checked");
     assert_eq!(installed, Some(true), "{ran:?}");
-    assert!(ran.contains(&prlctl.display().to_string()), "{ran:?}");
+    assert!(ran.iter().any(|r| Path::new(r) == prlctl), "{ran:?}");
 }
 
 #[tokio::test]

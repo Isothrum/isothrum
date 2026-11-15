@@ -216,6 +216,8 @@ mod tests {
         file(&utmctl);
         let name = crate::cli::utmctl::name_of(&call, "1f0e").await.expect("the app's utmctl");
         assert_eq!(name.as_deref(), Some("lab-web"));
-        assert_eq!(fake.calls().last().map(|c| c.program.clone()), Some(utmctl.display().to_string()));
+        // As a path: the one joined for a Mac has `/` where Windows would write `\\`.
+        let ran = fake.calls().last().map(|c| std::path::PathBuf::from(&c.program));
+        assert_eq!(ran.as_deref(), Some(utmctl.as_path()));
     }
 }

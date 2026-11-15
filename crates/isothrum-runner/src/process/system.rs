@@ -323,14 +323,15 @@ fn wrapped(spec: &ProcessSpec) -> (&str, Vec<&str>) {
     (spec.program.as_str(), args.collect())
 }
 
-/// The error of the tool `spec` that couldn't start: missing, or the OS's reason. The OS refuses
-/// a start in a working folder that isn't there with `NotFound` too: that is said of the folder,
-/// not taken for a tool that isn't installed.
+/// The error of the tool `spec` that couldn't start: missing, or the OS's reason. A start in a
+/// working folder that isn't there is said of the folder, whatever the OS answers (Unix:
+/// `NotFound`, as for a program; Windows: "The directory name is invalid"), never taken for a
+/// tool that isn't installed.
 fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
     let program = spec.program.clone();
     let folder_gone = spec.cwd.as_deref().filter(|dir| !dir.is_dir());
     match (e.kind(), folder_gone) {
-        (std::io::ErrorKind::NotFound, Some(dir)) => ProcessError::Io {
+        (_, Some(dir)) => ProcessError::Io {
             program,
             source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("its working folder {} doesn't exist", dir.display())),
         },

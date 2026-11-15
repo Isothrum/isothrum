@@ -9,6 +9,8 @@ mod elevated;
 pub mod fake;
 #[cfg(windows)]
 mod job;
+#[cfg(windows)]
+pub(crate) use job::process_runs;
 pub(crate) mod ledger;
 mod lines;
 mod locale;

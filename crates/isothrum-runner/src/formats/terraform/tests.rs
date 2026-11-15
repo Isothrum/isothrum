@@ -149,11 +149,17 @@ fn failing(stdout: &str) -> Reply {
     Reply { code: 1, ..Reply::ok(stdout) }
 }
 
-/// The calls made, as `program arg…` lines with the run's state folder written `<state>`.
+/// The calls made, as `program arg…` lines with the run's state folder written `<state>` and the
+/// paths under it with `/` (Windows joins them with `\\`).
 fn made(fake: &FakeProcesses, lab: &Lab) -> Vec<String> {
-    fake.lines()
+    let state = lab.state.path().display().to_string();
+    let arg = |a: &String| {
+        let a = a.replace(&state, "<state>");
+        if a.contains("<state>") { a.replace('\\', "/") } else { a }
+    };
+    fake.calls()
         .iter()
-        .map(|l| l.replace(&lab.state.path().display().to_string(), "<state>"))
+        .map(|c| std::iter::once(c.program.clone()).chain(c.args.iter().map(arg)).collect::<Vec<_>>().join(" "))
         .collect()
 }
 
