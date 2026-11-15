@@ -34,9 +34,12 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
         ["--version"] => Reply::ok(VERSION),
         ["up", "--provider", "virtualbox", ..] => {
             lab.ups += 1;
-            let dir = dotfile(call).join("web").join("virtualbox");
-            std::fs::create_dir_all(&dir).expect("its folder");
-            std::fs::write(dir.join("id"), format!("uuid-web-{}", lab.ups)).expect("its id");
+            // An `up` of a machine there keeps its VM; one not there is made, a new VM.
+            if !lab.made.contains_key("web") {
+                let dir = dotfile(call).join("web").join("virtualbox");
+                std::fs::create_dir_all(&dir).expect("its folder");
+                std::fs::write(dir.join("id"), format!("uuid-web-{}", lab.ups)).expect("its id");
+            }
             lab.made.insert("web", true);
             Reply::ok("")
         }
@@ -67,14 +70,20 @@ fn destroy_web_outside(lab: &Mutex<Lab>, dot: &Path) {
     std::fs::remove_file(&id).expect("its id was recorded");
 }
 
-#[tokio::test]
-async fn a_vm_destroyed_outside_reads_absent_beside_one_never_made_its_resume_is_refused_and_an_up_makes_it_again() {
+/// The modelled VirtualBox, the fake answering from it, and a Vagrant project with a runner on it.
+fn virtualbox_lab() -> (Arc<Mutex<Lab>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
     let lab = Arc::new(Mutex::new(Lab::default()));
     let fake = Arc::new(FakeProcesses::model({
         let lab = Arc::clone(&lab);
         move |call| answer(&lab, call)
     }));
-    let (_root, project, runner) = a_vagrant_lab_on(&fake);
+    let (root, project, runner) = a_vagrant_lab_on(&fake);
+    (lab, fake, root, project, runner)
+}
+
+#[tokio::test]
+async fn a_vm_destroyed_outside_reads_absent_beside_one_never_made_its_resume_is_refused_and_an_up_makes_it_again() {
+    let (lab, fake, _root, project, runner) = virtualbox_lab();
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     // The run's state and each machine's, as a status reads them now.
@@ -105,4 +114,23 @@ async fn a_vm_destroyed_outside_reads_absent_beside_one_never_made_its_resume_is
 
     run.up(&opts, &Recorder::new()).await.expect("up makes it again");
     assert_eq!(read().await, (RunState::Ready, vec![absent("attackbox"), running("web")]));
+}
+
+#[tokio::test]
+async fn a_vm_made_again_has_its_pinned_host_keys_forgotten_and_one_kept_keeps_them() {
+    let (lab, fake, _root, project, runner) = virtualbox_lab();
+    let run = runner.open(&project, None).expect("opened");
+    let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
+    run.up(&opts, &Recorder::new()).await.expect("up");
+    let up = fake.made("vagrant up").pop().expect("an up");
+    let dot = Path::new(up.env("VAGRANT_DOTFILE_PATH").expect("the dotfile folder")).to_path_buf();
+    let known = dot.parent().expect("the run's state folder").join(crate::ssh::KNOWN_HOSTS);
+    std::fs::write(&known, "10.0.0.5 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOld\n").expect("a console pinned web's keys");
+
+    run.update(&opts, &Recorder::new()).await.expect("an update keeps web's VM");
+    assert!(known.exists(), "the same VM: its keys still hold");
+
+    destroy_web_outside(&lab, &dot);
+    run.up(&opts, &Recorder::new()).await.expect("up makes web again");
+    assert!(!known.exists(), "a new VM, maybe at the old address: its old keys would refuse it");
 }

@@ -12,6 +12,7 @@ use crate::ErrorCode;
 use crate::RunName;
 use crate::process::fake::{Call as Made, FakeProcesses, Reply};
 use crate::project::{Format, Project};
+use crate::status::MachineState;
 
 const SHOW: &str = include_str!("../../tool_output/fixtures/terraform/1.16-show.json");
 const DATA_ONLY: &str = include_str!("../../tool_output/fixtures/terraform/1.16-show-data-only.json");

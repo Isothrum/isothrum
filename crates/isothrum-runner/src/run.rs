@@ -280,6 +280,13 @@ impl<'r> Running<'r> {
         let recorded = db.write(|tx| ledger::record_found(tx, &self.name, by, &found))?;
         let moved: Vec<_> = recorded.made.iter().chain(&recorded.gone).copied().collect();
         crate::run::recovery::say(emitter, db, &moved);
+        // A machine made again (destroyed outside, recovered, re-made by an update) is a new VM,
+        // maybe at its old address, with new host keys: the pins go, and the next console pins
+        // the keys it meets (#110).
+        let machines = db.read(|tx| moved.iter().map(|id| tx.resource(*id)).collect::<Result<Vec<_>>>())?;
+        if machines.into_iter().flatten().any(|r| r.kind == crate::store::ResourceKind::Vm) {
+            crate::ssh::forget(&self.state_dir())?;
+        }
         Ok(())
     }
 

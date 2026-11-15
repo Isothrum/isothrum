@@ -3,7 +3,7 @@
 use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
-pub(super) const CLAIMS: [(&str, &str, Proof); 53] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 54] = [
     (
         "compose",
         "probe",
@@ -251,6 +251,13 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 53] = [
         },
     ),
     ("vagrant", "native_app", NoTool("a query: the app a provider's VMs open in, nothing runs")),
+    (
+        "terraform",
+        "ready_by_observation",
+        NoTool(
+            "a query: whether a status may find a failed run ready (a_failed_apply_leaves_the_run_failed_whatever_its_state_holds_and_the_next_up_applies_again)",
+        ),
+    ),
     (
         "terraform",
         "probe",
