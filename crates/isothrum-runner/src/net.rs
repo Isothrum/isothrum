@@ -2,10 +2,6 @@
 //! address answers. [`LoopbackPorts`] binds real sockets; the `fake` feature's `FakePorts` answers
 //! from a test's setup.
 
-#[expect(
-    dead_code,
-    reason = "the Compose driver's pinned host ports (not ported from the run manifest's `compose.pin_ports`) reserve them"
-)]
 mod reservations;
 pub(crate) use reservations::PortReservations;
 
