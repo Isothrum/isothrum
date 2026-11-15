@@ -21,6 +21,9 @@ impl Running<'_> {
     ///
     /// As [`Running::status`]; `server_auth_failed` when a server refuses the credentials.
     pub async fn status_with(&self, opts: &RunOptions) -> Result<Status> {
+        if self.runner.op_of(&self.name).is_none() {
+            self.cut_off_dead_holder()?;
+        }
         let record = self.runner.store.record(&self.name)?;
         let recorded = record.as_ref().map_or(RunState::Absent, |r| r.state);
         let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
@@ -55,6 +58,34 @@ impl Running<'_> {
         }
         status.native = native;
         Ok(status)
+    }
+
+    /// A run held moving (`creating`, `parking`, …) by an operation whose process is gone (killed,
+    /// crashed, another boot) is cut off: that operation ends `abandoned` and the run moves to
+    /// `failed` (`cancelled`), as the next operation on it would at its start, so a status says so
+    /// instead of `creating` for good, and the next `up` takes it over. A run an operation of a
+    /// live process holds stays as it is.
+    fn cut_off_dead_holder(&self) -> Result<()> {
+        let name = &self.name;
+        let at = crate::clock::rfc3339(self.runner.config.clock.now());
+        self.runner.store.db().write(|tx| {
+            let Some(row) = tx.run(name)? else { return Ok(()) };
+            if !row.state.is_moving() {
+                return Ok(());
+            }
+            let started: Vec<_> = tx.unfinished(name)?.into_iter().filter(|o| o.started_at.is_some()).collect();
+            let Some(last) = started.last() else { return Ok(()) };
+            if started.iter().any(|o| o.owner.is_alive()) {
+                return Ok(());
+            }
+            for left in &started {
+                tx.end_operation(left.id, crate::store::Outcome::Abandoned, Some(crate::ErrorCode::Cancelled))?;
+            }
+            tx.apply(name, crate::state::Transition::cut_off(row.state, last.id)?)?;
+            let mut record = row.record;
+            record.last = Some(crate::store::LastOp::ended(last.op, Some(crate::ErrorCode::Cancelled), at));
+            tx.save_record(&record, row.desired)
+        })
     }
 
     /// Reads the run's status when its record says `state`, so the record says what its tool

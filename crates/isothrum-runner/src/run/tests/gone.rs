@@ -7,8 +7,8 @@ use crate::testing::modelled;
 /// What the engine holds of the project: the services with a container, how many `up`s it saw,
 /// and whether an `up` loses `web` (removed while the run starts).
 #[derive(Debug, Default)]
-struct Lab {
-    present: Vec<&'static str>,
+pub(super) struct Lab {
+    pub(super) present: Vec<&'static str>,
     ups: usize,
     loses_web: bool,
 }
@@ -46,7 +46,7 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
 }
 
 /// A Compose project, a runner on the modelled engine, and the engine.
-fn lab() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Lab>>) {
+pub(super) fn lab() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Lab>>) {
     let root = tempfile::tempdir().expect("a folder");
     let project = root.path().join("lab");
     std::fs::create_dir(&project).expect("the project");
