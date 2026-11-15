@@ -125,6 +125,20 @@ async fn a_taken_host_port_is_port_in_use() {
 }
 
 #[tokio::test]
+async fn a_refused_pull_is_download_failed() {
+    let (_dir, project) = folder();
+    let run = run();
+    let refused = include_str!("../../tool_output/fixtures/compose/5.6-pull-access-denied.txt");
+    let fake = FakeProcesses::script()
+        .expect(UP, Reply::fail(1, refused))
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .build();
+    let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("refused");
+    assert_eq!(e.code(), crate::ErrorCode::DownloadFailed, "{e}");
+    assert!(matches!(&e, Error::DownloadFailed { step, .. } if step == "pull-up"), "{e:?}");
+}
+
+#[tokio::test]
 async fn down_takes_the_volumes_then_whatever_still_carries_the_label() {
     let (_dir, project) = folder();
     let run = run();
