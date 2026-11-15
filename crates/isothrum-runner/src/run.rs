@@ -425,6 +425,8 @@ impl<'r> Running<'r> {
                 let db = self.runner.store.db();
                 let left = db.read(|tx| ledger::left_to_remove(tx, &self.name))?;
                 recovery::destroy_recorded(db, emitter, by, &left, ById { driver: self.driver, cx }).await?;
+                // A status while the next start holds the run shows none of these machines.
+                db.write(|tx| tx.forget_observed(&self.name))?;
                 Ok(())
             })
             .await
