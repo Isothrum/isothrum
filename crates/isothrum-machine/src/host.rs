@@ -142,16 +142,54 @@ pub struct Devices {
     /// Where the Vagrant VMware Utility's service answers when it runs: this machine's port 9922,
     /// the plugin's default (`utility_port`).
     pub vmware_utility_service: SocketAddr,
+    /// Where VMware's apps install `vmrun`, looked at when it isn't on `PATH`: Fusion's
+    /// `Contents/Public/vmrun` in `/Applications`, then in `~/Applications` (macOS); Workstation's
+    /// folder under `%ProgramFiles(x86)%`, then `%ProgramFiles%` (Windows).
+    pub vmrun: Vec<PathBuf>,
+    /// Where Parallels Desktop installs `prlctl`, looked at when it isn't on `PATH`: the app's
+    /// `Contents/MacOS/prlctl` in `/Applications`, then in `~/Applications`.
+    pub prlctl: Vec<PathBuf>,
 }
 
 /// The port the Vagrant VMware Utility's service listens on.
 pub const VMWARE_UTILITY_PORT: u16 = 9922;
+
+/// Fusion's `vmrun` and Parallels Desktop's `prlctl` in the app bundles under each of `bases`
+/// (`/`, then the user's home), each base's `Applications` folder.
+fn mac_apps(bases: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let apps = |bundle: &str, inside: &str| bases.iter().map(|b| b.join("Applications").join(bundle).join(inside)).collect();
+    (
+        apps("VMware Fusion.app", "Contents/Public/vmrun"),
+        apps("Parallels Desktop.app", "Contents/MacOS/prlctl"),
+    )
+}
+
+/// Workstation's `vmrun.exe` under each of the install folders `bases`.
+fn workstation(bases: &[PathBuf]) -> Vec<PathBuf> {
+    bases.iter().map(|b| b.join("VMware").join("VMware Workstation").join("vmrun.exe")).collect()
+}
 
 impl Devices {
     /// This computer's, on `os`: where each OS keeps them.
     #[must_use]
     pub fn here(os: HostOs) -> Devices {
         let windows_folder = |var: &str, default: &str| std::env::var_os(var).map_or_else(|| PathBuf::from(default), PathBuf::from);
+        let (vmrun, prlctl) = match os {
+            HostOs::Macos => {
+                let mut bases = vec![PathBuf::from("/")];
+                bases.extend(std::env::var_os("HOME").map(PathBuf::from));
+                mac_apps(&bases)
+            }
+            HostOs::Windows => {
+                let bases: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
+                    .iter()
+                    .filter_map(std::env::var_os)
+                    .map(PathBuf::from)
+                    .collect();
+                (workstation(&bases), Vec::new())
+            }
+            HostOs::Linux => (Vec::new(), Vec::new()),
+        };
         let vmware_utility = match os {
             HostOs::Windows => windows_folder("ProgramData", "C:\\ProgramData")
                 .join("HashiCorp")
@@ -170,14 +208,21 @@ impl Devices {
             hyperv_service: windows_folder("SystemRoot", "C:\\Windows").join("System32").join("vmms.exe"),
             vmware_utility,
             vmware_utility_service: SocketAddr::from((Ipv4Addr::LOCALHOST, VMWARE_UTILITY_PORT)),
+            vmrun,
+            prlctl,
         }
     }
 
     /// Each one under the folder `root`, where a test makes the ones it is about (`root/dev/kvm`,
     /// `root/proc/modules`, `root/Applications/UTM.app`...), none of which exist until it does;
-    /// the VMware Utility's service at port 0 of this machine, which nothing answers.
+    /// the VMware Utility's service at port 0 of this machine, which nothing answers. The apps'
+    /// tools are under `root` and `root/home` (macOS's), and `root/Program Files (x86)` and
+    /// `root/Program Files` (Workstation's).
     #[must_use]
     pub fn under(root: &Path) -> Devices {
+        let (fusion, prlctl) = mac_apps(&[root.to_path_buf(), root.join("home")]);
+        let mut vmrun = fusion;
+        vmrun.extend(workstation(&[root.join("Program Files (x86)"), root.join("Program Files")]));
         Devices {
             kvm: root.join("dev/kvm"),
             etc_group: root.join("etc/group"),
@@ -189,7 +234,23 @@ impl Devices {
             hyperv_service: root.join("Windows/System32/vmms.exe"),
             vmware_utility: root.join("opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),
             vmware_utility_service: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            vmrun,
+            prlctl,
         }
+    }
+}
+
+impl Devices {
+    /// Where an app installs `program` off `PATH` ([`Devices::vmrun`], [`Devices::prlctl`]), in
+    /// the order to look; none for a tool no app here installs.
+    #[must_use]
+    pub fn app_tool(&self, program: &str) -> Vec<&Path> {
+        let at = match program {
+            "vmrun" => &self.vmrun,
+            "prlctl" => &self.prlctl,
+            _ => return Vec::new(),
+        };
+        at.iter().map(PathBuf::as_path).collect()
     }
 }
 
