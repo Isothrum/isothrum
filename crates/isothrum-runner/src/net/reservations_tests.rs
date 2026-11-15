@@ -51,6 +51,34 @@ fn two_runners_of_one_home_cant_both_reserve_a_port() {
 }
 
 #[test]
+fn two_runners_of_one_home_picking_at_once_never_get_one_port() {
+    // Both are offered the same ports, in the same order: only the home's reservations keep their
+    // picks apart.
+    let home = tempfile::tempdir().unwrap();
+    let runners = [reservations(home.path(), 41000..41100), reservations(home.path(), 41000..41100)];
+    let start = std::sync::Barrier::new(8);
+    let picked: Vec<u16> = std::thread::scope(|s| {
+        let pickers: Vec<_> = (0..8)
+            .map(|i| {
+                let (runner, start) = (&runners[i % 2], &start);
+                s.spawn(move || {
+                    let name = run(&format!("run-{i}"));
+                    start.wait();
+                    (0..3)
+                        .map(|_| runner.pick_reserved(&name, Protocol::Tcp, None).unwrap().expect("a port").port.get())
+                        .collect::<Vec<u16>>()
+                })
+            })
+            .collect();
+        pickers.into_iter().flat_map(|p| p.join().unwrap()).collect()
+    });
+    let mut distinct = picked.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!((picked.len(), distinct.len()), (24, 24), "{picked:?}");
+}
+
+#[test]
 fn a_free_port_another_runner_reserved_is_skipped() {
     let home = tempfile::tempdir().unwrap();
     let (a, b) = (reservations(home.path(), []), reservations(home.path(), [41000, 41001]));

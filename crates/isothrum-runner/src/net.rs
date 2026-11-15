@@ -300,24 +300,38 @@ mod tests {
     use super::sealed::Ports;
     use super::*;
 
-    /// A port free over both TCP and UDP, below every OS's ephemeral range, so nothing else is
-    /// handed it while the test runs.
-    fn port_free_over_both() -> u16 {
-        let start = 20_000 + u16::try_from(std::process::id() % 10_000).unwrap();
-        (start..32_768)
-            .chain(20_000..start)
-            .find(|&p| !LoopbackPorts.in_use(HostPort::new(p), Protocol::Tcp) && !LoopbackPorts.in_use(HostPort::new(p), Protocol::Udp))
-            .unwrap()
+    /// A TCP port the OS gives on `at`, held, whose number is free over UDP too: another, while
+    /// it isn't. Never a port probed first and bound after, which another test process picking
+    /// at once may take in between.
+    fn held_tcp(at: std::net::IpAddr) -> (TcpListener, u16) {
+        for _ in 0..100 {
+            let held = TcpListener::bind((at, 0)).unwrap();
+            let port = held.local_addr().unwrap().port();
+            if !LoopbackPorts.in_use(HostPort::new(port), Protocol::Udp) {
+                return (held, port);
+            }
+        }
+        panic!("no port the OS gave was free over UDP too");
+    }
+
+    /// [`held_tcp`] over UDP: a UDP port the OS gives on `at`, held, free over TCP too.
+    fn held_udp(at: std::net::IpAddr) -> (UdpSocket, u16) {
+        for _ in 0..100 {
+            let held = UdpSocket::bind((at, 0)).unwrap();
+            let port = held.local_addr().unwrap().port();
+            if !LoopbackPorts.in_use(HostPort::new(port), Protocol::Tcp) {
+                return (held, port);
+            }
+        }
+        panic!("no port the OS gave was free over TCP too");
     }
 
     #[test]
     fn a_held_port_is_in_use_over_its_protocol_only() {
-        let tcp_port = port_free_over_both();
-        let _tcp = TcpListener::bind(("127.0.0.1", tcp_port)).unwrap();
+        let (_tcp, tcp_port) = held_tcp(Ipv4Addr::LOCALHOST.into());
         assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
         assert!(!LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Udp));
-        let udp_port = port_free_over_both();
-        let _udp = UdpSocket::bind(("127.0.0.1", udp_port)).unwrap();
+        let (_udp, udp_port) = held_udp(Ipv4Addr::LOCALHOST.into());
         assert!(
             LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp),
             "a UDP holder (dnsmasq on 53) is caught"
@@ -330,14 +344,13 @@ mod tests {
     /// holds either way.)
     #[test]
     fn a_port_held_on_all_interfaces_is_in_use() {
-        let tcp_port = port_free_over_both();
-        assert!(!held_on_all(tcp_port, Protocol::Tcp));
-        let _tcp = TcpListener::bind((Ipv4Addr::UNSPECIFIED, tcp_port)).unwrap();
+        let (tcp, tcp_port) = held_tcp(Ipv4Addr::UNSPECIFIED.into());
         assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
         #[cfg(not(windows))]
         assert!(held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} held on 0.0.0.0");
-        let udp_port = port_free_over_both();
-        let _udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, udp_port)).unwrap();
+        drop(tcp);
+        assert!(!held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} free once let go");
+        let (_udp, udp_port) = held_udp(Ipv4Addr::UNSPECIFIED.into());
         assert!(LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp));
         #[cfg(not(windows))]
         assert!(held_on_all(udp_port, Protocol::Udp), "{udp_port} held on 0.0.0.0");
