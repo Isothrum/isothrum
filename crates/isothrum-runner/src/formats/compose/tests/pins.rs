@@ -26,6 +26,13 @@ impl PickPorts for Picks {
     }
 }
 
+/// A Compose project, its run, a state folder of its own, and ports handed out from 41001.
+fn bench() -> (tempfile::TempDir, Folder, RunName, tempfile::TempDir, Picks) {
+    let (dir, project) = folder();
+    let state = tempfile::tempdir().expect("a state folder");
+    (dir, project, run(), state, Picks(Mutex::new(41000)))
+}
+
 /// `CONFIG_PORTS` with a service `api` publishing `"3000"` added.
 fn with_api() -> String {
     let mut config: serde_json::Value = serde_json::from_str(CONFIG_PORTS).expect("a config");
@@ -35,10 +42,7 @@ fn with_api() -> String {
 
 #[tokio::test]
 async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dropped_at_down() {
-    let (_dir, project) = folder();
-    let run = run();
-    let state = tempfile::tempdir().expect("a state folder");
-    let picks = Picks(Mutex::new(41000));
+    let (_dir, project, run, state, picks) = bench();
     let first = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(CONFIG_PORTS))
         .expect(UP_PINNED, Reply::ok(""))
@@ -80,4 +84,30 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
         .build();
     Compose.down(&cx_in(&project, &run, &down, state.path(), &picks)).await.expect("down");
     assert!(!pins.exists() && !state.path().join("compose-pins.json").exists(), "dropped with the run");
+}
+
+#[tokio::test]
+async fn an_attached_services_ephemeral_port_is_pinned_kept_by_a_start_and_dropped_at_its_retire() {
+    let (_dir, project, run, state, picks) = bench();
+    let attackbox = r#"{"services": {"attackbox": {"ports": [{"mode": "ingress", "target": 7681, "protocol": "tcp"}]}}}"#;
+    let attached = format!("{CONFIG} attackbox");
+    let fake = FakeProcesses::script()
+        .expect_times(CONFIG, 2, Reply::ok(NO_PORTS))
+        .expect_times(&attached, 2, Reply::ok(attackbox))
+        .expect("docker compose -p lab -f * -f * up --detach --wait attackbox", Reply::ok(""))
+        .expect(UP_PINNED, Reply::ok(""))
+        .expect("docker compose -p lab -f * -f * rm --stop --force --volumes attackbox", Reply::ok(""))
+        .build();
+    let cx = cx_in(&project, &run, &fake, state.path(), &picks);
+    let pins = state.path().join("compose-pins.yaml");
+    Compose.attach(&cx, "attackbox").await.expect("attached");
+    let pinned = std::fs::read_to_string(&pins).expect("the override");
+    assert!(
+        pinned.ends_with("  \"attackbox\":\n    ports: !override\n      - \"41001:7681/tcp\"\n"),
+        "{pinned}"
+    );
+    Compose.up(&cx).await.expect("a start keeps it");
+    assert_eq!(std::fs::read_to_string(&pins).expect("the override"), pinned, "the same port");
+    Compose.retire(&cx, "attackbox").await.expect("retired");
+    assert!(!pins.exists(), "its pin went with it, and nothing else is pinned");
 }
