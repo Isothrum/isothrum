@@ -32,6 +32,9 @@ pub(crate) enum Failure {
     /// resolve reference … not found`, `toomanyrequests`, `no matching manifest`): what the
     /// tool said.
     PullRefused(String),
+    /// A pull the network cut short, worth another try (a reset connection, a registry's TLS
+    /// handshake or its gateway timing out): what the tool said.
+    PullTransient(String),
     /// Any other failure: its reason.
     Other(String),
 }
@@ -68,6 +71,19 @@ fn taken_port(out: &Captured) -> Option<(u16, crate::project::platform::Protocol
     })
 }
 
+/// What Docker says of a pull the network cut short, as [`said_any`] reads it (lowercase): Go's
+/// net/http and TLS wordings, and a registry's gateway that answered for it.
+const PULL_TRANSIENT: &[&str] = &[
+    "connection reset by peer",
+    "tls handshake timeout",
+    "i/o timeout",
+    "unexpected eof",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout",
+    "request canceled while waiting for connection",
+];
+
 /// What Docker says of a pull the registry refused, as [`said_any`] reads it (lowercase).
 const PULL_REFUSED: &[&str] = &[
     "pull access denied",
@@ -89,6 +105,8 @@ impl Failure {
             Failure::PortTaken(taken_port(out))
         } else if said_any(out, PULL_REFUSED) {
             Failure::PullRefused(out.reason())
+        } else if said_any(out, PULL_TRANSIENT) {
+            Failure::PullTransient(out.reason())
         } else {
             Failure::Other(out.reason())
         }
@@ -102,6 +120,7 @@ impl fmt::Display for Failure {
             Failure::NetworkExists => f.write_str("a network of the project's name is already there"),
             Failure::PortTaken(_) => f.write_str("a host port it publishes is taken"),
             Failure::PullRefused(reason) => write!(f, "an image's pull was refused: {reason}"),
+            Failure::PullTransient(reason) => write!(f, "an image's pull was cut short: {reason}"),
             Failure::Other(reason) => f.write_str(reason),
         }
     }
@@ -162,6 +181,13 @@ pub(crate) async fn up(call: &Call<'_>, project: &Project<'_>, how: &Up<'_>) -> 
     }
     rest.extend(how.services.iter().cloned());
     call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
+}
+
+/// `pull --ignore-buildable`: the images the project's started services run (a built one is
+/// built by its `up`), ended as stalled after `stall` with no line printed.
+pub(crate) async fn pull(call: &Call<'_>, project: &Project<'_>, stall: std::time::Duration) -> Result<(), CliError<Failure>> {
+    let args = project.args(argv(["pull", "--ignore-buildable"]));
+    call.ok_watched(TOOL, args, stall, Failure::of).await.map(drop)
 }
 
 /// `down`, with the project's volumes (`-v`) and orphans when asked.

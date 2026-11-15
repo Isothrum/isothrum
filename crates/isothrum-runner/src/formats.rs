@@ -172,6 +172,7 @@ pub(crate) fn tool_error<F: std::fmt::Display>(step: &str, e: CliError<F>) -> Er
             step,
             timed_out: TimedOut::Ceiling { after_s: limit_s, last_line },
         },
+        CliError::Stalled { after_s, last_line, .. } => Error::DownloadStalled { step, after_s, last_line },
         unread @ (CliError::Unexpected { .. } | CliError::Spawn { .. }) => Error::ToolFailed {
             step,
             reason: unread.to_string(),

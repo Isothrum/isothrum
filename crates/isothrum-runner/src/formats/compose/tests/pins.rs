@@ -14,6 +14,8 @@ const CONFIG_PORTS: &str = include_str!("../../../tool_output/fixtures/compose/5
 
 /// The `up` of a run with its override: the project's file, then the run's.
 const UP_PINNED: &str = "docker compose -p lab -f * -f * up --detach --wait --remove-orphans";
+/// The pull a start makes first, the pins written.
+const PULL_PINNED: &str = "docker compose -p lab -f * -f * pull --ignore-buildable";
 
 /// Hands out 41001, 41002, … in turn.
 struct Picks(Mutex<u16>);
@@ -46,6 +48,7 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
     let first = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(CONFIG_PORTS))
         .expect(UP_PINNED, Reply::ok(""))
+        .allow(PULL_PINNED, Reply::ok(""))
         .build();
     Compose.up(&cx_in(&project, &run, &first, state.path(), &picks)).await.expect("up");
     let pins = state.path().join("compose-pins.yaml");
@@ -69,6 +72,7 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
     let update = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(&with_api()))
         .expect(UP_PINNED, Reply::ok(""))
+        .allow(PULL_PINNED, Reply::ok(""))
         .build();
     Compose.update(&cx_in(&project, &run, &update, state.path(), &picks)).await.expect("updated");
     let kept = std::fs::read_to_string(&pins).expect("the override");
@@ -96,6 +100,7 @@ async fn an_attached_services_ephemeral_port_is_pinned_kept_by_a_start_and_dropp
         .expect_times(&attached, 2, Reply::ok(attackbox))
         .expect("docker compose -p lab -f * -f * up --detach --wait attackbox", Reply::ok(""))
         .expect(UP_PINNED, Reply::ok(""))
+        .allow(PULL_PINNED, Reply::ok(""))
         .expect("docker compose -p lab -f * -f * rm --stop --force --volumes attackbox", Reply::ok(""))
         .build();
     let cx = cx_in(&project, &run, &fake, state.path(), &picks);

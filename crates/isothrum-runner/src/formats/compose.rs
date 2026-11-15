@@ -4,7 +4,7 @@
 //!
 //! | Operation | Compose |
 //! |---|---|
-//! | up, update | `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0 |
+//! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0 |
 //! | down | `down --volumes --remove-orphans`, then whatever still carries the project's label, by id |
 //! | park | `pause` (Pause), `stop` (Shutdown) |
 //! | resume | `unpause` of the paused services, then `up --detach --wait --no-recreate` |
@@ -19,6 +19,7 @@
 //! host port taken is `port_in_use`. Compose has no set-up to run again: `provision` is refused.
 
 mod pins;
+mod pull;
 
 use std::time::Duration;
 
@@ -181,6 +182,7 @@ impl FormatDriver for Compose {
             ..Up::default()
         };
         pins::pin(cx).await?;
+        self.pull(cx).await?;
         self.up_recovering(cx, "up", &how).await
     }
 
