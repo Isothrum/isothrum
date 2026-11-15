@@ -105,6 +105,7 @@ impl ToolCx<'_> {
             env: self.env.clone(),
             limit,
             sink: self.sink,
+            host_env: self.host_env,
         }
     }
 

@@ -220,7 +220,14 @@ impl FormatDriver for Compose {
             no_recreate: true,
             ..Up::default()
         };
-        self.up_recovering(cx, "resume", &how).await
+        self.up_recovering(cx, "resume", &how).await?;
+        // The services under a profile the run attached: a plain `up` leaves them stopped.
+        let attached = pins::attached(cx)?;
+        if attached.is_empty() {
+            return Ok(());
+        }
+        let theirs = Up { services: &attached, ..how };
+        self.up_recovering(cx, "resume", &theirs).await
     }
 
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
@@ -256,13 +263,15 @@ impl FormatDriver for Compose {
             wait: true,
             ..Up::default()
         };
+        pins::attach(cx, machine).await?;
         self.up_recovering(cx, "attach", &how).await
     }
 
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         compose::rm_stop_force(&cx.call(CALL_LIMIT), &Self::project(cx), &one_service(machine))
             .await
-            .map_err(|e| tool_error("retire", e))
+            .map_err(|e| tool_error("retire", e))?;
+        pins::retire(cx, machine)
     }
 
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {

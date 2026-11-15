@@ -90,9 +90,12 @@ pub(crate) fn ports_of(config: &str) -> Result<Vec<ConfigPort>, String> {
     Ok(out)
 }
 
-/// The ports `project` publishes, as `config --format json` says.
-pub(crate) async fn ports(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<ConfigPort>, CliError<Failure>> {
-    let out = call.ok(TOOL, project.args(argv(["config", "--format", "json"])), Failure::of).await?;
+/// The ports `project` publishes, as `config --format json` says: of the services it starts, or
+/// of `services` alone when given (a service under a profile is in it when named).
+pub(crate) async fn ports(call: &Call<'_>, project: &Project<'_>, services: &[String]) -> Result<Vec<ConfigPort>, CliError<Failure>> {
+    let mut args = argv(["config", "--format", "json"]);
+    args.extend(services.iter().cloned());
+    let out = call.ok(TOOL, project.args(args), Failure::of).await?;
     ports_of(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
 }
 

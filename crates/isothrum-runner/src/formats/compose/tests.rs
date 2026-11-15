@@ -271,11 +271,14 @@ async fn exec_runs_in_the_running_container_or_as_a_one_off_and_says_how_it_ende
 async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes() {
     let (_dir, project) = folder();
     let run = run();
+    let state = tempfile::tempdir().expect("a state folder");
     let fake = FakeProcesses::script()
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
         .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
         .expect("docker compose -p lab -f * rm --stop --force --volumes attackbox", Reply::ok(""))
         .build();
-    let cx = cx(&project, &run, &fake);
+    let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
     Compose.attach(&cx, "attackbox").await.expect("attached");
     Compose.retire(&cx, "attackbox").await.expect("retired");
     assert_eq!(

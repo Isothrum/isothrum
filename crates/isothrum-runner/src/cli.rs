@@ -11,6 +11,7 @@
 
 pub(crate) mod compose;
 pub(crate) mod docker;
+mod installed;
 pub(crate) mod prlctl;
 pub(crate) mod proxmox;
 pub(crate) mod qemu;
@@ -41,6 +42,8 @@ pub(crate) struct Call<'a> {
     pub(crate) limit: Duration,
     /// Each line it prints, as it prints it.
     pub(crate) sink: &'a (dyn Fn(Stream, &str) + Send + Sync),
+    /// Where an app installs a tool that isn't on `PATH` ([`installed`]).
+    pub(crate) host_env: &'a crate::host_env::HostEnv,
 }
 
 /// Why an adapter's call didn't give its value.
@@ -115,6 +118,23 @@ impl Call<'_> {
 
     /// Runs `spec` (of `tool`) to its end within the call's limit, each line to the sink.
     async fn run_spec<F: Display>(&self, tool: &'static str, spec: ProcessSpec) -> Result<Captured, CliError<F>> {
+        match self.run_once(tool, &spec).await {
+            // Not on PATH: where its app installs it (UTM's app, VirtualBox's folder on Windows).
+            Err(CliError::Missing { .. }) => match installed::find(tool, self.host_env) {
+                installed::Installed::At(path) => {
+                    let mut at = spec;
+                    at.program = path.display().to_string();
+                    self.run_once(tool, &at).await
+                }
+                installed::Installed::AppWithout(why) => Err(CliError::Spawn { tool, why }),
+                installed::Installed::Nothing => Err(CliError::Missing { tool }),
+            },
+            other => other,
+        }
+    }
+
+    /// Runs `spec` once, as [`Call::run_spec`] does.
+    async fn run_once<F: Display>(&self, tool: &'static str, spec: &ProcessSpec) -> Result<Captured, CliError<F>> {
         let mut last: Option<String> = None;
         let mut echo = |stream: Stream, line: &str| {
             if !line.trim().is_empty() {
@@ -122,7 +142,7 @@ impl Call<'_> {
             }
             (self.sink)(stream, line);
         };
-        let ran = tokio::time::timeout(self.limit, capture_echoing(self.runner, &spec, &mut echo)).await;
+        let ran = tokio::time::timeout(self.limit, capture_echoing(self.runner, spec, &mut echo)).await;
         match ran {
             Err(_) => Err(CliError::TimedOut {
                 tool,
@@ -221,6 +241,7 @@ pub(crate) mod testing {
             env: Vec::new(),
             limit: Duration::from_secs(60),
             sink: &quiet,
+            host_env: &crate::host_env::EMPTY,
         }
     }
 }
