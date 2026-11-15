@@ -253,7 +253,13 @@ impl<'r> Running<'r> {
             Act::Resume => self.driver.resume(cx).await,
             Act::Update => {
                 self.driver.update(cx).await?;
-                self.retire_undeclared(cx).await
+                if self.project.format == Format::Vagrant {
+                    // Compose's --remove-orphans and Terraform's apply take what the files no
+                    // longer declare themselves; a service under a profile the run attached isn't
+                    // in what Compose's files start, and is no orphan.
+                    self.retire_undeclared(cx).await?;
+                }
+                Ok(())
             }
             Act::Provision(machine, with) => self.driver.provision(cx, machine, with).await,
             Act::Attach(machine) => self.driver.attach(cx, machine).await,

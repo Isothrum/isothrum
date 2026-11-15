@@ -2,6 +2,7 @@
 mod cut_off;
 mod gone;
 mod kept_ports;
+mod one_update;
 mod pins;
 #[cfg(unix)]
 mod qemu;
@@ -18,6 +19,11 @@ use crate::status::MachineState;
 use crate::store::ResourceState;
 use crate::testing::{modelled, no_ports, processes, runner_config};
 use crate::{ErrorCode, Format, RunName, RunOptions, Runner};
+
+/// The `docker compose … up` calls made so far.
+fn ups(fake: &crate::process::fake::FakeProcesses) -> usize {
+    fake.calls().iter().filter(|c| c.args.iter().any(|a| a == "up")).count()
+}
 
 /// What a modelled Docker engine holds of a Compose project.
 #[derive(Debug, Default)]

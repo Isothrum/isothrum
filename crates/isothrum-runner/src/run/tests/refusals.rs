@@ -3,11 +3,6 @@
 
 use super::*;
 
-/// The `docker compose … up` calls made so far.
-fn ups(fake: &crate::process::fake::FakeProcesses) -> usize {
-    fake.calls().iter().filter(|c| c.args.iter().any(|a| a == "up")).count()
-}
-
 /// The code of the `error` event `events` ended with.
 fn error_code(events: &Recorder) -> Option<ErrorCode> {
     events.events().into_iter().find_map(|e| match e.kind {
