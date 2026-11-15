@@ -576,4 +576,30 @@ mod tests {
         let ours = std::fs::read_to_string(repo::root().join("Cargo.lock")).expect("Cargo.lock");
         assert_eq!(isoloom_found(&ours, ""), Vec::<String>::new(), "this workspace links no Isoloom crate");
     }
+
+    /// The `cargo xtask check --only` lists a workflow runs, as step names.
+    fn workflow_steps(file: &str) -> std::collections::BTreeSet<String> {
+        let text = std::fs::read_to_string(repo::root().join(".github/workflows").join(file)).expect("the workflow");
+        text.lines()
+            .filter_map(|l| l.trim().strip_prefix("- run: cargo run -q -p xtask --locked -- check --only "))
+            .flat_map(|list| list.split(','))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// gate.yml runs every step `cargo xtask check` has (main and a release tag get the whole
+    /// check), and ci.yml the short list on pull requests into dev: CI and the command can't drift.
+    #[test]
+    fn the_gate_runs_every_step_and_ci_the_short_list() {
+        let gate = workflow_steps("gate.yml");
+        let missing: Vec<&str> = STEPS.iter().map(|s| s.name).filter(|n| !gate.contains(*n)).collect();
+        assert_eq!(missing, Vec::<&str>::new(), "steps gate.yml doesn't run");
+        let unknown: Vec<&String> = gate.iter().filter(|n| !STEPS.iter().any(|s| s.name == n.as_str())).collect();
+        assert_eq!(unknown, Vec::<&String>::new(), "gate.yml names steps cargo xtask check doesn't have");
+        let ci = std::fs::read_to_string(repo::root().join(".github/workflows/ci.yml")).expect("ci.yml");
+        assert!(
+            ci.contains("check ${{ matrix.check }}") && ci.contains("check: --fast"),
+            "ci.yml runs the short list"
+        );
+    }
 }
