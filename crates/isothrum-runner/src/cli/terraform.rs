@@ -225,6 +225,7 @@ async fn run_events(call: &Call<'_>, args: Vec<String>) -> Result<Captured, CliE
         env: call.env.clone(),
         limit: call.limit,
         sink: &say,
+        host_env: call.host_env,
     };
     shown.ok(TOOL, args, Failure::of_events).await
 }

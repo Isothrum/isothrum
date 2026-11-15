@@ -9,6 +9,7 @@
 //! never this copy.
 
 use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 
 use crate::network_env::is_network_var;
 
@@ -26,11 +27,16 @@ pub(crate) const LIBVIRT_DEFAULT_URI: &str = "LIBVIRT_DEFAULT_URI";
 /// UTF-8 is never replaced by a default), and only where it must be handed on as text is it left
 /// out, and traced ([`HostEnv::text`]).
 #[derive(Clone, Default)]
-pub(crate) struct HostEnv(Vec<(String, OsString)>);
+pub(crate) struct HostEnv {
+    vars: Vec<(String, OsString)>,
+    /// The folder an app's absolute install path is read under (`/Applications/UTM.app`): the
+    /// file system's root, or a test's own folder.
+    root: Option<PathBuf>,
+}
 
 /// An environment with nothing in it, for a context that hands nothing on.
 #[cfg(test)]
-pub(crate) static EMPTY: HostEnv = HostEnv(Vec::new());
+pub(crate) static EMPTY: HostEnv = HostEnv { vars: Vec::new(), root: None };
 
 impl HostEnv {
     /// This process's environment: the variables it hands on.
@@ -55,25 +61,41 @@ impl HostEnv {
 
     /// The variables of `vars` the runner hands on.
     pub(crate) fn of<K: Into<String>, V: Into<OsString>>(vars: impl IntoIterator<Item = (K, V)>) -> HostEnv {
-        HostEnv(vars.into_iter().map(|(k, v)| (k.into(), v.into())).filter(|(k, _)| handed_on(k)).collect())
+        HostEnv {
+            vars: vars.into_iter().map(|(k, v)| (k.into(), v.into())).filter(|(k, _)| handed_on(k)).collect(),
+            root: None,
+        }
+    }
+
+    /// The same, an app's absolute install path read under `root` (a test's folder).
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn rooted(mut self, root: &Path) -> HostEnv {
+        self.root = Some(root.to_path_buf());
+        self
+    }
+
+    /// The folder an app's absolute install path is read under: the file system's root.
+    pub(crate) fn root(&self) -> &Path {
+        self.root.as_deref().unwrap_or_else(|| Path::new("/"))
     }
 
     /// The value of `name` as it was read, UTF-8 or not, its case ignored on Windows (as Windows
     /// reads names).
     pub(crate) fn get(&self, name: &str) -> Option<&OsStr> {
-        self.0.iter().find(|(k, _)| same_var(k, name)).map(|(_, v)| v.as_os_str())
+        self.vars.iter().find(|(k, _)| same_var(k, name)).map(|(_, v)| v.as_os_str())
     }
 
     /// The value of `name` as text, to hand on where only text goes (a variable's value, an
     /// argument). One that isn't UTF-8 is left out, and traced.
     pub(crate) fn text(&self, name: &str) -> Option<&str> {
-        self.0.iter().find(|(k, _)| same_var(k, name)).and_then(|(k, v)| as_text(k, v))
+        self.vars.iter().find(|(k, _)| same_var(k, name)).and_then(|(k, v)| as_text(k, v))
     }
 
     /// Every variable whose value is text, as it was read; one that isn't UTF-8 is left out, and
     /// traced.
     pub(crate) fn vars(&self) -> impl Iterator<Item = (String, String)> + '_ {
-        self.0.iter().filter_map(|(k, v)| Some((k.clone(), as_text(k, v)?.to_owned())))
+        self.vars.iter().filter_map(|(k, v)| Some((k.clone(), as_text(k, v)?.to_owned())))
     }
 
     /// What an elevated Hyper-V session's broker, which inherits nothing, is handed: the Vagrant
@@ -110,16 +132,20 @@ pub(crate) fn same_var(a: &str, b: &str) -> bool {
 /// Names only: the values may hold a proxy's credentials.
 impl std::fmt::Debug for HostEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.0.iter().map(|(k, _)| k)).finish()
+        f.debug_list().entries(self.vars.iter().map(|(k, _)| k)).finish()
     }
 }
 
 /// Whether the runner keeps `name`: one it hands on (a network variable, Terraform's CLI
 /// configuration, a Vagrant variable, the user's profile folder on Windows), or one it reads
-/// itself (`HOME`, libvirt's default connection).
+/// itself (`HOME`, libvirt's default connection, where Windows' programs and VirtualBox are
+/// installed).
 fn handed_on(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    is_network_var(name) || upper == TF_CLI_CONFIG_FILE || is_vagrant_var(name) || ["USERPROFILE", "HOME", LIBVIRT_DEFAULT_URI].contains(&upper.as_str())
+    is_network_var(name)
+        || upper == TF_CLI_CONFIG_FILE
+        || is_vagrant_var(name)
+        || ["USERPROFILE", "HOME", LIBVIRT_DEFAULT_URI, "PROGRAMFILES", "VBOX_MSI_INSTALL_PATH"].contains(&upper.as_str())
 }
 
 /// Whether `name` is one of Vagrant's own variables (`VAGRANT_HOME`, `VAGRANT_LOG`…), whatever
