@@ -19,6 +19,8 @@ struct Scripted {
     log: Mutex<Vec<String>>,
     /// The runs past their lifetime, as the reaper reads them.
     expired: Mutex<Vec<Target>>,
+    /// How many times the reaper read them.
+    expired_reads: std::sync::atomic::AtomicUsize,
 }
 
 impl Scripted {
@@ -67,6 +69,7 @@ impl Engine for Scripted {
     }
 
     fn expired(&self) -> Result<Vec<Target>, Refusal> {
+        self.expired_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(self.expired.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
@@ -366,7 +369,10 @@ async fn a_service_told_not_to_reap_leaves_an_expired_run() {
     let engine = Scripted::default();
     *engine.expired.lock().unwrap() = vec![Target::new(PathBuf::from("/runs/old"), RunName::new("old").ok())];
     let s = start_with(tempfile::tempdir().unwrap(), engine, |o| o.reap_every = None).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The service's whole life, from its start to its end: it never looks for expired runs.
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    assert!(matches!(client.request(Command::ShutdownIfIdle).await.unwrap(), Reply::Ok { .. }));
+    tokio::time::timeout(Duration::from_secs(5), s.task).await.unwrap().unwrap().unwrap();
+    assert_eq!(s.engine.expired_reads.load(std::sync::atomic::Ordering::SeqCst), 0, "no reaper ran");
     assert_eq!(s.engine.log(), Vec::<String>::new());
-    s.task.abort();
 }

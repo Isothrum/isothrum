@@ -44,6 +44,22 @@ own account: its endpoint is owner-only (a Unix socket in the home's owner-only 
 pipe with an owner-only ACL), so any client that can ask is the run's owner. In Rust:
 `Client::status_with(run, target, OpOptions { reveal: true, .. })`, `RunOptions::with_reveal()`.
 
+### The reaper
+
+A run started with a lifetime (`--lifetime`, `RunOptions::lifetime`, an `up`'s `lifetime_s`)
+records when it expires. The service looks for runs past it every 60 seconds by default
+(`ServeOptions::reap_every`, `Some(Duration::from_secs(60))` from `ServeOptions::new`) and queues
+each one's `down`, as a client would, unless the run has an operation queued or running. A `down`
+it queued is not queued again for 15 minutes, so one that keeps failing doesn't run back to back.
+
+The reaper's `down` gives the tools the values the run's record keeps (a Terraform module's
+`region`, replayed as at every operation), and never a secret: no record keeps one. A run whose
+`down` needs a secret (a cloud account's credentials) fails it, and is tried again 15 minutes
+later; `isothrum reap`, given the secrets, removes it, as any client's `down` that passes them.
+
+`reap_every: None` turns the reaper off: the service never looks for expired runs. An embedder that
+reaps itself (with the account's credentials it holds) hosts the service so.
+
 ### What every protocol keeps
 
 So that a client of one release can always tell which service runs and replace it, every protocol
