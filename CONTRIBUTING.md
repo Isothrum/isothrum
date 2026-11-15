@@ -11,8 +11,8 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
 
 1. Install Rust with [rustup](https://rustup.rs/). The toolchain is pinned by
    `rust-toolchain.toml` (1.99.0, with rustfmt and clippy); rustup installs it on first use.
-2. **Clone and build.** `Cargo.toml` pins the Isoloom crates on crates.io (2.0.0), so a plain
-   clone builds:
+2. **Clone and build.** Isothrum links no Isoloom crate (it runs the files Isoloom writes), so a
+   plain clone builds:
 
    ```sh
    git clone https://github.com/Isothrum/isothrum
@@ -20,48 +20,14 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
    cargo build
    ```
 
-   **A change that needs unreleased Isoloom API** builds against an Isoloom checkout instead.
-   Clone both side by side, Isoloom at its `main`:
+   `.cargo/config.toml` holds the repository's own command alias only (`cargo xtask`); a crate
+   patch has no place there, and `cargo xtask check` refuses one.
 
-   ```sh
-   git clone https://github.com/isoloom/isoloom
-   git clone https://github.com/Isothrum/isothrum
-   ```
-
-   Then write `isothrum/.cargo/config.toml` (git-ignored: never commit it), patching every Isoloom
-   crate the build reads to that checkout:
-
-   ```toml
-   [patch.crates-io]
-   isoloom-ansible = { path = "../isoloom/crates/backends/isoloom-ansible" }
-   isoloom-compose = { path = "../isoloom/crates/backends/isoloom-compose" }
-   isoloom-kubernetes = { path = "../isoloom/crates/backends/isoloom-kubernetes" }
-   isoloom-terraform = { path = "../isoloom/crates/backends/isoloom-terraform" }
-   isoloom-vagrant = { path = "../isoloom/crates/backends/isoloom-vagrant" }
-   isoloom-catalogue = { path = "../isoloom/crates/core/isoloom-catalogue" }
-   isoloom-manifest = { path = "../isoloom/crates/core/isoloom-manifest" }
-   isoloom-plan = { path = "../isoloom/crates/core/isoloom-plan" }
-   isoloom-render = { path = "../isoloom/crates/core/isoloom-render" }
-   isoloom-spec = { path = "../isoloom/crates/core/isoloom-spec" }
-   isoloom-targets = { path = "../isoloom/crates/targets/isoloom-targets" }
-   ```
-
-   A path is read from the folder that holds `.cargo/`; the fuzz crate (`fuzz/`) reads the same
-   file. Then build:
-
-   ```sh
-   cd isothrum
-   cargo build
-   ```
-
-   The patched build rewrites `Cargo.lock` and `fuzz/Cargo.lock` for the local crates: don't
-   commit those changes, and run the gates below without `--locked` (it refuses the rewrite).
-   CI builds against crates.io (`--locked`, no patch), so such a change waits for the Isoloom
-   release that has the API; the release step raises the pins to it.
-
-Optional tools the gates use: `cargo install cargo-nextest cargo-machete cargo-deny
-cargo-semver-checks typos-cli`, Node (the ratchet runs jscpd through `npx`), and `wasm-pack` for
-the WebAssembly build.
+The tools the checks use beyond cargo: `cargo install --locked cargo-nextest cargo-machete
+cargo-deny cargo-semver-checks typos-cli`, Node (the ratchet runs jscpd through `npx`), the
+minimum toolchain (`rustup toolchain install 1.90 --profile minimal`), and for the Windows clippy
+`rustup target add x86_64-pc-windows-gnu` with a MinGW-w64 C compiler on `PATH`
+(`x86_64-w64-mingw32-gcc`, or llvm-mingw's `x86_64-w64-mingw32-clang`).
 
 ## Git hooks
 
@@ -86,24 +52,38 @@ POSIX sh and quick:
 `.githooks/test.sh` tests them in a throwaway repository; CI's `hooks` job runs it.
 `git commit --no-verify` skips a hook when you must; the push still checks the commits.
 
-## Gates
+## Checks
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these on every pull request; run
-them before you push:
+One command runs every check a change must pass, in this repository:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo run -p xtask -- test            # nextest, then doctests; fails on what they leave in temp
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-cargo run -p xtask -- quality          # the clean-code ratchet (quality-baseline.json)
-.githooks/regenerate --check           # the generated schemas and reference pages are current
-cargo deny check
-cargo machete
-typos
-cargo run -p xtask -- fuzz --check     # the fuzz crate (fuzz/, a workspace of its own): format, lints, cargo-deny
-cargo semver-checks --workspace --exclude isothrum-cli --exclude xtask
+cargo xtask check          # every step
+cargo xtask check --fast   # the short list while you work: fetch, fmt, clippy, test, windows-gnu
 ```
+
+Each step is named and runs whatever the others did; the end is one line per step and a non-zero
+exit when any is red. A step whose tool isn't installed is red, naming what to install: a check
+that didn't run never passes for one that did. The steps, in order:
+
+| Step | What it runs |
+|---|---|
+| `fetch` | `cargo fetch` |
+| `isoloom-free` | `Cargo.lock` lists no Isoloom crate, and `.cargo/config.toml` patches none in |
+| `fmt` | `cargo fmt --all --check` |
+| `clippy` | `cargo clippy --workspace --all-targets -- -D warnings` |
+| `test` | `cargo xtask test`: nextest, then the doctests; fails on what they leave in temp |
+| `doc` | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` |
+| `quality` | `cargo xtask quality`: the clean-code ratchet (`quality-baseline.json`) |
+| `regenerate` | `.githooks/regenerate --check`: the generated schemas and reference pages are current |
+| `typos` | `typos` |
+| `machete` | `cargo machete` |
+| `deny` | `cargo deny --all-features check` |
+| `msrv` | `cargo +1.90 check --workspace --all-targets` |
+| `windows-gnu` | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` |
+| `semver` | the `cargo semver-checks` line CI runs, read from `ci.yml` |
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks in its own jobs,
+and the tests on Linux, macOS and Windows too.
 
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
 local `#[expect(lint, reason = "...")]`, never an `#[allow]`. A process starts through the runner's process
@@ -111,12 +91,10 @@ module only (`disallowed-methods` in clippy.toml): an adapter that must start on
 in its `#[expect]`. The xtask's `guardrails` tests keep the rest: no Isothrum crate depends on an
 Isoloom crate beyond the listed edges, a tool's output is parsed in its adapter, a `-c` script
 comes from `driver::shells` and chains nothing with `&&`, and every capability a driver claims
-names the test that shows it reach its tool. CI also runs the tests on Linux,
-macOS and Windows, checks the MSRV (`cargo +1.90 check --workspace --all-targets`) and builds the
-WebAssembly package.
+names the test that shows it reach its tool.
 
-Other tasks are `cargo run -p xtask -- <task>`, the same on every OS: `schema` (regenerate the
-event and status schemas after changing them), `wasm`, `msrv`, `features`, `fuzz`, `mutants`.
+Other tasks are `cargo xtask <task>`, the same on every OS: `schema` (regenerate the event and
+status schemas after changing them), `msrv`, `features`, `mutants`, `real-run`.
 `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` regenerates
 `docs/reference/cli.md` and `exit-codes.md` after a change to the command line or the error codes.
 

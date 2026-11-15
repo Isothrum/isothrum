@@ -1,6 +1,7 @@
-//! Isothrum's development tasks, run as `cargo run -p xtask -- <task>`, the same on macOS, Linux
-//! and Windows:
+//! Isothrum's development tasks, run as `cargo xtask <task>` (the alias `.cargo/config.toml`
+//! gives `cargo run -p xtask --`), the same on macOS, Linux and Windows:
 //!
+//! - `check`: every check a change must pass, one command (`--fast` for the short list);
 //! - `schema`: the JSON Schemas of the event stream and of a run's status, written to
 //!   `crates/isothrum-runner/schema/`;
 //! - `real-run`: an Isoloom example generated for Docker with the local Isoloom, then the ignored
@@ -28,6 +29,7 @@
     reason = "the xtask drives the tools of the gates (cargo, git, the hooks' scripts) itself: it is no part of the runner"
 )]
 
+mod check;
 #[cfg(all(test, unix))]
 mod ci_scripts;
 #[cfg(test)]
@@ -60,6 +62,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Task {
+    /// Every check a change must pass, each step named and run whatever the others did, one line
+    /// per step at the end (`--fast`: fetch, fmt, clippy, the tests, clippy for Windows).
+    Check(check::Args),
     /// Writes the JSON Schemas of the event stream and of a run's status.
     Schema,
     /// Runs an Isoloom example on this host's Docker through the `isothrum` command line.
@@ -91,6 +96,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Res<ExitCode> {
     match cli.task {
+        Task::Check(a) => Ok(check::run(&a)),
         Task::Schema => schema::write().map(|()| ExitCode::SUCCESS),
         Task::RealRun(a) => real_run::run(&a).map(|()| ExitCode::SUCCESS),
         Task::Quality(a) => quality::run(&a),
