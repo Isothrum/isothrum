@@ -299,7 +299,7 @@ impl FormatDriver for Compose {
         ran(out)
     }
 
-    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> impl Future<Output = Result<ShellCommand>> {
         let shell = user.map_or_else(|| shells::CONTAINER_SHELL.to_owned(), |_| shells::container_shell_as());
         let argv = vec!["sh".to_owned(), "-c".to_owned(), shell];
         let what = Exec {
@@ -309,7 +309,7 @@ impl FormatDriver for Compose {
             tty: true,
         };
         let spec = compose::exec_spec(&cx.call(READ_LIMIT), &Self::project(cx), &what);
-        Ok(ShellCommand::of_spec(spec, &cx.project.dir))
+        std::future::ready(Ok(ShellCommand::of_spec(spec, &cx.project.dir)))
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

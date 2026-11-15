@@ -375,10 +375,12 @@ impl FormatDriver for Vagrant {
         })
     }
 
-    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
-        let script = user.map(checked_user).transpose()?.map(crate::console::shells::login_shell_as);
-        let spec = vagrant::console_spec(&call(cx, READ_LIMIT), machine, script.as_deref());
-        Ok(ShellCommand::of_spec(spec, &cx.project.dir))
+    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> impl Future<Output = Result<ShellCommand>> {
+        let script = user.map(checked_user).transpose().map(|u| u.map(crate::console::shells::login_shell_as));
+        std::future::ready(script.map(|script| {
+            let spec = vagrant::console_spec(&call(cx, READ_LIMIT), machine, script.as_deref());
+            ShellCommand::of_spec(spec, &cx.project.dir)
+        }))
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

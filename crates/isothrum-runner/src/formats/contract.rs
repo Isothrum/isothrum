@@ -57,6 +57,9 @@ pub(crate) trait Model: Send + Sync + 'static {
     const MACHINES: &'static [&'static str];
     /// What the driver refuses.
     const REFUSES: &'static [Op];
+    /// Whether its console is a command it gives without running its tool (Compose's, Vagrant's);
+    /// a module's reads its state first.
+    const CONSOLE_RUNS_NOTHING: bool = true;
     /// The tool with nothing made yet, recent enough, or too old when `old`.
     fn new(old: bool) -> Self;
     /// Its answer to `call`, its world changed as the tool's own.
@@ -125,6 +128,7 @@ impl<M: Model> Bench<M> {
             ],
             host_env: &crate::host_env::EMPTY,
             processes: &self.fake,
+            ssh_key: std::path::Path::new("/nowhere/id_ed25519"),
             ports: &crate::formats::NoPorts,
             sink: &quiet,
             warn: &unwarned,
@@ -154,7 +158,7 @@ async fn attempt(cx: &ToolCx<'_>, op: Op) -> Result<()> {
         Op::Attach => d.attach(cx, "web").await,
         Op::Retire => d.retire(cx, "web").await,
         Op::Exec => d.exec(cx, "web", &["true".to_owned()]).await.map(drop),
-        Op::Console => d.console(cx, "web", None).map(drop),
+        Op::Console => d.console(cx, "web", None).await.map(drop),
     }
 }
 
@@ -235,7 +239,7 @@ pub(crate) async fn what_it_refuses_is_unsupported<M: Model>() {
         let e = attempt(&cx, *op).await.expect_err("refused");
         assert_eq!(e.code(), ErrorCode::Unsupported, "{op:?}: {e}");
     }
-    if !M::REFUSES.contains(&Op::Console) {
+    if M::CONSOLE_RUNS_NOTHING && !M::REFUSES.contains(&Op::Console) {
         attempt(&cx, Op::Console).await.expect("a console");
     }
     assert!(bench.fake.calls().is_empty(), "{:?}", bench.fake.lines());

@@ -46,16 +46,19 @@ async fn a_check_that_hangs_is_a_timeout_at_its_deadline_with_its_last_line() {
     );
 }
 
-#[test]
-fn a_console_is_vagrant_ssh_with_the_dotfile_and_a_user_is_checked() {
+#[tokio::test]
+async fn a_console_is_vagrant_ssh_with_the_dotfile_and_a_user_is_checked() {
     let f = Fixture::new();
     let fake = FakeProcesses::script().build();
     let cx = cx(&f, &fake, LIBVIRT);
-    let plain = Vagrant.console(&cx, "web", None).expect("a console");
+    let plain = Vagrant.console(&cx, "web", None).await.expect("a console");
     assert!(plain.sh_line().contains("vagrant ssh web"), "{}", plain.sh_line());
-    let as_user = Vagrant.console(&cx, "web", Some("alice")).expect("a console as alice");
+    let as_user = Vagrant.console(&cx, "web", Some("alice")).await.expect("a console as alice");
     assert!(as_user.sh_line().contains("sudo -iu alice"), "{}", as_user.sh_line());
-    assert!(Vagrant.console(&cx, "web", Some("a; rm -rf /")).is_err());
+    assert_eq!(
+        Vagrant.console(&cx, "web", Some("a; rm -rf /")).await.map(drop).map_err(|e| e.code()),
+        Err(crate::ErrorCode::Unsupported)
+    );
 }
 
 #[cfg(target_os = "linux")]

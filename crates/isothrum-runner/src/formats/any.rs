@@ -98,8 +98,8 @@ impl AnyFormat {
         dispatch!(self, d => d.exec(cx, machine, argv).await)
     }
 
-    pub(crate) fn console(self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
-        dispatch!(self, d => d.console(cx, machine, user))
+    pub(crate) async fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+        dispatch!(self, d => d.console(cx, machine, user).await)
     }
 
     pub(crate) async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

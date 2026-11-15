@@ -1,5 +1,6 @@
 mod by_id;
 mod changes;
+mod console;
 pub(crate) mod contract;
 mod proxmox;
 use std::path::PathBuf;
@@ -110,6 +111,7 @@ async fn with_cx_given<T>(lab: &Lab, fake: &FakeProcesses, extra: &[(&str, &str)
         .collect(),
         host_env: &crate::host_env::EMPTY,
         processes: fake,
+        ssh_key: std::path::Path::new("/nowhere/id_ed25519"),
         ports: &crate::formats::NoPorts,
         sink: &sink,
         warn: &warn,
@@ -374,7 +376,6 @@ async fn what_a_module_cant_do_is_refused_and_nothing_runs() {
             Terraform.attach(cx, "web").await.err(),
             Terraform.retire(cx, "web").await.err(),
             Terraform.exec(cx, "web", &["true".to_owned()]).await.err(),
-            Terraform.console(cx, "web", None).err(),
         ]
     })
     .await;

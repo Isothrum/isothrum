@@ -86,6 +86,9 @@ pub(crate) struct ToolCx<'a> {
     pub(crate) host_env: &'a crate::host_env::HostEnv,
     /// What runs the tool.
     pub(crate) processes: &'a dyn ProcessRunner,
+    /// The runner's own SSH key: what a module's machine is signed in to with when the run names
+    /// no key of its own.
+    pub(crate) ssh_key: &'a Path,
     /// What picks the host ports the run pins.
     pub(crate) ports: &'a dyn PickPorts,
     /// Where each line the tool prints goes (the operation's step output events).
@@ -295,7 +298,7 @@ pub(crate) trait FormatDriver {
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran>;
     /// The command that opens an interactive console into `machine`, as `user` when given: the
     /// embedder runs it in its own terminal.
-    fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand>;
+    async fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand>;
     /// What exists of the run, as the tool reports it, and the state that makes the run in.
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)>;
     /// Every resource the tool says belongs to the run ([`ledger::record_found`] keeps them).
