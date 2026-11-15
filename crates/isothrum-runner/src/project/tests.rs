@@ -38,10 +38,37 @@ fn a_folder_of_no_format_or_of_several_is_refused_with_the_fix() {
 }
 
 #[test]
+fn each_name_compose_takes_is_a_compose_project() {
+    for name in ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"] {
+        let dir = folder(&[name]);
+        let project = Project::open(dir.path(), None).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((project.format, project.files), (Format::Compose, vec![dir.path().join(name)]), "{name}");
+    }
+}
+
+#[test]
 fn compose_reads_one_file_in_its_own_order_of_precedence() {
-    let dir = folder(&["docker-compose.yml", "compose.yml"]);
-    let files = Format::Compose.files_in(dir.path()).expect("listed");
-    assert_eq!(files, vec![dir.path().join("compose.yml")]);
+    let order = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
+    for (i, first) in order.iter().enumerate() {
+        for later in &order[i + 1..] {
+            let dir = folder(&[later, first]);
+            let files = Format::Compose.files_in(dir.path()).expect("listed");
+            assert_eq!(files, vec![dir.path().join(first)], "{first} before {later}");
+        }
+    }
+}
+
+#[test]
+fn a_folder_of_nothing_names_every_file_compose_takes() {
+    let dir = folder(&["README.md"]);
+    let reason = match Format::detect(dir.path()) {
+        Err(Error::Project { reason, .. }) => reason,
+        other => panic!("not refused as no project: {other:?}"),
+    };
+    assert_eq!(
+        reason,
+        "it holds no Compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), Vagrantfile or Terraform module (*.tf)"
+    );
 }
 
 #[test]

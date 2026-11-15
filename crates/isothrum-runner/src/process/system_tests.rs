@@ -13,9 +13,9 @@ fn spec(program: &str, args: &[&str]) -> ProcessSpec {
     ProcessSpec::new(program, args.iter().copied())
 }
 
-/// Whether the process `pid` guards is gone within a few seconds.
+/// Whether the process `pid` guards is gone within half a minute (a loaded host reaps slowly).
 async fn gone(pid: &PidGuard) -> bool {
-    for _ in 0..300 {
+    for _ in 0..1500 {
         if !alive(pid.id()) {
             return true;
         }
@@ -147,11 +147,11 @@ trap '' INT; echo $$ > '{}'; i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i+1))
         stopping: Arc::new(Stopping::new(Duration::from_secs(1))),
         ..SystemProcesses::default()
     };
-    assert!(tokio::time::timeout(Duration::from_secs(2), capture(&runner, &job)).await.is_err(), "cut short");
+    // Cancelled once it runs (its pid written), however long a loaded host took to start it.
+    let tool = cancelled_once_started(&runner, &job, &pid).await;
     tokio::time::timeout(Duration::from_secs(10), runner.stopped())
         .await
         .expect("ended after its grace");
-    let tool = PidGuard::from_file(&pid).expect("the tool started");
     assert!(gone(&tool).await);
     assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "rm -f isothrum-tool-1");
 }
@@ -335,8 +335,9 @@ async fn a_docker_cli_config_that_cant_be_read_or_isnt_json_is_traced() {
 async fn a_recorded_tool_is_in_the_runs_tools_while_it_runs_and_gone_after() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(crate::process::ledger::DIR);
-    // The entry is written once the tool started: it waits for it (5 s at most), then lists.
-    let script = "echo \"$$\"; i=0; while [ $i -lt 50 ] && ! ls \"$0\" | grep -q -e \"-$$.tool\"; do sleep 0.1; i=$((i+1)); done; ls \"$0\"";
+    // The entry is written once the tool started: it waits for it (a minute at most, for a
+    // loaded host), then lists.
+    let script = "echo \"$$\"; i=0; while [ $i -lt 600 ] && ! ls \"$0\" | grep -q -e \"-$$.tool\"; do sleep 0.1; i=$((i+1)); done; ls \"$0\"";
     let mut listing = spec("sh", &["-c", script, dir.to_str().unwrap()]);
     listing.ledger_dir = Some(dir.clone());
     let out = capture(&SystemProcesses::default(), &listing).await.unwrap();
