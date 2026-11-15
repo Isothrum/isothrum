@@ -55,7 +55,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
             let run = open(runner, &op.run)?;
             Ok(Verdict::of(run.attach(machine, &options(op, var)?, events).await.is_ok()))
         }
-        RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref())?),
+        RunnerCommand::Console { run, machine, user } => print_command(out, &open(runner, run)?.console_command(machine, user.as_deref()).await?),
         RunnerCommand::Screen {
             machine,
             show_password,

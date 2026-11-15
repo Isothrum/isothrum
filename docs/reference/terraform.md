@@ -9,7 +9,8 @@ module may follow them too, and a module that follows none still runs.
 
 | | |
 |---|---|
-| Lifecycle | `up` and `update`: `init`, then `apply`. `down`: `destroy`. `park`, `resume`, `provision`, `attach`, `retire`, `exec` and `console` are refused (a module has no stopped state, no machine of its own to reach). |
+| Lifecycle | `up` and `update`: `init`, then `apply`. `down`: `destroy`. `park`, `resume`, `provision`, `attach`, `retire` and `exec` are refused (a module has no stopped state, and its machines are made and removed by its apply only). |
+| Console | `console <machine>` (`Running::console_command`) is an `ssh` into the VM, at the address its state says, as the user given, else `ssh_user_<machine>`, else the `ssh_user` of the machine whose `address_<machine>` it is, else `ssh_user`; with the run's `ssh_private_key_file` value, else the runner's own key. Its host key is pinned first, in the run's own known hosts. A Windows VM has none: its screen is its Remote Desktop. |
 | State | The run's own, in its state folder (`-state=`, `TF_DATA_DIR`), unless the module names a backend. An existing deployment's local state can be adopted (`state.md`). |
 | Values | Each value and secret a run is given reaches the module's variable of the same name as `TF_VAR_<name>`, and the providers' own variables (`AWS_ACCESS_KEY_ID`, `PROXMOX_VE_ENDPOINT`) as they are. Values are recorded and given again at every later operation. Secrets never are: a `down` or a reap that needs one is given it again. |
 | Variables | `Project::variables`, `Client::variables` and the service's `variables` command list the module's `variable` blocks: name, type, default, sensitive and description. Give a sensitive one as a secret. |

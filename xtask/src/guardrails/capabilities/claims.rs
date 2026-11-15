@@ -317,7 +317,14 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 53] = [
     ("terraform", "attach", NoTool("refused: a module's machines are all applied together")),
     ("terraform", "retire", NoTool("refused: a module's machines are all applied together")),
     ("terraform", "exec", NoTool("refused: Terraform reaches no machine to run a command in")),
-    ("terraform", "console", NoTool("refused: Terraform reaches no machine to open a console in")),
+    (
+        "terraform",
+        "console",
+        Witness {
+            test: "a_vms_console_is_ssh_as_the_user_the_outputs_name_with_the_runs_key_and_its_host_pinned",
+            evidence: "admin@203.0.113.7",
+        },
+    ),
     (
         "terraform",
         "observe",

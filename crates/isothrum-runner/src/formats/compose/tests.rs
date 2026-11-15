@@ -36,6 +36,7 @@ fn cx_in<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses, sta
         env: vec![("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())],
         host_env: &crate::host_env::EMPTY,
         processes: fake,
+        ssh_key: std::path::Path::new("/nowhere/id_ed25519"),
         ports,
         sink: &quiet,
         warn: &unwarned,
@@ -319,12 +320,12 @@ async fn machines_are_the_services_the_files_declare_and_reapply_is_one_up() {
     Compose.reapply(&cx, &change).await.expect("reapplied");
 }
 
-#[test]
-fn the_console_is_an_exec_with_a_terminal_in_the_project_folder() {
+#[tokio::test]
+async fn the_console_is_an_exec_with_a_terminal_in_the_project_folder() {
     let (_dir, project) = folder();
     let run = run();
     let fake = FakeProcesses::script().build();
-    let console = Compose.console(&cx(&project, &run, &fake), "web", Some("root")).expect("a console");
+    let console = Compose.console(&cx(&project, &run, &fake), "web", Some("root")).await.expect("a console");
     let args: Vec<&str> = console.args.iter().map(String::as_str).collect();
     let exec = args.iter().position(|a| *a == "exec").expect("an exec");
     assert_eq!(args.get(exec..exec + 6), Some(&["exec", "--user", "root", "web", "sh", "-c"][..]), "{args:?}");

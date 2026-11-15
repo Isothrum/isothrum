@@ -81,6 +81,45 @@ impl Act<'_> {
     }
 }
 
+/// What a tool context that says nothing and picks no port holds of its run: a console's, a
+/// state folder's move.
+struct Quiet {
+    key: String,
+    state_dir: PathBuf,
+    ssh_key: PathBuf,
+}
+
+impl Quiet {
+    fn of(run: &Running<'_>) -> Quiet {
+        Quiet {
+            key: run.runner.copy_key(&run.name),
+            state_dir: run.state_dir(),
+            ssh_key: crate::ssh::key_path(&run.runner.config.home),
+        }
+    }
+
+    /// The context of `run` on these paths, its tools given `env`.
+    fn cx<'a>(&'a self, run: &'a Running<'_>, env: Vec<(String, String)>) -> ToolCx<'a> {
+        ToolCx {
+            project: &run.project,
+            run: &run.name,
+            key: &self.key,
+            state_dir: &self.state_dir,
+            provider: None,
+            env,
+            host_env: &run.runner.config.host_env,
+            processes: run.runner.config.processes.as_ref(),
+            ssh_key: &self.ssh_key,
+            ports: &crate::formats::NoPorts,
+            sink: &crate::formats::discard,
+            warn: &unwarned,
+        }
+    }
+}
+
+/// Says nothing of a warning: a quiet context's.
+fn unwarned(_: WarningCode, _: &str) {}
+
 /// The host ports run `run` pins, reserved through its runner for the operation.
 struct RunPorts<'a> {
     runner: &'a Runner,
@@ -194,6 +233,7 @@ impl<'r> Running<'r> {
     ) -> Result<T> {
         let state_dir = self.state_dir();
         let key = self.runner.copy_key(&self.name);
+        let ssh_key = crate::ssh::key_path(&self.runner.config.home);
         let step = emitter.operation_name();
         let sink = |stream: Stream, line: &str| emitter.log(step, stream, line);
         let warn = |code: WarningCode, message: &str| emitter.warning(code, message);
@@ -209,6 +249,7 @@ impl<'r> Running<'r> {
             provider: self.provider(opts),
             env: self.tool_env(opts)?,
             processes,
+            ssh_key: &ssh_key,
             ports: &ports,
             host_env: &self.runner.config.host_env,
             sink: &sink,
@@ -463,27 +504,11 @@ impl<'r> Running<'r> {
     /// # Errors
     ///
     /// Where the format has no way in.
-    pub fn console_command(&self, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+    pub async fn console_command(&self, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
         let user = user.map(crate::console::check_name).transpose()?;
-        let state_dir = self.state_dir();
-        let key = self.runner.copy_key(&self.name);
-        let quiet = |_: Stream, _: &str| {};
-        let unwarned = |_: WarningCode, _: &str| {};
-        let opts = RunOptions::new();
-        let cx = ToolCx {
-            project: &self.project,
-            run: &self.name,
-            key: &key,
-            state_dir: &state_dir,
-            provider: None,
-            env: self.tool_env(&opts)?,
-            host_env: &self.runner.config.host_env,
-            processes: self.runner.config.processes.as_ref(),
-            ports: &crate::formats::NoPorts,
-            sink: &quiet,
-            warn: &unwarned,
-        };
-        self.driver.console(&cx, machine, user)
+        let paths = Quiet::of(self);
+        let cx = paths.cx(self, self.tool_env(&RunOptions::new())?);
+        self.driver.console(&cx, machine, user).await
     }
 }
 
@@ -491,23 +516,8 @@ impl Running<'_> {
     /// A tool context of this run for work that runs no tool and says nothing (moving files in
     /// its state folder).
     fn quiet<T>(&self, work: impl FnOnce(&ToolCx<'_>) -> T) -> T {
-        let state_dir = self.state_dir();
-        let key = self.runner.copy_key(&self.name);
-        let quiet = |_: Stream, _: &str| {};
-        let unwarned = |_: WarningCode, _: &str| {};
-        let cx = ToolCx {
-            project: &self.project,
-            run: &self.name,
-            key: &key,
-            state_dir: &state_dir,
-            provider: None,
-            env: Vec::new(),
-            host_env: &self.runner.config.host_env,
-            processes: self.runner.config.processes.as_ref(),
-            ports: &crate::formats::NoPorts,
-            sink: &quiet,
-            warn: &unwarned,
-        };
+        let paths = Quiet::of(self);
+        let cx = paths.cx(self, Vec::new());
         work(&cx)
     }
 

@@ -29,6 +29,7 @@
 //!   machine beside it, as the module's outputs say ([`tunnelled`]).
 
 mod adopt;
+mod console;
 mod machines;
 mod screen;
 mod tunnelled;
@@ -426,8 +427,10 @@ impl FormatDriver for Terraform {
         std::future::ready(Err(refused(&format!("running a command in `{machine}`"))))
     }
 
-    fn console(&self, _cx: &ToolCx<'_>, machine: &str, _user: Option<&str>) -> Result<ShellCommand> {
-        Err(refused(&format!("opening a console into `{machine}`")))
+    /// An `ssh` into the VM, at the address its state says, as the user the module's outputs
+    /// name, with the run's key ([`console::of`]).
+    async fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+        console::of(&Module::of(cx), machine, user).await
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {

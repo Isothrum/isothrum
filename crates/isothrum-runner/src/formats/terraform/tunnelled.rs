@@ -58,7 +58,7 @@ const VIA_OUTPUT: &str = "ip";
 const VIA_USER_OUTPUT: &str = "ssh_user";
 
 /// The run's value naming the private key that signs in to the module's machines.
-const KEY_VAR: &str = "ssh_private_key_file";
+pub(super) const KEY_VAR: &str = "ssh_private_key_file";
 
 /// Windows' own administrator.
 const ADMINISTRATOR: &str = "Administrator";
@@ -168,19 +168,21 @@ fn via(out: &BTreeMap<String, String>, plan: &Plan) -> std::result::Result<Login
         .clone()
         .or_else(|| out.get(VIA_OUTPUT).cloned())
         .ok_or_else(|| format!("the module names no Linux machine to tunnel it through (its `{VIA_OUTPUT}` output)"))?;
-    let machine_user = || {
-        out.iter()
-            .filter(|(_, v)| **v == host)
-            .find_map(|(name, _)| out.get(&format!("ssh_user_{}", name.strip_prefix("address_")?)))
-            .cloned()
-    };
-    let user = plan
-        .user
-        .clone()
-        .or_else(machine_user)
-        .or_else(|| out.get(VIA_USER_OUTPUT).cloned())
-        .ok_or_else(|| format!("the module names no SSH user on {host}, the machine its tunnel goes through (`ssh_user_<machine>`, `{VIA_USER_OUTPUT}`)"))?;
+    let user =
+        plan.user.clone().or_else(|| user_at(out, &host)).ok_or_else(|| {
+            format!("the module names no SSH user on {host}, the machine its tunnel goes through (`ssh_user_<machine>`, `{VIA_USER_OUTPUT}`)")
+        })?;
     Login::new(&user, &host).ok_or_else(|| format!("`{}@{}` isn't an SSH login the runner signs in with", user.escape_debug(), host.escape_debug()))
+}
+
+/// The SSH user the outputs (`out`) give for the machine at address `host`: `ssh_user_<machine>`
+/// of the machine whose `address_<machine>` it is, else `ssh_user`.
+pub(super) fn user_at(out: &BTreeMap<String, String>, host: &str) -> Option<String> {
+    out.iter()
+        .filter(|(_, v)| *v == host)
+        .find_map(|(name, _)| out.get(&format!("ssh_user_{}", name.strip_prefix("address_")?)))
+        .or_else(|| out.get(VIA_USER_OUTPUT))
+        .cloned()
 }
 
 /// What a status says of `machine`'s screen, as the outputs (`out`) say: its protocol, through
@@ -205,7 +207,7 @@ pub(super) fn offer(out: &BTreeMap<String, String>, machine: &SeenMachine) -> Op
 }
 
 /// The module's outputs as text ([`texts`]), read quietly from the state at `state`.
-async fn outputs(module: &Module<'_, '_>, state: StateAt<'_>) -> Result<BTreeMap<String, String>> {
+pub(super) async fn outputs(module: &Module<'_, '_>, state: StateAt<'_>) -> Result<BTreeMap<String, String>> {
     if matches!(state, StateAt::File(file) if !file.exists()) {
         return Ok(BTreeMap::new());
     }
