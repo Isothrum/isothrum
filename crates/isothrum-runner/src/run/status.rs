@@ -2,7 +2,7 @@
 
 use super::{Emitter, LastObserved, OutputValue, Result, RunOptions, RunState, Running, Seen, Status, ToolCx};
 use crate::formats::SeenMachine;
-use crate::status::{MachineStatus, PublishedPort};
+use crate::status::{MachineState, MachineStatus, PublishedPort};
 
 impl Running<'_> {
     /// The run as its tool reports it now, reconciled with its record: an operation of this
@@ -29,8 +29,8 @@ impl Running<'_> {
         let record = self.runner.store.record(&self.name)?;
         let recorded = record.as_ref().map_or(RunState::Absent, |r| r.state);
         let row = self.runner.store.db().read(|tx| tx.run(&self.name))?;
-        if self.runner.op_of(&self.name).is_some() || recorded.is_moving() {
-            return Ok(status_of(&Seen::default(), recorded, false, row.as_ref()));
+        if self.held(recorded)? {
+            return Ok(as_last_read(recorded, row.as_ref(), &[]));
         }
         let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
         let (seen, derived, screens, native) = self
@@ -48,6 +48,17 @@ impl Running<'_> {
         } else {
             derived
         };
+        // A machine another process acts on (Vagrant's lock refused the read): the run as last read,
+        // that machine busy, nothing reconciled.
+        let busy: Vec<&str> = seen
+            .machines
+            .iter()
+            .filter(|m| m.state == MachineState::Busy)
+            .map(|m| m.name.as_str())
+            .collect();
+        if !busy.is_empty() {
+            return Ok(as_last_read(recorded, row.as_ref(), &busy));
+        }
         let observed = LastObserved {
             machines: machine_statuses(&seen.machines),
         };
@@ -70,6 +81,17 @@ impl Running<'_> {
         }
         status.native = native;
         Ok(status)
+    }
+
+    /// Whether an operation holds the run, so its tool isn't asked (it would contend with it, as
+    /// Vagrant's locks do): one of this process, one the record says moves it, or one another live
+    /// process runs on it now (an attach, a provision, a retire move no state).
+    pub(super) fn held(&self, recorded: RunState) -> Result<bool> {
+        if self.runner.op_of(&self.name).is_some() || recorded.is_moving() {
+            return Ok(true);
+        }
+        let running = self.runner.store.db().read(|tx| tx.unfinished(&self.name))?;
+        Ok(running.iter().any(|o| o.started_at.is_some() && o.owner.is_alive()))
     }
 
     /// A run held moving (`creating`, `parking`, …) by an operation whose process is gone (killed,
@@ -122,6 +144,28 @@ impl Running<'_> {
             .await?;
         Ok(status_of(&seen, RunState::Ready, true, None).outputs)
     }
+}
+
+/// The run in `state` as last read (not live): its machines as the last read saw them, those of
+/// `busy` busy (another process acts on them). A run absent has none.
+fn as_last_read(state: RunState, row: Option<&crate::store::RunRow>, busy: &[&str]) -> Status {
+    let mut status = status_of(&Seen::default(), state, false, row);
+    if state != RunState::Absent {
+        status.machines = row.and_then(|r| r.observed.as_ref()).map(|o| o.machines.clone()).unwrap_or_default();
+    }
+    for name in busy {
+        match status.machines.iter_mut().find(|m| m.name == *name) {
+            Some(m) => m.state = MachineState::Busy,
+            None => status.machines.push(MachineStatus {
+                name: (*name).to_owned(),
+                state: MachineState::Busy,
+                published: Vec::new(),
+                address: None,
+                console: None,
+            }),
+        }
+    }
+    status
 }
 
 /// The status of the run in `state` with `seen` as read.

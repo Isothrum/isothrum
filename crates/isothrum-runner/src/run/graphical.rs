@@ -104,8 +104,8 @@ impl Running<'_> {
     /// holds the run its tool isn't asked (it would contend with it), and the hypervisor answers
     /// for itself.
     async fn running_now(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
-        let recorded = self.runner.store.record(&self.name)?.map(|r| r.state);
-        if self.runner.op_of(&self.name).is_some() || recorded.is_some_and(crate::state::RunState::is_moving) {
+        let recorded = self.runner.store.record(&self.name)?.map_or(crate::state::RunState::Absent, |r| r.state);
+        if self.held(recorded)? {
             return Ok(());
         }
         let (seen, _) = self.driver.observe(cx).await?;

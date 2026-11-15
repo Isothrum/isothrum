@@ -27,6 +27,7 @@
 //! VMs and folders whose name carries the run's key as a word; then it starts once more. A call
 //! another Vagrant process's lock refused is made again ([`lock`]).
 
+mod busy;
 mod clear;
 mod dotfile;
 mod forwards;
@@ -138,10 +139,13 @@ impl Vagrant {
 
     /// Each machine `status` lists, with its state label.
     async fn status(&self, cx: &ToolCx<'_>) -> Result<std::collections::BTreeMap<String, String>> {
+        self.read_states(cx).await.map_err(|e| vagrant_error("status", e))
+    }
+
+    /// [`Vagrant::status`], its failure as Vagrant's (a lock another process holds).
+    async fn read_states(&self, cx: &ToolCx<'_>) -> std::result::Result<std::collections::BTreeMap<String, String>, CliError<Failure>> {
         let call = read(cx, READ_LIMIT);
-        let read = retrying(cx.warn, "status", Rerun::Read, STATUS_PATIENCE, || vagrant::status(&call))
-            .await
-            .map_err(|e| vagrant_error("status", e))?;
+        let read = retrying(cx.warn, "status", Rerun::Read, STATUS_PATIENCE, || vagrant::status(&call)).await?;
         Ok(read.states)
     }
 
@@ -370,7 +374,16 @@ impl FormatDriver for Vagrant {
         let read = read(cx, READ_LIMIT);
         let records = dot(cx).recorded()?;
         let mut machines = Vec::new();
-        let states = self.status(cx).await?;
+        let states = match self.read_states(cx).await {
+            Ok(states) => states,
+            // Another process acts on these machines (a start, a provision from a terminal) past
+            // the read's patience: they are busy, the rest as last read.
+            Err(CliError::Failed {
+                failure: Failure::Locked { machines: named, .. },
+                ..
+            }) if !named.is_empty() => return Ok((busy::busy(named), RunState::Ready)),
+            Err(e) => return Err(vagrant_error("status", e)),
+        };
         // A machine destroyed outside the run reads absent, as one never made, but fails the run.
         let gone = gone::gone(cx, &states)?;
         for (name, label) in states {
