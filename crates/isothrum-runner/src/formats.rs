@@ -96,6 +96,11 @@ pub(crate) struct ToolCx<'a> {
     /// Where a driver says what it did that the operation's caller should know (a recovery, a
     /// state discarded, a retry): the operation's warning events.
     pub(crate) warn: &'a (dyn Fn(WarningCode, &str) + Send + Sync),
+    /// The keys of the run's resources the store records as made (the provider's, with their id,
+    /// not gone), read when asked: what tells a machine removed outside the run from one never
+    /// made. An operation records what its tool made before it observes, so a read after it is
+    /// current.
+    pub(crate) made: &'a (dyn Fn() -> Result<Vec<String>> + Send + Sync),
 }
 
 impl ToolCx<'_> {
@@ -133,6 +138,10 @@ impl ToolCx<'_> {
             .filter(|v| !v.is_empty())
     }
 }
+
+/// Nothing recorded as made: a context that reads no machine's state (a console, a command), or a
+/// test's.
+pub(crate) static NOTHING_MADE: &(dyn Fn() -> Result<Vec<String>> + Send + Sync) = &|| Ok(Vec::new());
 
 /// Says nothing of a line: a read's.
 pub(crate) fn discard(_: Stream, _: &str) {}

@@ -115,6 +115,7 @@ async fn with_cx_given<T>(lab: &Lab, fake: &FakeProcesses, extra: &[(&str, &str)
         ports: &crate::formats::NoPorts,
         sink: &sink,
         warn: &warn,
+        made: crate::formats::NOTHING_MADE,
     };
     f(&cx).await
 }
@@ -304,6 +305,25 @@ async fn observe_reads_the_vms_and_the_outputs_sensitivity_kept() {
     assert_eq!(seen.outputs["machines"].value, r#"{"web":"10.0.0.10"}"#);
     assert!(seen.outputs["token"].sensitive);
     assert!(lab.lines().iter().all(|l| !l.contains(SECRET)));
+}
+
+/// A VM the provider destroyed outside the run (deleted in the cloud's console) stays in the state
+/// until a refresh: a status reads the state as it stands, with no refresh, no plan and no call of
+/// the provider (a status is read often, and a refresh is the provider's API under the state's
+/// lock); the next `up` or `update`, whose apply refreshes, makes it again.
+#[tokio::test]
+async fn a_vm_destroyed_outside_reads_as_the_state_holds_it_with_no_refresh_until_an_apply() {
+    let lab = lab().with_state();
+    let held = show_of(&[("aws_instance", "web", "i-gone", false)]);
+    let fake = FakeProcesses::script()
+        .expect("terraform show -json -no-color", Reply::ok(&held))
+        .expect(&format!("terraform output -json -no-color {}", lab.state_flag()), Reply::ok("{}"))
+        .build();
+    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    let machines: Vec<(&str, &MachineState)> = seen.machines.iter().map(|m| (m.name.as_str(), &m.state)).collect();
+    assert_eq!((machines.as_slice(), state), ([("web", &MachineState::Running)].as_slice(), RunState::Ready));
+    let programs: Vec<String> = fake.calls().iter().map(|c| c.args.first().cloned().unwrap_or_default()).collect();
+    assert_eq!(programs, ["show", "output"], "a status reads the state only");
 }
 
 #[tokio::test]

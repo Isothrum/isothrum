@@ -18,7 +18,11 @@
 //!   a crashed run made is removed by its recorded id ([`FormatDriver::destroy_by_id`]: a
 //!   targeted destroy, after an `import` when the state lost it).
 //! - The machines are the module's VMs ([`machines`]); `observe` reads them and the outputs from
-//!   the state (`show -json`, `output -json`, sensitivity kept).
+//!   the state (`show -json`, `output -json`, sensitivity kept). A resource the provider removed
+//!   outside the run stays in the state until a refresh, and a status does none: it is read
+//!   often, and a refresh calls the provider's API under the state's lock, with the run's
+//!   credentials. The next `up` or `update` refreshes in its apply and makes it again. A Proxmox
+//!   VE VM's own state is read from the server ([`screen`]).
 //! - Inputs reach the module as `TF_VAR_<name>` in its environment only: never on a command line,
 //!   never in a file (no `-var-file`, no saved plan, which would hold their values), and their
 //!   values are masked in the lines and errors the driver hands on.
