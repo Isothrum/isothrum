@@ -57,6 +57,18 @@ impl Running<'_> {
         Ok(status)
     }
 
+    /// Reads the run's status when its record says `state`, so the record says what its tool
+    /// reports now (a parked run whose machines were removed reads absent). A read that fails
+    /// leaves the record as it was: the operation then meets the tool's failure itself.
+    pub(super) async fn refresh_if(&self, state: RunState, opts: &RunOptions) {
+        let recorded = self.runner.store.record(&self.name).ok().flatten().map(|r| r.state);
+        if recorded == Some(state)
+            && let Err(e) = self.status_with(opts).await
+        {
+            tracing::debug!(error = %e, "the run's status couldn't be read before its operation");
+        }
+    }
+
     /// What the project gives back now (a module's outputs), read from the tool.
     pub(super) async fn outputs(&self, opts: &RunOptions) -> Result<Vec<OutputValue>> {
         let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());

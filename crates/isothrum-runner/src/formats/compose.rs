@@ -96,6 +96,20 @@ impl Compose {
         Ok(())
     }
 
+    /// The services the project's files start at `up` (`config --services`: a service under a
+    /// profile isn't one), and those of them with no container: gone (removed outside the run,
+    /// or never made). Files Compose can't read leave none gone: the status stands on `ps`.
+    async fn gone(&self, cx: &ToolCx<'_>, containers: &[compose::Container]) -> Vec<String> {
+        let declared = match compose::services(&cx.call(READ_LIMIT), &Self::project(cx)).await {
+            Ok(services) => services,
+            Err(e) => {
+                tracing::warn!(run = %cx.run, error = %e, "the project's services couldn't be read; the status is the containers'");
+                return Vec::new();
+            }
+        };
+        declared.into_iter().filter(|s| !containers.iter().any(|c| c.service() == s)).collect()
+    }
+
     /// Every container of the project, one-offs (`run`) left out.
     async fn containers(&self, cx: &ToolCx<'_>) -> Result<Vec<compose::Container>> {
         let all = compose::ps(&cx.call(READ_LIMIT), &Self::project(cx))
@@ -173,9 +187,17 @@ impl FormatDriver for Compose {
     }
 
     async fn resume(&self, cx: &ToolCx<'_>) -> Result<()> {
-        let paused: Vec<String> = self
-            .containers(cx)
-            .await?
+        let containers = self.containers(cx).await?;
+        let gone = self.gone(cx, &containers).await;
+        if !gone.is_empty() && !containers.is_empty() {
+            // A service removed outside the run (its container gone) can't come back as it was,
+            // and what joins its namespace can't start: the run is started again with `up`.
+            return Err(Error::PartlyGone {
+                run: cx.run.to_string(),
+                machines: gone,
+            });
+        }
+        let paused: Vec<String> = containers
             .into_iter()
             .filter(compose::Container::is_paused)
             .map(|c| c.service().to_owned())
@@ -266,9 +288,9 @@ impl FormatDriver for Compose {
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {
-        let machines: Vec<SeenMachine> = self
-            .containers(cx)
-            .await?
+        let containers = self.containers(cx).await?;
+        let gone = self.gone(cx, &containers).await;
+        let mut machines: Vec<SeenMachine> = containers
             .iter()
             .filter(|c| !c.one_off())
             .map(|c| SeenMachine {
@@ -288,6 +310,15 @@ impl FormatDriver for Compose {
                 windows: false,
             })
             .collect();
+        // A service the project starts with no container reads absent: gone, never just left out.
+        machines.extend(gone.into_iter().map(|name| SeenMachine {
+            name,
+            state: MachineState::Absent,
+            published: Vec::new(),
+            kind: None,
+            address: None,
+            windows: false,
+        }));
         let state = run_state(&machines);
         Ok((Seen { machines, ..Seen::default() }, state))
     }

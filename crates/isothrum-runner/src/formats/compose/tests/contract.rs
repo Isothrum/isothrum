@@ -62,6 +62,7 @@ impl Docker {
                 let lines: Vec<&str> = PS.lines().filter(|l| running.iter().any(|id| l.contains(&format!(r#""ID":"{id}"#)))).collect();
                 Reply::ok(&lines.join("\n"))
             }
+            ["config", "--services"] => Reply::ok("web\ndb\n"),
             ["down", "--volumes", "--remove-orphans"] => {
                 self.held.lock().expect("the world").clear();
                 Reply::ok("")
