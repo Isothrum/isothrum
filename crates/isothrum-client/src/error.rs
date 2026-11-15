@@ -76,3 +76,33 @@ impl ClientError {
         ClientError::Unavailable("the service closed the connection".to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_failure_has_the_code_an_error_event_would() {
+        let refused = ClientError::Refused {
+            code: ErrorCode::NotRunning,
+            message: "x".into(),
+            detail: None,
+        };
+        assert_eq!(refused.code(), ErrorCode::NotRunning);
+        let busy = ClientError::Busy {
+            version: "2.1.7".into(),
+            pid: 1,
+            operations: Vec::new(),
+        };
+        assert_eq!(busy.code(), ErrorCode::Locked);
+        let version = ClientError::Version {
+            client: "3.0.0".into(),
+            service: "2.1.7".into(),
+        };
+        assert_eq!(version.code(), ErrorCode::Unsupported);
+        for io in [ClientError::Protocol("x".into()), ClientError::Unavailable("x".into()), ClientError::closed()] {
+            assert_eq!(io.code(), ErrorCode::Io, "{io}");
+        }
+        assert!(matches!(ClientError::closed(), ClientError::Unavailable(m) if m == "the service closed the connection"));
+    }
+}

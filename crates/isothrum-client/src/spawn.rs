@@ -91,3 +91,29 @@ pub(crate) fn log_tail(paths: &ServicePaths) -> String {
     let lines: Vec<&str> = text.lines().collect();
     lines.get(lines.len().saturating_sub(5)..).unwrap_or_default().join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_binary_given_is_the_one_started_else_isothrum_by_name() {
+        assert_eq!(
+            binary(Some(Path::new("/opt/isothrum/bin/isothrum"))),
+            PathBuf::from("/opt/isothrum/bin/isothrum")
+        );
+        let found = binary(None);
+        let name = format!("isothrum{}", std::env::consts::EXE_SUFFIX);
+        assert_eq!(found.file_name().and_then(|n| n.to_str()), Some(name.as_str()));
+    }
+
+    #[test]
+    fn the_logs_tail_is_its_last_five_lines_and_no_log_says_nothing() {
+        let home = tempfile::tempdir().expect("a home");
+        let paths = ServicePaths::new(home.path());
+        assert_eq!(log_tail(&paths), "", "no log yet");
+        let lines: Vec<String> = (1..=7).map(|n| format!("line {n}")).collect();
+        std::fs::write(paths.log(), lines.join("\n")).expect("a log");
+        assert_eq!(log_tail(&paths), "line 3\nline 4\nline 5\nline 6\nline 7");
+    }
+}
