@@ -123,7 +123,8 @@ impl Compose {
 }
 
 /// An `up`'s failure as the runner says it: a taken host port is `port_in_use`, with the port and
-/// protocol Docker names (0 and TCP when it names none), anything else as any tool's.
+/// protocol Docker names (0 and TCP when it names none), an image's pull the registry refused
+/// `download_failed` (step `pull-<step>`), anything else as any tool's.
 fn up_error(step: &str, e: CliError<Failure>) -> Error {
     match e {
         CliError::Failed {
@@ -136,6 +137,13 @@ fn up_error(step: &str, e: CliError<Failure>) -> Error {
                 protocol: crate::encoding::wire_name(&protocol),
             }
         }
+        CliError::Failed {
+            failure: Failure::PullRefused(reason),
+            ..
+        } => Error::DownloadFailed {
+            step: format!("pull-{step}"),
+            reason,
+        },
         other => tool_error(step, other),
     }
 }

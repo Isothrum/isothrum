@@ -27,6 +27,11 @@ pub(crate) enum Failure {
     /// A host port it publishes is taken (`port is already allocated`, `address already in use`):
     /// the port and its protocol, when Docker names them.
     PortTaken(Option<(u16, crate::project::platform::Protocol)>),
+    /// The registry refused an image's pull: none of that name, a tag it doesn't have, a sign-in
+    /// it needs, its pull rate limit (`pull access denied`, `manifest unknown`, `failed to
+    /// resolve reference … not found`, `toomanyrequests`, `no matching manifest`): what the
+    /// tool said.
+    PullRefused(String),
     /// Any other failure: its reason.
     Other(String),
 }
@@ -63,6 +68,16 @@ fn taken_port(out: &Captured) -> Option<(u16, crate::project::platform::Protocol
     })
 }
 
+/// What Docker says of a pull the registry refused, as [`said_any`] reads it (lowercase).
+const PULL_REFUSED: &[&str] = &[
+    "pull access denied",
+    "manifest unknown",
+    "toomanyrequests",
+    "no matching manifest",
+    "unauthorized: authentication required",
+    "failed to resolve reference",
+];
+
 impl Failure {
     /// What a failed call that printed `out` failed with.
     pub(crate) fn of(out: &Captured) -> Failure {
@@ -72,6 +87,8 @@ impl Failure {
             Failure::NetworkExists
         } else if said_any(out, &["port is already allocated", "address already in use"]) {
             Failure::PortTaken(taken_port(out))
+        } else if said_any(out, PULL_REFUSED) {
+            Failure::PullRefused(out.reason())
         } else {
             Failure::Other(out.reason())
         }
@@ -84,6 +101,7 @@ impl fmt::Display for Failure {
             Failure::NameInUse => f.write_str("a container name is already in use"),
             Failure::NetworkExists => f.write_str("a network of the project's name is already there"),
             Failure::PortTaken(_) => f.write_str("a host port it publishes is taken"),
+            Failure::PullRefused(reason) => write!(f, "an image's pull was refused: {reason}"),
             Failure::Other(reason) => f.write_str(reason),
         }
     }
@@ -295,6 +313,13 @@ mod tests {
             failed("Error: listen udp 0.0.0.0:5353: bind: address already in use"),
             Failure::PortTaken(Some((5353, crate::project::platform::Protocol::Udp)))
         );
+        for refused in [
+            include_str!("../tool_output/fixtures/compose/5.6-pull-access-denied.txt"),
+            include_str!("../tool_output/fixtures/compose/5.6-tag-not-found.txt"),
+            include_str!("../tool_output/fixtures/compose/2.29-pull-rate-limited.txt"),
+        ] {
+            assert!(matches!(failed(refused), Failure::PullRefused(_)), "{refused}");
+        }
         assert!(matches!(failed("no such service: nope"), Failure::Other(r) if r.contains("no such service")));
     }
 
