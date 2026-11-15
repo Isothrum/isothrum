@@ -137,3 +137,122 @@ pub(super) fn outcome_of(event: Option<Event>) -> Result<Event> {
         _ => Ok(event),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use isothrum_runner::store::EventCursor;
+    use isothrum_runner::{ErrorCode, EventKind, Op, ResultData, RunState, Stream};
+
+    use super::*;
+    use crate::v1::Event;
+
+    /// Operation `id`'s event of `kind`.
+    fn of(id: i64, kind: EventKind) -> Event {
+        let mut event = Event::new(1, Some("lab".to_owned()), Some(Op::Up), kind);
+        event.operation = Some(OperationId(id));
+        event
+    }
+
+    fn ended(id: i64) -> Event {
+        of(
+            id,
+            EventKind::Operation {
+                phase: OperationPhase::Ended,
+                outcome: None,
+                position: None,
+            },
+        )
+    }
+
+    /// Operation 7's events read off a subscription that gives `items`, then ends.
+    fn following(items: Vec<Result<Event>>) -> OperationEvents {
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        for item in items {
+            tx.try_send(item.map(|e| (EventCursor(1), e))).expect("room");
+        }
+        drop(tx);
+        let task = tokio::spawn(async {});
+        OperationEvents::new(OperationId(7), Subscription { rx, task })
+    }
+
+    #[tokio::test]
+    async fn an_operations_events_are_its_own_up_to_its_end_and_none_after() {
+        let result = of(
+            7,
+            EventKind::Result {
+                ok: true,
+                data: ResultData::Moved { state: RunState::Ready },
+            },
+        );
+        let mut events = following(vec![
+            Ok(of(
+                8,
+                EventKind::Log {
+                    step: "up".into(),
+                    stream: Stream::Stdout,
+                    line: "another's".into(),
+                },
+            )),
+            Ok(result.clone()),
+            Ok(ended(7)),
+            Ok(of(
+                7,
+                EventKind::Log {
+                    step: "up".into(),
+                    stream: Stream::Stdout,
+                    line: "after its end".into(),
+                },
+            )),
+        ]);
+        let first = events.next().await.expect("an event").expect("its own");
+        assert_eq!(first.kind, result.kind, "another operation's event is passed over");
+        let last = events.next().await.expect("an event").expect("its own");
+        assert_eq!(phase_of(&last), Some(OperationPhase::Ended));
+        assert!(events.next().await.is_none(), "nothing after its end, though the stream goes on");
+    }
+
+    #[tokio::test]
+    async fn an_error_event_is_the_operations_failure_with_its_code_and_step() {
+        let failed = of(
+            7,
+            EventKind::Error {
+                code: ErrorCode::ToolFailed,
+                message: "compose said no".into(),
+                step: Some("up".into()),
+                timeout: None,
+                detail: None,
+            },
+        );
+        let e = following(vec![Ok(failed), Ok(ended(7))]).outcome().await.expect_err("failed");
+        assert!(
+            matches!(&e, ClientError::Operation { code: ErrorCode::ToolFailed, step: Some(step), .. } if step == "up"),
+            "{e:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_operation_that_ended_with_no_outcome_was_cancelled_and_a_broken_stream_is_its_error() {
+        let cancelled = following(vec![Ok(ended(7))]).outcome().await.expect_err("no outcome");
+        assert_eq!(cancelled.code(), ErrorCode::Cancelled);
+        let mut broken = following(vec![Err(ClientError::closed())]);
+        let e = broken.next().await.expect("an item").expect_err("the stream's error");
+        assert_eq!(e.code(), ErrorCode::Io);
+        assert!(broken.next().await.is_none(), "it ended with its error");
+    }
+
+    #[tokio::test]
+    async fn a_subscription_is_a_stream_of_its_events() {
+        use std::pin::Pin;
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        tx.try_send(Ok((EventCursor(4), ended(7)))).expect("room");
+        drop(tx);
+        let mut sub = Subscription {
+            rx,
+            task: tokio::spawn(async {}),
+        };
+        assert_eq!(format!("{sub:?}"), "Subscription { .. }");
+        let first = std::future::poll_fn(|cx| futures_core::Stream::poll_next(Pin::new(&mut sub), cx)).await;
+        assert!(matches!(first, Some(Ok((EventCursor(4), _)))), "{first:?}");
+        assert!(sub.next().await.is_none());
+    }
+}
