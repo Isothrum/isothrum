@@ -121,6 +121,7 @@ async fn park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_wi
             "docker compose -p lab -f * ps --all --format json",
             Reply::ok(&[ps_line("web", "paused", "", 0, None), ps_line("db", "exited", "", 0, None)].join("\n")),
         )
+        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
         .expect("docker compose -p lab -f * unpause web", Reply::ok(""))
         .expect("docker compose -p lab -f * up --detach --wait --no-recreate", Reply::ok(""))
         .build();
@@ -142,11 +143,34 @@ async fn observe_reads_each_service_and_its_published_ports_and_derives_the_runs
     .join("\n");
     let fake = FakeProcesses::script()
         .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
+        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
         .build();
     let (seen, state) = Compose.observe(&cx(&project, &run, &fake)).await.expect("read");
     assert_eq!(state, RunState::Ready, "an init job that ended well is no failure");
     let web = seen.machines.iter().find(|m| m.name == "web").expect("web");
     assert_eq!((web.published[0].guest.get(), web.published[0].host.get()), (80, 41001));
+}
+
+/// A service the project starts whose container was removed (`docker rm -f web`) reads absent, and
+/// the run isn't whole: never ready, and a resume is refused naming it before anything acts.
+#[tokio::test]
+async fn a_service_removed_outside_the_run_reads_absent_and_its_resume_is_refused_naming_it() {
+    let (_dir, project) = folder();
+    let run = run();
+    let ps = "docker compose -p lab -f * ps --all --format json";
+    let services = "docker compose -p lab -f * config --services";
+    let fake = FakeProcesses::script()
+        .expect_times(ps, 2, Reply::ok(&ps_line("cache", "running", "", 0, None)))
+        .expect_times(services, 2, Reply::ok("web\ncache\n"))
+        .build();
+    let cx = cx(&project, &run, &fake);
+    let (seen, state) = Compose.observe(&cx).await.expect("read");
+    let states: Vec<(&str, &MachineState)> = seen.machines.iter().map(|m| (m.name.as_str(), &m.state)).collect();
+    assert_eq!(states, [("cache", &MachineState::Running), ("web", &MachineState::Absent)]);
+    assert_eq!(state, RunState::Failed, "not whole: never ready");
+    let e = Compose.resume(&cx).await.expect_err("web is gone");
+    assert!(matches!(&e, Error::PartlyGone { machines, .. } if machines == &["web"]), "{e:?}");
+    assert_eq!(e.code(), crate::ErrorCode::NothingToResume);
 }
 
 #[test]

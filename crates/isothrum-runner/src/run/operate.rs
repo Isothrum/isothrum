@@ -11,8 +11,10 @@ use crate::Result;
 use crate::clock::rfc3339;
 use crate::error::{Error, ErrorCode};
 use crate::events::{Emitter, EventKind, Events, ResultData, StoreLog, WarningCode};
+use crate::formats::Seen;
 use crate::options::RunOptions;
 use crate::state::{Desired, Op, RunState, Transition};
+use crate::status::MachineState;
 use crate::store::{LastOp, OperationId, Outcome, Owner, RunRecord};
 
 /// What an operation's own work produced.
@@ -251,6 +253,29 @@ fn refuse_from(op: Op, recorded: Option<RunState>, name: &crate::RunName) -> Res
         (Op::Resume, None | Some(RunState::Absent)) => Err(Error::NothingToResume { run: run() }),
         _ => Ok(()),
     }
+}
+
+/// An operation whose goal is a ready run (`up`, `resume`, `update`) whose tool ended well, but
+/// whose run its tool says isn't whole (a service removed while it started, a machine that died):
+/// `not_ready`, naming the machines that aren't, never a ready run with fewer machines.
+pub(super) fn not_whole(op: Op, seen: &Seen, state: RunState) -> Result<()> {
+    if super::op_goal(op) != Some(RunState::Ready) || !matches!(state, RunState::Failed | RunState::Absent) {
+        return Ok(());
+    }
+    let wrong: Vec<String> = seen
+        .machines
+        .iter()
+        .filter(|m| !matches!(m.state, MachineState::Running | MachineState::Stopped | MachineState::Exited(0)))
+        .map(|m| format!("`{}` {}", m.name, m.state))
+        .collect();
+    Err(Error::NotReady {
+        condition: "every machine of the run".to_owned(),
+        detail: if wrong.is_empty() {
+            format!("the run reads {state}")
+        } else {
+            wrong.join(", ")
+        },
+    })
 }
 
 /// An operation in flight: dropped before it ended, it ends the event stream with a `cancelled`

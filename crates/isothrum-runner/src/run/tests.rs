@@ -1,3 +1,4 @@
+mod gone;
 #[cfg(unix)]
 mod qemu;
 mod refusals;
