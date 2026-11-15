@@ -180,13 +180,14 @@ impl Call<'_> {
     }
 }
 
-/// The version `out` printed, read ([`crate::tool_output::version_found`]); `Unexpected` when it
-/// prints none, `TooOld` when it is older than `min`.
-pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&str>) -> Result<crate::project::platform::Version, CliError<F>> {
-    let found = crate::tool_output::version_found(said).ok_or_else(|| CliError::Unexpected {
-        tool,
-        what: format!("no version in `{}`", said.trim()),
-    })?;
+/// The version `out` printed, read ([`crate::tool_output::version_found`]); `None` when it prints
+/// none the runner reads (the tool is used, its minimum unchecked: the driver warns), `TooOld`
+/// when it is older than `min`.
+pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&str>) -> Result<Option<crate::project::platform::Version>, CliError<F>> {
+    let Some(found) = crate::tool_output::version_found(said) else {
+        tracing::warn!(tool, said = said.trim(), "no version the runner reads: the tool is used, its minimum unchecked");
+        return Ok(None);
+    };
     if let Some(min) = min.and_then(crate::project::platform::Version::parse)
         && found < min
     {
@@ -196,7 +197,7 @@ pub(crate) fn version<F: Display>(tool: &'static str, said: &str, min: Option<&s
             min: min.to_string(),
         });
     }
-    Ok(found)
+    Ok(Some(found))
 }
 
 /// Whether any line `out` printed, in lower case, holds any of `wordings` (lower case).

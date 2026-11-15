@@ -28,7 +28,7 @@ const TOOL: &str = "terraform";
 
 /// The oldest Terraform the adapter drives: the first whose machine-readable UI (`-json` on
 /// `apply`, `destroy` and `plan`) and `show -json` are covered by its compatibility promise.
-const MIN_VERSION: &str = "1.0.0";
+pub(crate) const MIN_VERSION: &str = "1.0.0";
 
 /// What Terraform says when another process holds the state's lock, in any backend.
 const LOCKED: &str = "error acquiring the state lock";
@@ -450,13 +450,12 @@ struct VersionDoc {
 }
 
 /// `terraform version -json`: `TooOld` before [`MIN_VERSION`].
-pub(crate) async fn version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
+pub(crate) async fn version(call: &Call<'_>) -> Result<Option<crate::project::platform::Version>, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["version", "-json"]), Failure::of).await?;
-    let doc: VersionDoc = serde_json::from_str(&out.stdout.join("\n")).map_err(|e| CliError::Unexpected {
-        tool: TOOL,
-        what: format!("`version -json` isn't its JSON: {e}"),
-    })?;
-    super::version(TOOL, &doc.terraform_version, Some(MIN_VERSION))
+    let said = out.stdout.join("\n");
+    // A `version -json` that isn't its JSON says no version: the tool is used, as one printing none.
+    let version = serde_json::from_str::<VersionDoc>(&said).map_or(said, |doc| doc.terraform_version);
+    super::version(TOOL, &version, Some(MIN_VERSION))
 }
 
 #[cfg(test)]
@@ -480,7 +479,7 @@ mod tests {
             )
             .build();
         let read = version(&crate::cli::testing::call(&fake)).await.unwrap();
-        assert_eq!(read.to_string(), "1.9.8");
+        assert_eq!(read.map(|v| v.to_string()).as_deref(), Some("1.9.8"));
         let old = FakeProcesses::script()
             .expect("terraform version -json", Reply::ok(r#"{"terraform_version":"0.14.11"}"#))
             .build();

@@ -29,6 +29,9 @@ pub(crate) const LIBVIRT_DEFAULT_URI: &str = "LIBVIRT_DEFAULT_URI";
 #[derive(Clone, Default)]
 pub(crate) struct HostEnv {
     vars: Vec<(String, OsString)>,
+    /// The names, never the values, of the variables Terraform reads from the environment the
+    /// tools inherit (`TF_VAR_<name>`, `TF_CLI_ARGS*`): what tells a module's variable has a value.
+    terraform_names: Vec<String>,
     /// The folder an app's absolute install path is read under (`/Applications/UTM.app`): the
     /// file system's root, or a test's own folder.
     root: Option<PathBuf>,
@@ -36,7 +39,11 @@ pub(crate) struct HostEnv {
 
 /// An environment with nothing in it, for a context that hands nothing on.
 #[cfg(test)]
-pub(crate) static EMPTY: HostEnv = HostEnv { vars: Vec::new(), root: None };
+pub(crate) static EMPTY: HostEnv = HostEnv {
+    vars: Vec::new(),
+    terraform_names: Vec::new(),
+    root: None,
+};
 
 impl HostEnv {
     /// This process's environment: the variables it hands on.
@@ -61,10 +68,24 @@ impl HostEnv {
 
     /// The variables of `vars` the runner hands on.
     pub(crate) fn of<K: Into<String>, V: Into<OsString>>(vars: impl IntoIterator<Item = (K, V)>) -> HostEnv {
+        let all: Vec<(String, OsString)> = vars.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+        let terraform = |k: &str| k.starts_with(TF_VAR_PREFIX) || k.starts_with("TF_CLI_ARGS");
         HostEnv {
-            vars: vars.into_iter().map(|(k, v)| (k.into(), v.into())).filter(|(k, _)| handed_on(k)).collect(),
+            terraform_names: all.iter().map(|(k, _)| k).filter(|k| terraform(k)).cloned().collect(),
+            vars: all.into_iter().filter(|(k, _)| handed_on(k)).collect(),
             root: None,
         }
+    }
+
+    /// Whether the environment the tools inherit sets Terraform's variable `name` (a
+    /// `TF_VAR_<name>`), whatever its value.
+    pub(crate) fn sets_terraform(&self, name: &str) -> bool {
+        self.terraform_names.iter().any(|k| k == name)
+    }
+
+    /// Whether it sets any of Terraform's `TF_CLI_ARGS` variables, which may add `-var`s.
+    pub(crate) fn sets_terraform_args(&self) -> bool {
+        self.terraform_names.iter().any(|k| k.starts_with("TF_CLI_ARGS"))
     }
 
     /// The same, an app's absolute install path read under `root` (a test's folder).
@@ -165,6 +186,15 @@ fn is_vagrant_var(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terraforms_own_variables_are_known_by_name_never_handed_on() {
+        let env = HostEnv::of([("TF_VAR_token", "s3cret"), ("PATH", "/bin")]);
+        assert!(env.sets_terraform("TF_VAR_token") && !env.sets_terraform("TF_VAR_region"));
+        assert!(env.get("TF_VAR_token").is_none(), "its value is never kept");
+        assert!(!env.sets_terraform_args());
+        assert!(HostEnv::of([("TF_CLI_ARGS_apply", "-var region=eu")]).sets_terraform_args());
+    }
 
     #[test]
     fn only_what_the_runner_hands_on_is_kept_and_no_value_is_shown() {

@@ -143,6 +143,15 @@ impl ToolCx<'_> {
 /// test's.
 pub(crate) static NOTHING_MADE: &(dyn Fn() -> Result<Vec<String>> + Send + Sync) = &|| Ok(Vec::new());
 
+/// Warns that `tool`, which printed no version the runner reads (`found` none), is used with
+/// its minimum (`min`) unchecked.
+pub(crate) fn unknown_version(cx: &ToolCx<'_>, found: Option<&crate::project::platform::Version>, tool: &str, min: &str) {
+    if found.is_none() {
+        let said = format!("`{tool}` printed no version the runner reads: it is used, the {min} it needs at least unchecked");
+        (cx.warn)(WarningCode::VersionUnknown, &said);
+    }
+}
+
 /// Says nothing of a line: a read's.
 pub(crate) fn discard(_: Stream, _: &str) {}
 

@@ -5,6 +5,7 @@ mod gone;
 mod kept_ports;
 mod one_update;
 mod pins;
+mod plugin_cache;
 #[cfg(unix)]
 mod qemu;
 mod quiet_reads;

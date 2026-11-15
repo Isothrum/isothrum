@@ -1194,6 +1194,11 @@
           "const": "ports_moved",
           "description": "A machine's published host port is another than the one the run kept from its first\nstart (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.",
           "type": "string"
+        },
+        {
+          "const": "version_unknown",
+          "description": "A tool printed no version the runner reads: it is used, its minimum version unchecked.",
+          "type": "string"
         }
       ]
     }

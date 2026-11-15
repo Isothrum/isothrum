@@ -258,7 +258,7 @@ pub(crate) async fn plugins(call: &Call<'_>) -> Result<Vec<(String, Option<Strin
 }
 
 /// `vagrant --version`, [`CliError::TooOld`] below [`MIN_VERSION`].
-pub(crate) async fn supported_version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
+pub(crate) async fn supported_version(call: &Call<'_>) -> Result<Option<crate::project::platform::Version>, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["--version"]), Failure::of).await?;
     super::version(TOOL, &out.stdout.join("\n"), Some(MIN_VERSION))
 }

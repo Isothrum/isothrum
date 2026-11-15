@@ -35,6 +35,7 @@
 mod adopt;
 mod console;
 mod machines;
+mod required;
 use machines::{machines_of, run_state};
 mod screen;
 mod tunnelled;
@@ -318,13 +319,15 @@ impl FormatDriver for Terraform {
 
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
         let module = Module::of(cx);
-        tf::version(&module.call(READ_LIMIT, &super::discard))
+        let found = tf::version(&module.call(READ_LIMIT, &super::discard))
             .await
-            .map(drop)
-            .map_err(|e| module.error("probe", e))
+            .map_err(|e| module.error("probe", e))?;
+        super::unknown_version(cx, found.as_ref(), "terraform", tf::MIN_VERSION);
+        Ok(())
     }
 
     async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
+        required::refuse_unset(cx)?;
         let module = Module::of(cx);
         let state = module.init().await?;
         module.apply("apply", state, tf::Change::Apply).await.map_err(|e| module.error("apply", e))
