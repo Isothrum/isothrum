@@ -72,7 +72,7 @@ async fn a_key_left_without_its_public_half_gets_it_back_from_the_private_one() 
     std::fs::write(&key, "private").unwrap();
     std::fs::write(key.with_extension("pub"), "").unwrap();
     let fake = crate::process::fake::FakeProcesses::new(|call| {
-        if call.line().contains(" -y ") {
+        if call.args.iter().any(|a| a == "-y") {
             crate::process::fake::Reply::ok("ssh-ed25519 AAAAkept")
         } else {
             crate::process::fake::Reply::fail(1, "id_ed25519 already exists.\nOverwrite (y/n)? ")
@@ -94,7 +94,7 @@ async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
     std::fs::write(&key, "trunc").unwrap();
     let made = key.clone();
     let fake = crate::process::fake::FakeProcesses::new(move |call| {
-        if call.line().contains(" -y ") {
+        if call.args.iter().any(|a| a == "-y") {
             return crate::process::fake::Reply::fail(255, "Load key: invalid format");
         }
         if made.exists() {

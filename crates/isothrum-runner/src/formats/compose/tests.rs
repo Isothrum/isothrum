@@ -255,7 +255,8 @@ fn the_console_is_an_exec_with_a_terminal_in_the_project_folder() {
     let run = run();
     let fake = FakeProcesses::script().build();
     let console = Compose.console(&cx(&project, &run, &fake), "web", Some("root")).expect("a console");
-    let line = console.args.join(" ");
-    assert!(line.contains("exec --user root web sh -c"), "{line}");
-    assert!(!line.contains("-T"), "a console has a terminal: {line}");
+    let args: Vec<&str> = console.args.iter().map(String::as_str).collect();
+    let exec = args.iter().position(|a| *a == "exec").expect("an exec");
+    assert_eq!(args.get(exec..exec + 6), Some(&["exec", "--user", "root", "web", "sh", "-c"][..]), "{args:?}");
+    assert!(!args.contains(&"-T"), "a console has a terminal: {args:?}");
 }

@@ -41,7 +41,7 @@ async fn reapply_plans_then_applies_and_writes_no_plan_file() {
     let calls = made(&fake, &lab);
     assert_eq!(calls.len(), 3);
     assert!(calls[1].starts_with("terraform plan") && calls[2].starts_with("terraform apply"), "{calls:?}");
-    assert!(calls.iter().all(|c| !c.contains("-out")), "{calls:?}");
+    assert!(fake.calls().iter().all(|c| !c.args.iter().any(|a| a.starts_with("-out"))), "{calls:?}");
     assert!(lab.lines().iter().any(|l| l == "terraform_data.db: Plan to create"));
 }
 
