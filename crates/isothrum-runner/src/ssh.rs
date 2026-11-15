@@ -1,44 +1,42 @@
-//! SSH to a run's machines: the `ssh.run` action (a check runner piped into a guest's `sh -s`)
-//! and the `ready_file` condition. Every call uses the runner's key and the run's own
-//! `known_hosts`, through a config file written in the run's state folder: `ssh -J` hands `-F` to
-//! each jump host's own `ssh`, never `-i` or `-o`, so the key and the pinned host keys reach a
-//! Proxmox node and a run's router as they reach the machine behind them. The config also keeps
-//! the user's own `~/.ssh/config` out of the run.
+//! The runner's own SSH key (`<home>/ssh/id_ed25519`), made on first use: what an embedder
+//! authorizes where a run's tools reach a machine over SSH as the runner ([`crate::Runner::ssh_public_key`]).
 //!
-//! `ssh` runs in the run's state folder and names the config relative to it (`-F ssh_config`):
-//! the command `-J` makes for each jump host's `ssh` is run by a shell with the `-F` path
-//! unquoted, so a path with a space (a home under macOS's `~/Library/Application Support`) broke
-//! every jump.
-//!
-//! The jumps are the run's (`RunOptions::ssh_jump`: a node whose run bridge this host can't
-//! route to), then the manifest's `via`, comma-separated, empty entries skipped.
+//! And the runner's own SSH calls to a run's machines (a console's tunnel): with a key (the run's,
+//! else the runner's) and the run's own `known_hosts`, in its state folder, never the user's
+//! files (`-F none`, no global known hosts). A host's key is pinned there the first time the run
+//! meets it ([`pin`]: `ssh-keyscan`, then written), and every call checks it strictly
+//! (`StrictHostKeyChecking=yes`, never `accept-new`): a host whose key changed is refused. The
+//! pins go with the run's machines ([`forget`]): a run brought up again meets new machines, maybe
+//! at the same addresses, whose new keys a pin would refuse.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use isoloom_manifest::{SnakeName, Step, Template};
-
 use crate::Result;
-use crate::error::Error;
-use crate::executor::{Cx, plan};
-use crate::process::{Exit, ProcessRunner, ProcessSpec};
+use crate::error::{Error, TimedOut};
+use crate::process::{Captured, ProcessError, ProcessRunner, ProcessSpec};
 
 /// The runner's key, under its home's `ssh/` folder.
 const KEY_FILE: &str = "id_ed25519";
 
-/// The run's SSH configuration, in its state folder.
-const CONFIG_FILE: &str = "ssh_config";
-
-/// The host keys the run's SSH pinned (`StrictHostKeyChecking accept-new`), in its state folder.
-pub(crate) const KNOWN_HOSTS: &str = "known_hosts";
-
 /// How long making the key may take.
 const KEYGEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The home's lock file held while its key is made ([`ensure_key`]).
+const KEY_LOCK: &str = "ssh-key.lock";
 
 /// The id a failure to make the key reads as.
 const KEY_STEP: &str = "ssh-key";
 
-/// The runner's SSH folder under `home`: its key, which a tool run from an image mounts.
+/// The host keys the run's SSH pinned, in its state folder.
+pub(crate) const KNOWN_HOSTS: &str = "known_hosts";
+
+/// How long `ssh-keyscan` may take to read a host's keys.
+const KEYSCAN_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The id a failure to pin a host's key reads as.
+const PIN_STEP: &str = "host-key";
+
+/// The runner's SSH folder under `home`: its key.
 pub(crate) fn dir(home: &Path) -> PathBuf {
     home.join("ssh")
 }
@@ -60,14 +58,33 @@ pub(crate) fn public_key(home: &Path) -> Result<Option<String>> {
 }
 
 /// Makes the runner's key when it has none (`ssh-keygen`, no passphrase), and returns its public
-/// half.
+/// half. One maker at a time per home, under [`KEY_LOCK`]: two operations making it at once (two
+/// runs started together, in one process or two) each wrote a key over the other's, and one of
+/// them handed its machines a public half whose private one was gone (or failed on
+/// `ssh-keygen`'s overwrite prompt).
 pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Result<String> {
+    if let Some(key) = public_key(home)? {
+        return Ok(key);
+    }
+    let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
+    let lock = home.join(KEY_LOCK);
+    let wait = KEYGEN_LIMIT * 2;
+    let Some(_making) = crate::store::hold(&lock, wait).await.map_err(Error::io(&lock, "locked"))? else {
+        return Err(failed(format!(
+            "another operation has been making the runner's SSH key for {} s",
+            wait.as_secs()
+        )));
+    };
+    // Made meanwhile by the one this waited for.
     if let Some(key) = public_key(home)? {
         return Ok(key);
     }
     let dir = dir(home);
     crate::store::create_dir(&dir)?;
     let path = key_path(home);
+    if let Some(key) = public_half_again(processes, &path).await? {
+        return Ok(key);
+    }
     let spec = ProcessSpec::new(
         "ssh-keygen",
         ["-q", "-t", "ed25519", "-N", "", "-C", "isothrum", "-f"]
@@ -75,532 +92,233 @@ pub(crate) async fn ensure_key(processes: &dyn ProcessRunner, home: &Path) -> Re
             .into_iter()
             .chain([path.display().to_string()]),
     );
-    let progress = crate::executor::Progress::new();
-    let out = crate::executor::within(KEY_STEP, KEYGEN_LIMIT, &progress, progress.capture(processes, &spec)).await?;
-    let failed = |reason: String| Error::ToolFailed { step: KEY_STEP.into(), reason };
+    let out = keygen(processes, &spec).await?;
     if !out.success() {
         return Err(failed(out.reason()));
     }
     public_key(home)?.ok_or_else(|| failed("ssh-keygen wrote no public key".into()))
 }
 
-/// Whether a run of `manifest` needs the runner's key: it reaches a machine over SSH, or names
-/// the key.
-pub(crate) fn needed(manifest: &isoloom_manifest::Manifest) -> bool {
-    use isoloom_manifest::{Action, Condition, Run, RunVar};
-    let names_key = crate::manifest::names_run_var(manifest, |v| matches!(v, RunVar::SshKey | RunVar::SshPublicKey));
-    let ssh_step = manifest
-        .step_lists()
-        .iter()
-        .flat_map(|(_, steps)| steps.iter())
-        .any(|s| matches!(s.run, Run::Action { action: Action::SshRun, .. }));
-    let ready_file = manifest.ready.iter().any(|c| matches!(c, Condition::ReadyFile { .. }));
-    names_key || ssh_step || ready_file
+/// The public half of a private key at `path` left without it (a disk full when `ssh-keygen`
+/// wrote it, a make cut short between the two halves, the `.pub` removed by hand), derived from
+/// it again (`ssh-keygen -y`) and written beside it: a machine that already trusts the key keeps
+/// working. A private key that can't be read as one (a truncated write) is set aside as
+/// `<key>.unusable`, so a new key can be made: `ssh-keygen` would otherwise stop at its overwrite
+/// prompt, with no one to answer it, at every later run. `None` when there is no private key, or
+/// once it is set aside.
+async fn public_half_again(processes: &dyn ProcessRunner, path: &Path) -> Result<Option<String>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let derive = ProcessSpec::new("ssh-keygen", ["-y".to_owned(), "-f".to_owned(), path.display().to_string()]);
+    let out = keygen(processes, &derive).await?;
+    let derived = out.stdout.iter().map(|l| l.trim()).find(|l| l.starts_with("ssh-ed25519 "));
+    if let (true, Some(key)) = (out.success(), derived) {
+        // `-y` prints the comment only from OpenSSH 7.8 on.
+        let key = if key.split_whitespace().count() < 3 {
+            format!("{key} isothrum")
+        } else {
+            key.to_owned()
+        };
+        crate::store::write(&path.with_extension("pub"), format!("{key}\n").as_bytes())?;
+        tracing::warn!(path = %path.display(), "the runner's SSH key had lost its public half: derived from the private one again");
+        return Ok(Some(key));
+    }
+    let aside = path.with_extension("unusable");
+    tracing::warn!(path = %path.display(), reason = %out.reason(), "the runner's SSH key can't be read: it is set aside and a new one made");
+    std::fs::rename(path, &aside).map_err(Error::io(path, "set aside"))?;
+    crate::store::remove(&path.with_extension("pub"))?;
+    Ok(None)
 }
 
-/// The run's SSH configuration: the key and the run's `known_hosts` for every host, a new host's
-/// key accepted once and pinned, no prompt, and a host that stops answering given up in under a
-/// minute. `None` when a path is one no OpenSSH config can hold ([`config_path`]).
-fn config(key: &Path, known_hosts: &Path) -> Option<String> {
-    let path = |p: &Path| config_path(&p.to_string_lossy(), cfg!(windows));
-    Some(format!(
-        "# Written by the Isothrum runner for this run.\nHost *\n  IdentityFile {}\n  IdentitiesOnly yes\n  UserKnownHostsFile {}\n  StrictHostKeyChecking accept-new\n  BatchMode yes\n  ConnectTimeout 10\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  LogLevel ERROR\n",
-        path(key)?,
-        path(known_hosts)?,
-    ))
+/// Runs `ssh-keygen` as `spec` to its end within [`KEYGEN_LIMIT`].
+async fn keygen(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Captured> {
+    match tokio::time::timeout(KEYGEN_LIMIT, crate::process::capture(processes, spec)).await {
+        Err(_) => Err(Error::Timeout {
+            step: KEY_STEP.into(),
+            timed_out: TimedOut::Ceiling {
+                after_s: KEYGEN_LIMIT.as_secs(),
+                last_line: None,
+            },
+        }),
+        Ok(Err(ProcessError::Missing { .. })) => Err(Error::ToolMissing {
+            step: KEY_STEP.into(),
+            tool: "ssh-keygen".into(),
+        }),
+        Ok(Err(e)) => Err(Error::ToolFailed {
+            step: KEY_STEP.into(),
+            reason: e.to_string(),
+        }),
+        Ok(Ok(out)) => Ok(out),
+    }
 }
 
-/// A path as every OpenSSH reads it in its config, the parser before 8.7 (Windows 10's, RHEL 8's,
-/// Ubuntu 20.04's) as the one after: between double quotes, which both take as one value whatever
-/// it holds but `"`, and with `%` doubled (a token there). On Windows its `\` are written `/`,
-/// which Windows' OpenSSH reads as `\`: the parser from 8.7 reads `\\` inside quotes as one `\`,
-/// so a network path (`\\server\share`) would lose its first. `None` for a path no parser reads
-/// as written: one holding `"` or a control character, `${` (an environment variable from 8.4),
-/// or, but on Windows, `\` (an escape from 8.7).
-fn config_path(path: &str, windows: bool) -> Option<String> {
-    let path = if windows { path.replace('\\', "/") } else { path.to_owned() };
+/// Where one of the runner's SSH calls signs in: a user on a host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Login {
+    /// The user.
+    pub(crate) user: String,
+    /// The host: a name or an IP address.
+    pub(crate) host: String,
+}
+
+impl Login {
+    /// `user` on `host`; none unless each is plain (letters, digits, `.`, `-`, `_`, and `:` in
+    /// a host): nothing `ssh` could read as an option.
+    pub(crate) fn new(user: &str, host: &str) -> Option<Login> {
+        let plain = |word: &str, extra: &str| {
+            !word.is_empty() && !word.starts_with('-') && word.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c) || extra.contains(c))
+        };
+        (plain(user, "") && plain(host, ":")).then(|| Login {
+            user: user.to_owned(),
+            host: host.to_owned(),
+        })
+    }
+
+    /// `user@host`, as `ssh` takes it.
+    pub(crate) fn target(&self) -> String {
+        format!("{}@{}", self.user, self.host)
+    }
+}
+
+/// The `ssh` options of a call of the run whose state folder is `state_dir`, signing in with
+/// `key`: no user configuration, the run's `known_hosts` checked strictly, no prompt, and a host
+/// that stops answering given up in under a minute.
+///
+/// # Errors
+///
+/// [`Error::Io`] when the run's folder is at a path no `-o` option can name.
+pub(crate) fn options(key: &Path, state_dir: &Path) -> Result<Vec<String>> {
+    let known = state_dir.join(KNOWN_HOSTS);
+    let quoted = config_path(&known.to_string_lossy(), PathStyle::HERE).ok_or_else(|| {
+        let why = "the run's folder is at a path SSH's options can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
+        Error::io(&known, "named")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
+    })?;
+    let mut args = vec!["-F".to_owned(), "none".to_owned(), "-i".to_owned(), key.display().to_string()];
+    for option in [
+        "IdentitiesOnly=yes".to_owned(),
+        format!("UserKnownHostsFile={quoted}"),
+        "GlobalKnownHostsFile=none".to_owned(),
+        "StrictHostKeyChecking=yes".to_owned(),
+        "BatchMode=yes".to_owned(),
+        "ConnectTimeout=10".to_owned(),
+        "ServerAliveInterval=15".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
+        "LogLevel=ERROR".to_owned(),
+    ] {
+        args.extend(["-o".to_owned(), option]);
+    }
+    Ok(args)
+}
+
+/// A path as OpenSSH reads it in an option, the parser before 8.7 as the one after: between
+/// double quotes, `%` doubled (a token there), and on Windows its `\` written `/` (which Windows'
+/// OpenSSH reads as `\`). `None` for a path no parser reads as written: one holding `"` or a
+/// control character, `${` (an environment variable from 8.4), or, but on Windows, `\`.
+fn config_path(path: &str, style: PathStyle) -> Option<String> {
+    let path = match style {
+        PathStyle::Windows => path.replace('\\', "/"),
+        PathStyle::Unix => path.to_owned(),
+    };
     if path.contains(['"', '\\']) || path.contains("${") || path.chars().any(char::is_control) {
         return None;
     }
     Some(format!("\"{}\"", path.replace('%', "%%")))
 }
 
-/// Whether `login` is a plain `[user@]host` (letters, digits, `.`, `-`, `_`, `:` and one `@`):
-/// nothing ssh could read as an option or a command.
-fn plain_login(login: &str) -> bool {
-    !login.is_empty() && !login.starts_with('-') && login.matches('@').count() <= 1 && login.chars().all(|c| c.is_ascii_alphanumeric() || ".-_:@".contains(c))
+/// How the paths of the computer the runner runs on are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathStyle {
+    /// `/` separates.
+    Unix,
+    /// `\` separates.
+    Windows,
 }
 
-/// Where an SSH call goes: a user on a host, through jump hosts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Login {
-    /// `user@host`.
-    pub(crate) target: String,
-    /// The jump hosts, in order.
-    pub(crate) jumps: Vec<String>,
+impl PathStyle {
+    /// This computer's.
+    const HERE: PathStyle = if cfg!(windows) { PathStyle::Windows } else { PathStyle::Unix };
 }
 
-impl Login {
-    /// `user@host` (`root@host` with no user: every login the runner makes falls back so), through
-    /// `jump` (the run's) then `via` (comma-separated, empty entries skipped). Refused when a part
-    /// isn't a plain login.
-    pub(crate) fn new(user: &str, host: &str, jump: Option<&str>, via: &str) -> Result<Login> {
-        let user = if user.is_empty() { "root" } else { user };
-        let target = format!("{user}@{host}");
-        let jumps: Vec<String> = jump
-            .into_iter()
-            .flat_map(|j| j.split(','))
-            .chain(via.split(','))
-            .map(str::trim)
-            .filter(|j| !j.is_empty())
-            .map(str::to_owned)
-            .collect();
-        match std::iter::once(&target).chain(&jumps).find(|l| !plain_login(l)) {
-            Some(bad) => Err(Error::Malformed {
-                at: format!("the SSH login `{bad}`"),
-                reason: "a login takes letters, digits, `.`, `-`, `_`, `:` and one `@` only".to_owned(),
-            }),
-            None => Ok(Login { target, jumps }),
-        }
+/// Whether `known_hosts` (a file's text) pins a key for `host` (on port 22).
+fn pins(known_hosts: &str, host: &str) -> bool {
+    known_hosts
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.split_whitespace().next())
+        .any(|hosts| hosts.split(',').any(|h| h == host))
+}
+
+/// Pins `host`'s SSH keys in the run's `known_hosts` (in `state_dir`) the first time the run
+/// meets it: what `ssh-keyscan` reads of it, written; nothing when a key is pinned for it
+/// already, which every later call then checks strictly ([`options`]).
+///
+/// # Errors
+///
+/// `tool_missing` without `ssh-keyscan`; `tool_failed` when it reads no key of `host` (it
+/// doesn't answer on SSH's port) or out of time; [`Error::Io`] when the file can't be read or
+/// written.
+pub(crate) async fn pin(processes: &dyn ProcessRunner, state_dir: &Path, host: &str) -> Result<()> {
+    let path = state_dir.join(KNOWN_HOSTS);
+    let known = crate::store::if_there(std::fs::read_to_string(&path))
+        .map_err(Error::io(&path, "read"))?
+        .unwrap_or_default();
+    if pins(&known, host) {
+        return Ok(());
     }
-
-    /// The `ssh` arguments running `command` there, run from the run's state folder (the config
-    /// named relative to it), the variables `sent` carried into the session (`SendEnv`: their
-    /// values travel in the SSH channel from ssh's own environment, never on a command line; the
-    /// guest's `sshd` takes those its `AcceptEnv` names).
-    pub(crate) fn args(&self, sent: &[String], command: &str) -> Vec<String> {
-        let mut args = vec!["-F".to_owned(), CONFIG_FILE.to_owned()];
-        for var in sent {
-            args.extend(["-o".to_owned(), format!("SendEnv={var}")]);
-        }
-        if !self.jumps.is_empty() {
-            args.extend(["-J".to_owned(), self.jumps.join(",")]);
-        }
-        args.extend([self.target.clone(), command.to_owned()]);
-        args
-    }
-}
-
-/// Forgets the run's pinned host keys and SSH configuration, after a successful `down` whatever
-/// the driver: a run brought up again meets new machines, maybe at the same addresses, whose new
-/// keys a pinned one would refuse.
-pub(crate) fn forget(cx: &Cx<'_>) -> Result<()> {
-    let state = cx.state_dir();
-    [KNOWN_HOSTS, CONFIG_FILE].iter().try_for_each(|file| {
-        let path = state.join(file);
-        crate::store::remove(&path)
-    })
-}
-
-/// The process running `command` at `login` for `cx`'s run, the variables of `env` carried into
-/// the session: its configuration written first, in the run's state folder, where it runs.
-pub(crate) fn spec(cx: &Cx<'_>, login: &Login, command: &str, env: Vec<(String, String)>) -> Result<ProcessSpec> {
-    let home = &cx.home();
-    let state = cx.state_dir();
-    crate::store::create_dir(state)?;
-    let path = state.join(CONFIG_FILE);
-    let text = config(&key_path(home), &state.join(KNOWN_HOSTS)).ok_or_else(|| {
-        let why = "the runner's home is at a path SSH's config can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
-        Error::io(&path, "written")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
-    })?;
-    crate::store::write(&path, text.as_bytes())?;
-    let mut sent: Vec<String> = env.iter().map(|(k, _)| k.clone()).collect();
-    sent.sort();
-    sent.dedup();
-    let mut spec = ProcessSpec::new("ssh", login.args(&sent, command));
-    spec.cwd = Some(state.to_path_buf());
-    spec.env = env;
-    Ok(spec)
-}
-
-/// The process of an `ssh.run` step: its `with` (`host`, `user`, `via`, `command`) filled, its
-/// `stdin` piped, and the variables the manifest delivers to it by name carried into the guest
-/// (never the Terraform variables every step gets: a server's password stays on this computer).
-pub(crate) fn step_spec(cx: &Cx<'_>, list: &str, step: &Step, with: &BTreeMap<SnakeName, Template>) -> Result<ProcessSpec> {
-    let at = plan::at(list, step);
-    let arg = |name: &str| cx.vars.with_text(with, &at, name);
-    let (host, command) = (arg("host")?, arg("command")?);
-    if host.is_empty() || command.is_empty() {
-        return Err(Error::Malformed {
-            at,
-            reason: "an `ssh.run` needs its `host` and `command`".to_owned(),
-        });
-    }
-    let login = with_login(cx, &host, arg)?;
-    let mut spec = spec(cx, &login, &command, crate::executor::env_deliveries(cx, step.id.as_str()))?;
-    spec.stdin = crate::executor::stdin_of(cx, list, step)?;
-    Ok(spec)
-}
-
-/// The login of an `ssh.run` at `host`, its other `with` arguments read by `arg`: its `user`
-/// (root otherwise), through the run's jump then its `via`.
-pub(crate) fn with_login(cx: &Cx<'_>, host: &str, arg: impl Fn(&str) -> Result<String>) -> Result<Login> {
-    Login::new(&arg("user")?, host, cx.ssh_jump.as_deref(), &arg("via")?)
-}
-
-/// A machine's name as Isoloom writes it in the name of one of its outputs: a Terraform
-/// identifier (`-` and `.` written `_`), in lower case. Isoloom keeps the rule private
-/// (`isoloom-terraform`'s `ident`); a test holds this copy to the outputs Isoloom generates.
-fn output_key(machine: &str) -> String {
-    machine.replace(['-', '.'], "_").to_ascii_lowercase()
-}
-
-/// The output holding `machine`'s address: `address_<machine>` ([`output_key`]).
-pub(crate) fn address_output(machine: &str) -> String {
-    format!("address_{}", output_key(machine))
-}
-
-/// The output holding the user the run's key signs in as on `machine`: `ssh_user_<machine>`
-/// ([`output_key`]).
-pub(crate) fn ssh_user_output(machine: &str) -> String {
-    format!("ssh_user_{}", output_key(machine))
-}
-
-/// The login to `machine` a run's module gives in its outputs (read by `output`): its address
-/// ([`address_output`]) as its user ([`ssh_user_output`], else the run's `ssh_user`, else
-/// `root`), through `jump`. `None` while the address has no value.
-pub(crate) fn machine_login(output: impl Fn(&str) -> Option<String>, machine: &str, jump: Option<&str>) -> Result<Option<Login>> {
-    let Some(host) = output(&address_output(machine)).filter(|a| !a.is_empty()) else {
-        return Ok(None);
-    };
-    let user = output(&ssh_user_output(machine)).or_else(|| output("ssh_user")).unwrap_or_default();
-    Login::new(&user, &host, jump, "").map(Some)
-}
-
-/// ssh's own exit code when it couldn't connect (a command that ran may exit 255 too: it printed
-/// something, or its failure is its own).
-pub(crate) const UNREACHABLE: i32 = 255;
-
-/// How long between two tries to reach a host that doesn't answer over SSH yet.
-pub(crate) const RETRY: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Whether a run of `ssh` that ended with `exit`, its command having `printed` on standard output
-/// or not, is ssh itself not connecting: exit [`UNREACHABLE`] and nothing printed.
-pub(crate) fn unreachable(exit: Exit, printed: bool) -> bool {
-    exit.code == Some(UNREACHABLE) && !printed
-}
-
-/// Tries of a run of `ssh` until its host answers or a wait is spent: a host still booting. The
-/// one rule for every run of `ssh` that waits (an `ssh.run` step's `wait_s`, the guest delivery):
-/// tried again while ssh can't connect ([`Retrying::again`]), then `unreachable` if it still
-/// can't ([`Retrying::answered`]).
-#[derive(Debug)]
-pub(crate) struct Retrying<'w> {
-    /// The login and how long it waits.
-    wait: &'w Wait,
-    /// When the tries stop.
-    deadline: tokio::time::Instant,
-    /// Whether a retry was made yet.
-    retried: bool,
-}
-
-impl<'w> Retrying<'w> {
-    /// Tries for `wait`'s limit, from now.
-    pub(crate) fn new(wait: &'w Wait) -> Retrying<'w> {
-        Retrying {
-            wait,
-            deadline: tokio::time::Instant::now() + wait.limit,
-            retried: false,
-        }
-    }
-
-    /// Whether to try again after a try that ssh couldn't connect for (`unreachable`, as
-    /// [`unreachable()`] says), once [`RETRY`] went by: never past the deadline. `waiting` is called
-    /// before the first retry only. A try that connected is never tried again.
-    pub(crate) async fn again(&mut self, unreachable: bool, waiting: impl FnOnce()) -> bool {
-        if !unreachable || tokio::time::Instant::now() >= self.deadline {
-            return false;
-        }
-        if !self.retried {
-            waiting();
-            self.retried = true;
-        }
-        tokio::time::sleep(RETRY).await;
-        true
-    }
-
-    /// `last`, the try [`Retrying::again`] stopped at, as `step`'s outcome.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Unreachable`] when ssh still couldn't connect for it.
-    pub(crate) fn answered<T: Try>(&self, cx: &Cx<'_>, step: &str, last: T) -> Result<T> {
-        if last.unreachable() {
-            return Err(Error::Unreachable {
-                step: step.to_owned(),
-                login: self.wait.login.clone(),
-                after_s: self.wait.limit.as_secs(),
-                reason: cx.events.mask(last.said().trim()),
+    let failed = |reason: String| Error::ToolFailed { step: PIN_STEP.into(), reason };
+    let spec = ProcessSpec::new("ssh-keyscan", ["-T".to_owned(), "10".to_owned(), host.to_owned()]);
+    let out = match tokio::time::timeout(KEYSCAN_LIMIT, crate::process::capture(processes, &spec)).await {
+        Err(_) => {
+            return Err(Error::Timeout {
+                step: PIN_STEP.into(),
+                timed_out: TimedOut::Ceiling {
+                    after_s: KEYSCAN_LIMIT.as_secs(),
+                    last_line: None,
+                },
             });
         }
-        Ok(last)
-    }
-}
-
-/// The most an `ssh.run`'s `wait_s` may give: half an hour.
-const WAIT_MAX: u64 = 1800;
-
-/// A run of `ssh`, as [`Retrying`] reads it: whether ssh itself couldn't connect for it
-/// ([`unreachable()`]), and what ssh said on standard error.
-pub(crate) trait Try {
-    /// Whether ssh couldn't connect.
-    fn unreachable(&self) -> bool;
-    /// What it said on standard error.
-    fn said(&self) -> String;
-}
-
-impl Try for crate::process::Captured {
-    fn unreachable(&self) -> bool {
-        unreachable(self.exit, !self.stdout.is_empty())
-    }
-
-    fn said(&self) -> String {
-        self.stderr.join(" ")
-    }
-}
-
-/// How long an `ssh.run` waits for its host to answer, and the login it tries.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Wait {
-    /// `wait_s`.
-    pub(crate) limit: std::time::Duration,
-    /// `user@host`, for the message when it never answers.
-    pub(crate) login: String,
-}
-
-/// The wait of `step` when it is an `ssh.run` with a `wait_s` above 0: refused above
-/// [`WAIT_MAX`] or when it isn't a number of seconds.
-pub(crate) fn wait_of(cx: &Cx<'_>, list: &str, step: &Step) -> Result<Option<Wait>> {
-    let isoloom_manifest::Run::Action {
-        action: isoloom_manifest::Action::SshRun,
-        with,
-    } = &step.run
-    else {
-        return Ok(None);
+        Ok(Err(ProcessError::Missing { .. })) => {
+            return Err(Error::ToolMissing {
+                step: PIN_STEP.into(),
+                tool: "ssh-keyscan".into(),
+            });
+        }
+        Ok(Err(e)) => return Err(failed(e.to_string())),
+        Ok(Ok(out)) => out,
     };
-    let at = plan::at(list, step);
-    let arg = |name: &str| cx.vars.with_text(with, &at, name);
-    let text = arg("wait_s")?;
-    if text.is_empty() {
-        return Ok(None);
+    let keys: Vec<&str> = out
+        .stdout
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.starts_with('#') && l.split_whitespace().count() >= 3 && pins(l, host))
+        .collect();
+    if keys.is_empty() {
+        return Err(failed(format!("`ssh-keyscan` read no SSH host key of {host}: {}", out.reason())));
     }
-    let malformed = |reason: String| Error::Malformed {
-        at: format!("{at}.with.wait_s"),
-        reason,
-    };
-    let secs: u64 = text.trim().parse().map_err(|_| malformed(format!("`{text}` isn't a number of seconds")))?;
-    if secs > WAIT_MAX {
-        return Err(malformed(format!("{secs} is over the {WAIT_MAX} seconds a step may wait")));
+    let mut text = known;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
     }
-    let login = with_login(cx, &arg("host")?, arg)?.target;
-    Ok((secs > 0).then(|| Wait {
-        limit: std::time::Duration::from_secs(secs),
-        login,
-    }))
+    for key in keys {
+        text.push_str(key);
+        text.push('\n');
+    }
+    crate::store::create_dir(state_dir)?;
+    crate::store::write(&path, text.as_bytes())?;
+    tracing::info!(host, "pinned the SSH host keys of a machine of the run, first met");
+    Ok(())
+}
+
+/// Forgets the host keys the run pinned (its machines are gone).
+///
+/// # Errors
+///
+/// [`Error::Io`] when the file is there and can't be removed.
+pub(crate) fn forget(state_dir: &Path) -> Result<()> {
+    crate::store::remove(&state_dir.join(KNOWN_HOSTS))
 }
 
 #[cfg(test)]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
-
-    #[test]
-    fn only_ssh_failing_to_connect_with_nothing_printed_is_unreachable() {
-        assert!(unreachable(Exit::new(Some(UNREACHABLE)), false));
-        assert!(!unreachable(Exit::new(Some(UNREACHABLE)), true), "the command ran: its own 255");
-        assert!(!unreachable(Exit::new(Some(1)), false));
-        assert!(!unreachable(Exit::new(None), false));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn an_unreachable_host_is_tried_again_every_retry_until_the_deadline() {
-        let start = tokio::time::Instant::now();
-        let wait = |limit| Wait {
-            limit,
-            login: "root@web".to_owned(),
-        };
-        let two = wait(RETRY * 2);
-        let mut retrying = Retrying::new(&two);
-        let mut said = 0;
-        assert!(retrying.again(true, || said += 1).await);
-        assert!(retrying.again(true, || said += 1).await);
-        assert_eq!(start.elapsed(), RETRY * 2, "each retry after RETRY");
-        assert!(!retrying.again(true, || said += 1).await, "not past the deadline");
-        assert_eq!(said, 1, "said once, before the first retry");
-        let ten = wait(RETRY * 10);
-        let mut connected = Retrying::new(&ten);
-        assert!(
-            !connected.again(false, || panic!("nothing to say")).await,
-            "a try that connected is the outcome"
-        );
-        assert_eq!(start.elapsed(), RETRY * 2, "and isn't waited for");
-    }
-
-    /// Regression: a public key that couldn't be read was no key, and `ssh-keygen` was run over
-    /// the existing one, failing on its overwrite prompt.
-    #[tokio::test]
-    async fn a_public_key_that_cant_be_read_is_an_error_and_no_new_key_is_made() {
-        let home = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(key_path(home.path()).with_extension("pub")).unwrap();
-        let fake = std::sync::Arc::new(crate::process::fake::FakeProcesses::new(|_| crate::process::fake::Reply::ok("")));
-        let err = ensure_key(fake.as_ref(), home.path()).await.unwrap_err();
-        assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
-        assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
-        assert!(fake.calls().is_empty(), "no ssh-keygen: {:?}", fake.lines());
-        assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
-    }
-
-    #[test]
-    fn a_machines_login_is_its_address_as_its_user_else_the_runs_else_root() {
-        let outputs = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
-        let own = outputs(&[("address_web_1", "198.51.100.7"), ("ssh_user_web_1", "admin"), ("ssh_user", "ubuntu")]);
-        let login = machine_login(own, "web-1", Some("me@jump")).unwrap().unwrap();
-        assert_eq!(login.target, "admin@198.51.100.7");
-        assert_eq!(login.jumps, ["me@jump"]);
-        let run_wide = outputs(&[("address_web_1", "198.51.100.7"), ("ssh_user", "ubuntu")]);
-        assert_eq!(machine_login(run_wide, "web-1", None).unwrap().unwrap().target, "ubuntu@198.51.100.7");
-        let none = outputs(&[("address_web_1", "198.51.100.7")]);
-        assert_eq!(machine_login(none, "web-1", None).unwrap().unwrap().target, "root@198.51.100.7");
-        assert_eq!(machine_login(outputs(&[("address_web_1", "")]), "web-1", None).unwrap(), None, "no address yet");
-        assert_eq!(machine_login(outputs(&[]), "web-1", None).unwrap(), None);
-    }
-
-    /// The names are Isoloom's: `-` and `.` as `_`, in lower case.
-    #[test]
-    fn a_machines_output_names_are_its_terraform_identifier_in_lower_case() {
-        assert_eq!(address_output("web-1"), "address_web_1");
-        assert_eq!(address_output("Web.1"), "address_web_1");
-        assert_eq!(ssh_user_output("db.Primary-2"), "ssh_user_db_primary_2");
-    }
-
-    /// The rule held to what Isoloom generates: every Linux VM of each cloud's `cloud-vm`
-    /// manifest has the address and user outputs the runner reads, and the guest delivery to it
-    /// finds its login there.
-    #[test]
-    fn every_linux_vm_has_the_outputs_isoloom_generates_for_it() {
-        let spec = "version: 1\nname: pair\nnetworks:\n  app: { cidr: 10.80.0.0/24, internet: true }\n\
-                    machines:\n  web-1: { os: debian@12, networks: { app: 10 } }\n  db-main-2: { os: debian@12, networks: { app: 11 } }\n";
-        let lab = isoloom_targets::Lab::parse(spec).unwrap();
-        let (files, _) = isoloom_targets::generate_all(&lab);
-        let clouds: Vec<_> = files
-            .iter()
-            .filter(|f| f.path.starts_with(".isoloom/cloud-vm/") && f.path.ends_with("/run.json"))
-            .collect();
-        assert!(!clouds.is_empty(), "{:?}", files.iter().map(|f| &f.path).collect::<Vec<_>>());
-        for file in clouds {
-            let manifest = isoloom_manifest::parse(&file.contents).unwrap();
-            let names: Vec<String> = manifest.outputs.iter().map(|o| o.name.to_string()).collect();
-            let output = |name: &str| names.iter().any(|n| n == name).then(|| "198.51.100.7".to_owned());
-            for machine in ["web-1", "db-main-2"] {
-                assert!(names.contains(&address_output(machine)), "{}: {names:?}", file.path);
-                assert!(names.contains(&ssh_user_output(machine)), "{}: {names:?}", file.path);
-                assert!(machine_login(output, machine, None).unwrap().is_some(), "{}", file.path);
-            }
-        }
-    }
-
-    #[test]
-    fn a_login_goes_through_the_runs_jump_then_the_manifests() {
-        let l = Login::new("isoloom", "10.60.0.10", Some("root@pve.lan"), ",isoloom@10.10.10.5").unwrap();
-        assert_eq!(l.jumps, ["root@pve.lan", "isoloom@10.10.10.5"]);
-        assert_eq!(
-            l.args(&[], "sh -s"),
-            ["-F", "ssh_config", "-J", "root@pve.lan,isoloom@10.10.10.5", "isoloom@10.60.0.10", "sh -s"]
-        );
-        let direct = Login::new("isoloom", "10.0.0.9", None, "").unwrap();
-        assert_eq!(direct.args(&[], "true"), ["-F", "ssh_config", "isoloom@10.0.0.9", "true"]);
-    }
-
-    #[test]
-    fn the_variables_sent_are_named_before_the_host_their_values_never_in_the_arguments() {
-        let l = Login::new("isoloom", "10.0.0.9", None, "").unwrap();
-        let sent = ["DEMO_SECRET".to_owned(), "TOKEN".to_owned()];
-        assert_eq!(
-            l.args(&sent, "sudo -E docker compose up"),
-            [
-                "-F",
-                "ssh_config",
-                "-o",
-                "SendEnv=DEMO_SECRET",
-                "-o",
-                "SendEnv=TOKEN",
-                "isoloom@10.0.0.9",
-                "sudo -E docker compose up"
-            ]
-        );
-    }
-
-    /// Regression: a `ready_file` condition whose `user` filled empty logged in as `@host`, which
-    /// ssh takes as this computer's user; the fallback was applied by the callers, not by `Login`.
-    #[test]
-    fn a_login_with_no_user_is_root() {
-        assert_eq!(Login::new("", "10.0.0.9", None, "").unwrap().target, "root@10.0.0.9");
-        assert_eq!(Login::new("admin", "10.0.0.9", None, "").unwrap().target, "admin@10.0.0.9");
-    }
-
-    #[test]
-    fn an_odd_login_is_refused() {
-        for (user, host, via) in [
-            ("isoloom", "10.0.0.5;rm -rf /", ""),
-            ("-oProxyCommand=x", "h", ""),
-            ("u", "h", "a@b@c"),
-            ("u", "h", "-J x"),
-        ] {
-            assert!(Login::new(user, host, None, via).is_err(), "{user}@{host} via {via}");
-        }
-    }
-
-    #[test]
-    fn the_config_carries_the_key_and_the_runs_known_hosts_to_every_host() {
-        let c = config(Path::new("/home/a b/.isothrum/ssh/id_ed25519"), Path::new("/r/known_hosts")).unwrap();
-        assert!(c.contains("Host *\n"), "{c}");
-        assert!(c.contains("IdentityFile \"/home/a b/.isothrum/ssh/id_ed25519\"\n"), "{c}");
-        assert!(c.contains("UserKnownHostsFile \"/r/known_hosts\"\n"), "{c}");
-        assert!(c.contains("StrictHostKeyChecking accept-new\n") && c.contains("BatchMode yes\n"), "{c}");
-    }
-
-    /// Quoted, a path reads the same to OpenSSH before 8.7 (no escapes) and after (`\` escapes).
-    #[test]
-    fn a_path_is_quoted_for_every_openssh_and_its_tokens_doubled() {
-        assert_eq!(config_path("/home/a b/x 50%", false).as_deref(), Some("\"/home/a b/x 50%%\""));
-        assert_eq!(config_path("it's", false).as_deref(), Some("\"it's\""));
-        assert_eq!(
-            config_path("C:\\Users\\a b\\.isothrum\\ssh\\id_ed25519", true).as_deref(),
-            Some("\"C:/Users/a b/.isothrum/ssh/id_ed25519\"")
-        );
-        assert_eq!(
-            config_path("\\\\server\\share\\h", true).as_deref(),
-            Some("\"//server/share/h\""),
-            "a network path"
-        );
-    }
-
-    #[test]
-    fn a_path_no_openssh_reads_as_written_is_refused() {
-        for path in ["/a\"b", "/a\\b", "/a/${HOME}", "/a\nb"] {
-            assert_eq!(config_path(path, false), None, "{path:?}");
-        }
-        assert_eq!(config_path("C:\\a\"b", true), None);
-    }
-
-    #[test]
-    fn a_login_refused_says_what_a_login_takes() {
-        let refused = Login::new("u", "h;x", None, "").unwrap_err().to_string();
-        assert!(
-            refused.ends_with("a login takes letters, digits, `.`, `-`, `_`, `:` and one `@` only"),
-            "{refused}"
-        );
-        assert!(Login::new("u", "fd00::10", None, "").is_ok(), "`:` is one of them");
-    }
-
-    proptest! {
-        #[test]
-        fn a_plain_login_never_starts_an_option(user in "[a-z][a-z0-9_]{0,8}", host in "[a-z0-9.-]{1,20}") {
-            let l = Login::new(&user, &host, None, "");
-            prop_assert!(l.is_ok());
-            let args = l.unwrap().args(&[], "true");
-            prop_assert!(!args[2].starts_with('-'));
-        }
-    }
-}
+mod tests;

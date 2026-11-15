@@ -1,17 +1,23 @@
-//! Real processes, through `process-wrap` (no `unsafe` here): each tool in its own process group
-//! (unix) or job object (Windows), so a timeout or a cancellation ends the whole tree it started
-//! (`vagrant` is a wrapper around `ruby`, `cmd /C az` around `python`), headless on Windows. A
-//! tool cut short is asked to stop first, on Unix (see [`super::stopping`]).
+//! Real processes: each tool in its own process group (unix, through `process-wrap`) or created
+//! inside a kill-on-close job object of its own (Windows, [`super::job`]), so a timeout, a
+//! cancellation or this process's death ends the whole tree it started (`vagrant` is a wrapper
+//! around `ruby`, `cmd /C az` around `python`), headless on Windows. A
+//! tool cut short is asked to stop first (see [`super::stopping`]). Each tool speaks in the C
+//! locale ([`super::locale`]).
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
-use process_wrap::tokio::{ChildWrapper, CommandWrap};
+use process_wrap::tokio::ChildWrapper;
+#[cfg(unix)]
+use process_wrap::tokio::CommandWrap;
+#[cfg(unix)]
 use tokio::process::Command;
 
-use super::stopping::{GRACE, Stopping};
-use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, shim};
+use super::stopping::{GRACE, Removal, Stopping};
+use super::{Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, ledger, lines, locale, shim};
 use crate::BoxFuture;
 
 /// Starts real processes. [`SystemProcesses::default`] reads the Docker CLI's config
@@ -19,8 +25,8 @@ use crate::BoxFuture;
 /// an engine context of their own.
 ///
 /// A tool cut short (its operation's future dropped: a cancel, a step's timeout) is asked to stop
-/// on Unix (SIGINT to its process group, so Terraform saves its state) and ended once it has
-/// exited, or 30 seconds later; on Windows it is ended at once. Its clones share the tools
+/// (SIGINT to its process group on Unix, Ctrl-C on its console on Windows, so Terraform saves its
+/// state) and ended once it has exited, or 30 seconds later. Its clones share the tools
 /// stopping: a process about to exit waits for them with [`SystemProcesses::stopped`].
 #[derive(Debug, Clone)]
 pub struct SystemProcesses {
@@ -28,8 +34,9 @@ pub struct SystemProcesses {
     strip_engine_overrides: bool,
     /// The tools cut short that are still stopping.
     stopping: Arc<Stopping>,
-    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid.
-    running: Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>,
+    /// The process groups (unix) or trees (Windows) of the tools running now, by leader pid, each
+    /// with the removal of the container it runs in, if any.
+    running: Arc<std::sync::Mutex<RunningSet>>,
 }
 
 impl Default for SystemProcesses {
@@ -89,8 +96,11 @@ impl SystemProcesses {
     pub fn end_all_now(&self) {
         self.stopping.end_now();
         let running = std::mem::take(&mut *self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for pid in running {
+        for (pid, removal) in running {
             kill_tree(pid);
+            if let Some(removal) = removal {
+                removal.run();
+            }
         }
     }
 
@@ -108,18 +118,28 @@ impl SystemProcesses {
         // The program and its arguments only: values reach a tool through its environment,
         // which is never logged.
         tracing::debug!(program = %spec.program, args = ?spec.args, "starting a process");
-        let mut cmd = self.command(spec).map_err(io)?;
-        let child = cmd.spawn().map_err(|e| spawned(&spec.program, e))?;
+        let launch = self.launch(spec).map_err(io)?;
+        let child = start(launch).map_err(|e| spawned(spec, e))?;
         // Declared before the tree, so dropped after it: the tree's own stop runs first.
-        let _running = child.id().map(|pid| Running::enter(&self.running, pid));
-        let recorded = spec.tools.as_deref().zip(child.id()).and_then(|(dir, pid)| ledger::Recorded::write(dir, pid));
-        let mut tree = Tree(Some(child), Arc::clone(&self.stopping), recorded);
-        let status = match tree.0.as_deref_mut() {
+        let removal = self.removal(spec);
+        let _running = child.id().map(|pid| Running::enter(&self.running, pid, removal.clone()));
+        let recorded = spec
+            .ledger_dir
+            .as_deref()
+            .zip(child.id())
+            .and_then(|(dir, pid)| ledger::Recorded::write(dir, pid, spec.container.as_deref()));
+        let mut tree = Tree {
+            child: Some(child),
+            stopping: Arc::clone(&self.stopping),
+            recorded,
+            removal,
+        };
+        let status = match tree.child.as_deref_mut() {
             Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
             None => return Err(io(std::io::Error::other("the process went away"))),
         };
         // It exited on its own: what it left running is its business.
-        tree.0 = None;
+        tree.child = None;
         tracing::debug!(program = %spec.program, code = ?status.code(), "process exited");
         if shim::missing_behind_cmd(&spec.program, status.code()) {
             return Err(ProcessError::Missing { program: spec.program.clone() });
@@ -127,35 +147,94 @@ impl SystemProcesses {
         Ok(Exit { code: status.code() })
     }
 
-    /// The command for `spec`: its own group or job, its output piped, headless.
-    fn command(&self, spec: &ProcessSpec) -> std::io::Result<CommandWrap> {
-        let stdin = match &spec.stdin {
-            Some(path) => Stdio::from(std::fs::File::open(path)?),
-            None => Stdio::null(),
-        };
-        let strip = self.strip_engine_overrides && shim::uses_engine(&spec.program);
+    /// The removal of the container `spec`'s tool runs in, when it names one, with the
+    /// environment the tool gets, so it reaches the same engine.
+    fn removal(&self, spec: &ProcessSpec) -> Option<Removal> {
+        let name = spec.container.as_deref()?;
         let inherited = std::env::vars_os().filter_map(|(k, _)| k.into_string().ok());
         let withheld = shim::withheld(&spec.program, inherited);
-        let (program, args) = wrapped(spec);
-        let mut cmd = CommandWrap::with_new(program, |c: &mut Command| {
-            c.args(args).stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::piped());
-            // Before the spec's own: what the run delivers is set again after.
-            for var in &withheld {
-                c.env_remove(var);
-            }
-            c.envs(spec.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-            if let Some(dir) = &spec.cwd {
-                c.current_dir(dir);
-            }
-            if strip {
-                for var in shim::ENGINE_OVERRIDES {
-                    c.env_remove(var);
-                }
-            }
-        });
-        group(&mut cmd);
-        Ok(cmd)
+        let strip = self.strip_engine_overrides && shim::uses_engine(&spec.program);
+        let stripped = if strip {
+            shim::ENGINE_OVERRIDES.iter().map(|v| (*v).to_owned()).collect()
+        } else {
+            Vec::new()
+        };
+        Some(Removal {
+            program: spec.program.clone(),
+            name: name.to_owned(),
+            withheld,
+            env: spec.env.clone(),
+            stripped,
+        })
     }
+
+    /// What starting `spec`'s tool takes: its program and arguments (a shimmed tool through
+    /// `cmd /C`), its input, and the changes to this process's environment it gets, in order.
+    fn launch(&self, spec: &ProcessSpec) -> std::io::Result<Launch> {
+        let stdin = spec.stdin.as_ref().map(std::fs::File::open).transpose()?;
+        let strip = self.strip_engine_overrides && shim::uses_engine(&spec.program);
+        let inherited = std::env::vars_os().filter_map(|(k, _)| k.into_string().ok());
+        // Before the spec's own: what the run delivers is set again after.
+        let mut env: Vec<(OsString, Option<OsString>)> = shim::withheld(&spec.program, inherited).into_iter().map(|var| (var.into(), None)).collect();
+        env.extend(
+            locale::settings(|name| std::env::var_os(name))
+                .into_iter()
+                .map(|(var, value)| (var.into(), value)),
+        );
+        env.extend(spec.env.iter().map(|(k, v)| (k.into(), Some(v.into()))));
+        if strip {
+            env.extend(shim::ENGINE_OVERRIDES.iter().map(|var| ((*var).into(), None)));
+        }
+        let (program, args) = wrapped(spec);
+        Ok(Launch {
+            program: program.to_owned(),
+            args: args.into_iter().map(str::to_owned).collect(),
+            env,
+            cwd: spec.cwd.clone(),
+            stdin,
+        })
+    }
+}
+
+/// What starting a tool takes, whatever the OS.
+#[derive(Debug)]
+pub(super) struct Launch {
+    /// The program, as started (`cmd` for a shimmed tool).
+    pub(super) program: String,
+    pub(super) args: Vec<String>,
+    /// Changes to this process's environment, in order: a value sets the variable, none removes it.
+    pub(super) env: Vec<(OsString, Option<OsString>)>,
+    pub(super) cwd: Option<PathBuf>,
+    /// Its input, else none (the null device).
+    pub(super) stdin: Option<std::fs::File>,
+}
+
+/// Starts `launch` as the leader of a process group of its own, its output piped.
+#[cfg(unix)]
+#[expect(clippy::disallowed_methods, reason = "the process module's spawner: every tool call of the runner starts here")]
+fn start(launch: Launch) -> std::io::Result<Box<dyn ChildWrapper>> {
+    let stdin = launch.stdin.map_or_else(Stdio::null, Stdio::from);
+    let mut cmd = CommandWrap::with_new(&launch.program, |c: &mut Command| {
+        c.args(&launch.args).stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::piped());
+        for (var, value) in &launch.env {
+            match value {
+                Some(value) => c.env(var, value),
+                None => c.env_remove(var),
+            };
+        }
+        if let Some(dir) = &launch.cwd {
+            c.current_dir(dir);
+        }
+    });
+    cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+    cmd.spawn()
+}
+
+/// Starts `launch` inside a kill-on-close job object of its own, headless, its output piped
+/// ([`super::job`]).
+#[cfg(windows)]
+fn start(launch: Launch) -> std::io::Result<Box<dyn ChildWrapper>> {
+    super::job::spawn(launch)
 }
 
 impl ProcessRunner for SystemProcesses {
@@ -165,24 +244,36 @@ impl ProcessRunner for SystemProcesses {
 }
 
 /// A spawned tool's tree, stopped when dropped before the tool exited (a timeout, a
-/// cancellation), with its entry in the run's tools when it was recorded: removed once the tool
-/// ended.
-struct Tree(Option<Box<dyn ChildWrapper>>, Arc<Stopping>, Option<ledger::Recorded>);
+/// cancellation), with its entry in the run's tools when it was recorded (removed once the tool
+/// ended) and the removal of the container it runs in, if any.
+struct Tree {
+    /// The process, until it is waited for.
+    child: Option<Box<dyn ChildWrapper>>,
+    /// What stops it (and its group) when it is dropped unwaited.
+    stopping: Arc<Stopping>,
+    /// Its ledger entry, taken by the stop.
+    recorded: Option<ledger::Recorded>,
+    /// The removal of the container it runs in, taken by the stop.
+    removal: Option<Removal>,
+}
 
 impl Drop for Tree {
     fn drop(&mut self) {
-        if let Some(child) = self.0.take() {
-            self.1.stop(child, self.2.take());
+        if let Some(child) = self.child.take() {
+            self.stopping.stop(child, self.recorded.take(), self.removal.take());
         }
     }
 }
 
+/// The tools running now, by leader pid, each with the removal of its container, if any.
+type RunningSet = std::collections::BTreeMap<u32, Option<Removal>>;
+
 /// A tool in [`SystemProcesses`]'s running set while this lives.
-struct Running(Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, u32);
+struct Running(Arc<std::sync::Mutex<RunningSet>>, u32);
 
 impl Running {
-    fn enter(set: &Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>, pid: u32) -> Running {
-        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid);
+    fn enter(set: &Arc<std::sync::Mutex<RunningSet>>, pid: u32, removal: Option<Removal>) -> Running {
+        set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(pid, removal);
         Running(Arc::clone(set), pid)
     }
 }
@@ -207,6 +298,7 @@ fn kill_tree(pid: u32) {
 
 /// Kills process `pid` and its tree (`taskkill /T /F`), waiting for taskkill.
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own ending of a process tree")]
 fn kill_tree(pid: u32) {
     use std::os::windows::process::CommandExt as _;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;
@@ -231,27 +323,19 @@ fn wrapped(spec: &ProcessSpec) -> (&str, Vec<&str>) {
     (spec.program.as_str(), args.collect())
 }
 
-#[cfg(unix)]
-fn group(cmd: &mut CommandWrap) {
-    cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-}
-
-#[cfg(windows)]
-fn group(cmd: &mut CommandWrap) {
-    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-    // Headless: a status poll would otherwise flash a console window every few seconds.
-    cmd.wrap(process_wrap::tokio::CreationFlags(CREATE_NO_WINDOW));
-    cmd.wrap(process_wrap::tokio::JobObject);
-}
-
-/// The error of a tool that couldn't start: missing, or the OS's reason.
-fn spawned(program: &str, e: std::io::Error) -> ProcessError {
-    match e.kind() {
-        std::io::ErrorKind::NotFound => ProcessError::Missing { program: program.to_owned() },
-        _ => ProcessError::Io {
-            program: program.to_owned(),
-            source: e,
+/// The error of the tool `spec` that couldn't start: missing, or the OS's reason. The OS refuses
+/// a start in a working folder that isn't there with `NotFound` too: that is said of the folder,
+/// not taken for a tool that isn't installed.
+fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
+    let program = spec.program.clone();
+    let folder_gone = spec.cwd.as_deref().filter(|dir| !dir.is_dir());
+    match (e.kind(), folder_gone) {
+        (std::io::ErrorKind::NotFound, Some(dir)) => ProcessError::Io {
+            program,
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, format!("its working folder {} doesn't exist", dir.display())),
         },
+        (std::io::ErrorKind::NotFound, None) => ProcessError::Missing { program },
+        _ => ProcessError::Io { program, source: e },
     }
 }
 

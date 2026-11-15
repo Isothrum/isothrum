@@ -1,13 +1,11 @@
 //! One operation per run: this runner's own lock on it (an async mutex per run, held by the
 //! [`crate::Runner`], never a process-wide static), then an OS lock on the run's `lock` file across
-//! processes, which the OS releases when its holder dies. And one slot pick per home at a time:
-//! an OS lock on the home's `slots.lock`, held while a start picks its slot and records it, so
-//! two starts in one home (two processes, two runners) never take the same slot.
+//! processes, which the OS releases when its holder dies. And one maker of the home's SSH key at a
+//! time ([`hold`] on its lock file, `crate::ssh`).
 //!
-//! The order, everywhere: the run's lock first, the home's slots lock second (a start holds the run
-//! while it waits for a slot, `run/up.rs`, `adopt.rs`), and the `std` mutexes (the runner's flight
-//! and reservations, an emitter's log, a watch's state) last and never across an `.await`. No
-//! path takes them in another order, so no circular wait (Clean Code appendix A).
+//! The order, everywhere: the run's lock first, and the `std` mutexes (the runner's flight and
+//! reservations, an emitter's log) last and never across an `.await`. The SSH key's lock is taken
+//! under the run's alone (or none). No path takes them in another order, so no circular wait.
 //!
 //! The lock fails **closed**: a lock file that can't be opened or locked stops the operation. A lock
 //! that carries on without it would allow what the lock is there to prevent (Terraform's own state lock is cleared on the assumption that this one is held).
@@ -28,16 +26,14 @@ use crate::name::RunName;
 /// How long a lock another process holds is waited for before the run reads as busy: a holder
 /// that just finished, or a process started meanwhile that briefly shares the lock's handle
 /// between its fork and its exec, lets go within it.
-const GRACE: Duration = Duration::from_secs(1);
+const LOCK_WAIT: Duration = Duration::from_secs(1);
 
-/// How often a held lock is tried again within [`GRACE`].
+/// How often a held lock is tried again within [`LOCK_WAIT`].
 const RETRY: Duration = Duration::from_millis(50);
 
-/// How long a start waits for another one's slot pick: a pick takes a few file reads and one
-/// write, so a lock held this long is held by a process that hangs.
-const SLOTS_WAIT: Duration = Duration::from_secs(30);
-
-/// The per-run locks of one runner.
+/// The per-run locks of one runner. An entry lives while an operation holds or waits for its run:
+/// the next acquire drops the ones nobody holds, so a long-lived runner touching many runs keeps
+/// only those in use.
 #[derive(Debug, Default)]
 pub(crate) struct RunLocks(Mutex<BTreeMap<RunName, Arc<tokio::sync::Mutex<()>>>>);
 
@@ -71,10 +67,17 @@ impl RunLocks {
     /// Holds `run`: waits for this runner's other operation on it, then takes the OS lock at
     /// `path`, failing with [`Error::Locked`] while another process holds it.
     pub(crate) async fn acquire(&self, run: &RunName, path: &Path) -> Result<RunLock> {
-        let mutex = Arc::clone(self.0.lock().unwrap_or_else(PoisonError::into_inner).entry(run.clone()).or_default());
+        let mutex = {
+            let mut runs = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            // Only the map holds an entry nobody holds or waits for: dropped, it is made afresh
+            // when its run is next acquired. Counted under the map's lock, which every clone is
+            // taken under, so no acquire can be cloning it meanwhile.
+            runs.retain(|_, held| Arc::strong_count(held) > 1);
+            Arc::clone(runs.entry(run.clone()).or_default())
+        };
         let here = mutex.lock_owned().await;
         let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
-        match locked_within(&file, GRACE).await {
+        match locked_within(&file, LOCK_WAIT).await {
             Ok(true) => Ok(RunLock {
                 _file: Held(file),
                 _here: here,
@@ -85,45 +88,18 @@ impl RunLocks {
     }
 }
 
-/// Whether an operation holds the run whose lock file is `path`: another handle has its OS lock
-/// (another process's operation, or one of this process). Read-only queries ask, never wait: the
-/// lock is taken for an instant to find out and let go at once, so an operation acquiring the run
-/// meanwhile has it within its [`GRACE`]. No lock file: no operation ever held the run.
-pub(crate) fn held(path: &Path) -> std::io::Result<bool> {
-    let Some(file) = fs::if_there(std::fs::OpenOptions::new().read(true).open(path))? else {
-        return Ok(false);
-    };
-    match file.try_lock() {
-        Ok(()) => {
-            drop(Held(file));
-            Ok(false)
-        }
-        Err(TryLockError::WouldBlock) => Ok(true),
-        Err(TryLockError::Error(e)) => Err(e),
-    }
-}
-
-/// The home's slots, held for one start's pick; released when dropped.
+/// A lock file held for one short job on the home that two operations must not do at once (its
+/// SSH key made); released when dropped.
 #[derive(Debug)]
-pub(crate) struct SlotsLock {
+pub(crate) struct HomeLock {
     _file: Held,
 }
 
-/// Holds the home's slots (the OS lock on `path`), waiting for another start's pick.
-///
-/// # Errors
-///
-/// `io`, when the lock file can't be opened or locked; `locked` ([`Error::SlotsLocked`]) when
-/// another start held it for [`SLOTS_WAIT`].
-pub(crate) async fn hold_slots(path: &Path) -> Result<SlotsLock> {
-    let file = fs::lock_file(path).map_err(Error::io(path, "locked"))?;
-    match locked_within(&file, SLOTS_WAIT).await {
-        Ok(true) => Ok(SlotsLock { _file: Held(file) }),
-        Ok(false) => Err(Error::SlotsLocked {
-            waited_s: SLOTS_WAIT.as_secs(),
-        }),
-        Err(e) => Err(Error::io(path, "locked")(e)),
-    }
+/// Holds the OS lock on `path`, waiting up to `wait` while another handle holds it (another
+/// process, another runner, another operation of this one); `None` when it was held all along.
+pub(crate) async fn hold(path: &Path, wait: Duration) -> std::io::Result<Option<HomeLock>> {
+    let file = fs::lock_file(path)?;
+    Ok(locked_within(&file, wait).await?.then(|| HomeLock { _file: Held(file) }))
 }
 
 /// Locks `file`, trying again until `wait` has passed while another handle holds it: whether it
@@ -176,26 +152,6 @@ mod tests {
         assert!(RunLocks::default().acquire(&run(), &missing).await.is_err());
     }
 
-    #[tokio::test]
-    async fn a_run_reads_as_held_while_an_operation_holds_it_and_the_reading_takes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("lock");
-        assert!(!held(&path).unwrap(), "no lock file: never held");
-        let locks = RunLocks::default();
-        let op = locks.acquire(&run(), &path).await.unwrap();
-        assert!(held(&path).unwrap(), "this process's operation holds it");
-        drop(op);
-        assert!(!held(&path).unwrap());
-        // Another process's operation (a handle of its own stands in for it).
-        let other = File::options().write(true).open(&path).unwrap();
-        other.lock().unwrap();
-        assert!(held(&path).unwrap());
-        drop(other);
-        // Reading it held nothing: the next operation has the run at once.
-        assert!(!held(&path).unwrap());
-        locks.acquire(&run(), &path).await.unwrap();
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_second_operation_of_this_runner_waits_for_the_first() {
         let dir = tempfile::tempdir().unwrap();
@@ -210,6 +166,52 @@ mod tests {
         assert!(!waiting.is_finished(), "waits while the first holds the run");
         drop(first);
         waiting.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_runs_no_operation_holds_are_let_go() {
+        // Regression: the map kept an entry per run ever acquired, for the runner's lifetime.
+        let dir = tempfile::tempdir().unwrap();
+        let locks = RunLocks::default();
+        for name in ["one", "two", "three"] {
+            let name = RunName::new(name).unwrap();
+            drop(locks.acquire(&name, &dir.path().join(format!("{name}.lock"))).await.unwrap());
+        }
+        let held = locks.acquire(&run(), &dir.path().join("lock")).await.unwrap();
+        let kept: Vec<String> = locks.0.lock().unwrap().keys().map(ToString::to_string).collect();
+        assert_eq!(kept, ["demo"], "only the run held now");
+        drop(held);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn many_operations_on_a_few_runs_from_several_threads_hold_each_run_one_at_a_time() {
+        // More tasks than threads, on runs whose entries come and go: each run is held by one
+        // operation at a time, and every operation gets its turn.
+        let dir = tempfile::tempdir().unwrap();
+        let locks = Arc::new(RunLocks::default());
+        let inside: Arc<[std::sync::atomic::AtomicUsize; 3]> = Arc::default();
+        let mut ops = tokio::task::JoinSet::new();
+        for i in 0..64 {
+            let (locks, inside, dir) = (Arc::clone(&locks), Arc::clone(&inside), dir.path().to_path_buf());
+            ops.spawn(async move {
+                let which = i % 3;
+                let name = RunName::new(&format!("run-{which}")).unwrap();
+                let path = dir.join(format!("{name}.lock"));
+                // Another operation of this runner may hold the run past the OS lock's wait:
+                // waiting for this runner's own is unbounded, so it is never `locked`.
+                let held = locks.acquire(&name, &path).await.unwrap();
+                let now = inside[which].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(now, 0, "two operations held {name} at once");
+                tokio::time::sleep(Duration::from_millis(2)).await;
+                inside[which].fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                drop(held);
+            });
+        }
+        while let Some(done) = ops.join_next().await {
+            done.unwrap();
+        }
+        let left = locks.0.lock().unwrap().values().filter(|m| Arc::strong_count(m) > 1).count();
+        assert_eq!(left, 0, "nothing holds a run once every operation ended");
     }
 
     /// A copy of `held`'s handle, as a process spawned while it was held has until it execs.
@@ -232,39 +234,5 @@ mod tests {
         let again = locks.acquire(&run(), &path).await;
         assert!(again.is_ok(), "the run is free once released: {again:?}");
         drop(spawned);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_slots_released_are_free_at_once_while_a_process_spawned_meanwhile_still_has_their_handle() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("slots.lock");
-        let held = hold_slots(&path).await.unwrap();
-        let SlotsLock { _file: file } = &held;
-        let spawned = spawned_meanwhile(file);
-        drop(held);
-        let again = hold_slots(&path).await;
-        assert!(again.is_ok(), "the slots are free once released: {again:?}");
-        drop(spawned);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_slot_pick_waits_for_another_processes_then_takes_the_slots() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("slots.lock");
-        let other = File::create(&path).unwrap();
-        other.lock().unwrap();
-        let waiting = tokio::spawn({
-            let path = path.clone();
-            async move { hold_slots(&path).await.map(drop) }
-        });
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        assert!(!waiting.is_finished(), "waits while another process picks");
-        drop(other);
-        waiting.await.unwrap().unwrap();
-        let held = hold_slots(&path).await.unwrap();
-        let stuck = hold_slots(&path).await.unwrap_err();
-        assert_eq!(stuck.code(), crate::ErrorCode::Locked, "busy, not an I/O failure: {stuck}");
-        assert_eq!(stuck.to_string(), "another start has held this home's slot pick for 30 s; it may hang");
-        drop(held);
     }
 }

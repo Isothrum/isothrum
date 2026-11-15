@@ -1,5 +1,0 @@
-# What `cargo fuzz` writes: build folders, the corpora it grows, and the inputs that crashed.
-target/
-corpus/
-artifacts/
-coverage/

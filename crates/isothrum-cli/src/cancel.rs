@@ -1,7 +1,7 @@
 //! Cancellation: the signals that stop a command. Every tool runs in its own process group (a
 //! job object on Windows), so a terminal's Ctrl-C or a CI runner cancelling its job reaches only
 //! `isothrum`; it then drops the operation, which records the run as cut short and asks each tool
-//! to stop (SIGINT to its process group; on Windows its tree is ended at once), waits for them
+//! to stop (SIGINT to its process group; on Windows Ctrl-C on its own console), waits for them
 //! (30 seconds at most, a second signal ends them at once), and exits with the signal's code.
 
 /// What asked the command to stop.

@@ -4,3 +4,5 @@
 [default.extend-words]
 # whoami's output format option (`whoami /groups /fo csv /nh`).
 fo = "fo"
+# French, in a localized Windows message a test reads (`en raison de l'erreur`).
+raison = "raison"

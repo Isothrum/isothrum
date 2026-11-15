@@ -7,23 +7,36 @@
 mod elevated;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
+#[cfg(windows)]
+mod job;
 pub(crate) mod ledger;
 mod lines;
+mod locale;
 mod shim;
 mod stopping;
 mod system;
 mod tail;
+#[cfg(any(windows, test))]
+mod win_command;
 
 use std::path::PathBuf;
 
 pub(crate) use elevated::Elevated;
-pub use elevated::may_manage_hyperv;
-pub(crate) use shim::TERRAFORM_PROGRAMS;
+pub use elevated::{HyperVRights, may_manage_hyperv};
 pub use system::SystemProcesses;
 pub(crate) use tail::Tail;
 
 use crate::BoxFuture;
 use crate::events::Stream;
+
+/// When process `pid` started, in whole seconds since the Unix epoch, as the OS stored it (on
+/// Unix `ps`'s `lstart`, on Windows its creation time); none when no process has that pid, or the
+/// OS couldn't say. A process whose start is after a moment can't be one that ran at it: what
+/// tells a reused pid from the process that had it.
+#[cfg(any(unix, windows))]
+pub async fn process_started_at(pid: u32) -> Option<u64> {
+    ledger::os_started_at(pid).await
+}
 
 /// One process to start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -42,7 +55,11 @@ pub struct ProcessSpec {
     /// The folder the tool is recorded in while it runs (its process group; its process tree on
     /// Windows), so the next operation can end it if the process that started it is killed first
     /// (default: not recorded). An operation's tools are recorded in the run's state folder.
-    pub tools: Option<PathBuf>,
+    pub ledger_dir: Option<PathBuf>,
+    /// The container the tool runs in, by name, when `program` is the Docker CLI running it
+    /// (`docker run --name`): removed (`docker rm -f`) wherever the tool is ended before its end,
+    /// since ending the `docker` client leaves its container running (default: none).
+    pub container: Option<String>,
 }
 
 impl ProcessSpec {
@@ -146,25 +163,37 @@ pub trait ProcessRunner: Send + Sync {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>>;
 }
 
-/// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::tools`]): an
-/// operation's tools, in its run's state folder.
+/// The variable every tool of a journaled operation gets: the operation's id in the home's
+/// journal, so what a tool logs or leaves can be told apart by operation.
+pub(crate) const OPERATION_VAR: &str = "ISOTHRUM_OPERATION";
+
+/// Runs every tool of `inner` recorded in the folder `dir` ([`ProcessSpec::ledger_dir`]): an
+/// operation's tools, in its run's state folder, each with the operation's id
+/// ([`OPERATION_VAR`]) ahead of its own variables.
 pub(crate) struct Recording {
     inner: std::sync::Arc<dyn ProcessRunner>,
     dir: PathBuf,
+    operation: Option<crate::store::OperationId>,
 }
 
 impl Recording {
-    /// `inner`'s tools, recorded in `dir`.
-    pub(crate) fn new(inner: std::sync::Arc<dyn ProcessRunner>, dir: PathBuf) -> Recording {
-        Recording { inner, dir }
+    /// `inner`'s tools, recorded in `dir`, of the journaled operation `operation`.
+    pub(crate) fn new(inner: std::sync::Arc<dyn ProcessRunner>, dir: PathBuf, operation: Option<crate::store::OperationId>) -> Recording {
+        Recording { inner, dir, operation }
     }
 }
 
 impl ProcessRunner for Recording {
     fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
         Box::pin(async move {
+            let mut env = spec.env.clone();
+            if let Some(id) = self.operation {
+                // First: the driver's and the step's own variables come after it.
+                env.insert(0, (OPERATION_VAR.to_owned(), id.0.to_string()));
+            }
             let recorded = ProcessSpec {
-                tools: Some(self.dir.clone()),
+                ledger_dir: Some(self.dir.clone()),
+                env,
                 ..spec.clone()
             };
             self.inner.run(&recorded, on_line).await
@@ -172,9 +201,14 @@ impl ProcessRunner for Recording {
     }
 }
 
-/// `program` and `args` as one line, separated by spaces.
+/// `program` and `args` as one line, separated by spaces, each word quoted when it holds a space
+/// or another character a shell reads, so an argument with a space reads as one.
 fn command_line(program: &str, args: &[String]) -> String {
-    std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+    std::iter::once(program)
+        .chain(args.iter().map(String::as_str))
+        .map(crate::console::sh_word)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// How many of its last output lines stand in for a failed tool's silent standard error.
@@ -190,10 +224,25 @@ pub struct Captured {
     pub stdout: Vec<String>,
     /// Its last standard error lines (a Ruby backtrace's frames and known-harmless warnings left
     /// out).
-    pub stderr: Vec<String>,
+    pub stderr_tail: Vec<String>,
+    /// The failure it printed as a record of its own, for a tool that prints one
+    /// ([`crate::tool_output::failure_record`]).
+    record: Option<String>,
 }
 
 impl Captured {
+    /// What `program` printed, kept: its failure record read from `stdout` where it prints one
+    /// ([`crate::tool_output::failure_record`]).
+    pub(crate) fn new(program: &str, exit: Exit, stdout: Vec<String>, stderr: Vec<String>) -> Captured {
+        let record = crate::tool_output::failure_record(program, &stdout);
+        Captured {
+            exit,
+            stdout,
+            stderr_tail: stderr,
+            record,
+        }
+    }
+
     /// Whether it exited 0 ([`Exit::success`]).
     #[must_use]
     pub fn success(&self) -> bool {
@@ -201,18 +250,18 @@ impl Captured {
     }
 
     /// Why it failed, the one wording every failed tool's error uses: the error it printed as a
-    /// machine-readable record on its standard output (Vagrant's `error-exit`, with
-    /// `--machine-readable`), else its last error lines, else its last output lines (a tool, or a
+    /// record of its own (Vagrant's `error-exit`, with `--machine-readable`, read where it was
+    /// captured), else its last error lines, else its last output lines (a tool, or a
     /// cloud image refusing a login, may print its refusal there), with how it ended (`denied
     /// (exited with code 1)`, `exited with a signal`).
     #[must_use]
     pub fn reason(&self) -> String {
-        let cause = crate::tool_output::vagrant_error(&self.stdout).unwrap_or_else(|| {
-            let quiet = self.stderr.iter().all(|l| l.trim().is_empty());
+        let cause = self.record.clone().unwrap_or_else(|| {
+            let quiet = self.stderr_tail.iter().all(|l| l.trim().is_empty());
             let said = if quiet {
                 self.stdout.get(self.stdout.len().saturating_sub(STDOUT_REASON_LINES)..).unwrap_or_default()
             } else {
-                &self.stderr[..]
+                &self.stderr_tail[..]
             };
             said.join("\n")
         });
@@ -227,10 +276,29 @@ impl Captured {
     ///
     /// # Errors
     ///
-    /// It didn't exit 0: the error is its reason.
-    pub fn output(&self) -> Result<String, String> {
-        if self.success() { Ok(self.stdout.join("\n")) } else { Err(self.reason()) }
+    /// [`ProcessFailed`] when it didn't exit 0: how it ended, and its reason.
+    pub fn output(&self) -> Result<String, ProcessFailed> {
+        if self.success() {
+            Ok(self.stdout.join("\n"))
+        } else {
+            Err(ProcessFailed {
+                exit: self.exit,
+                reason: self.reason(),
+            })
+        }
     }
+}
+
+/// A process that ran to its end and didn't exit 0 ([`Captured::output`]): how it ended, and
+/// why, in the one wording every failed tool's error uses ([`Captured::reason`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{reason}")]
+#[non_exhaustive]
+pub struct ProcessFailed {
+    /// How it ended.
+    pub exit: Exit,
+    /// Why it failed, ending with how it ended (`denied (exited with code 1)`).
+    pub reason: String,
 }
 
 /// Runs `spec`, keeping what it prints.
@@ -254,11 +322,7 @@ pub(crate) async fn capture_echoing(runner: &dyn ProcessRunner, spec: &ProcessSp
         }
     };
     let exit = runner.run(spec, &mut keep).await?;
-    Ok(Captured {
-        exit,
-        stdout,
-        stderr: tail.into_lines(),
-    })
+    Ok(Captured::new(&spec.program, exit, stdout, tail.into_lines()))
 }
 
 #[cfg(test)]
@@ -271,11 +335,7 @@ mod tests {
 
     fn ended(code: Option<i32>, stderr: &[&str], stdout: &[&str]) -> Captured {
         let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect();
-        Captured {
-            exit: Exit::new(code),
-            stdout: lines(stdout),
-            stderr: lines(stderr),
-        }
+        Captured::new("vagrant", Exit::new(code), lines(stdout), lines(stderr))
     }
 
     #[test]
@@ -320,13 +380,17 @@ mod tests {
         assert_eq!(reason(&ended(None, &[" "], &[])), "exited with a signal");
         assert_eq!(reason(&ended(Some(2), &["no space left"], &[])), "no space left (exited with code 2)");
         assert_eq!(ended(Some(0), &["warning"], &["a", "b"]).output(), Ok("a\nb".to_owned()));
-        assert_eq!(ended(Some(3), &["bad"], &["a"]).output(), Err("bad (exited with code 3)".to_owned()));
+        let failed = ended(Some(3), &["bad"], &["a"]).output().unwrap_err();
+        assert_eq!((failed.exit, failed.to_string()), (Exit::new(Some(3)), "bad (exited with code 3)".to_owned()));
     }
 
     #[test]
     fn a_spec_reads_as_its_command_line() {
         let spec = ProcessSpec::new("docker", ["compose", "ps"]);
         assert_eq!(spec.line(), "docker compose ps");
+        // An argument with a space reads as one word, not two.
+        let spaced = ProcessSpec::new("vagrant", ["up", "web server", "--provider=hyperv"]);
+        assert_eq!(spaced.line(), "vagrant up 'web server' --provider=hyperv");
         assert!(Exit { code: Some(0) }.success() && !Exit { code: None }.success());
     }
 }

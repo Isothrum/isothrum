@@ -11,11 +11,9 @@ Everything here is licensed Apache-2.0.
 Published to crates.io, in this order (leaf crates first; each crate's dependencies are published
 before it):
 
-1. `isothrum-compiler` — a drawn topology becomes an Isoloom spec.
-2. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
-3. `isothrum-machine` — which Vagrant providers this computer can drive.
-4. `isothrum-wasm` — the compiler plus Isoloom's targets, compiled to WebAssembly for a topology editor in the browser.
-5. `isothrum-cli` — the `isothrum` command-line runner.
+1. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
+2. `isothrum-machine` — which Vagrant providers this computer can drive.
+3. `isothrum-cli` — the `isothrum` command-line runner.
 
 Not published (`publish = false`, inherited from `[workspace.package]`):
 
@@ -31,8 +29,6 @@ each `Cargo.toml` has them:
 | Crate | Isoloom crates |
 |---|---|
 | `isothrum-runner`, `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
-| `isothrum-compiler` | `isoloom-spec`, `isoloom-manifest` (`isoloom-targets` for its tests only) |
-| `isothrum-wasm` | `isoloom-spec`, `isoloom-manifest`, `isoloom-plan`, `isoloom-targets` |
 
 For local development against an Isoloom checkout, a git-ignored `.cargo/config.toml` patches
 them to its paths (`[patch.crates-io]`); the committed manifests never name a path or a git
@@ -105,21 +101,8 @@ on crates.io, or resolved to a local checkout with a `[patch.crates-io]` in a gi
 `.cargo/config.toml`):
 
 ```
-cargo publish --dry-run -p isothrum-compiler
 cargo publish --dry-run -p isothrum-runner
 cargo publish --dry-run -p isothrum-machine
-cargo publish --dry-run -p isothrum-wasm
 cargo publish --dry-run -p isothrum-cli
 ```
 
-## The npm / WebAssembly side
-
-`isothrum-wasm` is also delivered to the browser as a wasm-pack bundle:
-
-```
-wasm-pack build crates/isothrum-wasm --target web --out-dir ../../web/pkg --release
-```
-
-A site vendors that bundle's JavaScript glue and WebAssembly (`cargo run -p xtask -- wasm
---copy-to <dir>` copies them into its folder); the crates.io release above covers the Rust crate
-only. If the bundle is later published to npm it is built from this same crate.

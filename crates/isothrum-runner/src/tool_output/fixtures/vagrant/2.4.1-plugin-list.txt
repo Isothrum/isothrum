@@ -1,0 +1,6 @@
+1794305819,,ui,info,vagrant-libvirt (0.12.2%!(VAGRANT_COMMA) global)
+1794305819,,plugin-name,vagrant-libvirt
+1794305819,vagrant-libvirt,plugin-version,0.12.2%!(VAGRANT_COMMA) global
+1794305819,,ui,info,  - Version Constraint: > 0
+1794305819,,plugin-name,vagrant-qemu
+1794305819,vagrant-qemu,plugin-version,0.3.12%!(VAGRANT_COMMA) global

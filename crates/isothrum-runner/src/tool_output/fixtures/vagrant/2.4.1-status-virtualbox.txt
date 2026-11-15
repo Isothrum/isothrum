@@ -1,0 +1,10 @@
+1794305819,web,metadata,provider,virtualbox
+1794305819,web,provider-name,virtualbox
+1794305819,web,state,running
+1794305819,web,state-human-short,running
+1794305819,web,state-human-long,The VM is running. To stop this VM%!(VAGRANT_COMMA) you can run `vagrant halt` to\nshut it down forcefully%!(VAGRANT_COMMA) or you can run `vagrant suspend` to simply\nsuspend the virtual machine. In either case%!(VAGRANT_COMMA) to restart it again%!(VAGRANT_COMMA)\nsimply run `vagrant up`.
+1794305819,db,metadata,provider,virtualbox
+1794305819,db,provider-name,virtualbox
+1794305819,db,state,poweroff
+1794305819,db,state-human-short,poweroff
+1794305819,,ui,info,Current machine states:\n\nweb                       running (virtualbox)\ndb                        poweroff (virtualbox)

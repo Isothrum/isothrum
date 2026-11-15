@@ -16,9 +16,13 @@
 //!   owner's lock can be taken is a dead process's.
 //! - [`end_orphans`], with the run locked at the start of every operation, ends each tool a dead
 //!   process left (its process group asked to stop, as a cut-short tool is, then killed; on
-//!   Windows its tree, `taskkill /T /F`), and removes the entries. It ends only the very process
+//!   Windows its tree, `taskkill /T /F`), removes the container it ran in when its entry names
+//!   one (`docker rm -f`: ending the `docker` client leaves its container running), and removes
+//!   the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
+//! - On Windows a tool's job object already ends its tree when this process dies ([`super::job`]):
+//!   its entry is the backstop, for a tree the job didn't hold.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -31,6 +35,13 @@ use std::time::Duration;
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
 
+/// The extension of a tool's entry.
+const TOOL: &str = "tool";
+
+/// The extension of a console tunnel's entry: a process that lives as long as its console, not
+/// to an operation's end.
+const TUNNEL: &str = "tunnel";
+
 /// How far apart, in seconds, the start the OS stored and the one recorded may be for one
 /// process (both read from the same clock at the same moment; the OS rounds to the second).
 const SLACK: u64 = 2;
@@ -38,6 +49,10 @@ const SLACK: u64 = 2;
 /// How long a tool left behind has to stop once asked (as a tool cut short has).
 #[cfg(unix)]
 const GRACE: Duration = super::stopping::GRACE;
+
+/// How often a tool left behind is checked for having stopped.
+#[cfg(unix)]
+const STOP_POLL: Duration = Duration::from_millis(100);
 
 /// A tool's start, as recorded and as the OS has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,16 +64,16 @@ enum Start {
 }
 
 impl Start {
-    /// The entry's word for it.
-    fn word(&self) -> String {
+    /// The start as the ledger entry writes it.
+    fn entry_text(&self) -> String {
         match self {
             Start::Boot { boot, ticks } => format!("boot:{boot}:{ticks}"),
             Start::At(secs) => format!("at:{secs}"),
         }
     }
 
-    /// [`Start::word`] read back.
-    fn parse(word: &str) -> Option<Start> {
+    /// [`Start::entry_text`] read back.
+    fn from_entry_text(word: &str) -> Option<Start> {
         if let Some(rest) = word.strip_prefix("boot:") {
             let (boot, ticks) = rest.rsplit_once(':')?;
             return Some(Start::Boot {
@@ -69,8 +84,9 @@ impl Start {
         word.strip_prefix("at:")?.parse().ok().map(Start::At)
     }
 
-    /// Whether `now`, the start the OS has for the process, is this one.
-    fn is(&self, now: &Start) -> bool {
+    /// Whether `now`, the start the OS has for the process, is this one (seconds within
+    /// [`SLACK`]): the same process, not another that got the id later.
+    fn same_process_as(&self, now: &Start) -> bool {
         match (self, now) {
             (Start::At(a), Start::At(b)) => a.abs_diff(*b) <= SLACK,
             (a, b) => a == b,
@@ -83,13 +99,25 @@ impl Start {
 pub(crate) struct Recorded(PathBuf);
 
 impl Recorded {
-    /// Records the tool `pid` just started in `dir`. A record that can't be written is traced:
-    /// the tool runs unrecorded.
-    pub(crate) fn write(dir: &Path, pid: u32) -> Option<Recorded> {
+    /// Records the tool `pid` just started in `dir`, with the `container` it runs in, if any. A
+    /// record that can't be written is traced: the tool runs unrecorded.
+    pub(crate) fn write(dir: &Path, pid: u32, container: Option<&str>) -> Option<Recorded> {
+        Recorded::entry(dir, pid, container, TOOL)
+    }
+
+    /// Records the console tunnel `pid` (an `ssh` leading its own process group) just started in
+    /// `dir`: ended as a tool is when its process dies, and by [`end_tunnels`] (a `down`) whatever
+    /// process holds it.
+    pub(crate) fn tunnel(dir: &Path, pid: u32) -> Option<Recorded> {
+        Recorded::entry(dir, pid, None, TUNNEL)
+    }
+
+    /// The entry `<owner>-<pid>.<extension>` of `pid` in `dir`.
+    fn entry(dir: &Path, pid: u32, container: Option<&str>, extension: &str) -> Option<Recorded> {
         let start = recorded_start(pid)?;
         let written = owner_token(dir).and_then(|token| {
-            let path = dir.join(format!("{token}-{pid}.tool"));
-            std::fs::write(&path, format!("{pid} {}\n", start.word()))?;
+            let path = dir.join(format!("{token}-{pid}.{extension}"));
+            std::fs::write(&path, entry_text(pid, &start, container))?;
             Ok(path)
         });
         match written {
@@ -104,17 +132,25 @@ impl Recorded {
 
 impl Drop for Recorded {
     fn drop(&mut self) {
-        if let Err(e) = crate::store::if_there(std::fs::remove_file(&self.0)) {
-            tracing::warn!(error = %e, path = %self.0.display(), "a tool's entry couldn't be removed");
-        }
+        remove_entry(&self.0);
+    }
+}
+
+/// Removes a tool's entry (a running tool's, or one being created) once its use ended; one that
+/// can't be removed is traced.
+fn remove_entry(path: &Path) {
+    if let Err(e) = crate::store::if_there(std::fs::remove_file(path)) {
+        tracing::warn!(error = %e, path = %path.display(), "a tool's entry couldn't be removed");
     }
 }
 
 /// The locks this process holds as the owner of each folder's entries, with its token.
-/// Process-wide on purpose, where the runner keeps its other state per instance: an OS file lock
-/// belongs to the process, not to a `Runner`, so two runners in one process are one owner and
-/// must share one token per folder (a second token would read the first's entries as a dead
-/// process's). The map's lock is held while an owner file is made, a few local file operations.
+/// Process-wide on purpose, where the runner keeps its other state per instance: the token stands
+/// for the process, whose death is what its owner file's lock tells, so two runners in one
+/// process are one owner, with one token and one locked file per folder. The map's lock is held
+/// while an owner file is made, a few local file operations (the runner's exception for its state
+/// files): only tools of different runs ever wait for it, since a run's folder is used by the one
+/// operation holding the run.
 static OWNED: Mutex<BTreeMap<PathBuf, (String, File)>> = Mutex::new(BTreeMap::new());
 
 /// This process's token in `dir`: its `<token>.owner` made and locked the first time, held until
@@ -139,9 +175,9 @@ fn owner_token(dir: &Path) -> io::Result<String> {
     Ok(token)
 }
 
-/// Whether the owner whose lock is `path` is gone: its lock can be taken (and is, until `path`
-/// goes). A lock held by this process, or another live one, can't.
-fn owner_gone(path: &Path) -> Option<File> {
+/// Takes the lock `path` when its owner is gone, and returns it (held until `path` goes); `None`
+/// while this process, or another live one, holds it.
+fn lock_if_owner_gone(path: &Path) -> Option<File> {
     let file = File::options().read(true).write(true).open(path).ok()?;
     file.try_lock().ok().map(|()| file)
 }
@@ -149,41 +185,116 @@ fn owner_gone(path: &Path) -> Option<File> {
 /// Ends each tool a dead process recorded in `dir` and removes its entries; the ids it ended.
 pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
     let mut ended = Vec::new();
-    let Ok(read) = std::fs::read_dir(dir) else { return ended };
+    let read = match std::fs::read_dir(dir) {
+        Ok(read) => read,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ended,
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %dir.display(), "the tools' ledger couldn't be read: no orphan is ended");
+            return ended;
+        }
+    };
     let names: Vec<String> = read.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
     for token in names.iter().filter_map(|n| n.strip_suffix(".owner")) {
         let owner = dir.join(format!("{token}.owner"));
-        let Some(lock) = owner_gone(&owner) else { continue };
+        let Some(lock) = lock_if_owner_gone(&owner) else { continue };
         let prefix = format!("{token}-");
-        for entry in names
-            .iter()
-            .filter(|n| n.starts_with(&prefix) && Path::new(n).extension().is_some_and(|x| x == "tool"))
-        {
+        for entry in names.iter().filter(|n| n.starts_with(&prefix)) {
             let path = dir.join(entry);
-            if let Some(pid) = end_entry(&path).await {
-                ended.push(pid);
+            if Path::new(entry).extension().is_none_or(|x| x != TOOL && x != TUNNEL) {
+                continue;
             }
-            drop(crate::store::if_there(std::fs::remove_file(&path)));
+            ended.extend(end_entry(&path).await);
+            if let Err(e) = crate::store::if_there(std::fs::remove_file(&path)) {
+                tracing::warn!(error = %e, path = %path.display(), "a dead process's tool entry couldn't be removed");
+            }
         }
         drop(lock);
-        drop(crate::store::if_there(std::fs::remove_file(&owner)));
+        if let Err(e) = crate::store::if_there(std::fs::remove_file(&owner)) {
+            tracing::warn!(error = %e, path = %owner.display(), "a dead process's owner file couldn't be removed");
+        }
     }
     ended
 }
 
-/// Ends the tool `path` records, when it is still the very process recorded: its id.
+/// Ends every console tunnel recorded in `dir`, whichever process holds it (a `down` from
+/// another process than the viewer's), and removes their entries; the ids it ended. The holder's
+/// own end of it then finds it gone.
+pub(crate) async fn end_tunnels(dir: &Path) -> Vec<u32> {
+    let mut ended = Vec::new();
+    let Ok(read) = std::fs::read_dir(dir) else { return ended };
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|x| x != TUNNEL) {
+            continue;
+        }
+        ended.extend(end_entry(&path).await);
+        remove_entry(&path);
+    }
+    ended
+}
+
+/// An entry's text: the tool's id, its start, and the container it runs in, if any.
+fn entry_text(pid: u32, start: &Start, container: Option<&str>) -> String {
+    match container {
+        Some(name) => format!("{pid} {} {name}\n", start.entry_text()),
+        None => format!("{pid} {}\n", start.entry_text()),
+    }
+}
+
+/// An entry's text read back ([`entry_text`]).
+fn parse_entry(text: &str) -> Option<(u32, Start, Option<String>)> {
+    let mut words = text.split_whitespace();
+    let pid = words.next()?.parse().ok()?;
+    let start = Start::from_entry_text(words.next()?)?;
+    Some((pid, start, words.next().map(str::to_owned)))
+}
+
+/// Ends the tool `path` records, when it is still the very process recorded (its id), then
+/// removes the container it ran in, which its name marks as this tool's whatever became of the
+/// process.
 async fn end_entry(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).ok()?;
-    let (pid, start) = text.trim().split_once(' ')?;
-    let (pid, start): (u32, Start) = (pid.parse().ok()?, Start::parse(start)?);
+    let (pid, start, container) = parse_entry(&text)?;
     let now = os_start(pid).await;
-    if !now.as_ref().is_some_and(|now| start.is(now)) {
+    let ended = if now.as_ref().is_some_and(|now| start.same_process_as(now)) {
+        tracing::warn!(pid, "ending a tool a killed operation left running");
+        end_group(pid).await;
+        true
+    } else {
         tracing::debug!(pid, "a tool a killed operation recorded is gone, or its id names another process: left alone");
-        return None;
+        false
+    };
+    if let Some(name) = container {
+        remove_container(&name).await;
     }
-    tracing::warn!(pid, "ending a tool a killed operation left running");
-    end_group(pid).await;
-    Some(pid)
+    ended.then_some(pid)
+}
+
+/// Removes the container `name` a killed operation's tool ran in (`docker rm -f`); one already
+/// gone is traced only.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own clean-up of what a killed operation left: it can't go through the runner it cleans up after"
+)]
+async fn remove_container(name: &str) {
+    let mut cmd = tokio::process::Command::new("docker");
+    cmd.args(["rm", "-f", name])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    headless(&mut cmd);
+    match cmd.status().await {
+        Ok(status) if status.success() => {
+            tracing::warn!(container = name, "removed the container of a tool a killed operation left running");
+        }
+        Ok(status) => {
+            tracing::debug!(container = name, code = ?status.code(), "the container of a tool a killed operation recorded wasn't removed (gone already, or no engine)");
+        }
+        Err(e) => {
+            tracing::warn!(container = name, error = %e, "the container of a tool a killed operation recorded couldn't be removed: it may still run");
+        }
+    }
 }
 
 /// The start to record for the tool `pid` that was just started.
@@ -191,7 +302,12 @@ fn recorded_start(pid: u32) -> Option<Start> {
     if cfg!(target_os = "linux") {
         return proc_start(pid);
     }
-    Some(Start::At(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()))
+    now_secs().map(Start::At)
+}
+
+/// This computer's clock now, in seconds since the epoch.
+fn now_secs() -> Option<u64> {
+    Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
 }
 
 /// Process `pid`'s start on Linux: field 22 of `/proc/<pid>/stat` (after its name, which may
@@ -207,7 +323,9 @@ fn proc_start(pid: u32) -> Option<Start> {
 
 /// The start in a `/proc/<pid>/stat` line, in clock ticks since boot.
 fn stat_ticks(stat: &str) -> Option<u64> {
-    stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+    /// `starttime` is field 22 (from 1); the first field after the name is field 3.
+    const STARTTIME_AFTER_NAME: usize = 22 - 3;
+    stat.rsplit_once(')')?.1.split_whitespace().nth(STARTTIME_AFTER_NAME)?.parse().ok()
 }
 
 /// Process `pid`'s start as the OS has it now; none when there is no such process.
@@ -221,7 +339,11 @@ async fn os_start(pid: u32) -> Option<Start> {
 /// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
 /// stored (`lstart`, in UTC and the C locale's words).
 #[cfg(unix)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let out = tokio::process::Command::new("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .env("TZ", "UTC")
@@ -236,7 +358,11 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 
 /// When process `pid` started, as Windows stored its creation time (seconds since the epoch).
 #[cfg(windows)]
-async fn os_started_at(pid: u32) -> Option<u64> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a process's start time, under the runner it serves"
+)]
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
     let script = format!("[DateTimeOffset]::new((Get-Process -Id {pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()");
     let mut cmd = tokio::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -250,23 +376,17 @@ async fn os_started_at(pid: u32) -> Option<u64> {
 #[cfg(any(unix, test))]
 fn lstart(text: &str) -> Option<u64> {
     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const SECS_PER_MINUTE: u64 = 60;
+    const SECS_PER_HOUR: u64 = 60 * SECS_PER_MINUTE;
+    const SECS_PER_DAY: u64 = 24 * SECS_PER_HOUR;
     let words: Vec<&str> = text.split_whitespace().collect();
     let [_, month, day, time, year] = words.as_slice() else { return None };
-    let month = u64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
-    let (day, year): (u64, u64) = (day.parse().ok()?, year.parse().ok()?);
-    let mut hms = time.split(':').map(|p| p.parse::<u64>().ok());
-    let (h, m, s) = (hms.next()??, hms.next()??, hms.next()??);
-    Some(days_since_epoch(year, month, day)? * 86_400 + h * 3600 + m * 60 + s)
-}
-
-/// Days from 1970-01-01 to the date `year`-`month`-`day` (proleptic Gregorian, from 1970).
-#[cfg(any(unix, test))]
-fn days_since_epoch(year: u64, month: u64, day: u64) -> Option<u64> {
-    let leap = |y: u64| (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let before_year: u64 = (1970..year).map(|y| if leap(y) { 366 } else { 365 }).sum();
-    let lengths = [31, if leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let before_month: u64 = lengths.iter().take(usize::try_from(month.checked_sub(1)?).ok()?).sum();
-    Some(before_year + before_month + day.checked_sub(1)?)
+    let month = i64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
+    let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
+    let hms: Vec<u64> = time.split(':').map(str::parse).collect::<Result<_, _>>().ok()?;
+    // A leap second reads as 60.
+    let [h @ 0..24, m @ 0..60, s @ 0..=60] = hms.as_slice() else { return None };
+    Some(crate::clock::days_from_civil(year, month, day)? * SECS_PER_DAY + h * SECS_PER_HOUR + m * SECS_PER_MINUTE + s)
 }
 
 /// Asks the process group `pid` leads to stop (SIGINT, as a tool cut short is asked), and kills
@@ -284,7 +404,7 @@ async fn end_group(pid: u32) {
     let deadline = tokio::time::Instant::now() + GRACE;
     // Signal 0: whether anything of the group is left.
     while killpg(group, None).is_ok() && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(STOP_POLL).await;
     }
     if let Err(e) = killpg(group, Signal::SIGKILL) {
         tracing::debug!(pid, error = %e, "the tool's process group had ended");
@@ -293,6 +413,7 @@ async fn end_group(pid: u32) {
 
 /// Ends process `pid` and its tree (`taskkill /T /F`): Windows has no signal to ask it first.
 #[cfg(windows)]
+#[expect(clippy::disallowed_methods, reason = "the process module's own ending of a group a killed operation left")]
 async fn end_group(pid: u32) {
     let mut cmd = tokio::process::Command::new("taskkill");
     cmd.args(["/PID", &pid.to_string(), "/T", "/F"]).stdin(std::process::Stdio::null());
@@ -316,7 +437,7 @@ pub(crate) fn left_by_a_killed_process(dir: &Path, pid: u32) -> io::Result<()> {
     crate::store::private_dir(dir)?;
     std::fs::write(dir.join("dead.owner"), "")?;
     let start = recorded_start(pid).ok_or_else(|| io::Error::other("no such process"))?;
-    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.word()))
+    std::fs::write(dir.join(format!("dead-{pid}.tool")), format!("{pid} {}\n", start.entry_text()))
 }
 
 #[cfg(test)]

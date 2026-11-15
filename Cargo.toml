@@ -1,12 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/isothrum-compiler", "crates/isothrum-wasm", "crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "xtask"]
-# The fuzz targets are their own workspace: they build with nightly and libFuzzer
-# (`cargo run -p xtask -- fuzz`).
-exclude = ["fuzz"]
+members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-client", "crates/isothrum-service", "crates/isothrum-test-support", "xtask"]
 
 [workspace.package]
-version = "2.1.7"
+version = "3.0.0"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -16,15 +13,10 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-# Isoloom's published crates (crates.io), at the release this one pairs with. A change that needs
-# unreleased Isoloom API builds against a local Isoloom checkout through the git-ignored
-# `.cargo/config.toml` patch (CONTRIBUTING.md); the release step raises these pins to it.
-isoloom-spec = "2.0.0"
-isoloom-targets = "2.0.0"
-isoloom-manifest = "2.0.0"
-isoloom-plan = "2.0.0"
-isothrum-compiler = { path = "crates/isothrum-compiler", version = "2.1.7" }
-isothrum-runner = { path = "crates/isothrum-runner", version = "2.1.7" }
+isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
+isothrum-test-support = { path = "crates/isothrum-test-support" }
+isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
+isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
@@ -35,8 +27,8 @@ regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "net"] }
-process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group", "job-object", "creation-flags"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
 nix = { version = "0.31", default-features = false, features = ["signal"] }
 clap = { version = "4", features = ["derive", "string"] }
@@ -44,13 +36,22 @@ clap_complete = "4"
 tempfile = "3"
 proptest = { version = "1", default-features = false, features = ["std"] }
 insta = "1"
-wasm-bindgen = "0.2"
-wasm-bindgen-test = "0.3"
-zip = { version = "2", default-features = false, features = ["deflate"] }
 toml = "1"
+hcl = { package = "hcl-rs", version = "0.19" }
 tar = "0.4"
 flate2 = "1"
 getrandom = "0.4"
+# A port checked on all interfaces bound without listening (`net.rs`), its address reuse set.
+socket2 = "0.6"
+# The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
+# the same version, so one `libsqlite3-sys` serves both.
+rusqlite = { version = "0.41", features = ["bundled"] }
+# The runner service's local endpoint: a Unix domain socket, a Windows named pipe (with its ACL).
+interprocess = { version = "2.4", features = ["tokio"] }
+# The client's event stream is a `Stream`.
+futures-core = "0.3"
+# The SDDL string of the service's named pipe security descriptor (Windows).
+widestring = "1"
 
 # Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
 # practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now
@@ -58,8 +59,10 @@ getrandom = "0.4"
 # `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`), which fails when a count
 # goes up. An exception is a local `#[expect(lint, reason = "…")]`, never an `#[allow]`.
 [workspace.lints.rust]
-# No exception: processes are grouped and killed through `process-wrap`, never raw FFI.
-unsafe_code = "forbid"
+# One exception: creating a Windows tool inside its job object, which std can't do
+# (`isothrum-runner`'s `process/job.rs`, each block under `#[expect(unsafe_code)]` with its
+# `SAFETY:` comment). Everything else is grouped and killed through `process-wrap` or std.
+unsafe_code = "deny"
 unused = { level = "deny", priority = -1 }
 missing_docs = "deny"
 unreachable_pub = "deny"

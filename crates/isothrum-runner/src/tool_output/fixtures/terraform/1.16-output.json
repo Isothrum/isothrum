@@ -1,0 +1,24 @@
+{
+  "ip": {
+    "sensitive": false,
+    "type": "string",
+    "value": "10.0.0.5"
+  },
+  "machines": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "web": "string"
+      }
+    ],
+    "value": {
+      "web": "10.0.0.10"
+    }
+  },
+  "token": {
+    "sensitive": true,
+    "type": "string",
+    "value": "s3cretTOKEN"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "terraform_version": "1.9.8",
+  "platform": "linux_amd64",
+  "provider_selections": {},
+  "terraform_outdated": false
+}

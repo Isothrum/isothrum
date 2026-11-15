@@ -1,14 +1,16 @@
 //! The way into a machine as the embedder runs it: [`ShellCommand`], the command that opens a
 //! console there, and the one line a POSIX shell runs it from, its words quoted as a POSIX shell
 //! reads them back ([`sh_quote`], which every script the runner writes for a shell uses); the
-//! account a console may be asked to open as ([`check_user`]).
+//! account a console may be asked to open as ([`check_name`]); and the scripts a console runs once
+//! it is in ([`shells`]).
 
 use std::path::PathBuf;
 
-use isoloom_manifest::Machine;
 use serde::Serialize;
 
 use crate::error::{Error, Result};
+
+pub(crate) mod shells;
 
 /// The command that opens an interactive console into a machine (a shell in a container, `vagrant
 /// ssh`, an SSH login): the runner builds it (it alone knows the runtime: the Compose project and
@@ -31,6 +33,13 @@ pub struct ShellCommand {
 }
 
 impl ShellCommand {
+    /// The command `spec` starts, in its folder, else in `dir`, with its variables: a console an
+    /// adapter built.
+    pub(crate) fn of_spec(spec: crate::process::ProcessSpec, dir: &std::path::Path) -> ShellCommand {
+        let cwd = spec.cwd.unwrap_or_else(|| dir.to_path_buf());
+        ShellCommand::new(spec.program, spec.args, cwd).with_env(spec.env)
+    }
+
     /// `program` with `args`, run in `cwd`, with no variable of its own.
     #[must_use]
     pub fn new(program: impl Into<String>, args: impl IntoIterator<Item = impl Into<String>>, cwd: impl Into<PathBuf>) -> ShellCommand {
@@ -62,34 +71,29 @@ impl ShellCommand {
     }
 }
 
-/// Checks `user`, the account a console into `machine` is asked to open as: a name a Unix account
-/// has (1 to 32 lowercase letters, digits, `_` or `-`, starting with a letter or `_`), so it goes
-/// into a shell script, a `docker exec --user` or a `sudo -u` as it is; on a machine that isn't
-/// Windows, whose consoles have no such account switch.
+/// Checks `user`, an account a console is asked to open as: a name a Unix account has (1 to 32
+/// lowercase letters, digits, `_` or `-`, starting with a letter or `_`), so it goes into a shell
+/// script, a `docker exec --user` or a `sudo -u` as it is.
 ///
 /// # Errors
 ///
-/// `unsupported` for a name no account has, or a Windows machine.
-pub(crate) fn check_user<'u>(user: &'u str, machine: &Machine) -> Result<&'u str> {
+/// `unsupported` for a name no account has.
+pub(crate) fn check_name(user: &str) -> Result<&str> {
     let first = |c: char| c.is_ascii_lowercase() || c == '_';
     let rest = |c: char| first(c) || c.is_ascii_digit() || c == '-';
     let named = user.len() <= 32 && user.chars().next().is_some_and(first) && user.chars().all(rest);
-    if !named {
-        return Err(Error::Unsupported {
+    if named {
+        Ok(user)
+    } else {
+        Err(Error::Unsupported {
             what: format!("a console as `{user}`, which names no account (1 to 32 lowercase letters, digits, `_` or `-`, starting with a letter or `_`),"),
-        });
+        })
     }
-    if machine.windows {
-        return Err(Error::Unsupported {
-            what: format!("a console as `{user}` into `{}`, which runs Windows,", machine.name),
-        });
-    }
-    Ok(user)
 }
 
 /// `word` as a POSIX shell reads it back: as it is when nothing in it is special, else
 /// single-quoted.
-fn sh_word(word: &str) -> String {
+pub(crate) fn sh_word(word: &str) -> String {
     let plain = |c: char| c.is_ascii_alphanumeric() || "_-.,/:@%+=".contains(c);
     if !word.is_empty() && word.chars().all(plain) {
         word.to_owned()

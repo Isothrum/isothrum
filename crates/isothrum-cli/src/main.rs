@@ -1,9 +1,11 @@
-//! `isothrum`: runs what Isoloom generates, from the command line. The imperative shell around
+//! `isothrum`: runs a project folder (Compose, Vagrant, Terraform) from the command line. The imperative shell around
 //! the runner: it reads the environment and the arguments once, builds the runner, races the
 //! command against the signals that cancel it, and maps the outcome to an exit code.
 //!
-//! `args` is the command line's grammar and `commands` runs each command on the runner. What they
-//! share: where things are (`locate`), the values an operation runs with (`values`), where the
+//! `args` is the command line's grammar and `commands` runs each command on the runner; `remote`
+//! runs the operations and `status` through the home's runner service instead (started when it
+//! isn't running), and `serve` is that service. What they
+//! share: where the home is (`locate`), the values an operation runs with (`values`), where the
 //! command writes (`term`), what a person reads (`text`), the error that stops a command (`error`),
 //! the signals that cancel it (`cancel`), the exit code it gives (`exit`) and its tracing (`log`).
 
@@ -16,6 +18,8 @@ mod locate;
 mod log;
 #[cfg(test)]
 mod reference;
+mod remote;
+mod serve;
 mod term;
 #[cfg(test)]
 mod testing;
@@ -28,7 +32,7 @@ use std::sync::Arc;
 use clap::Parser;
 use isothrum_runner::{Runner, RunnerConfig, SystemProcesses};
 
-use crate::args::Cli;
+use crate::args::{Cli, Command};
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{Term, Trail, failure};
@@ -42,21 +46,56 @@ async fn main() -> ExitCode {
         Err(e) => return refused(&e, &term),
     };
     let var = |name: &str| std::env::var_os(name);
-    if let Err(e) = log::from_env(&var) {
+    let serving = match &cli.command {
+        Command::Serve(args) => Some(args),
+        _ => None,
+    };
+    let logged = log::from_env(&var, serving.filter(|a| a.detach).map(|_| "info"));
+    if let Err(e) = logged {
         term.err(&format!("warning: {e}"));
     }
     let trail = Trail::default();
-    let processes = SystemProcesses::default();
-    let outcome = tokio::select! {
-        outcome = start(&cli, &processes, &term, &trail, &var) => outcome,
-        signal = cancelled(&term) => Err(Error::Cancelled(signal)),
+    let outcome = if let Some(args) = serving {
+        match locate::home(cli.home.clone(), var("ISOTHRUM_HOME"), std::env::home_dir()) {
+            Ok(home) => serve::run(args, home, &term).await,
+            Err(e) => Err(e),
+        }
+    } else if let Some(command) = remote::command(&cli, &var) {
+        through_service(&cli, command, &term, &trail, &var).await
+    } else {
+        in_process(&cli, &term, &trail, &var).await
     };
-    tools_stopped(&processes, &term).await;
     let outcome = outcome.and_then(|verdict| term.finish().map(|()| verdict));
     if let Err(e) = &outcome {
         report(e, &cli, &term, &trail);
     }
     exit::code(&outcome)
+}
+
+/// Runs `cli` in this process, racing it against the signals that cancel it; returns once the
+/// tools it started have stopped.
+async fn in_process(cli: &Cli, term: &Term, trail: &Trail, var: &Var<'_>) -> Result<Verdict> {
+    let processes = SystemProcesses::default();
+    let outcome = tokio::select! {
+        outcome = start(cli, &processes, term, trail, var) => outcome,
+        signal = cancelled(term) => Err(Error::Cancelled(signal)),
+    };
+    tools_stopped(&processes, term).await;
+    outcome
+}
+
+/// Runs the operation or status `command` through the home's runner service, its events written
+/// as an in-process command writes them.
+async fn through_service(cli: &Cli, command: &args::RunnerCommand, term: &Term, trail: &Trail, var: &Var<'_>) -> Result<Verdict> {
+    let (json, human) = (term::Json(term), term::Human(term));
+    let sink: &dyn isothrum_runner::Events = if cli.json { &json } else { &human };
+    let traced = term::Traced { sink, trail };
+    let out = commands::Out {
+        json: cli.json,
+        term,
+        events: &traced,
+    };
+    remote::run(cli, command, &out, var).await
 }
 
 /// Runs `cli` on the runner this host and environment call for, built when the command needs one,
@@ -113,7 +152,7 @@ fn report(e: &Error, cli: &Cli, term: &Term, trail: &Trail) {
     }
     let kind = failure(e.code(), e.to_string());
     let run = commands::run_named(&cli.command).map(str::to_owned);
-    let event = trail.next(run, commands::op_of(&cli.command), kind);
+    let event = trail.next_event(run, commands::op_of(&cli.command), kind);
     term.json(&event);
 }
 
@@ -126,6 +165,6 @@ fn refused(e: &clap::Error, term: &Term) -> ExitCode {
         e.exit()
     }
     let kind = failure(isothrum_runner::ErrorCode::Usage, e.render().to_string().trim_end().to_owned());
-    term.json(&Trail::default().next(None, None, kind));
+    term.json(&Trail::default().next_event(None, None, kind));
     ExitCode::from(exit::USAGE)
 }

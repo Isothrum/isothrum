@@ -1,44 +1,53 @@
-//! A machine's graphical console (its screen, keyboard and mouse), found where its manifest says
-//! (`machines[].consoles`): [`Console`], what [`crate::Running::graphical_console`] gives, and
-//! [`ConsoleOffer`], what a status says of each machine's.
+//! A machine's graphical console (its screen, keyboard and mouse), found where its hypervisor
+//! keeps it, asked through the run's format driver ([`crate::formats::FormatDriver::graphical`]):
+//! [`ConsoleOffer`], what a status says of each machine's, and [`Console`], what
+//! [`crate::Running::graphical_console`] reaches.
 //!
 //! The runner guarantees where a console answers: a TCP port of this computer's loopback
-//! ([`Endpoint::Loopback`]), refusing one the hypervisor says listens anywhere else, opening an
-//! SSH tunnel to it when the manifest says so ([`tunnel`], held by the [`Console`]), or, for
-//! Proxmox VE, its API's own VNC websocket with a ticket for this session
+//! ([`Endpoint::Loopback`]), refusing one the hypervisor says listens anywhere else and one that
+//! doesn't answer, or, for Proxmox VE, its API's own VNC websocket with a ticket for this session
 //! ([`Endpoint::ProxmoxVnc`]).
 //!
-//! - **libvirt**: `virsh domdisplay <domain>` ([`vagrant::libvirt`]).
-//! - **QEMU** (vagrant-qemu): `info vnc` on the VM's monitor socket ([`vagrant::qemu`]).
-//! - **VirtualBox**: `VBoxManage showvminfo --machinereadable` ([`vagrant::vrde`]).
-//! - **The runner's own** (VMware): the port and password it chose for the run, kept in the
-//!   run's `consoles.json` ([`chosen`]).
-//! - **Proxmox**: `vncproxy` over its API with `curl`, its credentials from a config file the
-//!   runner writes owner-only and removes ([`proxmox`]).
-//! - **An SSH tunnel**: `ssh -N -L 127.0.0.1:<port>:<host>:<port>` ([`tunnel`]).
+//! - **VirtualBox** (Vagrant): its remote display (RDP), as `VBoxManage showvminfo` says of the
+//!   VM Vagrant records.
+//! - **libvirt** (Vagrant): `virsh domdisplay` of the domain Vagrant records.
+//! - **QEMU** (vagrant-qemu): `info vnc` on the VM's monitor socket.
+//! - **Proxmox VE** (Terraform): `vncproxy` over its API, the VM's node and id from the module's
+//!   state.
+//! - **A module's Windows VM** (Terraform): its Remote Desktop (or a VNC server the module names),
+//!   which answers only on the module's own networks, through an SSH tunnel from this computer's
+//!   loopback to the Linux machine beside it ([`tunnel`]): a [`Tunnel`] the [`Console`] owns.
+//!
+//! The other hypervisors give no screen the runner reaches: their VMs open in the hypervisor's
+//! own app ([`native`]).
 
-pub(crate) mod chosen;
 pub(crate) mod native;
-mod proxmox;
-mod tunnel;
-mod vagrant;
+pub(crate) mod tunnel;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
-use isoloom_manifest::{ConsoleProtocol, ConsoleSource, Machine, Provider};
 use serde::{Deserialize, Serialize};
 
-use crate::Result;
 use crate::error::Error;
-use crate::executor::Cx;
 use crate::secrets::SecretValue;
 
 pub use native::{NativeApp, NativeConsole, NativeNeed, NativeOpen};
-pub use proxmox::ProxmoxVnc;
-pub(crate) use proxmox::vm_states as proxmox_vm_states;
+pub use tunnel::Tunnel;
 
-/// What a status says of a machine's graphical console under the run's provider: its protocol,
-/// or `none` and why ([`isoloom_manifest::Console`]'s, as the manifest says it).
+/// The protocol a graphical console speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ConsoleProtocol {
+    /// VNC (RFB).
+    Vnc,
+    /// RDP (VirtualBox's remote display).
+    Rdp,
+    /// None the runner reaches.
+    None,
+}
+
+/// What a status says of a machine's graphical console: its protocol, or `none` and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct ConsoleOffer {
@@ -48,23 +57,32 @@ pub struct ConsoleOffer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     /// Why it can't be shown now, as the status found it on a running machine: its hypervisor
-    /// gives it no display (a VM started without one), or it doesn't answer where the hypervisor
-    /// says. None when it answers, or wasn't looked at: the machine doesn't run, it has none, or
-    /// it is reached through an SSH tunnel or Proxmox's API, which a status doesn't open.
+    /// gives it no display (a VM started without one). None when it can, or wasn't looked at: the
+    /// machine doesn't run, it has none, or it is reached through Proxmox's API, which a status
+    /// doesn't open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
 }
 
 impl ConsoleOffer {
-    /// What `machine`'s manifest offers under `provider`: `None` when it says nothing (a
-    /// container, a manifest written before consoles were).
-    #[must_use]
-    pub(crate) fn of(machine: &Machine, provider: Option<Provider>) -> Option<ConsoleOffer> {
-        machine.console(provider).map(|c| ConsoleOffer {
-            protocol: c.protocol,
-            note: c.note.clone(),
+    /// A console of `protocol`, saying `note`.
+    pub(crate) fn of(protocol: ConsoleProtocol, note: Option<&str>) -> ConsoleOffer {
+        ConsoleOffer {
+            protocol,
+            note: note.map(str::to_owned),
             unavailable: None,
-        })
+        }
+    }
+
+    /// No console the runner reaches, saying why.
+    pub(crate) fn none(why: &str) -> ConsoleOffer {
+        ConsoleOffer::of(ConsoleProtocol::None, Some(why))
+    }
+
+    /// This offer, unavailable now for the reason `why` gives (none: it is).
+    pub(crate) fn unavailable(mut self, why: Option<String>) -> ConsoleOffer {
+        self.unavailable = why;
+        self
     }
 }
 
@@ -72,15 +90,33 @@ impl ConsoleOffer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Endpoint {
-    /// A TCP port of this computer's loopback speaking the console's protocol (VNC, RDP): the
-    /// hypervisor's own, or a tunnel's the [`Console`] holds.
+    /// A TCP port of this computer's loopback speaking the console's protocol (VNC, RDP).
     Loopback(SocketAddr),
     /// Proxmox VE's VNC websocket, through its API.
     ProxmoxVnc(ProxmoxVnc),
 }
 
-/// A machine's graphical console the runner reached: where it answers, and how to sign in. A
-/// tunnel it opened lives as long as the console: drop it once the viewer is done.
+/// Proxmox VE's VNC websocket for one VM, opened for one session: connect to `websocket` with
+/// the `authorization` header (TLS unverified when `insecure`), then speak VNC with `ticket` as
+/// the password. Every secret is a [`SecretValue`]: never print or log one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ProxmoxVnc {
+    /// `wss://<server>/api2/json/nodes/<node>/qemu/<id>/vncwebsocket?port=<port>&vncticket=<ticket>`:
+    /// it holds the ticket.
+    pub websocket: SecretValue,
+    /// The VNC port `vncproxy` opened on the node (in the URL already).
+    pub port: u16,
+    /// The ticket: the VNC password, and in the URL.
+    pub ticket: SecretValue,
+    /// The header that signs the websocket in: its name (`Authorization`, `Cookie`) and value.
+    pub authorization: (String, SecretValue),
+    /// The server's certificate isn't verified (a self-signed one: the provider's own `insecure`
+    /// setting).
+    pub insecure: bool,
+}
+
+/// A machine's graphical console the runner reached: where it answers, and how to sign in.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Console {
@@ -90,238 +126,110 @@ pub struct Console {
     pub protocol: ConsoleProtocol,
     /// Where it answers.
     pub endpoint: Endpoint,
-    /// The account to sign in as, when it signs in to the machine's own OS (RDP to Windows).
+    /// The account to sign in as, when it signs in to the machine's own OS (a Windows VM's
+    /// Remote Desktop: its administrator).
     pub user: Option<String>,
-    /// Its password: the VNC password, or the account's. Never print or log it.
+    /// Its password (Proxmox's ticket, a Windows VM's administrator password, from the module's
+    /// sensitive output). Never print or log it.
     pub password: Option<SecretValue>,
-    /// What to know of it, as the manifest says (the extension pack VirtualBox's takes).
+    /// What to know of it (the extension pack VirtualBox's takes, the machine a tunnel goes
+    /// through).
     pub note: Option<String>,
-    /// The SSH tunnel it is reached through, while the console lives.
-    tunnel: Option<tunnel::Tunnel>,
+    /// The SSH tunnel it is reached through, when it is ([`Endpoint::Loopback`] is the tunnel's
+    /// end): open for as long as this console is kept, ended when it is dropped. A viewer keeps
+    /// the console while it shows the screen, and can wait on [`Tunnel::closed`] beside its own
+    /// end.
+    pub tunnel: Option<Tunnel>,
+    /// Where the tunnel goes, as the driver read it, until the core opens it
+    /// ([`crate::Running::graphical_console`]): the endpoint is no address until then.
+    pub(crate) through: Option<tunnel::To>,
 }
 
 impl Console {
-    /// A console of `machine` at `endpoint`, as `console` says.
-    fn new(machine: &Machine, console: &isoloom_manifest::Console, endpoint: Endpoint) -> Console {
+    /// `machine`'s console speaking `protocol` at `endpoint`.
+    pub(crate) fn new(machine: &str, protocol: ConsoleProtocol, endpoint: Endpoint) -> Console {
         Console {
-            machine: machine.name.to_string(),
-            protocol: console.protocol,
+            machine: machine.to_owned(),
+            protocol,
             endpoint,
             user: None,
             password: None,
-            note: console.note.clone(),
+            note: None,
             tunnel: None,
+            through: None,
         }
     }
 
-    /// Whether it is reached through an SSH tunnel the runner holds open.
-    #[must_use]
-    pub fn tunnelled(&self) -> bool {
-        self.tunnel.is_some()
+    /// `machine`'s console speaking `protocol`, reached through a tunnel to `to` the core opens:
+    /// its endpoint is the tunnel's end once it is.
+    pub(crate) fn tunnelled(machine: &str, protocol: ConsoleProtocol, to: tunnel::To) -> Console {
+        let unopened = Endpoint::Loopback(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let mut console = Console::new(machine, protocol, unopened);
+        console.through = Some(to);
+        console
+    }
+
+    /// The console, saying `note`.
+    pub(crate) fn with_note(mut self, note: Option<&str>) -> Console {
+        self.note = note.map(str::to_owned);
+        self
     }
 }
 
-/// The loopback address the runner's own listeners and tunnels take.
-pub(crate) const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-
 /// [`Error::NoConsole`] for `machine`, saying `why`.
-pub(crate) fn none(machine: &Machine, why: impl Into<String>) -> Error {
+pub(crate) fn no_console(machine: &str, why: impl Into<String>) -> Error {
     Error::NoConsole {
-        machine: machine.name.to_string(),
+        machine: machine.to_owned(),
         why: why.into(),
     }
 }
 
-/// `machine`'s console under `provider`, as the manifest gives it; refused when it lists none or
-/// says it has none (why, its note).
-pub(crate) fn offered(machine: &Machine, provider: Option<Provider>) -> Result<&isoloom_manifest::Console> {
-    let Some(console) = machine.console(provider) else {
-        return Err(none(machine, "the run's manifest lists no graphical console for it"));
-    };
-    if console.protocol == ConsoleProtocol::None || console.source.is_none() {
-        return Err(none(machine, console.note.clone().unwrap_or_else(|| "it has none".to_owned())));
-    }
-    Ok(console)
-}
-
 /// `at`, when it is on this computer's loopback; refused otherwise, whatever the hypervisor says:
 /// the runner never hands out a console on the network.
-pub(crate) fn on_loopback(machine: &Machine, at: SocketAddr) -> Result<Endpoint> {
+pub(crate) fn on_loopback(machine: &str, at: SocketAddr) -> crate::Result<SocketAddr> {
     if at.ip().is_loopback() {
-        Ok(Endpoint::Loopback(at))
+        Ok(at)
     } else {
-        Err(none(
+        Err(no_console(
             machine,
             format!("its console listens on {at}, not on this computer's loopback: the runner refuses it"),
         ))
     }
 }
 
-/// How long a console on the loopback gets to accept a connection before it is said not to
-/// answer.
-const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
-
-/// `at`, once a connection to it is accepted within [`ANSWER_LIMIT`]; refused otherwise, saying
-/// where it didn't answer.
-async fn answering(cx: &Cx<'_>, machine: &Machine, at: SocketAddr) -> Result<Endpoint> {
-    let ports = &cx.ports();
-    if ports.reachable(&at.ip().to_string(), at.port(), ANSWER_LIMIT).await {
-        Ok(Endpoint::Loopback(at))
-    } else {
-        Err(none(machine, format!("its screen didn't answer at {at}")))
-    }
-}
-
-/// Where the hypervisor of this computer says `machine`'s console `console` answers, with the
-/// password the runner chose for it, when the hypervisor keeps it (libvirt, QEMU, VirtualBox,
-/// the runner's own); `None` for one reached through Proxmox's API or an SSH tunnel.
-async fn local(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console) -> Option<Result<(SocketAddr, Option<SecretValue>)>> {
-    let at = |endpoint: Result<Endpoint>| match endpoint {
-        Ok(Endpoint::Loopback(at)) => Ok((at, None)),
-        Ok(Endpoint::ProxmoxVnc(_)) => Err(none(machine, "its hypervisor gives no port of this computer")),
-        Err(e) => Err(e),
-    };
-    Some(match console.source.as_ref()? {
-        ConsoleSource::Libvirt {} => at(vagrant::libvirt(cx, machine).await),
-        ConsoleSource::QemuMonitor {} => at(vagrant::qemu(cx, machine).await),
-        ConsoleSource::Vrde {} => at(vagrant::vrde(cx, machine).await),
-        ConsoleSource::Runner {} => chosen::of(cx, machine).map(|(port, password)| (SocketAddr::new(LOOPBACK, port), Some(password))),
-        ConsoleSource::ProxmoxApi { .. } | ConsoleSource::SshTunnel { .. } => return None,
-    })
-}
-
-/// Why `machine`'s console `console` (one [`offered`] gave) can't be shown now, the machine
-/// running: its hypervisor gives it no display, or it doesn't answer there. None when it answers,
-/// or is reached through Proxmox's API or an SSH tunnel, which this doesn't open.
-pub(crate) async fn unavailable(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console) -> Option<String> {
-    let found = match local(cx, machine, console).await? {
-        Ok((at, _)) => answering(cx, machine, at).await.map(drop),
-        Err(e) => Err(e),
-    };
+/// Why `found` (an attempt to reach a console) gives none, as a status says it: the error's own
+/// words for a console the hypervisor doesn't give, any other error's text.
+pub(crate) fn why_not<T>(found: crate::Result<T>) -> Option<String> {
     match found {
-        Ok(()) => None,
+        Ok(_) => None,
         Err(Error::NoConsole { why, .. }) => Some(why),
         Err(e) => Some(e.to_string()),
     }
-}
-
-/// Reaches `machine`'s console `console` (one [`offered`] gave), the machine running and the
-/// run's outputs bound in `cx`: one on the loopback only once it answers there.
-pub(crate) async fn reach(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console, outputs: &[crate::OutputValue]) -> Result<Console> {
-    let at = |field: &str| format!("machines.{}.consoles.source.{field}", machine.name);
-    if let Some(found) = local(cx, machine, console).await {
-        let (address, password) = found?;
-        let mut c = Console::new(machine, console, answering(cx, machine, address).await?);
-        c.password = password;
-        return with_account(cx, machine, console, outputs, c);
-    }
-    let reached = match console.source.as_ref() {
-        None => return Err(none(machine, "it has none")),
-        Some(ConsoleSource::Libvirt {} | ConsoleSource::QemuMonitor {} | ConsoleSource::Vrde {} | ConsoleSource::Runner {}) => {
-            return Err(none(machine, "its hypervisor didn't say where it is"));
-        }
-        Some(ConsoleSource::ProxmoxApi { .. }) => {
-            let vnc = proxmox::vnc(cx, machine, console).await?;
-            let mut c = Console::new(machine, console, Endpoint::ProxmoxVnc(vnc.clone()));
-            c.password = Some(vnc.ticket.clone());
-            c
-        }
-        Some(ConsoleSource::SshTunnel { via, user, host, port }) => {
-            let via = cx.vars.render(via, &at("via"))?;
-            let user = cx.vars.render(user, &at("user"))?;
-            let host = cx.vars.render(host, &at("host"))?;
-            let open = tunnel::open(cx, machine, &tunnel::To { via, user, host, port: *port }).await?;
-            let mut c = Console::new(machine, console, Endpoint::Loopback(open.local));
-            c.tunnel = Some(open);
-            c
-        }
-    };
-    with_account(cx, machine, console, outputs, reached)
-}
-
-/// `reached` with the account `console` signs in as, when it names one.
-fn with_account(cx: &Cx<'_>, machine: &Machine, console: &isoloom_manifest::Console, outputs: &[crate::OutputValue], mut reached: Console) -> Result<Console> {
-    let at = |field: &str| format!("machines.{}.consoles.source.{field}", machine.name);
-    if let Some(account) = &console.account {
-        reached.user = Some(cx.vars.render(&account.user, &at("account.user"))?);
-        reached.password = Some(SecretValue::new(revealed(cx, &account.password, outputs, &at("account.password"))?));
-    }
-    Ok(reached)
-}
-
-/// Where a tunnel goes, for the run's tests.
-#[cfg(test)]
-pub(crate) fn tunnel_to_for_tests(via: &str, user: &str, host: &str, port: u16) -> tunnel::To {
-    tunnel::To {
-        via: via.into(),
-        user: user.into(),
-        host: host.into(),
-        port,
-    }
-}
-
-/// A tunnel's `ssh`, for the run's tests.
-#[cfg(test)]
-pub(crate) fn tunnel_spec_for_tests(cx: &Cx<'_>, to: &tunnel::To, local: u16) -> Result<crate::process::ProcessSpec> {
-    tunnel::spec(cx, to, local)
-}
-
-/// `template` filled, a sensitive output it is alone made of revealed (one a template is never
-/// otherwise given: a password the viewer signs in with).
-fn revealed(cx: &Cx<'_>, template: &isoloom_manifest::Template, outputs: &[crate::OutputValue], at: &str) -> Result<String> {
-    if let [isoloom_manifest::Part::Placeholder(isoloom_manifest::Placeholder::Output(name))] = template.parts()
-        && let Some(value) = outputs.iter().find(|o| o.name == name.as_str()).and_then(crate::OutputValue::revealed)
-    {
-        return Ok(value.to_owned());
-    }
-    cx.vars.render(template, at)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn machine(consoles: &serde_json::Value) -> Machine {
-        serde_json::from_value(serde_json::json!({ "name": "web", "role": "member", "addresses": {}, "consoles": consoles })).unwrap()
-    }
-
-    #[test]
-    fn a_machine_offers_its_providers_console_or_says_why_not() {
-        let m = machine(&serde_json::json!([
-            { "providers": ["libvirt"], "protocol": "vnc", "source": { "from": "libvirt" } },
-            { "providers": ["parallels"], "protocol": "none", "note": "no console set up" },
-        ]));
-        assert_eq!(offered(&m, Some(Provider::Libvirt)).unwrap().protocol, ConsoleProtocol::Vnc);
-        let parallels = offered(&m, Some(Provider::Parallels)).unwrap_err();
-        assert_eq!(
-            (parallels.code(), parallels.to_string()),
-            (
-                crate::ErrorCode::NoConsole,
-                "machine `web` has no graphical console: no console set up".to_owned()
-            )
-        );
-        let other = offered(&m, Some(Provider::Hyperv)).unwrap_err();
-        assert!(other.to_string().ends_with("the run's manifest lists no graphical console for it"), "{other}");
-        assert_eq!(
-            ConsoleOffer::of(&m, Some(Provider::Parallels)),
-            Some(ConsoleOffer {
-                protocol: ConsoleProtocol::None,
-                note: Some("no console set up".into()),
-                unavailable: None,
-            })
-        );
-        assert_eq!(ConsoleOffer::of(&machine(&serde_json::json!([])), None), None, "a container says nothing");
-    }
-
     #[test]
     fn a_console_off_the_loopback_is_refused() {
-        let m = machine(&serde_json::json!([]));
-        assert!(matches!(on_loopback(&m, "127.0.0.1:5900".parse().unwrap()), Ok(Endpoint::Loopback(_))));
-        assert!(matches!(on_loopback(&m, "[::1]:5900".parse().unwrap()), Ok(Endpoint::Loopback(_))));
+        assert!(on_loopback("web", "127.0.0.1:5900".parse().unwrap()).is_ok());
+        assert!(on_loopback("web", "[::1]:5900".parse().unwrap()).is_ok());
         for lan in ["0.0.0.0:5900", "192.168.1.20:5900", "[::]:5900"] {
-            let err = on_loopback(&m, lan.parse().unwrap()).unwrap_err();
+            let err = on_loopback("web", lan.parse().unwrap()).unwrap_err();
             assert_eq!(err.code(), crate::ErrorCode::NoConsole, "{lan}");
             assert!(err.to_string().contains("not on this computer's loopback"), "{err}");
         }
+    }
+
+    #[test]
+    fn an_offer_says_its_protocol_and_why_it_cant_be_shown() {
+        let offer = ConsoleOffer::of(ConsoleProtocol::Rdp, Some("needs the extension pack")).unavailable(Some("off".into()));
+        let json = serde_json::to_value(&offer).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "protocol": "rdp", "note": "needs the extension pack", "unavailable": "off" })
+        );
+        assert_eq!(serde_json::to_value(ConsoleOffer::none("x")).unwrap()["protocol"], "none");
     }
 }

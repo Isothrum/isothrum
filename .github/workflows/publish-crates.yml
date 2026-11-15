@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           # Leaf crates first: each crate's dependencies are published before it.
-          crates=(isothrum-compiler isothrum-runner isothrum-machine isothrum-wasm isothrum-cli)
+          crates=(isothrum-runner isothrum-machine isothrum-cli)
           version="${VERSION}"
           echo "Publishing Isothrum crates at version ${version}"
           for crate in "${crates[@]}"; do

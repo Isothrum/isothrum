@@ -1,65 +1,62 @@
-//! What a start or a park refuses before anything runs: a mode the manifest has no steps for, a
-//! param the runner sets, a host port it can't pin.
+//! What a run's state refuses before any tool acts: an `up` of a run that is up and live, a
+//! `resume` of a run of which nothing is left.
 
 use super::*;
-use crate::Park;
 
-/// A fresh run with no free host port left for an ephemeral publish fails the pinning step,
-/// naming the port, rather than start on an ephemeral one.
-#[tokio::test]
-async fn no_free_host_port_fails_the_pinning_of_a_fresh_run() {
-    let f = fixture_with_ports(WEB_PORTAL, []);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert!(
-        matches!(&err, crate::Error::ToolFailed { step, reason } if step == "pin-ports" && reason.contains("no free host port over tcp")),
-        "{err}"
-    );
-    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+/// The code of the `error` event `events` ended with.
+fn error_code(events: &Recorder) -> Option<ErrorCode> {
+    events.events().into_iter().find_map(|e| match e.kind {
+        EventKind::Error { code, .. } => Some(code),
+        _ => None,
+    })
 }
 
-/// Regression: a loopback that couldn't be bound (no file descriptor left) read as no free port
-/// left, a diagnosis that sends the user looking for what holds their ports.
 #[tokio::test]
-async fn a_loopback_that_cant_be_bound_fails_the_pinning_with_why() {
-    let f = fixture();
-    f.ports.refuse_binds(std::io::ErrorKind::QuotaExceeded);
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.up(&opts(), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
-    assert!(err.to_string().starts_with("a tcp port on 127.0.0.1 couldn't be bound: "), "{err}");
-    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+async fn an_up_of_a_ready_live_run_is_already_running_and_starts_nothing() {
+    let (_root, project, runner, _engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    let events = Recorder::new();
+    let e = run.up(&RunOptions::new(), &events).await.expect_err("up already");
+    assert_eq!(e.code(), ErrorCode::AlreadyRunning, "{e}");
+    assert_eq!(error_code(&events), Some(ErrorCode::AlreadyRunning));
+    assert_eq!(ups(&fake), 1, "the second up started nothing");
+    assert_eq!(run.status().await.expect("status").state, RunState::Ready, "and left the run as it was");
 }
 
-/// A park in a mode the manifest has no steps for is refused (`not_parkable`) before anything
-/// runs.
 #[tokio::test]
-async fn a_park_in_a_mode_the_manifest_lacks_is_not_parkable() {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
-    m["lifecycle"]["park"].as_object_mut().unwrap().remove("shutdown");
-    let f = fixture_with(&m.to_string());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    run.up(&opts(), &Recorder::new()).await.unwrap();
-    let calls = f.fake.calls().len();
-    let err = run.park(Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.unwrap_err();
-    assert_eq!(err.code(), crate::ErrorCode::NotParkable, "{err}");
-    assert_eq!(f.fake.calls().len(), calls, "nothing ran");
-    run.park(Park::Pause, &RunOptions::new(), &Recorder::new()).await.unwrap();
+async fn an_up_of_a_run_recorded_ready_whose_machines_are_gone_starts_it_again() {
+    let (_root, project, runner, engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    engine.lock().unwrap_or_else(PoisonError::into_inner).up = false;
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("started again");
+    assert_eq!(ups(&fake), 2);
 }
 
-/// A param the runner sets (`set_by: runner`) given by the embedder is refused before anything
-/// runs, naming it.
 #[tokio::test]
-async fn a_param_the_runner_sets_is_refused_from_the_embedder() {
-    let mut m: serde_json::Value = serde_json::from_str(WEB_PORTAL).unwrap();
-    let param = m["params"].as_array_mut().unwrap().iter_mut().find(|p| p["name"] == "ISOLOOM_DERIVED").unwrap();
-    param["set_by"] = "runner".into();
-    let f = fixture_with(&m.to_string());
-    let run = f.runner.open(&f.manifest, None).unwrap();
-    let err = run.up(&opts().with_param("ISOLOOM_DERIVED", "1"), &Recorder::new()).await.unwrap_err();
-    assert!(
-        err.to_string().contains("ISOLOOM_DERIVED") && err.to_string().contains("is set by the runner, not the embedder"),
-        "{err}"
-    );
-    assert_eq!(f.called(" up --detach "), 0, "nothing started");
+async fn a_resume_of_nothing_is_nothing_to_resume_and_runs_no_tool() {
+    let (_root, project, runner, _engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    let never = run.resume(&RunOptions::new(), &Recorder::new()).await.expect_err("never started");
+    assert_eq!(never.code(), ErrorCode::NothingToResume, "{never}");
+    assert_eq!(fake.calls().len(), 0, "no tool ran");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    run.down(&RunOptions::new(), &Recorder::new()).await.expect("down");
+    let after_down = run.resume(&RunOptions::new(), &Recorder::new()).await.expect_err("brought down");
+    assert_eq!(after_down.code(), ErrorCode::NothingToResume, "{after_down}");
+}
+
+#[tokio::test]
+async fn a_parked_run_whose_machines_were_removed_has_nothing_to_resume_and_reads_absent() {
+    let (_root, project, runner, engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    run.park(crate::Park::Pause, &RunOptions::new(), &Recorder::new()).await.expect("parked");
+    engine.lock().unwrap_or_else(PoisonError::into_inner).up = false;
+    let e = run.resume(&RunOptions::new(), &Recorder::new()).await.expect_err("nothing left");
+    assert_eq!(e.code(), ErrorCode::NothingToResume, "{e}");
+    assert_eq!(ups(&fake), 1, "nothing was started again");
+    let record = runner.store.record(run.name()).expect("the store").expect("the record");
+    assert_eq!(record.state, RunState::Absent, "the parked mark is dropped");
 }

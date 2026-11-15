@@ -24,13 +24,14 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [Exit codes and error codes](reference/exit-codes.md)
 - [Environment variables](reference/environment.md)
 - [Event stream](reference/events.md) and the `status --json` schema
-- [State layout](reference/state.md): the home, `record.json`
+- [State layout](reference/state.md): the home, `state.db`
+- [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
-- [GNS3 feature coverage](reference/gns3-coverage.md) of the compiler and the runner
+- [Terraform modules](reference/terraform.md): what any module gets, and the optional outputs and values that add screens and Proxmox reads
+- [Vagrant projects](reference/vagrant.md): the optional variables that keep a forwarded port's host port across boots
+- [GNS3 feature coverage](reference/gns3-coverage.md) of the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),
-  [isothrum-compiler](https://docs.rs/isothrum-compiler),
-  [isothrum-machine](https://docs.rs/isothrum-machine),
-  [isothrum-wasm](https://docs.rs/isothrum-wasm)
+  [isothrum-machine](https://docs.rs/isothrum-machine)
 
 ## Explanation
 
@@ -40,6 +41,6 @@ Organised by what you need: learning, doing a task, looking something up, or und
 ## Project
 
 - [Policies](policies.md): what is stable, run manifest versions, MSRV, supported releases
-- [Migrating to 2.0](migrating-to-2.0.md) and [to 1.0](migrating-to-1.0.md)
+- [Upgrading from 2.x](reference/state.md#upgrading-from-2x); [Migrating to 2.0](migrating-to-2.0.md) and [to 1.0](migrating-to-1.0.md)
 - [Changelog](../CHANGELOG.md), [Contributing](../CONTRIBUTING.md), [Security](../SECURITY.md),
   [Support](../SUPPORT.md), [Publishing a release](../PUBLISHING.md)

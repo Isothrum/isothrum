@@ -1,360 +1,8 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Isothrum run status",
-  "description": "A run as it stands.",
-  "type": "object",
-  "properties": {
-    "state": {
-      "description": "Where it stands. While an operation holds the run: the moving state it is in (`starting`\nthrough an `up`), else, before it records one or for an operation that leaves the run as\nit was meanwhile (an `update`: `ready`), the state the run's record holds.",
-      "$ref": "#/$defs/RunState"
-    },
-    "live": {
-      "description": "Whether the machines and outputs were read from the engine now. False while an operation\nholds the run (in this process or another), whose tools a read would contend with (Vagrant\nrefuses to read a VM's state while a `vagrant up` provisions it): they are then as the\nrunner last read them (none before it ever did), and the outputs the engine itself gives\nare left out.",
-      "type": "boolean",
-      "default": true
-    },
-    "provider": {
-      "description": "The Vagrant provider it uses, when it has one.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Provider"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "machines": {
-      "description": "Every machine of the manifest.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/MachineStatus"
-      }
-    },
-    "networks": {
-      "description": "The run's networks.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/NetworkView"
-      }
-    },
-    "outputs": {
-      "description": "Its outputs, each filled from what was read. While not [`Status::live`], an output the\nengine itself gives (a Terraform output) has only its default, if any.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/OutputValue"
-      }
-    },
-    "message": {
-      "description": "The run's message, filled, once the run is ready.",
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "native": {
-      "description": "The hypervisor's own app that shows the run's running VMs in a window of its own\n([`crate::Running::native_console`]), and what of it this computer needs; none where the\nrun's provider has none (vagrant-qemu), or for a run of containers.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/NativeApp"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    }
-  },
-  "required": [
-    "state",
-    "machines",
-    "networks",
-    "outputs"
-  ],
   "$defs": {
-    "RunState": {
-      "description": "Where a run stands.",
-      "oneOf": [
-        {
-          "description": "Being started.",
-          "type": "string",
-          "const": "starting"
-        },
-        {
-          "description": "Up, every member machine running.",
-          "type": "string",
-          "const": "ready"
-        },
-        {
-          "description": "Something of it exists, but not every member machine runs (a failed start, a machine down).",
-          "type": "string",
-          "const": "failed"
-        },
-        {
-          "description": "Being parked.",
-          "type": "string",
-          "const": "parking"
-        },
-        {
-          "description": "Parked: stopped, what it created kept.",
-          "type": "string",
-          "const": "parked"
-        },
-        {
-          "description": "Being resumed.",
-          "type": "string",
-          "const": "resuming"
-        },
-        {
-          "description": "Being removed.",
-          "type": "string",
-          "const": "stopping"
-        },
-        {
-          "description": "Nothing of it exists.",
-          "type": "string",
-          "const": "absent"
-        }
-      ]
-    },
-    "Provider": {
-      "description": "A Vagrant provider (`vagrant up --provider`).",
-      "oneOf": [
-        {
-          "description": "VirtualBox.",
-          "type": "string",
-          "const": "virtualbox"
-        },
-        {
-          "description": "VMware Workstation or Fusion.",
-          "type": "string",
-          "const": "vmware_desktop"
-        },
-        {
-          "description": "Hyper-V.",
-          "type": "string",
-          "const": "hyperv"
-        },
-        {
-          "description": "Parallels Desktop.",
-          "type": "string",
-          "const": "parallels"
-        },
-        {
-          "description": "libvirt (KVM).",
-          "type": "string",
-          "const": "libvirt"
-        },
-        {
-          "description": "QEMU.",
-          "type": "string",
-          "const": "qemu"
-        },
-        {
-          "description": "UTM.",
-          "type": "string",
-          "const": "utm"
-        },
-        {
-          "description": "An ESXi server.",
-          "type": "string",
-          "const": "vmware_esxi"
-        }
-      ]
-    },
-    "MachineStatus": {
-      "description": "One machine of the manifest, as it stands.",
-      "type": "object",
-      "properties": {
-        "name": {
-          "description": "Its name.",
-          "type": "string"
-        },
-        "role": {
-          "description": "What it is for.",
-          "$ref": "#/$defs/Role"
-        },
-        "state": {
-          "description": "Its state.",
-          "$ref": "#/$defs/MachineState"
-        },
-        "addresses": {
-          "description": "Its static addresses, by network.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "published": {
-          "description": "Its published ports.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/PublishedPort"
-          }
-        },
-        "console": {
-          "description": "Its graphical console under the run's provider, as the manifest offers it (`none` and\nwhy where there is none); `None` when the manifest says nothing (a container).",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConsoleOffer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "name",
-        "role",
-        "state",
-        "addresses",
-        "published"
-      ]
-    },
-    "Role": {
-      "description": "What a machine is to the run.",
-      "oneOf": [
-        {
-          "description": "One of the environment's own machines: one the spec describes.",
-          "type": "string",
-          "const": "member"
-        },
-        {
-          "description": "A one-shot that must exit 0 (an `init:` script).",
-          "type": "string",
-          "const": "job"
-        },
-        {
-          "description": "Isoloom's plumbing (the controller, probes, route keepers): never shown, never counted as down.",
-          "type": "string",
-          "const": "infra"
-        },
-        {
-          "description": "The user's seat, or its stand-in.",
-          "type": "string",
-          "const": "access"
-        },
-        {
-          "description": "An observer (`tools:`).",
-          "type": "string",
-          "const": "tool"
-        },
-        {
-          "description": "A check runner (Compose profile `check`).",
-          "type": "string",
-          "const": "check"
-        }
-      ]
-    },
-    "MachineState": {
-      "description": "A machine's state, as its engine reports it.",
-      "oneOf": [
-        {
-          "description": "Running.",
-          "type": "string",
-          "const": "running"
-        },
-        {
-          "description": "Running, but failing its health check.",
-          "type": "string",
-          "const": "unhealthy"
-        },
-        {
-          "description": "Exited with this code (a job that finished, or a machine that died).",
-          "type": "object",
-          "properties": {
-            "exited": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          "required": [
-            "exited"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "description": "Created or stopped, not running.",
-          "type": "string",
-          "const": "stopped"
-        },
-        {
-          "description": "Not there.",
-          "type": "string",
-          "const": "absent"
-        },
-        {
-          "description": "Something else, as the engine says it.",
-          "type": "object",
-          "properties": {
-            "unknown": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "unknown"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "description": "Not read: another process acts on it (Vagrant's lock on the machine, held by a `vagrant\nup` that isn't this runner's), so its state is whatever that action leaves.",
-          "type": "string",
-          "const": "busy"
-        }
-      ]
-    },
-    "PublishedPort": {
-      "description": "A published port: where a machine's port answers on the host.",
-      "type": "object",
-      "properties": {
-        "port": {
-          "description": "The machine's port.",
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "protocol": {
-          "description": "`tcp` or `udp`.",
-          "$ref": "#/$defs/Protocol"
-        },
-        "host_port": {
-          "description": "The host port.",
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
-        }
-      },
-      "required": [
-        "port",
-        "protocol",
-        "host_port"
-      ]
-    },
-    "Protocol": {
-      "description": "A port's transport protocol.",
-      "oneOf": [
-        {
-          "description": "TCP.",
-          "type": "string",
-          "const": "tcp"
-        },
-        {
-          "description": "UDP.",
-          "type": "string",
-          "const": "udp"
-        }
-      ]
-    },
     "ConsoleOffer": {
-      "description": "What a status says of a machine's graphical console under the run's provider: its protocol,\nor `none` and why ([`isoloom_manifest::Console`]'s, as the manifest says it).",
-      "type": "object",
+      "description": "What a status says of a machine's graphical console: its protocol, or `none` and why.",
       "properties": {
-        "protocol": {
-          "description": "`vnc`, `rdp`, or `none`.",
-          "$ref": "#/$defs/ConsoleProtocol"
-        },
         "note": {
           "description": "Why there is none, or what it needs (an extension pack).",
           "type": [
@@ -362,8 +10,12 @@
             "null"
           ]
         },
+        "protocol": {
+          "$ref": "#/$defs/ConsoleProtocol",
+          "description": "`vnc`, `rdp`, or `none`."
+        },
         "unavailable": {
-          "description": "Why it can't be shown now, as the status found it on a running machine: its hypervisor\ngives it no display (a VM started without one), or it doesn't answer where the hypervisor\nsays. None when it answers, or wasn't looked at: the machine doesn't run, it has none, or\nit is reached through an SSH tunnel or Proxmox's API, which a status doesn't open.",
+          "description": "Why it can't be shown now, as the status found it on a running machine: its hypervisor\ngives it no display (a VM started without one). None when it can, or wasn't looked at: the\nmachine doesn't run, it has none, or it is reached through Proxmox's API, which a status\ndoesn't open.",
           "type": [
             "string",
             "null"
@@ -372,69 +24,419 @@
       },
       "required": [
         "protocol"
-      ]
+      ],
+      "type": "object"
     },
     "ConsoleProtocol": {
       "description": "The protocol a graphical console speaks.",
       "oneOf": [
         {
+          "const": "vnc",
           "description": "VNC (RFB).",
-          "type": "string",
-          "const": "vnc"
+          "type": "string"
         },
         {
-          "description": "Microsoft's Remote Desktop Protocol.",
-          "type": "string",
-          "const": "rdp"
+          "const": "rdp",
+          "description": "RDP (VirtualBox's remote display).",
+          "type": "string"
         },
         {
-          "description": "No graphical console: the console's `note` says why.",
-          "type": "string",
-          "const": "none"
+          "const": "none",
+          "description": "None the runner reaches.",
+          "type": "string"
         }
       ]
     },
-    "NetworkView": {
-      "description": "A network of the run.",
-      "type": "object",
+    "Desired": {
+      "description": "What a user wants of a run: set by the commands, never by an observation.",
+      "oneOf": [
+        {
+          "const": "running",
+          "description": "Up and ready.",
+          "type": "string"
+        },
+        {
+          "const": "parked",
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string"
+        },
+        {
+          "const": "gone",
+          "description": "Nothing of it left.",
+          "type": "string"
+        }
+      ]
+    },
+    "ErrorCode": {
+      "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
+      "oneOf": [
+        {
+          "const": "project_invalid",
+          "description": "The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or\nTerraform module, or the files of several formats with none named.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported",
+          "description": "The manifest needs something this runner doesn't do (a target that doesn't run on this\nhost, a delivery its driver doesn't take, an action of another driver's, a step with no\ncommand for this host), or the call asks the run for something its target can't do (a\nconsole into a Compose service with no VM, a Vagrant VM joined to another network).",
+          "type": "string"
+        },
+        {
+          "const": "io",
+          "description": "A file or folder couldn't be read or written, or a socket on this computer bound.",
+          "type": "string"
+        },
+        {
+          "const": "locked",
+          "description": "Another process runs an operation on this run, or holds the home's slot pick.",
+          "type": "string"
+        },
+        {
+          "const": "tool_missing",
+          "description": "A tool a step runs isn't installed.",
+          "type": "string"
+        },
+        {
+          "const": "tool_failed",
+          "description": "A step's tool ran and failed.",
+          "type": "string"
+        },
+        {
+          "const": "tool_unanswered",
+          "description": "A tool the run needs is installed, but its probe got no answer from it (Docker's engine\nstopped, or not this account's to reach): the message says what the tool said.",
+          "type": "string"
+        },
+        {
+          "const": "tool_too_old",
+          "description": "A tool answers at a version older than the run needs.",
+          "type": "string"
+        },
+        {
+          "const": "timeout",
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
+          "type": "string"
+        },
+        {
+          "const": "download_stalled",
+          "description": "A download (what a step needs, fetched in a phase of its own before it: a Compose start's\nimages, a Vagrant start's boxes; or a step the manifest marks a download) showed no\nprogress for as long as a download may, and was stopped.",
+          "type": "string"
+        },
+        {
+          "const": "download_failed",
+          "description": "A download couldn't be made: its tool failed (the message says why: a registry or a box\ncatalog refusing it, a name it doesn't know, the network). A failure for the network that\npasses (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried\nagain first, up to three more times: the message is the last try's.",
+          "type": "string"
+        },
+        {
+          "const": "already_running",
+          "description": "The run is already up.",
+          "type": "string"
+        },
+        {
+          "const": "running_elsewhere",
+          "description": "The run is recorded on another place (server or account) than the one asked for.",
+          "type": "string"
+        },
+        {
+          "const": "port_in_use",
+          "description": "A host port the run publishes is taken.",
+          "type": "string"
+        },
+        {
+          "const": "not_parkable",
+          "description": "The manifest has no park steps for that mode.",
+          "type": "string"
+        },
+        {
+          "const": "nothing_to_resume",
+          "description": "Nothing of the run, or not every one of its machines, is left to resume.",
+          "type": "string"
+        },
+        {
+          "const": "not_running",
+          "description": "The run isn't up.",
+          "type": "string"
+        },
+        {
+          "const": "not_ready",
+          "description": "A ready condition didn't hold.",
+          "type": "string"
+        },
+        {
+          "const": "secret_missing",
+          "description": "A required secret or input has no value.",
+          "type": "string"
+        },
+        {
+          "const": "input_invalid",
+          "description": "A value or secret that can't be handed to the tools (its name empty or holding `=`, a\nNUL in it).",
+          "type": "string"
+        },
+        {
+          "const": "run_name",
+          "description": "A run name that can't name a run.",
+          "type": "string"
+        },
+        {
+          "const": "provider_refused",
+          "description": "The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or\nlacks its plugin.",
+          "type": "string"
+        },
+        {
+          "const": "elevation_failed",
+          "description": "The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt\ndeclined or unanswered, the elevated session not started or ended before the operation\n(the message says which).",
+          "type": "string"
+        },
+        {
+          "const": "machine_unknown",
+          "description": "A machine the run doesn't have.",
+          "type": "string"
+        },
+        {
+          "const": "machine_ambiguous",
+          "description": "The run has several machines the call could mean, and it named none.",
+          "type": "string"
+        },
+        {
+          "const": "network_unknown",
+          "description": "A network the run doesn't have.",
+          "type": "string"
+        },
+        {
+          "const": "adopt_refused",
+          "description": "A deployment can't be taken over as a run.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended\nonce they have, or 30 seconds later.",
+          "type": "string"
+        },
+        {
+          "const": "usage",
+          "description": "The embedder was asked for something that makes no sense (the command line: a run folder\nwith no manifest, a value missing or malformed), so no operation started.",
+          "type": "string"
+        },
+        {
+          "const": "no_console",
+          "description": "The machine has no graphical console to reach: its target or provider gives none (the\nerror says why), it isn't running, or its hypervisor doesn't say where it is.",
+          "type": "string"
+        },
+        {
+          "const": "server_auth_failed",
+          "description": "The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API\nanswered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password\nchanged).",
+          "type": "string"
+        },
+        {
+          "const": "corrupt",
+          "description": "A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:\nnot JSON, or another version's shape.",
+          "type": "string"
+        },
+        {
+          "const": "illegal_transition",
+          "description": "The run's state machine has no such move (a park of a parked run, a resume of a ready\none), or a resource row can't move that way.",
+          "type": "string"
+        },
+        {
+          "const": "state_conflict",
+          "description": "The run moved between the read and the write that would have moved it: try again.",
+          "type": "string"
+        },
+        {
+          "const": "store_version",
+          "description": "The home's store was written by a newer runner.",
+          "type": "string"
+        },
+        {
+          "const": "store_corrupt",
+          "description": "The home's store isn't a database this runner reads, or holds what it doesn't write.",
+          "type": "string"
+        },
+        {
+          "const": "lease_held",
+          "description": "A live process holds the lease asked for.",
+          "type": "string"
+        }
+      ]
+    },
+    "MachineState": {
+      "description": "A machine's state, as its engine reports it.",
+      "oneOf": [
+        {
+          "const": "running",
+          "description": "Running.",
+          "type": "string"
+        },
+        {
+          "const": "unhealthy",
+          "description": "Running, but failing its health check.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Exited with this code (a job that finished, or a machine that died).",
+          "properties": {
+            "exited": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "exited"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "stopped",
+          "description": "Created or stopped, not running.",
+          "type": "string"
+        },
+        {
+          "const": "absent",
+          "description": "Not there.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Something else, as the engine says it.",
+          "properties": {
+            "unknown": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "unknown"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "busy",
+          "description": "Not read: another process acts on it (Vagrant's lock on the machine, held by a `vagrant\nup` that isn't this runner's), so its state is whatever that action leaves.",
+          "type": "string"
+        }
+      ]
+    },
+    "MachineStatus": {
+      "description": "One machine of the run, as its tool reports it.",
       "properties": {
-        "name": {
-          "description": "Its name in the spec.",
-          "type": "string"
-        },
-        "cidr": {
-          "description": "Its block.",
-          "type": "string"
-        },
-        "internet": {
-          "description": "Whether it reaches the internet.",
-          "type": "boolean"
-        },
-        "native": {
-          "description": "Its name where the target created it (`web-portal_backend`), when known.",
+        "address": {
+          "description": "The address it is reached at itself, when its tool says one another computer reaches (a\nVM on a bridged or host-only network, a server's VM, a cloud instance); none for one\nreached only through its published ports. On ESXi, which forwards no port to this\ncomputer, a machine's ports answer at this address.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "console": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsoleOffer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its graphical console, as its hypervisor offers it; none for a machine with no screen to\nspeak of (a container), and while not [`Status::live`]."
+        },
+        "name": {
+          "description": "Its name in the project (a Compose service, a Vagrant machine, a module's VM).",
+          "type": "string"
+        },
+        "published": {
+          "description": "Its published ports.",
+          "items": {
+            "$ref": "#/$defs/PublishedPort"
+          },
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/$defs/MachineState",
+          "description": "Its state."
         }
       },
       "required": [
         "name",
-        "cidr",
-        "internet"
+        "state",
+        "published"
+      ],
+      "type": "object"
+    },
+    "NativeApp": {
+      "description": "The hypervisor's own app that shows a running VM's screen in a window of its own, and what of\nit this computer must have (any one of `needs`).",
+      "properties": {
+        "name": {
+          "description": "Its name as its maker writes it (`VirtualBox`, `VMware Fusion`): what a button names.",
+          "type": "string"
+        },
+        "needs": {
+          "description": "What opens it, best first: the program or app [`NativeConsole::ways`] runs, in the same\norder.",
+          "items": {
+            "$ref": "#/$defs/NativeNeed"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "needs"
+      ],
+      "type": "object"
+    },
+    "NativeNeed": {
+      "description": "What of a hypervisor's app must be on this computer for a way to open it.",
+      "oneOf": [
+        {
+          "description": "A program, by its name on `PATH` or its full path.",
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "program",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A macOS app bundle.",
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "mac_app",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The default browser (a web console).",
+          "properties": {
+            "kind": {
+              "const": "browser",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
       ]
     },
     "OutputValue": {
-      "description": "An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its\n`Debug`, an event); the runner keeps the value itself for its own use (a guest delivery's\naddress, masking it in what tools print).",
-      "type": "object",
+      "description": "An output's value (a Terraform module's output). A sensitive one shows as `***` wherever it\nis written out (its JSON, its `Debug`, an event); the runner keeps the value itself for the\nembedder ([`OutputValue::revealed`]).",
       "properties": {
         "name": {
           "description": "Its name.",
           "type": "string"
-        },
-        "role": {
-          "description": "What it is for (`entry`: where a user starts, the address to open).",
-          "$ref": "#/$defs/OutputRole"
         },
         "sensitive": {
           "description": "Whether the value is sensitive.",
@@ -450,102 +452,232 @@
       },
       "required": [
         "name",
-        "role",
         "sensitive"
-      ]
+      ],
+      "type": "object"
     },
-    "OutputRole": {
-      "description": "What the embedder does with an output.",
+    "Protocol": {
+      "description": "A port's transport protocol.",
       "oneOf": [
         {
-          "description": "Where to start: the address a user opens first.",
-          "type": "string",
-          "const": "entry"
+          "const": "tcp",
+          "description": "TCP.",
+          "type": "string"
         },
         {
-          "description": "An address.",
-          "type": "string",
-          "const": "address"
-        },
-        {
-          "description": "Anything else worth showing.",
-          "type": "string",
-          "const": "info"
+          "const": "udp",
+          "description": "UDP.",
+          "type": "string"
         }
       ]
     },
-    "NativeApp": {
-      "description": "The hypervisor's own app that shows a running VM's screen in a window of its own, and what of\nit this computer must have (any one of `needs`).",
-      "type": "object",
-      "properties": {
-        "name": {
-          "description": "Its name as its maker writes it (`VirtualBox`, `VMware Fusion`): what a button names.",
+    "Provider": {
+      "description": "A Vagrant provider: the hypervisor `vagrant up --provider` takes. Exhaustive: whoever detects\nor offers providers (`isothrum-machine`) fails to compile until a new one has its row.",
+      "oneOf": [
+        {
+          "const": "virtualbox",
+          "description": "VirtualBox.",
           "type": "string"
         },
-        "needs": {
-          "description": "What opens it, best first: the program or app [`NativeConsole::ways`] runs, in the same\norder.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativeNeed"
-          }
+        {
+          "const": "vmware_desktop",
+          "description": "VMware Workstation or Fusion.",
+          "type": "string"
+        },
+        {
+          "const": "hyperv",
+          "description": "Hyper-V.",
+          "type": "string"
+        },
+        {
+          "const": "parallels",
+          "description": "Parallels Desktop.",
+          "type": "string"
+        },
+        {
+          "const": "libvirt",
+          "description": "libvirt (KVM).",
+          "type": "string"
+        },
+        {
+          "const": "qemu",
+          "description": "QEMU.",
+          "type": "string"
+        },
+        {
+          "const": "utm",
+          "description": "UTM.",
+          "type": "string"
+        },
+        {
+          "const": "vmware_esxi",
+          "description": "An ESXi server.",
+          "type": "string"
+        }
+      ]
+    },
+    "PublishedPort": {
+      "description": "A published port: where a machine's port answers on the host.",
+      "properties": {
+        "host_port": {
+          "description": "The host port it is reached at, at the machine's host address.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "port": {
+          "description": "The machine's port, inside it.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Protocol"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`tcp` or `udp`; `None` when the tool doesn't say (Vagrant's `port`), never guessed."
         }
       },
       "required": [
-        "name",
-        "needs"
-      ]
+        "port",
+        "host_port"
+      ],
+      "type": "object"
     },
-    "NativeNeed": {
-      "description": "What of a hypervisor's app must be on this computer for a way to open it.",
+    "RunState": {
+      "description": "Where a run stands.",
       "oneOf": [
         {
-          "description": "A program, by its name on `PATH` or its full path.",
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "program"
-            },
-            "at": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "at"
-          ]
+          "const": "creating",
+          "description": "Being created by an `up`.",
+          "type": "string"
         },
         {
-          "description": "A macOS app bundle.",
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "mac_app"
-            },
-            "at": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "at"
-          ]
+          "const": "ready",
+          "description": "Up, every member machine running.",
+          "type": "string"
         },
         {
-          "description": "The default browser (a web console).",
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "browser"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+          "const": "failed",
+          "description": "Something of it exists, but not every member machine runs (a failed start, a machine down).",
+          "type": "string"
+        },
+        {
+          "const": "parking",
+          "description": "Being parked.",
+          "type": "string"
+        },
+        {
+          "const": "parked",
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string"
+        },
+        {
+          "const": "resuming",
+          "description": "Being resumed.",
+          "type": "string"
+        },
+        {
+          "const": "updating",
+          "description": "Being brought up to date with its manifest by an `update`.",
+          "type": "string"
+        },
+        {
+          "const": "destroying",
+          "description": "Being removed by a `down`.",
+          "type": "string"
+        },
+        {
+          "const": "absent",
+          "description": "Nothing of it exists.",
+          "type": "string"
         }
       ]
     }
-  }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A run as it stands.",
+  "properties": {
+    "desired": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Desired"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the user wants of the run (the last operation that set it: `up`, `park`, `down`);\nnone for a run never recorded. With `state`, whether the run is where it should be."
+    },
+    "failed_cause": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the run failed, when its recorded state is `failed`."
+    },
+    "live": {
+      "default": true,
+      "description": "Whether the machines and outputs were read from the engine now. False while an operation\nholds the run (in this process or another), whose tools a read would contend with (Vagrant\nrefuses to read a VM's state while a `vagrant up` provisions it): they are then as the\nrunner last read them (none before it ever did), and the outputs the engine itself gives\nare left out.",
+      "type": "boolean"
+    },
+    "machines": {
+      "description": "Every machine its tool reports.",
+      "items": {
+        "$ref": "#/$defs/MachineStatus"
+      },
+      "type": "array"
+    },
+    "native": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NativeApp"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The hypervisor's own app the run's VMs open in ([`crate::Running::native_console`]); none\nwhere there is none (containers, QEMU), and while not [`Status::live`]."
+    },
+    "outputs": {
+      "description": "What the project gives back (a module's outputs), as read; none while not\n[`Status::live`].",
+      "items": {
+        "$ref": "#/$defs/OutputValue"
+      },
+      "type": "array"
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Provider"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The Vagrant provider it uses, when it has one."
+    },
+    "state": {
+      "$ref": "#/$defs/RunState",
+      "description": "Where it stands. While an operation holds the run: the moving state it is in (`creating`\nthrough an `up`), else, before it records one or for an operation that leaves the run as\nit was meanwhile (an `update`: `ready`), the state the run's record holds."
+    }
+  },
+  "required": [
+    "state",
+    "machines",
+    "outputs"
+  ],
+  "title": "Isothrum run status",
+  "type": "object"
 }

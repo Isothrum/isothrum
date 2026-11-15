@@ -1,6 +1,6 @@
 [package]
 name = "isothrum-runner"
-description = "The Isothrum runner: executes the run manifest Isoloom writes next to a target's files (lifecycle, state and locks, drivers, checks, events)."
+description = "The Isothrum runner: runs a Compose project, a Vagrantfile or a Terraform module through its own tool (lifecycle, state and locks, the format drivers, events)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,42 +11,35 @@ documentation = "https://docs.rs/isothrum-runner"
 readme = "README.md"
 keywords = ["isothrum", "runner", "infrastructure", "environment"]
 categories = ["virtualization", "development-tools"]
-# The crate's own tests embed the run-manifest fixtures from tests/ (src/testing.rs), so tests/
-# stays in the package and they run from it.
 publish = true
 
 [features]
 # The test doubles (scripted processes, scripted host ports), for embedders' tests.
 fake = []
-# The pure cores the fuzz targets drive (placeholder filling, step planning): `fuzz/` only.
-fuzzing = []
 
 [dependencies]
-indexmap = { workspace = true }
-flate2.workspace = true
 # The random token of an elevated session (`process/elevated.rs`).
 getrandom.workspace = true
-isoloom-manifest.workspace = true
+# A Terraform module's input variables, read from its HCL (`project/variables.rs`).
+hcl.workspace = true
 process-wrap.workspace = true
-regex.workspace = true
+rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tar.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
+socket2.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 
 [dev-dependencies]
-# Isoloom's generator, for the tests that hold the runner's copies of Isoloom's private rules to
-# the files it writes.
-isoloom-targets.workspace = true
+isothrum-test-support.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

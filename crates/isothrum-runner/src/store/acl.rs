@@ -38,15 +38,29 @@ pub(super) fn owner_only(home: &Path, profile: Option<&Path>) -> std::io::Result
 
 /// Gives `folder` the owner-only DACL, protected from what its parent passes down.
 #[cfg(windows)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the store protects its home folder before any run exists, with no process runner to hand"
+)]
 fn protect(folder: &Path) -> std::io::Result<()> {
-    let whoami = std::process::Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output()?;
+    use std::os::windows::process::CommandExt;
+    // No console window flashes in a GUI embedder while the home is made owner-only.
+    let headless = windows::Win32::System::Threading::CREATE_NO_WINDOW.0;
+    let whoami = std::process::Command::new("whoami")
+        .args(["/user", "/fo", "csv", "/nh"])
+        .creation_flags(headless)
+        .output()?;
     let sid = account_sid(&String::from_utf8_lossy(&whoami.stdout)).ok_or_else(|| {
         std::io::Error::other(format!(
             "`whoami /user` didn't name the account: {}",
             String::from_utf8_lossy(&whoami.stderr).trim()
         ))
     })?;
-    let icacls = std::process::Command::new("icacls").arg(folder).args(grants(&sid)).output()?;
+    let icacls = std::process::Command::new("icacls")
+        .arg(folder)
+        .args(grants(&sid))
+        .creation_flags(headless)
+        .output()?;
     if icacls.status.success() {
         Ok(())
     } else {

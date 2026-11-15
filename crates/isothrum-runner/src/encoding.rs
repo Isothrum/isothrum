@@ -6,6 +6,30 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// `N` bytes from the OS's random source, as lowercase hex (`2 * N` characters): a token, a
+/// file name no other writer picks.
+pub(crate) fn random_hex<const N: usize>() -> Result<String, getrandom::Error> {
+    let mut bytes = [0u8; N];
+    getrandom::fill(&mut bytes)?;
+    Ok(bytes.iter().fold(String::with_capacity(2 * N), |mut hex, b| {
+        hex.extend(char::from_digit(u32::from(b >> 4), 16));
+        hex.extend(char::from_digit(u32::from(b & 15), 16));
+        hex
+    }))
+}
+
+/// `s` percent-encoded for a URL's query value: unreserved characters (`A-Z a-z 0-9 - . _ ~`) as
+/// they are, every other byte as `%XX`.
+#[must_use]
+pub fn percent_encoded(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => char::from(b).to_string(),
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
 /// `value`'s name as the manifest and the event stream write it (a target, a provider, a
 /// machine's role: `vmware_desktop`), without JSON's quotes. It is meant for the unit enums serde
 /// writes as a string; any other value is named by its JSON text (`3`), and one serde can't write
@@ -75,8 +99,8 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use isoloom_manifest::Provider;
+pub(crate) mod tests {
+    use crate::project::platform::Provider;
     use proptest::prelude::*;
 
     use super::*;
@@ -94,7 +118,7 @@ mod tests {
     }
 
     /// RFC 4648 decoding, for the tests: what `base64 -d` does.
-    fn decoded(text: &str) -> Vec<u8> {
+    pub(crate) fn decoded(text: &str) -> Vec<u8> {
         const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let values: Vec<u32> = text
             .bytes()
@@ -120,8 +144,8 @@ mod tests {
 
     #[test]
     fn a_manifest_value_is_named_without_json_quotes() {
-        assert_eq!(wire_name(&isoloom_manifest::Provider::VmwareDesktop), "vmware_desktop");
-        assert_eq!(wire_name(&isoloom_manifest::Target::Docker), "docker");
+        assert_eq!(wire_name(&Provider::VmwareDesktop), "vmware_desktop");
+        assert_eq!(wire_name(&crate::project::Format::Compose), "compose");
         assert_eq!(wire_name(&3), "3", "not written as a string: its JSON text");
         let map_with_a_list_key = std::collections::BTreeMap::from([(vec![1], 1)]);
         assert!(wire_name(&map_with_a_list_key).starts_with("<key must be a string"), "named by why");

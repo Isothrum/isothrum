@@ -42,7 +42,7 @@ const CLOUD_SETTINGS: [&str; 11] = [
     "DIGITALOCEAN_",
     "LINODE_",
     "OCI_",
-    "TF_VAR_",
+    crate::host_env::TF_VAR_PREFIX,
     "TF_CLI_ARGS",
 ];
 

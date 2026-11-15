@@ -64,11 +64,6 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     result
 }
 
-/// Opens `path` to append to it, owner-only: created when missing.
-pub(crate) fn append_private(path: &Path) -> io::Result<File> {
-    open(path, std::fs::OpenOptions::new().append(true).create(true))
-}
-
 /// Creates `path` (emptying it when it exists) for writing, owner-only: a file written as a
 /// stream, then renamed into place by its writer.
 pub(crate) fn create_private(path: &Path) -> io::Result<File> {
@@ -180,10 +175,6 @@ mod tests {
         let runs = dir.path().join("runs");
         private_dir(&runs).unwrap();
         write_private(&runs.join("r.json"), b"x").unwrap();
-        let wide = runs.join("events.jsonl");
-        std::fs::write(&wide, "").unwrap();
-        std::fs::set_permissions(&wide, std::fs::Permissions::from_mode(0o644)).unwrap();
-        drop(append_private(&wide).unwrap());
-        assert_eq!((mode(&runs), mode(&runs.join("r.json")), mode(&wide)), (0o700, 0o600, 0o600));
+        assert_eq!((mode(&runs), mode(&runs.join("r.json"))), (0o700, 0o600));
     }
 }

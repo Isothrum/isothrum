@@ -1,26 +1,26 @@
 //! The event stream: what an operation does, as JSON values an embedder shows or a command line
-//! prints one per line (`isothrum … --json`). It evolves from Isoloom's lifecycle events (the
-//! `event` tag, `step`/`log`/`check`/`result`), adding the run, the operation, a sequence number,
-//! the time on every event, and its own version `v`, independent of the manifest's.
+//! prints one per line (`isothrum … --json`): the `event` tag, `step`/`log`/`result`, with the
+//! run, the operation, a sequence number, the time on every event, and the stream's version `v`.
 //!
 //! Rules: a secret's value never appears (masked before the event is built); `log` lines are
 //! decoded lossily; an operation ends with exactly one `result` or `error`.
 
 mod emitter;
+mod result_data;
 
 #[cfg(test)]
 use std::sync::{Mutex, PoisonError};
 
-use isoloom_manifest::OutputRole;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use emitter::{Emitter, MASK};
+pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
 use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
+pub use result_data::{ResultData, ShownOutput, SweepFailure};
 
 /// The event stream's version.
-pub(crate) const EVENTS_VERSION: u32 = 0;
+pub(crate) const EVENTS_VERSION: u32 = 1;
 
 /// Where a step stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -48,17 +48,17 @@ pub enum Stream {
     Stderr,
 }
 
-/// Where a ready condition stands.
+/// Where a journaled operation stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
-pub enum ReadyState {
-    /// Not yet; polled again.
-    Waiting,
-    /// It holds.
-    Ok,
-    /// It doesn't hold: the operation fails (`not_ready`).
-    Failed,
+pub enum OperationPhase {
+    /// Accepted and waiting in its run's queue.
+    Queued,
+    /// Begun.
+    Started,
+    /// Ended (its `outcome` says how).
+    Ended,
 }
 
 /// What happened.
@@ -79,8 +79,7 @@ pub enum EventKind {
         step: String,
         /// Where it stands.
         state: StepState,
-        /// What it does, said when it starts: the manifest's line for a manifest step, the
-        /// runner's own for a step of its own (the tool probes, the boot, a guest delivery).
+        /// What it does, said when it starts.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
@@ -93,38 +92,14 @@ pub enum EventKind {
         /// The line, without its line break.
         line: String,
     },
-    /// A ready condition was checked.
-    Ready {
-        /// The condition (`step_ok up`).
-        condition: String,
-        /// Where it stands.
-        state: ReadyState,
-        /// What was seen.
-        detail: String,
-    },
     /// An output's value, once the run is up.
     Output {
         /// The output's name.
         name: String,
-        /// What it is for.
-        role: OutputRole,
         /// Its value (`***` when sensitive), or null when it can't be read.
         value: Option<String>,
         /// Whether the value is sensitive.
         sensitive: bool,
-    },
-    /// One check's result.
-    Check {
-        /// The check runner's id.
-        runner: String,
-        /// Where it ran from.
-        from: String,
-        /// The check's name.
-        name: String,
-        /// Whether it passed.
-        ok: bool,
-        /// Why it failed (empty when it passed).
-        detail: String,
     },
     /// Something the embedder may show, that didn't fail the operation.
     Warning {
@@ -137,8 +112,41 @@ pub enum EventKind {
     Result {
         /// Whether it reached its goal (false: a check failed).
         ok: bool,
-        /// What it found or produced.
-        data: serde_json::Value,
+        /// What it found or produced, by operation.
+        data: ResultData,
+    },
+    /// A journaled operation was queued, started or ended: what a runner service says of the
+    /// operations it queues (the runner's own operation stream doesn't carry it: it still ends
+    /// with exactly one `result` or `error`).
+    Operation {
+        /// Where the operation stands.
+        phase: OperationPhase,
+        /// How it ended, when `phase` is `ended`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<crate::store::Outcome>,
+        /// Its place in its run's queue (0: next), when `phase` is `queued`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        position: Option<u32>,
+    },
+    /// What the user wants of the run changed: an operation that moves it began (`up`, `resume`:
+    /// running; `park`: parked; `down`: gone).
+    Desired {
+        /// What is wanted now.
+        desired: crate::state::Desired,
+    },
+    /// A resource of the run moved in the home's write-ahead ledger: written `creating` before
+    /// the call that makes it, `created` with the tool's id after it, `destroying` before the call
+    /// that removes it, `gone` after.
+    Resource {
+        /// The resource's key in the run (`container:web-1`, a volume's name, a local thing's kind).
+        key: String,
+        /// What it is.
+        kind: crate::store::ResourceKind,
+        /// Where it stands now.
+        state: crate::store::ResourceState,
+        /// The tool's id for it, once it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        native_id: Option<String>,
     },
     /// Why the operation failed.
     Error {
@@ -152,6 +160,9 @@ pub enum EventKind {
         /// Which limit the step ran into, when the code is `timeout`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout: Option<TimedOut>,
+        /// The failure's typed fields, when it has any ([`crate::Error::detail`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<crate::ErrorDetail>,
     },
 }
 
@@ -177,7 +188,7 @@ pub struct EventLog {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Event {
-    /// The stream's version (0).
+    /// The stream's version (1).
     pub v: u32,
     /// Its place in the operation, from 1.
     pub seq: u64,
@@ -191,6 +202,9 @@ pub struct Event {
     /// [`Event`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<Op>,
+    /// The operation's id in the home's journal: on every event of a journaled operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<crate::store::OperationId>,
     /// What happened.
     #[serde(flatten)]
     pub kind: EventKind,
@@ -208,6 +222,7 @@ impl Event {
             time: crate::clock::rfc3339(std::time::SystemTime::now()),
             run,
             op,
+            operation: None,
             kind,
         }
     }
@@ -264,6 +279,15 @@ pub enum WarningCode {
     /// folder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be
     /// there, and the start goes on.
     CleanupFailed,
+    /// A Terraform module keeps its state in a backend of its own: every copy of it shares that
+    /// state.
+    SharedState,
+    /// A running machine's forwarded ports couldn't be read (its provider can't list them, and
+    /// its hypervisor didn't say): it has no published port, and runs on.
+    PortsUnknown,
+    /// A machine's published host port is another than the one the run kept from its first
+    /// start (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.
+    PortsMoved,
 }
 
 /// Events kept in memory, for tests.
@@ -316,11 +340,12 @@ mod tests {
 
     fn event(kind: EventKind) -> Event {
         Event {
-            v: 0,
+            v: 1,
             seq: 1,
             time: "2026-10-15T12:00:00Z".into(),
             run: Some("web-portal".into()),
             op: Some(Op::Up),
+            operation: None,
             kind,
         }
     }
@@ -334,13 +359,14 @@ mod tests {
         });
         assert_eq!(
             serde_json::to_value(&e).unwrap(),
-            serde_json::json!({"v":0,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
+            serde_json::json!({"v":1,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
         );
         let error = event(EventKind::Error {
             code: ErrorCode::PortInUse,
             message: "m".into(),
             step: None,
             timeout: None,
+            detail: None,
         });
         let back: Event = serde_json::from_value(serde_json::to_value(&error).unwrap()).unwrap();
         assert_eq!(back, error);

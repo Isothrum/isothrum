@@ -7,7 +7,7 @@ standard output, one object per line; an embedder of `isothrum-runner` receives 
 another version of Isothrum wrote, or one cut short).
 
 The authoritative definition is the JSON Schema committed at
-[`crates/isothrum-runner/schema/events-v0.schema.json`](../../crates/isothrum-runner/schema/events-v0.schema.json)
+[`crates/isothrum-runner/schema/events-v1.schema.json`](../../crates/isothrum-runner/schema/events-v1.schema.json)
 (also `isothrum_runner::events_schema()`). A test fails when the code and the file differ;
 `cargo run -p xtask -- schema` regenerates it.
 
@@ -72,11 +72,13 @@ are null and an `error` follows it. So one stream carries every outcome, one eve
 While an operation holds the run (in this process or another), `status` doesn't ask the run's
 tools, which that operation is acting with: Vagrant refuses to read a VM's state for as long as a
 `vagrant up` boots and provisions it. `live` is then `false`, `state` is the operation's moving
-state (`starting` through an `up`), or the record's state before the operation records one and
-for an operation that leaves the run as it was (`ready` while an `update` runs), and `machines`
-are as the runner last read them (`seen.json` in the run's folder,
-[State layout](state.md)). With no operation in flight, `live` is `true` and everything is read
-now.
+state (`creating` through an `up`, `updating` through an `update`), or the run's recorded state
+before the operation records one and for an operation that leaves the run as it was (`ready`
+while an `attach` runs), and `machines` are as the runner last read them (the run's last
+observation in the home's store, `state.db`, [State layout](state.md)). With no operation in
+flight, `live` is `true`, everything is read now, and the run's recorded state follows what was
+read where the state machine allows (status = reconcile(desired, observed)): `desired` says what
+the user last asked for (`running`, `parked`, `gone`) and `failed_cause` why a failed run failed.
 
 ## Reading the stream
 

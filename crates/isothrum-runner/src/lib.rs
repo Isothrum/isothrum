@@ -1,44 +1,44 @@
-//! The Isothrum runner: executes the run manifest Isoloom writes next to a target's generated
-//! files (`.isoloom/<target>/run.json`), and reads nothing else of them.
+//! The Isothrum runner: runs a project folder (a Compose project, a Vagrantfile, a Terraform
+//! module) through its own tool, with that tool's own lifecycle, and reads nothing else of it.
 //!
-//! The manifest holds the native commands in order, the documented driver actions, readiness,
-//! outputs, check runners, and the slots inputs and secrets travel through. The runner adds what
-//! only it can know: the run's name and private state, one operation per run at a time, the
-//! values of params and secrets, and the event stream an embedder (an app, the `isothrum` command
-//! line) shows. It sits between Isoloom (whose
-//! `isoloom-manifest` crate is the contract) and those embedders, and depends on no UI.
+//! The format comes from the folder's files ([`Format::detect`]), and each format has one driver
+//! that knows its tool: Compose's `up --wait` and `down`, Vagrant's `up`, `suspend`, `halt` and
+//! `destroy`, Terraform's `init`, `apply` and `destroy`. The runner adds what only it can know: the
+//! run's name, key and private state, one operation per run at a time, journaled in the home's
+//! store, the values and secrets the tools get in their environment, the resources each tool
+//! reports, and the event stream an embedder (an app, the `isothrum` command line) shows. It
+//! depends on no UI and on no generator: any project of a format it runs is a project.
 //!
 //! # Example
 //!
-//! Opening a manifest reads and checks it, and nothing runs yet:
+//! Opening a folder detects its format, and nothing runs yet:
 //!
 //! ```
-//! use isothrum_runner::{RunName, Runner, RunnerConfig};
+//! use isothrum_runner::{Format, RunName, Runner, RunnerConfig};
 //!
 //! let home = tempfile::tempdir()?;
 //! let dir = tempfile::tempdir()?;
-//! let manifest = dir.path().join("run.json");
-//! std::fs::write(&manifest, include_str!("../tests/fixtures/web-portal.run.json"))?;
+//! std::fs::write(dir.path().join("compose.yaml"), "services:\n  web:\n    image: nginx\n")?;
 //!
 //! let runner = Runner::new(RunnerConfig::new(home.path()))?;
-//! let run = runner.open(&manifest, Some(RunName::new("demo")?))?;
-//! assert_eq!(run.manifest().environment.name.as_str(), "web-portal");
+//! let run = runner.open(dir.path(), Some(RunName::new("demo")?))?;
+//! assert_eq!(run.project().format, Format::Compose);
 //! assert_eq!(run.name().as_str(), "demo");
 //! assert!(runner.runs()?.is_empty(), "no operation has run");
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! Running it takes the tools it names (here Docker), and an event sink ([`Events`], implemented
-//! for closures):
+//! Running it takes its tool (here Docker), and an event sink ([`Events`], implemented for
+//! closures):
 //!
 //! ```no_run
 //! # async fn demo(run: &isothrum_runner::Running<'_>) -> isothrum_runner::Result<()> {
 //! use isothrum_runner::{Event, Park, RunOptions};
 //!
 //! let events = |event: &Event| println!("{}", serde_json::to_string(event).unwrap_or_default());
-//! let opts = RunOptions::new().with_param("ISOLOOM_PUBLISH_FIXED", "1");
+//! let opts = RunOptions::new().with_env("GREETING", "hello");
 //! let started = run.up(&opts, &events).await?;
-//! let report = run.check(&opts, &events).await?;
+//! let report = run.exec("web", &["true".to_owned()], &opts, &events).await?;
 //! run.park(Park::Shutdown, &opts, &events).await?;
 //! run.resume(&opts, &events).await?;
 //! run.down(&opts, &events).await?;
@@ -54,133 +54,104 @@
 //! since embedders implement them. [`HostPorts`] is sealed: [`RunnerConfig::new`] binds the
 //! loopback itself, and the `fake` feature's `FakePorts` stands in for it in tests, as its
 //! `FakeProcesses` does for the tools. A few programs run outside [`ProcessRunner`], each for a
-//! reason of its own: Apple's `nc`, the macOS relays' byte pipe for as long as a connection lasts
-//! (not a tool run to its end), a graphical console's SSH tunnel (`ssh -N -L`), for as long as its
-//! [`Console`] lives, on Windows `whoami` and `icacls`, which make the home
-//! owner-only when the runner is built ([`Runner::new`]), before any operation, and, only for a
-//! tool a killed operation left running, `ps` (Windows: PowerShell) to tell it is still that tool,
-//! and on Windows `taskkill` to end it.
+//! reason of its own: on Windows `whoami` and `icacls`, which make the home owner-only when the
+//! runner is built ([`Runner::new`]), before any operation, and, only for a tool a killed
+//! operation left running, `ps` (Windows: PowerShell) to tell it is still that tool, and on
+//! Windows `taskkill` to end it, and, on Windows, `tasklist`, to tell whether the process holding
+//! a lease of the home's store still runs.
 //!
-//! # Deliveries
+//! # Inputs
 //!
-//! Params and slot values reach the tools only through the manifest's deliveries, never on a
-//! command line: `env` (a step's variables), `tf_var` (`TF_VAR_<var>`, a `map_entry` making one
-//! JSON object), `state_file` (an owner-only Terraform variable file in the run's state folder,
-//! written at `up`, kept for the destroy, removed by a successful `down`), and `guest` over SSH, Isoloom's delivery into a machine for a cloud with no secret
-//! store (DigitalOcean, Linode): once the step it names (else every `up` step) succeeded, one
-//! SSH session per machine, to the outputs `address_<machine>` and `ssh_user_<machine>` (else
-//! `ssh_user`; the machine's name with `-` and `.` as `_`, in lower case), runs a fixed script as root that keeps each value
-//! owner-only under `/var/lib/isoloom/secrets/<slot name>` and then touches
-//! `/var/lib/isoloom/secrets/.delivered`, which the machine's set-up waits for; the values travel
-//! base64-encoded on its standard input, retried while SSH can't connect (up to 15 minutes),
-//! from an owner-only `guest-<machine>.in` in the run's state folder that is removed once
-//! delivered (a removal that fails, fails the delivery) or once the operation is cut short.
+//! Values ([`RunOptions::env`]) and secrets ([`RunOptions::secrets`]) reach the tools only in
+//! their environment, never on a command line and never in a file: Compose interpolates `${NAME}`
+//! from it, a Vagrantfile reads `ENV`, and Terraform also gets each as `TF_VAR_<NAME>`. Every
+//! tool of a run also gets the run's key ([`RUN_KEY_VAR`]). A secret is masked in every event.
 //!
 //! # Concurrency
 //!
 //! The runner is **async**, on Tokio, chosen once for the whole crate: every tool runs as an async
-//! process with a time limit (a step's `provider_timeout_s` for the run's provider, else its
-//! `timeout_s`, else an hour; 25 s for a probe; two minutes for an action's own Docker calls),
-//! and dropping an operation's future stops the process trees it started: on Unix each gets
-//! SIGINT (so Terraform saves its state) and SIGKILL once it exited or 30 seconds later; on
-//! Windows each is ended at once ([`SystemProcesses`]). The limit counts the time
-//! a tool shows no progress: it is stopped once it printed no new line for that long (a line, on
-//! either stream, that isn't blank and isn't one of its last distinct lines; from its start when
-//! it prints nothing), and at the latest six hours after its start, or at its limit when that is
-//! longer ([`TimedOut`] says which). The images a Compose `up` starts are pulled before it, and
-//! the boxes a `vagrant up` boots downloaded before it (those the manifest lists that Vagrant
-//! hasn't), each in a step of their own (`pull-<step>`, `boxes-<step>`) with no such ceiling: a
-//! download still moving runs as long as it moves, and one that shows no progress for 15 minutes
-//! fails with `download_stalled` (a download that fails, with `download_failed`). A step the
-//! manifest marks `download` runs the same way, its own limit the time it may show no progress. Operations on one run in one [`Runner`] wait for each other;
-//! an operation on it from another process (or another runner) fails with `locked` once it has
-//! waited a second for the run's lock. Operations on different runs run side by side. One
-//! exception to "no blocking call in async code": the run's state files (a record, a lock, the
-//! pinned ports, the event log) are a few KB on the local disk, so they are read and written
-//! inline rather than through `spawn_blocking`.
+//! process with a time limit, and dropping an operation's future stops the process trees it
+//! started: on Unix each gets SIGINT (so Terraform saves its state) and SIGKILL once it exited or
+//! 30 seconds later; on Windows Ctrl-C on its own console, then its job ended the same way
+//! ([`SystemProcesses`]). Operations on one run in one [`Runner`] wait for each other; an operation
+//! on it from another process (or another runner) fails with `locked` once it has waited a second
+//! for the run's lock. Operations on different runs run side by side. One exception to "no
+//! blocking call in async code": the home's store ([`store::Store`], SQLite) and the run's lock are
+//! a few KB on the local disk, each transaction a few rows, so they are read and written inline
+//! rather than through `spawn_blocking`.
 //!
 //! # Errors and tracing
 //!
 //! Every fallible call returns [`Result`], whose [`Error`] has a stable [`ErrorCode`]; an
 //! operation also reports its failure as its last event. The runner logs through `tracing` (spans
-//! `run`, `step` and `driver`, events for each process), never by printing.
+//! `run` and `driver`, events for each process), never by printing.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the unit tests start real processes to stand in for a tool or to read what one did; each spawn of the product code says why"
+    )
+)]
 
 mod adopt;
-mod archive;
-mod checks;
+mod cli;
 mod clock;
 mod console;
-mod container;
-mod driver;
 mod encoding;
 mod error;
 mod events;
-mod executor;
+mod formats;
 mod future;
-#[cfg(feature = "fuzzing")]
-#[doc(hidden)]
-pub mod fuzzing;
 mod graphical;
-mod guest;
 mod host_env;
-mod in_vm;
-mod manifest;
 mod name;
 mod net;
 mod network_env;
 mod options;
-mod outputs;
-mod params;
+mod port;
 mod process;
-mod ready;
+mod project;
 mod reap;
-mod relay;
 mod run;
 mod runner;
-mod scope;
 mod secrets;
-mod server_auth;
-mod slot;
 mod ssh;
 mod state;
 mod status;
-mod store;
+pub mod store;
 #[cfg(test)]
 mod testing;
 mod tool_output;
-mod tools;
-mod vars;
 
 pub use adopt::Adoption;
-pub use checks::{CheckReport, CheckResult};
-pub use clock::rfc3339;
+pub use clock::{rfc3339, rfc3339_seconds};
 pub use console::ShellCommand;
-pub use encoding::{every_name, from_wire_name, wire_name};
-pub use error::{Error, ErrorCode, Result, TimedOut};
-#[cfg(test)]
-pub(crate) use events::Recorder;
-pub use events::{Event, EventKind, EventLog, Events, ReadyState, StepState, Stream, WarningCode, events_schema};
+pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
+pub use error::{DETAIL_VERSION, Detail, Error, ErrorCode, ErrorDetail, Result, TimedOut};
+pub use events::{Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode, events_schema};
 pub use future::BoxFuture;
-pub use graphical::{Console, ConsoleOffer, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc};
-pub use isoloom_manifest;
-pub use manifest::{LoadedManifest, MANIFEST_FILE, is_outputs_folder, load_manifest};
+pub use graphical::{Console, ConsoleOffer, ConsoleProtocol, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc, Tunnel};
 pub use name::RunName;
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use net::FakePorts;
 pub use net::HostPorts;
-pub use options::{Occupied, RunOptions};
+pub use options::RunOptions;
+pub use port::{GuestPort, HostPort};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
-pub use process::{Captured, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
-pub use reap::{Orphans, Place, Tagged};
-pub use run::{AccessPick, AttachReport, Running};
-pub use runner::{Runner, RunnerConfig};
+pub use process::process_started_at;
+pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
+pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
+pub use project::variables::{InputVariable, variables_of};
+pub use project::{Format, Project};
+pub use run::{ExecReport, Running};
+pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
-pub use state::{Op, Park, RunState};
-pub use status::{MachineState, MachineStatus, NetworkView, OutputValue, PublishedPort, Started, Status, status_schema};
+pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
+pub use status::{MachineState, MachineStatus, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};
 pub use tool_output::{vagrant_plugins, version_found};

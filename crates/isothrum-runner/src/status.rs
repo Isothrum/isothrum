@@ -1,13 +1,11 @@
-//! What a run looks like from outside: its state, machines, networks and outputs. Roles,
-//! addresses and networks come from the manifest; the engine only says what runs and which host
-//! ports it got.
+//! What a run looks like from outside: its state, its machines and the host ports they publish,
+//! and the outputs the project gives back, each as its tool reports it. What a machine or a port
+//! is for is the embedder's to know, from the project's own description.
 
-use std::collections::BTreeMap;
-
-use isoloom_manifest::{Manifest, OutputRole, Protocol, Provider, Role};
 use serde::{Deserialize, Serialize};
 
 use crate::events::MASK;
+use crate::project::platform::{Protocol, Provider};
 use crate::secrets::SecretValue;
 use crate::state::RunState;
 use crate::store::RunRecord;
@@ -60,58 +58,44 @@ impl std::fmt::Display for MachineState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct PublishedPort {
-    /// The machine's port.
-    pub port: u16,
-    /// `tcp` or `udp`.
-    pub protocol: Protocol,
-    /// The host port.
-    pub host_port: u16,
+    /// The machine's port, inside it.
+    pub port: crate::port::GuestPort,
+    /// `tcp` or `udp`; `None` when the tool doesn't say (Vagrant's `port`), never guessed.
+    pub protocol: Option<Protocol>,
+    /// The host port it is reached at, at the machine's host address.
+    pub host_port: crate::port::HostPort,
 }
 
-/// One machine of the manifest, as it stands.
+/// One machine of the run, as its tool reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct MachineStatus {
-    /// Its name.
+    /// Its name in the project (a Compose service, a Vagrant machine, a module's VM).
     pub name: String,
-    /// What it is for.
-    pub role: Role,
     /// Its state.
     pub state: MachineState,
-    /// Its static addresses, by network.
-    pub addresses: BTreeMap<String, String>,
     /// Its published ports.
     pub published: Vec<PublishedPort>,
-    /// Its graphical console under the run's provider, as the manifest offers it (`none` and
-    /// why where there is none); `None` when the manifest says nothing (a container).
+    /// The address it is reached at itself, when its tool says one another computer reaches (a
+    /// VM on a bridged or host-only network, a server's VM, a cloud instance); none for one
+    /// reached only through its published ports. On ESXi, which forwards no port to this
+    /// computer, a machine's ports answer at this address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Its graphical console, as its hypervisor offers it; none for a machine with no screen to
+    /// speak of (a container), and while not [`Status::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<crate::graphical::ConsoleOffer>,
 }
 
-/// A network of the run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[non_exhaustive]
-pub struct NetworkView {
-    /// Its name in the spec.
-    pub name: String,
-    /// Its block.
-    pub cidr: String,
-    /// Whether it reaches the internet.
-    pub internet: bool,
-    /// Its name where the target created it (`web-portal_backend`), when known.
-    pub native: Option<String>,
-}
-
-/// An output's value. A sensitive one shows as `***` wherever it is written out (its JSON, its
-/// `Debug`, an event); the runner keeps the value itself for its own use (a guest delivery's
-/// address, masking it in what tools print).
+/// An output's value (a Terraform module's output). A sensitive one shows as `***` wherever it
+/// is written out (its JSON, its `Debug`, an event); the runner keeps the value itself for the
+/// embedder ([`OutputValue::revealed`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct OutputValue {
     /// Its name.
     pub name: String,
-    /// What it is for (`entry`: where a user starts, the address to open).
-    pub role: OutputRole,
     /// Whether the value is sensitive.
     pub sensitive: bool,
     /// Its value, when it can be read; `***` when it is sensitive.
@@ -123,24 +107,33 @@ pub struct OutputValue {
 
 impl OutputValue {
     /// Output `name`'s `value`, masked when it is `sensitive`.
-    pub(crate) fn new(name: String, role: OutputRole, sensitive: bool, value: Option<String>) -> OutputValue {
+    pub(crate) fn new(name: String, sensitive: bool, value: Option<String>) -> OutputValue {
         let (value, secret) = match value {
             Some(v) if sensitive => (Some(MASK.to_owned()), Some(SecretValue::new(v))),
             value => (value, None),
         };
         OutputValue {
             name,
-            role,
             sensitive,
             value,
             secret,
         }
     }
 
+    /// The same, a sensitive one with its own value instead of the mask (a status read asked to
+    /// reveal it, [`crate::RunOptions::reveal`]).
+    #[must_use]
+    pub(crate) fn unmasked(mut self) -> OutputValue {
+        if let Some(secret) = &self.secret {
+            self.value = Some(secret.expose().to_owned());
+        }
+        self
+    }
+
     /// The value itself, a sensitive one unmasked. Never print or log it. `None` when it can't be
     /// read, and for a sensitive output read back from JSON (which holds only the mask).
     #[must_use]
-    pub(crate) fn revealed(&self) -> Option<&str> {
+    pub fn revealed(&self) -> Option<&str> {
         if self.sensitive {
             self.secret.as_ref().map(SecretValue::expose)
         } else {
@@ -153,7 +146,7 @@ impl OutputValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Status {
-    /// Where it stands. While an operation holds the run: the moving state it is in (`starting`
+    /// Where it stands. While an operation holds the run: the moving state it is in (`creating`
     /// through an `up`), else, before it records one or for an operation that leaves the run as
     /// it was meanwhile (an `update`: `ready`), the state the run's record holds.
     pub state: RunState,
@@ -164,22 +157,24 @@ pub struct Status {
     /// are left out.
     #[serde(default = "default_live")]
     pub live: bool,
+    /// What the user wants of the run (the last operation that set it: `up`, `park`, `down`);
+    /// none for a run never recorded. With `state`, whether the run is where it should be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desired: Option<crate::state::Desired>,
+    /// Why the run failed, when its recorded state is `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_cause: Option<crate::ErrorCode>,
     /// The Vagrant provider it uses, when it has one.
     pub provider: Option<Provider>,
-    /// Every machine of the manifest.
+    /// Every machine its tool reports.
     pub machines: Vec<MachineStatus>,
-    /// The run's networks.
-    pub networks: Vec<NetworkView>,
-    /// Its outputs, each filled from what was read. While not [`Status::live`], an output the
-    /// engine itself gives (a Terraform output) has only its default, if any.
+    /// What the project gives back (a module's outputs), as read; none while not
+    /// [`Status::live`].
     pub outputs: Vec<OutputValue>,
-    /// The run's message, filled, once the run is ready.
-    pub message: Option<String>,
-    /// The hypervisor's own app that shows the run's running VMs in a window of its own
-    /// ([`crate::Running::native_console`]), and what of it this computer needs; none where the
-    /// run's provider has none (vagrant-qemu), or for a run of containers.
+    /// The hypervisor's own app the run's VMs open in ([`crate::Running::native_console`]); none
+    /// where there is none (containers, QEMU), and while not [`Status::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<crate::NativeApp>,
+    pub native: Option<crate::graphical::NativeApp>,
 }
 
 impl Status {
@@ -210,36 +205,6 @@ pub struct Started {
     pub record: RunRecord,
     /// Its outputs.
     pub outputs: Vec<OutputValue>,
-    /// The run's message, filled (a sensitive output never substituted).
-    pub message: Option<String>,
-}
-
-/// The state of a run whose machines are `machines`, given its record, while no operation holds
-/// it. Absent when nothing is there; parked when its record says so and none runs
-/// ([`any_member_running`]: one up with a failing healthcheck runs); failed when its record says
-/// its start failed, or an operation never recorded how it ended (its record still moving: its
-/// process was killed), whatever runs; ready when every member machine runs healthy; failed
-/// otherwise.
-pub(crate) fn derive_state(machines: &[MachineStatus], record: Option<&RunRecord>) -> RunState {
-    if !any_present(machines) {
-        return RunState::Absent;
-    }
-    if record.is_some_and(|r| r.state == RunState::Parked) && !any_member_running(machines) {
-        return RunState::Parked;
-    }
-    let members: Vec<&MachineStatus> = machines.iter().filter(|m| m.role == Role::Member).collect();
-    let running = |m: &&MachineStatus| m.state == MachineState::Running;
-    // A start that failed after its machines came up (a Terraform apply whose router never
-    // reported its address, a set-up step that failed) left them running: the run isn't ready.
-    // So did one whose process died midway: its set-up may not have run.
-    if record.is_some_and(|r| r.state == RunState::Failed || r.state.is_moving()) {
-        return RunState::Failed;
-    }
-    if !members.is_empty() && members.iter().all(running) {
-        RunState::Ready
-    } else {
-        RunState::Failed
-    }
 }
 
 /// Whether anything of the run is there: a machine of `machines` that isn't absent.
@@ -247,94 +212,21 @@ pub(crate) fn any_present(machines: &[MachineStatus]) -> bool {
     machines.iter().any(|m| m.state != MachineState::Absent)
 }
 
-/// The member machines of `machines` that are gone (absent) while something of the run is
-/// there: removed outside the runner.
-pub(crate) fn gone_members(machines: &[MachineStatus]) -> Vec<String> {
-    if !any_present(machines) {
-        return Vec::new();
-    }
-    machines
-        .iter()
-        .filter(|m| m.role == Role::Member && m.state == MachineState::Absent)
-        .map(|m| m.name.clone())
-        .collect()
-}
-
-/// Whether any member machine of `machines` runs.
-pub(crate) fn any_member_running(machines: &[MachineStatus]) -> bool {
-    machines.iter().any(|m| m.role == Role::Member && m.state.runs())
-}
-
-/// The manifest's networks, their native names filled by `native`.
-pub(crate) fn networks(manifest: &Manifest, native: impl Fn(&isoloom_manifest::Template) -> Option<String>) -> Vec<NetworkView> {
-    manifest
-        .networks
-        .iter()
-        .map(|n| NetworkView {
-            name: n.name.to_string(),
-            cidr: n.cidr.to_string(),
-            internet: n.internet,
-            native: n.native.as_ref().and_then(&native),
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn machine(role: Role, state: MachineState) -> MachineStatus {
-        MachineStatus {
-            name: "m".into(),
-            role,
-            state,
-            addresses: BTreeMap::new(),
-            published: Vec::new(),
-            console: None,
-        }
-    }
-
-    #[test]
-    fn a_run_is_ready_when_every_member_runs() {
-        use MachineState::{Absent, Exited, Running, Stopped};
-        let all = |ms: Vec<MachineStatus>| derive_state(&ms, None);
-        assert_eq!(all(vec![machine(Role::Member, Absent), machine(Role::Job, Absent)]), RunState::Absent);
-        assert_eq!(
-            all(vec![
-                machine(Role::Member, Running),
-                machine(Role::Job, Exited(0)),
-                machine(Role::Infra, Running)
-            ]),
-            RunState::Ready
-        );
-        assert_eq!(all(vec![machine(Role::Member, Running), machine(Role::Member, Exited(1))]), RunState::Failed);
-        assert_eq!(all(vec![machine(Role::Member, Stopped)]), RunState::Failed);
-        assert_eq!(all(vec![machine(Role::Member, MachineState::Unhealthy)]), RunState::Failed);
-    }
-
     #[test]
     fn a_status_from_before_live_reads_as_live() {
-        let json = r#"{"state":"ready","provider":null,"machines":[],"networks":[],"outputs":[],"message":null}"#;
+        let json = r#"{"state":"ready","provider":null,"machines":[],"outputs":[]}"#;
         let status: Status = serde_json::from_str(json).unwrap();
         assert!(status.live);
     }
 
     #[test]
-    fn a_parked_run_with_nothing_running_is_parked() {
-        let mut record = crate::store::RunRecord::fresh(
-            crate::name::RunName::new("r").unwrap(),
-            "/x".into(),
-            isoloom_manifest::Target::Docker,
-            isoloom_manifest::Driver::Compose,
-        );
-        record.state = RunState::Parked;
-        let stopped = vec![machine(Role::Member, MachineState::Exited(0))];
-        assert_eq!(derive_state(&stopped, Some(&record)), RunState::Parked);
-        assert!(!any_member_running(&stopped));
-        // Regression: a member up with a failing healthcheck runs, as `check` and `provision`
-        // see it, so the run isn't parked (nor ready).
-        let unhealthy = vec![machine(Role::Member, MachineState::Unhealthy)];
-        assert!(any_member_running(&unhealthy));
-        assert_eq!(derive_state(&unhealthy, Some(&record)), RunState::Failed);
+    fn a_sensitive_output_is_masked_and_kept() {
+        let out = OutputValue::new("token".into(), true, Some("s3cret".into()));
+        assert_eq!((out.value.as_deref(), out.revealed()), (Some(MASK), Some("s3cret")));
+        assert!(!serde_json::to_string(&out).unwrap().contains("s3cret"));
     }
 }

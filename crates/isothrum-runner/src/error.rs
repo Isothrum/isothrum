@@ -3,155 +3,14 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
-
+pub use self::code::ErrorCode;
+pub use self::detail::{DETAIL_VERSION, Detail, ErrorDetail};
 pub use self::timed_out::TimedOut;
+pub(crate) use self::timed_out::kept_line;
 
+mod code;
+mod detail;
 mod timed_out;
-
-/// The stable code of a failure, the same in the Rust API and the event stream (`error.code`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum ErrorCode {
-    /// The manifest isn't valid JSON or breaks the contract, a value it gives can't be used as
-    /// written (a step's `verdict` that isn't a regular expression, an SSH login, a `wait_s`, a
-    /// `tcp` condition's port), or it names a value the operation doesn't have (a placeholder
-    /// with none, a guest delivery's machine whose address no output gives, a Terraform module
-    /// with no `.tf` file).
-    ManifestInvalid,
-    /// The manifest is another version of the contract.
-    ManifestVersion,
-    /// The manifest needs something this runner doesn't do (a target that doesn't run on this
-    /// host, a delivery its driver doesn't take, an action of another driver's, a step with no
-    /// command for this host), or the call asks the run for something its target can't do (a
-    /// console into a Compose service with no VM, a Vagrant VM joined to another network).
-    Unsupported,
-    /// A file or folder couldn't be read or written, or a socket on this computer bound.
-    Io,
-    /// Another process runs an operation on this run, or holds the home's slot pick.
-    Locked,
-    /// A tool a step runs isn't installed.
-    ToolMissing,
-    /// A step's tool ran and failed.
-    ToolFailed,
-    /// A tool answers at a version older than the run needs.
-    ToolTooOld,
-    /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
-    /// and was stopped, with what it started (the `error` event's `timeout` says which).
-    Timeout,
-    /// A download (what a step needs, fetched in a phase of its own before it: a Compose start's
-    /// images, a Vagrant start's boxes; or a step the manifest marks a download) showed no
-    /// progress for as long as a download may, and was stopped.
-    DownloadStalled,
-    /// A download couldn't be made: its tool failed (the message says why: a registry or a box
-    /// catalog refusing it, a name it doesn't know, the network). A failure for the network that
-    /// passes (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried
-    /// again first, up to three more times: the message is the last try's.
-    DownloadFailed,
-    /// The run is already up.
-    AlreadyRunning,
-    /// The run is recorded on another place (server or account) than the one asked for.
-    RunningElsewhere,
-    /// A host port the run publishes is taken.
-    PortInUse,
-    /// The manifest has no park steps for that mode.
-    NotParkable,
-    /// Nothing of the run, or not every one of its machines, is left to resume.
-    NothingToResume,
-    /// The run isn't up.
-    NotRunning,
-    /// A ready condition didn't hold.
-    NotReady,
-    /// A required secret or input has no value.
-    SecretMissing,
-    /// A param is unknown, missing or holds a value it doesn't allow.
-    ParamInvalid,
-    /// A run name that can't name a run.
-    RunName,
-    /// The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or
-    /// lacks its plugin.
-    ProviderRefused,
-    /// The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt
-    /// declined or unanswered, the elevated session not started or ended before the operation
-    /// (the message says which).
-    ElevationFailed,
-    /// A machine the run doesn't have.
-    MachineUnknown,
-    /// The run has several machines the call could mean, and it named none.
-    MachineAmbiguous,
-    /// A network the run doesn't have.
-    NetworkUnknown,
-    /// Every slot of the place is held by another run.
-    SlotsFull,
-    /// A deployment can't be taken over as a run.
-    AdoptRefused,
-    /// A machine a step goes to over SSH never answered.
-    Unreachable,
-    /// The run's seal failed: it is up, but not sealed, so not ready.
-    NotSealed,
-    /// The operation was cut short before it ended (its future dropped: an embedder's cancel, the
-    /// command line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended
-    /// once they have, or 30 seconds later.
-    Cancelled,
-    /// The embedder was asked for something that makes no sense (the command line: a run folder
-    /// with no manifest, a value missing or malformed), so no operation started.
-    Usage,
-    /// The machine has no graphical console to reach: its target or provider gives none (the
-    /// error says why), it isn't running, or its hypervisor doesn't say where it is.
-    NoConsole,
-    /// The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API
-    /// answered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password
-    /// changed).
-    ServerAuthFailed,
-    /// A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:
-    /// not JSON, or another version's shape.
-    Corrupt,
-}
-
-impl ErrorCode {
-    /// The code as written in JSON (`port_in_use`).
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ErrorCode::ManifestInvalid => "manifest_invalid",
-            ErrorCode::ManifestVersion => "manifest_version",
-            ErrorCode::Unsupported => "unsupported",
-            ErrorCode::Io => "io",
-            ErrorCode::Corrupt => "corrupt",
-            ErrorCode::Locked => "locked",
-            ErrorCode::ToolMissing => "tool_missing",
-            ErrorCode::ToolFailed => "tool_failed",
-            ErrorCode::ToolTooOld => "tool_too_old",
-            ErrorCode::Timeout => "timeout",
-            ErrorCode::DownloadStalled => "download_stalled",
-            ErrorCode::DownloadFailed => "download_failed",
-            ErrorCode::AlreadyRunning => "already_running",
-            ErrorCode::RunningElsewhere => "running_elsewhere",
-            ErrorCode::PortInUse => "port_in_use",
-            ErrorCode::NotParkable => "not_parkable",
-            ErrorCode::NothingToResume => "nothing_to_resume",
-            ErrorCode::NotRunning => "not_running",
-            ErrorCode::NotReady => "not_ready",
-            ErrorCode::SecretMissing => "secret_missing",
-            ErrorCode::ParamInvalid => "param_invalid",
-            ErrorCode::RunName => "run_name",
-            ErrorCode::ProviderRefused => "provider_refused",
-            ErrorCode::ElevationFailed => "elevation_failed",
-            ErrorCode::MachineUnknown => "machine_unknown",
-            ErrorCode::MachineAmbiguous => "machine_ambiguous",
-            ErrorCode::NetworkUnknown => "network_unknown",
-            ErrorCode::SlotsFull => "slots_full",
-            ErrorCode::AdoptRefused => "adopt_refused",
-            ErrorCode::Unreachable => "unreachable",
-            ErrorCode::NotSealed => "not_sealed",
-            ErrorCode::NoConsole => "no_console",
-            ErrorCode::Cancelled => "cancelled",
-            ErrorCode::Usage => "usage",
-            ErrorCode::ServerAuthFailed => "server_auth_failed",
-        }
-    }
-}
 
 /// The runner's `Result`: its error is a [`Error`] unless said otherwise.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -160,14 +19,6 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The manifest was refused (its own error names the field and the fix).
-    #[error("{}: {source}", path.display())]
-    Manifest {
-        /// The manifest's file.
-        path: PathBuf,
-        /// Why, with Isoloom's stable code (`source.code()`).
-        source: isoloom_manifest::Error,
-    },
     /// The manifest needs something this runner doesn't do, or the call asks the run for
     /// something its target can't do.
     #[error("{what} isn't supported")]
@@ -175,14 +26,6 @@ pub enum Error {
         /// What, in a few words: target `cloud-vm` on this host; step `up`: the action
         /// `ssh.run` on a compose run.
         what: String,
-    },
-    /// A value the manifest gives that can't be used as written.
-    #[error("{at}: {reason}")]
-    Malformed {
-        /// Where (`lifecycle.up.copy.with.wait_s`).
-        at: String,
-        /// What is wrong with it.
-        reason: String,
     },
     /// A file or folder couldn't be read or written, or a loopback port bound.
     #[error("{} couldn't be {action}: {source}", path.display())]
@@ -199,12 +42,6 @@ pub enum Error {
     Locked {
         /// The run.
         run: String,
-    },
-    /// Another start held the home's slot pick for as long as a start waits for it.
-    #[error("another start has held this home's slot pick for {waited_s} s; it may hang")]
-    SlotsLocked {
-        /// How long this start waited, in seconds.
-        waited_s: u64,
     },
     /// A step's tool isn't on PATH.
     #[error("step `{step}`: `{tool}` isn't installed or isn't on PATH")]
@@ -230,6 +67,18 @@ pub enum Error {
         /// The step.
         step: String,
         /// Its last error lines, or its exit status (secrets masked).
+        reason: String,
+    },
+    /// A tool the run needs is installed, but its probe got no answer from it: a container
+    /// engine stopped, or one this account can't reach. Said by its code, so a caller never reads
+    /// it out of a [`Error::ToolFailed`]'s wording.
+    #[error("step `{step}` failed: `{tool}` doesn't answer: {reason}")]
+    ToolUnanswered {
+        /// The probing step (`tools`).
+        step: String,
+        /// The tool, by its manifest name (`docker`).
+        tool: String,
+        /// What it said, or why its answer is none (secrets masked).
         reason: String,
     },
     /// A step ran out of time: it showed no progress for its limit, or it ran to the ceiling.
@@ -281,8 +130,8 @@ pub enum Error {
     /// A host port the run publishes is taken.
     #[error("host port {port}/{protocol} is in use")]
     PortInUse {
-        /// The port.
-        port: u16,
+        /// The port, on the host.
+        port: crate::port::HostPort,
         /// `tcp` or `udp`.
         protocol: String,
     },
@@ -329,21 +178,22 @@ pub enum Error {
         /// The slot.
         name: String,
     },
-    /// A param that can't be used as given.
-    #[error("param `{name}`: {reason}")]
-    Param {
-        /// The param.
+    /// A folder that isn't a project Isothrum runs.
+    #[error("{}: not a project to run: {reason}", dir.display())]
+    Project {
+        /// The folder.
+        dir: PathBuf,
+        /// Why, with the fix.
+        reason: String,
+    },
+    /// A value or secret that can't be handed to the tools (its name empty or holding `=`, a NUL
+    /// in it).
+    #[error("input `{name}`: {reason}")]
+    Input {
+        /// Its name.
         name: String,
         /// Why.
         reason: String,
-    },
-    /// A placeholder with no value at run time.
-    #[error("{at}: `${{{placeholder}}}` has no value in this operation")]
-    Unbound {
-        /// Where (`lifecycle.up.up`).
-        at: String,
-        /// The placeholder.
-        placeholder: String,
     },
     /// A machine the run doesn't have (to provision, console into, attach, detach or retire).
     #[error("run `{run}` has no machine `{machine}`")]
@@ -371,15 +221,6 @@ pub enum Error {
         /// The network asked for.
         network: String,
     },
-    /// The macOS relays to an ESXi host couldn't be set up (a relay that can't listen on the
-    /// loopback, a `PATH` that isn't UTF-8, the ovftool wrapper's folder that can't be written).
-    #[error("the relays to ESXi host `{host}` couldn't be set up: {source}")]
-    Relay {
-        /// The ESXi host.
-        host: String,
-        /// Why.
-        source: std::io::Error,
-    },
     /// The elevation the run's commands need couldn't be had.
     #[error("elevation: {reason}")]
     Elevation {
@@ -400,35 +241,6 @@ pub enum Error {
         /// The run's providers, as the manifest names them (`` `virtualbox`, `libvirt` ``).
         providers: String,
     },
-    /// Every slot of the run's place is held by another run.
-    #[error("no slot is free on `{place}`: {held} runs hold one; stop one first")]
-    SlotsFull {
-        /// The place (the embedder's label for it, or `this host`).
-        place: String,
-        /// How many runs hold a slot there.
-        held: usize,
-    },
-    /// A machine a step goes to over SSH never answered within the step's `wait_s` (a guest
-    /// delivery's: 15 minutes).
-    #[error("step `{step}`: {login} didn't answer over SSH within {after_s}s: {reason}")]
-    Unreachable {
-        /// The step.
-        step: String,
-        /// The login it tried (`user@host`).
-        login: String,
-        /// How long it tried, in seconds.
-        after_s: u64,
-        /// ssh's last word.
-        reason: String,
-    },
-    /// The run's seal failed: it is up, unsealed, and never reported ready.
-    #[error("run `{run}` couldn't be sealed, so it isn't ready (stop it to remove it): {reason}")]
-    Unsealed {
-        /// The run.
-        run: String,
-        /// Why the seal failed.
-        reason: String,
-    },
     /// A deployment that can't be taken over as a run.
     #[error("run `{run}` can't take the deployment over: {reason}")]
     Adopt {
@@ -438,7 +250,9 @@ pub enum Error {
         reason: String,
     },
     /// A run name that can't name a run.
-    #[error("`{value}` can't name a run: use 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit")]
+    #[error(
+        "`{value}` can't name a run: use 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)"
+    )]
     RunName {
         /// The name as given.
         value: String,
@@ -474,22 +288,75 @@ pub enum Error {
         #[source]
         source: serde_json::Error,
     },
+    /// The home's store couldn't do what was asked.
+    #[error("the home's state store couldn't be {action}: {reason}")]
+    Store {
+        /// What (`opened`, `read`, `written`, `migrated`).
+        action: &'static str,
+        /// The failure's code (`locked`, `store_corrupt`, `store_version`, `io`).
+        code: ErrorCode,
+        /// SQLite's word, or the store's.
+        reason: String,
+    },
+    /// The run's state machine refused the move.
+    #[error(transparent)]
+    IllegalTransition(#[from] crate::state::IllegalTransition),
+    /// The run moved between the read and the write that would have moved it.
+    #[error("run `{run}` was expected {expected} but is {}", found.map_or("not recorded", crate::state::RunState::as_str))]
+    StateConflict {
+        /// The run.
+        run: String,
+        /// Where the move started.
+        expected: crate::state::RunState,
+        /// Where the run stood instead.
+        found: Option<crate::state::RunState>,
+    },
+    /// A live process holds the lease asked for.
+    #[error("`{scope}` is held by process {pid}")]
+    LeaseHeld {
+        /// The lease.
+        scope: String,
+        /// Its holder's process id.
+        pid: u32,
+    },
 }
 
 impl Error {
+    /// The step the failure happened in, when it names one.
+    pub(crate) fn step(&self) -> Option<&str> {
+        match self {
+            Error::ToolMissing { step, .. }
+            | Error::ToolFailed { step, .. }
+            | Error::ToolUnanswered { step, .. }
+            | Error::Timeout { step, .. }
+            | Error::DownloadStalled { step, .. }
+            | Error::DownloadFailed { step, .. }
+            | Error::ServerAuthFailed { step, .. } => Some(step),
+            _ => None,
+        }
+    }
+
+    /// What ran out of time, for a step that did.
+    pub(crate) fn timed_out(&self) -> Option<&TimedOut> {
+        match self {
+            Error::Timeout { timed_out, .. } => Some(timed_out),
+            _ => None,
+        }
+    }
+
     /// The failure's stable code.
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
-            Error::Manifest { source, .. } if source.code() == "version" => ErrorCode::ManifestVersion,
-            Error::Manifest { .. } | Error::Malformed { .. } | Error::Unbound { .. } => ErrorCode::ManifestInvalid,
             Error::Unsupported { .. } => ErrorCode::Unsupported,
-            Error::Io { .. } | Error::Relay { .. } => ErrorCode::Io,
+            Error::Project { .. } => ErrorCode::ProjectInvalid,
+            Error::Io { .. } => ErrorCode::Io,
             Error::Corrupt { .. } => ErrorCode::Corrupt,
-            Error::Locked { .. } | Error::SlotsLocked { .. } => ErrorCode::Locked,
+            Error::Locked { .. } => ErrorCode::Locked,
             Error::ToolMissing { .. } => ErrorCode::ToolMissing,
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
+            Error::ToolUnanswered { .. } => ErrorCode::ToolUnanswered,
             Error::Timeout { .. } => ErrorCode::Timeout,
             Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,
             Error::DownloadFailed { .. } => ErrorCode::DownloadFailed,
@@ -501,19 +368,20 @@ impl Error {
             Error::NotRunning { .. } => ErrorCode::NotRunning,
             Error::NotReady { .. } => ErrorCode::NotReady,
             Error::SecretMissing { .. } => ErrorCode::SecretMissing,
-            Error::Param { .. } => ErrorCode::ParamInvalid,
+            Error::Input { .. } => ErrorCode::InputInvalid,
             Error::RunName { .. } => ErrorCode::RunName,
             Error::Provider { .. } | Error::NoProvider { .. } => ErrorCode::ProviderRefused,
             Error::Elevation { .. } => ErrorCode::ElevationFailed,
             Error::MachineUnknown { .. } => ErrorCode::MachineUnknown,
             Error::MachineAmbiguous { .. } => ErrorCode::MachineAmbiguous,
             Error::NetworkUnknown { .. } => ErrorCode::NetworkUnknown,
-            Error::SlotsFull { .. } => ErrorCode::SlotsFull,
             Error::Adopt { .. } => ErrorCode::AdoptRefused,
-            Error::Unreachable { .. } => ErrorCode::Unreachable,
-            Error::Unsealed { .. } => ErrorCode::NotSealed,
             Error::NoConsole { .. } => ErrorCode::NoConsole,
             Error::ServerAuthFailed { .. } => ErrorCode::ServerAuthFailed,
+            Error::Store { code, .. } => *code,
+            Error::IllegalTransition(_) => ErrorCode::IllegalTransition,
+            Error::StateConflict { .. } => ErrorCode::StateConflict,
+            Error::LeaseHeld { .. } => ErrorCode::LeaseHeld,
         }
     }
 
@@ -531,12 +399,6 @@ fn gone(machines: &[String]) -> String {
         [] => "nothing is".to_owned(),
         [one] => format!("machine {one} is"),
         [rest @ .., last] => format!("machines {} and {last} are", rest.join(", ")),
-    }
-}
-
-impl std::fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -570,18 +432,5 @@ mod tests {
             reason: "the elevated session ended: the broker stopped".into(),
         };
         assert_eq!((lost.code(), lost.code().as_str()), (ErrorCode::ElevationFailed, "elevation_failed"));
-    }
-
-    #[test]
-    fn another_manifest_version_has_its_own_code() {
-        for other in [0, 2] {
-            let err = isoloom_manifest::parse(&format!(r#"{{"manifest_version": {other}}}"#)).unwrap_err();
-            let err = Error::Manifest {
-                path: "run.json".into(),
-                source: err,
-            };
-            assert_eq!(err.code(), ErrorCode::ManifestVersion);
-            assert!(err.to_string().starts_with(&format!("run.json: manifest_version {other}")), "{err}");
-        }
     }
 }

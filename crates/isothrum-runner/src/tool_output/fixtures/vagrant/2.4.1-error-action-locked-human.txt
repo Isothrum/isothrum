@@ -1,0 +1,9 @@
+An action 'read_state' was attempted on the machine 'web',
+but another process is already executing an action on the machine.
+Vagrant locks each machine for access by only one process at a time.
+Please wait until the other Vagrant process finishes modifying this
+machine, then try again.
+
+If you believe this message is in error, please check the process
+listing for any "ruby" or "vagrant" processes and kill them. Then
+try again.

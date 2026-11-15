@@ -86,8 +86,6 @@ codes, environment variables, events, state) and the architecture and security m
 | [`isothrum-cli`](crates/isothrum-cli) | The `isothrum` command line. |
 | [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, drivers, secrets, checks, events. |
 | [`isothrum-machine`](crates/isothrum-machine) | Which Vagrant providers (hypervisors) a computer can drive. |
-| [`isothrum-compiler`](crates/isothrum-compiler) | A drawn topology becomes an Isoloom spec. |
-| [`isothrum-wasm`](crates/isothrum-wasm) | The compiler and Isoloom's targets in WebAssembly. |
 
 All crates share one version. `xtask` and `fuzz/` are not published.
 

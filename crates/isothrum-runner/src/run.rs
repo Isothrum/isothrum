@@ -1,113 +1,164 @@
-//! One manifest opened under one run name: the operations an embedder calls, and the read-only
-//! query `status` here (`console_command`, the other one, is in `console`). `operation` is what every operation does around its own work,
-//! `up` starts a run, `existing` holds the operations on a run that exists (down, park, resume,
-//! check, provision), `update` brings a running run up to date with its manifest, `boot` restarts
-//! the VMs whose boot-time settings it changed, `retire` takes a machine out ahead of it, `attach`
-//! hot-adds and removes the run's on-demand access machine (attach, detach), `console` builds the
-//! command that opens a console into a machine, and `seal` seals a run once it is ready.
+//! A run of a project folder: any Compose project, Vagrantfile or Terraform module, driven by its
+//! format's driver ([`crate::formats`]). Each operation is journaled, holds the run's lock, moves
+//! the run's state, records the resources the tool reports and says it all as events, the same
+//! way for every format; only the driver knows its tool. `operate` is what every operation does
+//! around its own work, `recovery` what it does about what dead operations left.
 
-mod attach;
-mod boot;
-mod console;
-mod existing;
 mod graphical;
-mod operation;
-mod retire;
-mod seal;
+mod operate;
+mod ports;
+pub(crate) mod recovery;
+mod status;
+use status::status_of;
 #[cfg(test)]
 mod tests;
-mod up;
-mod update;
 
-pub use attach::{AccessPick, AttachReport};
-
-use std::collections::BTreeMap;
-use std::path::Path;
-
-use isoloom_manifest::{Manifest, Provider, RunVar};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::Result;
-use crate::driver::AnyDriver;
-use crate::encoding::wire_name;
+use crate::console::ShellCommand;
 use crate::error::Error;
-use crate::events::Emitter;
-use crate::executor::{Cx, LineWatch};
-use crate::manifest::LoadedManifest;
+use crate::events::{Emitter, Events, ResultData, ShownOutput, Stream, WarningCode};
+use crate::formats::any::AnyFormat;
+use crate::formats::{Seen, ToolCx, ledger};
 use crate::name::RunName;
 use crate::options::RunOptions;
-use crate::outputs;
-use crate::params::params_for_existing;
+use crate::process::ProcessRunner;
+use crate::project::{Format, Project};
 use crate::runner::Runner;
-use crate::scope::Scope;
-use crate::secrets::Secrets;
-use crate::status::{self, Status};
+use crate::state::{Op, Park, RunState};
+use crate::status::{OutputValue, Started, Status};
+use crate::store::{LastObserved, OperationId};
 
-/// A run: a manifest under a name, on a runner.
-pub struct Running<'r> {
-    pub(crate) runner: &'r Runner,
-    loaded: LoadedManifest,
-    name: RunName,
-    pub(crate) driver: AnyDriver,
-    /// Values of the manifest's connection slots, given once ([`Running::with_connection`]).
-    connection: Secrets,
+use operate::Done;
+
+/// What a command run in a machine of the run said ([`Running::exec`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ExecReport {
+    /// The machine it ran in.
+    pub machine: String,
+    /// Its exit status (`-1` when it was killed by a signal).
+    pub exit: i32,
+    /// Its standard output.
+    pub stdout: String,
+    /// The end of its standard error.
+    pub stderr: String,
 }
 
-impl std::fmt::Debug for Running<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Running")
-            .field("name", &self.name)
-            .field("manifest", &self.loaded.path)
-            .finish_non_exhaustive()
+/// What an operation that moves the run asks of its tool ([`Running::drive`]).
+#[derive(Debug, Clone, Copy)]
+enum Act<'a> {
+    /// Make and start everything.
+    Up,
+    /// Stop the machines and keep them.
+    Park(Park),
+    /// Start the parked machines again.
+    Resume,
+    /// Bring the run to the project's files.
+    Update,
+    /// Run the set-up again, on one machine or all.
+    Provision(Option<&'a str>, Option<&'a str>),
+    /// Start a machine the project leaves down.
+    Attach(&'a str),
+    /// Remove a machine.
+    Retire(&'a str),
+}
+
+impl Act<'_> {
+    /// The operation it is.
+    fn op(self) -> Op {
+        match self {
+            Act::Up => Op::Up,
+            Act::Park(_) => Op::Park,
+            Act::Resume => Op::Resume,
+            Act::Update => Op::Update,
+            Act::Provision(..) => Op::Provision,
+            Act::Attach(_) => Op::Attach,
+            Act::Retire(_) => Op::Retire,
+        }
     }
 }
 
-/// Makes the run's state folder of `cx`, owner-only, for what an operation (or a status read)
-/// writes there; a query that writes nothing leaves no folder behind.
-fn made(cx: &Cx<'_>) -> Result<()> {
-    crate::store::create_dir(cx.state_dir())
+/// What a tool context that says nothing and picks no port holds of its run: a console's, a
+/// state folder's move.
+struct Quiet {
+    key: String,
+    state_dir: PathBuf,
+    ssh_key: PathBuf,
+}
+
+impl Quiet {
+    fn of(run: &Running<'_>) -> Quiet {
+        Quiet {
+            key: run.runner.copy_key(&run.name),
+            state_dir: run.state_dir(),
+            ssh_key: crate::ssh::key_path(&run.runner.config.home),
+        }
+    }
+
+    /// The context of `run` on these paths, its tools given `env`.
+    fn cx<'a>(&'a self, run: &'a Running<'_>, env: Vec<(String, String)>) -> ToolCx<'a> {
+        ToolCx {
+            project: &run.project,
+            run: &run.name,
+            key: &self.key,
+            state_dir: &self.state_dir,
+            provider: None,
+            env,
+            host_env: &run.runner.config.host_env,
+            processes: run.runner.config.processes.as_ref(),
+            ssh_key: &self.ssh_key,
+            ports: &crate::formats::NoPorts,
+            sink: &crate::formats::discard,
+            warn: &unwarned,
+            made: crate::formats::NOTHING_MADE,
+        }
+    }
+}
+
+/// Says nothing of a warning: a quiet context's.
+fn unwarned(_: WarningCode, _: &str) {}
+
+/// The host ports run `run` pins, reserved through its runner for the operation.
+struct RunPorts<'a> {
+    runner: &'a Runner,
+    run: &'a RunName,
+}
+
+impl crate::formats::PickPorts for RunPorts<'_> {
+    fn pick(&self, protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
+        self.runner.pick_reserved(self.run, protocol)
+    }
+}
+
+/// Removes a recorded resource through the run's driver, by the id its tool gave.
+struct ById<'a, 'c> {
+    driver: AnyFormat,
+    cx: &'a ToolCx<'c>,
+}
+
+impl recovery::Remover for ById<'_, '_> {
+    async fn remove(&mut self, row: &crate::store::ResourceRow) -> Result<()> {
+        let id = row.native_id.as_deref().unwrap_or_default();
+        self.driver.destroy_by_id(self.cx, &row.key, row.kind, id).await
+    }
+}
+
+/// A run of a project folder.
+pub struct Running<'r> {
+    runner: &'r Runner,
+    project: Project,
+    name: RunName,
+    driver: AnyFormat,
 }
 
 impl<'r> Running<'r> {
-    pub(crate) fn new(runner: &'r Runner, loaded: LoadedManifest, name: RunName) -> Result<Running<'r>> {
-        if !loaded.manifest.hosts.contains(&runner.config.host) {
-            return Err(Error::Unsupported {
-                what: format!("target `{}` on this host", wire_name(&loaded.manifest.target)),
-            });
-        }
-        let driver = AnyDriver::for_manifest(&loaded.manifest)?;
-        Ok(Running {
-            runner,
-            loaded,
-            name,
-            driver,
-            connection: Secrets::new(),
-        })
-    }
-
-    /// The run with `secrets`, the values of its connection slots (an ESXi host's password),
-    /// delivered to every operation, status (which takes no options) too. Kept in memory only,
-    /// never stored; a value an operation's options give wins.
-    #[must_use]
-    pub fn with_connection(mut self, secrets: Secrets) -> Running<'r> {
-        self.connection = secrets;
-        self
-    }
-
-    /// `opts` with the connection's values its secrets lack.
-    pub(crate) fn connected(&self, opts: &RunOptions) -> RunOptions {
-        let mut out = opts.clone();
-        for (name, value) in self.connection.iter() {
-            if out.secrets.get(name).is_none() {
-                out.secrets.insert(name, value.clone());
-            }
-        }
-        out
-    }
-
-    /// The manifest.
-    #[must_use]
-    pub fn manifest(&self) -> &Manifest {
-        &self.loaded.manifest
+    /// Run `name` of `project` on `runner`.
+    pub(crate) fn new(runner: &'r Runner, project: Project, name: RunName) -> Running<'r> {
+        let driver = AnyFormat::of(project.format);
+        Running { runner, project, name, driver }
     }
 
     /// The run's name.
@@ -116,344 +167,392 @@ impl<'r> Running<'r> {
         &self.name
     }
 
-    /// The manifest's file.
-    pub(crate) fn path(&self) -> &Path {
-        &self.loaded.path
+    /// The project it runs.
+    #[must_use]
+    pub fn project(&self) -> &Project {
+        &self.project
     }
 
-    /// The manifest's folder (`${run.dir}`).
-    pub(crate) fn dir(&self) -> &Path {
-        &self.loaded.dir
+    /// The folder the runner keeps the run's own files in.
+    fn state_dir(&self) -> PathBuf {
+        self.runner.store.run_dir_path(&self.name)
     }
 
-    /// A silent context of the run, with `events` and what its start kept (its record bound: its
-    /// SSH jump, its slot, its forwards; its provider; its params replayed, a fresh run's
-    /// defaults otherwise), so a way in is the run's: for the read-only queries. No lock.
-    fn silent_cx<'a>(&'a self, events: &'a Emitter<'a>) -> Result<(Option<crate::store::RunRecord>, Cx<'a>)> {
-        let record = self.runner.store.record(&self.name)?;
-        let provider = record.as_ref().and_then(|r| r.provider);
-        let params = params_for_existing(
-            self.manifest(),
-            record.as_ref().and_then(crate::store::RunRecord::replayed_params),
-            &BTreeMap::new(),
-            &self.scope(provider),
-        )?;
-        // Nothing is emitted, but its errors say what a tool printed: the connection's secrets
-        // masked there, as an operation's are.
-        events.hide(crate::secrets::sensitive_values(self.manifest(), &self.connection));
-        let mut cx = self.cx(params, &self.connection, events, provider)?;
-        cx.query = true;
-        if let Some(r) = &record {
-            Self::bind_record(&mut cx, r);
+    /// Every variable the run's tools get: the run's key, then its values and secrets as the
+    /// format reads them ([`crate::project::inputs`]).
+    fn tool_env(&self, opts: &RunOptions) -> Result<Vec<(String, String)>> {
+        let mut env = vec![(crate::RUN_KEY_VAR.to_owned(), self.runner.copy_key(&self.name))];
+        // The values the run's record keeps, under those the caller gives now.
+        let mut values = self.runner.store.record(&self.name)?.map(|r| r.env).unwrap_or_default();
+        values.extend(opts.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+        if self.project.format == Format::Terraform {
+            // Every run of the runner shares one provider cache, unless the user has their own.
+            let cache = crate::formats::terraform::plugin_cache(&self.runner.config);
+            std::fs::create_dir_all(&cache).map_err(Error::io(&cache, "create"))?;
+            env.push(("TF_PLUGIN_CACHE_DIR".to_owned(), cache.to_string_lossy().into_owned()));
         }
-        Ok((record, cx))
+        env.extend(crate::project::inputs::environment(self.project.format, &values, &opts.secrets)?);
+        if self.project.format == Format::Vagrant {
+            // The ports the run kept, for a Vagrantfile that pins its forwards to them.
+            env.extend(ports::env(&ports::kept(&self.state_dir())?));
+        }
+        Ok(env)
     }
 
-    /// Runs `f` on a silent context of the run ([`Running::silent_cx`]), emitting nothing, its state
-    /// folder not made: for the queries that run no step.
-    pub(crate) fn query<T>(&self, f: impl FnOnce(&Cx<'_>) -> Result<T>) -> Result<T> {
-        let events = self.silent();
-        let (_, cx) = self.silent_cx(&events)?;
-        f(&cx)
+    /// The hypervisor the run takes: the one the caller names, else the one its start recorded (a
+    /// `down` names none, and must reach the VMs its start made on their provider).
+    fn provider(&self, opts: &RunOptions) -> Option<crate::Provider> {
+        opts.provider
+            .or_else(|| self.runner.store.record(&self.name).ok().flatten().and_then(|r| r.provider))
     }
 
-    /// An emitter of the run that says nothing.
-    fn silent(&self) -> Emitter<'_> {
-        Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref())
+    /// The process runner of an operation: its tools recorded in the run's state folder while they
+    /// run, so a killed operation's are ended by the next ([`crate::process::ledger`]).
+    fn operation_processes(&self, opts: &RunOptions) -> Arc<dyn ProcessRunner> {
+        let tools = self.state_dir().join(crate::process::ledger::DIR);
+        let recorded: Arc<dyn ProcessRunner> = Arc::new(crate::process::Recording::new(
+            Arc::clone(&self.runner.config.processes),
+            tools,
+            self.runner.operation_of(&self.name),
+        ));
+        let windows = self.runner.config.host == crate::project::platform::HostOs::Windows;
+        if windows && self.driver.elevates(self.provider(opts)) {
+            let env = self.runner.config.host_env.for_elevation();
+            return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
+        }
+        recorded
     }
 
-    /// The run as it stands: never locked, and never an event. It changes nothing of the run, but
-    /// readies its state folder as an operation does for the tools it asks (the folder; Compose's
-    /// empty pinned-ports file, which every Compose call names; Terraform's plugin cache); it
-    /// never writes a secret (the consoles the runner chooses are an operation's to choose). While an operation holds the run
-    /// (this runner's, or another process's), the engine isn't asked: that operation acts on the
-    /// run with the same tools, which may refuse a read until it is done (Vagrant locks each VM
-    /// for the whole of a `vagrant up`, provisioning included). The status is then the
-    /// operation's state, with the machines as last read ([`Status::live`] false).
+    /// Runs `work` with a tool context for this run, whose tool lines and warnings go to
+    /// `emitter` (the lines as the operation's own step).
+    async fn with_cx<T>(
+        &self,
+        opts: &RunOptions,
+        emitter: &Emitter<'_>,
+        processes: &dyn ProcessRunner,
+        work: impl AsyncFnOnce(&ToolCx<'_>) -> Result<T>,
+    ) -> Result<T> {
+        let state_dir = self.state_dir();
+        let key = self.runner.copy_key(&self.name);
+        let ssh_key = crate::ssh::key_path(&self.runner.config.home);
+        let step = emitter.operation_name();
+        let sink = |stream: Stream, line: &str| emitter.log(step, stream, line);
+        let warn = |code: WarningCode, message: &str| emitter.warning(code, message);
+        let ports = RunPorts {
+            runner: self.runner,
+            run: &self.name,
+        };
+        let made = || self.made();
+        let cx = ToolCx {
+            project: &self.project,
+            run: &self.name,
+            key: &key,
+            state_dir: &state_dir,
+            provider: self.provider(opts),
+            env: self.tool_env(opts)?,
+            processes,
+            ssh_key: &ssh_key,
+            ports: &ports,
+            host_env: &self.runner.config.host_env,
+            sink: &sink,
+            warn: &warn,
+            made: &made,
+        };
+        work(&cx).await
+    }
+
+    /// The keys of the run's resources the store records as made by its tool: the provider's,
+    /// with their id, not gone.
+    fn made(&self) -> Result<Vec<String>> {
+        let rows = self.runner.store.db().read(|tx| tx.live_resources(&self.name))?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
+            .map(|r| r.key)
+            .collect())
+    }
+
+    /// Records what the tool now reports of the run's resources against the store's rows, and
+    /// says each row that moved.
+    async fn record_found(&self, cx: &ToolCx<'_>, emitter: &Emitter<'_>, by: OperationId) -> Result<()> {
+        let found = self.driver.found(cx).await?;
+        let db = self.runner.store.db();
+        let recorded = db.write(|tx| ledger::record_found(tx, &self.name, by, &found))?;
+        let moved: Vec<_> = recorded.made.iter().chain(&recorded.gone).copied().collect();
+        crate::run::recovery::say(emitter, db, &moved);
+        Ok(())
+    }
+
+    /// Removes, by recorded id, what dead operations of the run left, before this one acts.
+    async fn recover(&self, cx: &ToolCx<'_>, emitter: &Emitter<'_>, by: OperationId) -> Result<()> {
+        let db = self.runner.store.db();
+        let rows = db.read(|tx| tx.left_by_dead_operations(&self.name, by))?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let left = recovery::destroy_recorded(db, emitter, by, &rows, ById { driver: self.driver, cx }).await?;
+        for not in &left {
+            emitter.warning(
+                WarningCode::CleanupFailed,
+                &format!("`{}` an earlier operation left wasn't removed: {}", not.row.key, not.error),
+            );
+        }
+        Ok(())
+    }
+
+    /// Drives the tool as `act` says.
+    async fn act(&self, cx: &ToolCx<'_>, act: Act<'_>) -> Result<()> {
+        match act {
+            Act::Up => self.driver.up(cx).await,
+            Act::Park(mode) => self.driver.park(cx, mode).await,
+            Act::Resume => self.driver.resume(cx).await,
+            Act::Update => {
+                self.driver.update(cx).await?;
+                if self.project.format == Format::Vagrant {
+                    // Compose's --remove-orphans and Terraform's apply take what the files no
+                    // longer declare themselves; a service under a profile the run attached isn't
+                    // in what Compose's files start, and is no orphan.
+                    self.retire_undeclared(cx).await?;
+                }
+                Ok(())
+            }
+            Act::Provision(machine, with) => self.driver.provision(cx, machine, with).await,
+            Act::Attach(machine) => self.driver.attach(cx, machine).await,
+            Act::Retire(machine) => self.driver.retire(cx, machine).await,
+        }
+    }
+
+    /// After an update: the running machines the project's files no longer declare, brought down
+    /// by the driver's re-apply (a Vagrant machine whose `define` left the Vagrantfile, which
+    /// `vagrant up` leaves running; Compose's `--remove-orphans` and Terraform's apply leave none).
+    async fn retire_undeclared(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let declared = self.driver.machines(cx).await?;
+        let (seen, _) = self.driver.observe(cx).await?;
+        let removed: Vec<String> = seen.machines.into_iter().map(|m| m.name).filter(|m| !declared.contains(m)).collect();
+        if removed.is_empty() {
+            return Ok(());
+        }
+        let change = crate::formats::Change {
+            removed,
+            ..crate::formats::Change::default()
+        };
+        self.driver.reapply(cx, &change).await
+    }
+
+    /// Runs `act` as an operation: what dead operations left removed, the tool probed and driven,
+    /// then the resources it reports recorded and where the run stands read.
+    async fn drive(&self, act: Act<'_>, opts: &RunOptions, events: &dyn Events) -> Result<RunState> {
+        let op = act.op();
+        self.operate(op, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, by: OperationId| {
+            let processes = self.operation_processes(given);
+            self.with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
+                self.recover(cx, emitter, by).await?;
+                self.driver.probe(cx).await?;
+                self.act(cx, act).await?;
+                self.record_found(cx, emitter, by).await?;
+                let (seen, state) = self.driver.observe(cx).await?;
+                operate::not_whole(op, &seen, state)?;
+                if matches!(op, Op::Up | Op::Resume | Op::Update) {
+                    ports::keep(&self.state_dir(), &seen, cx.warn)?;
+                }
+                Ok((seen, state))
+            })
+            .await
+            .map(|(seen, state)| {
+                let goal = op_goal(op).unwrap_or(state);
+                let data = if op == Op::Up {
+                    // A start says what the project gives back (a module's outputs), masked.
+                    let outputs = status_of(&seen, goal, true, None).outputs;
+                    ResultData::Started {
+                        state: goal,
+                        outputs: outputs.into_iter().map(|o| ShownOutput::new(o.name, o.value)).collect(),
+                    }
+                } else {
+                    ResultData::Moved { state: goal }
+                };
+                Done::settled(goal, data)
+            })
+        })
+        .await
+    }
+
+    /// Starts the run: makes and starts everything, and returns once the project says it's ready.
     ///
     /// # Errors
     ///
-    /// Fails when the engine can't be asked (the status step fails or runs out of time) or the
-    /// run's record can't be read. Another process acting on a machine (Vagrant's lock on it,
-    /// past a short wait) is no failure: that machine is [`MachineState::Busy`](crate::MachineState::Busy),
-    /// the others as last read, and the status isn't live.
-    pub async fn status(&self) -> Result<Status> {
-        let events = self.silent();
-        let (record, mut cx) = self.silent_cx(&events)?;
-        let provider = cx.scope.provider;
-        let read = self.read_for_query(&mut cx, record.as_ref()).await;
-        let (state, mut observed, live) = read.map_err(|e| self.refused_sign_in(e, &RunOptions::new().with_params(cx.vars.params().clone())))?;
-        let mut machines = std::mem::take(&mut observed.machines);
-        self.offer_consoles(&cx, &mut machines).await;
-        let outputs = self.bind_observed(&mut cx, observed).values;
-        let message = (state == crate::RunState::Ready)
-            .then(|| outputs::message(self.manifest(), &cx.vars, &outputs))
-            .flatten();
-        Ok(Status {
-            state,
-            live,
-            provider,
-            machines,
-            networks: self.networks(&cx),
-            outputs,
-            message,
-            native: crate::graphical::native::app(self.manifest(), provider, cx.scope.host),
-        })
+    /// Fails, after its `error` event, as the run's tool does (missing, too old, failing, out of
+    /// time), with `port_in_use` for a host port taken, or as the run's state refuses an `up`:
+    /// `already_running` for a run that is ready and live (its tool says so now), before any tool
+    /// acts. A run recorded ready whose machines are gone or stopped meanwhile starts again.
+    pub async fn up(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
+        self.refresh_if(RunState::Ready, opts).await;
+        self.drive(Act::Up, opts, events).await?;
+        let record = self
+            .runner
+            .store
+            .record(&self.name)?
+            .ok_or_else(|| Error::NotRunning { run: self.name.to_string() })?;
+        let outputs = self.outputs(opts).await.unwrap_or_default();
+        Ok(Started { record, outputs })
     }
 
-    /// Each machine's console offer, as it stands now: what its declaration offers on this
-    /// provider, and for a running machine whether the console is there and answering. Its own
-    /// step of a status read.
-    async fn offer_consoles(&self, cx: &Cx<'_>, machines: &mut [crate::MachineStatus]) {
-        let known = cx.scope.provider;
-        for m in machines {
-            let Some(declared) = self.manifest().machines.iter().find(|x| x.name.as_str() == m.name) else {
-                continue;
-            };
-            m.console = crate::graphical::ConsoleOffer::of(declared, known);
-            if m.state.runs()
-                && let Some(offer) = m.console.as_mut()
-                && let Some(console) = declared.console(known).filter(|c| c.source.is_some())
-            {
-                offer.unavailable = crate::graphical::unavailable(cx, declared, console).await;
-            }
-        }
-    }
-
-    /// Where the run stands, its machines and whether they were read now, for a query (`cx`, a
-    /// silent context, `record` its run's record): while an operation holds the run, its state
-    /// and the machines as last read; else as the engine reads them, unless another process
-    /// acting on some of them refuses the read ([`crate::driver::Observed::busy`]): then those
-    /// are busy, the others as last read, and the run where an operation holding it now, or its
-    /// record, says.
-    pub(crate) async fn read_for_query(
-        &self,
-        cx: &mut Cx<'_>,
-        record: Option<&crate::store::RunRecord>,
-    ) -> Result<(crate::RunState, crate::driver::Observed, bool)> {
-        if let Some(state) = self.while_held(record)? {
-            return Ok((state, self.last_seen(), false));
-        }
-        made(cx)?;
-        self.driver.prepare(cx)?;
-        self.relay(cx).await?;
-        let observed = self.observe(cx).await?;
-        let Some(busy) = &observed.busy else {
-            return Ok((status::derive_state(&observed.machines, record), observed, true));
-        };
-        let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
-        let state = self.while_held(record)?.unwrap_or(recorded);
-        let mut seen = self.last_seen();
-        for m in seen.machines.iter_mut().filter(|m| busy.contains(&m.name)) {
-            m.state = crate::MachineState::Busy;
-        }
-        Ok((state, seen, false))
-    }
-
-    /// Where the run stands while an operation holds it, if one does: the moving state of this
-    /// runner's operation on it (`starting` from the first instant of an `up`), else what its
-    /// record says (another process's operation records its moving state once it begins acting;
-    /// an update leaves the run `ready`).
-    fn while_held(&self, record: Option<&crate::store::RunRecord>) -> Result<Option<crate::RunState>> {
-        let recorded = record.map_or(crate::RunState::Absent, |r| r.state);
-        if let Some(op) = self.runner.op_of(&self.name) {
-            return Ok(Some(op.during().unwrap_or(recorded)));
-        }
-        Ok(self.runner.store.held(&self.name)?.then_some(recorded))
-    }
-
-    /// The run as the runner last read it ([`crate::store::LastObserved`]); nothing before it ever did,
-    /// or when what it kept can't be read (traced).
-    fn last_seen(&self) -> crate::driver::Observed {
-        match self.runner.store.seen(&self.name) {
-            Ok(seen) => crate::driver::Observed::from_seen(seen.unwrap_or_default()),
-            Err(e) => {
-                tracing::warn!(error = %e, "what the runner last saw of the run can't be read: no machine is shown");
-                crate::driver::Observed::default()
-            }
-        }
-    }
-
-    /// What `params`, `secrets` and `events` give this run's steps.
-    pub(crate) fn cx<'a>(
-        &'a self,
-        params: BTreeMap<String, String>,
-        secrets: &'a Secrets,
-        events: &'a Emitter<'a>,
-        provider: Option<Provider>,
-    ) -> Result<Cx<'a>> {
-        let state_dir = self.runner.store.run_dir_path(&self.name);
-        let mut vars = crate::vars::Vars::default();
-        vars.set_run(RunVar::Name, self.name.as_str());
-        vars.set_run(RunVar::Dir, self.dir().display().to_string());
-        vars.set_run(RunVar::StateDir, state_dir.display().to_string());
-        vars.set_run(RunVar::KnownHosts, state_dir.join(crate::ssh::KNOWN_HOSTS).display().to_string());
-        vars.set_run(RunVar::SshKey, crate::ssh::key_path(&self.runner.config.home).display().to_string());
-        if let Some(key) = crate::ssh::public_key(&self.runner.config.home)? {
-            vars.set_run(RunVar::SshPublicKey, key);
-        }
-        if let Some(p) = &provider {
-            vars.set_run(RunVar::Provider, crate::wire_name(p));
-        }
-        vars.set_params(params);
-        let stale = self
-            .manifest()
-            .recovery
-            .as_ref()
-            .map(|r| LineWatch::any_case(&r.stale_markers))
-            .unwrap_or_default();
-        Ok(Cx {
-            run: self,
-            state_dir,
-            vars,
-            secrets,
-            events,
-            scope: self.scope(provider),
-            stale,
-            gone: LineWatch::default(),
-            processes: std::sync::Arc::clone(&self.runner.config.processes),
-            ssh_jump: None,
-            expires_at: None,
-            relayed: None,
-            set_up: std::collections::BTreeSet::new(),
-            query: false,
-        })
-    }
-
-    /// `cx` for an operation that acts on the run (never a status read): on a provider whose
-    /// management commands need elevation (Hyper-V on Windows), its tools run through one
-    /// elevated session, kept in the run's state folder.
-    pub(crate) fn acting<'a>(&'a self, mut cx: Cx<'a>) -> Result<Cx<'a>> {
-        made(&cx)?;
-        // Its tools recorded in the run's state folder while they run: this process killed, the
-        // next operation ends them ([`crate::process::ledger`]).
-        let tools = cx.state_dir().join(crate::process::ledger::DIR);
-        let recorded: std::sync::Arc<dyn crate::ProcessRunner> =
-            std::sync::Arc::new(crate::process::Recording::new(std::sync::Arc::clone(&self.runner.config.processes), tools));
-        cx.processes = std::sync::Arc::clone(&recorded);
-        if cx.scope.host == isoloom_manifest::HostOs::Windows && self.driver.elevates(&cx.scope) {
-            let dir = cx.state_dir().join("elevated");
-            cx.processes = std::sync::Arc::new(crate::process::Elevated::new(recorded, dir, self.elevated_env()));
-        }
-        Ok(cx)
-    }
-
-    /// What an elevated session is handed of the environment the runner read when it was
-    /// configured ([`RunnerConfig::host_env`](crate::RunnerConfig) and its `PATH`).
-    pub(crate) fn elevated_env(&self) -> Vec<(String, String)> {
-        let config = &self.runner.config;
-        config.host_env.for_elevation(config.path.as_deref())
-    }
-
-    /// Makes the runner's SSH key when the manifest reaches a machine over SSH and it has none yet
-    /// (an adopted run, or one acted on from another home, may need it).
-    pub(crate) async fn ensure_ssh_key(&self) -> Result<()> {
-        if crate::ssh::needed(self.manifest()) {
-            crate::ssh::ensure_key(self.runner.config.processes.as_ref(), &self.runner.config.home).await?;
-        }
-        Ok(())
-    }
-
-    /// Starts the macOS relays `cx`'s run needs (Vagrant on an ESXi host), for the operation.
-    pub(crate) async fn relay(&self, cx: &mut Cx<'_>) -> Result<()> {
-        let config = &self.runner.config;
-        // Only Vagrant drives an ESXi host through the relays.
-        if self.manifest().driver != isoloom_manifest::Driver::Vagrant {
-            return Ok(());
-        }
-        let params = cx.vars.params();
-        let Some((host, port)) = crate::relay::esxi_host(&cx.scope, params)? else {
-            return Ok(());
-        };
-        let no_proxy = config.host_env.text("no_proxy").or_else(|| config.host_env.text("NO_PROXY"));
-        let relayed = crate::relay::prepare(host, port, &config.home, config.path.as_deref(), no_proxy).await;
-        cx.relayed = Some(relayed?);
-        Ok(())
-    }
-
-    /// Binds what `record` keeps of the run into `cx`: its slot (`${run.slot}`), its SSH jump and
-    /// its expiry.
-    pub(crate) fn bind_record(cx: &mut Cx<'_>, record: &crate::store::RunRecord) {
-        if let Some(slot) = record.slot {
-            cx.vars.set_run(RunVar::Slot, slot.to_string());
-        }
-        cx.ssh_jump.clone_from(&record.ssh_jump);
-        cx.expires_at = record.expires_at;
-        // The host ports a fresh start pinned: a resume forwards the same ones, and status reads
-        // them back (the Vagrant driver reports its forwards from here, not the manifest's number).
-        cx.vars.set_vm_pins(record.vm_host_ports.clone());
-    }
-
-    /// This host, with `provider`.
-    pub(crate) fn scope(&self, provider: Option<Provider>) -> Scope {
-        Scope::new(self.runner.config.host, provider)
-    }
-
-    /// Reads what the engine gives back (published ports, outputs) and binds it, so a template
-    /// can name it (`${outputs.ip}`): the run's outputs.
-    pub(crate) async fn read_outputs(&self, cx: &mut Cx<'_>) -> Result<outputs::Read> {
-        let observed = self.observe(cx).await?;
-        Ok(self.bind_observed(cx, observed))
-    }
-
-    /// The run as its engine reports it: the driver's machines, then, when the run's containers
-    /// run inside one of its VMs (`docker-vm`'s guest), those containers as read in the VM.
-    /// What it read is kept as what the runner last saw of the run ([`crate::store::LastObserved`]).
-    pub(crate) async fn observe(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
-        let mut observed = self.driver.observe(cx).await?;
-        if observed.busy.is_some() {
-            // Nothing was read: what the runner last saw stands.
-            return Ok(observed);
-        }
-        if let Some(guest) = &self.manifest().guest {
-            crate::in_vm::observe(cx, guest, &mut observed).await;
-        }
-        if let Err(e) = self.runner.store.keep_seen(&self.name, &observed.seen()) {
-            tracing::warn!(error = %e, "what the runner saw of the run wasn't kept");
-        }
-        Ok(observed)
-    }
-
-    /// [`Running::observe`], refused with `not_running` when no member machine runs.
-    pub(crate) async fn observe_running(&self, cx: &mut Cx<'_>) -> Result<crate::driver::Observed> {
-        let observed = self.observe(cx).await?;
-        if !status::any_member_running(&observed.machines) {
-            return Err(Error::NotRunning { run: self.name().to_string() });
-        }
-        Ok(observed)
-    }
-
-    /// The manifest's machine `name`, refused with `machine_unknown` when the run has none.
-    pub(crate) fn machine_named(&self, name: &str) -> Result<&isoloom_manifest::Machine> {
-        self.manifest()
-            .machines
-            .iter()
-            .find(|m| m.name.as_str() == name)
-            .ok_or_else(|| Error::MachineUnknown {
-                run: self.name().to_string(),
-                machine: name.to_owned(),
+    /// Removes everything the run made, the tunnels of its consoles ended first (whichever
+    /// process holds them), and forgets its machines' pinned SSH host keys.
+    ///
+    /// # Errors
+    ///
+    /// As [`Running::up`]'s tool failures.
+    pub async fn down(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.operate(Op::Down, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, by: OperationId| {
+            let processes = self.operation_processes(given);
+            self.with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
+                // The consoles' tunnels to the machines that go, whichever process holds them.
+                crate::process::ledger::end_tunnels(&self.state_dir().join(crate::process::ledger::DIR)).await;
+                self.driver.probe(cx).await?;
+                self.driver.down(cx).await?;
+                // The machines' pinned host keys go with them, and the ports they kept.
+                crate::ssh::forget(&self.state_dir())?;
+                ports::forget(&self.state_dir())?;
+                // What the tool's own down left that the run made, by recorded id.
+                self.record_found(cx, emitter, by).await?;
+                let db = self.runner.store.db();
+                let left = db.read(|tx| ledger::left_to_remove(tx, &self.name))?;
+                recovery::destroy_recorded(db, emitter, by, &left, ById { driver: self.driver, cx }).await?;
+                Ok(())
             })
-    }
-
-    /// Binds what `observed` gives back (published ports, outputs) into `cx`: the run's outputs.
-    pub(crate) fn bind_observed(&self, cx: &mut Cx<'_>, observed: crate::driver::Observed) -> outputs::Read {
-        cx.vars.set_published(observed.published);
-        cx.vars.set_hosts(observed.hosts);
-        let read = outputs::read(self.manifest(), &cx.vars, &observed.outputs, &observed.sensitive);
-        // A value the engine or the manifest keeps secret is masked in every later event.
-        cx.events
-            .hide(read.values.iter().filter(|o| o.sensitive).filter_map(|o| o.revealed().map(str::to_owned)));
-        outputs::bind(&mut cx.vars, &read.values);
-        read
-    }
-
-    /// The run's networks, their native names filled; one that can't be is left out, and traced.
-    fn networks(&self, cx: &Cx<'_>) -> Vec<status::NetworkView> {
-        status::networks(self.manifest(), |t| {
-            cx.vars
-                .render(t, "networks.native")
-                .inspect_err(|e| tracing::warn!(error = %e, "a network's native name couldn't be filled: it is left out"))
-                .ok()
+            .await
+            .map(|()| Done::moved(RunState::Absent))
         })
+        .await
+    }
+
+    /// Stops the machines and keeps them, as `mode` says.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails, or as the run's state refuses a park.
+    pub async fn park(&self, mode: Park, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Park(mode), opts, events).await.map(drop)
+    }
+
+    /// Starts the parked machines again.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails, or as the run's state refuses a resume: `nothing_to_resume` for a run
+    /// of which nothing is left (never started, brought down, or its parked machines removed
+    /// meanwhile: its record then reads absent), before any tool acts.
+    pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.refresh_if(RunState::Parked, opts).await;
+        self.drive(Act::Resume, opts, events).await.map(drop)
+    }
+
+    /// Brings the running run to what the project's files now say.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails, or as the run's state refuses an update.
+    pub async fn update(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Update, opts, events).await.map(drop)
+    }
+
+    /// Runs the project's set-up again (its provisioners), on `machine` or on every machine.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails; `unsupported` where the format has no set-up of its own to run again.
+    /// `with`, when given, runs only the provisioner of that name (a Vagrant project's `checks`).
+    pub async fn provision(&self, machine: Option<&str>, with: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Provision(machine, with), opts, events).await.map(drop)
+    }
+
+    /// Starts `machine`, one the project leaves down at `up`.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails; `unsupported` where the format has no such machine.
+    pub async fn attach(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Attach(machine), opts, events).await.map(drop)
+    }
+
+    /// Removes `machine` from the running run.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails.
+    pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Retire(machine), opts, events).await.map(drop)
+    }
+
+    /// Runs `argv` in `machine`, with no terminal: what it said and how it ended. A command that
+    /// runs and fails is a report, not an error.
+    ///
+    /// # Errors
+    ///
+    /// When the command can't be run at all (the tool missing, the machine refused).
+    pub async fn exec(&self, machine: &str, argv: &[String], opts: &RunOptions, events: &dyn Events) -> Result<ExecReport> {
+        self.operate(Op::Check, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, _by: OperationId| {
+            let processes = self.operation_processes(given);
+            let ran = self
+                .with_cx(given, emitter, processes.as_ref(), async |cx: &ToolCx<'_>| {
+                    self.driver.exec(cx, machine, argv).await
+                })
+                .await?;
+            let report = ExecReport {
+                machine: machine.to_owned(),
+                exit: ran.exit,
+                stdout: ran.stdout,
+                stderr: ran.stderr,
+            };
+            let data = ResultData::Machine {
+                machine: Some(machine.to_owned()),
+            };
+            Ok(Done::checked(report.exit == 0, report, data))
+        })
+        .await
+    }
+
+    /// The command that opens an interactive console into `machine`, as `user` when given. A
+    /// query: nothing runs.
+    ///
+    /// # Errors
+    ///
+    /// Where the format has no way in.
+    pub async fn console_command(&self, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
+        let user = user.map(crate::console::check_name).transpose()?;
+        let paths = Quiet::of(self);
+        let cx = paths.cx(self, self.tool_env(&RunOptions::new())?);
+        self.driver.console(&cx, machine, user).await
+    }
+}
+
+impl Running<'_> {
+    /// A tool context of this run for work that runs no tool and says nothing (moving files in
+    /// its state folder).
+    fn quiet<T>(&self, work: impl FnOnce(&ToolCx<'_>) -> T) -> T {
+        let paths = Quiet::of(self);
+        let cx = paths.cx(self, Vec::new());
+        work(&cx)
+    }
+
+    /// Moves the Terraform state in `from` into the run's state folder ([`crate::Runner::adopt`]):
+    /// the files moved.
+    pub(crate) fn take_state(&self, from: &std::path::Path) -> Result<Vec<&'static str>> {
+        self.quiet(|cx| crate::formats::terraform::Terraform::adopt(cx, from))
+    }
+
+    /// Puts the state files `moved` back in `from`, best effort (an adoption that failed after).
+    pub(crate) fn give_state_back(&self, from: &std::path::Path, moved: &[&str]) {
+        self.quiet(|cx| crate::formats::terraform::Terraform::give_back(cx, from, moved));
+    }
+}
+
+/// Where `op`, done, leaves the run; none for an op that leaves it where it was.
+fn op_goal(op: Op) -> Option<RunState> {
+    match op {
+        Op::Up | Op::Resume | Op::Update => Some(RunState::Ready),
+        Op::Park => Some(RunState::Parked),
+        Op::Down => Some(RunState::Absent),
+        Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => None,
     }
 }

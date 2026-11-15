@@ -1,10 +1,7 @@
 //! `real-run`: an Isoloom example generated for Docker by the local Isoloom's own command line,
 //! then run for real by the ignored `real_run` test of `isothrum-cli` (up, status, check, park,
 //! resume, down), the event stream kept under the build folder's `real-run/` (`target/real-run/`,
-//! or `$CARGO_TARGET_DIR/real-run/`). `real-run cloud <cloud>` runs one on a cloud account
-//! instead (see [`cloud`]).
-
-mod cloud;
+//! or `$CARGO_TARGET_DIR/real-run/`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,23 +11,12 @@ use crate::{Res, process, repo};
 /// The arguments of `real-run`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct Args {
-    /// The Isoloom example to run (default: hello-stack on Docker, solo-web on a cloud).
-    #[arg(long, global = true)]
+    /// The Isoloom example to run (default: hello-stack).
+    #[arg(long)]
     example: Option<String>,
     /// The Isoloom checkout (default: `../isoloom` beside this repository).
-    #[arg(long, global = true)]
+    #[arg(long)]
     isoloom: Option<PathBuf>,
-    /// A cloud account instead of this host's Docker.
-    #[command(subcommand)]
-    on: Option<On>,
-}
-
-/// Where else a real run goes.
-#[derive(Debug, clap::Subcommand)]
-enum On {
-    /// An Isoloom example (solo-web) on a cloud account, with the credentials in the environment:
-    /// up, status, check, then down and reap whatever happened.
-    Cloud(cloud::CloudArgs),
 }
 
 /// The example run on Docker when `--example` names none.
@@ -40,9 +26,6 @@ const EXAMPLE: &str = "hello-stack";
 pub(crate) fn run(a: &Args) -> Res<()> {
     let root = repo::root();
     let isoloom = a.isoloom.clone().unwrap_or_else(|| root.join("../isoloom"));
-    if let Some(On::Cloud(cloud)) = &a.on {
-        return cloud::run(cloud, a.example.as_deref().unwrap_or(cloud::EXAMPLE), &isoloom);
-    }
     let example = a.example.as_deref().unwrap_or(EXAMPLE);
     let out = repo::target_dir(&root).join("real-run");
     let run_dir = generate_example(&root, &isoloom, example, "docker", &out)?;
@@ -54,14 +37,21 @@ pub(crate) fn run(a: &Args) -> Res<()> {
 }
 
 /// Isoloom's `example` copied into `out` (whatever an earlier run left there removed first) and
-/// generated for `target` with the Isoloom checkout `isoloom`'s own command line: its folder.
+/// generated for `target` with the Isoloom checkout `isoloom`'s own command line: the folder of
+/// the native files it wrote ([`native_dir`]), which Isothrum runs.
 fn generate_example(root: &Path, isoloom: &Path, example: &str, target: &str, out: &Path) -> Res<PathBuf> {
     let run_dir = out.join(example);
     repo::remove(&run_dir)?;
     repo::copy_dir(&isoloom.join("examples").join(example), &run_dir).map_err(|e| format!("copying the example: {e}"))?;
     let bin = build_isoloom(root, isoloom)?;
     process::run(Command::new(bin).args(["generate", "--target", target]).current_dir(&run_dir))?;
-    Ok(run_dir)
+    Ok(native_dir(&run_dir, target))
+}
+
+/// Where Isoloom writes the native files of `target` for the example in `example`:
+/// `.isoloom/<target>` (`.isoloom/docker/compose.yml` for Docker).
+fn native_dir(example: &Path, target: &str) -> PathBuf {
+    example.join(".isoloom").join(target)
 }
 
 /// Builds Isoloom's command line from its own folder, into this checkout's build folder; its path.
@@ -94,11 +84,14 @@ mod tests {
     }
 
     #[test]
-    fn one_example_flag_serves_docker_and_a_cloud() {
+    fn the_folder_handed_on_is_the_one_isoloom_writes_the_native_files_in() {
+        let example = Path::new("real-run").join("hello-stack");
+        assert_eq!(native_dir(&example, "docker"), example.join(".isoloom").join("docker"));
+    }
+
+    #[test]
+    fn the_example_is_hello_stack_unless_named() {
         assert_eq!(parsed(&[]).example, None);
         assert_eq!(parsed(&["--example", "web"]).example.as_deref(), Some("web"));
-        let cloud = parsed(&["cloud", "aws", "--example", "web"]);
-        assert_eq!(cloud.example.as_deref(), Some("web"), "given after the cloud, it is the run's");
-        assert!(matches!(cloud.on, Some(On::Cloud(_))));
     }
 }

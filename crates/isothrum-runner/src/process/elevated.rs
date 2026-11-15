@@ -15,9 +15,19 @@
 //! files before it starts the program, and answers in `out-<n>.log` and `exit-<n>`, which the
 //! runner deletes once read. When the session ends, its folder goes. A broker that stops other
 //! than at the session's end (its watcher ending it, its loop broken) says why in `ended`: the
-//! request in flight fails with that reason at once, and so does every later call. So does a
-//! request that fails before its answer is read (its file not written, its answer unreadable),
-//! since the broker would wait for it and take no later one.
+//! request in flight fails with that reason at once, and so does every later call.
+//!
+//! Only Hyper-V's programs go through the broker (Vagrant and Windows PowerShell,
+//! [`protocol::PROGRAMS`]); every other program of the operation runs as the account. The broker
+//! finds each program itself, at the path an administrator installed it to, and takes none of the
+//! variables that choose which code it loads ([`protocol::passes`]): the session's folder belongs
+//! to the account, so what a request names is never trusted to pick the program or its loader.
+//!
+//! One request failing or cut short never ends the session: a request whose future is dropped
+//! (its step's timeout, a probe given up on) or that fails before its answer is read (its file
+//! not written, its answer unreadable) writes `cancel-<n>`. The broker ends that request's
+//! process tree, or skips it if its turn hasn't come, and takes the next: the requests waiting
+//! behind it, and every later one, run in the same session (one UAC prompt per operation).
 //!
 //! Why a file for the values, and not a pipe: the elevated broker is started by the shell (the
 //! UAC prompt), which hands it no handle of its parent, so no inherited pipe; and a named pipe
@@ -26,6 +36,7 @@
 //! folder from just before the broker picks the request up to the moment it has read it.
 
 mod log;
+mod protocol;
 mod script;
 
 use std::path::{Path, PathBuf};
@@ -110,6 +121,11 @@ impl Elevated {
     }
 
     async fn run_spec(&self, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
+        // Only what Hyper-V needs an administrator for is elevated: any other program runs as the
+        // account, as it would without Hyper-V, and never opens (or waits for) the session.
+        if !protocol::elevates(&spec.program) {
+            return self.inner.run(spec, on_line).await;
+        }
         if self.session() == Session::Unchecked {
             let _opening = self.opening.lock().await;
             if self.session() == Session::Unchecked {
@@ -127,7 +143,7 @@ impl Elevated {
     /// Decides the session: direct when the account may manage Hyper-V, else the broker started
     /// (a `whoami` that can't say is traced by [`may_manage_hyperv`]).
     async fn open(&self) -> Session {
-        if may_manage_hyperv(self.inner.as_ref()).await == Some(true) {
+        if may_manage_hyperv(self.inner.as_ref()).await == HyperVRights::Granted {
             return Session::Direct;
         }
         self.start_broker().await.unwrap_or_else(Session::Failed)
@@ -145,7 +161,7 @@ impl Elevated {
             Ok(out) => return Err(declined(&out)),
             Err(e) => return Err(e.to_string()),
         }
-        if wait_for(&dir.join("ready"), PROMPT_TIMEOUT).await {
+        if wait_for(&dir.join(protocol::READY), PROMPT_TIMEOUT).await {
             Ok(Session::Broker { dir, token })
         } else {
             Err("the elevated session didn't start".into())
@@ -154,9 +170,8 @@ impl Elevated {
 
     /// One request through the broker in `dir`: its lines as they come, then its exit code, its
     /// answer's files deleted once read. Dropped before it ends (a timeout), or failed before its
-    /// answer (a request file that couldn't be written, the broker ended), it ends the broker's
-    /// tree and the session with it: the broker waits for this request's turn, and would take no
-    /// later one.
+    /// answer (a request file that couldn't be written, an answer that couldn't be read), it
+    /// cancels itself alone ([`Cancel`]): the session and the requests behind it go on.
     async fn request(&self, dir: &Path, token: &str, spec: &ProcessSpec, on_line: OnLine<'_>) -> Result<Exit, ProcessError> {
         if let Some(why) = refusal(spec) {
             return Err(ProcessError::Refused {
@@ -164,32 +179,28 @@ impl Elevated {
                 why,
             });
         }
-        let mut guard = Cancel {
-            dir,
-            armed: true,
-            session: &self.session,
-        };
         let n = self.next.fetch_add(1, Ordering::SeqCst);
+        let mut guard = Cancel { dir, n, armed: true };
         let io = |source| ProcessError::Io {
             program: spec.program.clone(),
             source,
         };
         // The values first: the broker takes a request only once its `req` file is there.
-        crate::store::write_private(&dir.join(format!("env-{n}.json")), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
-        crate::store::write_private(&dir.join(format!("req-{n}.json")), request_file(token, n, spec).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(protocol::variables(n)), env_file(token, n, spec, &self.forwarded).as_bytes()).map_err(io)?;
+        crate::store::write_private(&dir.join(protocol::request(n)), request_file(token, n, spec).as_bytes()).map_err(io)?;
         let mut log_reader = LogReader::default();
-        let (log, exit) = (dir.join(format!("out-{n}.log")), dir.join(format!("exit-{n}")));
+        let (log, exit) = (dir.join(protocol::output(n)), dir.join(protocol::exit(n)));
         loop {
             let done = read_if_there(&exit).map_err(io)?;
             log_reader.read(&log, on_line).map_err(io)?;
             if let Some(code) = done {
                 log_reader.finish(on_line);
                 guard.armed = false;
-                answered(dir, n).map_err(io)?;
+                remove_request_files(dir, n).map_err(io)?;
                 return exit_code(&code).map(|c| Exit::new(Some(c))).map_err(io);
             }
-            if let Some(reason) = ended(dir).map_err(io)? {
-                // Nothing is left to cancel: the later calls fail with why.
+            if let Some(reason) = session_end_reason(dir).map_err(io)? {
+                // The broker is gone, nothing is left to cancel: the later calls fail with why.
                 guard.armed = false;
                 self.set(Session::Failed(reason.clone()));
                 return Err(ProcessError::Elevation { reason });
@@ -210,7 +221,7 @@ impl Drop for Elevated {
         if let Session::Broker { dir, .. } = self.session() {
             // Between two requests: the broker ends on its own once it reads `done` (or finds its
             // folder gone).
-            signal(&dir, "done");
+            signal(&dir, protocol::DONE);
         }
         // What the session wrote goes with it (nothing is there when it ran direct). The next
         // session clears what can't be removed now (a file the broker still holds).
@@ -220,18 +231,27 @@ impl Drop for Elevated {
     }
 }
 
-/// A request in flight: dropped while armed (its future cut short), it ends the broker's tree.
+/// Request `n` in flight: dropped while armed (its future cut short, or failed before its answer
+/// was read), it cancels that request alone through `cancel-<n>`. The broker ends its process
+/// tree, or skips it unrun, and deletes its files; the session stays open for the next request.
 struct Cancel<'a> {
     dir: &'a Path,
+    n: u64,
     armed: bool,
-    session: &'a Mutex<Session>,
 }
 
 impl Drop for Cancel<'_> {
     fn drop(&mut self) {
         if self.armed {
-            signal(self.dir, "cancel");
-            *self.session.lock().unwrap_or_else(PoisonError::into_inner) = Session::Failed("the elevated session was ended".into());
+            let cancel = protocol::cancel(self.n);
+            signal(self.dir, &cancel);
+            // An answer that came just before the cancel: the broker has moved on and won't read
+            // `cancel-<n>`, so the request's files are this guard's to remove.
+            if self.dir.join(protocol::exit(self.n)).exists()
+                && let Err(e) = remove_request_files(self.dir, self.n).and_then(|()| crate::store::remove_path(&self.dir.join(&cancel)))
+            {
+                tracing::warn!(error = %e, "a cancelled elevated request's answer couldn't be removed");
+            }
         }
     }
 }
@@ -243,14 +263,14 @@ fn read_if_there(file: &Path) -> std::io::Result<Option<String>> {
 
 /// Why the session in `dir` ended, once it has: the reason its broker gave (in `ended`, written
 /// when it stops other than at `done`), or its folder gone.
-fn ended(dir: &Path) -> std::io::Result<Option<String>> {
-    if let Some(reason) = read_if_there(&dir.join("ended"))? {
+fn session_end_reason(dir: &Path) -> std::io::Result<Option<String>> {
+    if let Some(reason) = read_if_there(&dir.join(protocol::ENDED))? {
         return Ok(Some(format!("the elevated session ended: {}", reason.trim())));
     }
     Ok((!dir.try_exists()?).then(|| "the elevated session ended: its folder is gone".to_owned()))
 }
 
-/// Tells the broker `what` (`done`, `cancel`) through its file in the session's folder. A broker
+/// Tells the broker `what` ([`protocol::DONE`], a [`protocol::cancel`]) through its file in the session's folder. A broker
 /// already gone can't be told anything, and a drop has no one to report to: it is traced.
 fn signal(dir: &Path, what: &str) {
     if let Err(e) = std::fs::write(dir.join(what), "") {
@@ -267,8 +287,8 @@ fn fresh_session_dir(root: &Path, dir: &Path) -> std::io::Result<()> {
 
 /// Deletes what request `n` left in `dir` once its answer is read: its output, its exit code, and
 /// its variables (the broker deleted them already, unless it refused the request).
-fn answered(dir: &Path, n: u64) -> std::io::Result<()> {
-    for file in [format!("out-{n}.log"), format!("exit-{n}"), format!("env-{n}.json")] {
+fn remove_request_files(dir: &Path, n: u64) -> std::io::Result<()> {
+    for file in [protocol::output(n), protocol::exit(n), protocol::variables(n)] {
         crate::store::remove_path(&dir.join(file))?;
     }
     Ok(())
@@ -276,13 +296,7 @@ fn answered(dir: &Path, n: u64) -> std::io::Result<()> {
 
 /// A random session token: 128 bits, as lowercase hex.
 fn token() -> Result<String, getrandom::Error> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)?;
-    Ok(bytes.iter().fold(String::with_capacity(32), |mut hex, b| {
-        hex.extend(char::from_digit(u32::from(b >> 4), 16));
-        hex.extend(char::from_digit(u32::from(b & 15), 16));
-        hex
-    }))
+    crate::encoding::random_hex::<16>()
 }
 
 /// Why the broker can't carry `spec` as asked, if it can't: an argument PowerShell would mangle,
@@ -305,21 +319,39 @@ fn exit_code(text: &str) -> std::io::Result<i32> {
     })
 }
 
+/// Whether this account may manage Hyper-V ([`may_manage_hyperv`]'s answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HyperVRights {
+    /// Its token is elevated, or it is a member of "Hyper-V Administrators".
+    Granted,
+    /// Neither: Vagrant's Hyper-V provider refuses its commands.
+    Missing,
+    /// `whoami` couldn't say (it didn't run, or failed).
+    Unknown,
+}
+
 /// Whether this account may manage Hyper-V, as Vagrant's Hyper-V provider requires for every
 /// command on its machines (`vagrant status` included): its token is elevated, or it is a member of
 /// "Hyper-V Administrators". Read from `whoami /groups`, run through `processes` (no `unsafe`).
-/// `None` when `whoami` can't say (it didn't run, or failed), which is traced.
-pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> Option<bool> {
+/// [`HyperVRights::Unknown`] when `whoami` can't say (it didn't run, or failed), which is traced.
+pub async fn may_manage_hyperv(processes: &dyn ProcessRunner) -> HyperVRights {
     let whoami = ProcessSpec::new("whoami", ["/groups", "/fo", "csv", "/nh"]);
     match capture(processes, &whoami).await {
-        Ok(out) if out.success() => Some(may_manage(&out.stdout.join("\n"))),
+        Ok(out) if out.success() => {
+            if may_manage(&out.stdout.join("\n")) {
+                HyperVRights::Granted
+            } else {
+                HyperVRights::Missing
+            }
+        }
         Ok(out) => {
-            tracing::warn!(stderr = %out.stderr.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
-            None
+            tracing::warn!(stderr = %out.stderr_tail.join("\n"), "`whoami /groups` failed: whether this account may manage Hyper-V is unknown");
+            HyperVRights::Unknown
         }
         Err(e) => {
             tracing::warn!(error = %e, "`whoami /groups` didn't run: whether this account may manage Hyper-V is unknown");
-            None
+            HyperVRights::Unknown
         }
     }
 }
@@ -343,13 +375,22 @@ fn request_file(token: &str, n: u64, spec: &ProcessSpec) -> String {
 }
 
 /// Request `n`'s variables, under the session's `token`: the forwarded ones, then the call's own
-/// (which win).
+/// (which win), less those an elevated program is never given ([`protocol::passes`]: its search
+/// path, Ruby's load path and options, any `VAGRANT_*` not listed). The broker refuses a request
+/// that carries one.
 fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, String)]) -> String {
     let mut env: Vec<(String, String)> = forwarded.to_vec();
     for (k, v) in &spec.env {
         env.retain(|(o, _)| !o.eq_ignore_ascii_case(k));
         env.push((k.clone(), v.clone()));
     }
+    env.retain(|(k, _)| {
+        let passes = protocol::passes(k);
+        if !passes {
+            tracing::debug!(name = %k, "a variable an elevated program isn't given is dropped");
+        }
+        passes
+    });
     serde_json::json!({
         "session": token,
         "seq": n,
@@ -358,10 +399,10 @@ fn env_file(token: &str, n: u64, spec: &ProcessSpec, forwarded: &[(String, Strin
     .to_string()
 }
 
-/// What a failed elevation's error says: declining the prompt is said plainly.
+/// What a failed elevation's error says: declining the prompt (the launcher's exit code
+/// [`script::ERROR_CANCELLED`], whatever language Windows words it in) is said plainly.
 fn declined(out: &Captured) -> String {
-    let cancelled = |l: &String| l.contains("canceled by the user") || l.contains("cancelled by the user");
-    if out.stderr.iter().any(cancelled) {
+    if out.exit.code == Some(script::ERROR_CANCELLED) {
         "the Windows permission prompt was declined".into()
     } else {
         format!("the elevated session didn't start: {}", out.reason())

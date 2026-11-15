@@ -30,14 +30,14 @@ enum Format {
 /// Why the tracing asked for can't be set up.
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
-/// Traces to standard error as the environment `var` reads asks: nothing when `ISOTHRUM_LOG`
-/// isn't set.
+/// Traces to standard error as the environment `var` reads asks: as `default` when
+/// `ISOTHRUM_LOG` isn't set (nothing when it is `None`).
 ///
 /// # Errors
 ///
 /// A variable that isn't UTF-8, and what [`to_stderr`] refuses, each naming its variable.
-pub(crate) fn from_env(var: &Var<'_>) -> Result<(), Error> {
-    let Some(filter) = text(var, LOG)? else {
+pub(crate) fn from_env(var: &Var<'_>, default: Option<&str>) -> Result<(), Error> {
+    let Some(filter) = text(var, LOG)?.or_else(|| default.map(str::to_owned)) else {
         return Ok(());
     };
     let format = text(var, LOG_FORMAT)?;
@@ -138,7 +138,7 @@ mod tests {
                 LOG => Some("debug".into()),
                 _ => None,
             };
-            let refused = from_env(&var).unwrap_err().to_string();
+            let refused = from_env(&var, None).unwrap_err().to_string();
             assert!(refused.contains(&format!("{name} isn't UTF-8")), "{refused}");
         }
     }
