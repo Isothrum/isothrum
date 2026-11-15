@@ -292,8 +292,11 @@ impl<'r> Running<'r> {
     /// # Errors
     ///
     /// Fails, after its `error` event, as the run's tool does (missing, too old, failing, out of
-    /// time), with `port_in_use` for a host port taken, or as the run's state refuses an `up`.
+    /// time), with `port_in_use` for a host port taken, or as the run's state refuses an `up`:
+    /// `already_running` for a run that is ready and live (its tool says so now), before any tool
+    /// acts. A run recorded ready whose machines are gone or stopped meanwhile starts again.
     pub async fn up(&self, opts: &RunOptions, events: &dyn Events) -> Result<Started> {
+        self.refresh_if(RunState::Ready, opts).await;
         self.drive(Act::Up, opts, events).await?;
         let record = self
             .runner
@@ -346,9 +349,24 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// As the tool fails, or as the run's state refuses a resume.
+    /// As the tool fails, or as the run's state refuses a resume: `nothing_to_resume` for a run
+    /// of which nothing is left (never started, brought down, or its parked machines removed
+    /// meanwhile: its record then reads absent), before any tool acts.
     pub async fn resume(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.refresh_if(RunState::Parked, opts).await;
         self.drive(Act::Resume, opts, events).await.map(drop)
+    }
+
+    /// Reads the run's status when its record says `state`, so the record says what its tool
+    /// reports now (a parked run whose machines were removed reads absent). A read that fails
+    /// leaves the record as it was: the operation then meets the tool's failure itself.
+    async fn refresh_if(&self, state: RunState, opts: &RunOptions) {
+        let recorded = self.runner.store.record(&self.name).ok().flatten().map(|r| r.state);
+        if recorded == Some(state)
+            && let Err(e) = self.status_with(opts).await
+        {
+            tracing::debug!(error = %e, "the run's status couldn't be read before its operation");
+        }
     }
 
     /// Brings the running run to what the project's files now say.
