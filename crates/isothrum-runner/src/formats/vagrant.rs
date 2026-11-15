@@ -77,6 +77,15 @@ fn call<'a>(cx: &'a ToolCx<'_>, limit: Duration) -> Call<'a> {
     call
 }
 
+/// A read of Vagrant (its status, a machine's ports, its version): [`call`] whose lines aren't
+/// said in the operation's log.
+fn read<'a>(cx: &'a ToolCx<'_>, limit: Duration) -> Call<'a> {
+    Call {
+        sink: &super::discard,
+        ..call(cx, limit)
+    }
+}
+
 /// The run's dotfile folder.
 fn dot(cx: &ToolCx<'_>) -> Dotfile {
     Dotfile::in_state(cx.state_dir)
@@ -148,7 +157,7 @@ impl Vagrant {
 
     /// Each machine `status` lists, with its state label.
     async fn status(&self, cx: &ToolCx<'_>) -> Result<std::collections::BTreeMap<String, String>> {
-        let call = call(cx, READ_LIMIT);
+        let call = read(cx, READ_LIMIT);
         let read = retrying(cx.warn, "status", Rerun::Read, STATUS_PATIENCE, || vagrant::status(&call))
             .await
             .map_err(|e| vagrant_error("status", e))?;
@@ -237,7 +246,7 @@ impl FormatDriver for Vagrant {
                 providers::listed_for(host)
             )));
         }
-        let read = call(cx, READ_LIMIT);
+        let read = read(cx, READ_LIMIT);
         vagrant::supported_version(&read).await.map_err(|e| vagrant_error("tools", e))?;
         if let Some(plugin) = provider.plugin() {
             let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error("tools", e))?;
@@ -373,7 +382,7 @@ impl FormatDriver for Vagrant {
     }
 
     async fn observe(&self, cx: &ToolCx<'_>) -> Result<(Seen, RunState)> {
-        let read = call(cx, READ_LIMIT);
+        let read = read(cx, READ_LIMIT);
         let records = dot(cx).recorded()?;
         let mut machines = Vec::new();
         for (name, label) in self.status(cx).await? {

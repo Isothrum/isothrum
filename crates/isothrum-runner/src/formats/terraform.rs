@@ -203,8 +203,9 @@ impl<'c, 'a> Module<'c, 'a> {
 
     /// The state's managed instances.
     async fn shown(&self, state: StateAt<'_>) -> Result<tf::Shown> {
-        let say = |s: Stream, l: &str| self.say(s, l);
-        tf::show(&self.call(READ_LIMIT, &say), state).await.map_err(|e| self.error("show", e))
+        tf::show(&self.call(READ_LIMIT, &super::discard), state)
+            .await
+            .map_err(|e| self.error("show", e))
     }
 
     /// `destroy`, with what a provider says is already gone dropped from the state and the
@@ -340,8 +341,7 @@ pub(crate) fn plugin_cache(config: &crate::RunnerConfig) -> PathBuf {
 impl FormatDriver for Terraform {
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
         let module = Module::of(cx);
-        let say = |s: Stream, l: &str| module.say(s, l);
-        tf::version(&module.call(READ_LIMIT, &say))
+        tf::version(&module.call(READ_LIMIT, &super::discard))
             .await
             .map(drop)
             .map_err(|e| module.error("probe", e))
@@ -434,10 +434,9 @@ impl FormatDriver for Terraform {
         let module = Module::of(cx);
         let state = module.state()?;
         let held = module.shown(state).await?;
-        let say = |s: Stream, l: &str| module.say(s, l);
         let outputs = match state {
             StateAt::File(file) if !file.exists() => std::collections::BTreeMap::new(),
-            _ => tf::outputs(&module.call(READ_LIMIT, &say), state)
+            _ => tf::outputs(&module.call(READ_LIMIT, &super::discard), state)
                 .await
                 .map_err(|e| module.error("output", e))?,
         };

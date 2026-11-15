@@ -86,7 +86,7 @@ async fn refresh(cx: &ToolCx<'_>, mut kept: Kept) -> Result<()> {
         pins: None,
         ..Compose::project(cx)
     };
-    let call = cx.call(READ_LIMIT);
+    let call = cx.read(READ_LIMIT);
     let mut ports = compose::config_ports(&call, &base, &[]).await.map_err(|e| tool_error("pins", e))?;
     if !kept.attached.is_empty() {
         let theirs = compose::config_ports(&call, &base, &kept.attached).await.map_err(|e| tool_error("pins", e))?;

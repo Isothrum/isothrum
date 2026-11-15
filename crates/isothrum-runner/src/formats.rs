@@ -109,6 +109,15 @@ impl ToolCx<'_> {
         }
     }
 
+    /// A read of the tool (its version, a listing, a status) within `limit`: [`ToolCx::call`]
+    /// whose lines aren't said in the operation's log. Its failure still is, with its last lines.
+    pub(crate) fn read(&self, limit: Duration) -> Call<'_> {
+        Call {
+            sink: &discard,
+            ..self.call(limit)
+        }
+    }
+
     /// Variable `name` as the tool sees it: the run's own, else the runner's environment's; none
     /// when unset or empty.
     pub(crate) fn var(&self, name: &str) -> Option<String> {
@@ -121,6 +130,9 @@ impl ToolCx<'_> {
             .filter(|v| !v.is_empty())
     }
 }
+
+/// Says nothing of a line: a read's.
+pub(crate) fn discard(_: Stream, _: &str) {}
 
 /// The runner's error for an adapter's call `e`, made as step `step` of the operation: a missing
 /// tool, one too old, one cut off at its limit, one whose answer can't be read, and one that failed
