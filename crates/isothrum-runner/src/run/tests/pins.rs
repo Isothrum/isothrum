@@ -92,6 +92,19 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     }
 }
 
+/// A Compose project whose `web` publishes `"80"`, and a runner on the modelled engine with free
+/// host ports from 41001, and its processes.
+pub(super) fn compose_lab() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<crate::process::fake::FakeProcesses>) {
+    let root = tempfile::tempdir().expect("a folder");
+    let project = root.path().join("lab");
+    std::fs::create_dir(&project).expect("the project");
+    std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n    ports: [\"80\"]\n").expect("a compose file");
+    let (_engine, fake) = modelled::<Engine>(answer);
+    let ports: Arc<dyn crate::HostPorts> = Arc::new(crate::net::FakePorts::new(41001..41010));
+    let config = runner_config(&root.path().join("home"), processes(&fake), ports, crate::runner::this_host());
+    (root, project, Runner::new(config).expect("a runner"), fake)
+}
+
 /// `machine`'s published host port, as the run's status says; none when it publishes none.
 async fn port_of(run: &crate::Running<'_>, machine: &str) -> Option<u16> {
     let status = run.status().await.expect("status");
@@ -101,14 +114,7 @@ async fn port_of(run: &crate::Running<'_>, machine: &str) -> Option<u16> {
 
 #[tokio::test]
 async fn a_park_and_a_resume_keep_the_runs_host_ports_an_attached_services_too() {
-    let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
-    std::fs::create_dir(&project).expect("the project");
-    std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n    ports: [\"80\"]\n").expect("a compose file");
-    let (_engine, fake) = modelled::<Engine>(answer);
-    let ports: Arc<dyn crate::HostPorts> = Arc::new(crate::net::FakePorts::new(41001..41010));
-    let config = runner_config(&root.path().join("home"), processes(&fake), ports, crate::runner::this_host());
-    let runner = Runner::new(config).expect("a runner");
+    let (_root, project, runner, _fake) = compose_lab();
     let run = runner.open(&project, None).expect("opened");
 
     run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
