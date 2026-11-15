@@ -152,27 +152,20 @@ fn bind(ip: IpAddr, port: u16, protocol: Protocol) -> std::io::Result<()> {
 
 /// Whether a program holds `port` over `protocol` on all interfaces (`0.0.0.0`, `::`), as an
 /// engine publishing a port for the network does. macOS lets the loopback be bound with address
-/// reuse (which std's listeners set) while another socket listens on all interfaces, so the
-/// loopback alone read such a port free, and the start failed later with the engine's bind error.
-/// Bound, never listened on, so no firewall asks about it; an absent IPv6 doesn't count. Not on
-/// Windows, whose firewall asks about a socket on all interfaces, and where std sets no address
-/// reuse for the loopback's bind to step past such a socket.
-#[cfg(not(windows))]
+/// reuse (which std's listeners set) while another socket listens on all interfaces, and Windows
+/// lets a more specific address be bound beside such a socket without it, so the loopback alone
+/// read such a port free, and the start failed later with the engine's bind error. Bound, never
+/// listened on, so no firewall asks about it; an absent IPv6 doesn't count.
 fn held_on_all(port: u16, protocol: Protocol) -> bool {
     [IpAddr::from(Ipv4Addr::UNSPECIFIED), IpAddr::from(Ipv6Addr::UNSPECIFIED)]
         .into_iter()
-        .any(|ip| bind_only(ip, port, protocol).is_err_and(|e| e.kind() == std::io::ErrorKind::AddrInUse))
+        .any(|ip| bind_only(ip, port, protocol).is_err_and(|e| held_elsewhere(&e)))
 }
 
-/// Windows: see the other platforms' `held_on_all`.
-#[cfg(windows)]
-fn held_on_all(_port: u16, _protocol: Protocol) -> bool {
-    false
-}
-
-/// Binds (then frees) `ip:port` over `protocol` without listening, with address reuse as std's
-/// TCP listeners set it (a port only left in `TIME_WAIT` is free), `::` for IPv6 alone.
-#[cfg(not(windows))]
+/// Binds (then frees) `ip:port` over `protocol` without listening, `::` for IPv6 alone. Elsewhere
+/// than Windows with address reuse, as std's TCP listeners set it (a port only left in
+/// `TIME_WAIT` is free); on Windows without it, where it would let the bind take a port another
+/// socket holds.
 fn bind_only(ip: IpAddr, port: u16, protocol: Protocol) -> std::io::Result<()> {
     use socket2::{Domain, Socket, Type};
     let address = std::net::SocketAddr::new(ip, port);
@@ -181,7 +174,7 @@ fn bind_only(ip: IpAddr, port: u16, protocol: Protocol) -> std::io::Result<()> {
         Protocol::Udp => Type::DGRAM,
     };
     let socket = Socket::new(Domain::for_address(address), kind, None)?;
-    if matches!(protocol, Protocol::Tcp) {
+    if cfg!(not(windows)) && matches!(protocol, Protocol::Tcp) {
         socket.set_reuse_address(true)?;
     }
     if ip.is_ipv6() {
@@ -335,20 +328,18 @@ mod tests {
         assert!(!LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Tcp));
     }
 
-    /// Regression: only the loopback was bound, which macOS allows while another program listens
-    /// on all interfaces, so such a port read free. (Linux refuses that bind already: there this
-    /// holds either way.)
+    /// Regression: only the loopback was bound, which macOS and Windows allow while another program
+    /// listens on all interfaces, so such a port read free. (Linux refuses that bind already: there
+    /// this holds either way.)
     #[test]
     fn a_port_held_on_all_interfaces_is_in_use() {
         let (tcp, tcp_port) = held_tcp(Ipv4Addr::UNSPECIFIED.into());
         assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
-        #[cfg(not(windows))]
         assert!(held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} held on 0.0.0.0");
         drop(tcp);
         assert!(!held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} free once let go");
         let (_udp, udp_port) = held_udp(Ipv4Addr::UNSPECIFIED.into());
         assert!(LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp));
-        #[cfg(not(windows))]
         assert!(held_on_all(udp_port, Protocol::Udp), "{udp_port} held on 0.0.0.0");
         if let Ok(v6) = TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)) {
             let port = v6.local_addr().unwrap().port();

@@ -57,8 +57,8 @@
 //! reason of its own: on Windows `whoami` and `icacls`, which make the home owner-only when the
 //! runner is built ([`Runner::new`]), before any operation, and, only for a tool a killed
 //! operation left running, `ps` (Windows: PowerShell) to tell it is still that tool, and on
-//! Windows `taskkill` to end it, and, on Windows, `tasklist`, to tell whether the process holding
-//! a lease of the home's store still runs.
+//! Windows `taskkill` to end it. Whether the process holding a lease of the home's store still runs
+//! is the system's answer (Unix: signal 0; Windows: `OpenProcess`).
 //!
 //! # Inputs
 //!

@@ -39,7 +39,7 @@ impl Owner {
     }
 
     /// Whether its process may still run: not when it ran in another boot, nor when no process
-    /// has its pid (Unix: signal 0; Windows: `tasklist`). A pid reused since is taken as alive:
+    /// has its pid (Unix: signal 0; Windows: `OpenProcess`). A pid reused since is taken as alive:
     /// the lease's expiry decides then.
     #[must_use]
     pub fn is_alive(&self) -> bool {
@@ -77,19 +77,10 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
-/// Windows: whether `tasklist` lists the pid (a check this rare needs no FFI). A listing that
-/// can't be read says alive: the lease's expiry decides then.
+/// Windows: whether a process has the pid and hasn't exited, as the system says.
 #[cfg(windows)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "whether a store owner's process lives, read where the store has no process runner"
-)]
 fn pid_alive(pid: u32) -> bool {
-    let filter = format!("PID eq {pid}");
-    match std::process::Command::new("tasklist").args(["/FI", &filter, "/FO", "CSV", "/NH"]).output() {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")),
-        _ => true,
-    }
+    crate::process::process_runs(pid)
 }
 
 #[cfg(not(any(unix, windows)))]

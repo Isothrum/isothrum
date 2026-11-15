@@ -10,6 +10,8 @@
 //! job is closed. The tool inherits its own three standard handles only
 //! (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`), never another handle of this process.
 //!
+//! Also whether a process runs ([`process_runs`]), for the store's owner check.
+//!
 //! Each `unsafe` block is a Win32 call on handles and buffers owned here, with a `SAFETY:` comment
 //! saying why it is sound; everything else in the crate keeps `unsafe_code` denied.
 
@@ -25,15 +27,15 @@ use std::sync::Arc;
 
 use process_wrap::tokio::ChildWrapper;
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
-use windows::Win32::Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{ERROR_INVALID_PARAMETER, HANDLE, HANDLE_FLAG_INHERIT, STILL_ACTIVE, SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::System::JobObjects::{
     CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
     TerminateJobObject,
 };
 use windows::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcess, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST,
+    PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -148,6 +150,24 @@ fn create(program: &std::path::Path, launch: &Launch, vars: &[(OsString, OsStrin
     })
 }
 
+/// Whether a process has `pid` and hasn't exited. `OpenProcess` refuses a pid no process has
+/// (`ERROR_INVALID_PARAMETER`); any other refusal (another account's process: access denied) is a
+/// process that runs, and so is one whose exit code can't be read.
+pub(crate) fn process_runs(pid: u32) -> bool {
+    #[expect(unsafe_code, reason = "OpenProcess for a query-only handle, owned from here on")]
+    // SAFETY: no pointer is passed; the handle it returns is this process's alone.
+    let opened = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+    let handle = match opened {
+        Ok(h) => own(h),
+        Err(e) => return e.code() != ERROR_INVALID_PARAMETER.to_hresult(),
+    };
+    let mut code = 0u32;
+    #[expect(unsafe_code, reason = "GetExitCodeProcess on a process handle owned here")]
+    // SAFETY: `handle` is open and owned here; `code` is writable.
+    let read = unsafe { GetExitCodeProcess(raw(&handle), &raw mut code) };
+    read.is_err() || u32::try_from(STILL_ACTIVE.0).is_ok_and(|active| active == code)
+}
+
 /// The raw handle of `h`, for a Win32 structure.
 fn raw(h: &OwnedHandle) -> HANDLE {
     HANDLE(h.as_raw_handle())
@@ -155,7 +175,7 @@ fn raw(h: &OwnedHandle) -> HANDLE {
 
 /// Takes ownership of `h`, a handle a Win32 call just opened for this process.
 fn own(h: HANDLE) -> OwnedHandle {
-    #[expect(unsafe_code, reason = "a handle CreateProcessW or CreateJobObjectW opened, owned from here on")]
+    #[expect(unsafe_code, reason = "a handle CreateProcessW, CreateJobObjectW or OpenProcess opened, owned from here on")]
     // SAFETY: `h` was just opened for this process by the call that returned it, and nothing else
     // owns or closes it.
     unsafe {
