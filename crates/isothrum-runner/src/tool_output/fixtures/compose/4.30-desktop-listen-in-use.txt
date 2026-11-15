@@ -1,0 +1,1 @@
+Error response from daemon: Ports are not available: exposing port TCP 0.0.0.0:8180 -> 127.0.0.1:0: listen tcp4 0.0.0.0:8180: bind: address already in use
