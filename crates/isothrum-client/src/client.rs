@@ -523,6 +523,3 @@ impl Client {
 fn unexpected(reply: &Reply) -> ClientError {
     ClientError::Protocol(format!("unexpected reply: {reply:?}"))
 }
-
-#[cfg(all(test, unix))]
-mod tests;

@@ -1,10 +1,15 @@
-//! How a client reads a service's `hello`: a service of this protocol, of another, one that
-//! refuses or answers something else, closes, or isn't there.
+//! How a client reads a service's `hello`, against a peer that speaks the protocol through this
+//! crate's own public frames ([`isothrum_client::wire`], [`isothrum_client::proto`]): a service
+//! of this protocol, of another, one that refuses or answers something else, closes, or isn't
+//! there. The client against the real service is `isothrum-service`'s `tests/client_api.rs`: the
+//! service depends on this crate, and the workspace keeps its dependencies one way.
+#![cfg(unix)]
 
 use std::path::Path;
 
-use super::*;
-use crate::discovery::ServiceInfo;
+use isothrum_client::proto::{PROTOCOL, Reply, Request};
+use isothrum_client::wire::{LineReader, write_line};
+use isothrum_client::{Client, ClientError, ServiceInfo, VERSION};
 
 /// What a fake service on the home's socket answers a `hello` with: a reply, or nothing.
 fn answering(home: &Path, reply: Option<Reply>) -> std::io::Result<tokio::task::JoinHandle<()>> {
@@ -21,11 +26,11 @@ fn answering(home: &Path, reply: Option<Reply>) -> std::io::Result<tokio::task::
         endpoint: socket.display().to_string(),
         epoch: 1,
     };
-    std::fs::write(home.join("service.json"), serde_json::to_string(&info)?)?;
+    std::fs::write(home.join("service.json"), serde_json::to_string(&info).map_err(std::io::Error::other)?)?;
     Ok(tokio::spawn(async move {
         let Ok(stream) = listener.accept().await else { return };
         let (recv, mut send) = tokio::io::split(stream);
-        let mut lines = crate::wire::LineReader::new(recv);
+        let mut lines = LineReader::new(recv);
         let _hello = lines.next::<Request>().await;
         if let Some(reply) = reply {
             write_line(&mut send, &reply).await.ok();
@@ -54,13 +59,13 @@ async fn a_hello_of_this_protocol_connects_and_any_other_answer_is_a_protocol_er
         (Reply::Ok { id: 0 }, "expected the service's hello"),
     ] {
         let home = tempfile::tempdir().expect("a home");
-        let serving = answering(home.path(), Some(reply)).unwrap();
+        let serving = answering(home.path(), Some(reply)).expect("a fake service");
         let e = Client::connect_running(home.path()).await.expect_err("not this protocol's hello");
         assert!(matches!(&e, ClientError::Protocol(m) if m.contains(said)), "{e:?}");
         serving.await.expect("the fake");
     }
     let home = tempfile::tempdir().expect("a home");
-    let serving = answering(home.path(), Some(speaks(PROTOCOL))).unwrap();
+    let serving = answering(home.path(), Some(speaks(PROTOCOL))).expect("a fake service");
     let client = Client::connect_running(home.path()).await.expect("this protocol");
     assert_eq!(client.service().version, "9.9.9", "the version its hello says");
     assert!(format!("{client:?}").contains("Client"), "{client:?}");
@@ -70,7 +75,7 @@ async fn a_hello_of_this_protocol_connects_and_any_other_answer_is_a_protocol_er
 #[tokio::test]
 async fn a_service_that_closes_before_its_hello_or_isnt_there_is_unavailable() {
     let home = tempfile::tempdir().expect("a home");
-    let serving = answering(home.path(), None).unwrap();
+    let serving = answering(home.path(), None).expect("a fake service");
     let closed = Client::connect_running(home.path()).await.expect_err("no hello");
     assert!(
         matches!(&closed, ClientError::Unavailable(m) if m == "the service closed the connection"),
