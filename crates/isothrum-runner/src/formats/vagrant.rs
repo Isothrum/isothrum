@@ -92,9 +92,11 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
 }
 
 /// The run's state as `machines` show it: absent when none was made; parked when none of those
-/// made runs; ready when every one made runs; failed otherwise (one stopped or in a state of its
-/// own among running ones). A machine never made (one the Vagrantfile leaves down at `up`,
-/// `autostart: false`) doesn't count: a start that failed midway fails its own operation.
+/// made runs; ready when each one made runs or is stopped (a machine its own provisioner powers
+/// off, such as a lab's controller, among running ones: it reads stopped); failed otherwise (one
+/// unhealthy, aborted, or in a state of its own). A machine never made (one the Vagrantfile
+/// leaves down at `up`, `autostart: false`) doesn't count: a start that failed midway fails its
+/// own operation.
 pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
     let made: Vec<&SeenMachine> = machines.iter().filter(|m| m.state != MachineState::Absent).collect();
     if made.is_empty() {
@@ -103,7 +105,7 @@ pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
     if !made.iter().any(|m| m.state.runs()) {
         return RunState::Parked;
     }
-    if made.iter().all(|m| m.state == MachineState::Running) {
+    if made.iter().all(|m| matches!(m.state, MachineState::Running | MachineState::Stopped)) {
         RunState::Ready
     } else {
         RunState::Failed

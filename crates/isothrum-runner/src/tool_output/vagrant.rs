@@ -38,7 +38,8 @@ pub(crate) fn host_name(out: &str) -> Option<String> {
 
 /// A Vagrant state label as a machine state, every provider's labels included: a VM that is
 /// there but doesn't run is stopped (powered off, suspended, saved, paused), one never created
-/// or destroyed is absent; any other label is kept as it is. UTM (`vagrant_utm`) calls a running
+/// or destroyed is absent; any other label is kept as it is (VirtualBox's `aborted`, a VM whose
+/// process died: a failure, not a stop). UTM (`vagrant_utm`) calls a running
 /// VM `started`: it has no running state of its own, so `started` is what it reports once the
 /// VM answers. ESXi (`vagrant-vmware-esxi`) calls a VM `powered_on` until it has its SSH
 /// address, `running` after: both run (a Windows guest before its tools report an address read as
@@ -47,8 +48,9 @@ pub(crate) fn machine_state(label: &str) -> MachineState {
     match label {
         "running" | "started" | "powered_on" => MachineState::Running,
         "not_created" => MachineState::Absent,
-        "poweroff" | "powered_off" | "off" | "shutoff" | "stopped" | "not_running" | "saved" | "suspended" | "paused" | "pmsuspended" | "aborted"
-        | "aborted-saved" => MachineState::Stopped,
+        "poweroff" | "powered_off" | "off" | "shutoff" | "stopped" | "not_running" | "saved" | "suspended" | "paused" | "pmsuspended" | "aborted-saved" => {
+            MachineState::Stopped
+        }
         other => MachineState::Unknown(other.to_owned()),
     }
 }
@@ -289,7 +291,6 @@ mod tests {
         for stopped in [
             "poweroff",
             "saved",
-            "aborted",
             "aborted-saved",
             "suspended",
             "shutoff",
@@ -302,6 +303,7 @@ mod tests {
             assert_eq!(machine_state(stopped), MachineState::Stopped, "{stopped}");
         }
         assert_eq!(machine_state("gurumeditation"), MachineState::Unknown("gurumeditation".into()));
+        assert_eq!(machine_state("aborted"), MachineState::Unknown("aborted".into()), "a VM that died");
     }
 }
 

@@ -317,7 +317,7 @@ async fn observe_reads_each_machine_and_the_ports_of_those_running_without_guess
     );
     let db = seen.machines.iter().find(|m| m.name == "db").expect("db");
     assert_eq!((db.state.clone(), db.published.len()), (MachineState::Stopped, 0));
-    assert_eq!(state, RunState::Failed, "one made and stopped among running ones");
+    assert_eq!(state, RunState::Ready, "one made and stopped among running ones reads stopped, the run ready");
 }
 
 #[tokio::test]
@@ -399,7 +399,15 @@ fn the_run_state_rule() {
         RunState::Ready,
         "a machine left down at up (autostart: false) isn't a failure"
     );
-    assert_eq!(run_state(&[m("a", MachineState::Running), m("b", MachineState::Stopped)]), RunState::Failed);
+    assert_eq!(
+        run_state(&[m("a", MachineState::Running), m("controller", MachineState::Stopped)]),
+        RunState::Ready,
+        "a machine that powered itself off among running ones isn't a failure"
+    );
+    assert_eq!(
+        run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("aborted".into()))]),
+        RunState::Failed
+    );
     assert_eq!(
         run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("shut".into()))]),
         RunState::Failed

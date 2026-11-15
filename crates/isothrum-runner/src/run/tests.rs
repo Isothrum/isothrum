@@ -1,3 +1,5 @@
+mod vagrant;
+
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::events::{EventKind, Recorder};
