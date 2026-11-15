@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub use self::code::ErrorCode;
 pub use self::detail::{DETAIL_VERSION, Detail, ErrorDetail};
 pub use self::timed_out::TimedOut;
+pub(crate) use self::timed_out::kept_line;
 
 mod code;
 mod detail;

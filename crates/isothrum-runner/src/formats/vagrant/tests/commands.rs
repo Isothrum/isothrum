@@ -12,7 +12,38 @@ async fn exec_runs_the_command_over_ssh_quoted_and_a_failing_command_is_its_resu
         .expect("ran");
     assert_eq!((ran.exit, ran.stderr.as_str()), (3, "no such file"));
     let call = fake.last("ssh").unwrap();
-    assert_eq!(call.args, ["ssh", "web", "-c", "cat '/etc/a b'"]);
+    assert_eq!(
+        call.args,
+        ["ssh", "web", "-c", "cat '/etc/a b'", "--", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20"],
+        "never a prompt, and a guest that doesn't answer given up on"
+    );
+}
+
+/// A check whose guest never answers (a VM's SSH that hangs) fails as a timeout at its deadline,
+/// with its last line, and never holds the operation.
+#[tokio::test(start_paused = true)]
+async fn a_check_that_hangs_is_a_timeout_at_its_deadline_with_its_last_line() {
+    let f = Fixture::new();
+    let hanging = Reply::ok("running check 3: web answers\nnever printed").paced(std::time::Duration::from_secs(200));
+    let fake = FakeProcesses::script().expect("vagrant ssh web -c", hanging).build();
+    let started = tokio::time::Instant::now();
+    let e = Vagrant
+        .exec(&cx(&f, &fake, LIBVIRT), "web", &["./checks.sh".into()])
+        .await
+        .expect_err("past its deadline");
+    assert_eq!(e.code(), crate::ErrorCode::Timeout, "{e}");
+    assert_eq!(
+        e.timed_out(),
+        Some(&crate::error::TimedOut::Ceiling {
+            after_s: 300,
+            last_line: Some("running check 3: web answers".to_owned())
+        })
+    );
+    assert_eq!(
+        started.elapsed(),
+        std::time::Duration::from_secs(300),
+        "at its deadline, not the 400 s it would take"
+    );
 }
 
 #[test]

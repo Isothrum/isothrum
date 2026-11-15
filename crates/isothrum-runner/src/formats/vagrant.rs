@@ -65,9 +65,6 @@ const RECONCILE_LIMIT: Duration = Duration::from_secs(180);
 /// How long a read may take (`status`, `port`, a version, the plugins, a VM's state).
 const READ_LIMIT: Duration = Duration::from_secs(120);
 
-/// How long a command run in a machine may take.
-const EXEC_LIMIT: Duration = Duration::from_secs(900);
-
 /// The Vagrant driver.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Vagrant;
@@ -336,7 +333,7 @@ impl FormatDriver for Vagrant {
             name: "provisioner".to_owned(),
             reason: format!("`{name}` isn't a provisioner's name (letters, digits, `-`, `_`)"),
         })?;
-        let call = call(cx, UP_LIMIT);
+        let call = call(cx, super::CHECK_LIMIT);
         retrying(cx.warn, "provision", Rerun::Repeats, PATIENCE, || {
             vagrant::provision_with(&call, &name, &machines)
         })
@@ -359,7 +356,7 @@ impl FormatDriver for Vagrant {
 
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
         let script = argv.iter().map(|w| crate::console::sh_word(w)).collect::<Vec<_>>().join(" ");
-        let out = vagrant::ssh_run(&call(cx, EXEC_LIMIT), machine, &script)
+        let out = vagrant::ssh_run(&call(cx, super::CHECK_LIMIT), machine, &script)
             .await
             .map_err(|e| vagrant_error("exec", e))?;
         Ok(Ran {
