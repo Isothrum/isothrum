@@ -5,6 +5,7 @@ mod kept_ports;
 mod pins;
 #[cfg(unix)]
 mod qemu;
+mod quiet_reads;
 mod refusals;
 mod vagrant;
 

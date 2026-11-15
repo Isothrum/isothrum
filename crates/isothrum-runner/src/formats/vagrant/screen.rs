@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::dotfile::Record;
-use super::{call, dot, providers};
+use super::{dot, providers};
 use crate::Result;
 use crate::cli::virsh::Display;
 use crate::cli::{prlctl, utmctl, vboxmanage, virsh};
@@ -131,7 +131,7 @@ async fn local(cx: &ToolCx<'_>, machine: &str, provider: Provider) -> Result<std
 /// VirtualBox's remote display of `machine`: on, and on this computer's loopback.
 async fn vrde(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr> {
     let (_, uuid) = recorded(cx, machine)?;
-    let said = vboxmanage::remote_display(&call(cx, READ_LIMIT), &uuid)
+    let said = vboxmanage::remote_display(&super::read(cx, READ_LIMIT), &uuid)
         .await
         .map_err(|e| no_console(machine, format!("VirtualBox didn't say how its VM is: {e}")))?;
     match said {
@@ -157,7 +157,7 @@ fn libvirt_uri(cx: &ToolCx<'_>) -> Option<&'static str> {
 /// libvirt's VNC display of `machine`'s domain.
 async fn libvirt(cx: &ToolCx<'_>, machine: &str) -> Result<std::net::SocketAddr> {
     let (_, domain) = recorded(cx, machine)?;
-    let said = virsh::domdisplay(&call(cx, READ_LIMIT), libvirt_uri(cx), &domain)
+    let said = virsh::domdisplay(&super::read(cx, READ_LIMIT), libvirt_uri(cx), &domain)
         .await
         .map_err(|e| no_console(machine, format!("libvirt didn't say where its display is: {e}")))?;
     match said {
@@ -253,7 +253,7 @@ pub(super) async fn native(cx: &ToolCx<'_>, machine: &str) -> Result<NativeConso
     let (provider, id) = recorded(cx, machine)?;
     let app = app_of(provider, providers::this_host()).ok_or_else(|| no_app(machine))?;
     let id = argument(machine, &id)?;
-    let read = call(cx, READ_LIMIT);
+    let read = super::read(cx, READ_LIMIT);
     let ways = match provider {
         Provider::Virtualbox => vec![program("VBoxManage", ["startvm", id, "--type", "separate"])],
         Provider::Hyperv => vec![program("vmconnect.exe", ["localhost", "-G", id])],

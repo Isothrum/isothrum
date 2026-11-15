@@ -1,7 +1,7 @@
 //! The names the driver reads and writes: a VM's record key, whether a name carries the run's
 //! key, Vagrant's verbs, an account's name, and a machine's own address.
 
-use super::{Error, READ_LIMIT, Record, Rerun, Result, STATUS_PATIENCE, ToolCx, Vagrant, Verb, call, retrying, vagrant};
+use super::{Error, READ_LIMIT, Record, Rerun, Result, STATUS_PATIENCE, ToolCx, Vagrant, Verb, retrying, vagrant};
 use crate::Provider;
 
 /// The key a machine's VM is recorded under: `vm:<machine>` on the provider asked for, and
@@ -41,7 +41,7 @@ impl Vagrant {
     /// The address `ssh-config` gives running `machine`, when it is one another computer
     /// reaches; none when it gives none, or can't be read (traced): the status stands without it.
     pub(super) async fn address(&self, cx: &ToolCx<'_>, machine: &str) -> Option<String> {
-        let read = call(cx, READ_LIMIT);
+        let read = super::read(cx, READ_LIMIT);
         match retrying(cx.warn, "ssh-config", Rerun::Read, STATUS_PATIENCE, || vagrant::ssh_host(&read, machine)).await {
             Ok(host) => host
                 .parse::<std::net::IpAddr>()

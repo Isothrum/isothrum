@@ -27,7 +27,7 @@ impl Vagrant {
     /// `VERR_ALREADY_EXISTS`. Each failure is a `cleanup_failed` warning: the retried `up` says the
     /// rest.
     pub(super) async fn virtualbox_leftovers(&self, cx: &ToolCx<'_>) {
-        let call = call(cx, READ_LIMIT);
+        let call = super::read(cx, READ_LIMIT);
         match vboxmanage::vms(&call).await {
             Ok(vms) => {
                 for (name, uuid) in vms.into_iter().filter(|(n, _)| ours(n, cx.key)) {

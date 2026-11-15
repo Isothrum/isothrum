@@ -103,7 +103,7 @@ impl Compose {
     /// profile isn't one), and those of them with no container: gone (removed outside the run,
     /// or never made). Files Compose can't read leave none gone: the status stands on `ps`.
     async fn gone(&self, cx: &ToolCx<'_>, containers: &[compose::Container]) -> Vec<String> {
-        let declared = match compose::services(&cx.call(READ_LIMIT), &Self::project(cx)).await {
+        let declared = match compose::services(&cx.read(READ_LIMIT), &Self::project(cx)).await {
             Ok(services) => services,
             Err(e) => {
                 tracing::warn!(run = %cx.run, error = %e, "the project's services couldn't be read; the status is the containers'");
@@ -115,7 +115,7 @@ impl Compose {
 
     /// Every container of the project, one-offs (`run`) left out.
     async fn containers(&self, cx: &ToolCx<'_>) -> Result<Vec<compose::Container>> {
-        let all = compose::ps(&cx.call(READ_LIMIT), &Self::project(cx))
+        let all = compose::ps(&cx.read(READ_LIMIT), &Self::project(cx))
             .await
             .map_err(|e| tool_error("status", e))?;
         Ok(all.into_iter().filter(|c| !c.one_off()).collect())
@@ -169,7 +169,7 @@ fn one_service(machine: &str) -> Vec<String> {
 
 impl FormatDriver for Compose {
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
-        compose::version(&cx.call(READ_LIMIT)).await.map(drop).map_err(|e| tool_error("tools", e))
+        compose::version(&cx.read(READ_LIMIT)).await.map(drop).map_err(|e| tool_error("tools", e))
     }
 
     async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
@@ -243,7 +243,7 @@ impl FormatDriver for Compose {
     }
 
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
-        compose::services(&cx.call(READ_LIMIT), &Self::project(cx))
+        compose::services(&cx.read(READ_LIMIT), &Self::project(cx))
             .await
             .map_err(|e| tool_error("services", e))
     }
@@ -349,7 +349,7 @@ impl FormatDriver for Compose {
     }
 
     async fn found(&self, cx: &ToolCx<'_>) -> Result<Vec<Found>> {
-        let call = cx.call(READ_LIMIT);
+        let call = cx.read(READ_LIMIT);
         let mut found = Vec::new();
         for (object, kind, lifetime) in [
             (Object::Container, ResourceKind::Container, Lifetime::Machines),
