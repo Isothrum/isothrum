@@ -151,6 +151,7 @@ fn options(args: &OpArgs, var: &Var<'_>) -> Result<OpOptions> {
         env: values::env(&args.env)?,
         secrets: secrets.iter().map(|(k, v)| (k.to_owned(), v.expose().to_owned())).collect(),
         host_label: args.host_label.clone(),
+        reveal: false,
     })
 }
 

@@ -25,6 +25,10 @@ pub struct RunOptions {
     /// (Compose's `${NAME}`, a Vagrantfile's `ENV`, Terraform's
     /// `TF_VAR_NAME` too). Never stored: pass them to every operation.
     pub env: BTreeMap<String, String>,
+    /// A status read only: each sensitive output's own value instead of `***`, for its caller
+    /// to use (an admin password a lab gives back). Never in an event, never stored; a service
+    /// gives it only over its owner-only endpoint. Off by default.
+    pub reveal: bool,
     /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which
     /// the operation begins instead of journaling a new one.
     pub operation: Option<crate::store::OperationId>,
@@ -76,6 +80,13 @@ impl RunOptions {
     #[must_use]
     pub fn with_lifetime(mut self, lifetime: std::time::Duration) -> RunOptions {
         self.lifetime = Some(lifetime);
+        self
+    }
+
+    /// A status read that gives the sensitive outputs' own values ([`RunOptions::reveal`]).
+    #[must_use]
+    pub fn with_reveal(mut self) -> RunOptions {
+        self.reveal = true;
         self
     }
 }

@@ -55,6 +55,9 @@ impl Running<'_> {
         };
         let settled = self.runner.store.db().read(|tx| tx.run(&self.name))?;
         let mut status = status_of(&seen, state, true, settled.as_ref());
+        if opts.reveal {
+            status.outputs = status.outputs.into_iter().map(OutputValue::unmasked).collect();
+        }
         for (machine, console) in status.machines.iter_mut().zip(screens) {
             machine.console = console;
         }

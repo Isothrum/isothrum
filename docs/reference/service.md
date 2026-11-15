@@ -33,6 +33,17 @@ value as a secret (`options.secrets`), which no record keeps, and the others as 
 (`options.env`), which the run's record keeps and every later operation gives again. Each reaches
 the module as `TF_VAR_<name>`. In Rust: `Client::variables(target)`, `Project::variables()`.
 
+### A sensitive output's value
+
+A status read gives every output a module marks sensitive as `***`, as every event does. A client
+that needs the value itself (a lab's admin password, to show its user) asks for it:
+`{"id":N,"cmd":"status","run":"…","options":{"reveal":true}}`. That read's outputs then hold their
+own values, still with `sensitive: true`. Nothing else changes: no event ever holds the value, no
+record keeps it, and without `reveal` the read masks as before. The service gives it only to its
+own account: its endpoint is owner-only (a Unix socket in the home's owner-only folder, a named
+pipe with an owner-only ACL), so any client that can ask is the run's owner. In Rust:
+`Client::status_with(run, target, OpOptions { reveal: true, .. })`, `RunOptions::with_reveal()`.
+
 ### What every protocol keeps
 
 So that a client of one release can always tell which service runs and replace it, every protocol

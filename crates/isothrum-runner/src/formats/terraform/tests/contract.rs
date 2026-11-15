@@ -14,7 +14,7 @@ const DESTROYED_ONE: &str = include_str!("../../../tool_output/fixtures/terrafor
 const NOT_THERE: &str = include_str!("../../../tool_output/fixtures/terraform/1.16-import-non-existent.txt");
 
 /// Terraform and the provider's objects: the managed instances of `SHOW` still there, by id.
-pub(super) struct LibvirtModule {
+pub(crate) struct LibvirtModule {
     old: bool,
     objects: Mutex<Vec<String>>,
 }
