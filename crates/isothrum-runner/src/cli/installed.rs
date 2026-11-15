@@ -1,8 +1,13 @@
-//! Where an app installs its tool outside `PATH`, for a tool that isn't on it: UTM's `utmctl`
-//! inside its app (`/Applications/UTM.app/Contents/MacOS/utmctl`, or the user's own
-//! `~/Applications`), VirtualBox's `VBoxManage` in its installer's folder on Windows
-//! (`VBOX_MSI_INSTALL_PATH`, else `%ProgramFiles%\Oracle\VirtualBox`). Read through the host's
-//! environment and root ([`HostEnv`]), never this machine's own.
+//! Where an app installs its tool outside `PATH`, for a tool that isn't on it, read through the
+//! host's environment and root ([`HostEnv`]), never this machine's own:
+//!
+//! | Tool | App | Where |
+//! |---|---|---|
+//! | `utmctl` | UTM | `/Applications/UTM.app/Contents/MacOS/utmctl`, or the user's own `~/Applications` |
+//! | `prlctl` | Parallels Desktop | `/Applications/Parallels Desktop.app/Contents/MacOS/prlctl`, or `~/Applications` |
+//! | `vmrun` | VMware Fusion | `/Applications/VMware Fusion.app/Contents/Public/vmrun`, or `~/Applications` |
+//! | `vmrun` | VMware Workstation | `%ProgramFiles(x86)%\VMware\VMware Workstation\vmrun.exe`, else `%ProgramFiles%`'s |
+//! | `VBoxManage` | VirtualBox | its installer's folder on Windows (`VBOX_MSI_INSTALL_PATH`), else `%ProgramFiles%\Oracle\VirtualBox` |
 
 use std::path::{Path, PathBuf};
 
@@ -19,34 +24,67 @@ pub(crate) enum Installed {
     Nothing,
 }
 
-/// Each place an app installs `tool`: the app's folder, and the tool in it.
-fn places(tool: &str, env: &HostEnv) -> Vec<(PathBuf, PathBuf)> {
+/// The macOS app bundle `bundle` (`UTM.app`) in `/Applications` under the host's root, then in
+/// the user's own `~/Applications`, each with the tool at `inside` it.
+fn mac_app(env: &HostEnv, bundle: &str, inside: &[&str]) -> Vec<(PathBuf, PathBuf)> {
+    let mut bases = vec![env.root().to_path_buf()];
+    bases.extend(env.get("HOME").map(PathBuf::from));
+    bases
+        .into_iter()
+        .map(|base| {
+            let app = base.join("Applications").join(bundle);
+            let tool = inside.iter().fold(app.clone(), |at, part| at.join(part));
+            (app, tool)
+        })
+        .collect()
+}
+
+/// The Windows install folders `folder` under each of `variables` (`ProgramFiles`), in order,
+/// each with the tool `exe` in it.
+fn windows_folders(env: &HostEnv, variables: &[&str], folder: &[&str], exe: &str) -> Vec<(PathBuf, PathBuf)> {
+    variables
+        .iter()
+        .filter_map(|v| env.get(v))
+        .map(|base| {
+            let at = folder.iter().fold(PathBuf::from(base), |at, part| at.join(part));
+            (at.clone(), at.join(exe))
+        })
+        .collect()
+}
+
+/// Each place an app installs `tool`: the app's folder, and the tool in it; and the app's name.
+fn places(tool: &str, env: &HostEnv) -> (&'static str, Vec<(PathBuf, PathBuf)>) {
     match tool {
-        "utmctl" => {
-            let app = |base: &Path| base.join("Applications").join("UTM.app");
-            let mut apps = vec![app(env.root())];
-            apps.extend(env.get("HOME").map(|home| app(Path::new(home))));
-            apps.into_iter().map(|a| (a.clone(), a.join("Contents").join("MacOS").join("utmctl"))).collect()
+        "utmctl" => ("UTM", mac_app(env, "UTM.app", &["Contents", "MacOS", "utmctl"])),
+        "prlctl" => ("Parallels Desktop", mac_app(env, "Parallels Desktop.app", &["Contents", "MacOS", "prlctl"])),
+        "vmrun" => {
+            let mut at = mac_app(env, "VMware Fusion.app", &["Contents", "Public", "vmrun"]);
+            at.extend(windows_folders(
+                env,
+                &["ProgramFiles(x86)", "ProgramFiles"],
+                &["VMware", "VMware Workstation"],
+                "vmrun.exe",
+            ));
+            ("VMware", at)
         }
         "VBoxManage" => {
             let mut folders: Vec<PathBuf> = env.get("VBOX_MSI_INSTALL_PATH").map(PathBuf::from).into_iter().collect();
             folders.extend(env.get("ProgramFiles").map(|p| Path::new(p).join("Oracle").join("VirtualBox")));
-            folders.into_iter().map(|f| (f.clone(), f.join("VBoxManage.exe"))).collect()
+            ("VirtualBox", folders.into_iter().map(|f| (f.clone(), f.join("VBoxManage.exe"))).collect())
         }
-        _ => Vec::new(),
+        _ => ("", Vec::new()),
     }
 }
 
 /// Where `tool` is installed outside `PATH`, or why its app is there without it.
 pub(crate) fn find(tool: &str, env: &HostEnv) -> Installed {
-    let places = places(tool, env);
+    let (app, places) = places(tool, env);
     if let Some((_, at)) = places.iter().find(|(_, t)| t.is_file()) {
         return Installed::At(at.clone());
     }
-    if !places.iter().any(|(app, _)| app.is_dir()) {
+    if !places.iter().any(|(folder, _)| folder.is_dir()) {
         return Installed::Nothing;
     }
-    let app = if tool == "utmctl" { "UTM" } else { "VirtualBox" };
     let tried: Vec<String> = places.iter().map(|(_, t)| t.display().to_string()).collect();
     Installed::AppWithout(format!("{app} is installed but {tool} wasn't found at {}", tried.join(" or ")))
 }
@@ -100,6 +138,54 @@ mod tests {
         file(&in_msi);
         assert_eq!(find("VBoxManage", &env), Installed::At(in_msi), "the installer's own folder first");
         assert_eq!(find("vagrant", &env), Installed::Nothing, "only the tools an app installs off PATH");
+    }
+
+    #[test]
+    fn prlctl_is_found_in_parallels_desktop_under_the_root_then_in_the_users_own_applications() {
+        let root = tempfile::tempdir().expect("a root");
+        let home = tempfile::tempdir().expect("a home");
+        let env = HostEnv::of([("HOME", home.path().as_os_str())]).rooted(root.path());
+        assert_eq!(find("prlctl", &env), Installed::Nothing, "no Parallels Desktop");
+        let app = root.path().join("Applications/Parallels Desktop.app");
+        std::fs::create_dir_all(&app).expect("Parallels Desktop");
+        let Installed::AppWithout(why) = find("prlctl", &env) else {
+            panic!("Parallels Desktop without prlctl")
+        };
+        assert!(why.starts_with("Parallels Desktop is installed but prlctl wasn't found at "), "{why}");
+        let users = home.path().join("Applications/Parallels Desktop.app/Contents/MacOS/prlctl");
+        file(&users);
+        assert_eq!(find("prlctl", &env), Installed::At(users));
+        let systems = app.join("Contents/MacOS/prlctl");
+        file(&systems);
+        assert_eq!(find("prlctl", &env), Installed::At(systems), "/Applications first");
+    }
+
+    #[test]
+    fn vmrun_is_found_in_vmware_fusion_on_macos_and_in_workstations_folder_on_windows() {
+        let root = tempfile::tempdir().expect("a root");
+        let home = tempfile::tempdir().expect("a home");
+        let mac = HostEnv::of([("HOME", home.path().as_os_str())]).rooted(root.path());
+        assert_eq!(find("vmrun", &mac), Installed::Nothing, "no VMware");
+        let users = home.path().join("Applications/VMware Fusion.app/Contents/Public/vmrun");
+        file(&users);
+        assert_eq!(find("vmrun", &mac), Installed::At(users), "the user's own Fusion");
+        let systems = root.path().join("Applications/VMware Fusion.app/Contents/Public/vmrun");
+        file(&systems);
+        assert_eq!(find("vmrun", &mac), Installed::At(systems), "/Applications first");
+
+        let (x86, x64) = (tempfile::tempdir().expect("ProgramFiles(x86)"), tempfile::tempdir().expect("ProgramFiles"));
+        let windows = HostEnv::of([("ProgramFiles(x86)", x86.path().as_os_str()), ("ProgramFiles", x64.path().as_os_str())]);
+        let in_x64 = x64.path().join("VMware/VMware Workstation/vmrun.exe");
+        file(&in_x64);
+        assert_eq!(find("vmrun", &windows), Installed::At(in_x64));
+        std::fs::create_dir_all(x86.path().join("VMware/VMware Workstation")).expect("an install without vmrun");
+        let in_x86 = x86.path().join("VMware/VMware Workstation/vmrun.exe");
+        file(&in_x86);
+        assert_eq!(
+            find("vmrun", &windows),
+            Installed::At(in_x86),
+            "the 32-bit folder Workstation installs in first"
+        );
     }
 
     /// A call of `utmctl list` that isn't on PATH runs the app's own, and says which app lacks it.

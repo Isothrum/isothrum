@@ -119,7 +119,7 @@ impl Call<'_> {
     /// Runs `spec` (of `tool`) to its end within the call's limit, each line to the sink.
     async fn run_spec<F: Display>(&self, tool: &'static str, spec: ProcessSpec) -> Result<Captured, CliError<F>> {
         match self.run_once(tool, &spec).await {
-            // Not on PATH: where its app installs it (UTM's app, VirtualBox's folder on Windows).
+            // Not on PATH: where its app installs it ([`installed`]: UTM, Parallels, VMware, VirtualBox).
             Err(CliError::Missing { .. }) => match installed::find(tool, self.host_env) {
                 installed::Installed::At(path) => {
                     let mut at = spec;
