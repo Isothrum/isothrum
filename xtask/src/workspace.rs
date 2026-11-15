@@ -200,12 +200,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs cargo: reads the workspace with `cargo metadata` (a player's machine has no toolchain); `cargo xtask test` runs it"]
     fn the_repository_keeps_its_dependencies_one_way() {
         let found = violations(&metadata());
         assert!(found.is_empty(), "{}", found.join("\n"));
     }
 
     #[test]
+    #[ignore = "needs cargo: reads the workspace with `cargo metadata` (a player's machine has no toolchain); `cargo xtask test` runs it"]
     fn every_crate_inherits_the_workspace() {
         let metadata = metadata();
         let mut found = Vec::new();
