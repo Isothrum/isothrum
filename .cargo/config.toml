@@ -1,0 +1,4 @@
+# The repository's own commands: `cargo xtask <task>` (CONTRIBUTING). A crate patch has no
+# place here: Isothrum links no Isoloom crate, and `cargo xtask check` refuses one.
+[alias]
+xtask = "run -p xtask --"
