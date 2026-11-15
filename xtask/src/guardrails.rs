@@ -1,8 +1,8 @@
 //! The guardrails: tests that turn a class of bug into a failing build, read from what
-//! `cargo metadata` and the sources say.
+//! `Cargo.lock` and the sources say.
 //!
-//! - `boundary`: the products stay apart, no Isothrum crate depends on an Isoloom crate
-//!   (the edges still there are listed, each one, until the run manifest goes);
+//! - `boundary`: the products stay apart, no Isothrum crate depends on an Isoloom crate, by the
+//!   resolved graph `Cargo.lock` holds;
 //! - `scans`: where the runner may parse a tool's output, and what a shell script it builds may
 //!   hold (no `sh -c` assembled with `format!`, no `&&` chain in a script that runs as root);
 //! - `capabilities`: every capability a driver claims (each action it takes, each hook it
