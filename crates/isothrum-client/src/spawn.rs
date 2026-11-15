@@ -1,6 +1,7 @@
 //! Starting a home's service when none answers: `isothrum serve --home <home> --detach`, in a
-//! process group (Windows: a process group with no console, out of the starter's job) of its own,
-//! so the starter's Ctrl-C and its end don't reach it, its output appended to `service.log`.
+//! process group of its own (Windows: on a console of its own with no window, out of the
+//! starter's job), so the starter's Ctrl-C and its end don't reach it, its output appended to
+//! `service.log`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -70,17 +71,31 @@ fn detach(command: &mut Command) -> std::io::Result<Child> {
     command.spawn()
 }
 
-/// Spawns `command` in a process group of its own, with no console, out of the starter's job
-/// when the job lets it (else in it).
+/// No console window (`CREATE_NO_WINDOW`): the service gets a console of its own, which the
+/// starter's Ctrl-C never reaches.
+#[cfg(any(windows, test))]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Out of the starter's job object, when the job lets it: the starter's end doesn't end it.
+#[cfg(any(windows, test))]
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+/// The creation flags the service is started with on Windows, the first the job lets through.
+/// Never `CREATE_NEW_PROCESS_GROUP` (0x200): it turns Ctrl-C off in the new group (an implied
+/// `SetConsoleCtrlHandler(NULL, TRUE)`), which every tool the service starts inherits, so a
+/// cancelled `terraform apply` ignored the Ctrl-C the runner stops it with and was ended 30 s
+/// later, its state at risk (#132). Its own console already keeps the starter's Ctrl-C away.
+#[cfg(any(windows, test))]
+const DETACHED: [u32; 2] = [CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW];
+
+/// Spawns `command` on a console of its own with no window, out of the starter's job when the
+/// job lets it (else in it), Ctrl-C left on for the tools it starts ([`DETACHED`]).
 #[cfg(windows)]
 fn detach(command: &mut Command) -> std::io::Result<Child> {
     use std::os::windows::process::CommandExt as _;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB);
+    command.creation_flags(DETACHED[0]);
     command.spawn().or_else(|_| {
-        command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+        command.creation_flags(DETACHED[1]);
         command.spawn()
     })
 }
@@ -95,6 +110,18 @@ pub(crate) fn log_tail(paths: &ServicePaths) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression (#132): the service started in a new process group turned Ctrl-C off for every
+    /// tool it ran, so a cancelled Terraform apply was killed instead of stopping cleanly.
+    #[test]
+    fn the_service_starts_without_a_new_process_group_on_a_console_of_its_own() {
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        for flags in DETACHED {
+            assert_eq!(flags & CREATE_NEW_PROCESS_GROUP, 0, "{flags:#x}: Ctrl-C off for the tools");
+            assert_eq!(flags & CREATE_NO_WINDOW, CREATE_NO_WINDOW, "{flags:#x}: a console of its own");
+        }
+        assert_eq!(DETACHED[0] & CREATE_BREAKAWAY_FROM_JOB, CREATE_BREAKAWAY_FROM_JOB, "out of the job first");
+    }
 
     #[test]
     fn the_binary_given_is_the_one_started_else_isothrum_by_name() {
