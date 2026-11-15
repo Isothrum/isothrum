@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
-use super::vagrant::{VERSION, a_vagrant_lab_on};
+use super::vagrant::{a_modelled_vagrant_lab, vagrant_answer};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
@@ -30,13 +30,7 @@ struct Lab {
 
 /// Vagrant over VirtualBox for `web` (started by `up`) and `attackbox` (by an attach).
 fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
-    if call.program == "VBoxManage" {
-        return Reply::ok("VMState=\"running\"");
-    }
-    let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
-    let mut lab = lab.lock().unwrap_or_else(PoisonError::into_inner);
-    match args.as_slice() {
-        ["--version"] => Reply::ok(VERSION),
+    vagrant_answer(lab, call, |lab, args| match args {
         ["up", "--provider", "virtualbox", "attackbox"] => {
             lab.made.insert("attackbox", true);
             Reply {
@@ -65,18 +59,12 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
             Reply::ok("")
         }
         _ => Reply::ok(""),
-    }
+    })
 }
 
 /// The model, its fake, and the project with a runner on it.
 fn lab() -> (Arc<Mutex<Lab>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
-    let lab = Arc::new(Mutex::new(Lab::default()));
-    let fake = Arc::new(FakeProcesses::model({
-        let lab = Arc::clone(&lab);
-        move |call| answer(&lab, call)
-    }));
-    let (root, project, runner) = a_vagrant_lab_on(&fake);
-    (lab, fake, root, project, runner)
+    a_modelled_vagrant_lab(answer)
 }
 
 /// Another runner on `root`'s home, over `fake`: an app reading the run from another process.

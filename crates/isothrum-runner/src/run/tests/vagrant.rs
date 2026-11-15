@@ -67,6 +67,34 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
     }
 }
 
+/// A modelled VirtualBox `M` (its state, `Default` at first), a fake answering from it with
+/// `answer`, and a Vagrant project with a runner on that fake.
+pub(super) fn a_modelled_vagrant_lab<M: Default + Send + 'static>(
+    answer: fn(&Mutex<M>, &Call) -> Reply,
+) -> (Arc<Mutex<M>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
+    let lab = Arc::new(Mutex::new(M::default()));
+    let fake = Arc::new(FakeProcesses::model({
+        let lab = Arc::clone(&lab);
+        move |call| answer(&lab, call)
+    }));
+    let (root, project, runner) = a_vagrant_lab_on(&fake);
+    (lab, fake, root, project, runner)
+}
+
+/// A modelled Vagrant over VirtualBox's answer to `call`: what every model answers the same way
+/// (the preamble's look at a saved state, none cut off, and `vagrant --version`), else `rest`'s,
+/// given the model locked and the call's arguments.
+pub(super) fn vagrant_answer<M>(lab: &Mutex<M>, call: &Call, rest: impl FnOnce(&mut M, &[&str]) -> Reply) -> Reply {
+    if call.program == "VBoxManage" {
+        return Reply::ok("VMState=\"running\"");
+    }
+    let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
+    if args == ["--version"] {
+        return Reply::ok(VERSION);
+    }
+    rest(&mut lab.lock().unwrap_or_else(PoisonError::into_inner), &args)
+}
+
 /// A Vagrant project in a temporary folder, and a runner with a temporary home on `fake`.
 pub(super) fn a_vagrant_lab_on(fake: &Arc<FakeProcesses>) -> (tempfile::TempDir, std::path::PathBuf, Runner) {
     let root = tempfile::tempdir().expect("a folder");
