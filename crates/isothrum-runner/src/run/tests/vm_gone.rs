@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::vagrant::{VERSION, a_vagrant_lab_on};
+use super::vagrant::{a_modelled_vagrant_lab, vagrant_answer};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
@@ -24,14 +24,7 @@ fn dotfile(call: &Call) -> std::path::PathBuf {
 /// Vagrant over VirtualBox, for a Vagrantfile of `web` and `attackbox` (never started by an
 /// `up`). A destroy forgets the machine's id, as Vagrant does.
 fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
-    if call.program == "VBoxManage" {
-        // The preamble's look at a saved state: none was cut off.
-        return Reply::ok("VMState=\"running\"");
-    }
-    let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
-    let mut lab = lab.lock().unwrap_or_else(PoisonError::into_inner);
-    match args.as_slice() {
-        ["--version"] => Reply::ok(VERSION),
+    vagrant_answer(lab, call, |lab, args| match args {
         ["up", "--provider", "virtualbox", ..] => {
             lab.ups += 1;
             // An `up` of a machine there keeps its VM; one not there is made, a new VM.
@@ -59,7 +52,7 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
             Reply::ok("")
         }
         _ => panic!("a call the model doesn't know: {}", call.line()),
-    }
+    })
 }
 
 /// `web` destroyed outside the run, as `vagrant destroy -f web` leaves it: no VM, no id in the
@@ -72,13 +65,7 @@ fn destroy_web_outside(lab: &Mutex<Lab>, dot: &Path) {
 
 /// The modelled VirtualBox, the fake answering from it, and a Vagrant project with a runner on it.
 fn virtualbox_lab() -> (Arc<Mutex<Lab>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
-    let lab = Arc::new(Mutex::new(Lab::default()));
-    let fake = Arc::new(FakeProcesses::model({
-        let lab = Arc::clone(&lab);
-        move |call| answer(&lab, call)
-    }));
-    let (root, project, runner) = a_vagrant_lab_on(&fake);
-    (lab, fake, root, project, runner)
+    a_modelled_vagrant_lab(answer)
 }
 
 #[tokio::test]
