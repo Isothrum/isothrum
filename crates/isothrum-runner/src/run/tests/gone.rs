@@ -68,14 +68,7 @@ async fn a_removed_service_reads_absent_its_resume_is_refused_naming_it_and_an_u
     let web = status.machines.iter().find(|m| m.name == "web").expect("web is listed");
     assert_eq!((status.state, &web.state), (RunState::Failed, &MachineState::Absent));
 
-    let e = run.resume(&RunOptions::new(), &Recorder::new()).await.expect_err("web is gone");
-    assert_eq!(e.code(), ErrorCode::NothingToResume, "{e}");
-    assert_eq!(
-        e.detail().map(|d| d.data),
-        Some(crate::Detail::PartlyGone {
-            machines: vec!["web".to_owned()]
-        })
-    );
+    refused_as_gone(&run.resume(&RunOptions::new(), &Recorder::new()).await.expect_err("web is gone"));
     assert_eq!(lab.lock().unwrap_or_else(PoisonError::into_inner).ups, 1, "nothing was started");
 
     run.up(&RunOptions::new(), &Recorder::new()).await.expect("up makes it again");

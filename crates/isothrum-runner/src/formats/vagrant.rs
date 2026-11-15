@@ -9,11 +9,11 @@
 //! | up | the preamble, then `up --provider <p>`: ready once it exits 0, after the last provisioner |
 //! | down | `destroy -f`, then the dotfile reset (what is left by id goes to [`FormatDriver::destroy_by_id`]) |
 //! | park | `suspend` (Pause), `halt` (Shutdown) |
-//! | resume | the preamble, then `up --provider <p> --no-provision` |
+//! | resume | refused naming the machines destroyed outside the run ([`gone`]); else the preamble, then `up --provider <p> --no-provision` |
 //! | update, provision | `up --provider <p> --provision [machine]` |
 //! | attach, retire | `up --provider <p> <machine>`, `destroy -f <machine>` |
 //! | exec, console | `ssh <machine> -c <command>`; a console is `ssh <machine>` with a terminal |
-//! | observe | `status --machine-readable`, then `port <machine>` of each running one |
+//! | observe | `status --machine-readable`, then `port <machine>` of each running one; a machine `not_created` whose VM the store records as made is gone ([`gone`]) |
 //! | found | the dotfile's `machines/<machine>/<provider>/id` |
 //! | machines | the machines `status` lists, whether made or not |
 //! | reapply | `up <added>`, `destroy -f <removed>`, `provision <changed>` |
@@ -30,7 +30,9 @@
 mod clear;
 mod dotfile;
 mod forwards;
+mod gone;
 mod lock;
+use gone::run_state;
 mod names;
 mod providers;
 mod screen;
@@ -112,27 +114,6 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
     cx.provider.ok_or_else(|| Error::NoProvider {
         providers: providers::listed_for(providers::this_host()),
     })
-}
-
-/// The run's state as `machines` show it: absent when none was made; parked when none of those
-/// made runs; ready when each one made runs or is stopped (a machine its own provisioner powers
-/// off, such as a lab's controller, among running ones: it reads stopped); failed otherwise (one
-/// unhealthy, aborted, or in a state of its own). A machine never made (one the Vagrantfile
-/// leaves down at `up`, `autostart: false`) doesn't count: a start that failed midway fails its
-/// own operation.
-pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
-    let made: Vec<&SeenMachine> = machines.iter().filter(|m| m.state != MachineState::Absent).collect();
-    if made.is_empty() {
-        return RunState::Absent;
-    }
-    if !made.iter().any(|m| m.state.runs()) {
-        return RunState::Parked;
-    }
-    if made.iter().all(|m| matches!(m.state, MachineState::Running | MachineState::Stopped)) {
-        RunState::Ready
-    } else {
-        RunState::Failed
-    }
 }
 
 impl Vagrant {
@@ -288,6 +269,7 @@ impl FormatDriver for Vagrant {
 
     async fn resume(&self, cx: &ToolCx<'_>) -> Result<()> {
         let provider = asked(cx)?;
+        self.refuse_resume_if_gone(cx).await?;
         self.preamble(cx, provider).await?;
         self.up_recovering(cx, "resume", Provision::No, &[]).await
     }
@@ -387,7 +369,10 @@ impl FormatDriver for Vagrant {
         let read = read(cx, READ_LIMIT);
         let records = dot(cx).recorded()?;
         let mut machines = Vec::new();
-        for (name, label) in self.status(cx).await? {
+        let states = self.status(cx).await?;
+        // A machine destroyed outside the run reads absent, as one never made, but fails the run.
+        let gone = gone::gone(cx, &states)?;
+        for (name, label) in states {
             let state = crate::tool_output::vagrant::machine_state(&label);
             // The provider it was made on, as the dotfile records it (the one asked for, unless a
             // record was left on another).
@@ -434,7 +419,7 @@ impl FormatDriver for Vagrant {
                 windows: false,
             });
         }
-        let state = run_state(&machines);
+        let state = run_state(&machines, &gone);
         Ok((Seen { machines, ..Seen::default() }, state))
     }
 

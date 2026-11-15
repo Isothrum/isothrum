@@ -40,6 +40,7 @@ fn cx_in<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses, sta
         ports,
         sink: &quiet,
         warn: &unwarned,
+        made: crate::formats::NOTHING_MADE,
     }
 }
 

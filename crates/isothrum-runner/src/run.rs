@@ -113,6 +113,7 @@ impl Quiet {
             ports: &crate::formats::NoPorts,
             sink: &crate::formats::discard,
             warn: &unwarned,
+            made: crate::formats::NOTHING_MADE,
         }
     }
 }
@@ -241,6 +242,7 @@ impl<'r> Running<'r> {
             runner: self.runner,
             run: &self.name,
         };
+        let made = || self.made();
         let cx = ToolCx {
             project: &self.project,
             run: &self.name,
@@ -254,8 +256,20 @@ impl<'r> Running<'r> {
             host_env: &self.runner.config.host_env,
             sink: &sink,
             warn: &warn,
+            made: &made,
         };
         work(&cx).await
+    }
+
+    /// The keys of the run's resources the store records as made by its tool: the provider's,
+    /// with their id, not gone.
+    fn made(&self) -> Result<Vec<String>> {
+        let rows = self.runner.store.db().read(|tx| tx.live_resources(&self.name))?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
+            .map(|r| r.key)
+            .collect())
     }
 
     /// Records what the tool now reports of the run's resources against the store's rows, and

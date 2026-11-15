@@ -85,6 +85,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
         ports: &crate::formats::NoPorts,
         sink: &quiet,
         warn: &*f.warn,
+        made: crate::formats::NOTHING_MADE,
     }
 }
 
@@ -402,37 +403,4 @@ async fn nothing_made_is_absent_as_vagrant_prints_it() {
     assert_eq!(state, RunState::Absent);
     let names = Vagrant.machines(&cx(&f, &fake, LIBVIRT)).await.expect("machines");
     assert_eq!(names, ["attack", "web"], "every machine the Vagrantfile defines, made or not");
-}
-
-#[test]
-fn the_run_state_rule() {
-    let m = |name: &str, state: MachineState| SeenMachine {
-        name: name.into(),
-        state,
-        published: Vec::new(),
-        kind: None,
-        address: None,
-        windows: false,
-    };
-    assert_eq!(run_state(&[]), RunState::Absent);
-    assert_eq!(run_state(&[m("a", MachineState::Absent)]), RunState::Absent);
-    assert_eq!(run_state(&[m("a", MachineState::Stopped), m("b", MachineState::Stopped)]), RunState::Parked);
-    assert_eq!(
-        run_state(&[m("a", MachineState::Running), m("attack", MachineState::Absent)]),
-        RunState::Ready,
-        "a machine left down at up (autostart: false) isn't a failure"
-    );
-    assert_eq!(
-        run_state(&[m("a", MachineState::Running), m("controller", MachineState::Stopped)]),
-        RunState::Ready,
-        "a machine that powered itself off among running ones isn't a failure"
-    );
-    assert_eq!(
-        run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("aborted".into()))]),
-        RunState::Failed
-    );
-    assert_eq!(
-        run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("shut".into()))]),
-        RunState::Failed
-    );
 }

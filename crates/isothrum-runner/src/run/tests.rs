@@ -10,6 +10,7 @@ mod quiet_reads;
 mod refusals;
 mod reveal;
 mod vagrant;
+mod vm_gone;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -20,6 +21,16 @@ use crate::status::MachineState;
 use crate::store::ResourceState;
 use crate::testing::{modelled, no_ports, processes, runner_config};
 use crate::{ErrorCode, Format, RunName, RunOptions, Runner};
+
+/// That `e`, a resume's failure, refuses a run whose `web` is gone: `nothing_to_resume`, naming
+/// it in its detail.
+fn refused_as_gone(e: &crate::Error) {
+    assert_eq!(e.code(), ErrorCode::NothingToResume, "{e}");
+    let gone = crate::Detail::PartlyGone {
+        machines: vec!["web".to_owned()],
+    };
+    assert_eq!(e.detail().map(|d| d.data), Some(gone));
+}
 
 /// The `docker compose … up` calls made so far.
 fn ups(fake: &crate::process::fake::FakeProcesses) -> usize {
