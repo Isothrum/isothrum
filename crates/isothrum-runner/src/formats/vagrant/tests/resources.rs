@@ -194,3 +194,31 @@ async fn reapply_adds_removes_and_provisions_machine_by_machine() {
         "the machine the Vagrantfile dropped went by its id"
     );
 }
+
+/// Regression: a VirtualBox machine folder that couldn't be listed removed nothing and said
+/// nothing, so an earlier run's VM folders stayed behind unnoticed.
+#[tokio::test]
+async fn a_machine_folder_that_cant_be_listed_is_a_cleanup_warning_never_taken_for_none_left() {
+    let f = Fixture::new();
+    let not_a_folder = f.state.path().join("machines-file");
+    std::fs::write(&not_a_folder, "").expect("a file where the folder would be");
+    let fake = FakeProcesses::script()
+        .expect("VBoxManage list vms", Reply::ok(""))
+        .expect(
+            "VBoxManage list systemproperties",
+            Reply::ok(&format!("Default machine folder:          {}\n", not_a_folder.display())),
+        )
+        .build();
+    Vagrant.virtualbox_leftovers(&cx(&f, &fake, VBOX)).await;
+    assert_eq!(f.warnings(), [WarningCode::CleanupFailed]);
+
+    let missing = FakeProcesses::script()
+        .expect("VBoxManage list vms", Reply::ok(""))
+        .expect(
+            "VBoxManage list systemproperties",
+            Reply::ok("Default machine folder:          /nowhere/at/all\n"),
+        )
+        .build();
+    Vagrant.virtualbox_leftovers(&cx(&f, &missing, VBOX)).await;
+    assert_eq!(f.warnings(), [WarningCode::CleanupFailed], "no folder holds no VM: nothing more is said");
+}

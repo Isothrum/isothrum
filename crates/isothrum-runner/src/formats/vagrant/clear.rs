@@ -53,8 +53,26 @@ impl Vagrant {
                 &format!("VirtualBox's VMs couldn't be listed: none is removed: {e}"),
             ),
         }
-        let Ok(base) = vboxmanage::machine_folder(&call).await else { return };
-        let Ok(entries) = std::fs::read_dir(&base) else { return };
+        // The folders VirtualBox keeps its VMs in: one that can't be read is said, never taken
+        // for none left (one that isn't there holds none).
+        let base = match vboxmanage::machine_folder(&call).await {
+            Ok(base) => base,
+            Err(e) => {
+                let said = format!("VirtualBox's machine folder couldn't be read: no VM folder is removed: {e}");
+                return (cx.warn)(WarningCode::CleanupFailed, &said);
+            }
+        };
+        let entries = match std::fs::read_dir(&base) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                let said = format!(
+                    "VirtualBox's machine folder {} couldn't be listed: no VM folder is removed: {e}",
+                    base.display()
+                );
+                return (cx.warn)(WarningCode::CleanupFailed, &said);
+            }
+        };
         for entry in entries.flatten() {
             let is_folder = entry.file_type().is_ok_and(|t| t.is_dir() || t.is_symlink());
             if is_folder && ours(&entry.file_name().to_string_lossy(), cx.key) {
