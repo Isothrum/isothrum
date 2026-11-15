@@ -37,8 +37,14 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
         subscription: None,
         greeted: Greeted::Not,
     };
+    // The service stopped: no request is read any more, what was answered is still written.
+    let mut closed = session.shared.feed.closed();
     loop {
-        match reader.next::<Request>().await {
+        let next = tokio::select! {
+            next = reader.next::<Request>() => next,
+            _ = closed.wait_for(|stopped| *stopped) => break,
+        };
+        match next {
             Ok(Some(request)) => {
                 if !session.handle(request).await {
                     break;
@@ -58,7 +64,13 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
         }
     }
     if let Some(subscription) = session.subscription.take() {
-        subscription.abort();
+        // Once the service stopped, a subscription sends what is kept (its operations' last
+        // events), then ends; a client that left has it stopped at once.
+        if *closed.borrow() {
+            drop(subscription.await);
+        } else {
+            subscription.abort();
+        }
     }
     drop(session);
     // What was queued for the client is written before the connection closes.
@@ -232,6 +244,7 @@ fn refused(id: u64, refusal: crate::engine::Refusal) -> Reply {
 /// when `None`), then each new one as it is kept, those of `run` only when it names one.
 async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCursor>, outbox: mpsc::Sender<Reply>) {
     let mut news = feed.news();
+    let mut closed = feed.closed();
     let mut last = after.unwrap_or_default();
     loop {
         // Marked seen before reading: an event kept after the read wakes the next wait.
@@ -253,9 +266,14 @@ async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCurso
             }
         }
         if scanned == last {
-            // Nothing new: wait until something is kept.
-            if news.changed().await.is_err() {
+            // Everything kept is sent: once the service stopped, that is the end.
+            if *closed.borrow() {
                 return;
+            }
+            // Nothing new: wait until something is kept, or the service stops (read once more).
+            tokio::select! {
+                changed = news.changed() => if changed.is_err() { return },
+                _ = closed.changed() => {}
             }
         }
         last = scanned;

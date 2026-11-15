@@ -19,6 +19,8 @@ const BATCH: usize = 500;
 pub(crate) struct Feed {
     store: Arc<Store>,
     news: watch::Sender<u64>,
+    /// Set once the service stopped: a subscriber sends what is kept, then ends.
+    closed: watch::Sender<bool>,
 }
 
 impl Feed {
@@ -27,6 +29,7 @@ impl Feed {
         Feed {
             store,
             news: watch::channel(0).0,
+            closed: watch::channel(false).0,
         }
     }
 
@@ -49,6 +52,17 @@ impl Feed {
     /// What wakes a subscriber.
     pub(crate) fn news(&self) -> watch::Receiver<u64> {
         self.news.subscribe()
+    }
+
+    /// Closes the stream: the service stopped. Each subscriber sends what is kept, then ends, and
+    /// each connection ends once its replies are written.
+    pub(crate) fn close(&self) {
+        self.closed.send_replace(true);
+    }
+
+    /// What says the stream closed ([`Feed::close`]).
+    pub(crate) fn closed(&self) -> watch::Receiver<bool> {
+        self.closed.subscribe()
     }
 
     /// The kept events after `after`, of `run` or of every run, oldest first (a batch of them),

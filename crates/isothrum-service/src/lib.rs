@@ -45,6 +45,9 @@ use crate::queue::Queue;
 /// once: the runner asks each tool to stop and ends it 30 seconds later.
 const DRAIN: Duration = Duration::from_secs(40);
 
+/// How long the connections have to write what they hold once the service stopped.
+const SESSIONS_END: Duration = Duration::from_secs(5);
+
 /// How long the tools have to be gone once ended at once.
 const TOOLS_GONE: Duration = Duration::from_secs(5);
 
@@ -197,13 +200,15 @@ impl Service {
         tracing::info!(home = %self.paths.home().display(), endpoint = %info.endpoint, pid = info.pid, "the runner service listens");
         let reaping = reap_every.map(|every| tokio::spawn(reaper::reap(Arc::clone(&shared.engine), Arc::clone(&queue), every)));
         let stopped = stop();
-        let why = accept(&listener, &shared, idle, stopped).await;
+        let mut sessions = tokio::task::JoinSet::new();
+        let why = accept(&listener, &shared, &mut sessions, idle, stopped).await;
         if let Some(reaping) = reaping {
             reaping.abort();
         }
         tracing::info!(?why, "the runner service stops");
         drop(listener);
         stop_operations(&queue, tools.as_ref(), &mut stop).await;
+        end_sessions(&shared, sessions).await;
         #[cfg(unix)]
         if let Err(e) = std::fs::remove_file(self.paths.socket()) {
             tracing::debug!(error = %e, "the socket couldn't be removed");
@@ -212,11 +217,24 @@ impl Service {
     }
 }
 
-/// Accepts clients, each served on a task of its own, until a `shutdown`, `stopped`, or `idle`
+/// Ends the clients' connections once the service stopped: each sends what was answered and
+/// what its subscription has left to send, then closes; one still open after [`SESSIONS_END`]
+/// is cut. None outlives the service, which no longer holds the home.
+async fn end_sessions(shared: &Shared, mut sessions: tokio::task::JoinSet<()>) {
+    shared.feed.close();
+    let ended = tokio::time::timeout(SESSIONS_END, async { while sessions.join_next().await.is_some() {} }).await;
+    if ended.is_err() {
+        tracing::debug!(open = sessions.len(), "connections still open as the service stops are cut");
+    }
+    sessions.abort_all();
+}
+
+/// Accepts clients, each served on a task of `sessions`, until a `shutdown`, `stopped`, or `idle`
 /// with no client and no operation.
 async fn accept(
     listener: &interprocess::local_socket::tokio::Listener,
     shared: &Arc<Shared>,
+    sessions: &mut tokio::task::JoinSet<()>,
     idle: Option<Duration>,
     stopped: Pin<Box<dyn Future<Output = ()> + Send>>,
 ) -> Why {
@@ -229,7 +247,9 @@ async fn accept(
             accepted = listener.accept() => match accepted {
                 Ok(stream) => {
                     idle_since = None;
-                    tokio::spawn(session::serve(stream, Arc::clone(shared)));
+                    sessions.spawn(session::serve(stream, Arc::clone(shared)));
+                    // The ones that ended, reaped: the set holds the open connections only.
+                    while sessions.try_join_next().is_some() {}
                 }
                 Err(e) => tracing::warn!(error = %e, "a connection couldn't be accepted"),
             },
