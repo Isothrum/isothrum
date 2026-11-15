@@ -181,5 +181,8 @@ mod tests {
         );
         assert_eq!(pins_override(&[], |_| None), None, "nothing ephemeral");
         assert!(ports_of("{\"services\": 3}").is_err() && ports_of("not json").is_err());
+        // Regression: a protocol other than `udp` read as TCP, and its port was pinned as one.
+        let sctp = ports_of(r#"{"services": {"web": {"ports": [{"target": 9, "protocol": "sctp"}]}}}"#);
+        assert!(sctp.as_ref().is_err_and(|why| why.contains("`sctp`")), "{sctp:?}");
     }
 }

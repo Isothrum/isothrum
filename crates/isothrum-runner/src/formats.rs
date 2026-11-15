@@ -275,6 +275,13 @@ pub(crate) trait FormatDriver {
     fn elevates(&self, _provider: Option<Provider>) -> bool {
         false
     }
+    /// Whether a status read may find a failed run ready: what it reads is live (containers, VMs
+    /// that came up after all). A Terraform state isn't: what a failed apply left in it (an
+    /// instance made before the one that failed) proves nothing, so only an apply that ends well
+    /// makes the run ready again. Yes by default.
+    fn ready_by_observation(&self) -> bool {
+        true
+    }
     /// Makes and starts everything, and returns once the project says it is ready (Compose's
     /// healthchecks, Vagrant's last provisioner, Terraform's apply). What an earlier start left
     /// is recovered by the driver itself, from what its tool says.

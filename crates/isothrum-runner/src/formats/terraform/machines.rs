@@ -3,6 +3,11 @@
 //! ([`machine_name`]): `esxi_guest.web` is `web`, `aws_instance.pool[0]` is `pool[0]`, and
 //! `module.lab.proxmox_virtual_environment_vm.vm["a"]` is `module.lab.vm["a"]`.
 
+use crate::cli::terraform as tf;
+use crate::formats::SeenMachine;
+use crate::state::RunState;
+use crate::status::MachineState;
+
 /// The providers' resource types that are a virtual machine: the clouds', the hypervisors' and
 /// the servers'. Anything else a module makes (networks, firewalls, keys, waits) is one of its
 /// resources, never a machine.
@@ -71,6 +76,39 @@ fn segments(address: &str) -> Vec<String> {
     }
     out.push(current);
     out
+}
+
+/// The machines among `managed`: each VM by its machine name ([`machine_name`]), with
+/// its state (a tainted one is unhealthy: a create or a provisioner of it failed).
+pub(super) fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
+    managed
+        .iter()
+        .filter(|r| is_vm(&r.kind))
+        .map(|r| SeenMachine {
+            name: machine_name(&r.address, &r.kind),
+            state: if r.tainted { MachineState::Unhealthy } else { MachineState::Running },
+            published: Vec::new(),
+            kind: Some(r.kind.clone()),
+            address: r.vm.address.clone(),
+            windows: r.vm.windows,
+        })
+        .collect()
+}
+
+/// Where a run stands, from its state as `show` read it: absent when it holds nothing; ready
+/// when every managed instance is sound, or when it holds data sources only (a module that reads
+/// and gives back, making nothing, is up once applied); failed with a tainted instance.
+pub(super) fn run_state(held: &tf::Shown) -> RunState {
+    let managed = &held.managed;
+    if managed.is_empty() && held.data.is_empty() {
+        RunState::Absent
+    } else if managed.is_empty() {
+        RunState::Ready
+    } else if managed.iter().any(|r| r.tainted) {
+        RunState::Failed
+    } else {
+        RunState::Ready
+    }
 }
 
 #[cfg(test)]

@@ -35,6 +35,7 @@
 mod adopt;
 mod console;
 mod machines;
+use machines::{machines_of, run_state};
 mod screen;
 mod tunnelled;
 
@@ -49,7 +50,6 @@ use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::state::{Park, RunState};
-use crate::status::MachineState;
 use crate::store::{Lifetime, ResourceKind};
 
 /// The local backend's state file, in the run's state folder.
@@ -288,23 +288,6 @@ fn text_of(value: &serde_json::Value) -> String {
     }
 }
 
-/// The machines among `managed`: each VM by its machine name ([`machines::machine_name`]), with
-/// its state (a tainted one is unhealthy: a create or a provisioner of it failed).
-fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
-    managed
-        .iter()
-        .filter(|r| machines::is_vm(&r.kind))
-        .map(|r| SeenMachine {
-            name: machines::machine_name(&r.address, &r.kind),
-            state: if r.tainted { MachineState::Unhealthy } else { MachineState::Running },
-            published: Vec::new(),
-            kind: Some(r.kind.clone()),
-            address: r.vm.address.clone(),
-            windows: r.vm.windows,
-        })
-        .collect()
-}
-
 /// The VM of `held` whose machine name is `machine`.
 ///
 /// # Errors
@@ -321,22 +304,6 @@ fn vm_named<'h>(cx: &ToolCx<'_>, held: &'h tf::Shown, machine: &str) -> Result<&
         })
 }
 
-/// Where a run stands, from its state as `show` read it: absent when it holds nothing; ready
-/// when every managed instance is sound, or when it holds data sources only (a module that reads
-/// and gives back, making nothing, is up once applied); failed with a tainted instance.
-fn run_state(held: &tf::Shown) -> RunState {
-    let managed = &held.managed;
-    if managed.is_empty() && held.data.is_empty() {
-        RunState::Absent
-    } else if managed.is_empty() {
-        RunState::Ready
-    } else if managed.iter().any(|r| r.tainted) {
-        RunState::Failed
-    } else {
-        RunState::Ready
-    }
-}
-
 /// The plugin cache the runs use: the user's own (`TF_PLUGIN_CACHE_DIR`), else the one every run
 /// of the runner shares, under its home.
 pub(crate) fn plugin_cache(config: &crate::RunnerConfig) -> PathBuf {
@@ -344,6 +311,11 @@ pub(crate) fn plugin_cache(config: &crate::RunnerConfig) -> PathBuf {
 }
 
 impl FormatDriver for Terraform {
+    /// The state a failed apply left proves nothing ready (#113).
+    fn ready_by_observation(&self) -> bool {
+        false
+    }
+
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
         let module = Module::of(cx);
         tf::version(&module.call(READ_LIMIT, &super::discard))

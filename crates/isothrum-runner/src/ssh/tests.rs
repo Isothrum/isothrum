@@ -108,3 +108,13 @@ async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
     assert_eq!(std::fs::read_to_string(key.with_extension("unusable")).unwrap(), "trunc", "set aside, not lost");
     assert_eq!(fake.calls().len(), 2, "{:?}", fake.lines());
 }
+
+/// Regression: a login with no user went out as `@host`, which ssh reads as a host named that.
+/// A user or host that isn't a plain word (none, an option's dash) is refused.
+#[test]
+fn a_login_with_no_user_or_a_dashed_word_is_refused_and_a_plain_one_is_user_at_host() {
+    assert!(Login::new("", "10.0.0.5").is_none(), "no user");
+    assert!(Login::new("root", "-oProxyCommand=x").is_none(), "an option, not a host");
+    assert!(Login::new("-l", "10.0.0.5").is_none(), "an option, not a user");
+    assert_eq!(Login::new("kali", "10.0.0.5").map(|l| l.target()).as_deref(), Some("kali@10.0.0.5"));
+}

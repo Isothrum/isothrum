@@ -41,6 +41,13 @@ impl Running<'_> {
                 Ok((seen, derived, screens, native))
             })
             .await?;
+        // A failed run its tool can't read live stays failed until an operation ends well (#113).
+        let now = row.as_ref().map_or(recorded, |r| r.state);
+        let derived = if derived == RunState::Ready && now == RunState::Failed && !self.driver.ready_by_observation() {
+            RunState::Failed
+        } else {
+            derived
+        };
         let observed = LastObserved {
             machines: machine_statuses(&seen.machines),
         };

@@ -231,6 +231,8 @@ fn the_runs_state_follows_its_services() {
     assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(0))]), RunState::Ready);
     assert_eq!(run_state(&[m(MachineState::Stopped), m(MachineState::Exited(137))]), RunState::Parked);
     assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Unhealthy)]), RunState::Failed);
+    // Regression: a lone unhealthy service read as nothing running, so the run read parked.
+    assert_eq!(run_state(&[m(MachineState::Unhealthy)]), RunState::Failed, "an unhealthy service runs");
     assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(1))]), RunState::Failed);
 }
 

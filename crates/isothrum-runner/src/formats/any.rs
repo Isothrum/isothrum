@@ -54,6 +54,10 @@ impl AnyFormat {
         dispatch!(self, d => d.elevates(provider))
     }
 
+    pub(crate) fn ready_by_observation(self) -> bool {
+        dispatch!(self, d => d.ready_by_observation())
+    }
+
     pub(crate) async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
         dispatch!(self, d => d.up(cx).await)
     }

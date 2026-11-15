@@ -106,3 +106,31 @@ fn every_format_reads_back_from_its_name() {
         assert_eq!(serde_json::to_value(f).expect("json"), f.as_str());
     }
 }
+
+/// Regression: a folder that couldn't be listed read as holding no Terraform file, so a module
+/// the runner may not read was refused as no project, not as the error it is.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cant_be_listed_is_an_io_error_never_an_empty_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder(&["main.tf"]);
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).expect("a folder");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("locked");
+    let listed = terraform_files(&locked);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).expect("unlocked");
+    if std::fs::read_dir(dir.path().join("locked")).is_ok() && listed.is_ok() && nix_root() {
+        return; // root reads any folder: nothing to refuse
+    }
+    assert!(matches!(listed, Err(Error::Io { .. })), "{listed:?}");
+    assert_eq!(
+        terraform_files(&dir.path().join("missing")).expect("a missing folder"),
+        Vec::<std::path::PathBuf>::new()
+    );
+}
+
+/// Whether the tests run as root, who reads a folder whatever its mode.
+#[cfg(unix)]
+fn nix_root() -> bool {
+    std::fs::read_to_string("/proc/self/status").is_ok_and(|s| s.lines().any(|l| l.starts_with("Uid:") && l.split_whitespace().nth(1) == Some("0")))
+}
