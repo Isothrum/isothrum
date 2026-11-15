@@ -12,7 +12,7 @@ use crate::store::{Lifetime, NewResource, ResourceKind, ResourceState};
 const CHILD_HOME: &str = "ISOTHRUM_TEST_STORE_CHILD_HOME";
 
 /// Run `web`, up, with a VM `vm:web` made (its tool id `uuid-web`) by an `up` still open.
-fn a_run_with_a_vm(store: &Store) -> OperationId {
+pub(super) fn a_run_with_a_vm(store: &Store) -> OperationId {
     let r = name("web");
     store
         .write(|tx| {
@@ -63,7 +63,7 @@ fn a_process_killed_mid_transaction_leaves_no_trace_of_it() {
 }
 
 /// Damages the store's file at `path`: its header and first pages overwritten.
-fn damage(path: &std::path::Path) {
+pub(super) fn damage(path: &std::path::Path) {
     let mut f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
     f.seek(SeekFrom::Start(0)).unwrap();
     f.write_all(&[0xA5; 8192]).unwrap();
@@ -72,7 +72,7 @@ fn damage(path: &std::path::Path) {
 
 /// A home whose store holds [`a_run_with_a_vm`] (the operation's id beside it), its mirror
 /// written, and its WAL checkpointed into the main file, so damaging the file damages the rows.
-fn a_home_with_a_vm() -> (tempfile::TempDir, OperationId) {
+pub(super) fn a_home_with_a_vm() -> (tempfile::TempDir, OperationId) {
     let home = tempfile::tempdir().unwrap();
     let store = Store::open(home.path()).unwrap();
     let op = a_run_with_a_vm(&store);
