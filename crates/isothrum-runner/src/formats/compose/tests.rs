@@ -1,3 +1,5 @@
+mod contract;
+
 use std::path::Path;
 
 use super::*;
