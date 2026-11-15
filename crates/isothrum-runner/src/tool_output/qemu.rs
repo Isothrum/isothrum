@@ -1,5 +1,5 @@
-//! What QEMU says, read: its monitor's `info vnc`, and the monitor socket vagrant-qemu records in
-//! its `options.yml`.
+//! What QEMU says, read: its monitor's `info vnc` and `info usernet`, and the monitor socket
+//! vagrant-qemu records in its `options.yml`.
 
 #[cfg(any(unix, test))]
 use std::net::SocketAddr;
@@ -24,6 +24,40 @@ pub(crate) fn vnc_server(said: &str) -> Option<SocketAddr> {
     })
 }
 
+/// One port QEMU's user network forwards from the host to the guest (`hostfwd`).
+#[cfg(any(unix, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HostForward {
+    /// `tcp` or `udp`.
+    pub(crate) protocol: crate::project::platform::Protocol,
+    /// The host's port.
+    pub(crate) host: u16,
+    /// The guest's.
+    pub(crate) guest: u16,
+}
+
+/// The host forwards `info usernet` lists (its `TCP[HOST_FORWARD]` and `UDP[HOST_FORWARD]` rows:
+/// protocol, descriptor, source address and port, destination address and port).
+#[cfg(any(unix, test))]
+pub(crate) fn host_forwards(said: &str) -> Vec<HostForward> {
+    use crate::project::platform::Protocol;
+    said.lines()
+        .filter_map(|l| {
+            let words: Vec<&str> = l.split_whitespace().collect();
+            let protocol = match *words.first()? {
+                "TCP[HOST_FORWARD]" => Protocol::Tcp,
+                "UDP[HOST_FORWARD]" => Protocol::Udp,
+                _ => return None,
+            };
+            Some(HostForward {
+                protocol,
+                host: words.get(3)?.parse().ok()?,
+                guest: words.get(5)?.parse().ok()?,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,6 +80,17 @@ mod tests {
         );
         assert_eq!(recorded_socket(":monitor_socket:\n"), None, "a control port instead");
         assert_eq!(recorded_socket(""), None);
+    }
+
+    #[test]
+    fn the_user_networks_host_forwards_are_read_and_its_connections_left_out() {
+        use crate::project::platform::Protocol;
+        let fw = |protocol, host, guest| HostForward { protocol, host, guest };
+        assert_eq!(
+            host_forwards(include_str!("fixtures/qemu/8.2-info-usernet.txt")),
+            [fw(Protocol::Tcp, 8080, 80), fw(Protocol::Udp, 5353, 53), fw(Protocol::Tcp, 50022, 22)]
+        );
+        assert_eq!(host_forwards("info usernet\r\n(qemu) "), []);
     }
 
     #[test]

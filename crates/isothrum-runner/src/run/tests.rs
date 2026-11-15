@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod qemu;
 mod refusals;
 mod vagrant;
 

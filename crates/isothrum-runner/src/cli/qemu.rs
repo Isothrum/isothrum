@@ -24,6 +24,18 @@ pub(crate) async fn vnc_server(socket: &Path) -> std::io::Result<Option<SocketAd
     Ok(crate::tool_output::qemu::vnc_server(&said))
 }
 
+/// The ports the user network of the QEMU whose monitor is at `socket` forwards from the host
+/// (`info usernet`).
+///
+/// # Errors
+///
+/// The monitor didn't answer (no socket there, a closed one, past [`LIMIT`]).
+#[cfg(unix)]
+pub(crate) async fn host_forwards(socket: &Path) -> std::io::Result<Vec<crate::tool_output::qemu::HostForward>> {
+    let said = ask_monitor(socket, "info usernet").await?;
+    Ok(crate::tool_output::qemu::host_forwards(&said))
+}
+
 /// What QEMU's human monitor at `socket` answers `command`: its text up to the next prompt.
 #[cfg(unix)]
 async fn ask_monitor(socket: &Path, command: &str) -> std::io::Result<String> {

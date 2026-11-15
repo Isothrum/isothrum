@@ -1177,6 +1177,11 @@
           "const": "shared_state",
           "description": "A Terraform module keeps its state in a backend of its own: every copy of it shares that\nstate.",
           "type": "string"
+        },
+        {
+          "const": "ports_unknown",
+          "description": "A running machine's forwarded ports couldn't be read (its provider can't list them, and\nits hypervisor didn't say): it has no published port, and runs on.",
+          "type": "string"
         }
       ]
     }

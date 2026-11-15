@@ -1,0 +1,2 @@
+1794660248,web,metadata,provider,qemu
+1794660248,,ui,error,The qemu provider does not support listing forwarded ports. This is\nmost likely a limitation of the provider and not a bug in Vagrant. If you\nbelieve this is a bug in Vagrant%!(VAGRANT_COMMA) please search existing issues before\nopening a new one.

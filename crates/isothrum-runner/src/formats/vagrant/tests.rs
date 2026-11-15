@@ -338,6 +338,27 @@ async fn a_provider_that_cant_list_forwards_has_no_port_proven() {
     assert_eq!(state, RunState::Ready);
 }
 
+/// A vagrant-qemu VM whose QEMU monitor is out of reach (nothing recorded, no Vagrant home):
+/// its ports are unknown, warned, and the run stands.
+#[tokio::test]
+async fn a_qemu_vm_whose_monitor_cant_say_its_ports_has_none_warned_and_runs_on() {
+    let f = Fixture::new();
+    f.made("web", "qemu", "id-web");
+    let fake = FakeProcesses::script()
+        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
+        .expect(
+            "vagrant port web",
+            Reply {
+                code: 1,
+                ..Reply::ok(&fixture("vagrant/2.4.1-qemu-port-unsupported.txt"))
+            },
+        )
+        .build();
+    let (seen, state) = Vagrant.observe(&cx(&f, &fake, Some(Provider::Qemu))).await.expect("observe");
+    assert_eq!((seen.machines[0].published.len(), state), (0, RunState::Ready));
+    assert_eq!(f.warnings(), [WarningCode::PortsUnknown]);
+}
+
 /// A VM reached at an address of its own (libvirt's, ESXi's) has it in what is seen; one reached
 /// through a port forwarded on the loopback (VirtualBox's) isn't asked for one.
 #[tokio::test]

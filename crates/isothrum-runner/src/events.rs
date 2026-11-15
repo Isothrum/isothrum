@@ -282,6 +282,9 @@ pub enum WarningCode {
     /// A Terraform module keeps its state in a backend of its own: every copy of it shares that
     /// state.
     SharedState,
+    /// A running machine's forwarded ports couldn't be read (its provider can't list them, and
+    /// its hypervisor didn't say): it has no published port, and runs on.
+    PortsUnknown,
 }
 
 /// Events kept in memory, for tests.
