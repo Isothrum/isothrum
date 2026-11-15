@@ -81,6 +81,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
         ],
         host_env: &crate::host_env::EMPTY,
         processes: fake,
+        ports: &crate::formats::NoPorts,
         sink: &quiet,
         warn: &*f.warn,
     }

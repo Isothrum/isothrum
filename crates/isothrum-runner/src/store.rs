@@ -51,6 +51,24 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> Result<()> {
 pub(crate) fn remove(path: &Path) -> Result<()> {
     remove_path(path).map_err(Error::io(path, "removed"))
 }
+
+/// The JSON a runner wrote at `path` ([`write_json`]), read back; `T`'s default when nothing is
+/// there. [`Error::Io`] naming it when it can't be read or isn't what was written.
+pub(crate) fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T> {
+    match if_there(std::fs::read_to_string(path)).map_err(Error::io(path, "read"))? {
+        Some(text) => serde_json::from_str(&text).map_err(|e| Error::io(path, "read")(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
+        None => Ok(T::default()),
+    }
+}
+
+/// `value` as JSON at `path`, its folder made first ([`create_dir`], [`write`]).
+pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        create_dir(dir)?;
+    }
+    let json = serde_json::to_string(value).map_err(|e| Error::io(path, "written")(std::io::Error::other(e)))?;
+    write(path, json.as_bytes())
+}
 pub(crate) use lock::{RunLocks, hold};
 
 use crate::Result;

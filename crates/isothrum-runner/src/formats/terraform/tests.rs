@@ -110,6 +110,7 @@ async fn with_cx_given<T>(lab: &Lab, fake: &FakeProcesses, extra: &[(&str, &str)
         .collect(),
         host_env: &crate::host_env::EMPTY,
         processes: fake,
+        ports: &crate::formats::NoPorts,
         sink: &sink,
         warn: &warn,
     };

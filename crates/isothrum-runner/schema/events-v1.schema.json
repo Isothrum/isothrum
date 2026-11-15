@@ -1189,6 +1189,11 @@
           "const": "ports_unknown",
           "description": "A running machine's forwarded ports couldn't be read (its provider can't list them, and\nits hypervisor didn't say): it has no published port, and runs on.",
           "type": "string"
+        },
+        {
+          "const": "ports_moved",
+          "description": "A machine's published host port is another than the one the run kept from its first\nstart (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.",
+          "type": "string"
         }
       ]
     }

@@ -1,6 +1,8 @@
 #[cfg(unix)]
 mod cut_off;
 mod gone;
+mod kept_ports;
+mod pins;
 #[cfg(unix)]
 mod qemu;
 mod refusals;
@@ -28,7 +30,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
     let line = call.line();
     let has = |words: &str| line.contains(words);
-    if has("compose version") {
+    if has("config --format json") {
+        Reply::ok(r#"{"services": {"web": {}}}"#)
+    } else if has("compose version") {
         Reply::ok("2.29.7")
     } else if has(" up ") {
         e.up = true;

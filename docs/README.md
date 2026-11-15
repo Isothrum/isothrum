@@ -28,6 +28,7 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
 - [Terraform modules](reference/terraform.md): what any module gets, and the optional outputs and values that add screens and Proxmox reads
+- [Vagrant projects](reference/vagrant.md): the optional variables that keep a forwarded port's host port across boots
 - [GNS3 feature coverage](reference/gns3-coverage.md) of the runner
 - API: [isothrum-runner](https://docs.rs/isothrum-runner),
   [isothrum-machine](https://docs.rs/isothrum-machine)

@@ -1,6 +1,8 @@
 //! A run's status: what its tool reports now, reconciled with its record.
 
-use super::{Emitter, LastObserved, OutputValue, Result, RunOptions, RunState, Running, Seen, Status, ToolCx, machine_statuses, status_of};
+use super::{Emitter, LastObserved, OutputValue, Result, RunOptions, RunState, Running, Seen, Status, ToolCx};
+use crate::formats::SeenMachine;
+use crate::status::{MachineStatus, PublishedPort};
 
 impl Running<'_> {
     /// The run as its tool reports it now, reconciled with its record: an operation of this
@@ -110,4 +112,46 @@ impl Running<'_> {
             .await?;
         Ok(status_of(&seen, RunState::Ready, true, None).outputs)
     }
+}
+
+/// The status of the run in `state` with `seen` as read.
+pub(super) fn status_of(seen: &Seen, state: RunState, live: bool, row: Option<&crate::store::RunRow>) -> Status {
+    let outputs = seen
+        .outputs
+        .iter()
+        .map(|(name, o)| OutputValue::new(name.clone(), o.sensitive, Some(o.value.clone())))
+        .collect();
+    Status {
+        state,
+        live,
+        desired: row.map(|r| r.desired),
+        failed_cause: row.and_then(|r| r.failed_cause),
+        provider: row.and_then(|r| r.record.provider),
+        machines: machine_statuses(&seen.machines),
+        outputs,
+        native: None,
+    }
+}
+
+/// `machines` as the status reports them. A port whose protocol the tool doesn't say has none,
+/// never a guessed one.
+pub(super) fn machine_statuses(machines: &[SeenMachine]) -> Vec<MachineStatus> {
+    machines
+        .iter()
+        .map(|m| MachineStatus {
+            name: m.name.clone(),
+            state: m.state.clone(),
+            published: m
+                .published
+                .iter()
+                .map(|p| PublishedPort {
+                    port: p.guest,
+                    protocol: p.protocol,
+                    host_port: p.host,
+                })
+                .collect(),
+            address: m.address.clone(),
+            console: None,
+        })
+        .collect()
 }
