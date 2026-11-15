@@ -145,7 +145,15 @@ fn handed_on(name: &str) -> bool {
     is_network_var(name)
         || upper == TF_CLI_CONFIG_FILE
         || is_vagrant_var(name)
-        || ["USERPROFILE", "HOME", LIBVIRT_DEFAULT_URI, "PROGRAMFILES", "VBOX_MSI_INSTALL_PATH"].contains(&upper.as_str())
+        || [
+            "USERPROFILE",
+            "HOME",
+            LIBVIRT_DEFAULT_URI,
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "VBOX_MSI_INSTALL_PATH",
+        ]
+        .contains(&upper.as_str())
 }
 
 /// Whether `name` is one of Vagrant's own variables (`VAGRANT_HOME`, `VAGRANT_LOG`…), whatever
