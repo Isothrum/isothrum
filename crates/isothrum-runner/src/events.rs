@@ -288,6 +288,8 @@ pub enum WarningCode {
     /// A machine's published host port is another than the one the run kept from its first
     /// start (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.
     PortsMoved,
+    /// A tool printed no version the runner reads: it is used, its minimum version unchecked.
+    VersionUnknown,
 }
 
 /// Events kept in memory, for tests.

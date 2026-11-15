@@ -169,7 +169,9 @@ fn one_service(machine: &str) -> Vec<String> {
 
 impl FormatDriver for Compose {
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
-        compose::version(&cx.read(READ_LIMIT)).await.map(drop).map_err(|e| tool_error("tools", e))
+        let found = compose::version(&cx.read(READ_LIMIT)).await.map_err(|e| tool_error("tools", e))?;
+        super::unknown_version(cx, found.as_ref(), "docker compose", compose::MIN_VERSION);
+        Ok(())
     }
 
     async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {

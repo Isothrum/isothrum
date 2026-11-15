@@ -221,7 +221,7 @@ pub(crate) async fn services(call: &Call<'_>, project: &Project<'_>) -> Result<V
 pub(crate) const MIN_VERSION: &str = "2.17.0";
 
 /// `compose version --short`, checked against [`MIN_VERSION`].
-pub(crate) async fn version(call: &Call<'_>) -> Result<crate::project::platform::Version, CliError<Failure>> {
+pub(crate) async fn version(call: &Call<'_>) -> Result<Option<crate::project::platform::Version>, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["compose", "version", "--short"]), Failure::of).await?;
     super::version(TOOL, &out.stdout.join("\n"), Some(MIN_VERSION))
 }
@@ -366,10 +366,8 @@ mod tests {
                 assert!(matches!(read, Err(CliError::TooOld { min: m, .. }) if m == MIN_VERSION));
             }
         }
+        // A version it can't read is no refusal: the tool is used, its minimum unchecked.
         let empty = FakeProcesses::rules(&[("docker compose version", Reply::ok(""))]);
-        assert!(
-            matches!(version(&testing::call(&empty)).await, Err(CliError::Unexpected { .. })),
-            "no version isn't any version"
-        );
+        assert!(matches!(version(&testing::call(&empty)).await, Ok(None)), "no version is used, unchecked");
     }
 }

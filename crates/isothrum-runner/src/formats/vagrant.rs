@@ -228,7 +228,8 @@ impl FormatDriver for Vagrant {
             )));
         }
         let read = read(cx, READ_LIMIT);
-        vagrant::supported_version(&read).await.map_err(|e| vagrant_error("tools", e))?;
+        let found = vagrant::supported_version(&read).await.map_err(|e| vagrant_error("tools", e))?;
+        super::unknown_version(cx, found.as_ref(), "vagrant", vagrant::MIN_VERSION);
         if let Some(plugin) = provider.plugin() {
             let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error("tools", e))?;
             if !installed.iter().any(|(name, _)| name == plugin) {
