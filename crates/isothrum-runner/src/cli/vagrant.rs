@@ -33,6 +33,12 @@ pub(crate) enum Failure {
     OtherProvider,
     /// ESXi refused to halt a VM already off.
     AlreadyOff,
+    /// The ESXi host refused the run's credentials (the `vmware_esxi` plugin's sign-in to it):
+    /// the host it names, when it does.
+    SignInRefused {
+        /// The ESXi host.
+        server: Option<String>,
+    },
     /// Any other failure: its reason.
     Other(String),
 }
@@ -50,7 +56,9 @@ impl Failure {
             said::Failure::AlreadyOff => return Failure::AlreadyOff,
             said::Failure::Other => {}
         }
-        if said_any(out, &["verr_already_exists", "could not rename"]) {
+        if said_any(out, &["unable to connect to esxi host"]) && said_any(out, &["authentication failed", "incorrect user name or password"]) {
+            Failure::SignInRefused { server: refused_host(out) }
+        } else if said_any(out, &["verr_already_exists", "could not rename"]) {
             Failure::AlreadyExists
         } else if said_any(out, &["different provider", "single provider at a time"]) {
             Failure::OtherProvider
@@ -73,9 +81,19 @@ impl fmt::Display for Failure {
             Failure::PortsUnsupported => f.write_str("the provider can't list forwarded ports"),
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
+            Failure::SignInRefused { .. } => f.write_str("the ESXi host refused the run's credentials"),
             Failure::Other(reason) => f.write_str(reason),
         }
     }
+}
+
+/// The host a refused ESXi sign-in names (`Authentication failed for user root@<host>`).
+fn refused_host(out: &Captured) -> Option<String> {
+    out.stdout.iter().chain(&out.stderr_tail).find_map(|l| {
+        let (_, after) = l.split_once("Authentication failed for user ")?;
+        let (_, host) = after.trim().rsplit_once('@')?;
+        (!host.is_empty()).then(|| host.to_owned())
+    })
 }
 
 /// How Vagrant's human output starts each line it says for a machine (`==> web: Removing
@@ -288,6 +306,12 @@ mod tests {
         assert_eq!(
             failed("", include_str!("../tool_output/fixtures/vagrant/vmware-esxi-2.5.5-halt-already-off.txt")),
             Failure::AlreadyOff
+        );
+        assert_eq!(
+            failed("", include_str!("../tool_output/fixtures/vagrant/vmware-esxi-2.5.5-auth-failed.txt")),
+            Failure::SignInRefused {
+                server: Some("esxi.lab.example".to_owned())
+            }
         );
         assert_eq!(
             failed("", include_str!("../tool_output/fixtures/vagrant/2.4.1-virtualbox-7.0-already-exists.txt")),

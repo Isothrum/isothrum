@@ -1,0 +1,13 @@
+libvirt_domain.web: Importing from ID "6f1c2a3b-4d5e-4f60-8a71-9b2c3d4e5f60"...
+libvirt_domain.web: Import prepared!
+  Prepared libvirt_domain for import
+libvirt_domain.web: Refreshing state... [id=6f1c2a3b-4d5e-4f60-8a71-9b2c3d4e5f60]
+╷
+│ Error: Cannot import non-existent remote object
+│ 
+│ While attempting to import an existing object to "libvirt_domain.web", the
+│ provider detected that no object exists with the given id. Only pre-existing
+│ objects can be imported; check that the id is correct and that it is
+│ associated with the provider's configured region or endpoint, or use
+│ "terraform apply" to create a new remote object for this resource.
+╵

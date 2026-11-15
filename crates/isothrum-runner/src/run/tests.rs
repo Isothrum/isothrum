@@ -1,3 +1,6 @@
+mod refusals;
+mod vagrant;
+
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::events::{EventKind, Recorder};
@@ -50,6 +53,18 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 /// A Compose project in a temporary folder named `my-Lab`, and a runner with a temporary home on
 /// the modelled engine.
 fn setup() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Engine>>) {
+    let (root, project, runner, engine, _) = setup_seen();
+    (root, project, runner, engine)
+}
+
+/// [`setup`], and the fake processes, to read the calls made.
+fn setup_seen() -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    Runner,
+    Arc<Mutex<Engine>>,
+    Arc<crate::process::fake::FakeProcesses>,
+) {
     let root = tempfile::tempdir().expect("a folder");
     let project = root.path().join("my-Lab");
     std::fs::create_dir(&project).expect("the project");
@@ -57,7 +72,7 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Engine>>
     let (engine, fake) = modelled::<Engine>(answer);
     let config = runner_config(&root.path().join("home"), processes(&fake), no_ports(), crate::runner::this_host());
     let runner = Runner::new(config).expect("a runner");
-    (root, project, runner, engine)
+    (root, project, runner, engine, fake)
 }
 
 #[tokio::test]

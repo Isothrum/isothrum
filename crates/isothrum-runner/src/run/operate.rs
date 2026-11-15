@@ -130,6 +130,8 @@ impl Running<'_> {
 
     /// Saves the run's record and moves the run to the state `op` holds it in, in one transaction.
     fn begin(&self, op: Op, opts: &RunOptions, emitter: &Emitter<'_>) -> Result<()> {
+        let recorded = self.runner.store.record(&self.name)?.map(|r| r.state);
+        refuse_from(op, recorded, &self.name)?;
         let mut record = self.record_or_fresh()?;
         record.project.clone_from(&self.project.dir);
         record.format = self.project.format;
@@ -236,6 +238,18 @@ impl Running<'_> {
             }
             Ok(Some(moved.map_or(row.state, |t| t.to())))
         })
+    }
+}
+
+/// What the run's recorded state `recorded` (none: never recorded) refuses of `op`, before
+/// anything is saved or run: an `up` of a ready run (`already_running`: use it, or bring it down
+/// first), a `resume` of a run of which nothing is left (`nothing_to_resume`: start it again).
+fn refuse_from(op: Op, recorded: Option<RunState>, name: &crate::RunName) -> Result<()> {
+    let run = || name.to_string();
+    match (op, recorded) {
+        (Op::Up, Some(RunState::Ready)) => Err(Error::AlreadyRunning { run: run() }),
+        (Op::Resume, None | Some(RunState::Absent)) => Err(Error::NothingToResume { run: run() }),
+        _ => Ok(()),
     }
 }
 

@@ -1,9 +1,17 @@
 //! Each driver's claims and how each is shown: the table the capabilities guardrail reads.
 
-use super::Proof::{self, NoTool, Witness};
+use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
-pub(super) const CLAIMS: [(&str, &str, Proof); 52] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 53] = [
+    (
+        "compose",
+        "probe",
+        Contract {
+            clause: "probe_reads_the_version",
+            evidence: r#"["compose", "version", "--short"]"#,
+        },
+    ),
     (
         "compose",
         "up",
@@ -246,9 +254,9 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 52] = [
     (
         "terraform",
         "probe",
-        Witness {
-            test: "the_probe_reads_the_version",
-            evidence: "terraform version -json",
+        Contract {
+            clause: "probe_reads_the_version",
+            evidence: r#"["version", "-json"]"#,
         },
     ),
     (
@@ -329,9 +337,9 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 52] = [
     (
         "terraform",
         "destroy_by_id",
-        Witness {
-            test: "destroy_by_id_imports_an_instance_the_state_lost_first",
-            evidence: "terraform destroy -auto-approve -input=false -json",
+        Contract {
+            clause: "found_ids_are_destroyed_by_id_and_gone_is_done",
+            evidence: r#"strip_prefix("-target=")"#,
         },
     ),
     (
@@ -347,8 +355,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 52] = [
 
 /// The claims whose witness is owed: each a test to write (a scripted process seeing the call),
 /// and the list only shrinks. A claim added to a driver never goes here: it comes with its test.
-pub(super) const OWED: [(&str, &str, &str); 5] = [
-    ("compose", "probe", "`docker compose version` read, an old or missing Compose refused"),
+pub(super) const OWED: [(&str, &str, &str); 4] = [
     (
         "vagrant",
         "reach_graphical",

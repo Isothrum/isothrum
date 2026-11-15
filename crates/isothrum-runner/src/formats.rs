@@ -14,6 +14,8 @@
 
 pub(crate) mod any;
 pub(crate) mod compose;
+#[cfg(test)]
+pub(crate) mod contract;
 pub(crate) mod ledger;
 pub(crate) mod terraform;
 mod vagrant;

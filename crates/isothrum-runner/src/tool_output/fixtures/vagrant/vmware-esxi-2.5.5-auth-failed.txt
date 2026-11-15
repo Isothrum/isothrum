@@ -1,0 +1,3 @@
+==> web: --- ESXi host access : Verify password in Vagrantfile is correct.
+There was an error talking to ESXi.
+  Unable to connect to ESXi host! Error: Authentication failed for user root@esxi.lab.example

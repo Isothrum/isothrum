@@ -84,6 +84,22 @@ fn dot(cx: &ToolCx<'_>) -> Dotfile {
     Dotfile::in_state(cx.state_dir)
 }
 
+/// The runner's error for Vagrant's failed call `e`, made as step `step`: a sign-in the ESXi host
+/// refused as `server_auth_failed`, anything else as any tool's.
+fn vagrant_error(step: &str, e: CliError<Failure>) -> Error {
+    match e {
+        CliError::Failed {
+            failure: Failure::SignInRefused { server },
+            ..
+        } => Error::ServerAuthFailed {
+            step: step.to_owned(),
+            server,
+            reason: "the ESXi host refused the run's credentials (its esxi_username and password)".to_owned(),
+        },
+        other => tool_error(step, other),
+    }
+}
+
 /// The provider asked for, refused when there is none.
 fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
     cx.provider.ok_or_else(|| Error::NoProvider {
@@ -92,9 +108,11 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
 }
 
 /// The run's state as `machines` show it: absent when none was made; parked when none of those
-/// made runs; ready when every one made runs; failed otherwise (one stopped or in a state of its
-/// own among running ones). A machine never made (one the Vagrantfile leaves down at `up`,
-/// `autostart: false`) doesn't count: a start that failed midway fails its own operation.
+/// made runs; ready when each one made runs or is stopped (a machine its own provisioner powers
+/// off, such as a lab's controller, among running ones: it reads stopped); failed otherwise (one
+/// unhealthy, aborted, or in a state of its own). A machine never made (one the Vagrantfile
+/// leaves down at `up`, `autostart: false`) doesn't count: a start that failed midway fails its
+/// own operation.
 pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
     let made: Vec<&SeenMachine> = machines.iter().filter(|m| m.state != MachineState::Absent).collect();
     if made.is_empty() {
@@ -103,7 +121,7 @@ pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
     if !made.iter().any(|m| m.state.runs()) {
         return RunState::Parked;
     }
-    if made.iter().all(|m| m.state == MachineState::Running) {
+    if made.iter().all(|m| matches!(m.state, MachineState::Running | MachineState::Stopped)) {
         RunState::Ready
     } else {
         RunState::Failed
@@ -135,7 +153,7 @@ impl Vagrant {
         let call = call(cx, READ_LIMIT);
         let read = retrying(cx.warn, "status", Rerun::Read, STATUS_PATIENCE, || vagrant::status(&call))
             .await
-            .map_err(|e| tool_error("status", e))?;
+            .map_err(|e| vagrant_error("status", e))?;
         Ok(read.states)
     }
 
@@ -195,9 +213,9 @@ impl Vagrant {
             }) => {
                 tracing::info!(run = %cx.run, "an earlier start's VM holds a name of the run: removing what the run made, then starting again");
                 self.clear(cx).await?;
-                self.up_call(cx, step, provision, machines).await.map_err(|e| tool_error(step, e))
+                self.up_call(cx, step, provision, machines).await.map_err(|e| vagrant_error(step, e))
             }
-            Err(e) => Err(tool_error(step, e)),
+            Err(e) => Err(vagrant_error(step, e)),
         }
     }
 }
@@ -222,9 +240,9 @@ impl FormatDriver for Vagrant {
             )));
         }
         let read = call(cx, READ_LIMIT);
-        vagrant::supported_version(&read).await.map_err(|e| tool_error("tools", e))?;
+        vagrant::supported_version(&read).await.map_err(|e| vagrant_error("tools", e))?;
         if let Some(plugin) = provider.plugin() {
-            let installed = vagrant::plugins(&read).await.map_err(|e| tool_error("tools", e))?;
+            let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error("tools", e))?;
             if !installed.iter().any(|(name, _)| name == plugin) {
                 return Err(refuse(format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`")));
             }
@@ -240,7 +258,7 @@ impl FormatDriver for Vagrant {
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
-        self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await.map_err(|e| tool_error("down", e))?;
+        self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await.map_err(|e| vagrant_error("down", e))?;
         // What `destroy` took is gone from the dotfile; a VM it left keeps its resource row, which
         // the core removes by id (`destroy_by_id`), with its record written back if need be.
         dot(cx).reset()
@@ -257,7 +275,7 @@ impl FormatDriver for Vagrant {
             | Err(CliError::Failed {
                 failure: Failure::AlreadyOff, ..
             }) => Ok(()),
-            Err(e) => Err(tool_error("park", e)),
+            Err(e) => Err(vagrant_error("park", e)),
         }
     }
 
@@ -269,7 +287,7 @@ impl FormatDriver for Vagrant {
 
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
         asked(cx)?;
-        self.up_call(cx, "update", Provision::Yes, &[]).await.map_err(|e| tool_error("update", e))
+        self.up_call(cx, "update", Provision::Yes, &[]).await.map_err(|e| vagrant_error("update", e))
     }
 
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
@@ -281,7 +299,7 @@ impl FormatDriver for Vagrant {
             asked(cx)?;
             self.up_call(cx, "reapply", Provision::Default, &change.added)
                 .await
-                .map_err(|e| tool_error("reapply", e))?;
+                .map_err(|e| vagrant_error("reapply", e))?;
         }
         if !change.removed.is_empty() {
             // Vagrant acts only on machines the Vagrantfile defines: one it no longer does is
@@ -289,7 +307,7 @@ impl FormatDriver for Vagrant {
             let defined = self.machines(cx).await?;
             let (known, gone): (Vec<String>, Vec<String>) = change.removed.iter().cloned().partition(|m| defined.contains(m));
             if !known.is_empty() {
-                self.act(cx, Verb::Destroy, &known, CALL_LIMIT).await.map_err(|e| tool_error("reapply", e))?;
+                self.act(cx, Verb::Destroy, &known, CALL_LIMIT).await.map_err(|e| vagrant_error("reapply", e))?;
             }
             for r in dot(cx).recorded()?.into_iter().filter(|r| gone.contains(&r.machine)) {
                 self.remove_at_hypervisor(cx, &r).await?;
@@ -298,7 +316,7 @@ impl FormatDriver for Vagrant {
         if !change.changed.is_empty() {
             self.act(cx, Verb::Provision, &change.changed, UP_LIMIT)
                 .await
-                .map_err(|e| tool_error("reapply", e))?;
+                .map_err(|e| vagrant_error("reapply", e))?;
         }
         Ok(())
     }
@@ -310,7 +328,7 @@ impl FormatDriver for Vagrant {
             return self
                 .up_call(cx, "provision", Provision::Yes, &machines)
                 .await
-                .map_err(|e| tool_error("provision", e));
+                .map_err(|e| vagrant_error("provision", e));
         };
         // One provisioner on machines that run: nothing else of their set-up runs again.
         let name = vagrant::ProvisionerName::new(name).ok_or_else(|| Error::Input {
@@ -322,27 +340,27 @@ impl FormatDriver for Vagrant {
             vagrant::provision_with(&call, &name, &machines)
         })
         .await
-        .map_err(|e| tool_error("provision", e))
+        .map_err(|e| vagrant_error("provision", e))
     }
 
     async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         asked(cx)?;
         self.up_call(cx, "attach", Provision::Default, &one(machine))
             .await
-            .map_err(|e| tool_error("attach", e))
+            .map_err(|e| vagrant_error("attach", e))
     }
 
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         self.act(cx, Verb::Destroy, &one(machine), CALL_LIMIT)
             .await
-            .map_err(|e| tool_error("retire", e))
+            .map_err(|e| vagrant_error("retire", e))
     }
 
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
         let script = argv.iter().map(|w| crate::console::sh_word(w)).collect::<Vec<_>>().join(" ");
         let out = vagrant::ssh_run(&call(cx, EXEC_LIMIT), machine, &script)
             .await
-            .map_err(|e| tool_error("exec", e))?;
+            .map_err(|e| vagrant_error("exec", e))?;
         Ok(Ran {
             exit: out.exit.code.unwrap_or(-1),
             stdout: out.stdout.join("\n"),
@@ -376,7 +394,7 @@ impl FormatDriver for Vagrant {
                         failure: Failure::PortsUnsupported,
                         ..
                     }) => {}
-                    Err(e) => return Err(tool_error("status", e)),
+                    Err(e) => return Err(vagrant_error("status", e)),
                 }
             }
             // The provider it was made on, as the dotfile records it (the one asked for, unless a
@@ -457,7 +475,7 @@ impl FormatDriver for Vagrant {
                 failure: Failure::UnknownMachine,
                 ..
             }) => self.remove_at_hypervisor(cx, &record).await,
-            Err(e) => Err(tool_error("remove", e)),
+            Err(e) => Err(vagrant_error("remove", e)),
         }
     }
 

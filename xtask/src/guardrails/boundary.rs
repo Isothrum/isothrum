@@ -1,10 +1,10 @@
 //! The product boundary: Isothrum runs the files a generator wrote, it doesn't link the
 //! generator. No package of this workspace's graph depends on an Isoloom crate (`isoloom-*`),
-//! whether a crate of the workspace names it or a dependency pulls it in.
+//! whether a crate of the workspace names it or a dependency pulls it in. The graph is read from
+//! `Cargo.lock`, which holds every package of the workspace's resolution: no tool runs, and no
+//! crate needs to be downloaded first.
 
 use serde_json::Value;
-
-use crate::repo;
 
 /// The prefix of every Isoloom crate.
 const ISOLOOM: &str = "isoloom-";
@@ -15,6 +15,51 @@ struct Edge {
     from: String,
     to: String,
     kind: Option<String>,
+}
+
+/// The resolved graph `Cargo.lock`'s text `lock` holds, in `cargo metadata`'s shape (`packages`,
+/// `workspace_members`, `resolve.nodes`): a package with no `source` is one of the workspace's
+/// own, and a dependency (`name`, `name version` or `name version (source)`) is the package of
+/// that name and version.
+fn lock_graph(lock: &str) -> Result<Value, String> {
+    let doc: toml::Table = lock.parse().map_err(|e| format!("Cargo.lock isn't TOML: {e}"))?;
+    let packages = doc.get("package").and_then(toml::Value::as_array).ok_or("Cargo.lock lists no package")?;
+    let text = |p: &toml::Value, key: &str| p.get(key).and_then(toml::Value::as_str).map(str::to_owned);
+    let listed: Vec<(String, String)> = packages
+        .iter()
+        .map(|p| (text(p, "name").unwrap_or_default(), text(p, "version").unwrap_or_default()))
+        .collect();
+    let id = |name: &str, version: &str| format!("{name} {version}");
+    let resolved = |dep: &str| {
+        let mut words = dep.split_whitespace();
+        let name = words.next().unwrap_or_default();
+        let version = words.next();
+        listed
+            .iter()
+            .find(|(n, v)| n == name && version.is_none_or(|want| want == v))
+            .map_or_else(|| name.to_owned(), |(n, v)| id(n, v))
+    };
+    let mut nodes = Vec::new();
+    let mut members = Vec::new();
+    for (p, (name, version)) in packages.iter().zip(&listed) {
+        if p.get("source").is_none() {
+            members.push(Value::String(id(name, version)));
+        }
+        let deps: Vec<Value> = p
+            .get("dependencies")
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(toml::Value::as_str)
+            .map(|d| serde_json::json!({ "pkg": resolved(d), "dep_kinds": [{ "kind": null }] }))
+            .collect();
+        nodes.push(serde_json::json!({ "id": id(name, version), "deps": deps }));
+    }
+    Ok(serde_json::json!({
+        "packages": listed.iter().map(|(n, v)| serde_json::json!({ "id": id(n, v), "name": n })).collect::<Vec<_>>(),
+        "workspace_members": members,
+        "resolve": { "nodes": nodes },
+    }))
 }
 
 /// Every edge of `cargo metadata`'s resolved graph, by package name.
@@ -86,6 +131,7 @@ fn violations(metadata: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repo;
 
     /// A dependency of a test's package: its name and kind.
     type Dep = (&'static str, Option<&'static str>);
@@ -152,8 +198,62 @@ mod tests {
     }
 
     #[test]
+    fn a_lock_files_packages_and_their_dependencies_are_the_graph() {
+        let lock = r#"
+version = 4
+
+[[package]]
+name = "isothrum-runner"
+version = "3.0.0"
+dependencies = ["helper 1.0.0", "serde"]
+
+[[package]]
+name = "helper"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = ["isoloom-spec 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)"]
+
+[[package]]
+name = "helper"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "serde"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "isoloom-spec"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+"#;
+        let graph = lock_graph(lock).expect("a lock file");
+        assert_eq!(members(&graph), ["isothrum-runner"], "the package with no source");
+        let runner_deps: Vec<&str> = graph["resolve"]["nodes"][0]["deps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|d| d["pkg"].as_str())
+            .collect();
+        assert_eq!(
+            runner_deps,
+            ["helper 1.0.0", "serde 1.0.0"],
+            "each dependency is the package of its name and version"
+        );
+        assert_eq!(
+            violations(&graph),
+            ["helper (a dependency of the workspace) pulls in isoloom-spec: Isothrum links no Isoloom crate"],
+            "the edge through helper 1.0.0, by name and version"
+        );
+        assert!(lock_graph("not toml [").is_err_and(|e| e.starts_with("Cargo.lock isn't TOML")));
+    }
+
+    #[test]
     fn no_isothrum_crate_depends_on_an_isoloom_crate() {
-        let metadata = repo::metadata_resolved(&repo::root()).expect("cargo metadata runs and prints JSON");
+        let lock = std::fs::read_to_string(repo::path_in(&repo::root(), "Cargo.lock")).expect("the workspace's Cargo.lock");
+        let metadata = lock_graph(&lock).expect("Cargo.lock reads");
+        assert!(!members(&metadata).is_empty(), "the workspace's own crates are read");
         let found = violations(&metadata);
         assert!(found.is_empty(), "{}", found.join("\n"));
     }
