@@ -437,3 +437,21 @@ async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
         .expect_err("no state");
     assert_eq!(none.code(), ErrorCode::AdoptRefused);
 }
+
+#[tokio::test]
+async fn an_up_of_a_module_whose_required_secret_has_no_value_is_refused_before_terraform_runs() {
+    let lab = lab();
+    std::fs::write(
+        lab.module.path().join("main.tf"),
+        "variable \"password\" {\n  sensitive = true\n}\nvariable \"token\" {}\n",
+    )
+    .expect("a module");
+    let lab = Lab {
+        project: Project::open(lab.module.path(), Some(Format::Terraform)).expect("a project"),
+        ..lab
+    };
+    let nothing_runs = FakeProcesses::script().build();
+    let e = with_cx(&lab, &nothing_runs, async |cx| Terraform.up(cx).await).await.expect_err("no password");
+    assert!(matches!(&e, Error::SecretMissing { name } if name == "password"), "{e:?}");
+    assert_eq!(e.code(), ErrorCode::SecretMissing);
+}
