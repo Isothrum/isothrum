@@ -89,11 +89,22 @@ async fn an_up_over_an_earlier_starts_leftovers_clears_them_by_label_and_starts_
 async fn a_taken_host_port_is_port_in_use() {
     let (_dir, project) = folder();
     let run = run();
-    let fake = FakeProcesses::script()
-        .expect(UP, Reply::fail(1, "Bind for 127.0.0.1:8080 failed: port is already allocated"))
-        .build();
-    let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
-    assert_eq!(e.code(), crate::ErrorCode::PortInUse);
+    for said in [
+        include_str!("../../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"),
+        include_str!("../../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"),
+    ] {
+        let fake = FakeProcesses::script().expect(UP, Reply::fail(1, said)).build();
+        let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
+        assert_eq!(e.code(), crate::ErrorCode::PortInUse);
+        assert_eq!(
+            e.detail().map(|d| d.data),
+            Some(crate::Detail::PortInUse {
+                port: 8180,
+                protocol: "tcp".to_owned()
+            }),
+            "the port Docker names, never 0: {said}"
+        );
+    }
 }
 
 #[tokio::test]

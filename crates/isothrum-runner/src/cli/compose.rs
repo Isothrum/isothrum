@@ -22,10 +22,43 @@ pub(crate) enum Failure {
     /// A network of the project's name already there, or with other labels (`network with name
     /// … already exists`, `has incorrect label`).
     NetworkExists,
-    /// A host port it publishes is taken (`port is already allocated`, `address already in use`).
-    PortTaken,
+    /// A host port it publishes is taken (`port is already allocated`, `address already in use`):
+    /// the port and its protocol, when Docker names them.
+    PortTaken(Option<(u16, crate::project::platform::Protocol)>),
     /// Any other failure: its reason.
     Other(String),
+}
+
+/// The host port (and its protocol) Docker says is taken, in each of its wordings:
+/// `Bind for ADDRESS:PORT failed`, `failed to bind host port ADDRESS:PORT/PROTOCOL`, and
+/// `listen PROTOCOL ADDRESS:PORT: bind` (Docker Desktop's). The port is what follows the
+/// address's last `:` (`0.0.0.0:8180`, `[::]:8180`); a protocol Docker doesn't say is TCP's.
+fn taken_port(out: &Captured) -> Option<(u16, crate::project::platform::Protocol)> {
+    use crate::project::platform::Protocol;
+    let protocol_of = |word: &str| {
+        if word.to_ascii_lowercase().starts_with("udp") {
+            Protocol::Udp
+        } else {
+            Protocol::Tcp
+        }
+    };
+    let port_of = |address: &str| address.rsplit_once(':').and_then(|(_, port)| port.parse::<u16>().ok());
+    out.stdout.iter().chain(&out.stderr_tail).find_map(|line| {
+        if let Some((_, rest)) = line.split_once("Bind for ") {
+            let address = rest.split_whitespace().next()?;
+            return Some((port_of(address)?, Protocol::Tcp));
+        }
+        if let Some((_, rest)) = line.split_once("failed to bind host port ") {
+            let bound = rest.split_whitespace().next()?.trim_end_matches(':');
+            let (address, protocol) = bound.rsplit_once('/').map_or((bound, "tcp"), |(a, p)| (a, p));
+            return Some((port_of(address)?, protocol_of(protocol)));
+        }
+        let (_, rest) = line.split_once("listen ")?;
+        let mut words = rest.split_whitespace();
+        let protocol = words.next()?;
+        let address = words.next()?.trim_end_matches(':');
+        Some((port_of(address)?, protocol_of(protocol)))
+    })
 }
 
 impl Failure {
@@ -36,7 +69,7 @@ impl Failure {
         } else if said_any(out, &["has incorrect label", "network with name"]) {
             Failure::NetworkExists
         } else if said_any(out, &["port is already allocated", "address already in use"]) {
-            Failure::PortTaken
+            Failure::PortTaken(taken_port(out))
         } else {
             Failure::Other(out.reason())
         }
@@ -48,7 +81,7 @@ impl fmt::Display for Failure {
         match self {
             Failure::NameInUse => f.write_str("a container name is already in use"),
             Failure::NetworkExists => f.write_str("a network of the project's name is already there"),
-            Failure::PortTaken => f.write_str("a host port it publishes is taken"),
+            Failure::PortTaken(_) => f.write_str("a host port it publishes is taken"),
             Failure::Other(reason) => f.write_str(reason),
         }
     }
@@ -237,14 +270,25 @@ mod tests {
 
     #[test]
     fn failures_read_as_compose_prints_them() {
+        use crate::project::platform::Protocol::Tcp;
         assert_eq!(failed(include_str!("../tool_output/fixtures/compose/2.29-name-in-use.txt")), Failure::NameInUse);
         assert_eq!(
             failed(include_str!("../tool_output/fixtures/compose/2.29-network-incorrect-label.txt")),
             Failure::NetworkExists
         );
+        for (said, port) in [
+            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated.txt"), 8080),
+            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"), 8180),
+            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated-loopback.txt"), 8180),
+            (include_str!("../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt"), 18180),
+            (include_str!("../tool_output/fixtures/compose/29.9-bind-loopback-port-in-use.txt"), 18181),
+            (include_str!("../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"), 8180),
+        ] {
+            assert_eq!(failed(said), Failure::PortTaken(Some((port, Tcp))), "{said}");
+        }
         assert_eq!(
-            failed(include_str!("../tool_output/fixtures/compose/2.29-port-allocated.txt")),
-            Failure::PortTaken
+            failed("Error: listen udp 0.0.0.0:5353: bind: address already in use"),
+            Failure::PortTaken(Some((5353, crate::project::platform::Protocol::Udp)))
         );
         assert!(matches!(failed("no such service: nope"), Failure::Other(r) if r.contains("no such service")));
     }

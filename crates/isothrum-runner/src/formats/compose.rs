@@ -119,17 +119,20 @@ impl Compose {
     }
 }
 
-/// An `up`'s failure as the runner says it: a taken host port is `port_in_use` (its number isn't
-/// in Compose's words the adapter reads, so 0: the message says which), anything else as any
-/// tool's.
+/// An `up`'s failure as the runner says it: a taken host port is `port_in_use`, with the port and
+/// protocol Docker names (0 and TCP when it names none), anything else as any tool's.
 fn up_error(step: &str, e: CliError<Failure>) -> Error {
     match e {
         CliError::Failed {
-            failure: Failure::PortTaken, ..
-        } => Error::PortInUse {
-            port: crate::port::HostPort::new(0),
-            protocol: "tcp".to_owned(),
-        },
+            failure: Failure::PortTaken(taken),
+            ..
+        } => {
+            let (port, protocol) = taken.unwrap_or((0, crate::project::platform::Protocol::Tcp));
+            Error::PortInUse {
+                port: crate::port::HostPort::new(port),
+                protocol: crate::encoding::wire_name(&protocol),
+            }
+        }
         other => tool_error(step, other),
     }
 }
