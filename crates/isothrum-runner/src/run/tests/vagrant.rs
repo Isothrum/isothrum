@@ -7,7 +7,7 @@ use super::*;
 use crate::process::fake::FakeProcesses;
 
 /// `vagrant --version`, as Vagrant 2.4.1 prints it.
-const VERSION: &str = "Vagrant 2.4.1";
+pub(super) const VERSION: &str = "Vagrant 2.4.1";
 
 /// What VirtualBox holds of the lab: each machine's state label, by name.
 #[derive(Debug, Default)]
@@ -68,7 +68,7 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
 }
 
 /// A Vagrant project in a temporary folder, and a runner with a temporary home on `fake`.
-fn a_vagrant_lab_on(fake: &Arc<FakeProcesses>) -> (tempfile::TempDir, std::path::PathBuf, Runner) {
+pub(super) fn a_vagrant_lab_on(fake: &Arc<FakeProcesses>) -> (tempfile::TempDir, std::path::PathBuf, Runner) {
     let root = tempfile::tempdir().expect("a folder");
     let project = root.path().join("lab");
     std::fs::create_dir(&project).expect("the project");
@@ -76,6 +76,14 @@ fn a_vagrant_lab_on(fake: &Arc<FakeProcesses>) -> (tempfile::TempDir, std::path:
     let config = runner_config(&root.path().join("home"), processes(fake), no_ports(), crate::runner::this_host());
     let runner = Runner::new(config).expect("a runner");
     (root, project, runner)
+}
+
+/// `run` brought up with `opts`, and its status, read ready.
+pub(super) async fn up_and_ready(run: &crate::Running<'_>, opts: &RunOptions) -> crate::Status {
+    run.up(opts, &Recorder::new()).await.expect("up");
+    let status = run.status_with(opts).await.expect("status");
+    assert_eq!(status.state, RunState::Ready, "{:?}", status.machines);
+    status
 }
 
 /// [`a_vagrant_lab_on`] `fake`, which the test doesn't read.
@@ -93,9 +101,7 @@ async fn a_controller_that_powered_itself_off_leaves_the_run_ready_to_update_and
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
 
-    run.up(&opts, &Recorder::new()).await.expect("up");
-    let status = run.status_with(&opts).await.expect("status");
-    assert_eq!(status.state, RunState::Ready, "{:?}", status.machines);
+    let status = up_and_ready(&run, &opts).await;
     let machines: Vec<(&str, &MachineState)> = status.machines.iter().map(|m| (m.name.as_str(), &m.state)).collect();
     assert_eq!(machines, [("controller", &MachineState::Stopped), ("web", &MachineState::Running)]);
 

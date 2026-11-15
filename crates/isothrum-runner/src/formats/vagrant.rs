@@ -29,6 +29,7 @@
 
 mod clear;
 mod dotfile;
+mod forwards;
 mod lock;
 mod names;
 mod providers;
@@ -380,23 +381,6 @@ impl FormatDriver for Vagrant {
         let mut machines = Vec::new();
         for (name, label) in self.status(cx).await? {
             let state = crate::tool_output::vagrant::machine_state(&label);
-            let mut published = Vec::new();
-            if state == MachineState::Running {
-                match retrying(cx.warn, "port", Rerun::Read, STATUS_PATIENCE, || vagrant::port(&read, &name)).await {
-                    // `port` doesn't say a forward's protocol: it is left unknown, never guessed.
-                    Ok(forwards) => published.extend(forwards.into_iter().map(|f| SeenPort {
-                        guest: f.guest,
-                        host: f.host,
-                        protocol: None,
-                    })),
-                    // libvirt can't list forwards, and ESXi forwards nothing: no port is proven.
-                    Err(CliError::Failed {
-                        failure: Failure::PortsUnsupported,
-                        ..
-                    }) => {}
-                    Err(e) => return Err(vagrant_error("status", e)),
-                }
-            }
             // The provider it was made on, as the dotfile records it (the one asked for, unless a
             // record was left on another).
             let asked = cx.provider.map(Provider::id);
@@ -406,6 +390,28 @@ impl FormatDriver for Vagrant {
                 .find(|r| Some(r.provider.as_str()) == asked)
                 .or_else(|| mine.clone().next())
                 .map(|r| r.provider.clone());
+            let mut published = Vec::new();
+            if state == MachineState::Running {
+                match retrying(cx.warn, "port", Rerun::Read, STATUS_PATIENCE, || vagrant::port(&read, &name)).await {
+                    // `port` doesn't say a forward's protocol: it is left unknown, never guessed.
+                    Ok(forwards) => published.extend(forwards.into_iter().map(|f| SeenPort {
+                        guest: f.guest,
+                        host: f.host,
+                        protocol: None,
+                    })),
+                    // vagrant-qemu can't list them: its QEMU says them. libvirt can't either, and
+                    // ESXi forwards nothing: no port is proven.
+                    Err(CliError::Failed {
+                        failure: Failure::PortsUnsupported,
+                        ..
+                    }) => {
+                        if kind.as_deref() == Some(Provider::Qemu.id()) {
+                            published.extend(forwards::of_qemu(cx, &name).await);
+                        }
+                    }
+                    Err(e) => return Err(vagrant_error("status", e)),
+                }
+            }
             let address = if state == MachineState::Running && kind.as_deref().is_some_and(own_address) {
                 self.address(cx, &name).await
             } else {

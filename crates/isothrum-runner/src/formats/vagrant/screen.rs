@@ -177,7 +177,7 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
 /// The monitor socket of `machine`'s QEMU: the one vagrant-qemu recorded in its run folder
 /// (`<dotfile>/machines/<machine>/qemu/<id>/run/options.yml`, `:monitor_socket:`), else its
 /// default under Vagrant's own folder (`$VAGRANT_HOME/tmp/vagrant-qemu/<id>/qemu_socket`).
-fn monitor_socket(cx: &ToolCx<'_>, machine: &str) -> Result<PathBuf> {
+pub(super) fn monitor_socket(cx: &ToolCx<'_>, machine: &str) -> Result<PathBuf> {
     let (_, id) = recorded(cx, machine)?;
     let options = read_if_there(
         &dot(cx)
