@@ -355,7 +355,14 @@ async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
             let Some((program, args)) = probe_of(provider, cx.host.arch) else {
                 return installed(false);
             };
-            match cx.probe(program, args).await {
+            let mut answer = cx.probe(program, args).await;
+            // Not on PATH: where its app installs it (VMware's `vmrun`, Parallels' `prlctl`).
+            if matches!(answer, Err(ref unanswered) if !unanswered.tool_is_there())
+                && let Some(at) = devices.app_tool(program).into_iter().find(|t| t.is_file())
+            {
+                answer = cx.probe(&at.display().to_string(), args).await;
+            }
+            match answer {
                 Ok(captured) => Found {
                     installed: Some(true),
                     said: exec::all_lines(&captured),
