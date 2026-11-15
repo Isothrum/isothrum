@@ -80,10 +80,15 @@ that didn't run never passes for one that did. The steps, in order:
 | `deny` | `cargo deny --all-features check` |
 | `msrv` | `cargo +1.90 check --workspace --all-targets` |
 | `windows-gnu` | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` |
-| `semver` | the `cargo semver-checks` line CI runs, read from `ci.yml` |
+| `semver` | `cargo semver-checks` against each crate's latest release on crates.io |
+| `hooks` | shellcheck over the git hooks, then their own test (needs gitleaks) |
+| `fuzz` | `cargo xtask fuzz --check` |
+| `windows-binary` | Windows only: the release executable needs no Visual C++ runtime |
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks in its own jobs,
-and the tests on Linux, macOS and Windows too.
+CI calls these steps and nothing else. On a pull request into `dev`,
+[`ci.yml`](.github/workflows/ci.yml) runs the short list (`--fast`) on Linux, macOS and Windows.
+Into `main`, [`gate.yml`](.github/workflows/gate.yml) runs every step, each in its own job. The
+tests that need a real VM run elsewhere, not on GitHub's runners.
 
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
 local `#[expect(lint, reason = "...")]`, never an `#[allow]`. A process starts through the runner's process

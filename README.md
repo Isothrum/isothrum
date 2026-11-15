@@ -1,6 +1,6 @@
 # Isothrum
 
-[![CI](https://github.com/Isothrum/isothrum/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Isothrum/isothrum/actions/workflows/ci.yml)
+[![Gate](https://github.com/Isothrum/isothrum/actions/workflows/gate.yml/badge.svg?branch=main)](https://github.com/Isothrum/isothrum/actions/workflows/gate.yml)
 [![crates.io](https://img.shields.io/crates/v/isothrum-cli.svg)](https://crates.io/crates/isothrum-cli)
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
