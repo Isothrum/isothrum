@@ -743,7 +743,12 @@ mod tests {
         init(&call).await.unwrap();
         state_rm(&call, state, &["a.b".into(), "c.d[\"e\"]".into()]).await.unwrap();
         import(&call, state, "a.b", "id-1").await.unwrap();
-        assert!(fake.lines().iter().all(|l| !l.contains("-var")), "{:?}", fake.lines());
+        let calls = fake.calls();
+        assert!(
+            !calls.is_empty() && calls.iter().all(|c| !c.args.iter().any(|a| a.starts_with("-var"))),
+            "{:?}",
+            fake.lines()
+        );
     }
 
     #[test]

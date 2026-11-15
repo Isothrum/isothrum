@@ -268,12 +268,13 @@ mod tests {
 
     #[test]
     fn the_forward_listens_on_the_loopback_and_checks_the_pinned_keys() {
+        use crate::process::fake::CallView as _;
         let dir = tempfile::tempdir().unwrap();
         let spec = ssh_spec("dc", &to("10.9.0.20"), Path::new("/k/id"), dir.path(), 40000).unwrap();
-        let line = spec.args.join(" ");
-        assert!(line.contains("-L 127.0.0.1:40000:10.9.0.20:3389"), "{line}");
-        assert!(line.contains("StrictHostKeyChecking=yes") && !line.contains("accept-new"), "{line}");
-        assert!(line.contains("-F none") && line.contains("-i /k/id"), "{line}");
+        assert_eq!(spec.flag("-L"), Some("127.0.0.1:40000:10.9.0.20:3389"), "{:?}", spec.args);
+        assert!(spec.has_run(&["-o", "StrictHostKeyChecking=yes"]), "{:?}", spec.args);
+        assert!(!spec.args.iter().any(|a| a.ends_with("=accept-new")), "{:?}", spec.args);
+        assert_eq!((spec.flag("-F"), spec.flag("-i")), (Some("none"), Some("/k/id")), "{:?}", spec.args);
         assert_eq!(spec.args.last().map(String::as_str), Some("admin@203.0.113.7"));
         assert!(ssh_spec("dc", &to("-oProxyCommand=x"), Path::new("/k"), dir.path(), 1).is_err());
     }
