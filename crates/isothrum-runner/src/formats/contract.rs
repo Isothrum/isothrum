@@ -25,6 +25,11 @@ use crate::project::{Format, Project};
 use crate::state::{Park, RunState};
 use crate::status::MachineState;
 
+/// What every model of a tool names: the calls it answers and how, and the format and provider
+/// it stands for.
+pub(crate) use crate::process::fake::{Call as ToolCall, Reply as ToolReply};
+pub(crate) use crate::project::{Format as RunFormat, platform::Provider as RunProvider};
+
 /// What a driver may refuse outright.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Op {

@@ -67,19 +67,29 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
     }
 }
 
-#[tokio::test]
-async fn a_controller_that_powered_itself_off_leaves_the_run_ready_to_update_and_park() {
+/// A Vagrant project in a temporary folder, and a runner with a temporary home on `fake`.
+fn a_vagrant_lab_on(fake: &Arc<FakeProcesses>) -> (tempfile::TempDir, std::path::PathBuf, Runner) {
     let root = tempfile::tempdir().expect("a folder");
     let project = root.path().join("lab");
     std::fs::create_dir(&project).expect("the project");
     std::fs::write(project.join("Vagrantfile"), "Vagrant.configure('2') do |c|\nend\n").expect("a Vagrantfile");
+    let config = runner_config(&root.path().join("home"), processes(fake), no_ports(), crate::runner::this_host());
+    let runner = Runner::new(config).expect("a runner");
+    (root, project, runner)
+}
+
+/// [`a_vagrant_lab_on`] `fake`, which the test doesn't read.
+fn a_vagrant_lab(fake: FakeProcesses) -> (tempfile::TempDir, std::path::PathBuf, Runner) {
+    a_vagrant_lab_on(&Arc::new(fake))
+}
+
+#[tokio::test]
+async fn a_controller_that_powered_itself_off_leaves_the_run_ready_to_update_and_park() {
     let lab = Arc::new(Mutex::new(Lab::default()));
-    let fake = Arc::new(FakeProcesses::model({
+    let (_root, project, runner) = a_vagrant_lab(FakeProcesses::model({
         let lab = Arc::clone(&lab);
         move |call| answer(&lab, call)
     }));
-    let config = runner_config(&root.path().join("home"), processes(&fake), no_ports(), crate::runner::this_host());
-    let runner = Runner::new(config).expect("a runner");
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
 
@@ -113,13 +123,8 @@ fn esxi(call: &Call) -> Reply {
 
 #[tokio::test]
 async fn an_esxi_status_gets_the_secrets_given_and_a_refused_sign_in_is_server_auth_failed() {
-    let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
-    std::fs::create_dir(&project).expect("the project");
-    std::fs::write(project.join("Vagrantfile"), "Vagrant.configure('2') do |c|\nend\n").expect("a Vagrantfile");
     let fake = Arc::new(FakeProcesses::model(esxi));
-    let config = runner_config(&root.path().join("home"), processes(&fake), no_ports(), crate::runner::this_host());
-    let runner = Runner::new(config).expect("a runner");
+    let (_root, project, runner) = a_vagrant_lab_on(&fake);
     let run = runner.open(&project, None).expect("opened");
     let mut secrets = crate::Secrets::new();
     secrets.insert("ESXI_PASSWORD", crate::SecretValue::new("right"));

@@ -2,10 +2,7 @@
 
 use std::sync::Mutex;
 
-use crate::formats::contract::{self, Model, Op};
-use crate::process::fake::{Call, Reply};
-use crate::project::Format;
-use crate::project::platform::Provider;
+use crate::formats::contract::{self, Model, Op, RunFormat as Format, RunProvider as Provider, ToolCall as Call, ToolReply as Reply};
 
 const VERSION: &str = include_str!("../../../tool_output/fixtures/compose/2.29-version-short.txt");
 const TOO_OLD: &str = include_str!("../../../tool_output/fixtures/compose/2.16-version-short.txt");

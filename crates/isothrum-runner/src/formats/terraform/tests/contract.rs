@@ -2,10 +2,7 @@
 
 use std::sync::Mutex;
 
-use crate::formats::contract::{self, Model, Op, flag_path};
-use crate::process::fake::{Call, Reply};
-use crate::project::Format;
-use crate::project::platform::Provider;
+use crate::formats::contract::{self, Model, Op, RunFormat as Format, RunProvider as Provider, ToolCall as Call, ToolReply as Reply, flag_path};
 
 const VERSION: &str = include_str!("../../../tool_output/fixtures/terraform/1.9-version.json");
 const TOO_OLD: &str = include_str!("../../../tool_output/fixtures/terraform/0.13-version.json");

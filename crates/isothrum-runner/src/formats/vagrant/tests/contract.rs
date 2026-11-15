@@ -4,10 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::{Dotfile, Record, VAGRANTFILE};
-use crate::formats::contract::{self, Model, Op};
-use crate::process::fake::{Call, Reply};
-use crate::project::Format;
-use crate::project::platform::Provider;
+use crate::formats::contract::{self, Model, Op, RunFormat as Format, RunProvider as Provider, ToolCall as Call, ToolReply as Reply};
 
 const VERSION: &str = include_str!("../../../tool_output/fixtures/vagrant/2.4.1-version.txt");
 const TOO_OLD: &str = include_str!("../../../tool_output/fixtures/vagrant/2.3.7-version.txt");
