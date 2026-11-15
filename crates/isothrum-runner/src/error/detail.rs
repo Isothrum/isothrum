@@ -171,7 +171,10 @@ impl Error {
                         after_s: *after_s,
                         last_line: None,
                     },
-                    other => other.clone(),
+                    TimedOut::Ceiling { after_s, .. } => TimedOut::Ceiling {
+                        after_s: *after_s,
+                        last_line: None,
+                    },
                 },
             },
             Error::DownloadStalled { after_s, .. } => Detail::DownloadStalled { after_s: *after_s },

@@ -138,6 +138,7 @@ async fn keygen(processes: &dyn ProcessRunner, spec: &ProcessSpec) -> Result<Cap
             step: KEY_STEP.into(),
             timed_out: TimedOut::Ceiling {
                 after_s: KEYGEN_LIMIT.as_secs(),
+                last_line: None,
             },
         }),
         Ok(Err(ProcessError::Missing { .. })) => Err(Error::ToolMissing {
@@ -274,6 +275,7 @@ pub(crate) async fn pin(processes: &dyn ProcessRunner, state_dir: &Path, host: &
                 step: PIN_STEP.into(),
                 timed_out: TimedOut::Ceiling {
                     after_s: KEYSCAN_LIMIT.as_secs(),
+                    last_line: None,
                 },
             });
         }

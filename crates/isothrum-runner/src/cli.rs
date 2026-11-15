@@ -69,6 +69,8 @@ pub(crate) enum CliError<F: Display> {
         tool: &'static str,
         /// The call's limit, in seconds.
         limit_s: u64,
+        /// The last line it printed, kept ([`crate::error::kept_line`]); none when it printed none.
+        last_line: Option<String>,
     },
     /// It printed what the adapter can't read: never read as empty or absent.
     #[error("`{tool}` printed what can't be read: {what}")]
@@ -113,11 +115,19 @@ impl Call<'_> {
 
     /// Runs `spec` (of `tool`) to its end within the call's limit, each line to the sink.
     async fn run_spec<F: Display>(&self, tool: &'static str, spec: ProcessSpec) -> Result<Captured, CliError<F>> {
-        let mut echo = |stream: Stream, line: &str| (self.sink)(stream, line);
-        match tokio::time::timeout(self.limit, capture_echoing(self.runner, &spec, &mut echo)).await {
+        let mut last: Option<String> = None;
+        let mut echo = |stream: Stream, line: &str| {
+            if !line.trim().is_empty() {
+                last = Some(crate::error::kept_line(line.trim_end()));
+            }
+            (self.sink)(stream, line);
+        };
+        let ran = tokio::time::timeout(self.limit, capture_echoing(self.runner, &spec, &mut echo)).await;
+        match ran {
             Err(_) => Err(CliError::TimedOut {
                 tool,
                 limit_s: self.limit.as_secs(),
+                last_line: last,
             }),
             Ok(Err(ProcessError::Missing { .. })) => Err(CliError::Missing { tool }),
             Ok(Err(e)) => Err(CliError::Spawn { tool, why: e.to_string() }),

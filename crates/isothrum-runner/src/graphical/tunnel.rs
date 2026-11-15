@@ -272,7 +272,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spec = ssh_spec("dc", &to("10.9.0.20"), Path::new("/k/id"), dir.path(), 40000).unwrap();
         assert_eq!(spec.flag("-L"), Some("127.0.0.1:40000:10.9.0.20:3389"), "{:?}", spec.args);
-        assert!(spec.has_run(&["-o", "StrictHostKeyChecking=yes"]), "{:?}", spec.args);
+        for never_waits in ["StrictHostKeyChecking=yes", "BatchMode=yes", "ConnectTimeout=10"] {
+            assert!(spec.has_run(&["-o", never_waits]), "{never_waits}: {:?}", spec.args);
+        }
         assert!(!spec.args.iter().any(|a| a.ends_with("=accept-new")), "{:?}", spec.args);
         assert_eq!((spec.flag("-F"), spec.flag("-i")), (Some("none"), Some("/k/id")), "{:?}", spec.args);
         assert_eq!(spec.args.last().map(String::as_str), Some("admin@203.0.113.7"));

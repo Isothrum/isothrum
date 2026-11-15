@@ -265,8 +265,15 @@ pub(crate) async fn supported_version(call: &Call<'_>) -> Result<crate::project:
 
 /// `ssh <machine> -c <script>` arguments, with no terminal.
 fn ssh_args(machine: &str, script: &str) -> Vec<String> {
-    argv(["ssh", machine, "-c", script])
+    let mut args = argv(["ssh", machine, "-c", script, "--"]);
+    args.extend(NON_INTERACTIVE.iter().flat_map(|o| ["-o".to_owned(), (*o).to_owned()]));
+    args
 }
+
+/// The options `ssh -c` hands Vagrant's `ssh` (after `--`): it never prompts (a key refused
+/// fails, never waits on a password on a terminal), and a guest that doesn't answer is given up
+/// on in 20 s.
+const NON_INTERACTIVE: [&str; 2] = ["BatchMode=yes", "ConnectTimeout=20"];
 
 /// The console into `machine` over `vagrant ssh` (its login shell, or `script` when given), with a
 /// terminal, for the embedder to run.

@@ -22,11 +22,25 @@ pub enum TimedOut {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_line: Option<String>,
     },
-    /// It was still making progress at the ceiling.
+    /// It was still running at the ceiling: a step still making progress, or a tool call at its
+    /// deadline (a command in a machine that never returned).
     Ceiling {
         /// The ceiling, in seconds from the step's start.
         after_s: u64,
+        /// The last line it printed (secrets masked, cut to 300 bytes); none when it printed
+        /// nothing, or when it isn't said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_line: Option<String>,
     },
+}
+
+/// What a timeout keeps of a tool's last line: its first 300 bytes (on a character's boundary).
+pub(crate) fn kept_line(line: &str) -> String {
+    let mut end = line.len().min(300);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line.get(..end).unwrap_or_default().to_owned()
 }
 
 impl TimedOut {
@@ -34,7 +48,7 @@ impl TimedOut {
     #[must_use]
     pub fn after_s(&self) -> u64 {
         match self {
-            TimedOut::NoProgress { after_s, .. } | TimedOut::Ceiling { after_s } => *after_s,
+            TimedOut::NoProgress { after_s, .. } | TimedOut::Ceiling { after_s, .. } => *after_s,
         }
     }
 
@@ -45,7 +59,10 @@ impl TimedOut {
                 after_s,
                 last_line: last_line.map(|l| mask(&l)),
             },
-            ceiling @ TimedOut::Ceiling { .. } => ceiling,
+            TimedOut::Ceiling { after_s, last_line } => TimedOut::Ceiling {
+                after_s,
+                last_line: last_line.map(|l| mask(&l)),
+            },
         }
     }
 }
@@ -60,9 +77,16 @@ impl std::fmt::Display for TimedOut {
                 write!(f, "showed no progress for {after_s}s and was stopped; its last line: `{line}`")
             }
             TimedOut::NoProgress { after_s, last_line: None } => write!(f, "printed nothing for {after_s}s and was stopped"),
-            TimedOut::Ceiling { after_s } => {
+            TimedOut::Ceiling { after_s, last_line: None } => {
                 write!(f, "was stopped after {after_s}s, the most a step may run, though it kept making progress")
             }
+            TimedOut::Ceiling {
+                after_s,
+                last_line: Some(line),
+            } => write!(
+                f,
+                "was still running after {after_s}s, the most it may run, and was stopped; its last line: `{line}`"
+            ),
         }
     }
 }

@@ -39,6 +39,11 @@ use crate::state::{Park, RunState};
 use crate::status::MachineState;
 use crate::store::{Lifetime, ResourceKind};
 
+/// How long a command run in a machine may take (an `exec`, a lab's checks, one provisioner run
+/// alone): a check is short, so one that hangs (a guest that never answers its SSH) fails as a
+/// timeout, with its last line, well before the operation's caller gives up on it.
+pub(crate) const CHECK_LIMIT: Duration = Duration::from_secs(300);
+
 /// What a format driver gets for one operation.
 pub(crate) struct ToolCx<'a> {
     /// The project the run runs.
@@ -107,9 +112,9 @@ pub(crate) fn tool_error<F: std::fmt::Display>(step: &str, e: CliError<F>) -> Er
             found,
             required: min,
         },
-        CliError::TimedOut { limit_s, .. } => Error::Timeout {
+        CliError::TimedOut { limit_s, last_line, .. } => Error::Timeout {
             step,
-            timed_out: TimedOut::Ceiling { after_s: limit_s },
+            timed_out: TimedOut::Ceiling { after_s: limit_s, last_line },
         },
         unread @ (CliError::Unexpected { .. } | CliError::Spawn { .. }) => Error::ToolFailed {
             step,

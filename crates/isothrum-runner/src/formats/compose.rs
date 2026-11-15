@@ -44,9 +44,6 @@ const CALL_LIMIT: Duration = Duration::from_secs(600);
 /// How long a read may take (`ps`, `config`, a version, a label listing).
 const READ_LIMIT: Duration = Duration::from_secs(30);
 
-/// How long a command run in a machine may take.
-const EXEC_LIMIT: Duration = Duration::from_secs(900);
-
 /// The Compose driver.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Compose;
@@ -239,7 +236,7 @@ impl FormatDriver for Compose {
     }
 
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
-        let call = cx.call(EXEC_LIMIT);
+        let call = cx.call(super::CHECK_LIMIT);
         let running = self.containers(cx).await?.iter().any(|c| c.service() == machine && c.machine_state().runs());
         let out = if running {
             let what = Exec {

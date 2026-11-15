@@ -1084,7 +1084,7 @@
           "type": "object"
         },
         {
-          "description": "It was still making progress at the ceiling.",
+          "description": "It was still running at the ceiling: a step still making progress, or a tool call at its\ndeadline (a command in a machine that never returned).",
           "properties": {
             "after_s": {
               "description": "The ceiling, in seconds from the step's start.",
@@ -1095,6 +1095,13 @@
             "kind": {
               "const": "ceiling",
               "type": "string"
+            },
+            "last_line": {
+              "description": "The last line it printed (secrets masked, cut to 300 bytes); none when it printed\nnothing, or when it isn't said.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
