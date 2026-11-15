@@ -1,5 +1,6 @@
 mod contract;
 mod pins;
+mod pulls;
 
 use std::path::Path;
 
@@ -28,19 +29,34 @@ fn cx<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses) -> Too
 /// [`cx`], its state in `state_dir` and its host ports picked by `ports`.
 fn cx_in<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses, state_dir: &'a Path, ports: &'a dyn crate::formats::PickPorts) -> ToolCx<'a> {
     ToolCx {
+        state_dir,
+        ports,
+        ..cx_warned(project, run, fake, &unwarned)
+    }
+}
+
+/// [`cx`], its warnings given to `warn`.
+fn cx_warned<'a>(
+    project: &'a Folder,
+    run: &'a RunName,
+    fake: &'a FakeProcesses,
+    warn: &'a (dyn Fn(crate::events::WarningCode, &str) + Send + Sync),
+) -> ToolCx<'a> {
+    // No state folder, no port to pick, no provider: a Compose project's own.
+    ToolCx {
+        warn,
+        sink: &quiet,
+        made: crate::formats::NOTHING_MADE,
+        processes: fake,
+        ports: &crate::formats::NoPorts,
+        state_dir: Path::new("/nowhere"),
+        ssh_key: std::path::Path::new("/nowhere/id_ed25519"),
+        provider: None,
+        host_env: &crate::host_env::EMPTY,
+        env: vec![("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())],
+        key: "k3y9ab",
         project,
         run,
-        key: "k3y9ab",
-        state_dir,
-        provider: None,
-        env: vec![("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())],
-        host_env: &crate::host_env::EMPTY,
-        processes: fake,
-        ssh_key: std::path::Path::new("/nowhere/id_ed25519"),
-        ports,
-        sink: &quiet,
-        warn: &unwarned,
-        made: crate::formats::NOTHING_MADE,
     }
 }
 
@@ -59,6 +75,8 @@ fn ps_line(service: &str, state: &str, health: &str, exit: i32, ports: Option<(u
 }
 
 const UP: &str = "docker compose -p lab -f * up --detach --wait --remove-orphans";
+/// The pull a start makes first.
+const PULL: &str = "docker compose -p lab -f * pull --ignore-buildable";
 /// The config a project of no published port prints: nothing to pin.
 const CONFIG: &str = "docker compose -p lab -f * config --format json";
 const NO_PORTS: &str = r#"{"services": {"web": {}}}"#;
@@ -70,6 +88,7 @@ async fn up_waits_for_the_services_and_names_the_project_after_the_run() {
     let run = run();
     let fake = FakeProcesses::script()
         .expect_times(UP, 1, Reply::ok(""))
+        .allow(PULL, Reply::ok(""))
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .build();
     Compose.up(&cx(&project, &run, &fake)).await.expect("up");
@@ -88,6 +107,7 @@ async fn an_up_over_an_earlier_starts_leftovers_clears_them_by_label_and_starts_
     );
     let fake = FakeProcesses::script()
         .expect_times(UP, 2, taken)
+        .allow(PULL, Reply::ok(""))
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .expect_times(&format!("docker container ls --quiet --filter {LABEL} --all"), 1, Reply::ok("abc\n"))
         .expect_times("docker container rm --force --volumes abc", 1, Reply::ok(""))
@@ -111,6 +131,7 @@ async fn a_taken_host_port_is_port_in_use() {
     ] {
         let fake = FakeProcesses::script()
             .expect(UP, Reply::fail(1, said))
+            .allow(PULL, Reply::ok(""))
             .expect(CONFIG, Reply::ok(NO_PORTS))
             .build();
         let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
@@ -133,6 +154,7 @@ async fn a_refused_pull_is_download_failed() {
     let refused = include_str!("../../tool_output/fixtures/compose/5.6-pull-access-denied.txt");
     let fake = FakeProcesses::script()
         .expect(UP, Reply::fail(1, refused))
+        .allow(PULL, Reply::ok(""))
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .build();
     let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("refused");
@@ -312,6 +334,7 @@ async fn machines_are_the_services_the_files_declare_and_reapply_is_one_up() {
     let fake = FakeProcesses::script()
         .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
         .expect(UP, Reply::ok(""))
+        .allow(PULL, Reply::ok(""))
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .build();
     let cx = cx(&project, &run, &fake);

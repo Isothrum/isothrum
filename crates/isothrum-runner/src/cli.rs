@@ -75,6 +75,17 @@ pub(crate) enum CliError<F: Display> {
         /// The last line it printed, kept ([`crate::error::kept_line`]); none when it printed none.
         last_line: Option<String>,
     },
+    /// It printed nothing for the call's stall limit ([`Call::ok_watched`]: a download that
+    /// stopped moving), and was ended.
+    #[error("`{tool}` printed nothing for {after_s}s and was stopped")]
+    Stalled {
+        /// The tool.
+        tool: &'static str,
+        /// The stall limit, in seconds.
+        after_s: u64,
+        /// The last line it printed, kept; none when it printed none.
+        last_line: Option<String>,
+    },
     /// It printed what the adapter can't read: never read as empty or absent.
     #[error("`{tool}` printed what can't be read: {what}")]
     Unexpected {
@@ -135,23 +146,70 @@ impl Call<'_> {
 
     /// Runs `spec` once, as [`Call::run_spec`] does.
     async fn run_once<F: Display>(&self, tool: &'static str, spec: &ProcessSpec) -> Result<Captured, CliError<F>> {
-        let mut last: Option<String> = None;
+        self.run_watched(tool, spec, None).await
+    }
+
+    /// [`Call::run_once`], ended as stalled once the tool printed nothing for `stall`: its
+    /// progress is its lines.
+    async fn run_watched<F: Display>(&self, tool: &'static str, spec: &ProcessSpec, stall: Option<Duration>) -> Result<Captured, CliError<F>> {
+        let last: std::sync::Mutex<(Option<String>, tokio::time::Instant)> = std::sync::Mutex::new((None, tokio::time::Instant::now()));
+        let kept = || last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).0.clone();
         let mut echo = |stream: Stream, line: &str| {
             if !line.trim().is_empty() {
-                last = Some(crate::error::kept_line(line.trim_end()));
+                *last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (Some(crate::error::kept_line(line.trim_end())), tokio::time::Instant::now());
             }
             (self.sink)(stream, line);
         };
-        let ran = tokio::time::timeout(self.limit, capture_echoing(self.runner, spec, &mut echo)).await;
+        let watch = async {
+            let Some(stall) = stall else { return std::future::pending().await };
+            loop {
+                let due = last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).1 + stall;
+                if tokio::time::Instant::now() >= due {
+                    return stall;
+                }
+                tokio::time::sleep_until(due).await;
+            }
+        };
+        let ran = tokio::select! {
+            ran = tokio::time::timeout(self.limit, capture_echoing(self.runner, spec, &mut echo)) => ran,
+            after = watch => {
+                return Err(CliError::Stalled {
+                    tool,
+                    after_s: after.as_secs(),
+                    last_line: kept(),
+                });
+            }
+        };
         match ran {
             Err(_) => Err(CliError::TimedOut {
                 tool,
                 limit_s: self.limit.as_secs(),
-                last_line: last,
+                last_line: kept(),
             }),
             Ok(Err(ProcessError::Missing { .. })) => Err(CliError::Missing { tool }),
             Ok(Err(e)) => Err(CliError::Spawn { tool, why: e.to_string() }),
             Ok(Ok(out)) => Ok(out),
+        }
+    }
+
+    /// [`Call::ok`], the tool ended as [`CliError::Stalled`] once it printed nothing for `stall`
+    /// (a download whose progress stopped). Not on `PATH`, it isn't looked for elsewhere: the
+    /// tools watched so are on it.
+    pub(crate) async fn ok_watched<F: Display>(
+        &self,
+        tool: &'static str,
+        args: Vec<String>,
+        stall: Duration,
+        failure_of: impl FnOnce(&Captured) -> F,
+    ) -> Result<Captured, CliError<F>> {
+        let out = self.run_watched(tool, &self.spec(tool, args), Some(stall)).await?;
+        if out.success() {
+            Ok(out)
+        } else {
+            Err(CliError::Failed {
+                tool,
+                failure: failure_of(&out),
+            })
         }
     }
 
