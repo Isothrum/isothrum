@@ -36,11 +36,7 @@ const ADAPTERS: [(&str, &str); 3] = [
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 8] = [
-    (
-        "crates/isothrum-runner/src/formats/compose/pins.rs",
-        "a Compose run's pinned host ports, which the runner wrote",
-    ),
+const NOT_TOOL_OUTPUT: [(&str, &str); 7] = [
     (
         "crates/isothrum-runner/src/project/variables.rs",
         "a Terraform module's own `*.tf.json` files, which its author wrote",

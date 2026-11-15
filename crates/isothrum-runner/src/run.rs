@@ -6,8 +6,10 @@
 
 mod graphical;
 mod operate;
+mod ports;
 pub(crate) mod recovery;
 mod status;
+use status::status_of;
 #[cfg(test)]
 mod tests;
 
@@ -19,14 +21,14 @@ use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::events::{Emitter, Events, ResultData, ShownOutput, Stream, WarningCode};
 use crate::formats::any::AnyFormat;
-use crate::formats::{Seen, SeenMachine, ToolCx, ledger};
+use crate::formats::{Seen, ToolCx, ledger};
 use crate::name::RunName;
 use crate::options::RunOptions;
 use crate::process::ProcessRunner;
 use crate::project::{Format, Project};
 use crate::runner::Runner;
 use crate::state::{Op, Park, RunState};
-use crate::status::{MachineStatus, OutputValue, PublishedPort, Started, Status};
+use crate::status::{OutputValue, Started, Status};
 use crate::store::{LastObserved, OperationId};
 
 use operate::Done;
@@ -150,6 +152,10 @@ impl<'r> Running<'r> {
             env.push(("TF_PLUGIN_CACHE_DIR".to_owned(), cache.to_string_lossy().into_owned()));
         }
         env.extend(crate::project::inputs::environment(self.project.format, &values, &opts.secrets)?);
+        if self.project.format == Format::Vagrant {
+            // The ports the run kept, for a Vagrantfile that pins its forwards to them.
+            env.extend(ports::env(&ports::kept(&self.state_dir())?));
+        }
         Ok(env)
     }
 
@@ -285,6 +291,9 @@ impl<'r> Running<'r> {
                 self.record_found(cx, emitter, by).await?;
                 let (seen, state) = self.driver.observe(cx).await?;
                 operate::not_whole(op, &seen, state)?;
+                if matches!(op, Op::Up | Op::Resume | Op::Update) {
+                    ports::keep(&self.state_dir(), &seen, cx.warn)?;
+                }
                 Ok((seen, state))
             })
             .await
@@ -340,8 +349,9 @@ impl<'r> Running<'r> {
                 crate::process::ledger::end_tunnels(&self.state_dir().join(crate::process::ledger::DIR)).await;
                 self.driver.probe(cx).await?;
                 self.driver.down(cx).await?;
-                // The machines' pinned host keys go with them.
+                // The machines' pinned host keys go with them, and the ports they kept.
                 crate::ssh::forget(&self.state_dir())?;
+                ports::forget(&self.state_dir())?;
                 // What the tool's own down left that the run made, by recorded id.
                 self.record_found(cx, emitter, by).await?;
                 let db = self.runner.store.db();
@@ -507,25 +517,6 @@ impl Running<'_> {
     }
 }
 
-/// The status of the run in `state` with `seen` as read.
-fn status_of(seen: &Seen, state: RunState, live: bool, row: Option<&crate::store::RunRow>) -> Status {
-    let outputs = seen
-        .outputs
-        .iter()
-        .map(|(name, o)| OutputValue::new(name.clone(), o.sensitive, Some(o.value.clone())))
-        .collect();
-    Status {
-        state,
-        live,
-        desired: row.map(|r| r.desired),
-        failed_cause: row.and_then(|r| r.failed_cause),
-        provider: row.and_then(|r| r.record.provider),
-        machines: machine_statuses(&seen.machines),
-        outputs,
-        native: None,
-    }
-}
-
 /// Where `op`, done, leaves the run; none for an op that leaves it where it was.
 fn op_goal(op: Op) -> Option<RunState> {
     match op {
@@ -534,27 +525,4 @@ fn op_goal(op: Op) -> Option<RunState> {
         Op::Down => Some(RunState::Absent),
         Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => None,
     }
-}
-
-/// `machines` as the status reports them. A port whose protocol the tool doesn't say has none,
-/// never a guessed one.
-fn machine_statuses(machines: &[SeenMachine]) -> Vec<MachineStatus> {
-    machines
-        .iter()
-        .map(|m| MachineStatus {
-            name: m.name.clone(),
-            state: m.state.clone(),
-            published: m
-                .published
-                .iter()
-                .map(|p| PublishedPort {
-                    port: p.guest,
-                    protocol: p.protocol,
-                    host_port: p.host,
-                })
-                .collect(),
-            address: m.address.clone(),
-            console: None,
-        })
-        .collect()
 }

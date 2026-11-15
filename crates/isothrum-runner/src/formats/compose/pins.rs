@@ -33,11 +33,7 @@ pub(super) fn file(cx: &ToolCx<'_>) -> Option<PathBuf> {
 
 /// The run's pins, none when it has none yet.
 fn read(cx: &ToolCx<'_>) -> Result<Vec<Pin>> {
-    let path = cx.state_dir.join(PINNED);
-    match crate::store::if_there(std::fs::read_to_string(&path)).map_err(Error::io(&path, "read"))? {
-        Some(text) => serde_json::from_str(&text).map_err(|e| Error::io(&path, "read")(std::io::Error::new(std::io::ErrorKind::InvalidData, e))),
-        None => Ok(Vec::new()),
-    }
+    crate::store::read_json(&cx.state_dir.join(PINNED))
 }
 
 /// Pins every publish of the project's files that has no host port: the run's pins kept, one
@@ -78,9 +74,7 @@ pub(super) async fn pin(cx: &ToolCx<'_>) -> Result<()> {
     let Some(text) = text else {
         return forget(cx);
     };
-    crate::store::create_dir(cx.state_dir)?;
-    let json = serde_json::to_string(&pins).map_err(|e| Error::io(cx.state_dir, "written")(std::io::Error::other(e)))?;
-    crate::store::write(&cx.state_dir.join(PINNED), json.as_bytes())?;
+    crate::store::write_json(&cx.state_dir.join(PINNED), &pins)?;
     crate::store::write(&cx.state_dir.join(OVERRIDE), text.as_bytes())?;
     drop(held);
     Ok(())

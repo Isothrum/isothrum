@@ -285,6 +285,9 @@ pub enum WarningCode {
     /// A running machine's forwarded ports couldn't be read (its provider can't list them, and
     /// its hypervisor didn't say): it has no published port, and runs on.
     PortsUnknown,
+    /// A machine's published host port is another than the one the run kept from its first
+    /// start (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.
+    PortsMoved,
 }
 
 /// Events kept in memory, for tests.
