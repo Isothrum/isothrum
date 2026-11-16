@@ -11,6 +11,10 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **Examples: `examples/`.** Three small hand-written projects, each with a README that runs it
+  with `up`, `status`, `exec`, `park`, `resume` and `down`: a Compose project of two services
+  (`compose-web-cache`), a Vagrantfile of one VM (`vagrant-one-vm`) and a Terraform module that
+  needs no cloud and no provider download (`terraform-local`).
 - **A deployment's service endpoints, reachable from this computer: `Running::service_endpoints`,
   `ServiceEndpoint`.** Each entry of a Terraform module's `published` output, as the module gives
   it, or, when the run has a jump host (its `ssh_jump` value), at a local forward through it
