@@ -117,34 +117,39 @@ mod tests {
 
     #[test]
     fn a_machine_is_named_by_its_address_without_its_type() {
-        assert_eq!(machine_name("esxi_guest.web", "esxi_guest"), "web");
-        assert_eq!(machine_name("aws_instance.pool[0]", "aws_instance"), "pool[0]");
-        assert_eq!(
-            machine_name("module.lab.proxmox_virtual_environment_vm.vm[\"a\"]", "proxmox_virtual_environment_vm"),
-            "module.lab.vm[\"a\"]"
-        );
-        assert_eq!(
-            machine_name("module.esxi_guest.esxi_guest.web", "esxi_guest"),
-            "module.esxi_guest.web",
-            "a module named like the type"
-        );
-        assert_eq!(
-            machine_name("module.m[\"esxi_guest.x\"].esxi_guest.web", "esxi_guest"),
-            "module.m[\"esxi_guest.x\"].web",
-            "a key holding the type"
-        );
-        assert_eq!(
-            machine_name("module.esxi_guest.module.lab.esxi_guest.web", "esxi_guest"),
-            "module.esxi_guest.module.lab.web",
-            "nested modules, one named like the type"
-        );
-        assert_eq!(machine_name("aws_instance.vm", "esxi_guest"), "aws_instance.vm", "another type");
+        for (address, kind, name) in [
+            ("esxi_guest.web", "esxi_guest", "web"),
+            ("aws_instance.pool[0]", "aws_instance", "pool[0]"),
+            (
+                "module.lab.proxmox_virtual_environment_vm.vm[\"a\"]",
+                "proxmox_virtual_environment_vm",
+                "module.lab.vm[\"a\"]",
+            ),
+            // A module named like the type.
+            ("module.esxi_guest.esxi_guest.web", "esxi_guest", "module.esxi_guest.web"),
+            // A key holding the type.
+            ("module.m[\"esxi_guest.x\"].esxi_guest.web", "esxi_guest", "module.m[\"esxi_guest.x\"].web"),
+            // Nested modules, one named like the type.
+            ("module.esxi_guest.module.lab.esxi_guest.web", "esxi_guest", "module.esxi_guest.module.lab.web"),
+            // Another type.
+            ("aws_instance.vm", "esxi_guest", "aws_instance.vm"),
+        ] {
+            assert_eq!(machine_name(address, kind), name, "{address}");
+        }
     }
 
     #[test]
     fn only_vm_types_are_machines() {
-        assert!(is_vm("esxi_guest") && is_vm("aws_instance") && is_vm("proxmox_virtual_environment_vm"));
-        assert!(!is_vm("terraform_data") && !is_vm("aws_security_group") && !is_vm("esxi_vswitch"));
-        assert!(VM_TYPES.windows(2).all(|w| w[0] < w[1]), "kept sorted");
+        for (kind, vm) in [
+            ("esxi_guest", true),
+            ("aws_instance", true),
+            ("proxmox_virtual_environment_vm", true),
+            ("terraform_data", false),
+            ("aws_security_group", false),
+            ("esxi_vswitch", false),
+        ] {
+            assert_eq!(is_vm(kind), vm, "{kind}");
+        }
+        assert!(VM_TYPES.is_sorted(), "kept sorted, for its search");
     }
 }

@@ -344,6 +344,10 @@ mod tests {
         let mut other = vm(true);
         other.name = "other".into();
         assert!(super::plan(&out, &other).is_none(), "a machine the output leaves out has none");
-        assert!(super::plan(&outputs(&[("consoles", r#"{"dc":"spice"}"#)]), &vm(false)).unwrap().is_err());
+        let spice = super::plan(&outputs(&[("consoles", r#"{"dc":"spice"}"#)]), &vm(false)).unwrap();
+        assert!(
+            spice.as_ref().is_err_and(|why| why.ends_with("a console of `spice`: `rdp` or `vnc` only")),
+            "{spice:?}"
+        );
     }
 }

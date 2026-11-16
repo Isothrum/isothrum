@@ -143,8 +143,9 @@ mod tests {
             assert_eq!(refused(&vars, &[], dir.path()), None, "{files:?}");
         }
         let (dir, vars) = module(&[("other.tfvars", "token = \"x\"\nregion = \"eu\"\n")]);
-        assert!(
-            refused(&vars, &[], dir.path()).is_some(),
+        assert_eq!(
+            refused(&vars, &[], dir.path()),
+            Some((crate::ErrorCode::InputInvalid, "region".to_owned())),
             "a file Terraform doesn't read by itself gives nothing"
         );
     }

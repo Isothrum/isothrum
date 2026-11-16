@@ -38,10 +38,9 @@ async fn reapply_plans_then_applies_and_writes_no_plan_file() {
         ..Change::default()
     };
     with_cx(&lab, &fake, async |cx| Terraform.reapply(cx, &change).await).await.expect("reapplied");
-    let calls = made(&fake, &lab);
-    assert_eq!(calls.len(), 3);
-    assert!(calls[1].starts_with("terraform plan") && calls[2].starts_with("terraform apply"), "{calls:?}");
-    assert!(fake.calls().iter().all(|c| !c.args.iter().any(|a| a.starts_with("-out"))), "{calls:?}");
+    let verbs: Vec<String> = fake.calls().iter().map(|c| c.args[0].clone()).collect();
+    assert_eq!(verbs, ["init", "plan", "apply"]);
+    isothrum_test_support::assert_every!(fake.calls(), |c: &Made| !c.args.iter().any(|a| a.starts_with("-out")));
     assert!(lab.lines().iter().any(|l| l == "terraform_data.db: Plan to create"));
 }
 
@@ -66,5 +65,5 @@ async fn inputs_are_masked_in_the_lines_and_the_errors_short_ones_left() {
     let e = with_cx(&lab, &fake, async |cx| Terraform.up(cx).await).await.expect_err("refused");
     assert!(!e.to_string().contains(SECRET) && e.to_string().contains("invalid token *** for web"), "{e}");
     assert!(lab.lines().iter().any(|l| l == "Error: invalid token *** for web"), "{:?}", lab.lines());
-    assert!(lab.lines().iter().all(|l| !l.contains(SECRET)));
+    isothrum_test_support::assert_every!(lab.lines(), |l: &String| !l.contains(SECRET));
 }
