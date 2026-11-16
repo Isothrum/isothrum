@@ -9,8 +9,8 @@ module may follow them too, and a module that follows none still runs.
 
 | | |
 |---|---|
-| Lifecycle | `up` and `update`: `init`, then `apply`. `down`: `destroy`. `park`, `resume`, `provision`, `attach`, `retire` and `exec` are refused (a module has no stopped state, and its machines are made and removed by its apply only). |
-| Console | `console <machine>` (`Running::console_command`) is an `ssh` into the VM, at the address its state says, as the user given, else `ssh_user_<machine>`, else the `ssh_user` of the machine whose `address_<machine>` it is, else `ssh_user`; with the run's `ssh_private_key_file` value, else the runner's own key. Its host key is pinned first, in the run's own known hosts. A Windows VM has none: its screen is its Remote Desktop. |
+| Lifecycle | `up` and `update`: `init`, then `apply`. `down`: `destroy`. `park`, `resume`, `provision`, `attach` and `retire` are refused (a module has no stopped state, and its machines are made and removed by its apply only). |
+| Console and commands | `console <machine>` (`Running::console_command`) and `exec <machine>` (`Running::exec`, no terminal) are an `ssh` into the VM, along its route: to its `address_<machine>` output, else to the address the `machines` output names, through the `ip` output's machine (unless it is at that address), else to its address in the state; through the run's `ssh_jump` value first when it has one. Signed in as the user given (a console), else `ssh_user_<machine>`, else the `ssh_user` of the machine whose `address_<machine>` it is, else `ssh_user`; with the run's `ssh_private_key_file` value, else the runner's own key, at every hop. The first host on the way is pinned before, in the run's own known hosts; a host behind it, which only it reaches, is pinned the first time a call meets it. A command that runs and fails is its exit status; one `ssh` can't run (it ends with 255) is `tool_failed`. A Windows VM has neither: its screen is its Remote Desktop. |
 | State | The run's own, in its state folder (`-state=`, `TF_DATA_DIR`), unless the module names a backend. An existing deployment's local state can be adopted (`state.md`). |
 | Values | Each value and secret a run is given reaches the module's variable of the same name as `TF_VAR_<name>`, and the providers' own variables (`AWS_ACCESS_KEY_ID`, `PROXMOX_VE_ENDPOINT`) as they are. Values are recorded and given again at every later operation. Secrets never are: a `down` or a reap that needs one is given it again. |
 | Variables | `Project::variables`, `Client::variables` and the service's `variables` command list the module's `variable` blocks: name, type, default, sensitive and description. Give a sensitive one as a secret. |
@@ -30,9 +30,10 @@ is required.
 | `windows_password` | output, sensitive | Without `consoles`, each Windows VM gets Remote Desktop with this password. Also read from the run's own value or secret of that name. |
 | `windows_user` | output | Remote Desktop's user, when it isn't `Administrator`. |
 | `vnc_password` | output, sensitive | A VNC console's password. |
-| `machines` | output, a map | Each machine's address (`{ web = "10.60.0.10" }`), for a machine the state gives none (a Proxmox VE VM without a guest agent). |
-| `ip` | output | The machine a tunnelled screen goes through: an access machine, a router, the first Linux VM. |
+| `machines` | output, a map | Each machine's address on the module's own networks (`{ web = "10.60.0.10" }`): a machine the state gives none takes it (a Proxmox VE VM without a guest agent), and a console or a command reaches it through the `ip` output's machine. |
+| `ip` | output | The machine a tunnelled screen, and a console or a command to a `machines` address, goes through: an access machine, a router, the first Linux VM. |
 | `ssh_user`, `ssh_user_<machine>`, `address_<machine>` | outputs | Who signs in there: the user of the machine whose address is `ip`, else `ssh_user`. |
-| `ssh_private_key_file` | run value | The private key the tunnel signs in with. Without it, the runner's own key is used. |
+| `ssh_private_key_file` | run value | The private key a tunnel, a console and a command sign in with. Without it, the runner's own key is used. |
+| `ssh_jump` | run value | `user@host`: the host every console and command of the run goes through first, one this computer reaches that reaches the module's machines (a server's node whose lab network is internal to it). Signed in to with the same key. |
 | `proxmox_endpoint` | output | The Proxmox VE server, for a module that takes it as a variable instead of from `PROXMOX_VE_ENDPOINT` or `PM_API_URL`. |
 | `PROXMOX_VE_*`, `PM_*` | run values and secrets | Proxmox VE's API, as bpg/proxmox and Telmate/proxmox read it. With these, a Proxmox VM's screen (`vncproxy`), its web console, and its state on the server (removed or powered off in Proxmox's own UI) are read through the API. |

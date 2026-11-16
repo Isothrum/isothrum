@@ -116,3 +116,49 @@ fn a_login_with_no_user_or_a_dashed_word_is_refused_and_a_plain_one_is_user_at_h
     assert!(Login::new("-l", "10.0.0.5").is_none(), "an option, not a user");
     assert_eq!(Login::new("kali", "10.0.0.5").map(|l| l.target()).as_deref(), Some("kali@10.0.0.5"));
 }
+
+fn login(target: &str) -> Login {
+    let (user, host) = target.split_once('@').unwrap();
+    Login::new(user, host).unwrap()
+}
+
+#[test]
+fn a_host_behind_hops_is_reached_through_each_one_ssh_w_nested_its_percent_signs_doubled_per_level() {
+    let state = Path::new("/runs/lab state");
+    let key = Path::new("/home/me/key 1");
+    let hops = [login("root@node.lab"), login("isoloom@192.0.2.10")];
+    let proxy = proxy_command(key, state, &hops, PathStyle::Unix).unwrap().unwrap();
+    // The last hop is reached through the first, a level down.
+    assert!(proxy.starts_with("ssh -F none -i '/home/me/key 1' "), "{proxy}");
+    assert!(proxy.ends_with(" -W %h:%p isoloom@192.0.2.10"), "{proxy}");
+    let inner = "'ProxyCommand=ssh -F none -i '\\''/home/me/key 1'\\''";
+    assert!(proxy.contains(inner), "the first hop's own ssh, quoted inside: {proxy}");
+    assert!(proxy.contains("-W %%h:%%p root@node.lab"), "its tokens doubled once: {proxy}");
+    // The first hop is pinned first; the router behind it, on first meeting.
+    assert!(proxy.contains("StrictHostKeyChecking=accept-new"), "{proxy}");
+    assert!(proxy.contains("StrictHostKeyChecking=yes"), "{proxy}");
+    // The run's known hosts, as the options name it, its `%` tokens never ours.
+    let odd = proxy_command(key, Path::new("/runs/100%"), &hops[..1], PathStyle::Unix).unwrap().unwrap();
+    assert!(
+        odd.contains("/runs/100%%%%/known_hosts"),
+        "`%%` in the option, doubled again in the command: {odd}"
+    );
+    assert_eq!(proxy_command(key, state, &[], PathStyle::Unix).unwrap(), None, "no hop: no ProxyCommand");
+    let straight = options_through(key, state, &[]).unwrap();
+    assert!(straight.contains(&"StrictHostKeyChecking=yes".to_owned()) && !straight.iter().any(|o| o.starts_with("ProxyCommand=")));
+}
+
+#[test]
+fn a_windows_proxy_command_quotes_its_words_as_the_c_runtime_splits_them() {
+    let proxy = proxy_command(
+        Path::new(r"C:\Users\a b\key"),
+        Path::new("C:/runs/lab"),
+        &[login("root@node.lab")],
+        PathStyle::Windows,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(proxy.starts_with(r#"ssh -F none -i "C:\Users\a b\key" "#), "{proxy}");
+    assert_eq!(windows_quote(r#"a "b" c\"#), r#""a \"b\" c\\""#);
+    assert_eq!(windows_quote(r"C:\x\"), r#""C:\x\\""#);
+}

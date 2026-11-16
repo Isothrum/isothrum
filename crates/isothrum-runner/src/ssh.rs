@@ -8,6 +8,13 @@
 //! (`StrictHostKeyChecking=yes`, never `accept-new`): a host whose key changed is refused. The
 //! pins go with the run's machines ([`forget`]): a run brought up again meets new machines, maybe
 //! at the same addresses, whose new keys a pin would refuse.
+//!
+//! A host this computer doesn't reach is reached through others ([`options_through`]: a jump host,
+//! a module's router), each hop an `ssh -W` of its own with the same key and `known_hosts`. Only
+//! the first host on the way is reached from here, and only it can be pinned first; a host behind
+//! it is met through it alone, so its key is pinned the first time a call meets it there
+//! (`accept-new`, never a changed key), which trusts what the hop before it reaches, as pinning it
+//! from that hop would.
 
 use std::path::{Path, PathBuf};
 
@@ -189,6 +196,20 @@ impl Login {
 ///
 /// [`Error::Io`] when the run's folder is at a path no `-o` option can name.
 pub(crate) fn options(key: &Path, state_dir: &Path) -> Result<Vec<String>> {
+    checked_options(key, state_dir, HostKey::Pinned)
+}
+
+/// How a call checks its host's key against the run's `known_hosts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostKey {
+    /// Pinned before the call ([`pin`]): strictly.
+    Pinned,
+    /// Met only through another host: pinned the first time a call meets it, then strictly.
+    FirstMet,
+}
+
+/// [`options`], the host's key checked as `checking` says.
+fn checked_options(key: &Path, state_dir: &Path, checking: HostKey) -> Result<Vec<String>> {
     let known = state_dir.join(KNOWN_HOSTS);
     let quoted = config_path(&known.to_string_lossy(), PathStyle::HERE).ok_or_else(|| {
         let why = "the run's folder is at a path SSH's options can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
@@ -199,7 +220,10 @@ pub(crate) fn options(key: &Path, state_dir: &Path) -> Result<Vec<String>> {
         "IdentitiesOnly=yes".to_owned(),
         format!("UserKnownHostsFile={quoted}"),
         "GlobalKnownHostsFile=none".to_owned(),
-        "StrictHostKeyChecking=yes".to_owned(),
+        match checking {
+            HostKey::Pinned => "StrictHostKeyChecking=yes".to_owned(),
+            HostKey::FirstMet => "StrictHostKeyChecking=accept-new".to_owned(),
+        },
         "BatchMode=yes".to_owned(),
         "ConnectTimeout=10".to_owned(),
         "ServerAliveInterval=15".to_owned(),
@@ -209,6 +233,73 @@ pub(crate) fn options(key: &Path, state_dir: &Path) -> Result<Vec<String>> {
         args.extend(["-o".to_owned(), option]);
     }
     Ok(args)
+}
+
+/// The `ssh` options of a call to a host reached through `hops` (outermost first, the host the
+/// call signs in to last), each signed in to with `key`: [`options`], and a `ProxyCommand` that
+/// reaches the host through the last hop, itself reached through the one before. The first host
+/// on the way (the first hop, else the host itself) is the one to [`pin`] before the call; the
+/// others are pinned as the call first meets them. Every `ssh` of the way checks keys against the
+/// run's `known_hosts`, with no user configuration.
+///
+/// # Errors
+///
+/// As [`options`].
+pub(crate) fn options_through(key: &Path, state_dir: &Path, hops: &[Login]) -> Result<Vec<String>> {
+    let checking = if hops.is_empty() { HostKey::Pinned } else { HostKey::FirstMet };
+    let mut args = checked_options(key, state_dir, checking)?;
+    if let Some(proxy) = proxy_command(key, state_dir, hops, PathStyle::HERE)? {
+        args.extend(["-o".to_owned(), format!("ProxyCommand={proxy}")]);
+    }
+    Ok(args)
+}
+
+/// The command that connects to `%h:%p` through `hops` (outermost first), its words quoted for a
+/// command line of `style` (`sh -c` on unix; on Windows, OpenSSH starts it as a plain command
+/// line); none without a hop. The last hop's `ssh -W`, reaching it through the ones before in its
+/// own `ProxyCommand`. `ssh` expands `%` tokens in a `ProxyCommand` before it runs it, once per
+/// level: every `%` of a level is doubled, but its own `%h:%p`.
+fn proxy_command(key: &Path, state_dir: &Path, hops: &[Login], style: PathStyle) -> Result<Option<String>> {
+    let Some((last, before)) = hops.split_last() else {
+        return Ok(None);
+    };
+    let checking = if before.is_empty() { HostKey::Pinned } else { HostKey::FirstMet };
+    let mut words = vec!["ssh".to_owned()];
+    words.extend(checked_options(key, state_dir, checking)?);
+    if let Some(inner) = proxy_command(key, state_dir, before, style)? {
+        words.extend(["-o".to_owned(), format!("ProxyCommand={inner}")]);
+    }
+    let line = words.iter().map(|w| command_word(w, style)).collect::<Vec<_>>().join(" ");
+    Ok(Some(format!("{} -W %h:%p {}", line.replace('%', "%%"), last.target())))
+}
+
+/// `word` as a command line of `style` reads it back: as it is when nothing in it is special,
+/// else quoted (single quotes for `sh`, the C runtime's double quotes on Windows).
+fn command_word(word: &str, style: PathStyle) -> String {
+    let plain = !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "_-.,/:@%+=".contains(c));
+    match (style, plain) {
+        (_, true) => word.to_owned(),
+        (PathStyle::Unix, false) => crate::console::sh_quote(word),
+        (PathStyle::Windows, false) => windows_quote(word),
+    }
+}
+
+/// `word` double-quoted as the C runtime splits a Windows command line back
+/// (`CommandLineToArgvW`'s rules): backslashes are literal but before a `"`, so those before an
+/// inner `"` (then escaped) and before the closing one are doubled.
+fn windows_quote(word: &str) -> String {
+    let mut out = String::from("\"");
+    let mut backslashes = 0;
+    for c in word.chars() {
+        if c == '"' {
+            out.extend(std::iter::repeat_n('\\', backslashes + 1));
+        }
+        backslashes = if c == '\\' { backslashes + 1 } else { 0 };
+        out.push(c);
+    }
+    out.extend(std::iter::repeat_n('\\', backslashes));
+    out.push('"');
+    out
 }
 
 /// A path as OpenSSH reads it in an option, the parser before 8.7 as the one after: between

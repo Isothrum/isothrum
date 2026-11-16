@@ -115,3 +115,121 @@ async fn a_vm_whose_module_names_no_screen_has_none_saying_why_and_a_machine_not
         .expect_err("no such machine");
     assert_eq!(nope.code(), ErrorCode::MachineUnknown, "{nope}");
 }
+
+/// A state of a Proxmox VE lab: its router, at 192.0.2.10 on the node's internal bridge, and
+/// `web`, with no address (no guest agent).
+fn web_behind_a_router() -> String {
+    serde_json::json!({ "format_version": "1.0", "values": { "root_module": { "resources": [
+        { "address": "proxmox_virtual_environment_vm.isoloom_router", "mode": "managed", "type": "proxmox_virtual_environment_vm",
+          "name": "isoloom_router", "values": { "id": "100", "ipv4_addresses": [["127.0.0.1"], ["192.0.2.10"]] } },
+        { "address": "proxmox_virtual_environment_vm.web", "mode": "managed", "type": "proxmox_virtual_environment_vm",
+          "name": "web", "values": { "id": "101" } }
+    ]}}})
+    .to_string()
+}
+
+/// Isoloom's server module's outputs: its router's address, its user, and the machines behind it.
+const ROUTER_OUTPUTS: &str = r#"{"ip":{"sensitive":false,"type":"string","value":"192.0.2.10"},"ssh_user":{"sensitive":false,"type":"string","value":"isoloom"},"machines":{"sensitive":false,"type":["object",{"web":"string"}],"value":{"web":"10.60.0.10"}}}"#;
+
+/// The node every SSH of the run goes through first.
+const NODE_KEY: &str = "node.lab ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+
+/// The values a run on a node's internal bridge is given: the module's key, and the node to go
+/// through first.
+const THROUGH_THE_NODE: &[(&str, &str)] = &[("ssh_private_key_file", "/keys/lab"), ("ssh_jump", "root@node.lab")];
+
+/// Scripted tools for a lab behind its router: the state, the outputs, the node's keys, and `ssh`
+/// answering `ssh`.
+fn behind_a_router(ssh: Reply) -> FakeProcesses {
+    FakeProcesses::script()
+        .expect("terraform show -json -no-color", Reply::ok(&web_behind_a_router()))
+        .expect("terraform output -json -no-color", Reply::ok(ROUTER_OUTPUTS))
+        .expect("ssh-keyscan -T 10 node.lab", Reply::ok(NODE_KEY))
+        .allow("ssh -F none", ssh)
+        .build()
+}
+
+#[tokio::test]
+async fn a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_first() {
+    let lab = lab().with_state();
+    let fake = behind_a_router(Reply::ok("isoloom-check: web: ok"));
+    let argv = ["sh".to_owned(), "-c".to_owned(), "echo 'isoloom-check: web: ok'".to_owned()];
+    let ran = with_cx_given(&lab, &fake, THROUGH_THE_NODE, async |cx| Terraform.exec(cx, "web", &argv).await)
+        .await
+        .expect("it ran");
+    assert_eq!((ran.exit, ran.stdout.as_str()), (0, "isoloom-check: web: ok"));
+    let ssh = fake.last("ssh -F none").expect("an ssh");
+    assert_eq!(ssh.flag("-i"), Some("/keys/lab"), "the run's own key: {}", ssh.line());
+    // Only the node is reached from here, and pinned first; the router and web behind it are
+    // pinned as the call first meets them.
+    assert!(ssh.has_run(&["-o", "StrictHostKeyChecking=accept-new"]), "{}", ssh.line());
+    let proxy = ssh.args.iter().find_map(|a| a.strip_prefix("ProxyCommand=")).expect("a ProxyCommand");
+    assert!(proxy.ends_with(" -W %h:%p isoloom@192.0.2.10"), "web through its router: {proxy}");
+    assert!(proxy.contains("-W %%h:%%p root@node.lab"), "the router through the node, a level down: {proxy}");
+    assert!(
+        proxy.contains("StrictHostKeyChecking=yes") && proxy.contains("StrictHostKeyChecking=accept-new"),
+        "{proxy}"
+    );
+    let n = ssh.args.len();
+    assert_eq!(
+        &ssh.args[n - 2..],
+        ["isoloom@10.60.0.10", "sh -c 'echo '\\''isoloom-check: web: ok'\\'''"],
+        "as the module's user, the command quoted as the machine's shell reads it back"
+    );
+    let known = std::fs::read_to_string(lab.state.path().join(crate::ssh::KNOWN_HOSTS)).expect("the node's key pinned");
+    assert_eq!(known.trim(), NODE_KEY);
+}
+
+#[tokio::test]
+async fn a_command_that_fails_is_its_exit_status_and_one_ssh_couldnt_run_an_error() {
+    let lab = lab().with_state();
+    let failed = behind_a_router(Reply {
+        code: 1,
+        ..Reply::ok("isoloom-check: web: fail: nothing listens on 80")
+    });
+    let ran = with_cx_given(&lab, &failed, THROUGH_THE_NODE, async |cx| {
+        Terraform.exec(cx, "web", &["true".to_owned()]).await
+    })
+    .await
+    .expect("it ran");
+    assert_eq!(ran.exit, 1);
+    let fresh = super::lab().with_state();
+    let refused = behind_a_router(Reply {
+        code: 255,
+        stderr: vec!["root@node.lab: Permission denied (publickey).".to_owned()],
+        ..Reply::default()
+    });
+    let e = with_cx_given(&fresh, &refused, THROUGH_THE_NODE, async |cx| {
+        Terraform.exec(cx, "web", &["true".to_owned()]).await
+    })
+    .await
+    .expect_err("ssh couldn't run it");
+    assert_eq!(e.code(), ErrorCode::ToolFailed);
+    assert!(e.to_string().contains("Permission denied (publickey)"), "{e}");
+}
+
+#[tokio::test]
+async fn a_console_into_a_vm_behind_the_router_goes_the_same_way_and_a_windows_vm_has_none() {
+    let lab = lab().with_state();
+    let fake = behind_a_router(Reply::ok(""));
+    let console = with_cx_given(&lab, &fake, THROUGH_THE_NODE, async |cx| Terraform.console(cx, "web", None).await)
+        .await
+        .expect("a console");
+    assert_eq!(console.args.last().map(String::as_str), Some("isoloom@10.60.0.10"));
+    assert!(
+        console
+            .args
+            .iter()
+            .any(|a| a.starts_with("ProxyCommand=") && a.ends_with("-W %h:%p isoloom@192.0.2.10")),
+        "{:?}",
+        console.args
+    );
+    let windows = FakeProcesses::script()
+        .expect("terraform show -json -no-color", Reply::ok(&dc_beside_web()))
+        .build();
+    let e = with_cx(&lab, &windows, async |cx| Terraform.exec(cx, "dc", &["true".to_owned()]).await)
+        .await
+        .expect_err("no way into a Windows VM");
+    assert_eq!(e.code(), ErrorCode::Unsupported, "{e}");
+    assert!(e.to_string().contains("runs Windows"), "{e}");
+}

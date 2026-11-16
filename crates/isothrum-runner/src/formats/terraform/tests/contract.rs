@@ -72,7 +72,7 @@ impl Model for LibvirtModule {
     const FILE: (&'static str, &'static str) = ("main.tf", "resource \"libvirt_domain\" \"web\" {}\nresource \"libvirt_network\" \"lab\" {}\n");
     const VERSION: &'static str = "terraform version -json";
     const MACHINES: &'static [&'static str] = &["web"];
-    const REFUSES: &'static [Op] = &[Op::Park, Op::Resume, Op::Provision, Op::Attach, Op::Retire, Op::Exec];
+    const REFUSES: &'static [Op] = &[Op::Park, Op::Resume, Op::Provision, Op::Attach, Op::Retire];
     const CONSOLE_RUNS_NOTHING: bool = false;
 
     fn new(old: bool) -> LibvirtModule {
