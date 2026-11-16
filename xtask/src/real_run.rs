@@ -30,9 +30,20 @@ pub(crate) fn run(a: &Args) -> Res<()> {
     let out = repo::target_dir(&root).join("real-run");
     let run_dir = generate_example(&root, &isoloom, example, "docker", &out)?;
     let mut test = process::cargo(&root);
-    test.args(["test", "-p", "isothrum-cli", "--test", "real_run", "--", "--ignored", "--nocapture"])
-        .env("ISOTHRUM_REAL_RUN_DIR", &run_dir)
-        .env("ISOTHRUM_REAL_EVENTS", out.join(format!("{example}.events.jsonl")));
+    test.args([
+        "test",
+        "-p",
+        "isothrum-cli",
+        "--test",
+        "real_run",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--exact",
+        "a_generated_run_runs_for_real",
+    ])
+    .env("ISOTHRUM_REAL_RUN_DIR", &run_dir)
+    .env("ISOTHRUM_REAL_EVENTS", out.join(format!("{example}.events.jsonl")));
     process::run(&mut test)
 }
 

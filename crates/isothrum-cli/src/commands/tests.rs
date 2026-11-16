@@ -103,3 +103,5 @@ fn a_proxmox_websocket_hides_its_ticket_without_show_password() {
     assert!(hidden.ends_with("vncticket=<hidden: --show-password prints it>"), "{hidden}");
     assert_eq!(commands::ticket_shown(url, ticket, true), url);
 }
+
+mod examples;
