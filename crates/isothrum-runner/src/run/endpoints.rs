@@ -36,7 +36,7 @@ type Forwards = BTreeMap<(std::path::PathBuf, String), BTreeMap<String, Tunnel>>
 static FORWARDS: LazyLock<Mutex<Forwards>> = LazyLock::new(Mutex::default);
 
 /// A service endpoint the deployment publishes, as this computer reaches it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct ServiceEndpoint {
     /// Its name, as the deployment gives it (`<machine>/<service>`, by the `published` output's convention).

@@ -9,6 +9,13 @@
 //! `error` and an `operation` event of phase `ended`, arrive on a subscription: after `subscribe`,
 //! the connection carries [`Reply::Event`] frames until it closes or `unsubscribe`.
 //!
+//! Everything else an embedder asks of a home goes through the service too, never through the
+//! home's files: a run's record (`record`), forgetting it (`forget`), the runs past their lifetime
+//! (`expired`), the way into a machine (`console_command`), its screen (`graphical_console`, whose
+//! tunnel, when it has one, stays open as long as the connection that asked) or its hypervisor's
+//! app (`native_console`), where its published services are reached (`service_endpoints`), and the
+//! runner's SSH key (`public_key`).
+//!
 //! # What every protocol keeps
 //!
 //! A client of one release meets services of others: an app that bundles Isothrum finds the
@@ -27,10 +34,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use isothrum_runner::{Format, InputVariable, Op, Park, Provider, RunName, Status};
+use isothrum_runner::{Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint, ShellCommand, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
+
+mod console;
+pub use console::{ConsoleEndpoint, ReachedConsole};
 
 /// The protocol's version: a service refuses a `hello` with another.
 pub const PROTOCOL: u32 = 1;
@@ -170,6 +180,79 @@ pub enum Command {
     },
     /// Every recorded run.
     List,
+    /// One run's record (not queued: it reads the store); none for a run never recorded.
+    Record {
+        /// The run.
+        run: RunName,
+    },
+    /// Forgets a run's record: what the run created is left as it is. Refused while an operation
+    /// of the run is queued or running.
+    Forget {
+        /// The run.
+        run: RunName,
+    },
+    /// The recorded runs whose lifetime passed and that may still hold something: what a reaper
+    /// takes down (a `down` each, given the values and secrets the run needs).
+    Expired,
+    /// The command that opens an interactive console into a machine of a run (not queued:
+    /// nothing runs), for the client to run in its own terminal.
+    ConsoleCommand {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The machine.
+        machine: String,
+        /// The account to open it as.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user: Option<String>,
+    },
+    /// A running machine's graphical console (not queued: it reads). Reached through an SSH
+    /// tunnel, the tunnel stays open for as long as the connection that asked: a client asks on a
+    /// connection of its own, closed when the viewer is done; the service writes
+    /// [`Reply::ConsoleClosed`] and closes it when the tunnel ends first.
+    GraphicalConsole {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The values and secrets the hypervisor is asked with (a server's address and token).
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
+        /// The machine.
+        machine: String,
+    },
+    /// What opens a running machine in its hypervisor's own app (not queued: it reads).
+    NativeConsole {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The values and secrets the hypervisor is asked with.
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
+        /// The machine.
+        machine: String,
+    },
+    /// The service endpoints a run publishes, each where this computer reaches it: as the run
+    /// gives it, or at a local forward through the run's jump host, which the service keeps open
+    /// (not queued: it reads).
+    ServiceEndpoints {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The values and secrets its outputs are read with.
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
+    },
+    /// The public half of the runner's SSH key, one line (the key is made when there is none):
+    /// what the client authorizes where a run's SSH goes.
+    PublicKey,
     /// The run's latest operations, newest first.
     Operations {
         /// The run.
@@ -218,17 +301,27 @@ impl Command {
             Command::Retire { .. } => Op::Retire,
             Command::Provision { .. } => Op::Provision,
             Command::Exec { .. } => Op::Check,
-            Command::Hello { .. }
-            | Command::Status { .. }
-            | Command::Variables { .. }
-            | Command::List
-            | Command::Operations { .. }
-            | Command::Cancel { .. }
-            | Command::Subscribe { .. }
-            | Command::Unsubscribe
-            | Command::Shutdown
-            | Command::ShutdownIfIdle => return None,
+            // Not an operation: a question about the home, or the conversation's own.
+            _ => return None,
         })
+    }
+
+    /// Whether it asks the service about the home, running no operation: a run's status or
+    /// record, forgetting it, the expired runs, a way into a machine, its endpoints, the key.
+    #[must_use]
+    pub fn is_question(&self) -> bool {
+        matches!(
+            self,
+            Command::Status { .. }
+                | Command::Record { .. }
+                | Command::Forget { .. }
+                | Command::Expired
+                | Command::ConsoleCommand { .. }
+                | Command::GraphicalConsole { .. }
+                | Command::NativeConsole { .. }
+                | Command::PublicKey
+                | Command::ServiceEndpoints { .. }
+        )
     }
 
     /// The run and the options of an operation command.
@@ -365,12 +458,62 @@ pub enum Reply {
         /// The folder's input variables, by name.
         variables: Vec<InputVariable>,
     },
-    /// To `list`.
+    /// To `list` (every recorded run) and `expired` (those past their lifetime).
     Runs {
         /// The request's id.
         id: u64,
-        /// Every recorded run.
+        /// The runs.
         runs: Vec<RunRow>,
+    },
+    /// To `record`.
+    Run {
+        /// The request's id.
+        id: u64,
+        /// The run's record; none for a run never recorded.
+        run: Option<Box<RunRow>>,
+    },
+    /// To `console_command`.
+    Shell {
+        /// The request's id.
+        id: u64,
+        /// The command that opens the console.
+        command: ShellCommand,
+    },
+    /// To `graphical_console`.
+    Console {
+        /// The request's id.
+        id: u64,
+        /// Where the console answers, and how to sign in.
+        console: Box<ReachedConsole>,
+    },
+    /// After a `graphical_console` reached through a tunnel, once the tunnel ended on its own
+    /// (its `ssh` exited): the service closes the connection after it.
+    ConsoleClosed {
+        /// The `graphical_console` request's id.
+        id: u64,
+        /// How the tunnel ended.
+        reason: String,
+    },
+    /// To `native_console`.
+    Native {
+        /// The request's id.
+        id: u64,
+        /// What opens the machine in its hypervisor's app.
+        console: NativeConsole,
+    },
+    /// To `service_endpoints`.
+    Endpoints {
+        /// The request's id.
+        id: u64,
+        /// The endpoints, by name.
+        endpoints: Vec<ServiceEndpoint>,
+    },
+    /// To `public_key`.
+    PublicKey {
+        /// The request's id.
+        id: u64,
+        /// The key's public half, one line.
+        key: String,
     },
     /// To `operations`.
     Operations {
@@ -418,6 +561,13 @@ impl Reply {
             | Reply::Accepted { id, .. }
             | Reply::Status { id, .. }
             | Reply::Runs { id, .. }
+            | Reply::Run { id, .. }
+            | Reply::Shell { id, .. }
+            | Reply::Console { id, .. }
+            | Reply::ConsoleClosed { id, .. }
+            | Reply::Native { id, .. }
+            | Reply::Endpoints { id, .. }
+            | Reply::PublicKey { id, .. }
             | Reply::Variables { id, .. }
             | Reply::Operations { id, .. }
             | Reply::Ok { id }
@@ -432,6 +582,9 @@ impl Reply {
 mod tests {
     use super::*;
 
+    use std::net::SocketAddr;
+
+    use isothrum_runner::ConsoleProtocol;
     use serde_json::json;
 
     /// `value` written as one line, read back as itself: the line, as JSON.
@@ -526,6 +679,95 @@ mod tests {
             (&json!("event"), &json!(12), &json!(1)),
             "{frame}"
         );
+    }
+
+    #[test]
+    fn the_home_s_other_questions_are_flat_objects_too() {
+        let run = RunName::new("web").unwrap();
+        assert_eq!(
+            round_trip(&Request {
+                id: 4,
+                command: Command::Forget { run: run.clone() },
+            }),
+            json!({"id": 4, "cmd": "forget", "run": "web"})
+        );
+        assert_eq!(
+            round_trip(&Request {
+                id: 5,
+                command: Command::Expired
+            }),
+            json!({"id": 5, "cmd": "expired"})
+        );
+        assert_eq!(
+            round_trip(&Request {
+                id: 6,
+                command: Command::PublicKey
+            }),
+            json!({"id": 6, "cmd": "public_key"})
+        );
+        let console = round_trip(&Request {
+            id: 7,
+            command: Command::GraphicalConsole {
+                run: run.clone(),
+                target: None,
+                options: OpOptions::default(),
+                machine: "desktop".into(),
+            },
+        });
+        assert_eq!(console, json!({"id": 7, "cmd": "graphical_console", "run": "web", "machine": "desktop"}));
+        round_trip(&Request {
+            id: 8,
+            command: Command::ConsoleCommand {
+                run,
+                target: Some(Target::new("/stacks/web", None)),
+                machine: "web".into(),
+                user: Some("root".into()),
+            },
+        });
+        for command in [
+            Command::Record {
+                run: RunName::new("web").unwrap(),
+            },
+            Command::Expired,
+            Command::PublicKey,
+        ] {
+            assert_eq!(command.op(), None, "{command:?} queues nothing");
+            assert!(command.is_question(), "{command:?} is a question");
+        }
+    }
+
+    #[test]
+    fn a_reached_console_s_secrets_travel_but_never_show() {
+        let reached = ReachedConsole {
+            machine: "pve".into(),
+            protocol: ConsoleProtocol::Vnc,
+            endpoint: ConsoleEndpoint::ProxmoxVnc {
+                websocket: "wss://server/vnc?ticket=t0p".into(),
+                port: 5900,
+                ticket: "t0p".into(),
+                header: "Authorization".into(),
+                authorization: "PVEAPIToken=hunter2".into(),
+                insecure: false,
+            },
+            user: None,
+            password: Some("t0p".into()),
+            note: None,
+            tunnelled: false,
+        };
+        let frame = round_trip(&Reply::Console {
+            id: 9,
+            console: Box::new(reached.clone()),
+        });
+        assert_eq!(
+            (&frame["console"]["endpoint"]["at"], &frame["console"]["password"]),
+            (&json!("proxmox_vnc"), &json!("t0p"))
+        );
+        let shown = format!("{reached:?}");
+        assert!(!shown.contains("t0p") && !shown.contains("hunter2"), "{shown}");
+        let loopback = ConsoleEndpoint::Loopback {
+            address: SocketAddr::from(([127, 0, 0, 1], 5901)),
+        };
+        assert_eq!(serde_json::to_value(&loopback).unwrap(), json!({"at": "loopback", "address": "127.0.0.1:5901"}));
     }
 
     #[test]

@@ -9,6 +9,17 @@ Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
+### Added
+
+- **The client asks the service what it would read or write in the home.** `record`, `forget`,
+  `expired`, `console_command`, `graphical_console`, `native_console`, `service_endpoints` and
+  `public_key` (`Client::record`, `Client::forget`…): an embedder never opens the runner's store
+  or home itself. A graphical console's tunnel stays open for as long as the connection that asked
+  (`HeldConsole`), and `console_closed` says when it ended first. The `Engine` port answers the
+  queries (`Opened` names the run), unsupported by default; `Command::is_question` tells them
+  apart. `RunRecord::expired` says whether a record is past its lifetime; `ShellCommand`,
+  `NativeConsole` and `ServiceEndpoint` read back from JSON, and `Console::new` is public.
+
 ### Changed
 
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the

@@ -146,8 +146,10 @@ pub struct Console {
 }
 
 impl Console {
-    /// `machine`'s console speaking `protocol` at `endpoint`.
-    pub(crate) fn new(machine: &str, protocol: ConsoleProtocol, endpoint: Endpoint) -> Console {
+    /// `machine`'s console speaking `protocol` at `endpoint`, reached through no tunnel: what an
+    /// engine other than the runner's gives (the runner's service answers through one).
+    #[must_use]
+    pub fn new(machine: &str, protocol: ConsoleProtocol, endpoint: Endpoint) -> Console {
         Console {
             machine: machine.to_owned(),
             protocol,

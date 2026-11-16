@@ -72,7 +72,7 @@ mod spawn;
 pub mod v1;
 pub mod wire;
 
-pub use client::{Accepted, Client, Followed, Subscription};
+pub use client::{Accepted, Client, Followed, HeldConsole, Subscription};
 pub use discovery::{ServiceInfo, ServicePaths};
 pub use error::ClientError;
 pub use isothrum_runner::InputVariable;

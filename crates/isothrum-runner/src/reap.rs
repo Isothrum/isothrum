@@ -9,9 +9,7 @@
 use std::time::SystemTime;
 
 use crate::Result;
-use crate::clock::unix_seconds;
 use crate::runner::Runner;
-use crate::state::RunState;
 use crate::store::RunRecord;
 
 impl Runner {
@@ -22,12 +20,7 @@ impl Runner {
     ///
     /// Fails as the store does when a record can't be read.
     pub fn expired(&self, now: SystemTime) -> Result<Vec<RunRecord>> {
-        let now = unix_seconds(now);
-        let records = self.store.records()?;
-        Ok(records
-            .into_iter()
-            .filter(|r| r.state != RunState::Absent && r.expires_at.is_some_and(|at| at <= now))
-            .collect())
+        Ok(self.store.records()?.into_iter().filter(|r| r.expired(now)).collect())
     }
 }
 

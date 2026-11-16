@@ -237,6 +237,12 @@ impl Queue {
     }
 
     /// Whether an operation of `run` is queued or running.
+    pub(crate) fn under_way(&self, run: &RunName) -> bool {
+        let state = self.state();
+        state.running.contains_key(run) || state.pending.get(run).is_some_and(|jobs| !jobs.is_empty())
+    }
+
+    /// Whether `run` has a worker (an operation queued, running, or just ended).
     pub(crate) fn has_work(&self, run: &RunName) -> bool {
         self.state().workers.contains(run)
     }

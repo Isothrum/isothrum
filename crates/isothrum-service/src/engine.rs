@@ -7,7 +7,8 @@ use std::sync::Arc;
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_runner::store::OperationId;
 use isothrum_runner::{
-    BoxFuture, ErrorCode, Event, EventKind, Events, Format, InputVariable, Project, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status,
+    BoxFuture, Console, ErrorCode, Event, EventKind, Events, Format, InputVariable, NativeConsole, Project, RunName, RunOptions, Runner, Running, SecretValue,
+    Secrets, ServiceEndpoint, ShellCommand, Status,
 };
 
 /// Why the engine refused a request: the runner's report of it (boxed: it is large, and rare). A
@@ -81,6 +82,52 @@ pub trait Engine: Send + Sync + 'static {
         let _ = target;
         Err(Refusal::new(ErrorCode::Unsupported, "this engine reads no folder's variables"))
     }
+
+    /// The command that opens a console into `machine` of the run `at` names, as `user` when
+    /// given; by default, none.
+    fn console_command<'a>(&'a self, at: Opened<'a>, machine: &'a str, user: Option<&'a str>) -> BoxFuture<'a, Result<ShellCommand, Refusal>> {
+        let _ = (at, machine, user);
+        Box::pin(async { Err(unsupported("consoles")) })
+    }
+
+    /// `machine`'s graphical console, its tunnel (when it has one) the caller's to keep; by
+    /// default, none.
+    fn graphical_console<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions, machine: &'a str) -> BoxFuture<'a, Result<Console, Refusal>> {
+        let _ = (at, options, machine);
+        Box::pin(async { Err(unsupported("graphical consoles")) })
+    }
+
+    /// What opens running `machine` in its hypervisor's own app; by default, nothing.
+    fn native_console<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions, machine: &'a str) -> BoxFuture<'a, Result<NativeConsole, Refusal>> {
+        let _ = (at, options, machine);
+        Box::pin(async { Err(unsupported("hypervisor apps")) })
+    }
+
+    /// The service endpoints the run publishes, each where this computer reaches it (a forward
+    /// the engine keeps open); by default, none.
+    fn service_endpoints<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<ServiceEndpoint>, Refusal>> {
+        let _ = (at, options);
+        Box::pin(async { Err(unsupported("service endpoints")) })
+    }
+
+    /// The public half of the engine's SSH key, one line; by default, none.
+    fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
+        Box::pin(async { Err(unsupported("SSH keys")) })
+    }
+}
+
+/// A run as a query names it: by name, opened from `target` when given, else as its record says.
+#[derive(Debug, Clone, Copy)]
+pub struct Opened<'a> {
+    /// The run.
+    pub run: &'a RunName,
+    /// Where it is opened from.
+    pub target: Option<&'a Target>,
+}
+
+/// The refusal of an engine that has no `what`.
+fn unsupported(what: &str) -> Refusal {
+    Refusal::new(ErrorCode::Unsupported, format!("this engine has no {what}"))
 }
 
 /// The Isothrum runner as the service's engine.
@@ -103,6 +150,17 @@ impl RunnerEngine {
             None => self.runner.open(&target.path, target.name.clone()),
         };
         Ok(opened?)
+    }
+
+    /// The run `at` names, opened from its target under its name, else as recorded.
+    fn reopen(&self, at: Opened<'_>) -> Result<Running<'_>, Refusal> {
+        match at.target {
+            Some(target) => self.open(&Target {
+                name: Some(at.run.clone()),
+                ..target.clone()
+            }),
+            None => Ok(self.runner.reopen(at.run)?),
+        }
     }
 
     /// Runs `command` on the opened `run`: whether it reached its goal (a command `exec` ran that
@@ -192,15 +250,26 @@ impl Engine for RunnerEngine {
     }
 
     fn status<'a>(&'a self, run: &'a RunName, target: Option<&'a Target>, options: &'a OpOptions) -> BoxFuture<'a, Result<Status, Refusal>> {
-        Box::pin(async move {
-            let running = match target {
-                Some(target) => self.open(&Target {
-                    name: Some(run.clone()),
-                    ..target.clone()
-                })?,
-                None => self.runner.reopen(run)?,
-            };
-            Ok(running.status_with(&run_options(options)).await?)
-        })
+        Box::pin(async move { Ok(self.reopen(Opened { run, target })?.status_with(&run_options(options)).await?) })
+    }
+
+    fn console_command<'a>(&'a self, at: Opened<'a>, machine: &'a str, user: Option<&'a str>) -> BoxFuture<'a, Result<ShellCommand, Refusal>> {
+        Box::pin(async move { Ok(self.reopen(at)?.console_command(machine, user).await?) })
+    }
+
+    fn graphical_console<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions, machine: &'a str) -> BoxFuture<'a, Result<Console, Refusal>> {
+        Box::pin(async move { Ok(self.reopen(at)?.graphical_console(machine, &run_options(options)).await?) })
+    }
+
+    fn native_console<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions, machine: &'a str) -> BoxFuture<'a, Result<NativeConsole, Refusal>> {
+        Box::pin(async move { Ok(self.reopen(at)?.native_console(machine, &run_options(options)).await?) })
+    }
+
+    fn service_endpoints<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<ServiceEndpoint>, Refusal>> {
+        Box::pin(async move { Ok(self.reopen(at)?.service_endpoints(&run_options(options)).await?) })
+    }
+
+    fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
+        Box::pin(async move { Ok(self.runner.ssh_public_key().await?) })
     }
 }
