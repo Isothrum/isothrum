@@ -2,8 +2,8 @@
 
 Isothrum runs any Terraform module: a folder that holds `*.tf` or `*.tf.json` files. It needs no
 output, variable or file of its own. What it reads comes from Terraform itself: `show -json` for the
-state, and `output -json` for the outputs. Isoloom's modules follow the conventions below, but any
-module may follow them too, and a module that follows none still runs.
+state, and `output -json` for the outputs. A module may follow the conventions below, and a module
+that follows none still runs.
 
 ## What every module gets
 

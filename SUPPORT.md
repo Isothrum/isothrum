@@ -8,9 +8,8 @@
   standard error). Remove secrets from what you paste.
 - **An idea or a missing feature.** Open an issue with the *Feature request* form.
 - **A security vulnerability.** Don't open an issue: follow [SECURITY.md](SECURITY.md).
-- **A problem in the generated files** (the Compose file, the Vagrantfile, the Terraform module,
-  the run manifest's content): that is Isoloom's, at
-  [isoloom/isoloom](https://github.com/isoloom/isoloom).
+- **A problem in a project's own files** (the Compose file, the Vagrantfile, the Terraform
+  module): that belongs to whoever wrote them, or to the tool that generated them.
 
 Isothrum is maintained on a best-effort basis: there is no paid support and no guaranteed
 response time, except for security reports ([SECURITY.md](SECURITY.md)).

@@ -1,7 +1,9 @@
 //! What the crates say: Isothrum runs any Compose, Vagrant or Terraform project, whoever wrote it,
 //! so no file under `crates/` (code, tests, fixtures, READMEs) names Isoloom, nor uses the words of
 //! an application built on Isothrum (lab, CTF, player, attack box). A test's data uses neutral
-//! names: a project, a stack, a toolbox.
+//! names: a project, a stack, a toolbox. The documentation (`docs/`, the root's Markdown) names no
+//! generator either, but for one line of the README; the changelog and the migration guides are
+//! records, and keep their words.
 
 use std::path::Path;
 
@@ -88,6 +90,20 @@ fn application_vocabulary(files: &[File]) -> Vec<String> {
     found
 }
 
+/// The documentation: every file under `docs/` and the Markdown files at the repository's root.
+/// It may describe what Isothrum runs, never name a generator: the changelog and the migration
+/// guides are records of releases that did, and keep their words.
+fn documentation() -> Vec<File> {
+    let mut files = source::root_markdown();
+    files.extend(source::texts("docs"));
+    files.retain(|f| f.path != "CHANGELOG.md" && !f.path.starts_with("docs/migrating-to-"));
+    files
+}
+
+/// The one line of the documentation allowed to name a generator: the README's, saying Isothrum
+/// runs its output like anything else.
+const DOCS_ALLOWED: (&str, &str) = ("README.md", "Isothrum can also run the projects Isoloom generates");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +168,28 @@ mod tests {
     #[test]
     fn no_file_under_crates_uses_an_applications_words() {
         let found = application_vocabulary(&source::texts(DIR));
+        assert!(found.is_empty(), "{}", found.join("\n"));
+    }
+
+    #[test]
+    fn no_document_names_isoloom_but_the_readmes_one_line() {
+        let files = documentation();
+        assert!(
+            files.iter().any(|f| f.path == "README.md") && files.iter().any(|f| f.path.starts_with("docs/")),
+            "the walk is broken"
+        );
+        assert!(!files.iter().any(|f| f.path == "CHANGELOG.md"), "the changelog is a record");
+        let (path, line) = DOCS_ALLOWED;
+        let readme = files.iter().find(|f| f.path == path).map_or("", |f| f.text.as_str());
+        assert!(readme.contains(line), "the allowed line is gone from {path}: take it off DOCS_ALLOWED");
+        let rest: Vec<File> = files
+            .into_iter()
+            .map(|f| File {
+                text: f.text.lines().filter(|l| !(f.path == path && l.contains(line))).collect::<Vec<_>>().join("\n"),
+                path: f.path,
+            })
+            .collect();
+        let found = isoloom_mentions(&rest);
         assert!(found.is_empty(), "{}", found.join("\n"));
     }
 }

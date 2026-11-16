@@ -1,9 +1,9 @@
 # GNS3 feature coverage
 
-Which of GNS3's features this repository's crates cover: the compiler (`isothrum-compiler`, a
-drawn topology to an Isoloom spec, and `isothrum-wasm`, the same in the browser with every
-target's files and the download) and the runner (`isothrum-runner` and its CLI, which run what
-Isoloom generates). What an application built on them adds around a run that is up (console
+Which of GNS3's features a drawn topology gets when a generator compiles it into projects and
+Isothrum runs them (`isothrum-runner` and its CLI). The rows on drawing, compiling and exporting
+are the generator's: the topology compiler left this repository, and those rows say what it did
+when it was here. What an application built on them adds around a run that is up (console
 windows, packet capture, links set down and up, snapshots) is that application's to list.
 
 Built from GNS3's documented feature set; check a row against docs.gns3.com before quoting it.
@@ -15,7 +15,7 @@ Status: **Covered** · **Partial** (part of it, or another mechanism) · **Not c
 | GNS3 feature | Status | What covers it |
 |---|---|---|
 | Docker container nodes | Covered | A container node, one image each, kept running idle when its image runs nothing of its own |
-| QEMU / full VM nodes | Covered | A VM node: its OS and its provisioning steps; the Isoloom target decides what runs it (Vagrant, Proxmox, a cloud) |
+| QEMU / full VM nodes | Covered | A VM node: its OS and its provisioning steps; the generator's target decides what runs it (Vagrant, Proxmox, a cloud) |
 | VirtualBox / VMware nodes | Partial | The Vagrant providers the runner drives, not node types of their own |
 | Ethernet switch | Covered | A LAN on a switch, with its VLAN (the switch's VLANs nest under a network named after it) |
 | Cisco IOS / IOU / Dynamips images | Covered | A container node with an `appliance` (IOL and the other vrnetlab images, or Dynamips) and its configuration; the user brings the images |
@@ -29,15 +29,15 @@ Status: **Covered** · **Partial** (part of it, or another mechanism) · **Not c
 |---|---|---|
 | Point-to-point cabling between ports | Covered | Each cable is its own /29 network, cut from `10.200.0.0/16` |
 | Named ports | Covered | A cable's ends name their nodes' ports |
-| Link filters: latency, jitter, loss, bandwidth | Covered | `tc` on a LAN or a cable (Isoloom's netem) |
+| Link filters: latency, jitter, loss, bandwidth | Covered | `tc` on a LAN or a cable (the generator's netem) |
 | Routing between links | Covered | A router you configure, or the automatic router: its networks reach each other (`reach` rules both ways) |
 
 ## Projects (compiler)
 
 | GNS3 feature | Status | What covers it |
 |---|---|---|
-| Save and export a project | Covered | The compiler writes `isoloom.yml` and the project's own files (appliance configurations, provisioning starters); the WebAssembly engine zips them with every target's files |
-| Validation before running | Covered | The engine's plan lists the problems Isoloom finds in the spec |
+| Save and export a project | Covered | The compiler writes the generator's spec and the project's own files (appliance configurations, provisioning starters); the WebAssembly engine zips them with every target's files |
+| Validation before running | Covered | The engine's plan lists the problems the generator finds in the spec |
 | Import a `.gns3` project | Not covered | |
 
 ## Running an environment (runner)

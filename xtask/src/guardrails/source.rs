@@ -38,15 +38,29 @@ fn read(dir: &str, wanted: fn(&Path) -> bool) -> Vec<File> {
     let mut paths = Vec::new();
     walk(&repo::path_in(&root, dir), wanted, &mut paths);
     paths.sort();
-    paths
+    paths.into_iter().filter_map(|p| at(&root, &p)).collect()
+}
+
+/// The Markdown files at the repository's root, sorted.
+pub(super) fn root_markdown() -> Vec<File> {
+    let root = repo::root();
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&root)
         .into_iter()
-        .filter_map(|p| {
-            Some(File {
-                path: repo::slashed(p.strip_prefix(&root).unwrap_or(&p)),
-                text: std::fs::read_to_string(&p).ok()?,
-            })
-        })
-        .collect()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "md"))
+        .collect();
+    paths.sort();
+    paths.into_iter().filter_map(|p| at(&root, &p)).collect()
+}
+
+/// The file at `path`, named relative to `root`, when it reads as UTF-8.
+fn at(root: &Path, path: &Path) -> Option<File> {
+    Some(File {
+        path: repo::slashed(path.strip_prefix(root).unwrap_or(path)),
+        text: std::fs::read_to_string(path).ok()?,
+    })
 }
 
 fn walk(dir: &Path, wanted: fn(&Path) -> bool, out: &mut Vec<PathBuf>) {
