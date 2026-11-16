@@ -20,6 +20,13 @@ Terraform), usable on any project of those formats.
   apart. `RunRecord::expired` says whether a record is past its lifetime; `ShellCommand`,
   `NativeConsole` and `ServiceEndpoint` read back from JSON, and `Console::new` is public.
 
+### Fixed
+
+- **A home on a long path serves.** A Unix socket's path is limited (103 bytes on macOS, 107 on
+  Linux): a home deeper than that couldn't listen. Its socket is now in `isothrum-<uid>/` of the
+  user's runtime or temporary folder (owner-only, refused when another account owns or may enter
+  it), named after the home; `service.json` names it.
+
 ### Changed
 
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the

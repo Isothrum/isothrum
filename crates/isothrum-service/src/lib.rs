@@ -210,7 +210,7 @@ impl Service {
         stop_operations(&queue, tools.as_ref(), &mut stop).await;
         end_sessions(&shared, sessions).await;
         #[cfg(unix)]
-        if let Err(e) = std::fs::remove_file(self.paths.socket()) {
+        if let Err(e) = std::fs::remove_file(&info.endpoint) {
             tracing::debug!(error = %e, "the socket couldn't be removed");
         }
         Ok(())
