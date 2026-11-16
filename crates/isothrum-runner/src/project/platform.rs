@@ -29,6 +29,8 @@ pub enum Arch {
 /// A Vagrant provider: the hypervisor `vagrant up --provider` takes. Exhaustive: whoever detects
 /// or offers providers (`isothrum-machine`) fails to compile until a new one has its row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+// Its TypeScript type (the `ts-rs` feature) is `VagrantProvider`.
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(rename = "VagrantProvider"))]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     /// VirtualBox.

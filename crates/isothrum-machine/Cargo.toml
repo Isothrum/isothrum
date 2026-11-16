@@ -18,14 +18,21 @@ publish = true
 [lints]
 workspace = true
 
+[features]
+# The TypeScript types of a provider's status and reasons, for a UI in TypeScript.
+ts-rs = ["dep:ts-rs", "isothrum-runner/ts-rs"]
+
 [dependencies]
 isothrum-runner.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
-isothrum-runner = { workspace = true, features = ["fake"] }
+# The TypeScript types are derived in tests too, so their shape is tested whatever the features.
+isothrum-runner = { workspace = true, features = ["fake", "ts-rs"] }
+ts-rs.workspace = true
 isothrum-test-support.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

@@ -14,6 +14,7 @@ use crate::host::Host;
 /// (and its hypervisor runs), and a setup offers an install for each entry, so finishing it can't
 /// leave the provider short of something no step installs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum Need {
@@ -27,6 +28,7 @@ pub enum Need {
 
 /// Where HashiCorp's Vagrant VMware Utility stands on this machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum UtilityState {
     /// Not installed.

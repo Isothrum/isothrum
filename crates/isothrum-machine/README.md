@@ -48,7 +48,11 @@ async fn main() {
 
 ## Feature flags
 
-None.
+| Feature | What it adds |
+|---|---|
+| `ts-rs` | The TypeScript types (through [ts-rs](https://docs.rs/ts-rs)) of `ProviderStatus`, `Unavailable`, `Need`, `UtilityState` and `AccountLacks`, which follow their serde form, for a UI in TypeScript; with the runner's `VagrantProvider`. |
+
+No feature is on by default.
 
 ## Documentation
 

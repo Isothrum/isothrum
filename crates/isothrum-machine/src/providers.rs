@@ -211,6 +211,7 @@ fn probe_of(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&
 
 /// What the account lacks to use a provider installed here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum AccountLacks {
@@ -224,6 +225,7 @@ pub enum AccountLacks {
 /// One provider's readiness on this machine: whether VMs can run on it here, and what is still
 /// missing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ProviderStatus {
@@ -251,6 +253,7 @@ pub struct ProviderStatus {
     pub reason: Option<Unavailable>,
     /// What this account lacks to use it although it is installed (the right to manage Hyper-V,
     /// a new login after joining libvirt's groups), whatever else is missing.
+    #[cfg_attr(any(test, feature = "ts-rs"), ts(optional = nullable))]
     pub account_lacks: Option<AccountLacks>,
 }
 
