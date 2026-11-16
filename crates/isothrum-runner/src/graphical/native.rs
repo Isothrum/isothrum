@@ -47,7 +47,8 @@ impl NativeApp {
 }
 
 /// One way to open a VM in its hypervisor's app: what to run, never through a shell.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "way")]
 #[non_exhaustive]
 pub enum NativeOpen {
     /// Run `program` (a name on `PATH`, or a full path) with `args`, each passed as it is.
@@ -84,7 +85,7 @@ impl NativeOpen {
 }
 
 /// What opens a running VM's screen in its hypervisor's own app.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct NativeConsole {
     /// The machine.

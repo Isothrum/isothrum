@@ -22,6 +22,31 @@ Newline-delimited JSON (one object per line, at most 16 MiB). A client writes re
 is `hello`. The commands, replies and the event frames are documented in the client crate's
 [`proto`](https://docs.rs/isothrum-client/latest/isothrum_client/proto/) module.
 
+### Everything else a client asks of a home
+
+A client never opens the home's files: what it would read or write there, it asks the service.
+None of these is queued; each is answered at once.
+
+| Request | Reply | In Rust |
+|---|---|---|
+| `{"cmd":"record","run":"…"}` | `{"reply":"run","run":{…}}`, `null` for a run never recorded | `Client::record` |
+| `{"cmd":"forget","run":"…"}` | `ok`; `locked` while an operation of the run is queued or running. What the run created is left as it is | `Client::forget` |
+| `{"cmd":"expired"}` | `{"reply":"runs","runs":[…]}`: the runs past their lifetime that may still hold something | `Client::expired` |
+| `{"cmd":"console_command","run":"…","machine":"…","user":"…"}` | `{"reply":"shell","command":{program,args,cwd,env}}`, for the client to run in its own terminal | `Client::console_command` |
+| `{"cmd":"graphical_console","run":"…","machine":"…","options":{…}}` | `{"reply":"console","console":{machine,protocol,endpoint,user,password,note,tunnelled}}` | `Client::graphical_console` |
+| `{"cmd":"native_console","run":"…","machine":"…","options":{…}}` | `{"reply":"native","console":{machine,app,ways}}` | `Client::native_console` |
+| `{"cmd":"service_endpoints","run":"…","options":{…}}` | `{"reply":"endpoints","endpoints":[{name,address,forwarded,why}]}`: where this computer reaches each published service, a forward through the run's jump host kept open by the service | `Client::service_endpoints` |
+| `{"cmd":"public_key"}` | `{"reply":"public_key","key":"ssh-ed25519 …"}`, the runner's key made when it has none | `Client::public_key` |
+
+`console_command`, `graphical_console`, `native_console` and `service_endpoints` take a `target`
+too, for a run opened from its folder rather than its record. A graphical console reached through
+an SSH tunnel keeps the tunnel open for as long as the connection that asked:
+`Client::graphical_console` asks on a connection of its own, held by the `HeldConsole` it returns,
+and dropping it ends the tunnel. When the tunnel ends first, the service writes
+`{"reply":"console_closed","id":N,"reason":"…"}` and closes that connection
+(`HeldConsole::closed`). The console's password travels like a revealed output: only over the
+owner-only endpoint, and never in a debug form.
+
 ### A Terraform folder's input variables
 
 `{"id":N,"cmd":"variables","target":{"path":"/abs/folder"}}` is answered
@@ -58,7 +83,8 @@ The reaper's `down` gives the tools the values the run's record keeps (a Terrafo
 later; `isothrum reap`, given the secrets, removes it, as any client's `down` that passes them.
 
 `reap_every: None` turns the reaper off: the service never looks for expired runs. An embedder that
-reaps itself (with the account's credentials it holds) hosts the service so.
+reaps itself (with the account's credentials it holds) hosts the service so, and sweeps through
+the client: `expired`, then a `down` of each with the secrets it holds.
 
 ### What every protocol keeps
 

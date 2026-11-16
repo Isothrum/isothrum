@@ -1,6 +1,9 @@
 //! The client: one connection for requests and their replies, and one more per subscription.
 
+mod console;
 mod events;
+mod home;
+pub use console::HeldConsole;
 use events::OperationEvents;
 pub use events::{Followed, Subscription};
 use std::collections::HashMap;
@@ -81,15 +84,11 @@ fn resolve(home: &Path) -> PathBuf {
     std::fs::canonicalize(&absolute).unwrap_or(absolute)
 }
 
-/// One connection to the service of `paths`, past its `hello`, and what the service says of
-/// itself (its version as its `hello` gives it).
-async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
-    let info = paths
-        .read_info()
-        .ok_or_else(|| ClientError::Unavailable(format!("no service runs for {}", paths.home().display())))?;
-    let (mut reader, mut writer) = connect(&info.endpoint)
+/// A connection to the service at `endpoint`, its `hello` sent, and the service's first answer.
+async fn hello(endpoint: &str) -> Result<(Reader, Writer, Option<Reply>)> {
+    let (mut reader, mut writer) = connect(endpoint)
         .await
-        .map_err(|e| ClientError::Unavailable(format!("the service at {} doesn't answer: {e}", info.endpoint)))?;
+        .map_err(|e| ClientError::Unavailable(format!("the service at {endpoint} doesn't answer: {e}")))?;
     write_line(
         &mut writer,
         &Request {
@@ -98,7 +97,18 @@ async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
         },
     )
     .await?;
-    match reader.next::<Reply>().await? {
+    let first = reader.next::<Reply>().await?;
+    Ok((reader, writer, first))
+}
+
+/// One connection to the service of `paths`, past its `hello`, and what the service says of
+/// itself (its version as its `hello` gives it).
+async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
+    let info = paths
+        .read_info()
+        .ok_or_else(|| ClientError::Unavailable(format!("no service runs for {}", paths.home().display())))?;
+    let (reader, writer, first) = hello(&info.endpoint).await?;
+    match first {
         Some(Reply::Hello { protocol, version, .. }) if protocol == PROTOCOL => Ok((reader, writer, ServiceInfo { version, ..info })),
         Some(Reply::Hello { protocol, version, .. }) => Err(ClientError::Protocol(format!(
             "the service (Isothrum {version}) speaks protocol {protocol}, this client {PROTOCOL}: stop it to let this version start its own"
@@ -418,6 +428,17 @@ impl Client {
         }
     }
 
+    /// A connection of its own to the service, past its `hello`.
+    pub(super) async fn dedicated(&self) -> Result<(Reader, Writer)> {
+        let (reader, writer, first) = hello(&self.info.endpoint).await?;
+        match first {
+            Some(Reply::Hello { .. }) => Ok((reader, writer)),
+            Some(Reply::Error { report, .. }) => Err(ClientError::Refused(Box::new(report))),
+            Some(other) => Err(unexpected(&other)),
+            None => Err(ClientError::closed()),
+        }
+    }
+
     /// Run `run`'s latest operations, newest first.
     ///
     /// # Errors
@@ -446,17 +467,7 @@ impl Client {
     ///
     /// The service refused, or doesn't answer.
     pub async fn subscribe(&self, run: Option<RunName>, after: Option<EventCursor>) -> Result<Subscription> {
-        let (mut reader, mut writer) = connect(&self.info.endpoint)
-            .await
-            .map_err(|e| ClientError::Unavailable(format!("the service at {} doesn't answer: {e}", self.info.endpoint)))?;
-        write_line(
-            &mut writer,
-            &Request {
-                id: 0,
-                command: Command::Hello { protocol: PROTOCOL },
-            },
-        )
-        .await?;
+        let (mut reader, mut writer) = self.dedicated().await?;
         write_line(
             &mut writer,
             &Request {
@@ -465,14 +476,11 @@ impl Client {
             },
         )
         .await?;
-        loop {
-            match reader.next::<Reply>().await? {
-                Some(Reply::Hello { .. }) => {}
-                Some(Reply::Ok { id: 1 }) => break,
-                Some(Reply::Error { report, .. }) => return Err(ClientError::Refused(Box::new(report))),
-                Some(other) => return Err(unexpected(&other)),
-                None => return Err(ClientError::closed()),
-            }
+        match reader.next::<Reply>().await? {
+            Some(Reply::Ok { id: 1 }) => {}
+            Some(Reply::Error { report, .. }) => return Err(ClientError::Refused(Box::new(report))),
+            Some(other) => return Err(unexpected(&other)),
+            None => return Err(ClientError::closed()),
         }
         let (tx, rx) = mpsc::channel(SUBSCRIPTION_BUFFER);
         let task = tokio::spawn(async move {
@@ -521,6 +529,6 @@ impl Client {
 }
 
 /// A reply of a kind the request doesn't get.
-fn unexpected(reply: &Reply) -> ClientError {
+pub(super) fn unexpected(reply: &Reply) -> ClientError {
     ClientError::Protocol(format!("unexpected reply: {reply:?}"))
 }

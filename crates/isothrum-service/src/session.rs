@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use interprocess::local_socket::tokio::Stream;
-use isothrum_client::proto::{Command, PROTOCOL, Reply, Request};
+use isothrum_client::proto::{Command, PROTOCOL, ReachedConsole, Reply, Request};
 use isothrum_client::v1::EventCursor;
 use isothrum_client::wire::{LineReader, write_line};
 use isothrum_runner::{ErrorCode, RunName};
@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::Shared;
+use crate::engine::{Opened, Refusal};
 use crate::feed::Feed;
 
 /// How many replies and events wait for a slow client before its subscription waits too.
@@ -36,26 +37,13 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
         outbox,
         subscription: None,
         greeted: Greeted::Not,
+        console: None,
     };
     // The service stopped: no request is read any more, what was answered is still written.
     let mut closed = session.shared.feed.closed();
-    loop {
-        let next = tokio::select! {
-            next = reader.next::<Request>() => next,
-            _ = closed.wait_for(|stopped| *stopped) => break,
-        };
-        match next {
-            Ok(Some(request)) => {
-                if !session.handle(request).await {
-                    break;
-                }
-            }
-            Ok(None) => break,
-            Err(e) => {
-                let refused = error(0, ErrorCode::Usage, format!("a line that isn't a request: {e}"));
-                drop(session.outbox.send(refused).await);
-                break;
-            }
+    while let Some(request) = session.next_request(&mut reader, &mut closed).await {
+        if !session.handle(request).await {
+            break;
         }
     }
     if let Some(subscription) = session.subscription.take() {
@@ -72,12 +60,25 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
     drop(writer.await);
 }
 
+/// What a connection's loop meets next.
+enum Next {
+    /// A request read (or none: the client closed; or a line that isn't one).
+    Read(std::io::Result<Option<Request>>),
+    /// The service stopped.
+    Stopped,
+    /// The tunnel of the connection's console ended on its own (its request's id, and how).
+    TunnelEnded(u64, String),
+}
+
 /// A connection's state.
 struct Session {
     shared: Arc<Shared>,
     outbox: mpsc::Sender<Reply>,
     subscription: Option<JoinHandle<()>>,
     greeted: Greeted,
+    /// The tunnel of the graphical console this connection asked for (its request's id): open
+    /// while the connection is.
+    console: Option<(u64, isothrum_runner::Tunnel)>,
 }
 
 /// Whether the client said `hello`, and in which protocol.
@@ -103,18 +104,10 @@ impl Session {
         }
         let reply = match request.command {
             Command::Hello { .. } => hello(id),
-            Command::Status { run, target, options } => {
-                // A status reads the tools: it doesn't hold the connection's other requests.
-                let (shared, outbox) = (Arc::clone(&self.shared), self.outbox.clone());
-                tokio::spawn(async move {
-                    let reply = match shared.engine.status(&run, target.as_ref(), &options).await {
-                        Ok(status) => Reply::Status { id, status: Box::new(status) },
-                        Err(refusal) => refused(id, refusal),
-                    };
-                    drop(outbox.send(reply).await);
-                });
-                return true;
-            }
+            command if command.is_question() => match self.ask(id, command).await {
+                Some(reply) => reply,
+                None => return true,
+            },
             Command::Variables { target } => match self.shared.engine.variables(&target) {
                 Ok(variables) => Reply::Variables { id, variables },
                 Err(refusal) => refused(id, refusal),
@@ -152,6 +145,114 @@ impl Session {
             },
         };
         self.outbox.send(reply).await.is_ok()
+    }
+
+    /// The connection's next request; none when it is to end: the client closed it or wrote a
+    /// line that isn't a request (refused), the service stopped, or the tunnel of the connection's
+    /// console ended (the client told why).
+    async fn next_request(&mut self, reader: &mut LineReader<tokio::io::ReadHalf<Stream>>, closed: &mut tokio::sync::watch::Receiver<bool>) -> Option<Request> {
+        let next = tokio::select! {
+            next = reader.next::<Request>() => Next::Read(next),
+            _ = closed.wait_for(|stopped| *stopped) => Next::Stopped,
+            (id, reason) = self.tunnel_closed() => Next::TunnelEnded(id, reason),
+        };
+        match next {
+            Next::Read(Ok(request)) => request,
+            Next::Read(Err(e)) => {
+                let refused = error(0, ErrorCode::Usage, format!("a line that isn't a request: {e}"));
+                drop(self.outbox.send(refused).await);
+                None
+            }
+            Next::Stopped => None,
+            Next::TunnelEnded(id, reason) => {
+                self.console = None;
+                drop(self.outbox.send(Reply::ConsoleClosed { id, reason }).await);
+                None
+            }
+        }
+    }
+
+    /// Waits for the tunnel of this connection's graphical console to end on its own: its
+    /// request's id, and how it ended. Never, while it has none.
+    async fn tunnel_closed(&mut self) -> (u64, String) {
+        match &mut self.console {
+            Some((id, tunnel)) => (*id, tunnel.closed().await),
+            None => std::future::pending().await,
+        }
+    }
+
+    /// Answers `command`, a question about the home that runs no operation: its reply, or none
+    /// when the engine answers it on a task of its own (it reads the tools, and doesn't hold the
+    /// connection's other requests).
+    async fn ask(&mut self, id: u64, command: Command) -> Option<Reply> {
+        Some(match command {
+            Command::GraphicalConsole { .. } => self.graphical_console(id, command).await,
+            Command::Record { run } => match self.shared.store.read(|tx| tx.run(&run)) {
+                Ok(row) => Reply::Run { id, run: row.map(Box::new) },
+                Err(e) => refused(id, e.into()),
+            },
+            Command::Forget { run } => self.forget(id, &run),
+            Command::Expired => match runs(&self.shared.store) {
+                Ok(runs) => {
+                    let now = std::time::SystemTime::now();
+                    let runs = runs.into_iter().filter(|r| r.record.expired(now)).collect();
+                    Reply::Runs { id, runs }
+                }
+                Err(e) => refused(id, e.into()),
+            },
+            command => {
+                let (shared, outbox) = (Arc::clone(&self.shared), self.outbox.clone());
+                tokio::spawn(async move {
+                    let reply = engine_answer(&shared, id, command).await.unwrap_or_else(|refusal| refused(id, refusal));
+                    drop(outbox.send(reply).await);
+                });
+                return None;
+            }
+        })
+    }
+
+    /// The graphical console `command` asks for, its tunnel kept for as long as this connection
+    /// (a second console's replaces it).
+    async fn graphical_console(&mut self, id: u64, command: Command) -> Reply {
+        let Command::GraphicalConsole { run, target, options, machine } = command else {
+            return error(id, ErrorCode::Usage, "not a graphical console".to_owned());
+        };
+        let at = Opened {
+            run: &run,
+            target: target.as_ref(),
+        };
+        match self.shared.engine.graphical_console(at, &options, &machine).await {
+            Ok(mut console) => match ReachedConsole::of(&console) {
+                Some(reached) => {
+                    self.console = console.tunnel.take().map(|tunnel| (id, tunnel));
+                    Reply::Console {
+                        id,
+                        console: Box::new(reached),
+                    }
+                }
+                None => error(
+                    id,
+                    ErrorCode::Unsupported,
+                    format!("`{machine}`'s console answers where this protocol can't say"),
+                ),
+            },
+            Err(refusal) => refused(id, refusal),
+        }
+    }
+
+    /// Forgets run `run`'s record, unless an operation of it is queued or running.
+    fn forget(&self, id: u64, run: &RunName) -> Reply {
+        if self.shared.queue.under_way(run) {
+            return error(
+                id,
+                ErrorCode::Locked,
+                format!("an operation of `{run}` is queued or running: it is forgotten once none is"),
+            );
+        }
+        match self.shared.store.write(|tx| tx.forget_run(run)) {
+            Ok(()) => Reply::Ok { id },
+            Err(e) => refused(id, e.into()),
+        }
     }
 
     /// The refusal of `request` on a connection greeted in another protocol: it takes only
@@ -221,6 +322,47 @@ fn error(id: u64, code: ErrorCode, message: String) -> Reply {
         id,
         report: isothrum_runner::ErrorReport::new(code, message).unchanged(),
     }
+}
+
+/// The engine's answer to `command`, request `id`: a status, the way into a machine or its
+/// hypervisor's app, its endpoints, the runner's key.
+async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Reply, Refusal> {
+    let engine = &shared.engine;
+    Ok(match command {
+        Command::Status { run, target, options } => {
+            let status = engine.status(&run, target.as_ref(), &options).await?;
+            Reply::Status { id, status: Box::new(status) }
+        }
+        Command::ConsoleCommand { run, target, machine, user } => {
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
+            let shell = engine.console_command(at, &machine, user.as_deref()).await?;
+            Reply::Shell { id, command: shell }
+        }
+        Command::NativeConsole { run, target, options, machine } => {
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
+            let console = engine.native_console(at, &options, &machine).await?;
+            Reply::Native { id, console }
+        }
+        Command::ServiceEndpoints { run, target, options } => {
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
+            let endpoints = engine.service_endpoints(at, &options).await?;
+            Reply::Endpoints { id, endpoints }
+        }
+        Command::PublicKey => Reply::PublicKey {
+            id,
+            key: engine.public_key().await?,
+        },
+        _ => return Err(Refusal::new(ErrorCode::Usage, "not a question the engine answers")),
+    })
 }
 
 /// The error reply of `refusal`, with the runner's typed fields when it has them.

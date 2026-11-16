@@ -168,6 +168,15 @@ pub struct RunRecord {
 }
 
 impl RunRecord {
+    /// Whether its lifetime ([`crate::RunOptions::lifetime`]) passed at `now` and its last
+    /// operation didn't leave it absent: a run that may still hold something, for a reaper to
+    /// take down.
+    #[must_use]
+    pub fn expired(&self, now: std::time::SystemTime) -> bool {
+        let now = crate::clock::unix_seconds(now);
+        self.state != RunState::Absent && self.expires_at.is_some_and(|at| at <= now)
+    }
+
     /// A record of a run of the `format` project in `project`, never started yet.
     pub(crate) fn fresh(name: RunName, project: PathBuf, format: Format) -> RunRecord {
         RunRecord {

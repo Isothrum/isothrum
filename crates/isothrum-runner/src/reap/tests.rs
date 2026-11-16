@@ -6,6 +6,7 @@ use crate::name::RunName;
 use crate::process::fake::FakeProcesses;
 use crate::project::Format;
 use crate::project::platform::HostOs;
+use crate::state::RunState;
 use crate::testing::{TEST_TIME, no_ports, processes, runner_config};
 
 /// A runner with no tool, its home a temporary folder.
