@@ -25,10 +25,10 @@ fn web_gone() -> isothrum_runner::Error {
 
 /// An engine for runs named after their folder: `refused` is refused before anything is queued;
 /// an operation on `gone` fails at its step `resume`, any other ends well after one line of log.
-/// Only `lab` has a status.
-struct Lab;
+/// Only `stack` has a status.
+struct Stack;
 
-impl Engine for Lab {
+impl Engine for Stack {
     fn resolve(&self, target: &Target) -> Result<RunName, Refusal> {
         match target.path.file_name().and_then(|n| n.to_str()).unwrap_or_default() {
             "refused" => Err(Refusal::from(web_gone())),
@@ -62,7 +62,7 @@ impl Engine for Lab {
 
     fn status<'a>(&'a self, run: &'a RunName, _target: Option<&'a Target>, _options: &'a OpOptions) -> BoxFuture<'a, Result<Status, Refusal>> {
         Box::pin(async move {
-            if run.as_str() != "lab" {
+            if run.as_str() != "stack" {
                 return Err(Refusal::new(ErrorCode::NotRunning, format!("`{run}` isn't running")));
             }
             let ready = serde_json::json!({ "state": "ready", "provider": null, "machines": [], "outputs": [] });
@@ -74,9 +74,9 @@ impl Engine for Lab {
 mod common;
 use common::{Outcome, Serving};
 
-/// A service on `home` over [`Lab`], never stopped but by a request, and a client of it.
+/// A service on `home` over [`Stack`], never stopped but by a request, and a client of it.
 async fn serve(home: &Path) -> Outcome<(Client, Serving)> {
-    common::serve_with(home, ServeOptions::new(Arc::new(Lab), common::never())).await
+    common::serve_with(home, ServeOptions::new(Arc::new(Stack), common::never())).await
 }
 
 /// A service on a fresh home, its task, and a client of it.
@@ -89,7 +89,7 @@ async fn started() -> Outcome<(tempfile::TempDir, Serving, Client)> {
 /// An `up` of the run in the folder named `run`.
 fn up(run: &str) -> Command {
     Command::Up {
-        target: Target::new(Path::new("/labs").join(run), None),
+        target: Target::new(Path::new("/stacks").join(run), None),
         options: OpOptions::default(),
         lifetime_s: None,
     }
@@ -136,8 +136,8 @@ async fn a_client_finds_no_service_then_the_one_running_by_each_way_in() {
 async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_outcome() {
     let (_home, _serving, client) = started().await.expect("a service answering");
 
-    let mut followed = client.follow(up("lab")).await.expect("followed");
-    assert_eq!((followed.accepted.run.as_str(), followed.accepted.position), ("lab", 0));
+    let mut followed = client.follow(up("stack")).await.expect("followed");
+    assert_eq!((followed.accepted.run.as_str(), followed.accepted.position), ("stack", 0));
     let mut words = Vec::new();
     while let Some(event) = tokio::time::timeout(common::PATIENCE, followed.next()).await.expect("in time") {
         let event = event.expect("an event");
@@ -146,14 +146,14 @@ async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_out
     }
     assert_eq!(words, ["queued", "started", "log working", "result true", "ended"]);
 
-    let accepted = client.submit(up("lab")).await.expect("queued");
+    let accepted = client.submit(up("stack")).await.expect("queued");
     let outcome = client.wait(accepted.operation).await.expect("it ends well");
     assert_eq!(word(&outcome), "result true");
     assert_eq!(
-        client.status(&RunName::new("lab").expect("a name"), None).await.expect("a status").state,
+        client.status(&RunName::new("stack").expect("a name"), None).await.expect("a status").state,
         RunState::Ready
     );
-    let listed = client.operations(&RunName::new("lab").expect("a name"), 1).await.expect("its operations");
+    let listed = client.operations(&RunName::new("stack").expect("a name"), 1).await.expect("its operations");
     assert_eq!(
         listed.iter().map(|o| o.id).collect::<Vec<_>>(),
         [accepted.operation],
@@ -183,7 +183,7 @@ async fn each_failure_comes_back_with_its_code_and_typed_detail() {
 
     let not_running = client.status(&RunName::new("other").expect("a name"), None).await.expect_err("no status");
     assert_eq!(not_running.code(), ErrorCode::NotRunning, "{not_running}");
-    let no_variables = client.variables(Target::new("/labs/lab", None)).await.expect_err("this engine reads none");
+    let no_variables = client.variables(Target::new("/stacks/stack", None)).await.expect_err("this engine reads none");
     assert_eq!(no_variables.code(), ErrorCode::Unsupported, "{no_variables}");
     let unknown = client.cancel(OperationId(999)).await.expect_err("no such operation");
     assert_eq!(unknown.code(), ErrorCode::Usage, "{unknown}");
@@ -192,11 +192,11 @@ async fn each_failure_comes_back_with_its_code_and_typed_detail() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_a_cursor() {
     let (_home, _serving, client) = started().await.expect("a service answering");
-    let lab = RunName::new("lab").expect("a name");
+    let stack = RunName::new("stack").expect("a name");
 
     client.follow(up("other")).await.expect("followed").outcome().await.expect("other ends well");
-    let mut events = client.subscribe(Some(lab.clone()), None).await.expect("subscribed");
-    let ran = client.follow(up("lab")).await.expect("followed").outcome().await.expect("lab ends well");
+    let mut events = client.subscribe(Some(stack.clone()), None).await.expect("subscribed");
+    let ran = client.follow(up("stack")).await.expect("followed").outcome().await.expect("stack ends well");
     let mut seen = Vec::new();
     let mut last = None;
     while seen.last().map(String::as_str) != Some("ended") {
@@ -205,14 +205,14 @@ async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_
             .expect("in time")
             .expect("open")
             .expect("an event");
-        assert_eq!(event.run.as_deref(), Some("lab"), "{event:?}");
+        assert_eq!(event.run.as_deref(), Some("stack"), "{event:?}");
         seen.push(word(&event));
         last = Some(cursor);
     }
     assert!(seen.contains(&word(&ran)), "{seen:?}");
 
-    client.follow(up("lab")).await.expect("followed").outcome().await.expect("lab again");
-    let mut after = client.subscribe(Some(lab), last).await.expect("resumed");
+    client.follow(up("stack")).await.expect("followed").outcome().await.expect("stack again");
+    let mut after = client.subscribe(Some(stack), last).await.expect("resumed");
     let (_, first) = tokio::time::timeout(common::PATIENCE, after.next())
         .await
         .expect("in time")

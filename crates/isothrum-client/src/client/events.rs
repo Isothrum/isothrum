@@ -140,7 +140,7 @@ mod tests {
 
     /// Operation `id`'s event of `kind`.
     fn of(id: i64, kind: EventKind) -> Event {
-        let mut event = Event::new(1, Some("lab".to_owned()), Some(Op::Up), kind);
+        let mut event = Event::new(1, Some("stack".to_owned()), Some(Op::Up), kind);
         event.operation = Some(OperationId(id));
         event
     }

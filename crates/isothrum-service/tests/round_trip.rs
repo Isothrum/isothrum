@@ -15,7 +15,7 @@ mod model;
 use common::Outcome;
 use model::serve;
 
-/// Docker with Compose, for a project of `web` and `attackbox` (under a profile): the services
+/// Docker with Compose, for a project of `web` and `toolbox` (under a profile): the services
 /// with a container, and whether each runs.
 #[derive(Default)]
 struct Docker {
@@ -32,7 +32,7 @@ impl Docker {
             _ => return Answer::ok(""),
         };
         let words: Vec<&str> = rest.iter().copied().filter(|a| *a != "-f" && !Path::new(a).is_absolute()).collect();
-        let named: Vec<&str> = words.iter().copied().filter(|w| ["web", "attackbox"].contains(w)).collect();
+        let named: Vec<&str> = words.iter().copied().filter(|w| ["web", "toolbox"].contains(w)).collect();
         match words.first().copied() {
             Some("up") => {
                 for service in if named.is_empty() { vec!["web"] } else { named } {
@@ -73,33 +73,33 @@ impl Docker {
 }
 
 /// A service over a runner on the modelled Docker, on a fresh home, a Compose project beside it.
-struct Lab {
+struct Stack {
     home: tempfile::TempDir,
     project: tempfile::TempDir,
     client: Client,
     task: common::Serving,
 }
 
-async fn lab() -> Outcome<Lab> {
+async fn stack() -> Outcome<Stack> {
     let (home, project) = (tempfile::tempdir()?, tempfile::tempdir()?);
     std::fs::write(
         project.path().join("compose.yaml"),
-        "services:\n  web: {image: nginx}\n  attackbox: {image: kali, profiles: [attack]}\n",
+        "services:\n  web: {image: nginx}\n  toolbox: {image: kali, profiles: [tools]}\n",
     )?;
     let docker = Docker::default();
     let (client, task) = serve(home.path(), move |call| docker.answer(call)).await?;
-    Ok(Lab { home, project, client, task })
+    Ok(Stack { home, project, client, task })
 }
 
-impl Lab {
+impl Stack {
     fn target(&self) -> Target {
-        Target::new(self.project.path(), RunName::new("lab").ok())
+        Target::new(self.project.path(), RunName::new("stack").ok())
     }
 
     /// The operation `submitted` accepted, waited for to its end.
     async fn ran(&self, submitted: Result<isothrum_client::Accepted, ClientError>) -> Result<(), ClientError> {
         let accepted = submitted?;
-        assert_eq!(accepted.run.as_str(), "lab");
+        assert_eq!(accepted.run.as_str(), "stack");
         self.client.wait(accepted.operation).await.map(drop)
     }
 
@@ -115,47 +115,50 @@ impl Lab {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_operation_a_client_submits_runs_to_its_end() {
-    let lab = lab().await.unwrap();
-    let (client, target, name) = (&lab.client, lab.target(), RunName::new("lab").unwrap());
+    let stack = stack().await.unwrap();
+    let (client, target, name) = (&stack.client, stack.target(), RunName::new("stack").unwrap());
     let none = OpOptions::default;
-    lab.ran(client.up(target.clone(), none()).await).await.expect("up");
-    lab.ran(client.park(target.clone(), none(), Park::Pause).await).await.expect("park");
+    stack.ran(client.up(target.clone(), none()).await).await.expect("up");
+    stack.ran(client.park(target.clone(), none(), Park::Pause).await).await.expect("park");
     assert_eq!(client.status(&name, None).await.expect("status").state, RunState::Parked);
-    lab.ran(client.resume(target.clone(), none()).await).await.expect("resume");
-    lab.ran(client.update(target.clone(), none()).await).await.expect("update");
-    let attackbox = || "attackbox".to_owned();
-    lab.ran(client.attach(target.clone(), none(), attackbox()).await).await.expect("attach");
+    stack.ran(client.resume(target.clone(), none()).await).await.expect("resume");
+    stack.ran(client.update(target.clone(), none()).await).await.expect("update");
+    let toolbox = || "toolbox".to_owned();
+    stack.ran(client.attach(target.clone(), none(), toolbox()).await).await.expect("attach");
     let argv = vec!["true".to_owned()];
-    lab.ran(client.exec(target.clone(), none(), "web".to_owned(), argv).await).await.expect("exec");
-    lab.ran(client.retire(target.clone(), none(), attackbox()).await).await.expect("retire");
+    stack
+        .ran(client.exec(target.clone(), none(), "web".to_owned(), argv).await)
+        .await
+        .expect("exec");
+    stack.ran(client.retire(target.clone(), none(), toolbox()).await).await.expect("retire");
     let provision = Command::Provision {
         target: target.clone(),
         options: none(),
         machine: None,
         with: None,
     };
-    let unprovisioned = lab.ran(client.submit(provision).await).await.expect_err("Compose has no provisioning");
+    let unprovisioned = stack.ran(client.submit(provision).await).await.expect_err("Compose has no provisioning");
     assert!(
         matches!(&unprovisioned, ClientError::Operation(report) if report.code == ErrorCode::Unsupported),
         "{unprovisioned:?}"
     );
-    lab.ran(client.down(target.clone(), none()).await).await.expect("down");
+    stack.ran(client.down(target.clone(), none()).await).await.expect("down");
     assert_eq!(client.status(&name, None).await.expect("status").state, RunState::Absent);
-    let second = Client::connect_running(lab.home.path()).await.expect("a second client");
-    lab.end(&second).await.unwrap();
+    let second = Client::connect_running(stack.home.path()).await.expect("a second client");
+    stack.end(&second).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
-    let lab = lab().await.unwrap();
-    let (client, target, name) = (&lab.client, lab.target(), RunName::new("lab").unwrap());
+    let stack = stack().await.unwrap();
+    let (client, target, name) = (&stack.client, stack.target(), RunName::new("stack").unwrap());
     // hello, on the way in; a client of this release connects as it is, replacing nothing.
     assert_eq!((client.service().protocol, client.service().version.as_str()), (PROTOCOL, VERSION));
-    let exact = Client::connect_exact(lab.home.path(), None).await.expect("this release's own service");
+    let exact = Client::connect_exact(stack.home.path(), None).await.expect("this release's own service");
     assert_eq!(exact.service().pid, client.service().pid, "the same service, not another started");
 
     let mut events = client.subscribe(Some(name.clone()), None).await.expect("subscribed");
-    lab.ran(client.up(target.clone(), OpOptions::default()).await).await.expect("up");
+    stack.ran(client.up(target.clone(), OpOptions::default()).await).await.expect("up");
     assert_eq!(client.status(&name, None).await.expect("status").state, RunState::Ready);
     let revealing = OpOptions {
         reveal: true,
@@ -169,7 +172,7 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
         .expect("an event in time")
         .expect("the subscription")
         .expect("an event");
-    assert_eq!(first.run.as_deref(), Some("lab"), "{first:?}");
+    assert_eq!(first.run.as_deref(), Some("stack"), "{first:?}");
     assert!(matches!(client.request(Command::Unsubscribe).await.expect("unsubscribe"), Reply::Ok { .. }));
 
     // A refusal before anything is queued carries the runner's typed detail.
@@ -179,11 +182,11 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
     };
     assert_eq!((code, detail.v), (ErrorCode::ProjectInvalid, 2));
     assert!(
-        matches!(&detail.data, Detail::ProjectInvalid { dir } if dir == lab.project.path()),
+        matches!(&detail.data, Detail::ProjectInvalid { dir } if dir == stack.project.path()),
         "{detail:?}"
     );
     let ended = operations.first().map(|o| o.id).expect("the up, journaled");
     let cancel = client.cancel(ended).await.expect_err("it ended");
     assert_eq!(cancel.code(), ErrorCode::Usage, "{cancel}");
-    lab.end(&exact).await.unwrap();
+    stack.end(&exact).await.unwrap();
 }

@@ -161,7 +161,7 @@ isothrum provision [OPTIONS] [PATH]
 - `--host-label <LABEL>`: What to call the place the run is on (recorded)
 - `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
 - `--machine <MACHINE>`: Only this machine.
-- `--with <WITH>`: Only the provisioner of this name (Vagrant's `--provision-with`, a lab's `checks`)
+- `--with <WITH>`: Only the provisioner of this name (Vagrant's `--provision-with`, a project's `checks`)
 
 ## `isothrum attach`
 

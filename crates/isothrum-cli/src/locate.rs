@@ -34,14 +34,14 @@ mod tests {
     #[test]
     fn a_relative_home_is_made_absolute_where_the_command_runs() {
         // Regression (#131): a relative home stayed relative, and each tool resolved it from its
-        // own folder: a step's state under the lab's folder, `ssh` finding no key.
+        // own folder: a step's state under the project's folder, `ssh` finding no key.
         let here = std::env::current_dir().unwrap();
         for made in [
-            home(Some("lab-home".into()), None, None).unwrap(),
-            home(None, Some("lab-home".into()), None).unwrap(),
+            home(Some("stack-home".into()), None, None).unwrap(),
+            home(None, Some("stack-home".into()), None).unwrap(),
         ] {
             assert!(made.is_absolute(), "{}", made.display());
-            assert_eq!(made, here.join("lab-home"));
+            assert_eq!(made, here.join("stack-home"));
         }
         let already = here.join("abs-home");
         assert_eq!(home(Some(already.clone()), None, None).unwrap(), already);

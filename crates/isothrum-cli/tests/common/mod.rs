@@ -1,4 +1,4 @@
-//! What the binary's tests share: `isothrum` run in a lab of its own (its runner's home, a user's
+//! What the binary's tests share: `isothrum` run in a stack of its own (its runner's home, a user's
 //! home and environment, a project folder), its JSON lines read back, and on Unix a stand-in
 //! `docker` on its `PATH`.
 
@@ -67,12 +67,12 @@ exit 0
 "#;
 
 /// The folders a command of the binary runs with, removed when dropped.
-pub(crate) struct Lab {
+pub(crate) struct Stack {
     /// The user's home, environment and locale (not the test's).
     pub(crate) env: TempHome,
     /// The runner's home (`ISOTHRUM_HOME`).
     pub(crate) home: tempfile::TempDir,
-    /// The project's folder: empty, or a Compose project of one service `web` ([`Lab::compose`]).
+    /// The project's folder: empty, or a Compose project of one service `web` ([`Stack::compose`]).
     pub(crate) run: tempfile::TempDir,
     /// The stand-in `docker`'s engine: its container's state, and what the tests have it write.
     pub(crate) docker: tempfile::TempDir,
@@ -80,9 +80,9 @@ pub(crate) struct Lab {
     path: std::ffi::OsString,
 }
 
-impl Lab {
-    /// A lab whose project folder holds nothing.
-    pub(crate) fn empty() -> Outcome<Lab> {
+impl Stack {
+    /// A stack whose project folder holds nothing.
+    pub(crate) fn empty() -> Outcome<Stack> {
         let path = std::env::var_os("PATH").unwrap_or_default();
         #[cfg(unix)]
         let path = {
@@ -90,7 +90,7 @@ impl Lab {
             let dir = docker.parent().ok_or("the stand-in's folder")?;
             std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)))?
         };
-        Ok(Lab {
+        Ok(Stack {
             env: TempHome::new(),
             home: tempfile::tempdir()?,
             run: tempfile::tempdir()?,
@@ -99,18 +99,18 @@ impl Lab {
         })
     }
 
-    /// A lab whose project is a Compose project of one service, `web`.
+    /// A stack whose project is a Compose project of one service, `web`.
     #[cfg(unix)]
-    pub(crate) fn compose() -> Outcome<Lab> {
-        let lab = Lab::empty()?;
+    pub(crate) fn compose() -> Outcome<Stack> {
+        let stack = Stack::empty()?;
         std::fs::write(
-            lab.run.path().join("compose.yaml"),
+            stack.run.path().join("compose.yaml"),
             "services:
   web:
     image: nginx
 ",
         )?;
-        Ok(lab)
+        Ok(stack)
     }
 
     /// The project's folder, as an argument.
@@ -118,7 +118,7 @@ impl Lab {
         self.run.path().to_str().unwrap_or_default()
     }
 
-    /// `isothrum`, on this lab's homes, without the runner service, the stand-in `docker` first on
+    /// `isothrum`, on this stack's homes, without the runner service, the stand-in `docker` first on
     /// its `PATH` (Unix).
     #[expect(clippy::disallowed_methods, reason = "the binary under test, started as its users start it")]
     pub(crate) fn command(&self) -> Command {

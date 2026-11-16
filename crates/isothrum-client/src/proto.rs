@@ -447,19 +447,19 @@ mod tests {
         let up = Request {
             id: 7,
             command: Command::Up {
-                target: Target::new("/labs/web", Some(RunName::new("web").unwrap())).with_format(Format::Compose),
+                target: Target::new("/stacks/web", Some(RunName::new("web").unwrap())).with_format(Format::Compose),
                 options: OpOptions::default(),
                 lifetime_s: Some(3600),
             },
         };
         assert_eq!(
             round_trip(&up),
-            json!({"id": 7, "cmd": "up", "target": {"path": "/labs/web", "name": "web", "format": "compose"}, "options": {}, "lifetime_s": 3600})
+            json!({"id": 7, "cmd": "up", "target": {"path": "/stacks/web", "name": "web", "format": "compose"}, "options": {}, "lifetime_s": 3600})
         );
         let park = round_trip(&Request {
             id: 8,
             command: Command::Park {
-                target: Target::new("/labs/web", None),
+                target: Target::new("/stacks/web", None),
                 options: OpOptions::default(),
                 mode: Park::Pause,
             },
