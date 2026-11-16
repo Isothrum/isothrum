@@ -26,6 +26,12 @@ pub enum Unavailable {
     /// QEMU is installed, but not `mkisofs` (Linux), which Vagrant builds the cloud-init seed that
     /// gives a QEMU VM its network with: QEMU's install brings it (`genisoimage`).
     MkisofsMissing,
+    /// libvirt or QEMU is installed, but finds no virtiofsd (Linux), which it shares a folder of
+    /// this computer with a VM through: virtiofsd is its own package (`virtiofsd`).
+    VirtiofsdMissing {
+        /// The hypervisor's name (`libvirt`, `QEMU`).
+        hypervisor: String,
+    },
     /// The hypervisor isn't installed.
     NotInstalled {
         /// The program looked for, which wasn't found; `None` for a hypervisor found otherwise
@@ -129,6 +135,9 @@ impl Unavailable {
             Unavailable::MkisofsMissing => "QEMU VMs need mkisofs, which isn't installed: Vagrant builds with it the disk that gives each VM its network. \
                 Install QEMU again (that adds it), or install genisoimage."
                 .to_owned(),
+            Unavailable::VirtiofsdMissing { hypervisor } => {
+                format!("{hypervisor} needs virtiofsd to share a folder of this computer with a VM, and finds none: install the virtiofsd package.")
+            }
             Unavailable::NotInstalled { program: Some(program) } => format!("`{program}` was not found."),
             Unavailable::NotInstalled { program: None } => "Not installed.".to_owned(),
             Unavailable::NewLogin { group } => {
@@ -194,6 +203,7 @@ mod tests {
             Unavailable::HypervNeedsAdmin,
             Unavailable::HypervisorStopped,
             Unavailable::MkisofsMissing,
+            Unavailable::VirtiofsdMissing { hypervisor: s("QEMU") },
             Unavailable::NotInstalled { program: Some(s("virsh")) },
             Unavailable::NotInstalled { program: None },
             Unavailable::NewLogin { group: s("libvirt") },

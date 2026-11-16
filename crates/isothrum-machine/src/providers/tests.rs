@@ -23,12 +23,28 @@ fn host(os: HostOs, arch: Arch, root: &Path) -> Host {
     }
 }
 
-/// A Linux x86-64 host whose devices are under `root`, with a KVM device the user may open:
-/// VirtualBox, VMware Workstation, libvirt, QEMU and ESXi apply to it.
+/// A Linux x86-64 host whose devices are under `root`, with a KVM device the user may open and
+/// the virtiofsd libvirt and QEMU share folders through: VirtualBox, VMware Workstation, libvirt,
+/// QEMU and ESXi apply to it.
 fn linux(root: &Path) -> Host {
     let host = host(HostOs::Linux, Arch::Amd64, root);
     write(&host.devices.kvm, "");
+    install_virtiofsd(&host.devices);
     host
+}
+
+/// The virtiofsd package as Debian and Fedora install it: `/usr/libexec/virtiofsd`, which QEMU
+/// finds there, named by libvirt's descriptor `/usr/share/qemu/vhost-user/50-virtiofsd.json`.
+fn install_virtiofsd(devices: &Devices) {
+    let binary = &devices.virtiofsd[0];
+    write(binary, "#!/bin/sh\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let descriptor = serde_json::json!({ "description": "virtiofsd", "type": "fs", "binary": binary });
+    write(&devices.vhost_user[0].join("50-virtiofsd.json"), &descriptor.to_string());
 }
 
 /// Writes `text` to `path`, making its folder.

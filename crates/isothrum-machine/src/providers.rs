@@ -25,6 +25,7 @@ mod needs;
 mod reasons;
 mod unavailable;
 mod vbox;
+pub(crate) mod virtiofsd;
 #[cfg(test)]
 use reasons::hypervisor_too_old;
 use reasons::{plugin_too_old, unavailable_reason};
@@ -32,6 +33,7 @@ use reasons::{plugin_too_old, unavailable_reason};
 pub use kvm::{kvm_group, login_groups, uses_kvm};
 pub use needs::{Need, UtilityState, needs, vmware_utility};
 pub use unavailable::Unavailable;
+pub use virtiofsd::{needs_virtiofsd, virtiofsd};
 
 /// Every provider, in its type's order: read from the type, so one added there is detected
 /// without a list here to keep in step.
@@ -143,8 +145,8 @@ impl ProviderRow {
                 ..found_by(Check::Tool("virsh", &["--version"]))
             },
             // vagrant-qemu builds a networked VM's cloud-init seed with `oscdimg` on Windows (the
-            // Windows ADK's), and Isoloom gives the qemu provider Linux and macOS hosts only; it
-            // shares a folder two-way through virtiofsd, on Linux only.
+            // Windows ADK's, which no setup brings), so it is offered on Linux and macOS only; it
+            // shares a folder two-way through virtiofsd ([`needs_virtiofsd`]), on Linux only.
             Provider::Qemu => ProviderRow {
                 oses: &[HostOs::Macos, HostOs::Linux],
                 shares_folders: &[HostOs::Linux],
@@ -232,8 +234,9 @@ pub struct ProviderStatus {
     /// Whether VMs can run on it now (`reason` says why not).
     pub available: bool,
     /// Whether the hypervisor itself is installed (for Hyper-V, whether the Windows feature is
-    /// on; for QEMU on Linux, with the `mkisofs` its VMs need, [`needs_mkisofs`]). `None` where
-    /// nothing local is checked: a server.
+    /// on; for QEMU on Linux, with the `mkisofs` its VMs need, [`needs_mkisofs`], and for libvirt
+    /// and QEMU on Linux, with the virtiofsd they share folders through, [`needs_virtiofsd`]).
+    /// `None` where nothing local is checked: a server.
     pub hypervisor: Option<bool>,
     /// The Vagrant plugin it needs, if it is not built in.
     pub plugin: Option<String>,
@@ -373,6 +376,26 @@ async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
     }
 }
 
+/// A program a hypervisor's VMs need beside it, which its install brings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// `mkisofs`, for QEMU's VMs on Linux ([`needs_mkisofs`]).
+    Mkisofs,
+    /// A virtiofsd the hypervisor finds, for libvirt's and QEMU's shared folders on Linux
+    /// ([`needs_virtiofsd`]).
+    Virtiofsd,
+}
+
+/// The first program `provider`'s VMs need beside its hypervisor (installed) that the context's
+/// host hasn't; `None` when it has them all.
+async fn part_missing(cx: &Context, provider: Provider) -> Option<Part> {
+    let host = &cx.host;
+    if needs_mkisofs(provider, host.os) && !cx.tool_starts("mkisofs", &["-version"]).await {
+        return Some(Part::Mkisofs);
+    }
+    (needs_virtiofsd(provider, host.os) && virtiofsd(provider, &host.devices).is_none()).then_some(Part::Virtiofsd)
+}
+
 /// What the account lacks, as detection found it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Account {
@@ -393,9 +416,9 @@ struct Findings {
     unresponsive: bool,
     /// Whether the hypervisor is installed; `None` when there is nothing local to probe.
     hypervisor: Option<bool>,
-    /// QEMU is there but not the `mkisofs` its VMs need ([`needs_mkisofs`]), so `hypervisor`
+    /// A program the hypervisor's VMs need beside it, which it is there without, so `hypervisor`
     /// reads false.
-    mkisofs_missing: bool,
+    part_missing: Option<Part>,
     /// The program whose absence says the hypervisor isn't installed, when one does.
     program: Option<&'static str>,
     /// The hypervisor's version, when it is installed and held to one (UTM).
@@ -422,8 +445,12 @@ struct Findings {
 /// Everything detection asks of the machine about `provider`, whose hypervisor probe `found`.
 async fn findings(cx: &Context, provider: Provider, found: Found, asked: &mut Asked) -> Findings {
     let host = &cx.host;
-    let mkisofs_missing = found.installed == Some(true) && needs_mkisofs(provider, host.os) && !cx.tool_starts("mkisofs", &["-version"]).await;
-    let hypervisor = if mkisofs_missing { Some(false) } else { found.installed };
+    let part_missing = if found.installed == Some(true) {
+        part_missing(cx, provider).await
+    } else {
+        None
+    };
+    let hypervisor = if part_missing.is_some() { Some(false) } else { found.installed };
     let ready = hypervisor == Some(true);
     let virtualbox = provider == Provider::Virtualbox;
     let plugin = provider.plugin();
@@ -433,7 +460,7 @@ async fn findings(cx: &Context, provider: Provider, found: Found, asked: &mut As
         held: (virtualbox && kvm::holds_virtualization(host)).then_some(Unavailable::KvmHoldsVirtualization),
         unresponsive: asked.vagrant_installed && virtualbox && ready && vbox::wedged(cx).await,
         hypervisor,
-        mkisofs_missing,
+        part_missing,
         program: probe_of(provider, host.arch).map(|(program, _)| program),
         hypervisor_version: if ready { hypervisor_version(cx, provider).await } else { None },
         plugin,
