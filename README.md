@@ -5,11 +5,10 @@
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
 Isothrum brings environments up and down: containers with Docker Compose, virtual machines with
-Vagrant, servers and cloud resources with Terraform. It runs what
-[Isoloom](https://github.com/isoloom/isoloom) generates: Isoloom turns one spec into each tool's
-native files and a **run manifest**; Isothrum executes that manifest. `up`, `check`, `park`,
-`resume`, `update` and `down` work the same whatever the target, with one JSON event stream, stable
-error codes and secrets that never reach a command line.
+Vagrant, servers and cloud resources with Terraform. It runs any Compose project, Vagrantfile or
+Terraform module as it is, whoever wrote it, through that format's own tool. `up`, `check`,
+`park`, `resume`, `update` and `down` work the same whatever the format, with one JSON event
+stream, stable error codes and secrets that never reach a command line.
 
 It is for teams that want reproducible test, demo or training environments on a laptop, a server
 or a cloud account, and for CI pipelines that need one for the length of a job. It is a command
@@ -39,8 +38,7 @@ As a library: `cargo add isothrum-runner` ([crate README](crates/isothrum-runner
 
 ## Requirements
 
-The tools of the targets you run, at the versions the run manifest asks for
-([supported tool versions](docs/reference/tool-versions.md)):
+The tools of the projects you run ([supported tool versions](docs/reference/tool-versions.md)):
 
 - Docker with Compose 2.17.0 or later, for container targets;
 - Vagrant 2.4.0 or later and a hypervisor (VirtualBox, VMware, Hyper-V, Parallels, libvirt, QEMU,
@@ -48,10 +46,9 @@ The tools of the targets you run, at the versions the run manifest asks for
 - Terraform 1.6.0 or later, for servers and clouds;
 - an OpenSSH client, for targets reached over SSH.
 
-Isothrum checks each one before it starts anything. Isoloom generates the files; Isothrum doesn't
-need it at run time. Isothrum 2.0 reads run manifest version 1 (`manifest_version: 1`), which
-the matching Isoloom release writes; [Policies](docs/policies.md#run-manifest-versions) pairs each
-release with the version it reads.
+Isothrum checks each one before it starts anything. It needs nothing else: the project's files
+can be written by hand or by a generator such as [Isoloom](https://github.com/isoloom/isoloom),
+and Isothrum depends on none ([what Isothrum is, and what it is not](docs/explanation/boundaries.md)).
 
 Proven by real runs: `docker` (macOS, Linux, Windows); `vagrant` on VirtualBox (macOS), libvirt
 (Linux) and Hyper-V (Windows); `docker-vm` on VirtualBox (macOS); `proxmox` and
