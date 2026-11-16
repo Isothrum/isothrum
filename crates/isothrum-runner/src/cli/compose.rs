@@ -35,6 +35,16 @@ pub(crate) enum Failure {
     /// A pull the network cut short, worth another try (a reset connection, a registry's TLS
     /// handshake or its gateway timing out): what the tool said.
     PullTransient(String),
+    /// The engine didn't answer: stopped, or quit while the call ran (`Cannot connect to the
+    /// Docker daemon`; on Windows, `error during connect` to a pipe that is gone): what the tool
+    /// said.
+    EngineDown(String),
+    /// The engine refused this account its socket (unix) or named pipe (Windows): what the tool
+    /// said.
+    EngineDenied(String),
+    /// A network the project makes needs an address block another network already holds (`Pool
+    /// overlaps with other one on this address space`): what the tool said.
+    PoolOverlap(String),
     /// Any other failure: its reason.
     Other(String),
 }
@@ -71,6 +81,21 @@ fn taken_port(out: &Captured) -> Option<(u16, crate::project::platform::Protocol
     })
 }
 
+/// What Docker's CLI says when its engine doesn't answer, as [`said_any`] reads it (lowercase).
+const ENGINE_DOWN: &[&str] = &["cannot connect to the docker daemon", "is the docker daemon running", "error during connect"];
+
+/// Whether `out` says the engine refused this account: its socket's `permission denied` (`… the
+/// docker API at unix:///var/run/docker.sock`, `… the Docker daemon socket`), or its named pipe's
+/// `Access is denied` on Windows. A refusal of anything else (a bind mount's file) isn't one.
+fn engine_denied(out: &Captured) -> bool {
+    out.stdout.iter().chain(&out.stderr_tail).any(|l| {
+        let l = l.to_lowercase();
+        let socket = l.contains("permission denied") && ["docker.sock", "docker api", "docker daemon"].iter().any(|w| l.contains(w));
+        let pipe = l.contains("access is denied") && l.contains("pipe");
+        socket || pipe
+    })
+}
+
 /// What Docker says of a pull the network cut short, as [`said_any`] reads it (lowercase): Go's
 /// net/http and TLS wordings, and a registry's gateway that answered for it.
 const PULL_TRANSIENT: &[&str] = &[
@@ -97,7 +122,13 @@ const PULL_REFUSED: &[&str] = &[
 impl Failure {
     /// What a failed call that printed `out` failed with.
     pub(crate) fn of(out: &Captured) -> Failure {
-        if said_any(out, &["is already in use by container"]) {
+        if engine_denied(out) {
+            Failure::EngineDenied(out.reason())
+        } else if said_any(out, ENGINE_DOWN) {
+            Failure::EngineDown(out.reason())
+        } else if said_any(out, &["pool overlaps with other one on this address space"]) {
+            Failure::PoolOverlap(out.reason())
+        } else if said_any(out, &["is already in use by container"]) {
             Failure::NameInUse
         } else if said_any(out, &["has incorrect label", "network with name"]) {
             Failure::NetworkExists
@@ -121,7 +152,7 @@ impl fmt::Display for Failure {
             Failure::PortTaken(_) => f.write_str("a host port it publishes is taken"),
             Failure::PullRefused(reason) => write!(f, "an image's pull was refused: {reason}"),
             Failure::PullTransient(reason) => write!(f, "an image's pull was cut short: {reason}"),
-            Failure::Other(reason) => f.write_str(reason),
+            Failure::EngineDown(reason) | Failure::EngineDenied(reason) | Failure::PoolOverlap(reason) | Failure::Other(reason) => f.write_str(reason),
         }
     }
 }
@@ -326,6 +357,30 @@ mod tests {
             files,
             pins: None,
             profiles,
+        }
+    }
+
+    /// The engine's own failures, as the Docker CLI prints them (24 to 28, Linux and Docker
+    /// Desktop on Windows): told apart, a refused account isn't a stopped engine.
+    #[test]
+    fn an_engine_down_or_refusing_and_a_pool_overlap_read_as_what_they_are() {
+        let kind = |f: Failure| match f {
+            Failure::EngineDown(_) => "down",
+            Failure::EngineDenied(_) => "denied",
+            Failure::PoolOverlap(_) => "overlap",
+            _ => "other",
+        };
+        for (said, expected) in [
+            (include_str!("../tool_output/fixtures/compose/27.1-engine-down.txt"), "down"),
+            (include_str!("../tool_output/fixtures/compose/27.1-windows-engine-gone.txt"), "down"),
+            (include_str!("../tool_output/fixtures/compose/28.0-socket-denied.txt"), "denied"),
+            (include_str!("../tool_output/fixtures/compose/24.0-socket-denied.txt"), "denied"),
+            (include_str!("../tool_output/fixtures/compose/27.1-windows-pipe-denied.txt"), "denied"),
+            (include_str!("../tool_output/fixtures/compose/2.29-pool-overlaps.txt"), "overlap"),
+            ("Access is denied.", "other"),
+            ("Error response from daemon: pull access denied for x, repository does not exist", "other"),
+        ] {
+            assert_eq!(kind(failed(said)), expected, "{said}");
         }
     }
 

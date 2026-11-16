@@ -103,7 +103,9 @@ impl Error {
     /// Whether the run may have changed by this failure: false for the refusals the runner makes
     /// before it acts on a run (its lock held, an `up` of a ready run, a run recorded elsewhere, a
     /// resume of nothing, a change of a run that isn't up, a value missing or unusable, a tool
-    /// missing, an operation the run's format doesn't do).
+    /// missing or refusing this account, a cloud refusing the sign-in: a provider's sign-in is
+    /// made when Terraform configures it, before it plans or applies anything; an operation the
+    /// run's format doesn't do).
     pub(crate) fn changed(&self) -> bool {
         !matches!(
             self,
@@ -116,6 +118,8 @@ impl Error {
                 | Error::Input { .. }
                 | Error::ToolMissing { .. }
                 | Error::Declined { .. }
+                | Error::ToolDenied { .. }
+                | Error::CredentialsExpired { .. }
         )
     }
 }

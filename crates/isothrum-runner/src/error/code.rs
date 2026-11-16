@@ -23,11 +23,22 @@ pub enum ErrorCode {
     ToolMissing,
     /// A step's tool ran and failed.
     ToolFailed,
-    /// A tool the run needs is installed, but its probe got no answer from it (Docker's engine
-    /// stopped, or not this account's to reach): the message says what the tool said.
+    /// A tool the run needs is installed, but got no answer from its service: Docker's engine
+    /// stopped, or quit while a step ran (the `step` says which): the message says what the tool
+    /// said.
     ToolUnanswered,
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
+    /// A tool refused this account (Docker's engine its socket or named pipe): the account needs
+    /// the access (a group), not the tool started.
+    ToolDenied,
+    /// A cloud refused the sign-in the run's tools use: a CLI or SSO session that ran out, an
+    /// expired token, application-default credentials gone stale, a profile never signed in.
+    /// Signing in again fixes it; the cloud refused before Terraform changed anything.
+    CredentialsExpired,
+    /// A network the run makes needs an address block another network on the engine already
+    /// holds (Docker's `Pool overlaps with other one on this address space`).
+    AddressPoolOverlap,
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
     /// and was stopped, with what it started (the `error` event's `detail` says which).
     Timeout,
@@ -62,7 +73,8 @@ pub enum ErrorCode {
     /// A run name that can't name a run.
     RunName,
     /// The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or
-    /// lacks its plugin.
+    /// lacks its plugin, or the hypervisor lacks what it needs on this computer (virtiofsd, for a
+    /// shared folder on Linux: the `detail`'s `need`).
     ProviderRefused,
     /// The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt
     /// declined or unanswered, the elevated session not started or ended before the operation
@@ -120,6 +132,9 @@ impl ErrorCode {
             ErrorCode::ToolFailed => "tool_failed",
             ErrorCode::ToolUnanswered => "tool_unanswered",
             ErrorCode::ToolTooOld => "tool_too_old",
+            ErrorCode::ToolDenied => "tool_denied",
+            ErrorCode::CredentialsExpired => "credentials_expired",
+            ErrorCode::AddressPoolOverlap => "address_pool_overlap",
             ErrorCode::Timeout => "timeout",
             ErrorCode::DownloadStalled => "download_stalled",
             ErrorCode::DownloadFailed => "download_failed",

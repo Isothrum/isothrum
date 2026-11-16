@@ -49,6 +49,15 @@ pub(crate) enum Failure {
         /// What the call printed.
         reason: String,
     },
+    /// The hypervisor found nothing this computer must have to run the VM: libvirt or
+    /// vagrant-qemu no virtiofsd to share a folder through virtiofs (`Unable to find a satisfying
+    /// virtiofsd`, `virtiofsd was not found or is not executable`).
+    Lacks {
+        /// What it lacks.
+        need: crate::error::ProviderNeed,
+        /// What the call printed.
+        reason: String,
+    },
     /// Any other failure: its reason.
     Other(String),
 }
@@ -81,6 +90,11 @@ impl Failure {
                 number: event.number(),
                 reason: out.reason(),
             }
+        } else if said_any(out, &["unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable"]) {
+            Failure::Lacks {
+                need: crate::error::ProviderNeed::Virtiofsd,
+                reason: out.reason(),
+            }
         } else {
             Failure::Other(out.reason())
         }
@@ -97,7 +111,7 @@ impl fmt::Display for Failure {
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
             Failure::SignInRefused { .. } => f.write_str("the ESXi host refused the run's credentials"),
-            Failure::ScriptingPassing { reason, .. } | Failure::Other(reason) => f.write_str(reason),
+            Failure::ScriptingPassing { reason, .. } | Failure::Lacks { reason, .. } | Failure::Other(reason) => f.write_str(reason),
         }
     }
 }
@@ -351,6 +365,30 @@ mod tests {
             failed(include_str!("../tool_output/fixtures/vagrant/2.4.9-libvirt-port-unsupported.txt"), ""),
             Failure::PortsUnsupported
         );
+        // libvirt's refusal, passed on in vagrant-libvirt's Ruby stack trace, and vagrant-qemu's
+        // own sentence (its locale, 0.7.0 and 0.8.0).
+        for said in [
+            include_str!("../tool_output/fixtures/vagrant/vagrant-libvirt-no-virtiofsd.txt"),
+            include_str!("../tool_output/fixtures/vagrant/vagrant-qemu-0.8-no-virtiofsd.txt"),
+        ] {
+            assert!(
+                matches!(
+                    failed("", said),
+                    Failure::Lacks {
+                        need: crate::error::ProviderNeed::Virtiofsd,
+                        ..
+                    }
+                ),
+                "{said}"
+            );
+        }
+        // A virtiofsd found that didn't start, or another libvirt refusal, isn't one missing.
+        for said in [
+            "virtiofsd failed to start for /home/ada/shared. Check the log at /tmp/x.log",
+            "Call to virDomainCreate failed: Requested operation is not valid: network 'default' is not active",
+        ] {
+            assert!(matches!(failed("", said), Failure::Other(_)), "{said}");
+        }
         assert_eq!(
             failed("", "The box 'nope' could not be found"),
             Failure::Other("The box 'nope' could not be found (exited with code 1)".to_owned())

@@ -56,6 +56,7 @@ use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::state::{Park, RunState};
 use crate::store::{Lifetime, ResourceKind};
+use crate::tool_output::sign_in;
 
 /// The local backend's state file, in the run's state folder.
 const STATE_FILE: &str = "terraform.tfstate";
@@ -150,8 +151,16 @@ impl<'c, 'a> Module<'c, 'a> {
     }
 
     /// The runner's error for the adapter's `e` in step `step`, its tool text masked.
+    ///
+    /// A failure that says the cloud refused the sign-in (it ran out, or was never made) is
+    /// `credentials_expired`, naming the cloud whose provider it names.
     fn error<F: std::fmt::Display>(&self, step: &str, e: CliError<F>) -> Error {
         match tool_error(step, e) {
+            Error::ToolFailed { step, reason } if sign_in::expired(&reason) => Error::CredentialsExpired {
+                step,
+                cloud: sign_in::cloud_named(&reason),
+                reason: self.mask(&reason),
+            },
             Error::ToolFailed { step, reason } => Error::ToolFailed {
                 step,
                 reason: self.mask(&reason),

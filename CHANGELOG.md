@@ -16,6 +16,19 @@ Terraform), usable on any project of those formats.
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
   project) is `Error::Declined`, code `unsupported`, unchanged: it left a ready run `failed` until
   an `up`. A tool missing at the probe no longer fails the run either.
+- **A tool's failure the runner can name has its own code, recognized from the tool's own
+  output**, never left for an embedder to read in a failed step's words:
+  - `credentials_expired` (detail `cloud`, `reason`): Terraform, or the cloud CLI its provider
+    calls, says the sign-in ran out or is missing (an SSO or CLI session, an expired token, stale
+    application-default credentials, a profile never signed in). Nothing was applied: `changed`
+    is false.
+  - `address_pool_overlap` (detail `reason`): Docker's `Pool overlaps with other one on this
+    address space`.
+  - `tool_denied` (detail `tool`): Docker's engine refusing this account its socket or pipe.
+    `changed` is false.
+  - `tool_unanswered`, with the step: Docker's engine stopped, or quit while a Compose step ran.
+  - `provider_refused` with `need: virtiofsd` (`ProviderNeed`): libvirt or vagrant-qemu found
+    no virtiofsd to share a folder with. `Error::Provider` has its `need`.
 
 - **Breaking: one report of a failure, `ErrorReport`, the same from every path.** `Error::report()`
   gives its `code`, `message`, `step`, `detail` and `changed`; the `error` event is

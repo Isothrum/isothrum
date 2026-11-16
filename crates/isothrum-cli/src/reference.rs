@@ -211,7 +211,9 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::RunName => {
             "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)."
         }
-        ErrorCode::ProviderRefused => "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed.",
+        ErrorCode::ProviderRefused => {
+            "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed; install what the `detail`'s `need` names (virtiofsd)."
+        }
         ErrorCode::ElevationFailed => {
             "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session."
         }
@@ -231,13 +233,23 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
     })
 }
 
-/// What to do about `code`, one of a tool's (missing, failed, too old, unanswered).
+/// What to do about `code`, one of a tool's (missing, failed, too old, unanswered, refusing, the
+/// sign-in or the addresses it needs).
 fn tool_remedy(code: ErrorCode) -> Option<&'static str> {
     Some(match code {
         ErrorCode::ToolMissing => "Install the tool, or put it on `PATH`.",
         ErrorCode::ToolFailed => "Read the step's last lines (its `log` events, `isothrum events`): fix what the tool says, then run the command again.",
         ErrorCode::ToolTooOld => "Upgrade the tool to the version the message names.",
-        ErrorCode::ToolUnanswered => "Start the tool's service (Docker Desktop, the Docker engine) or give this account access to it, then retry.",
+        ErrorCode::ToolUnanswered => "Start the tool's service (Docker Desktop, the Docker engine), then retry.",
+        ErrorCode::ToolDenied => {
+            "Give this account the tool's access (Linux: the `docker` group, then sign in again; Windows: the `docker-users` group), then retry."
+        }
+        ErrorCode::CredentialsExpired => {
+            "Sign in to the cloud again with its CLI (`aws login`, `az login`, `gcloud auth application-default login`, `oci session authenticate`), then retry."
+        }
+        ErrorCode::AddressPoolOverlap => {
+            "Another network holds the addresses the run needs: remove the network left behind (`docker network prune` removes the unused ones) or stop the run that holds it, then retry."
+        }
         _ => return None,
     })
 }

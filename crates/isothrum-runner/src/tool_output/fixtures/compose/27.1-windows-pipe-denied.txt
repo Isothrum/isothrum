@@ -1,0 +1,1 @@
+error during connect: open //./pipe/docker_engine: Access is denied.

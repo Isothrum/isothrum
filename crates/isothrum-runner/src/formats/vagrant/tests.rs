@@ -1,5 +1,6 @@
 mod commands;
 mod contract;
+mod needs;
 mod resources;
 mod utm;
 use std::path::Path;

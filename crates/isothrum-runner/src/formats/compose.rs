@@ -22,12 +22,14 @@
 //! (`down`), so the next start, the port free, finds nothing in its way. Compose has no set-up to run again:
 //! `provision` is refused.
 
+mod failures;
 mod namespaces;
 mod pins;
 mod pull;
 
 use std::time::Duration;
 
+use self::failures::engine_error;
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
 use crate::Result;
 use crate::cli::CliError;
@@ -150,7 +152,7 @@ impl Compose {
     async fn retire_unstarted(&self, cx: &ToolCx<'_>) -> Result<()> {
         let started = compose::services(&cx.read(READ_LIMIT), &Self::project(cx))
             .await
-            .map_err(|e| tool_error("services", e))?;
+            .map_err(|e| engine_error("services", e))?;
         let attached = pins::attached(cx)?;
         let mut stale: Vec<String> = Vec::new();
         for c in self.containers(cx).await? {
@@ -165,14 +167,14 @@ impl Compose {
         tracing::info!(run = %cx.run, services = ?stale, "removing the containers of services the files no longer start");
         compose::rm_stop_force(&cx.call(CALL_LIMIT), &Self::project(cx), &stale)
             .await
-            .map_err(|e| tool_error("update", e))
+            .map_err(|e| engine_error("update", e))
     }
 
     /// Every container of the project, one-offs (`run`) left out.
     async fn containers(&self, cx: &ToolCx<'_>) -> Result<Vec<compose::Container>> {
         let all = compose::ps(&cx.read(READ_LIMIT), &Self::project(cx))
             .await
-            .map_err(|e| tool_error("status", e))?;
+            .map_err(|e| engine_error("status", e))?;
         Ok(all.into_iter().filter(|c| !c.one_off()).collect())
     }
 }
@@ -201,7 +203,7 @@ fn up_error(step: &str, e: CliError<Failure>) -> Error {
             step: format!("pull-{step}"),
             reason,
         },
-        other => tool_error(step, other),
+        other => engine_error(step, other),
     }
 }
 
@@ -226,7 +228,7 @@ fn one_service(machine: &str) -> Vec<String> {
 
 impl FormatDriver for Compose {
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
-        let found = compose::version(&cx.read(READ_LIMIT)).await.map_err(|e| tool_error("tools", e))?;
+        let found = compose::version(&cx.read(READ_LIMIT)).await.map_err(|e| engine_error("tools", e))?;
         super::unknown_version(cx, found.as_ref(), "docker compose", compose::MIN_VERSION);
         Ok(())
     }
@@ -257,7 +259,7 @@ impl FormatDriver for Compose {
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
         compose::down(&cx.call(CALL_LIMIT), &Self::project(cx), true, true)
             .await
-            .map_err(|e| tool_error("down", e))?;
+            .map_err(|e| engine_error("down", e))?;
         // What `down` doesn't take (a container a killed client left unnamed, a volume another
         // file's service made), by the project's label.
         self.remove_labelled(cx).await?;
@@ -271,7 +273,7 @@ impl FormatDriver for Compose {
         };
         compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), verb, &[])
             .await
-            .map_err(|e| tool_error("park", e))
+            .map_err(|e| engine_error("park", e))
     }
 
     async fn resume(&self, cx: &ToolCx<'_>) -> Result<()> {
@@ -289,14 +291,14 @@ impl FormatDriver for Compose {
         if !paused.is_empty() {
             compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), Verb::Unpause, &paused)
                 .await
-                .map_err(|e| tool_error("resume", e))?;
+                .map_err(|e| engine_error("resume", e))?;
         }
         let stranded = namespaces::stranded(cx, &Self::project(cx), &containers).await;
         if !stranded.is_empty() {
             tracing::info!(run = %cx.run, services = ?stranded, "stopping the services left in the network namespace of one that stopped, so the start joins them to its new one");
             compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), Verb::Stop, &stranded)
                 .await
-                .map_err(|e| tool_error("resume", e))?;
+                .map_err(|e| engine_error("resume", e))?;
         }
         let how = Up {
             wait: true,
@@ -321,7 +323,7 @@ impl FormatDriver for Compose {
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
         compose::services(&cx.read(READ_LIMIT), &Self::project(cx))
             .await
-            .map_err(|e| tool_error("services", e))
+            .map_err(|e| engine_error("services", e))
     }
 
     async fn reapply(&self, cx: &ToolCx<'_>, _change: &Change) -> Result<()> {
@@ -354,7 +356,7 @@ impl FormatDriver for Compose {
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         compose::rm_stop_force(&cx.call(CALL_LIMIT), &Self::project(cx), &one_service(machine))
             .await
-            .map_err(|e| tool_error("retire", e))?;
+            .map_err(|e| engine_error("retire", e))?;
         pins::retire(cx, machine)
     }
 
@@ -477,7 +479,7 @@ fn object_word(object: Object) -> &'static str {
 /// A command's outcome as [`Ran`]: a command that ran and failed is its exit status and what it
 /// printed, not an error.
 fn ran(out: std::result::Result<crate::process::Captured, CliError<Failure>>) -> Result<Ran> {
-    let captured = out.map_err(|e| tool_error("exec", e))?;
+    let captured = out.map_err(|e| engine_error("exec", e))?;
     Ok(Ran {
         exit: captured.exit.code.unwrap_or(-1),
         stdout: captured.stdout.join("\n"),

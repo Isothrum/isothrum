@@ -1,4 +1,5 @@
 mod contract;
+mod engine;
 mod namespaces;
 mod pins;
 mod pulls;

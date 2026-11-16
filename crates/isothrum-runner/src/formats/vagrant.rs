@@ -130,7 +130,7 @@ impl Vagrant {
 
     /// Each machine `status` lists, with its state label.
     async fn status(&self, cx: &ToolCx<'_>) -> Result<std::collections::BTreeMap<String, String>> {
-        self.read_states(cx).await.map_err(|e| vagrant_error("status", e))
+        self.read_states(cx).await.map_err(|e| vagrant_error(cx, "status", e))
     }
 
     /// [`Vagrant::status`], its failure as Vagrant's (a lock another process holds).
@@ -196,9 +196,9 @@ impl Vagrant {
             }) => {
                 tracing::info!(run = %cx.run, "an earlier start's VM holds a name of the run: removing what the run made, then starting again");
                 self.clear(cx).await?;
-                self.up_call(cx, step, provision, machines).await.map_err(|e| vagrant_error(step, e))
+                self.up_call(cx, step, provision, machines).await.map_err(|e| vagrant_error(cx, step, e))
             }
-            Err(e) => Err(vagrant_error(step, e)),
+            Err(e) => Err(vagrant_error(cx, step, e)),
         }
     }
 }
@@ -222,6 +222,7 @@ impl FormatDriver for Vagrant {
         let provider = asked(cx)?;
         let host = providers::this_host();
         let refuse = |reason: String| Error::Provider {
+            need: None,
             provider: provider.id().to_owned(),
             reason,
         };
@@ -232,10 +233,10 @@ impl FormatDriver for Vagrant {
             )));
         }
         let read = read(cx, READ_LIMIT);
-        let found = vagrant::supported_version(&read).await.map_err(|e| vagrant_error("tools", e))?;
+        let found = vagrant::supported_version(&read).await.map_err(|e| vagrant_error(cx, "tools", e))?;
         super::unknown_version(cx, found.as_ref(), "vagrant", vagrant::MIN_VERSION);
         if let Some(plugin) = provider.plugin() {
-            let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error("tools", e))?;
+            let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error(cx, "tools", e))?;
             if !installed.iter().any(|(name, _)| name == plugin) {
                 return Err(refuse(format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`")));
             }
@@ -251,7 +252,7 @@ impl FormatDriver for Vagrant {
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
-        self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await.map_err(|e| vagrant_error("down", e))?;
+        self.act(cx, Verb::Destroy, &[], CALL_LIMIT).await.map_err(|e| vagrant_error(cx, "down", e))?;
         // What `destroy` took is gone from the dotfile; a VM it left keeps its resource row, which
         // the core removes by id (`destroy_by_id`), with its record written back if need be.
         dot(cx).reset()
@@ -268,7 +269,7 @@ impl FormatDriver for Vagrant {
             | Err(CliError::Failed {
                 failure: Failure::AlreadyOff, ..
             }) => Ok(()),
-            Err(e) => Err(vagrant_error("park", e)),
+            Err(e) => Err(vagrant_error(cx, "park", e)),
         }
     }
 
@@ -281,7 +282,9 @@ impl FormatDriver for Vagrant {
 
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
         asked(cx)?;
-        self.up_call(cx, "update", Provision::Yes, &[]).await.map_err(|e| vagrant_error("update", e))
+        self.up_call(cx, "update", Provision::Yes, &[])
+            .await
+            .map_err(|e| vagrant_error(cx, "update", e))
     }
 
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {
@@ -293,7 +296,7 @@ impl FormatDriver for Vagrant {
             asked(cx)?;
             self.up_call(cx, "reapply", Provision::Default, &change.added)
                 .await
-                .map_err(|e| vagrant_error("reapply", e))?;
+                .map_err(|e| vagrant_error(cx, "reapply", e))?;
         }
         if !change.removed.is_empty() {
             // Vagrant acts only on machines the Vagrantfile defines: one it no longer does is
@@ -301,7 +304,9 @@ impl FormatDriver for Vagrant {
             let defined = self.machines(cx).await?;
             let (known, gone): (Vec<String>, Vec<String>) = change.removed.iter().cloned().partition(|m| defined.contains(m));
             if !known.is_empty() {
-                self.act(cx, Verb::Destroy, &known, CALL_LIMIT).await.map_err(|e| vagrant_error("reapply", e))?;
+                self.act(cx, Verb::Destroy, &known, CALL_LIMIT)
+                    .await
+                    .map_err(|e| vagrant_error(cx, "reapply", e))?;
             }
             for r in dot(cx).recorded()?.into_iter().filter(|r| gone.contains(&r.machine)) {
                 self.remove_at_hypervisor(cx, &r).await?;
@@ -310,7 +315,7 @@ impl FormatDriver for Vagrant {
         if !change.changed.is_empty() {
             self.act(cx, Verb::Provision, &change.changed, UP_LIMIT)
                 .await
-                .map_err(|e| vagrant_error("reapply", e))?;
+                .map_err(|e| vagrant_error(cx, "reapply", e))?;
         }
         Ok(())
     }
@@ -322,7 +327,7 @@ impl FormatDriver for Vagrant {
             return self
                 .up_call(cx, "provision", Provision::Yes, &machines)
                 .await
-                .map_err(|e| vagrant_error("provision", e));
+                .map_err(|e| vagrant_error(cx, "provision", e));
         };
         // One provisioner on machines that run: nothing else of their set-up runs again.
         let name = vagrant::ProvisionerName::new(name).ok_or_else(|| Error::Input {
@@ -334,27 +339,27 @@ impl FormatDriver for Vagrant {
             vagrant::provision_with(&call, &name, &machines)
         })
         .await
-        .map_err(|e| vagrant_error("provision", e))
+        .map_err(|e| vagrant_error(cx, "provision", e))
     }
 
     async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         asked(cx)?;
         self.up_call(cx, "attach", Provision::Default, &one(machine))
             .await
-            .map_err(|e| vagrant_error("attach", e))
+            .map_err(|e| vagrant_error(cx, "attach", e))
     }
 
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {
         self.act(cx, Verb::Destroy, &one(machine), CALL_LIMIT)
             .await
-            .map_err(|e| vagrant_error("retire", e))
+            .map_err(|e| vagrant_error(cx, "retire", e))
     }
 
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
         let script = argv.iter().map(|w| crate::console::sh_word(w)).collect::<Vec<_>>().join(" ");
         let out = vagrant::ssh_run(&call(cx, super::CHECK_LIMIT), machine, &script)
             .await
-            .map_err(|e| vagrant_error("exec", e))?;
+            .map_err(|e| vagrant_error(cx, "exec", e))?;
         Ok(Ran {
             exit: out.exit.code.unwrap_or(-1),
             stdout: out.stdout.join("\n"),
@@ -382,7 +387,7 @@ impl FormatDriver for Vagrant {
                 failure: Failure::Locked { machines: named, .. },
                 ..
             }) if !named.is_empty() => return Ok((busy::busy(named), RunState::Ready)),
-            Err(e) => return Err(vagrant_error("status", e)),
+            Err(e) => return Err(vagrant_error(cx, "status", e)),
         };
         // A machine destroyed outside the run reads absent, as one never made, but fails the run.
         let gone = gone::gone(cx, &states)?;
@@ -416,7 +421,7 @@ impl FormatDriver for Vagrant {
                             published.extend(forwards::of_qemu(cx, &name).await);
                         }
                     }
-                    Err(e) => return Err(vagrant_error("status", e)),
+                    Err(e) => return Err(vagrant_error(cx, "status", e)),
                 }
             }
             let address = if state == MachineState::Running && kind.as_deref().is_some_and(own_address) {
@@ -488,7 +493,7 @@ impl FormatDriver for Vagrant {
                 failure: Failure::UnknownMachine,
                 ..
             }) => self.remove_at_hypervisor(cx, &record).await,
-            Err(e) => Err(vagrant_error("remove", e)),
+            Err(e) => Err(vagrant_error(cx, "remove", e)),
         }
     }
 
