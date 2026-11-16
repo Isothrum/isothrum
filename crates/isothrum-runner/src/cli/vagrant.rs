@@ -336,7 +336,10 @@ mod tests {
             failed(include_str!("../tool_output/fixtures/vagrant/2.4.9-libvirt-port-unsupported.txt"), ""),
             Failure::PortsUnsupported
         );
-        assert!(matches!(failed("", "The box 'nope' could not be found"), Failure::Other(_)));
+        assert_eq!(
+            failed("", "The box 'nope' could not be found"),
+            Failure::Other("The box 'nope' could not be found (exited with code 1)".to_owned())
+        );
     }
 
     #[test]
@@ -374,7 +377,12 @@ mod tests {
     fn forwards_read_as_vagrant_prints_them() {
         let read = forwards(include_str!("../tool_output/fixtures/vagrant/2.4.1-port.txt")).unwrap();
         assert_eq!(read, [forward(22, 2222), forward(80, 8080)]);
-        assert!(forwards("1,web,forwarded_port,22").is_err(), "a cut record isn't a shorter list");
+        let cut = forwards("1,web,forwarded_port,22");
+        assert_eq!(
+            cut,
+            Err("a forward that isn't `guest,host`: 22".to_owned()),
+            "a cut record isn't a shorter list"
+        );
         assert_eq!(forwards("").unwrap(), Vec::<Forward>::new());
     }
 }

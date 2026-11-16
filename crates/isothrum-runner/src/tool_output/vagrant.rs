@@ -171,7 +171,9 @@ mod tests {
             "An action 'read_state' was attempted on the machine 'web',\nbut another process is already executing an action on the machine.\nVagrant locks each machine for access by only one process at a time.",
         );
         let index = lines("1794342958,,error-exit,Vagrant::Errors::MachineLocked,Vagrant can't use the requested machine because it is locked! This");
-        assert!([&action, &human, &index].iter().all(|said| Failure::of(said.iter()) == Failure::Locked));
+        for (wording, said) in [("action", &action), ("human", &human), ("index", &index)] {
+            assert_eq!(Failure::of(said.iter()), Failure::Locked, "{wording}");
+        }
         assert_eq!(
             Failure::of(&lines("VBoxManage: error: Cannot unregister the machine 'web-vm - web' while it is locked")),
             Failure::Other
@@ -248,19 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_machine_readable_status() {
-        let out = "1700000000,pfsense-1,metadata,provider,virtualbox\n\
-                   1700000000,pfsense-1,provider-name,virtualbox\n\
-                   1700000000,pfsense-1,state,running\n\
-                   1700000000,debian-1,state,poweroff\n\
-                   1700000000,,ui,info,Current machine states:\n";
-        let r = parse(out);
-        assert_eq!(r.states.len(), 2);
-        assert_eq!(r.states["pfsense-1"], "running");
-        assert_eq!(r.states["debian-1"], "poweroff");
-    }
-
-    #[test]
     fn windows_line_endings_and_blank_lines_are_read_the_same() {
         let out = "1,dc01,provider-name,hyperv\r\n\r\n1,dc01,state,running\r\n1,isoloom-controller,state,off\r\n";
         let r = parse(out);
@@ -304,6 +293,49 @@ mod tests {
         }
         assert_eq!(machine_state("gurumeditation"), MachineState::Unknown("gurumeditation".into()));
         assert_eq!(machine_state("aborted"), MachineState::Unknown("aborted".into()), "a VM that died");
+    }
+
+    /// Each state Vagrant prints, read from what its versions print: Linux's and Windows' line
+    /// ends alike, and a listing cut in the middle of a state read as unknown, never absent.
+    #[test]
+    fn status_fixtures_read_as_vagrant_prints_them() {
+        let read = parse(include_str!("fixtures/vagrant/2.4.1-status-virtualbox.txt"));
+        assert_eq!(read.states.keys().collect::<Vec<_>>(), ["db", "web"]);
+        assert_eq!(
+            (machine_state(&read.states["web"]), machine_state(&read.states["db"])),
+            (MachineState::Running, MachineState::Stopped)
+        );
+        let hyperv = parse(include_str!("fixtures/vagrant/2.4.3-windows-status-hyperv.txt"));
+        assert_eq!(
+            machine_state(&hyperv.states["dc01"]),
+            MachineState::Stopped,
+            "no carriage return left in the label"
+        );
+        assert_eq!(machine_state(&hyperv.states["ws01"]), MachineState::Absent);
+        let cut = parse(include_str!("fixtures/vagrant/2.4.1-status-cut.txt"));
+        assert_eq!(machine_state(&cut.states["db"]), MachineState::Unknown("shut".into()));
+        assert_eq!(parse("").states.len(), 0);
+        let ssh = include_str!("fixtures/vagrant/2.4.1-ssh-config-windows.txt");
+        assert_eq!(host_name(ssh).as_deref(), Some("127.0.0.1"));
+    }
+
+    #[test]
+    fn failure_fixtures_read_as_vagrant_prints_them() {
+        let of = |text: &str| Failure::of(&lines(text));
+        assert_eq!(of(include_str!("fixtures/vagrant/2.4.9-error-machine-locked.txt")), Failure::Locked);
+        assert_eq!(of(include_str!("fixtures/vagrant/2.4.1-error-action-locked-human.txt")), Failure::Locked);
+        assert_eq!(of(include_str!("fixtures/vagrant/vmware-esxi-2.5.5-halt-already-off.txt")), Failure::AlreadyOff);
+        assert_eq!(of(include_str!("fixtures/vagrant/2.4.1-status-virtualbox.txt")), Failure::Other);
+        let locked = lines(include_str!("fixtures/vagrant/2.4.9-error-machine-locked.txt"));
+        assert!(error(&locked).is_some_and(|e| e.ends_with("Provider: libvirt (Vagrant::Errors::MachineLocked)")));
+        let plugins = plugins(include_str!("fixtures/vagrant/2.4.1-plugin-list.txt"));
+        assert_eq!(
+            plugins,
+            [
+                ("vagrant-libvirt".to_owned(), Some("0.12.2".to_owned())),
+                ("vagrant-qemu".to_owned(), Some("0.3.12".to_owned()))
+            ]
+        );
     }
 }
 
@@ -349,52 +381,5 @@ mod proptests {
             }
             prop_assert_eq!(read.states, want);
         }
-    }
-
-    fn fixture_lines(text: &str) -> Vec<String> {
-        text.lines().map(str::to_owned).collect()
-    }
-
-    /// Each state Vagrant prints, read from what its versions print: Linux's and Windows' line
-    /// ends alike, and a listing cut in the middle of a state read as unknown, never absent.
-    #[test]
-    fn status_fixtures_read_as_vagrant_prints_them() {
-        let read = parse(include_str!("fixtures/vagrant/2.4.1-status-virtualbox.txt"));
-        assert_eq!(read.states.keys().collect::<Vec<_>>(), ["db", "web"]);
-        assert_eq!(
-            (machine_state(&read.states["web"]), machine_state(&read.states["db"])),
-            (MachineState::Running, MachineState::Stopped)
-        );
-        let hyperv = parse(include_str!("fixtures/vagrant/2.4.3-windows-status-hyperv.txt"));
-        assert_eq!(
-            machine_state(&hyperv.states["dc01"]),
-            MachineState::Stopped,
-            "no carriage return left in the label"
-        );
-        assert_eq!(machine_state(&hyperv.states["ws01"]), MachineState::Absent);
-        let cut = parse(include_str!("fixtures/vagrant/2.4.1-status-cut.txt"));
-        assert_eq!(machine_state(&cut.states["db"]), MachineState::Unknown("shut".into()));
-        assert_eq!(parse("").states.len(), 0);
-        let ssh = include_str!("fixtures/vagrant/2.4.1-ssh-config-windows.txt");
-        assert_eq!(host_name(ssh).as_deref(), Some("127.0.0.1"));
-    }
-
-    #[test]
-    fn failure_fixtures_read_as_vagrant_prints_them() {
-        let of = |text: &str| Failure::of(&fixture_lines(text));
-        assert_eq!(of(include_str!("fixtures/vagrant/2.4.9-error-machine-locked.txt")), Failure::Locked);
-        assert_eq!(of(include_str!("fixtures/vagrant/2.4.1-error-action-locked-human.txt")), Failure::Locked);
-        assert_eq!(of(include_str!("fixtures/vagrant/vmware-esxi-2.5.5-halt-already-off.txt")), Failure::AlreadyOff);
-        assert_eq!(of(include_str!("fixtures/vagrant/2.4.1-status-virtualbox.txt")), Failure::Other);
-        let locked = fixture_lines(include_str!("fixtures/vagrant/2.4.9-error-machine-locked.txt"));
-        assert!(error(&locked).is_some_and(|e| e.ends_with("Provider: libvirt (Vagrant::Errors::MachineLocked)")));
-        let plugins = plugins(include_str!("fixtures/vagrant/2.4.1-plugin-list.txt"));
-        assert_eq!(
-            plugins,
-            [
-                ("vagrant-libvirt".to_owned(), Some("0.12.2".to_owned())),
-                ("vagrant-qemu".to_owned(), Some("0.3.12".to_owned()))
-            ]
-        );
     }
 }

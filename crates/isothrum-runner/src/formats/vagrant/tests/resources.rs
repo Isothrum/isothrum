@@ -26,7 +26,7 @@ async fn found_is_the_dotfiles_machine_ids_by_machine() {
             },
         ]
     );
-    assert_eq!(made(&fake), Vec::<String>::new(), "read from the dotfile, no call");
+    // Read from the dotfile: the script expects no call, and any would fail the test.
 }
 
 #[tokio::test]
@@ -50,7 +50,7 @@ async fn destroy_by_id_writes_a_lost_record_back_for_vagrant_to_destroy_by() {
         .destroy_by_id(&cx(&f, &fake, LIBVIRT), "vm:web", ResourceKind::Vm, "uuid-web")
         .await
         .expect("destroyed");
-    let call = fake.last("destroy").unwrap();
+    let [call] = fake.made("vagrant destroy").try_into().expect("one destroy");
     assert_eq!(call.env(dotfile::VAR), Some(dot.path.display().to_string().as_str()));
     assert_eq!(dot.recorded().unwrap(), Vec::<Record>::new(), "the written-back record goes with its VM");
 }
@@ -160,7 +160,7 @@ async fn destroy_by_id_refuses_what_it_has_no_way_to_remove_naming_it() {
         .destroy_by_id(&cx(&f, &fake, LIBVIRT), "container:x", ResourceKind::Container, "abc")
         .await
         .expect_err("no container in a Vagrant run");
-    assert!(matches!(container, Error::Unsupported { .. }));
+    assert_eq!(container.code(), crate::ErrorCode::Unsupported, "{container}");
 }
 
 #[tokio::test]
@@ -184,10 +184,12 @@ async fn reapply_adds_removes_and_provisions_machine_by_machine() {
         changed: vec!["web".into()],
     };
     Vagrant.reapply(&cx(&f, &fake, VBOX), &change).await.expect("reapply");
-    let calls = made(&fake);
-    let at = |l: &str| calls.iter().position(|c| c == l).unwrap_or_else(|| panic!("{l} in {calls:?}"));
-    assert!(at("vagrant up --provider virtualbox attack") < at("vagrant destroy -f old"));
-    assert!(at("vagrant destroy -f old") < at("vagrant provision web"));
+    let order: Vec<String> = verbs(&fake).into_iter().filter(|v| v.starts_with("vagrant") && v != "vagrant status").collect();
+    assert_eq!(
+        order,
+        ["vagrant up", "vagrant destroy", "vagrant provision"],
+        "added, then removed, then changed"
+    );
     assert_eq!(
         f.dot().recorded().unwrap(),
         Vec::<Record>::new(),

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::RunName;
-use crate::process::fake::{FakeProcesses, Reply};
+use crate::process::fake::{CallView as _, FakeProcesses, Reply};
 use crate::project::{Format, Project as Folder};
 
 const VAGRANTFILE: &str = "Vagrant.configure('2') do |c|\n  c.vm.define ENV.fetch('ISOLOOM_KEY', 'x') + '-web'\nend\n";
@@ -89,11 +89,11 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
     }
 }
 
-/// Every call made, as `program arg…`.
-fn made(fake: &FakeProcesses) -> Vec<String> {
+/// Each call's program and verb (`vagrant up`, `VBoxManage discardstate`), in the order made.
+fn verbs(fake: &FakeProcesses) -> Vec<String> {
     fake.calls()
         .iter()
-        .map(|c| std::iter::once(c.program.clone()).chain(c.args.clone()).collect::<Vec<_>>().join(" "))
+        .map(|c| format!("{} {}", c.program, c.args.first().map_or("", String::as_str)))
         .collect()
 }
 
@@ -110,8 +110,8 @@ async fn up_runs_on_the_provider_asked_with_the_dotfile_in_the_state_folder_and_
     let f = Fixture::new();
     let fake = FakeProcesses::script().expect_times("vagrant up --provider libvirt", 1, Reply::ok("")).build();
     Vagrant.up(&cx(&f, &fake, LIBVIRT)).await.expect("up");
-    assert_eq!(made(&fake), ["vagrant up --provider libvirt"]);
-    let up = fake.last("up").expect("an up");
+    let [up] = fake.made("vagrant up").try_into().expect("one up");
+    assert_eq!(up.args, ["up", "--provider", "libvirt"]);
     assert_eq!(up.cwd.as_deref(), Some(f.project.dir.as_path()));
     assert_eq!(up.env(dotfile::VAR), Some(f.dot().path.display().to_string().as_str()));
     assert_eq!(up.env("ISOLOOM_KEY"), Some("k3y9ab"), "the key reaches the Vagrantfile's ENV.fetch");
@@ -125,7 +125,6 @@ async fn a_run_with_no_provider_is_refused_before_any_call() {
     let fake = FakeProcesses::script().build();
     let e = Vagrant.up(&cx(&f, &fake, None)).await.expect_err("no provider");
     assert!(matches!(e, Error::NoProvider { .. }), "{e}");
-    assert_eq!(made(&fake), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -137,7 +136,7 @@ async fn a_record_on_another_provider_is_destroyed_and_reset_before_up() {
         .expect_times("vagrant up --provider libvirt", 1, Reply::ok(""))
         .build();
     Vagrant.up(&cx(&f, &fake, LIBVIRT)).await.expect("up");
-    assert_eq!(made(&fake), ["vagrant destroy -f", "vagrant up --provider libvirt"]);
+    assert_eq!(verbs(&fake), ["vagrant destroy", "vagrant up"], "cleared first");
     assert_eq!(f.dot().recorded().unwrap(), Vec::<Record>::new(), "the other provider's record is dropped");
     assert_eq!(f.warnings(), [WarningCode::OtherProvider]);
 }
@@ -173,12 +172,12 @@ async fn a_cut_off_saved_state_is_discarded_before_virtualbox_boots_the_vm() {
         .expect_times("vagrant up --provider virtualbox", 1, Reply::ok(""))
         .build();
     Vagrant.up(&cx(&f, &fake, VBOX)).await.expect("up");
-    assert_eq!(made(&fake).last().map(String::as_str), Some("vagrant up --provider virtualbox"));
+    assert_eq!(verbs(&fake).last().map(String::as_str), Some("vagrant up"), "discarded before the boot");
     assert_eq!(f.warnings(), [WarningCode::SavedStateDiscarded]);
 }
 
 #[tokio::test]
-async fn an_up_over_an_earlier_vm_clears_what_the_run_made_and_starts_once_more() {
+async fn an_up_refused_for_a_vm_name_taken_clears_what_the_run_made_and_is_tried_once_more_only() {
     let f = Fixture::new();
     f.made("web", "virtualbox", "uuid-web");
     let machine_folder = tempfile::tempdir().unwrap();
@@ -200,11 +199,10 @@ async fn an_up_over_an_earlier_vm_clears_what_the_run_made_and_starts_once_more(
             Reply::ok(&format!("Default machine folder:          {}\n", machine_folder.path().display())),
         )
         .build();
+    // The recovery's one try, never a loop: `expect_times(.. up .., 2`.
     let e = Vagrant.up(&cx(&f, &fake, VBOX)).await.expect_err("taken twice");
     assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
-    let ups = made(&fake).iter().filter(|l| l.starts_with("vagrant up")).count();
-    assert_eq!(ups, 2, "the recovery's one try: never a loop");
-    assert!(!made(&fake).iter().any(|l| l.contains("uuid-other")), "another copy's VM is never touched");
+    isothrum_test_support::assert_every!(fake.calls(), |c: &crate::process::fake::Call| !c.has("uuid-other"));
     assert!(!machine_folder.path().join("lab-k3y9ab-web").exists());
     assert!(machine_folder.path().join("lab-zz0000-web").exists());
     assert_eq!(f.dot().recorded().unwrap(), Vec::<Record>::new());
@@ -213,7 +211,9 @@ async fn an_up_over_an_earlier_vm_clears_what_the_run_made_and_starts_once_more(
 #[tokio::test(start_paused = true)]
 async fn an_up_another_process_lock_refused_runs_again_and_says_so() {
     let f2 = Fixture::new();
-    let fake = FakeProcesses::new({
+    // Vagrant whose lock another process holds at the first call only: an answer that changes
+    // over time, which a script doesn't give.
+    let fake = FakeProcesses::model({
         let tries = std::sync::atomic::AtomicUsize::new(0);
         move |_| {
             if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
@@ -227,7 +227,7 @@ async fn an_up_another_process_lock_refused_runs_again_and_says_so() {
         }
     });
     Vagrant.up(&cx(&f2, &fake, LIBVIRT)).await.expect("through once the lock is released");
-    assert_eq!(made(&fake), ["vagrant up --provider libvirt", "vagrant up --provider libvirt"]);
+    assert_eq!(verbs(&fake), ["vagrant up", "vagrant up"]);
     assert_eq!(f2.warnings(), [WarningCode::Retrying]);
 }
 
@@ -240,7 +240,6 @@ async fn park_suspends_or_halts_and_esxi_refusing_a_vm_already_off_is_halted() {
         .build();
     Vagrant.park(&cx(&f, &fake, LIBVIRT), Park::Pause).await.expect("suspend");
     Vagrant.park(&cx(&f, &fake, LIBVIRT), Park::Shutdown).await.expect("already off is halted");
-    assert_eq!(made(&fake), ["vagrant suspend", "vagrant halt"]);
 }
 
 #[tokio::test]
@@ -255,15 +254,9 @@ async fn resume_boots_without_provisioning_and_update_and_provision_provision() 
     Vagrant.update(&cx).await.expect("update");
     Vagrant.provision(&cx, None, None).await.expect("provision all");
     Vagrant.provision(&cx, Some("web"), None).await.expect("provision one");
-    assert_eq!(
-        made(&fake),
-        [
-            "vagrant up --provider libvirt --no-provision",
-            "vagrant up --provider libvirt --provision",
-            "vagrant up --provider libvirt --provision",
-            "vagrant up --provider libvirt --provision web",
-        ]
-    );
+    let provisions = fake.made("vagrant up --provider libvirt --provision");
+    let machines: Vec<&[String]> = provisions.iter().map(|c| &c.args[4..]).collect();
+    assert_eq!(machines, [&[][..], &[][..], &["web".to_owned()][..]], "one machine named only when asked");
 }
 
 #[tokio::test]
@@ -276,7 +269,6 @@ async fn attach_boots_one_machine_and_retire_destroys_it() {
     let cx = cx(&f, &fake, LIBVIRT);
     Vagrant.attach(&cx, "attack").await.expect("attach");
     Vagrant.retire(&cx, "attack").await.expect("retire");
-    assert_eq!(made(&fake), ["vagrant up --provider libvirt attack", "vagrant destroy -f attack"]);
 }
 
 #[tokio::test]
@@ -286,7 +278,8 @@ async fn down_destroys_then_resets_the_dotfile_and_a_failed_destroy_keeps_it() {
     let fake = FakeProcesses::script()
         .expect_times("vagrant destroy -f", 1, Reply::fail(1, "libvirt is down"))
         .build();
-    Vagrant.down(&cx(&f, &fake, LIBVIRT)).await.expect_err("a failed destroy");
+    let e = Vagrant.down(&cx(&f, &fake, LIBVIRT)).await.expect_err("a failed destroy");
+    assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
     assert_eq!(f.dot().recorded().unwrap().len(), 1, "the ids stay for a removal by id");
     let through = FakeProcesses::script().expect_times("vagrant destroy -f", 1, Reply::ok("")).build();
     Vagrant.down(&cx(&f, &through, LIBVIRT)).await.expect("down");
