@@ -30,6 +30,7 @@
 mod busy;
 mod clear;
 mod dotfile;
+mod failures;
 mod forwards;
 mod gone;
 mod lock;
@@ -37,11 +38,13 @@ use gone::run_state;
 mod names;
 mod providers;
 mod screen;
+mod utm;
 use names::{checked_user, key_of, of_key, one, ours, own_address, verb_word};
 
 use std::time::Duration;
 
 use self::dotfile::{Dotfile, Record};
+use self::failures::vagrant_error;
 use self::lock::{PATIENCE, Rerun, STATUS_PATIENCE, retrying};
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
 use crate::Result;
@@ -94,22 +97,6 @@ fn dot(cx: &ToolCx<'_>) -> Dotfile {
     Dotfile::in_state(cx.state_dir)
 }
 
-/// The runner's error for Vagrant's failed call `e`, made as step `step`: a sign-in the ESXi host
-/// refused as `server_auth_failed`, anything else as any tool's.
-fn vagrant_error(step: &str, e: CliError<Failure>) -> Error {
-    match e {
-        CliError::Failed {
-            failure: Failure::SignInRefused { server },
-            ..
-        } => Error::ServerAuthFailed {
-            step: step.to_owned(),
-            server,
-            reason: "the ESXi host refused the run's credentials (its esxi_username and password)".to_owned(),
-        },
-        other => tool_error(step, other),
-    }
-}
-
 /// The provider asked for, refused when there is none.
 fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
     cx.provider.ok_or_else(|| Error::NoProvider {
@@ -120,11 +107,15 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
 impl Vagrant {
     /// `up` of `machines` (all when empty) on the provider asked for, made again while another
     /// process's lock refuses it and a second run is safe.
+    /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]).
     async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
         let provider = cx.provider.map(Provider::id);
         let rerun = if provision == Provision::Yes { Rerun::Repeats } else { Rerun::Converges };
         let call = call(cx, UP_LIMIT);
-        retrying(cx.warn, step, rerun, PATIENCE, || vagrant::up(&call, provider, provision, machines)).await
+        utm::once_more(cx, step, || {
+            retrying(cx.warn, step, rerun, PATIENCE, || vagrant::up(&call, provider, provision, machines))
+        })
+        .await
     }
 
     /// `verb` on `machines` (all when empty), made again as [`Rerun`] allows.

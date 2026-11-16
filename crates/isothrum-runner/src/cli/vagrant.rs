@@ -5,6 +5,7 @@ use std::fmt;
 
 use super::{Call, CliError, argv, said_any};
 use crate::process::Captured;
+use crate::tool_output::osascript::AppleEvent;
 use crate::tool_output::vagrant as said;
 
 /// The tool.
@@ -39,6 +40,15 @@ pub(crate) enum Failure {
         /// The ESXi host.
         server: Option<String>,
     },
+    /// An Apple event the provider sent through `osascript` failed in passing (UTM's
+    /// `vagrant_utm` reading a booting VM's forwarded ports, or customizing one just imported):
+    /// UTM answers the same event a moment later.
+    ScriptingPassing {
+        /// The Apple event's error number (`-600`, `-1712`).
+        number: i32,
+        /// What the call printed.
+        reason: String,
+    },
     /// Any other failure: its reason.
     Other(String),
 }
@@ -66,6 +76,11 @@ impl Failure {
             Failure::UnknownMachine
         } else if said_any(out, &["does not support listing forwarded ports"]) {
             Failure::PortsUnsupported
+        } else if let Some(event) = AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail)).filter(|e| e.passes()) {
+            Failure::ScriptingPassing {
+                number: event.number(),
+                reason: out.reason(),
+            }
         } else {
             Failure::Other(out.reason())
         }
@@ -82,7 +97,7 @@ impl fmt::Display for Failure {
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
             Failure::SignInRefused { .. } => f.write_str("the ESXi host refused the run's credentials"),
-            Failure::Other(reason) => f.write_str(reason),
+            Failure::ScriptingPassing { reason, .. } | Failure::Other(reason) => f.write_str(reason),
         }
     }
 }
