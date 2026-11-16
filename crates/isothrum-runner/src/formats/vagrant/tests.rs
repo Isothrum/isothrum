@@ -1,3 +1,4 @@
+mod booting;
 mod commands;
 mod contract;
 mod needs;
@@ -100,6 +101,20 @@ fn verbs(fake: &FakeProcesses) -> Vec<String> {
 }
 
 const LIBVIRT: Option<Provider> = Some(Provider::Libvirt);
+
+/// Vagrant whose `up` fails with `fixture` its first `failing` times, then succeeds: an answer
+/// that changes over time, which a script doesn't give.
+fn failing_first(failing: usize, fixture_name: &str) -> FakeProcesses {
+    let said = fixture(fixture_name);
+    let tries = std::sync::atomic::AtomicUsize::new(0);
+    FakeProcesses::model(move |_| {
+        if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < failing {
+            Reply::fail(1, &said)
+        } else {
+            Reply::ok("")
+        }
+    })
+}
 const VBOX: Option<Provider> = Some(Provider::Virtualbox);
 
 fn fixture(name: &str) -> String {

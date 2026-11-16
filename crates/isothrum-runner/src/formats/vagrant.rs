@@ -27,6 +27,7 @@
 //! VMs and folders whose name carries the run's key as a word; then it starts once more. A call
 //! another Vagrant process's lock refused is made again ([`lock`]).
 
+mod booting;
 mod busy;
 mod clear;
 mod dotfile;
@@ -107,13 +108,16 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
 impl Vagrant {
     /// `up` of `machines` (all when empty) on the provider asked for, made again while another
     /// process's lock refuses it and a second run is safe.
-    /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]).
+    /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]); one
+    /// a machine still booting failed is made again once it may answer ([`booting::until_it_answers`]).
     async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
         let provider = cx.provider.map(Provider::id);
         let rerun = if provision == Provision::Yes { Rerun::Repeats } else { Rerun::Converges };
-        let call = call(cx, UP_LIMIT);
-        utm::once_more(cx, step, || {
-            retrying(cx.warn, step, rerun, PATIENCE, || vagrant::up(&call, provider, provision, machines))
+        let call = &call(cx, UP_LIMIT);
+        booting::until_it_answers(cx, step, move || {
+            utm::once_more(cx, step, move || {
+                retrying(cx.warn, step, rerun, PATIENCE, move || vagrant::up(call, provider, provision, machines))
+            })
         })
         .await
     }
