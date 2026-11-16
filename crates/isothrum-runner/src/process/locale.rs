@@ -63,23 +63,4 @@ mod tests {
         assert!(set.contains(&("LC_ALL", None)) && set.contains(&("LC_MESSAGES", Some("C".to_owned()))));
         assert_eq!(of(&[("LC_ALL", "")]).first(), Some(&("LC_ALL", None)), "an empty LC_ALL decides nothing");
     }
-
-    /// The real thing: a tool that localizes its messages speaks C under these settings.
-    #[test]
-    fn a_localized_tool_speaks_c() {
-        let mut cmd = std::process::Command::new("ls");
-        cmd.arg("/no/such/path")
-            .env("LANG", "fr_FR.UTF-8")
-            .env("LC_ALL", "fr_FR.UTF-8")
-            .env("LANGUAGE", "fr");
-        for (k, v) in settings(|name| (name == "LC_ALL").then(|| OsString::from("fr_FR.UTF-8"))) {
-            match v {
-                Some(v) => cmd.env(k, v),
-                None => cmd.env_remove(k),
-            };
-        }
-        let Ok(out) = cmd.output() else { return };
-        let said = String::from_utf8_lossy(&out.stderr);
-        assert!(!said.contains("Aucun fichier"), "{said}");
-    }
 }

@@ -3,7 +3,7 @@
 //! broker is tested by hand on a Windows host (an ignored test).
 
 mod cut_short;
-use cut_short::{started_then, within_5s};
+use cut_short::{started_then, within_a_minute};
 use std::path::Path;
 
 use super::*;
@@ -219,11 +219,14 @@ async fn the_broker_runs_no_request_of_another_session() {
         r#"{"session":"guess","seq":2,"program":"cmd","args":["/c","whoami"],"cwd":"."}"#,
     )
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(
-        !dir.join(protocol::request(2)).exists() && !dir.join(protocol::exit(2)).exists(),
-        "deleted unrun"
-    );
+    let planted = dir.join(protocol::request(2));
+    for _ in 0..3000 {
+        if !planted.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!planted.exists() && !dir.join(protocol::exit(2)).exists(), "deleted unrun");
     let (second, lines) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
     assert!(second.unwrap().success());
     assert_eq!(lines[0], "vagrant halt");
@@ -297,7 +300,7 @@ async fn an_answer_that_cant_be_read_fails_the_request() {
     let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
         std::fs::create_dir_all(dir.join(protocol::exit(1)).join("in-the-way")).unwrap();
     }));
-    let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
+    let err = within_a_minute(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert!(matches!(err, ProcessError::Io { .. }), "{err}");
     broker.await.unwrap();
 }
@@ -309,7 +312,7 @@ async fn an_answer_that_isnt_an_exit_code_fails_the_request() {
     let broker = tokio::spawn(started_then(e.root.clone(), |dir| {
         std::fs::write(dir.join(protocol::exit(1)), "oops\r\n").unwrap();
     }));
-    let err = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
+    let err = within_a_minute(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert_eq!(err.to_string(), "`vagrant`: the elevated broker answered `oops`, not an exit code");
     broker.await.unwrap();
 }
@@ -317,7 +320,10 @@ async fn an_answer_that_isnt_an_exit_code_fails_the_request() {
 #[tokio::test]
 async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
     let home = tempfile::tempdir().unwrap();
-    let fake = Arc::new(FakeProcesses::expect(&[("whoami /groups", Reply::missing()), ("powershell", Reply::ok(""))]));
+    let script = FakeProcesses::script()
+        .expect("whoami /groups", Reply::missing())
+        .expect("powershell", Reply::ok(""));
+    let fake = Arc::new(script.build());
     let e = Elevated::new(crate::testing::processes(&fake), home.path().join("elevated"), Vec::new());
     let broker = tokio::spawn(broker(e.root.clone(), "ran", 0));
     let ((exit, _), traced) = crate::testing::traced(lines_of(&e, &ProcessSpec::new("vagrant", ["status"]))).await;
@@ -331,19 +337,20 @@ async fn a_whoami_that_cant_say_is_traced_and_the_broker_starts() {
 fn a_session_token_is_random_hex() {
     let (a, b) = (token().unwrap(), token().unwrap());
     assert_eq!(a.len(), 32);
-    assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) && a != b, "{a} {b}");
+    isothrum_test_support::assert_every!(a.chars(), |c: &char| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+    assert_ne!(a, b);
 }
 
 #[tokio::test]
 async fn whether_the_account_may_manage_hyperv_is_whoamis_answer_or_unknown() {
-    let whoami = |groups: &str| FakeProcesses::expect(&[("whoami /groups /fo csv /nh", Reply::ok(groups))]);
+    let whoami = |groups: &str| FakeProcesses::script().expect("whoami /groups /fo csv /nh", Reply::ok(groups)).build();
     let elevated = whoami("\"Mandatory Label\\High Mandatory Level\",\"Label\",\"S-1-16-12288\",");
     assert_eq!(may_manage_hyperv(&elevated).await, HyperVRights::Granted);
     let member = whoami("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\",");
     assert_eq!(may_manage_hyperv(&member).await, HyperVRights::Granted);
     let neither = whoami("\"Mandatory Label\\Medium Mandatory Level\",\"Label\",\"S-1-16-8192\",");
     assert_eq!(may_manage_hyperv(&neither).await, HyperVRights::Missing);
-    let failing = FakeProcesses::expect(&[("whoami /groups", Reply::fail(1, "ERROR: access denied"))]);
+    let failing = FakeProcesses::script().expect("whoami /groups", Reply::fail(1, "ERROR: access denied")).build();
     let (answer, traced) = crate::testing::traced(may_manage_hyperv(&failing)).await;
     assert_eq!(answer, HyperVRights::Unknown, "a failed whoami is no answer, not a no");
     assert!(traced.contains("`whoami /groups` failed") && traced.contains("access denied"), "{traced}");

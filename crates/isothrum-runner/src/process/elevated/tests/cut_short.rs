@@ -57,9 +57,10 @@ pub(super) async fn started_then(root: PathBuf, obstacle: fn(&Path)) {
     std::fs::write(dir.join(protocol::READY), "").unwrap();
 }
 
-/// What a call through `e` gives within 5 s (a call that waits longer fails the test).
-pub(super) async fn within_5s(e: &Elevated, spec: &ProcessSpec) -> Result<Exit, ProcessError> {
-    let call = tokio::time::timeout(Duration::from_secs(5), lines_of(e, spec)).await;
+/// What a call through `e` gives within a minute: a call waiting for an answer that won't come
+/// fails the test, where an answer that comes is read at once, however loaded the host.
+pub(super) async fn within_a_minute(e: &Elevated, spec: &ProcessSpec) -> Result<Exit, ProcessError> {
+    let call = tokio::time::timeout(Duration::from_secs(60), lines_of(e, spec)).await;
     call.expect("the call waited for an answer that won't come").0
 }
 
@@ -78,10 +79,10 @@ async fn a_broker_that_ends_mid_request_fails_it_at_once_and_the_session_with_it
         std::fs::write(dir.join(protocol::ENDED), "the elevated broker stopped\r\n").unwrap();
     });
     let spec = ProcessSpec::new("vagrant", ["up"]);
-    let err = within_5s(&e, &spec).await.unwrap_err();
+    let err = within_a_minute(&e, &spec).await.unwrap_err();
     assert_eq!(err.to_string(), "elevation: the elevated session ended: the elevated broker stopped");
     broker.await.unwrap();
-    let later = within_5s(&e, &spec).await.unwrap_err();
+    let later = within_a_minute(&e, &spec).await.unwrap_err();
     assert!(
         matches!(&later, ProcessError::Elevation { reason } if reason.contains("broker stopped")),
         "{later}"
@@ -100,9 +101,9 @@ async fn a_request_that_cant_be_written_cancels_itself_alone() {
         "ran",
         0,
     ));
-    let first = within_5s(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
+    let first = within_a_minute(&e, &ProcessSpec::new("vagrant", ["up"])).await.unwrap_err();
     assert!(matches!(first, ProcessError::Io { .. }), "{first}");
-    let second = within_5s(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
+    let second = within_a_minute(&e, &ProcessSpec::new("vagrant", ["halt"])).await;
     assert!(second.unwrap().success(), "the broker skipped request 1 and took request 2");
     drop(e);
     broker.await.unwrap();

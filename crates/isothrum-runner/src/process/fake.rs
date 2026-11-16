@@ -560,7 +560,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_paced_reply_prints_its_lines_a_pace_apart() {
-        let fake = FakeProcesses::expect(&[("pull", Reply::ok("a\nb").paced(Duration::from_secs(60)))]);
+        let fake = FakeProcesses::script().expect("pull", Reply::ok("a\nb").paced(Duration::from_secs(60))).build();
         let started = tokio::time::Instant::now();
         let mut seen = Vec::new();
         fake.run(&spec("pull"), &mut |_, line| seen.push((line.to_owned(), started.elapsed().as_secs())))

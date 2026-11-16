@@ -53,11 +53,10 @@ fn the_oss_start_reads_from_proc_and_from_ps() {
     }
 }
 
-/// `sleep` in a process group of its own, as the runner starts every tool.
+/// `sleep` in a process group of its own, as the runner starts every tool, guarded.
 #[cfg(unix)]
-fn tool() -> std::process::Child {
-    use std::os::unix::process::CommandExt;
-    std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap()
+fn tool() -> isothrum_test_support::ChildGuard {
+    isothrum_test_support::ChildGuard::spawn(std::process::Command::new("sleep").arg("60")).unwrap()
 }
 
 /// Regression (tests/resilience.md A4): a process killed mid-operation left its tools running to
@@ -68,13 +67,15 @@ fn tool() -> std::process::Child {
 async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(DIR);
-    let (mut orphan, mut owned) = (tool(), tool());
+    let (orphan, owned) = (tool(), tool());
     let orphan_id = orphan.id();
+    // Should the test fail, the orphan goes with this guard, and its reaper with it.
+    let _orphan = isothrum_test_support::PidGuard::new(orphan_id);
     left_by_a_killed_process(&dir, orphan_id).unwrap();
     // Reaped as soon as it ends, as init reaps a tool whose parent was killed: a zombie still
     // counts in its process group, and the group would only be killed after the grace.
     let (reaped, reaping) = std::sync::mpsc::channel();
-    std::thread::spawn(move || reaped.send(orphan.wait().is_ok()));
+    std::thread::spawn(move || reaped.send(orphan.wait_with_output().is_ok()));
     // This process's own tool: its owner (this process) holds its lock.
     let mine = Recorded::write(&dir, owned.id(), None).unwrap();
     // An id that names another process now: recorded as started at the epoch.
@@ -83,20 +84,19 @@ async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
 
     let asked = std::time::Instant::now();
     assert_eq!(end_orphans(&dir).await, [orphan_id]);
-    assert_eq!(reaping.recv_timeout(Duration::from_secs(5)), Ok(true), "the orphaned tool was ended");
     assert!(asked.elapsed() < GRACE, "it stopped when asked, not killed after the grace");
-    assert!(owned.try_wait().unwrap().is_none(), "a live process's tool runs on");
+    assert_eq!(reaping.recv_timeout(Duration::from_secs(30)), Ok(true), "the orphaned tool was ended");
+    assert!(isothrum_test_support::alive(owned.id()), "a live process's tool runs on");
     let left: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
         .map(|e| e.file_name().into_string().unwrap())
         .collect();
     assert_eq!(left.len(), 2, "this process's lock and its tool's entry: {left:?}");
-    assert!(left.iter().all(|n| !n.starts_with("dead")), "{left:?}");
+    isothrum_test_support::assert_every!(&left, |n: &&String| !n.starts_with("dead"));
 
     drop(mine);
-    owned.kill().unwrap();
-    owned.wait().unwrap();
+    drop(owned);
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "the ended tool's entry went with it");
 }
 

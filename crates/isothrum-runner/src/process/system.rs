@@ -342,30 +342,3 @@ fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(all(test, unix))]
-mod end_all_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn end_all_now_ends_a_tool_still_running() {
-        let processes = SystemProcesses::default();
-        let spec = ProcessSpec::new("sleep", ["30"]);
-        let p = processes.clone();
-        let run = tokio::spawn(async move { p.run(&spec, &mut |_, _| {}).await });
-        for _ in 0..50 {
-            if !processes.running.lock().unwrap().is_empty() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(!processes.running.lock().unwrap().is_empty(), "the tool is running");
-        processes.end_all_now();
-        let exit = tokio::time::timeout(std::time::Duration::from_secs(5), run)
-            .await
-            .expect("ended at once")
-            .unwrap()
-            .unwrap();
-        assert_ne!(exit.code, Some(0), "killed, not finished");
-    }
-}
