@@ -66,6 +66,11 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
         .expect(CONFIG, Reply::ok(&with_api()))
         .expect(UP_PINNED, Reply::ok(""))
         .allow(PULL_PINNED, Reply::ok(""))
+        .expect("docker compose -p lab -f * -f * config --services", Reply::ok("web\napi\n"))
+        .expect(
+            "docker compose -p lab -f * -f * ps --all --format json",
+            Reply::ok(&ps_line("web", "running", "", 0, None)),
+        )
         .build();
     Compose.update(&cx_in(&project, &run, &update, state.path(), &picks)).await.expect("updated");
     let kept = std::fs::read_to_string(&pins).expect("the override");
