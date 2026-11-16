@@ -15,7 +15,7 @@ module may follow them too, and a module that follows none still runs.
 | Values | Each value and secret a run is given reaches the module's variable of the same name as `TF_VAR_<name>`, and the providers' own variables (`AWS_ACCESS_KEY_ID`, `PROXMOX_VE_ENDPOINT`) as they are. Values are recorded and given again at every later operation. Secrets never are: a `down` or a reap that needs one is given it again. |
 | Variables | `Project::variables`, `Client::variables` and the service's `variables` command list the module's `variable` blocks: name, type, default, sensitive and description. Give a sensitive one as a secret. |
 | Outputs | Read after every `up` (in its result) and every status. Sensitive ones show as `***`. |
-| Machines | Each managed instance of a VM resource type (`aws_instance`, `proxmox_virtual_environment_vm`, `esxi_guest` and the other clouds' and hypervisors' own) is a machine named after its resource. A state that holds data sources only is a ready run with no machine. |
+| Machines | Each managed instance of a VM resource type (`aws_instance`, `proxmox_virtual_environment_vm`, `esxi_guest` and the other clouds' and hypervisors' own) is a machine named after its resource, at the address its provider writes in the state, else the one the `machines` output names. A state that holds data sources only is a ready run with no machine. |
 | Resources | Every managed instance is recorded by address and id, so that a run killed mid-apply is still removed, by id, at the next operation. |
 | Lifetime | `--lifetime` and `RunOptions::lifetime` record when the run expires. The service's reaper, and `isothrum reap`, then run its `down`. |
 
@@ -30,6 +30,7 @@ is required.
 | `windows_password` | output, sensitive | Without `consoles`, each Windows VM gets Remote Desktop with this password. Also read from the run's own value or secret of that name. |
 | `windows_user` | output | Remote Desktop's user, when it isn't `Administrator`. |
 | `vnc_password` | output, sensitive | A VNC console's password. |
+| `machines` | output, a map | Each machine's address (`{ web = "10.60.0.10" }`), for a machine the state gives none (a Proxmox VE VM without a guest agent). |
 | `ip` | output | The machine a tunnelled screen goes through: an access machine, a router, the first Linux VM. |
 | `ssh_user`, `ssh_user_<machine>`, `address_<machine>` | outputs | Who signs in there: the user of the machine whose address is `ip`, else `ssh_user`. |
 | `ssh_private_key_file` | run value | The private key the tunnel signs in with. Without it, the runner's own key is used. |

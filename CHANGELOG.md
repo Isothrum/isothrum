@@ -186,6 +186,9 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A Terraform module's machine with no address in its state takes the one its `machines`
+  output names.** A Proxmox VE VM without a guest agent (every one of Isoloom's lab VMs but its
+  router) had none in the status, so nothing could reach it.
 - **`isothrum exec` without `--json` prints its command's output once.** It came twice: as the
   tool's log lines on standard error while it ran, then on the command's own streams. Now only
   on its own streams (standard output stays the command's, for a pipe); the log lines show only
