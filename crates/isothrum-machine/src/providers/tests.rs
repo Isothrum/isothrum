@@ -6,6 +6,7 @@ use isothrum_runner::fake::{FakeProcesses, Reply, Script};
 use super::*;
 use crate::host::Devices;
 use isothrum_runner::ProcessRunner;
+use isothrum_test_support::assert_every;
 
 /// Detection on hosts the tests build, their tools scripted strictly.
 mod detection;
@@ -145,7 +146,8 @@ fn a_mac_is_offered_the_hypervisor_made_for_its_cpu_and_keeps_one_installed() {
 fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_vendor_offers_it() {
     let esxi = ProviderRow::of(Provider::VmwareEsxi);
     assert!(esxi.remote() && esxi.shares_folders.is_empty());
-    assert!(all().iter().filter(|p| **p != Provider::VmwareEsxi).all(|p| !ProviderRow::of(*p).remote()));
+    assert_every!(all().into_iter().filter(|p| *p != Provider::VmwareEsxi), |p: &Provider| !ProviderRow::of(*p)
+        .remote());
     assert!(
         ProviderRow::of(Provider::Hyperv).shares_folders.is_empty(),
         "SMB folders ask for a password at every start"
@@ -156,6 +158,10 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
     }
     assert_eq!(ProviderRow::of(Provider::Utm).plugin_minimum, Some("0.2.0"));
     assert_eq!(ProviderRow::of(Provider::Utm).hypervisor_minimum, Some(("UTM", "4.6.5")));
+}
+
+#[test]
+fn only_qemu_on_linux_needs_mkisofs_and_only_vmware_desktop_the_utility() {
     assert!(needs_mkisofs(Provider::Qemu, HostOs::Linux));
     for (p, os) in [
         (Provider::Qemu, HostOs::Macos),
@@ -165,7 +171,9 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
         assert!(!needs_mkisofs(p, os), "{p:?} on {os:?}");
     }
     assert!(needs_vmware_utility(Provider::VmwareDesktop));
-    assert!(all().iter().filter(|p| **p != Provider::VmwareDesktop).all(|p| !needs_vmware_utility(*p)));
+    assert_every!(all().into_iter().filter(|p| *p != Provider::VmwareDesktop), |p: &Provider| {
+        !needs_vmware_utility(*p)
+    });
 }
 
 #[test]

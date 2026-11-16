@@ -84,31 +84,31 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_probe_returns_the_output_whatever_the_exit() {
-        let fake = FakeProcesses::expect(&[("tool one", Reply::ok("line-a\nline-b"))]);
+        let fake = FakeProcesses::script().expect("tool one", Reply::ok("line-a\nline-b")).build();
         assert_eq!(probe(&fake, LIMIT, "tool", &["one"]).await.unwrap().stdout, ["line-a", "line-b"]);
 
         let mut warned = exiting(2, "partial");
         warned.stderr = vec!["WARNING: careful".to_owned()];
-        let failing = FakeProcesses::expect(&[("tool two", warned)]);
+        let failing = FakeProcesses::script().expect("tool two", warned).build();
         assert_eq!(all_lines(&probe(&failing, LIMIT, "tool", &["two"]).await.unwrap()), "partial\nWARNING: careful");
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_failed_read_says_why_as_the_runner_does() {
-        let said = FakeProcesses::expect(&[("tool", Reply::fail(1, "no such plugin"))]);
+        let said = FakeProcesses::script().expect("tool", Reply::fail(1, "no such plugin")).build();
         assert_eq!(read_ok(&said, LIMIT, "tool", &[]).await, Err("no such plugin (exited with code 1)".to_owned()));
-        let on_stdout = FakeProcesses::expect(&[("tool", exiting(2, "refused: log in as admin"))]);
+        let on_stdout = FakeProcesses::script().expect("tool", exiting(2, "refused: log in as admin")).build();
         assert_eq!(
             read_ok(&on_stdout, LIMIT, "tool", &[]).await,
             Err("refused: log in as admin (exited with code 2)".to_owned())
         );
-        let silent = FakeProcesses::expect(&[("tool", Reply::fail(3, ""))]);
+        let silent = FakeProcesses::script().expect("tool", Reply::fail(3, "")).build();
         assert_eq!(read_ok(&silent, LIMIT, "tool", &[]).await, Err("exited with code 3".to_owned()));
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_missing_tool_is_said_as_missing_and_isnt_there() {
-        let fake = FakeProcesses::expect(&[("tool", Reply::missing())]);
+        let fake = FakeProcesses::script().expect("tool", Reply::missing()).build();
         let err = probe(&fake, LIMIT, "tool", &[]).await.unwrap_err();
         assert!(
             matches!(err, Unanswered::NotStarted(ProcessError::Missing { ref program }) if program == "tool"),

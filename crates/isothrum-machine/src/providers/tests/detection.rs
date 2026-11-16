@@ -141,7 +141,10 @@ async fn a_virtualbox_whose_service_never_answers_is_wedged() {
     let dir = tempfile::tempdir().unwrap();
     let stuck = Context::new(Arc::new(Stuck), linux(dir.path()));
     assert!(vbox::wedged(&stuck).await);
-    let (answering, _) = context(FakeProcesses::expect(&[("VBoxManage list runningvms", Reply::ok(""))]), linux(dir.path()));
+    let (answering, _) = context(
+        FakeProcesses::script().expect("VBoxManage list runningvms", Reply::ok("")).build(),
+        linux(dir.path()),
+    );
     assert!(!vbox::wedged(&answering).await);
     // Through detection.
     let script = on_linux(FakeProcesses::script())

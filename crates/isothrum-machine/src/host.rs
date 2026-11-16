@@ -310,26 +310,25 @@ mod tests {
 
     use super::*;
 
+    /// Every OS once, in the order a UI lists them, with its name and usual package manager.
     #[test]
-    fn every_os_and_cpu_is_listed_once() {
-        for os in [HostOs::Linux, HostOs::Macos, HostOs::Windows] {
-            assert_eq!(ALL_OSES.iter().filter(|o| **o == os).count(), 1, "{os:?}");
-        }
-        for arch in [Arch::Amd64, Arch::Arm64] {
-            assert_eq!(ALL_ARCHES.iter().filter(|a| **a == arch).count(), 1, "{arch:?}");
-        }
+    fn each_os_is_listed_once_with_its_name_and_its_usual_package_manager() {
+        let named: Vec<_> = ALL_OSES.iter().map(|os| (*os, os_name(*os), usual_packages(*os))).collect();
+        assert_eq!(
+            named,
+            [
+                (HostOs::Macos, "macOS", "Homebrew"),
+                (HostOs::Windows, "Windows", "winget"),
+                (HostOs::Linux, "Linux", "apt")
+            ]
+        );
     }
 
+    /// Every CPU once, with QEMU's system emulator for it.
     #[test]
-    fn each_os_has_its_name_and_its_usual_package_manager() {
-        let named: Vec<_> = ALL_OSES.iter().map(|os| (os_name(*os), usual_packages(*os))).collect();
-        assert_eq!(named, [("macOS", "Homebrew"), ("Windows", "winget"), ("Linux", "apt")]);
-    }
-
-    #[test]
-    fn a_cpu_has_its_qemu_system() {
-        assert_eq!(qemu_system(Arch::Arm64), "qemu-system-aarch64");
-        assert_eq!(qemu_system(Arch::Amd64), "qemu-system-x86_64");
+    fn each_cpu_is_listed_once_with_its_qemu_system() {
+        let named: Vec<_> = ALL_ARCHES.iter().map(|arch| (*arch, qemu_system(*arch))).collect();
+        assert_eq!(named, [(Arch::Amd64, "qemu-system-x86_64"), (Arch::Arm64, "qemu-system-aarch64")]);
     }
 
     #[test]
@@ -366,11 +365,13 @@ mod tests {
         assert!(!on(HostOs::Macos, Arch::Arm64).is_windows_on_arm());
     }
 
+    /// A test's host reads nothing of the machine running it: every path under its folder, the
+    /// apps' tools included, and no service that answers.
     #[test]
     fn a_tests_devices_are_all_under_its_folder() {
         let root = Path::new("/the/test");
         let devices = Devices::under(root);
-        let paths = [
+        let fixed = [
             &devices.kvm,
             &devices.etc_group,
             &devices.proc_modules,
@@ -381,9 +382,8 @@ mod tests {
             &devices.hyperv_service,
             &devices.vmware_utility,
         ];
-        for path in paths {
-            assert!(path.starts_with(root), "{path:?}");
-        }
+        let paths = fixed.into_iter().chain(&devices.vmrun).chain(&devices.prlctl);
+        isothrum_test_support::assert_every!(paths, |path: &&PathBuf| path.starts_with(root));
         assert_eq!(devices.vmware_utility_service.port(), 0);
         assert!(devices.vmware_utility_service.ip().is_loopback());
     }

@@ -65,14 +65,13 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     /// Regression: every failed rename fell back to a copy, so a state whose folder can't be
     /// written was copied into the run and stayed in the old folder too. Only a move across file
     /// systems copies.
-    #[cfg(unix)]
     #[test]
     fn a_state_that_cant_be_moved_stays_only_where_it_was() {
         use std::os::unix::fs::PermissionsExt;
