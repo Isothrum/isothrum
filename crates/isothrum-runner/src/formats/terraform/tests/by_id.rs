@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// Removes the module's `aws_instance.vm`, recorded with id `i-1`.
+async fn destroy_the_vm(lab: &Lab, fake: &FakeProcesses) -> Result<()> {
+    with_cx(lab, fake, async |cx| {
+        Terraform.destroy_by_id(cx, "aws_instance.vm", ResourceKind::Vm, "i-1").await
+    })
+    .await
+}
+
 #[tokio::test]
 async fn destroy_by_id_targets_an_instance_the_state_holds() {
     let lab = lab().with_state();
@@ -16,11 +24,7 @@ async fn destroy_by_id_targets_an_instance_the_state_holds() {
             Reply::ok(DESTROYED_ONE),
         )
         .build();
-    with_cx(&lab, &fake, async |cx| {
-        Terraform.destroy_by_id(cx, "aws_instance.vm", ResourceKind::Vm, "i-1").await
-    })
-    .await
-    .expect("destroyed");
+    destroy_the_vm(&lab, &fake).await.expect("destroyed");
 }
 
 #[tokio::test]
@@ -34,11 +38,7 @@ async fn destroy_by_id_imports_an_instance_the_state_lost_first() {
         )
         .expect("terraform destroy -auto-approve -input=false -json", Reply::ok(DESTROYED_ONE))
         .build();
-    with_cx(&lab, &fake, async |cx| {
-        Terraform.destroy_by_id(cx, "aws_instance.vm", ResourceKind::Vm, "i-1").await
-    })
-    .await
-    .expect("destroyed");
+    destroy_the_vm(&lab, &fake).await.expect("destroyed");
 }
 
 #[tokio::test]
