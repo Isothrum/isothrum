@@ -124,8 +124,8 @@ mod tests {
         RunName::new("demo").unwrap()
     }
 
-    #[tokio::test]
-    async fn another_process_holding_the_run_keeps_it_busy() {
+    #[tokio::test(start_paused = true)]
+    async fn another_process_holding_the_run_past_the_wait_is_locked() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lock");
         // A handle of its own stands in for the other process (an OS lock conflicts across handles
@@ -149,7 +149,8 @@ mod tests {
         let err = RunLocks::default().acquire(&run(), &path).await.unwrap_err();
         assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
         let missing = dir.path().join("gone").join("lock");
-        assert!(RunLocks::default().acquire(&run(), &missing).await.is_err());
+        let no_folder = RunLocks::default().acquire(&run(), &missing).await.unwrap_err();
+        assert_eq!(no_folder.code(), crate::ErrorCode::Io, "a lock with no folder to be in: {no_folder}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -234,5 +235,22 @@ mod tests {
         let again = locks.acquire(&run(), &path).await;
         assert!(again.is_ok(), "the run is free once released: {again:?}");
         drop(spawned);
+    }
+
+    /// The home's own short jobs (an SSH key made): another handle holding the lock past the
+    /// wait is `None`, never a lock taken anyway; once it lets go, the lock is held.
+    #[tokio::test(start_paused = true)]
+    async fn a_home_lock_held_elsewhere_past_its_wait_is_not_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ssh.lock");
+        let other = File::create(&path).unwrap();
+        other.lock().unwrap();
+        assert!(hold(&path, Duration::from_secs(30)).await.unwrap().is_none(), "held all along");
+        drop(other);
+        let held = hold(&path, Duration::from_secs(30)).await.unwrap().expect("free now");
+        let again = File::open(&path).unwrap();
+        assert!(matches!(again.try_lock(), Err(TryLockError::WouldBlock)), "the lock is held while it lives");
+        drop(held);
+        again.try_lock().expect("and freed with it");
     }
 }

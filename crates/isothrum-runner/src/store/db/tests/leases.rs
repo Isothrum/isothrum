@@ -5,7 +5,6 @@ use super::*;
 use crate::port::HostPort;
 
 /// An owner whose process is gone, and this process.
-#[cfg(unix)]
 fn dead_and_me() -> (Owner, Owner) {
     let mut dead = Owner::this_process();
     dead.pid = owner::tests::dead_pid();
@@ -45,7 +44,6 @@ fn a_lease_is_refused_while_its_holder_lives_and_taken_over_from_a_dead_one() {
         .unwrap();
 }
 
-#[cfg(unix)]
 #[test]
 fn a_lease_whose_holder_died_is_taken_over() {
     let (_home, store) = store();
@@ -112,7 +110,6 @@ fn a_port_is_reserved_by_one_live_operation_and_freed_with_its_lease() {
         .unwrap();
 }
 
-#[cfg(unix)]
 #[test]
 fn a_port_a_dead_process_reserved_is_taken_over() {
     let (_home, store, (one, a), (two, b)) = two_runs_up();

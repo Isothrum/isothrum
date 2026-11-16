@@ -88,7 +88,7 @@ fn a_write_that_fails_leaves_nothing_of_itself() {
         tx.begin_operation(&r, Op::Up, &Owner::this_process(), None)?;
         Err::<(), _>(Error::NotRunning { run: "r".into() })
     });
-    assert!(failed.is_err());
+    assert!(matches!(failed, Err(Error::NotRunning { .. })), "the closure's own error: {failed:?}");
     store
         .read(|tx| {
             assert_eq!(tx.run(&r)?, None);
@@ -221,7 +221,7 @@ fn a_crash_between_creating_and_created_leaves_the_resource_to_find() {
     assert_eq!((left[1].state, left[1].native_id.as_deref()), (ResourceState::Creating, None));
     let found = reopened.read(|tx| tx.resource_named(&r, "db", &pending)).unwrap().unwrap();
     assert_eq!(found.id, left[1].id, "a pending row is found by its per-copy name");
-    assert!(CopyName::rendered("db-1", key).is_err(), "never by a bare name");
+    assert_eq!(CopyName::rendered("db-1", key).unwrap_err().name, "db-1", "never by a bare name");
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn a_write_that_fails_between_creating_and_created_keeps_neither() {
         tx.created(id, "c0ffee")?;
         Err::<(), _>(Error::NotRunning { run: "r".into() })
     });
-    assert!(failed.is_err());
+    assert!(matches!(failed, Err(Error::NotRunning { .. })), "the closure's own error: {failed:?}");
     assert_eq!(store.read(|tx| tx.live_resources(&r)).unwrap(), []);
 }
 
@@ -357,9 +357,11 @@ fn a_queued_operation_is_started_once_or_cancelled_and_never_otherwise_ended() {
             let again = tx.start_operation(queued.id, &r, &me, None);
             assert_eq!(again.unwrap_err().code(), ErrorCode::IllegalTransition, "started once");
             let elsewhere = tx.queue_operation(&r, Op::Down, &me)?;
-            assert!(tx.start_operation(elsewhere.id, &name("other"), &me, None).is_err(), "another run's");
+            let theirs = tx.start_operation(elsewhere.id, &name("other"), &me, None);
+            assert_eq!(theirs.unwrap_err().code(), ErrorCode::IllegalTransition, "another run's");
             tx.end_operation(elsewhere.id, Outcome::Cancelled, Some(ErrorCode::Cancelled))?;
-            assert!(tx.start_operation(elsewhere.id, &r, &me, None).is_err(), "a cancelled one never starts");
+            let cancelled = tx.start_operation(elsewhere.id, &r, &me, None);
+            assert_eq!(cancelled.unwrap_err().code(), ErrorCode::IllegalTransition, "a cancelled one never starts");
             Ok(())
         })
         .unwrap();
