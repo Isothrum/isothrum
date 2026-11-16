@@ -205,7 +205,8 @@ pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, purpo
     let spec = ssh_spec(purpose, to, &key, state_dir, local)?;
     let ledger = state_dir.join(crate::process::ledger::DIR);
     let mut tunnel = started(purpose, &spec, SocketAddr::new(LOOPBACK, local), &to.via.target(), &ledger)?;
-    if !config.ports.reachable(&LOOPBACK.to_string(), local, OPENING).await {
+    let probe = || config.ports.reachable(LOOPBACK_TEXT, local, PROBE);
+    if !answers(&mut tunnel, probe, OPENING).await {
         let because = tunnel.why_closed().await.map_or_else(String::new, |line| format!(": ssh said `{line}`"));
         return Err(purpose.refused(format!(
             "its tunnel through {} didn't open (SSH refused, or {}:{} doesn't answer from there){because}",
@@ -214,6 +215,32 @@ pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, purpo
     }
     tunnel.drain();
     Ok(tunnel)
+}
+
+/// How long one probe of a tunnel's port may take.
+const PROBE: Duration = Duration::from_secs(2);
+
+/// How often a tunnel's port is probed while its `ssh` opens it.
+const POLL: Duration = Duration::from_millis(200);
+
+/// The loopback, as text a probe connects to.
+const LOOPBACK_TEXT: &str = "127.0.0.1";
+
+/// Whether `tunnel`'s port answers `probe` within `within`, probed again while its `ssh` runs:
+/// `ssh` listens only once it has signed in through the machine it goes through, which takes a
+/// moment. A single probe, made at once, found nothing listening yet and gave a tunnel up that was
+/// opening. False as soon as its `ssh` ended.
+async fn answers<'a>(tunnel: &mut Tunnel, probe: impl Fn() -> crate::BoxFuture<'a, bool>, within: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        if probe().await {
+            return true;
+        }
+        if !tunnel.runs() || tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(POLL).await;
+    }
 }
 
 /// [`start`] for `machine`'s console: a program that isn't installed is `tool_missing`, another
@@ -345,5 +372,26 @@ mod tests {
         tunnel.drain();
         let said = tokio::time::timeout(Duration::from_secs(10), tunnel.closed()).await.expect("seen closing");
         assert_eq!(said, "its ssh exited with code 255");
+    }
+
+    /// Regression (a real run through a jump host): the port was probed once, at once, before
+    /// `ssh` had signed in and listened, and the tunnel was given up while it opened.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_is_waited_for_while_its_ssh_opens_it_and_given_up_once_it_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut opening = stand_in("sleep 30", dir.path());
+        let probes = std::sync::atomic::AtomicUsize::new(0);
+        let third = || -> crate::BoxFuture<'_, bool> {
+            let n = probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move { n >= 2 })
+        };
+        assert!(answers(&mut opening, third, Duration::from_secs(10)).await, "answering at the third probe");
+        let mut ended = stand_in("exit 255", dir.path());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let never = || -> crate::BoxFuture<'_, bool> { Box::pin(async { false }) };
+        let started = std::time::Instant::now();
+        assert!(!answers(&mut ended, never, Duration::from_secs(10)).await);
+        assert!(started.elapsed() < Duration::from_secs(5), "given up once its ssh ended");
     }
 }
