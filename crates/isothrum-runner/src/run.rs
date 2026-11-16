@@ -317,7 +317,7 @@ impl<'r> Running<'r> {
     async fn act(&self, cx: &ToolCx<'_>, act: Act<'_>) -> Result<()> {
         match act {
             Act::Up => self.driver.up(cx).await,
-            Act::Park(mode) => self.driver.park(cx, mode).await,
+            Act::Park(mode) => self.driver.park(cx, mode).await.and_then(|()| self.note_parked(mode)),
             Act::Resume => self.driver.resume(cx).await,
             Act::Update => {
                 self.driver.update(cx).await?;

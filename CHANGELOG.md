@@ -23,6 +23,9 @@ Terraform), usable on any project of those formats.
   first it may run on `PATH`, then `/usr/libexec/virtiofsd`, then `/usr/lib/qemu/virtiofsd`
   (`Devices::vhost_user`, `Devices::virtiofsd`). Without one each read as ready, and a VM sharing
   a folder failed at its start in the Vagrant plugin.
+- **A run's record says how it was parked: `RunRecord::parked`.** `pause` or `shutdown`, set by
+  a park and cleared by a start, a resume or a down, so a reader of the record (a `list`, the
+  store) tells a paused run from a shut-down one without keeping its own note of it.
 - **A command runs in a Terraform module's VM: `Running::exec`, `isothrum exec`.** An `ssh` into
   the VM that runs it, with no terminal: what it printed and its exit status, a command that fails
   being its result and an `ssh` that can't run it (255) `tool_failed`. It was refused. A

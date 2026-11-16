@@ -13,7 +13,7 @@ use crate::error::{Error, ErrorCode};
 use crate::events::{Emitter, EventKind, Events, ResultData, StoreLog, WarningCode};
 use crate::formats::Seen;
 use crate::options::RunOptions;
-use crate::state::{Desired, Op, RunState, Transition};
+use crate::state::{Desired, Op, Park, RunState, Transition};
 use crate::status::MachineState;
 use crate::store::{LastOp, OperationId, Outcome, Owner, RunRecord};
 
@@ -124,6 +124,17 @@ impl Running<'_> {
         done
     }
 
+    /// Records how the run's machines were just parked: what a later reader tells a pause from a
+    /// shut down by.
+    pub(super) fn note_parked(&self, mode: Park) -> Result<()> {
+        self.runner.store.db().write(|tx| {
+            let Some(row) = tx.run(&self.name)? else { return Ok(()) };
+            let mut record = row.record;
+            record.parked = Some(mode);
+            tx.save_record(&record, row.desired)
+        })
+    }
+
     /// The run's record, or a fresh one for this project.
     fn record_or_fresh(&self) -> Result<RunRecord> {
         let fresh = || RunRecord::fresh(self.name.clone(), self.project.dir.clone(), self.project.format);
@@ -137,6 +148,10 @@ impl Running<'_> {
         let mut record = self.record_or_fresh()?;
         record.project.clone_from(&self.project.dir);
         record.format = self.project.format;
+        if matches!(op, Op::Up | Op::Resume | Op::Down) {
+            // Parked no more, however its machines were.
+            record.parked = None;
+        }
         if op == Op::Up {
             let now = self.runner.config.clock.now();
             record.provider = opts.provider;

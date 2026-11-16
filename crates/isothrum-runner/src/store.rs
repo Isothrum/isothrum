@@ -79,7 +79,7 @@ use crate::events::EventLog;
 use crate::name::RunName;
 use crate::project::Format;
 use crate::project::platform::{Cloud, Provider};
-use crate::state::{Desired, Op, RunState};
+use crate::state::{Desired, Op, Park, RunState};
 use crate::status::MachineStatus;
 
 /// The record format's version.
@@ -145,6 +145,10 @@ pub struct RunRecord {
     pub host_label: Option<String>,
     /// Where it stood after its last operation.
     pub state: RunState,
+    /// How its last park parked it ([`Park::Pause`] or [`Park::Shutdown`]); none once a start,
+    /// a resume or a down followed. Meaningful while `state` is [`RunState::Parked`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parked: Option<Park>,
     /// When it was last started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
@@ -175,6 +179,7 @@ impl RunRecord {
             provider: None,
             host_label: None,
             state: RunState::Absent,
+            parked: None,
             started_at: None,
             expires_at: None,
             last: None,
