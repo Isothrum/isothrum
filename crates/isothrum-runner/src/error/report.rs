@@ -103,8 +103,8 @@ impl Error {
     /// Whether the run may have changed by this failure: false for the refusals the runner makes
     /// before it acts on a run (its lock held, an `up` of a ready run, a run recorded elsewhere, a
     /// resume of nothing, a change of a run that isn't up, a value missing or unusable, a tool
-    /// missing).
-    fn changed(&self) -> bool {
+    /// missing, an operation the run's format doesn't do).
+    pub(crate) fn changed(&self) -> bool {
         !matches!(
             self,
             Error::Locked { .. }
@@ -115,6 +115,7 @@ impl Error {
                 | Error::SecretMissing { .. }
                 | Error::Input { .. }
                 | Error::ToolMissing { .. }
+                | Error::Declined { .. }
         )
     }
 }

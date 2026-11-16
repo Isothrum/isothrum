@@ -119,8 +119,8 @@ impl Running<'_> {
             Err(taken @ Error::PortInUse { holder: None, .. }) => Err(self.with_holder(taken).await),
             done => done,
         };
-        let code = done.as_ref().err().map(Error::code);
-        let settled = unfinished.settle(code);
+        let failure = done.as_ref().err().map(|e| (e.code(), e.changed()));
+        let settled = unfinished.settle(failure);
         unfinished.armed = false;
         if let Err(e) = settled {
             if done.is_ok() {
@@ -197,6 +197,7 @@ impl Running<'_> {
         };
         let name = &self.name;
         let begun = self.runner.store.db().write(|tx| {
+            let desired_before = tx.run(name)?.map(|r| r.desired);
             tx.save_record(&record, Desired::Running)?;
             let Some(row) = tx.run(name)? else {
                 return Ok(None);
@@ -210,13 +211,13 @@ impl Running<'_> {
             if let Some(desired) = wanted {
                 tx.set_desired(name, desired)?;
             }
-            Ok(Some((begun, wanted)))
+            Ok(Some((begun, wanted, desired_before.unwrap_or(row.desired))))
         })?;
-        if let Some((begun, wanted)) = begun {
+        if let Some((begun, wanted, desired_before)) = begun {
             if let Some(desired) = wanted {
                 emitter.desired(desired);
             }
-            self.runner.note_begun(name, begun);
+            self.runner.note_begun(name, begun, desired_before);
         }
         Ok(())
     }
@@ -252,10 +253,13 @@ impl Running<'_> {
         })
     }
 
-    /// Records how `op` ended: the run's move to its goal or to `failed`, its last operation, the
-    /// journal's end. Returns where the run stands.
-    fn close(&self, op: Op, code: Option<ErrorCode>) -> Result<Option<RunState>> {
+    /// Records how `op` ended: the run's move to its goal or to `failed`, or, for a refusal before
+    /// anything acted (`failure`'s report unchanged), back where it stood with what was wanted of
+    /// it; its last operation; the journal's end. Returns where the run stands.
+    fn close(&self, op: Op, failure: Option<(ErrorCode, bool)>) -> Result<Option<RunState>> {
         let name = &self.name;
+        let code = failure.map(|(code, _)| code);
+        let refused = matches!(failure, Some((_, false)));
         let begun = self.runner.begun(name);
         let id = self.runner.operation_of(name);
         let at = rfc3339(self.runner.config.clock.now());
@@ -273,9 +277,14 @@ impl Running<'_> {
             };
             let mut record = row.record;
             record.last = Some(LastOp::ended(op, code, at));
-            tx.save_record(&record, row.desired)?;
-            let moved = begun.map(|b| match code {
+            let desired = match begun {
+                Some((_, before)) if refused => before,
+                _ => row.desired,
+            };
+            tx.save_record(&record, desired)?;
+            let moved = begun.map(|(b, _)| match code {
                 None => Transition::succeed(b),
+                Some(_) if refused => Transition::undone(b),
                 Some(code) => Transition::fail(b, code),
             });
             if let Some(t) = moved {
@@ -360,10 +369,10 @@ struct Unfinished<'r, 'e> {
 }
 
 impl Unfinished<'_, '_> {
-    /// Records how the operation ended (failed with `code`, else at its goal) and says the state it
-    /// left the run in.
-    fn settle(&self, code: Option<ErrorCode>) -> Result<()> {
-        let after = self.run.close(self.op, code);
+    /// Records how the operation ended (failed with `failure`'s code, having changed the run or
+    /// not, else at its goal) and says the state it left the run in.
+    fn settle(&self, failure: Option<(ErrorCode, bool)>) -> Result<()> {
+        let after = self.run.close(self.op, failure);
         if let Some(during) = self.op.during() {
             let to = after.as_ref().ok().copied().flatten().unwrap_or(self.before);
             self.emitter.emit(EventKind::State { from: during, to });
@@ -375,7 +384,7 @@ impl Unfinished<'_, '_> {
 impl Drop for Unfinished<'_, '_> {
     fn drop(&mut self) {
         if self.armed
-            && let Err(e) = self.settle(Some(ErrorCode::Cancelled))
+            && let Err(e) = self.settle(Some((ErrorCode::Cancelled, true)))
         {
             tracing::warn!(error = %e, "the record of a cancelled operation wasn't updated");
         }

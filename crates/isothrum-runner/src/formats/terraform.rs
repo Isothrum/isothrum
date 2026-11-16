@@ -280,7 +280,7 @@ impl<'c, 'a> Module<'c, 'a> {
 
 /// What Terraform refuses to do with a module's machines.
 fn refused(what: &str) -> Error {
-    Error::Unsupported {
+    Error::Declined {
         what: format!("{what} on a Terraform run: a module's machines are made and removed by its apply and destroy only"),
     }
 }

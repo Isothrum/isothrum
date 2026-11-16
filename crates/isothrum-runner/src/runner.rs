@@ -17,7 +17,7 @@ use crate::process::{ProcessRunner, SystemProcesses};
 use crate::project::platform::{Arch, HostOs, Protocol};
 use crate::project::{Format, Project};
 use crate::run::Running;
-use crate::state::{Op, Transition};
+use crate::state::{Desired, Op, Transition};
 use crate::store::{Home, OperationId, RunLocks, RunRecord};
 
 /// How a runner is built: its home, and the ports it reaches the world through. Start from
@@ -270,15 +270,17 @@ impl Runner {
         self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).map(|f| f.id)
     }
 
-    /// The transition the operation in flight on `name` began with, once it began acting.
-    pub(crate) fn begun(&self, name: &RunName) -> Option<Transition> {
+    /// The transition the operation in flight on `name` began with, once it began acting, and what
+    /// was wanted of the run before it.
+    pub(crate) fn begun(&self, name: &RunName) -> Option<(Transition, Desired)> {
         self.flight.lock().unwrap_or_else(PoisonError::into_inner).get(name).and_then(|f| f.begun)
     }
 
-    /// Notes that the operation in flight on `name` began acting with `transition`.
-    pub(crate) fn note_begun(&self, name: &RunName, transition: Transition) {
+    /// Notes that the operation in flight on `name` began acting with `transition`, `before` wanted
+    /// of the run until then.
+    pub(crate) fn note_begun(&self, name: &RunName, transition: Transition, before: Desired) {
         if let Some(f) = self.flight.lock().unwrap_or_else(PoisonError::into_inner).get_mut(name) {
-            f.begun = Some(transition);
+            f.begun = Some((transition, before));
         }
     }
 
@@ -327,12 +329,13 @@ impl std::fmt::Debug for Runner {
     }
 }
 
-/// An operation in flight: what it is, its journal id, and the transition it began acting with.
+/// An operation in flight: what it is, its journal id, and the transition it began acting with
+/// (with what was wanted of the run before it).
 #[derive(Debug, Clone, Copy)]
 struct InFlight {
     op: Op,
     id: OperationId,
-    begun: Option<Transition>,
+    begun: Option<(Transition, Desired)>,
 }
 
 /// An operation in flight; cleared when dropped, whatever the outcome (an error, a cancellation).
