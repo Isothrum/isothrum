@@ -150,7 +150,9 @@ Terraform), usable on any project of those formats.
 - **isothrum-machine's `Need` is exhaustive.** A setup offers a step for each thing a provider
   still needs, so one that matches on it now fails to compile until a new need has its step,
   rather than passing over it in a wildcard arm.
-
+- **A Vagrant run's kept host ports reach the Vagrantfile as `HOST_PORT_<MACHINE>_<GUEST>_<PROTO>`**
+  (was `ISOTHRUM_HOST_PORT_…`): a name any Vagrantfile reads, whichever tool wrote it
+  ([Vagrant projects](docs/reference/vagrant.md#stable-host-ports)).
 - **A Terraform module's console asked for an account signs in as the module's user, then opens
   a login shell as that account** (`sudo -iu`), as a Vagrant VM's does. It signed in as the
   account itself, which doesn't let the run's key in.
