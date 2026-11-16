@@ -49,6 +49,13 @@ pub(crate) enum Failure {
         /// What the call printed.
         reason: String,
     },
+    /// A machine's SSH server didn't answer yet (net-ssh's `timeout during server version
+    /// negotiating`): the VM runs and still boots, which `up` doesn't wait for on a machine that
+    /// already runs (one a start cut off had booted) before it provisions. It answers a moment later.
+    Booting {
+        /// What the call printed.
+        reason: String,
+    },
     /// The hypervisor found nothing this computer must have to run the VM: libvirt or
     /// vagrant-qemu no virtiofsd to share a folder through virtiofs (`Unable to find a satisfying
     /// virtiofsd`, `virtiofsd was not found or is not executable`).
@@ -95,6 +102,8 @@ impl Failure {
                 need: crate::error::ProviderNeed::Permission,
                 reason: out.reason(),
             }
+        } else if said_any(out, &["timeout during server version negotiating"]) {
+            Failure::Booting { reason: out.reason() }
         } else if said_any(out, &["unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable"]) {
             Failure::Lacks {
                 need: crate::error::ProviderNeed::Virtiofsd,
@@ -116,7 +125,9 @@ impl fmt::Display for Failure {
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
             Failure::SignInRefused { .. } => f.write_str("the ESXi host refused the run's credentials"),
-            Failure::ScriptingPassing { reason, .. } | Failure::Lacks { reason, .. } | Failure::Other(reason) => f.write_str(reason),
+            Failure::ScriptingPassing { reason, .. } | Failure::Booting { reason } | Failure::Lacks { reason, .. } | Failure::Other(reason) => {
+                f.write_str(reason)
+            }
         }
     }
 }

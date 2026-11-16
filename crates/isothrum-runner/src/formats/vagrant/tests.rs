@@ -1,3 +1,4 @@
+mod booting;
 mod commands;
 mod contract;
 mod needs;
