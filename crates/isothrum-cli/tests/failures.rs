@@ -1,10 +1,6 @@
 //! How the `isothrum` binary fails, as a CI job sees it: its exit code, and with `--json` an
 //! `error` event on standard output for every failure, one before any operation began included,
 //! and the tools of a cancelled command stopped with it.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
-)]
 
 mod common;
 
@@ -12,7 +8,7 @@ use common::{Lab, last_event};
 #[cfg(unix)]
 use common::{Outcome, json_lines};
 #[cfg(unix)]
-use isothrum_test_support::{ChildGuard, PidGuard, alive, read_pid};
+use isothrum_test_support::{ChildGuard, PidGuard, Signal, alive, read_pid};
 #[cfg(unix)]
 use serde_json::Value;
 
@@ -62,7 +58,6 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
     let lab = Lab::empty().unwrap();
     let out = lab
         .command()
-        .unwrap()
         .args(["up", lab.dir(), "--name"])
         .arg(std::ffi::OsStr::from_bytes(b"r\xffn"))
         .arg("--json")
@@ -88,7 +83,7 @@ fn wait_until(ready: impl FnMut() -> bool) -> bool {
 #[test]
 fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
     let up = Up::start(None).unwrap();
-    up.signal("-INT").unwrap();
+    up.signal(Signal::Interrupt).unwrap();
     up.ended().unwrap().assert_cancelled(130);
 }
 
@@ -97,7 +92,7 @@ fn sigint_stops_the_tools_ends_the_stream_with_cancelled_and_exits_130() {
 fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
     // A CI runner cancelling its job sends SIGTERM.
     let up = Up::start(None).unwrap();
-    up.signal("-TERM").unwrap();
+    up.signal(Signal::Terminate).unwrap();
     up.ended().unwrap().assert_cancelled(143);
 }
 
@@ -107,7 +102,7 @@ fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
 #[test]
 fn a_cancelled_command_waits_for_its_tools_to_stop() {
     let up = Up::start(Some(r#"sleep 1; echo stopped > "$ISOTHRUM_TEST_DOCKER/stopped"; exit 0"#)).unwrap();
-    up.signal("-INT").unwrap();
+    up.signal(Signal::Interrupt).unwrap();
     let ended = up.ended().unwrap();
     ended.assert_cancelled(130);
     assert_eq!(ended.on_int_wrote.trim(), "stopped", "{}", ended.stderr);
@@ -120,13 +115,13 @@ fn a_cancelled_command_waits_for_its_tools_to_stop() {
 fn a_second_signal_ends_the_tools_at_once() {
     // The tool ignores the request to stop.
     let up = Up::start(Some("")).unwrap();
-    up.signal("-INT").unwrap();
+    up.signal(Signal::Interrupt).unwrap();
     let first = std::time::Instant::now();
     // The second signal goes once the command says it waits for the tools: sent as soon as the
     // tool had the first, two signals that close read as one, and the tools were waited for
     // their whole grace.
     assert!(wait_until(|| up.said("Waiting for the tools to stop")), "the command took the first signal");
-    up.signal("-INT").unwrap();
+    up.signal(Signal::Interrupt).unwrap();
     up.ended().unwrap().assert_cancelled(130);
     // The grace runs from the first signal: a command that ended before it was cut short.
     let grace = std::time::Duration::from_secs(30);
@@ -183,7 +178,7 @@ impl Up {
     fn start(on_int: Option<&str>) -> Outcome<Up> {
         let lab = Lab::compose()?;
         let pidfile = lab.docker_file("docker.pid");
-        let mut cmd = lab.command()?;
+        let mut cmd = lab.command();
         cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", lab.dir()])
             .env("DEMO_SECRET", "token-x")
             .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
@@ -226,17 +221,9 @@ impl Up {
         self.stderr.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(text)
     }
 
-    /// Sends the command `signal`, as `kill` names it.
-    fn signal(&self, signal: &str) -> Outcome<()> {
-        if std::process::Command::new("kill")
-            .args([signal, &self.child.id().to_string()])
-            .status()?
-            .success()
-        {
-            Ok(())
-        } else {
-            Err(format!("kill {signal} failed").into())
-        }
+    /// Sends the command `signal`.
+    fn signal(&self, signal: Signal) -> Outcome<()> {
+        Ok(self.child.signal(signal)?)
     }
 
     /// What the command showed once it ended.
@@ -269,7 +256,7 @@ fn a_home_variable_that_isnt_utf8_is_the_home_never_the_users() {
     let home = std::path::PathBuf::from(std::ffi::OsString::from_vec(home));
     // A file system that refuses the name (APFS) makes it an I/O error naming it.
     let accepted = std::fs::create_dir(&home).is_ok();
-    let out = lab.command().unwrap().args(["reap", "--json"]).env("ISOTHRUM_HOME", &home).output().unwrap();
+    let out = lab.command().args(["reap", "--json"]).env("ISOTHRUM_HOME", &home).output().unwrap();
     let said = last_event(&out).unwrap();
     if accepted {
         assert_eq!((out.status.code(), said["event"].as_str()), (Some(0), Some("result")), "{said}");
@@ -291,7 +278,6 @@ fn a_log_variable_that_isnt_utf8_is_warned_about() {
     let lab = Lab::empty().unwrap();
     let out = lab
         .command()
-        .unwrap()
         .args(["completions", "bash"])
         .env("ISOTHRUM_LOG", std::ffi::OsString::from_vec(b"bad\xff".to_vec()))
         .output()

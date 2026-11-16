@@ -45,6 +45,21 @@ impl ChildGuard {
         self.child.as_mut()?.stderr.take()
     }
 
+    /// Sends it `signal`.
+    ///
+    /// # Errors
+    /// When it can't be sent (the process is gone and reaped).
+    #[cfg(unix)]
+    pub fn signal(&self, signal: Signal) -> std::io::Result<()> {
+        use nix::sys::signal::{Signal as Nix, kill};
+        let pid = nix::unistd::Pid::from_raw(i32::try_from(self.id()).map_err(std::io::Error::other)?);
+        let signal = match signal {
+            Signal::Interrupt => Nix::SIGINT,
+            Signal::Terminate => Nix::SIGTERM,
+        };
+        kill(pid, signal).map_err(std::io::Error::from)
+    }
+
     /// Its exit status, once it has ended (`None` while it runs); the guard still ends it when
     /// dropped.
     ///
@@ -79,6 +94,16 @@ impl Drop for ChildGuard {
             child.wait().ok();
         }
     }
+}
+
+/// A signal a test sends a process ([`ChildGuard::signal`]).
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
+    /// SIGINT, as Ctrl-C sends it.
+    Interrupt,
+    /// SIGTERM, as a CI runner cancelling its job sends it.
+    Terminate,
 }
 
 /// A process a test learnt the id of (a grandchild: the tool a command started), killed with its
