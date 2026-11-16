@@ -60,7 +60,10 @@ fn allowed(from: &str, to: &str) -> bool {
         (Some(Role::App | Role::Xtask), Some(Role::Library | Role::Domain | Role::Service))
             | (Some(Role::Service), Some(Role::Library | Role::Domain))
             | (Some(Role::Domain), Some(Role::Library))
-            | (Some(Role::Library | Role::Domain | Role::Service | Role::App), Some(Role::TestSupport))
+            | (
+                Some(Role::Library | Role::Domain | Role::Service | Role::App | Role::Xtask),
+                Some(Role::TestSupport)
+            )
     )
 }
 
@@ -166,7 +169,7 @@ mod tests {
             package("isothrum-runner", &[("tokio", None), ("tempfile", Some("dev"))]),
             package("isothrum-machine", &[("isothrum-runner", None)]),
             package("isothrum-cli", &[("isothrum-runner", None), ("clap", None)]),
-            package("xtask", &[("isothrum-runner", None)]),
+            package("xtask", &[("isothrum-runner", None), ("isothrum-test-support", Some("dev"))]),
         ]);
         assert!(ok.is_empty(), "{ok:?}");
         let wrong = check(&[

@@ -121,6 +121,7 @@ mod tests {
         let no_file = r#"{"reason":"compiler-message","message":{"level":"warning","code":{"code":"clippy::todo"},"spans":[{"line_start":3,"column_start":5,"is_primary":true}]}}"#;
         assert!(read(no_file).unwrap_err().to_string().contains("names no file"));
         let no_span = r#"{"reason":"compiler-message","message":{"level":"warning","code":{"code":"clippy::todo"},"spans":[]}}"#;
-        assert!(read(no_span).is_err());
+        let unplaced = read(no_span).unwrap_err().to_string();
+        assert!(unplaced.contains("names no file, line and column"), "{unplaced}");
     }
 }

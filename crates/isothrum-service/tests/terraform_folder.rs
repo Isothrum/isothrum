@@ -10,22 +10,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use isothrum_client::proto::{Command, OpOptions, Target};
 use isothrum_client::{Client, ClientError, InputVariable};
-use isothrum_runner::fake::{Call, FakeProcesses, Reply};
+use isothrum_runner::fake::{Call, Reply};
 use isothrum_runner::{ErrorCode, EventKind, ResultData, RunName, RunState};
-use isothrum_runner::{Runner, RunnerConfig};
-use isothrum_service::{RunnerEngine, ServeOptions};
 
 mod common;
+mod model;
 use common::Outcome;
-
-/// A service on `home` over a runner whose tools `answer` answers (a model of them), never
-/// stopped but by a request; a client of it once it answers.
-async fn serve(home: &Path, answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> Outcome<(Client, common::Serving)> {
-    let mut config = RunnerConfig::new(home);
-    config.processes = Arc::new(FakeProcesses::model(answer));
-    let engine = Arc::new(RunnerEngine::new(Arc::new(Runner::new(config)?)));
-    common::serve_with(home, ServeOptions::new(engine, common::never())).await
-}
+use model::serve;
 
 /// The fixture's folder.
 fn fixture(part: &str) -> PathBuf {

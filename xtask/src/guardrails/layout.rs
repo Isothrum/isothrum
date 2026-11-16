@@ -38,13 +38,7 @@ fn misplaced(files: &[source::File]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn file(path: &str, text: &str) -> source::File {
-        source::File {
-            path: path.to_owned(),
-            text: text.to_owned(),
-        }
-    }
+    use crate::guardrails::source::file;
 
     #[test]
     fn a_path_attribute_a_tests_suffix_and_a_test_prefix_are_each_named() {

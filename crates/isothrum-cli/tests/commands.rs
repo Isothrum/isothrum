@@ -3,10 +3,6 @@
 //! JSON. What each operation does with the tools is the runner's tests'; here, what the command
 //! line makes of it.
 #![cfg(unix)]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
-)]
 
 mod common;
 
@@ -88,7 +84,7 @@ fn an_operation_the_runs_state_refuses_exits_1_with_its_error_code() -> Outcome<
 fn a_tool_that_fails_exits_1_and_ends_the_stream_with_tool_failed_naming_the_step() -> Outcome<()> {
     let lab = Lab::compose()?;
     let out = lab
-        .command()?
+        .command()
         .args(["up", "--json", lab.dir()])
         .env("ISOTHRUM_TEST_DOCKER_FAILS", "up")
         .output()?;

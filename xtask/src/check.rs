@@ -553,7 +553,8 @@ mod tests {
     fn the_semver_step_checks_a_1x_release_as_a_major_and_a_later_one_as_the_version_says() {
         let answer = r#"{"crate":{"name":"isothrum-runner","max_stable_version":"1.4.2"}}"#;
         assert_eq!(latest_release(answer).ok().as_deref(), Some("1.4.2"));
-        assert!(latest_release(r#"{"errors":[]}"#).is_err());
+        let none = latest_release(r#"{"errors":[]}"#).unwrap_err().to_string();
+        assert!(none.starts_with("no max_stable_version in crates.io's answer"), "{none}");
         assert_eq!(release_type("1.4.2"), ["--release-type", "major"]);
         assert_eq!(release_type("2.0.0"), Vec::<&str>::new());
         assert!(release_type("10.0.0").is_empty(), "a 10.x isn't a 1.x");

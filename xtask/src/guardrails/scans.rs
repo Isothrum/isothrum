@@ -201,13 +201,7 @@ fn chains_in_root_scripts(files: &[source::File]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn file(path: &str, text: &str) -> source::File {
-        source::File {
-            path: path.to_owned(),
-            text: text.to_owned(),
-        }
-    }
+    use crate::guardrails::source::file;
 
     #[test]
     fn a_parse_outside_an_adapter_is_named_with_its_line() {

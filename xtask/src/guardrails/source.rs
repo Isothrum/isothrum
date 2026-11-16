@@ -11,6 +11,15 @@ pub(super) struct File {
     pub(super) text: String,
 }
 
+/// The file at `path` holding `text`: what a guardrail's test reads.
+#[cfg(test)]
+pub(super) fn file(path: &str, text: &str) -> File {
+    File {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    }
+}
+
 /// Every `.rs` file under the repository's folder `dir`, sorted.
 pub(super) fn files(dir: &str) -> Vec<File> {
     let root = repo::root();

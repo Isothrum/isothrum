@@ -7,23 +7,13 @@ use std::sync::{Mutex, PoisonError};
 
 use isothrum_client::proto::{Command, OpOptions, PROTOCOL, Reply, Target};
 use isothrum_client::{Client, ClientError, VERSION};
-use isothrum_runner::fake::{Call, FakeProcesses, Reply as Answer};
+use isothrum_runner::fake::{Call, Reply as Answer};
 use isothrum_runner::{Detail, ErrorCode, Park, RunName, RunState};
-use isothrum_runner::{Runner, RunnerConfig};
-use isothrum_service::{RunnerEngine, ServeOptions};
-use std::sync::Arc;
 
 mod common;
+mod model;
 use common::Outcome;
-
-/// A service on `home` over a runner whose tools `answer` answers (a model of them), never
-/// stopped but by a request; a client of it once it answers.
-async fn serve(home: &Path, answer: impl Fn(&Call) -> Answer + Send + Sync + 'static) -> Outcome<(Client, common::Serving)> {
-    let mut config = RunnerConfig::new(home);
-    config.processes = Arc::new(FakeProcesses::model(answer));
-    let engine = Arc::new(RunnerEngine::new(Arc::new(Runner::new(config)?)));
-    common::serve_with(home, ServeOptions::new(engine, common::never())).await
-}
+use model::serve;
 
 /// Docker with Compose, for a project of `web` and `attackbox` (under a profile): the services
 /// with a container, and whether each runs.

@@ -76,16 +76,26 @@ pub(crate) struct Lab {
     pub(crate) run: tempfile::TempDir,
     /// The stand-in `docker`'s engine: its container's state, and what the tests have it write.
     pub(crate) docker: tempfile::TempDir,
+    /// The `PATH` the command gets: the stand-in's folder first (Unix), else the test's own.
+    path: std::ffi::OsString,
 }
 
 impl Lab {
     /// A lab whose project folder holds nothing.
     pub(crate) fn empty() -> Outcome<Lab> {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        #[cfg(unix)]
+        let path = {
+            let docker = isothrum_test_support::installed_executable(std::path::Path::new(env!("CARGO_TARGET_TMPDIR")), "docker", DOCKER)?;
+            let dir = docker.parent().ok_or("the stand-in's folder")?;
+            std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)))?
+        };
         Ok(Lab {
             env: TempHome::new(),
             home: tempfile::tempdir()?,
             run: tempfile::tempdir()?,
             docker: tempfile::tempdir()?,
+            path,
         })
     }
 
@@ -110,29 +120,20 @@ impl Lab {
 
     /// `isothrum`, on this lab's homes, without the runner service, the stand-in `docker` first on
     /// its `PATH` (Unix).
-    #[cfg_attr(not(unix), expect(clippy::unnecessary_wraps, reason = "installing the stand-in, on Unix, can fail"))]
-    pub(crate) fn command(&self) -> Outcome<Command> {
+    #[expect(clippy::disallowed_methods, reason = "the binary under test, started as its users start it")]
+    pub(crate) fn command(&self) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
         cmd.envs(self.env.envs())
             .env("ISOTHRUM_NO_SERVICE", "1")
             .env("ISOTHRUM_HOME", self.home.path())
-            .env("ISOTHRUM_TEST_DOCKER", self.docker.path());
-        #[cfg(unix)]
-        {
-            let docker = isothrum_test_support::installed_executable(std::path::Path::new(env!("CARGO_TARGET_TMPDIR")), "docker", DOCKER)?;
-            let dir = docker.parent().ok_or("the stand-in's folder")?;
-            let path = std::env::var_os("PATH").unwrap_or_default();
-            cmd.env(
-                "PATH",
-                std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)))?,
-            );
-        }
-        Ok(cmd)
+            .env("ISOTHRUM_TEST_DOCKER", self.docker.path())
+            .env("PATH", &self.path);
+        cmd
     }
 
     /// `isothrum <args>`, run to its end.
     pub(crate) fn isothrum(&self, args: &[&str]) -> Outcome<Output> {
-        Ok(self.command()?.args(args).output()?)
+        Ok(self.command().args(args).output()?)
     }
 
     /// The stand-in's file `name` (the state of its container `web`, what a test has it write).

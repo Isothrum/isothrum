@@ -1357,6 +1357,7 @@ version = "3.0.0"
 dependencies = [
  "clap",
  "isothrum-runner",
+ "isothrum-test-support",
  "serde_json",
  "tempfile",
  "toml",
