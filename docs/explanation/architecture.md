@@ -23,7 +23,7 @@ event stream.
 | `isothrum-service` | The runner service: one daemon per runner home that queues each run's operations, runs them, and streams their events. |
 | `isothrum-client` | The service's client: connect to (or start) a home's service, send it commands, follow its events. |
 | `isothrum-cli` | The `isothrum` binary: parses the command line, drives the runner or the service, prints events, maps the outcome to an exit code. |
-| `isothrum-machine` | This computer's hypervisors and tools: detects the Vagrant providers it can drive, and why one can't. |
+| `isothrum-machine` | This computer's hypervisors and tools: the machine check (tools, Docker engines and contexts, package manager, cloud CLIs, WSL 2), and the Vagrant providers it can drive, and why one can't. |
 
 The dependency direction is one way: every crate depends on the runner, and the runner on none
 of them. No crate depends on a generator's crate (`cargo xtask check`'s `generator-free` step, and the

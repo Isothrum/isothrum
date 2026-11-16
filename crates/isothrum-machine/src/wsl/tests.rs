@@ -406,21 +406,17 @@ fn a_script_is_encoded_as_base64_of_its_utf16() {
 /// Windows with the Store WSL ready, each probe as `reg`, `wsl` and PowerShell answer it.
 fn windows_ready() -> FakeProcesses {
     let cim = "features=ok\r\nfeature:VirtualMachinePlatform=1\r\nfeature:Microsoft-Windows-Subsystem-Linux=2\r\nhypervisor=True\r\n";
-    FakeProcesses::script()
-        .expect("wsl --status", Reply::ok("Default Version: 2"))
-        .expect("wsl --version", Reply::ok("WSL version: 2.3.26.0"))
-        .expect("powershell -NoProfile -NonInteractive -EncodedCommand", Reply::ok(cim))
-        .expect(
-            r"reg query HKLM\SYSTEM\CurrentControlSet\Services\LxssManager",
-            Reply::fail(1, "ERROR: The system was unable to find the specified registry key or value."),
-        )
-        .expect(
-            r"reg query HKLM\SYSTEM\CurrentControlSet\Services\WslService",
-            Reply::ok("HKEY_LOCAL_MACHINE\\..."),
-        )
-        .expect(r"reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component", Reply::fail(1, ""))
-        .expect(r"reg query HKLM\SYSTEM\CurrentControlSet\Control\Session", Reply::fail(1, ""))
-        .build()
+    FakeProcesses::model(move |call| {
+        let arg = |i: usize| call.args.get(i).map_or("", String::as_str);
+        match (call.program.as_str(), arg(0), arg(1)) {
+            ("wsl", "--status", _) => Reply::ok("Default Version: 2"),
+            ("wsl", "--version", _) => Reply::ok("WSL version: 2.3.26.0"),
+            ("powershell", "-NoProfile", _) => Reply::ok(cim),
+            ("reg", "query", key) if key.ends_with(r"Services\WslService") => Reply::ok("HKEY_LOCAL_MACHINE\\..."),
+            ("reg", "query", _) => Reply::fail(1, "ERROR: The system was unable to find the specified registry key or value."),
+            _ => Reply::missing(),
+        }
+    })
 }
 
 #[tokio::test(start_paused = true)]
@@ -428,7 +424,8 @@ async fn the_probes_read_wsl_the_registry_and_wmi_by_exit_code_and_key() {
     let mut host = linux_host(std::path::Path::new("/nonexistent/isothrum-machine-test"));
     host.os = HostOs::Windows;
     let tools = Arc::new(windows_ready());
-    let cx = Context::new(Arc::<FakeProcesses>::clone(&tools) as Arc<dyn isothrum_runner::ProcessRunner>, host);
+    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&tools);
+    let cx = Context::new(runner, host);
     let found = check(&cx, Marks::default()).await.unwrap();
     let p = found.probes;
     assert_eq!((p.status, p.version), (Run::Ok, Run::Ok));
@@ -443,11 +440,10 @@ async fn the_probes_read_wsl_the_registry_and_wmi_by_exit_code_and_key() {
     assert_eq!((found.state, found.virtualization_off), (Ready, false));
     let wsl = tools.made("wsl --status");
     assert_eq!(wsl[0].env("WSL_UTF8"), Some("1"));
-    let renames = &tools.made(r"reg query HKLM\SYSTEM\CurrentControlSet\Control\Session")[0];
-    assert_eq!(
-        renames.args[1..],
-        [r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager", "/v", "PendingFileRenameOperations"]
-    );
+    let queries: Vec<Vec<String>> = tools.made("reg query").into_iter().map(|c| c.args[1..].to_vec()).collect();
+    assert_eq!(queries.len(), 4, "{queries:?}");
+    let renames = [r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager", "/v", "PendingFileRenameOperations"];
+    assert!(queries.iter().any(|q| q == &renames), "{queries:?}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -475,7 +471,7 @@ async fn a_probe_reads_as_ok_failed_timed_out_or_missing() {
     let cx = Context::new(Arc::new(fake), linux_host(std::path::Path::new("/nonexistent")));
     let run = |program: &'static str| {
         let cx = &cx;
-        async move { outcome(&cx.probe_within(WSL_TIMEOUT, &ProcessSpec::new(program, [] as [&str; 0])).await) }
+        async move { outcome(&cx.probe_within(WSL_TIMEOUT, &ProcessSpec::new(program, Vec::<String>::new())).await) }
     };
     assert_eq!(
         (run("ok").await, run("failed").await, run("missing").await),

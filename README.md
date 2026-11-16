@@ -94,7 +94,7 @@ exit codes, environment variables, events, state) and the architecture and secur
 | [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, the format drivers, secrets, events. |
 | [`isothrum-service`](crates/isothrum-service) | The runner service: one per home, queueing each run's operations and streaming their events to its clients. |
 | [`isothrum-client`](crates/isothrum-client) | The service's client: connect to (or start) a home's service and follow its events. |
-| [`isothrum-machine`](crates/isothrum-machine) | Which Vagrant providers (hypervisors) a computer can drive. |
+| [`isothrum-machine`](crates/isothrum-machine) | What a computer has (its tools, Docker engines, package manager, cloud CLIs, WSL 2) and which Vagrant providers (hypervisors) it can drive. |
 
 All crates share one version. `xtask` is not published.
 

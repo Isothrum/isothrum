@@ -82,7 +82,6 @@ pub struct Marks {
 
 /// Every signal the check read. `None` is "couldn't tell" (unreadable, or the probe failed).
 #[derive(Clone, Copy, Debug)]
-#[expect(clippy::struct_excessive_bools, reason = "each a signal of its own, as read")]
 pub struct Probes {
     /// `wsl.exe --status`.
     pub status: Run,
@@ -268,12 +267,10 @@ pub async fn probe(cx: &Context, marks: Marks) -> Probes {
     let store = format!(r"{SERVICES}\WslService");
     let servicing = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending";
     let session = r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager";
-    let (lxss_service, wsl_service, reboot_pending, renames_pending) = tokio::join!(
-        registry(cx, &[&lxss]),
-        registry(cx, &[&store]),
-        registry(cx, &[servicing]),
-        registry(cx, &[session, "/v", "PendingFileRenameOperations"]),
-    );
+    let (lxss, store, servicing) = ([lxss.as_str()], [store.as_str()], [servicing]);
+    let renames = [session, "/v", "PendingFileRenameOperations"];
+    let (lxss_service, wsl_service, reboot_pending, renames_pending) =
+        tokio::join!(registry(cx, &lxss), registry(cx, &store), registry(cx, &servicing), registry(cx, &renames),);
     Probes {
         status: outcome(&status),
         version: outcome(&version),

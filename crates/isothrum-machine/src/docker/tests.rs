@@ -51,7 +51,7 @@ fn contexts_are_read_with_the_current_one_marked_by_true_or_a_star() {
         contexts_from("default *\ncolima-dev\n\n"),
         [("default".to_owned(), true), ("colima-dev".into(), false)]
     );
-    assert_eq!(contexts_from(""), [] as [(String, bool); 0]);
+    assert_eq!(contexts_from(""), Vec::new());
 }
 
 #[test]
@@ -192,8 +192,8 @@ async fn a_daemon_that_refuses_this_account_is_denied_not_down() {
 async fn the_engine_in_use_is_named_from_the_daemon_and_the_current_context() {
     let tools = FakeProcesses::script().expect("docker context show", Reply::ok("colima\n")).build();
     assert_eq!(engine_in_use(&on(HostOs::Macos, tools).0, "Ubuntu 24.04 LTS").await, Engine::Colima);
-    let tools = FakeProcesses::script().expect("docker context show", Reply::fail(1, "no")).build();
-    assert_eq!(engine_in_use(&on(HostOs::Linux, tools).0, " Debian GNU/Linux 13 ").await, Engine::Native);
+    let unknown = FakeProcesses::script().expect("docker context show", Reply::fail(1, "no")).build();
+    assert_eq!(engine_in_use(&on(HostOs::Linux, unknown).0, " Debian GNU/Linux 13 ").await, Engine::Native);
 }
 
 #[tokio::test(start_paused = true)]

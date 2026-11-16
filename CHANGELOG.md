@@ -17,6 +17,17 @@ Terraform), usable on any project of those formats.
   none uses it. An embedder that picks an engine per run (OrbStack, Colima, Docker Desktop) no
   longer wraps the runner's process runner for it. A later operation that names a context records it too (a run started before its embedder passed one).
 
+- **isothrum-machine checks the whole machine: `check::check`.** One report of what this computer
+  has: the package manager (`tools::package_manager`), the Docker CLI and Compose, Vagrant,
+  Terraform and the cloud CLIs (`tools::version`, `tools::cloud_clis`; a tool that fails its
+  version probe or isn't installed reads as not installed), the Docker daemon the CLI uses and
+  every Docker-compatible engine behind a CLI context, each with its own state (`docker::engines`;
+  a daemon that refuses this account is `NoAnswer::Denied`, told from one that is down), the
+  Vagrant providers, the groups joined since logging in (`providers::groups_pending`) and, on
+  Windows, whether WSL 2 is ready (`wsl::check`, the readiness classifier `wsl::classify` over
+  `wsl.exe`'s exit codes, the registry and WMI, given what the caller did itself as `wsl::Marks`).
+  `docker::use_engine` points the CLI at an engine's context. The `ts-rs` feature types `Tool`,
+  `CloudClis`, `PackageManager`, `Engine` (as `DockerEngine`), `EngineStatus` and `WslState`.
 - **The client asks the service what it would read or write in the home.** `record`, `forget`,
   `expired`, `console_command`, `graphical_console`, `native_console`, `service_endpoints` and
   `public_key` (`Client::record`, `Client::forget`…): an embedder never opens the runner's store
