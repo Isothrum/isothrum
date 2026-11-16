@@ -18,7 +18,6 @@ before it):
 Not published (`publish = false`, inherited from `[workspace.package]`):
 
 - `xtask` — the repo's development tasks; of no use to consumers.
-- `fuzz` — the fuzz targets; a nightly/libFuzzer workspace, excluded from the main workspace.
 
 ## Cross-repo dependency on Isoloom
 

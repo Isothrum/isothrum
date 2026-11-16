@@ -83,7 +83,6 @@ that didn't run never passes for one that did. The steps, in order:
 | `coverage` | the tests' line coverage under cargo-llvm-cov, at least `COVERAGE_FLOOR` in `xtask/src/check.rs` (about a point under dev's, raised as it rises) |
 | `semver` | `cargo semver-checks` against each crate's latest release on crates.io |
 | `hooks` | shellcheck over the git hooks, then their own test (needs gitleaks) |
-| `fuzz` | `cargo xtask fuzz --check` |
 | `windows-binary` | Windows only: the release executable needs no Visual C++ runtime |
 
 CI calls these steps and nothing else. On a pull request into `dev`,
