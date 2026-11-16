@@ -400,6 +400,21 @@ mod tests {
                 "{said}"
             );
         }
+        // A virtiofsd found that didn't start, or another libvirt refusal, isn't one missing.
+        for said in [
+            "virtiofsd failed to start for /home/ada/shared. Check the log at /tmp/x.log",
+            "Call to virDomainCreate failed: Requested operation is not valid: network 'default' is not active",
+        ] {
+            assert!(matches!(failed("", said), Failure::Other(_)), "{said}");
+        }
+        assert_eq!(
+            failed("", "The box 'nope' could not be found"),
+            Failure::Other("The box 'nope' could not be found (exited with code 1)".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_system_refusing_the_hypervisors_app_is_a_permission_it_lacks() {
         // UTM refusing a VM's start with the system's EPERM, or macOS refusing the Apple events.
         for said in [
             include_str!("../tool_output/fixtures/vagrant/vagrant_utm-0.2-start-not-permitted.txt"),
@@ -424,17 +439,6 @@ mod tests {
         ] {
             assert!(matches!(failed("", said), Failure::Other(_)), "{said}");
         }
-        // A virtiofsd found that didn't start, or another libvirt refusal, isn't one missing.
-        for said in [
-            "virtiofsd failed to start for /home/ada/shared. Check the log at /tmp/x.log",
-            "Call to virDomainCreate failed: Requested operation is not valid: network 'default' is not active",
-        ] {
-            assert!(matches!(failed("", said), Failure::Other(_)), "{said}");
-        }
-        assert_eq!(
-            failed("", "The box 'nope' could not be found"),
-            Failure::Other("The box 'nope' could not be found (exited with code 1)".to_owned())
-        );
     }
 
     #[test]
