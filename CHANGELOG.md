@@ -225,6 +225,10 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **An SSH tunnel (a console's, a service endpoint's forward) is waited for while its `ssh` opens
+  it.** Its port was probed once, at once, before `ssh` had signed in and listened, so a tunnel
+  through a jump host was given up while it opened. It is probed again for up to 20 s while its
+  `ssh` runs, and given up as soon as `ssh` ended.
 - **isothrum-machine finds a UTM installed in the user's own `~/Applications`.** An install
   without an administrator's password goes there, and only `/Applications/UTM.app` counted, so
   UTM read as not installed (`Devices::utm_app`: `/Applications`'s, else `~/Applications`').
