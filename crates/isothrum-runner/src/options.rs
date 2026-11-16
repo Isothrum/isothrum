@@ -30,8 +30,9 @@ pub struct RunOptions {
     /// gives it only over its owner-only endpoint. Off by default.
     pub reveal: bool,
     /// The Docker context the run's `docker` calls go to (`docker --context <it>`), whatever the
-    /// current one is: given at `up`, recorded with the run, and used by every later operation
-    /// and read that gives none. None: the current context, as `docker` picks it.
+    /// current one is: given at `up` (or any later operation), recorded with the run, and used by
+    /// every later operation and read that gives none. None: the current context, as `docker`
+    /// picks it.
     pub docker_context: Option<String>,
     /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which
     /// the operation begins instead of journaling a new one.

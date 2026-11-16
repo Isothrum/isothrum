@@ -15,7 +15,7 @@ Terraform), usable on any project of those formats.
   on the wire) sends every `docker` call of the run to that context (`docker --context <it>`),
   whatever the current one is; the run records it, and every later operation and read that gives
   none uses it. An embedder that picks an engine per run (OrbStack, Colima, Docker Desktop) no
-  longer wraps the runner's process runner for it.
+  longer wraps the runner's process runner for it. A later operation that names a context records it too (a run started before its embedder passed one).
 
 - **The client asks the service what it would read or write in the home.** `record`, `forget`,
   `expired`, `console_command`, `graphical_console`, `native_console`, `service_endpoints` and
