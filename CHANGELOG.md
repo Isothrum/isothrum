@@ -29,6 +29,10 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **Getting started: `docs/tutorials/getting-started.md`.** Install, then a Compose project's
+  `up`, `status`, `exec`, `park`, `resume` and `down`. It replaces *Your first run*, which needed a
+  generated project and a `check` command that is gone. The README describes Isothrum as the
+  runtime it is: any Compose project, Vagrantfile or Terraform module, as it is.
 - **TypeScript types for a UI: the `ts-rs` features of isothrum-runner and isothrum-machine.**
   `ProviderStatus`, `Unavailable`, `Need`, `UtilityState` and `AccountLacks` derive
   [ts-rs](https://docs.rs/ts-rs)'s `TS`, which follows their serde form, and the runner's

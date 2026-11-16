@@ -4,15 +4,19 @@
 [![crates.io](https://img.shields.io/crates/v/isothrum-cli.svg)](https://crates.io/crates/isothrum-cli)
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-Isothrum brings environments up and down: containers with Docker Compose, virtual machines with
-Vagrant, servers and cloud resources with Terraform. It runs any Compose project, Vagrantfile or
-Terraform module as it is, whoever wrote it, through that format's own tool. `up`, `check`,
-`park`, `resume`, `update` and `down` work the same whatever the format, with one JSON event
-stream, stable error codes and secrets that never reach a command line.
+Isothrum runs Docker Compose projects, Vagrant projects and Terraform modules with one set of
+commands: `up`, `status`, `exec`, `park`, `resume`, `update` and `down` work the same whatever the
+folder holds. It drives each project through its own tool and adds what the tools don't share: a
+record of every run, host ports that stay put across restarts, one JSON event stream, stable error
+codes, lifetimes, and secrets that never reach a command line.
 
-It is for teams that want reproducible test, demo or training environments on a laptop, a server
+A project needs nothing of Isothrum's. A folder with a `compose.yaml`, a `Vagrantfile` or `*.tf`
+files runs as it is, and its files are never rewritten: `docker compose up`, `vagrant up` or
+`terraform apply` still work on it.
+
+It is for anyone who wants reproducible test, demo or training environments on a laptop, a server
 or a cloud account, and for CI pipelines that need one for the length of a job. It is a command
-line (`isothrum`) and Rust libraries to embed in your own program.
+line (`isothrum`), a runner service, and Rust libraries to embed in your own program.
 
 ## Install
 
@@ -38,50 +42,58 @@ As a library: `cargo add isothrum-runner` ([crate README](crates/isothrum-runner
 
 ## Requirements
 
-The tools of the projects you run ([supported tool versions](docs/reference/tool-versions.md)):
+The tool of each project you run ([supported tool versions](docs/reference/tool-versions.md)):
 
-- Docker with Compose 2.17.0 or later, for container targets;
+- Docker with Compose 2.17.0 or later, for Compose projects;
 - Vagrant 2.4.0 or later and a hypervisor (VirtualBox, VMware, Hyper-V, Parallels, libvirt, QEMU,
-  UTM), for VM targets;
-- Terraform 1.6.0 or later, for servers and clouds;
-- an OpenSSH client, for targets reached over SSH.
+  UTM), for Vagrant projects;
+- Terraform 1.6.0 or later, for Terraform modules;
+- an OpenSSH client, for a command or a console in a Terraform module's VM.
 
-Isothrum checks each one before it starts anything. It needs nothing else: the project's files
-can be written by hand or by a generator such as [Isoloom](https://github.com/isoloom/isoloom),
-and Isothrum depends on none ([what Isothrum is, and what it is not](docs/explanation/boundaries.md)).
+Isothrum checks each one before it starts anything.
 
-Proven by real runs: `docker` (macOS, Linux, Windows); `vagrant` on VirtualBox (macOS), libvirt
-(Linux) and Hyper-V (Windows); `docker-vm` on VirtualBox (macOS); `proxmox` and
-`vagrant/vmware_esxi` from macOS. The cloud targets are generated and validated, not yet run for
-real.
+Proven by real runs: Compose on macOS, Linux and Windows; Vagrant on VirtualBox (macOS), libvirt
+(Linux), Hyper-V (Windows) and VMware ESXi (from macOS); a Terraform module on Proxmox VE (from
+macOS). Terraform modules for the clouds are validated, not yet run for real.
 
 ## Quickstart
 
 ```sh
-cd my-env                          # a folder with an isoloom.yml
-isoloom generate --target docker   # writes .isoloom/docker/run.json and the Compose files
-isothrum up                        # start, wait until ready, print the addresses
-isothrum check                     # run the checks: exit 0 when all pass
-isothrum down                      # remove everything the run created
+cd examples/compose-web-cache    # any folder with a compose.yaml, a Vagrantfile or *.tf files
+isothrum up                      # start it, and wait until it is ready
+isothrum status                  # its state, its machines and the ports they publish
+isothrum exec cache -- redis-cli ping
+isothrum park                    # stop it, keeping what it made
+isothrum resume                  # start it again, on the same ports
+isothrum down                    # remove everything it made
 ```
 
+[Getting started](docs/tutorials/getting-started.md) walks through it from the install. The
+[`examples/`](examples) folder has a Compose project, a Vagrant project and a Terraform module
+that needs no cloud, each with a README.
+
 Add `--json` for machine-readable output: an operation's events, one JSON object per line
-(`status`, `console`, `screen` and `key` print one JSON document). Secrets come from the environment only:
-`--secret-from-env NAME[=VAR]`. The [tutorial](docs/tutorials/first-run.md) walks through a
-first run.
+(`status`, `console` and `key` print one JSON document) ([the `--json` output](docs/reference/events.md)).
+Values reach the project with `--env NAME=VALUE`, secrets from the environment only with
+`--secret-from-env NAME[=VAR]`.
+
+Isothrum can also run the projects Isoloom generates, like any other
+([what Isothrum is, and what it is not](docs/explanation/boundaries.md)).
 
 ## Documentation
 
-[docs/README.md](docs/README.md) is the index: a tutorial, how-to guides (CI, proxies and CAs,
-Hyper-V without admin rights, offline use, cost controls, SSH keys), the reference (commands, exit
-codes, environment variables, events, state) and the architecture and security model.
+[docs/README.md](docs/README.md) is the index: getting started, how-to guides (CI, proxies and
+CAs, Hyper-V without admin rights, offline use, cost controls, SSH keys), the reference (commands,
+exit codes, environment variables, events, state) and the architecture and security model.
 
 ## Crates
 
 | Crate | What it is |
 |---|---|
 | [`isothrum-cli`](crates/isothrum-cli) | The `isothrum` command line. |
-| [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, drivers, secrets, checks, events. |
+| [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, the format drivers, secrets, events. |
+| [`isothrum-service`](crates/isothrum-service) | The runner service: one per home, queueing each run's operations and streaming their events to its clients. |
+| [`isothrum-client`](crates/isothrum-client) | The service's client: connect to (or start) a home's service and follow its events. |
 | [`isothrum-machine`](crates/isothrum-machine) | Which Vagrant providers (hypervisors) a computer can drive. |
 
 All crates share one version. `xtask` is not published.
@@ -91,8 +103,7 @@ All crates share one version. `xtask` is not published.
 Isothrum follows Semantic Versioning. Within a major version, the Rust API of the published crates,
 the CLI's commands, flags and exit codes, the JSON event and status schemas, the error and warning
 codes and the `record.json` format don't break; CI checks the Rust API with `cargo semver-checks`.
-The details, the run manifest versions each release reads, the MSRV policy and the supported
-releases are in [Policies](docs/policies.md).
+The details, the MSRV policy and the supported releases are in [Policies](docs/policies.md).
 
 ## Security, support and contributing
 
