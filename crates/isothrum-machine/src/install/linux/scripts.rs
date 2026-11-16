@@ -162,7 +162,7 @@ const KERNEL_BUILD: &str = r#"kver="$(uname -r)"; flavour=""; f="$kver"; while [
 
 /// The distro's own `virtualbox` when it has one (Ubuntu), else Oracle's apt repo and its newest
 /// `virtualbox-X.Y` (Debian ships none in main, so `apt-get install virtualbox` failed); with what
-/// builds its kernel driver ([`KERNEL_BUILD`]), and without its recommends: a PDF viewer, Qt's
+/// builds its kernel driver (`KERNEL_BUILD`), and without its recommends: a PDF viewer, Qt's
 /// translations and the newest kernel's headers (and so that kernel) came with them, which a
 /// headless VirtualBox that Vagrant drives never uses. When the running kernel's headers were gone,
 /// it says the driver waits for a restart.
@@ -240,7 +240,7 @@ pub const AWS_CLI_KEY_FINGERPRINT: &str = "FB5DB77FD5C118B80511ADA8A6310ACC46724
 /// AWS CLI v2 from Amazon's official bundle, unpacked and installed from a private directory.
 /// The distro `awscli` package is v1, which has no `aws login` (the app needs v2 >= 2.32).
 /// `uname -m` is `x86_64` or `aarch64`, matching the URLs. The bundle must carry a valid signature
-/// (its `.sig`) by AWS's key, embedded here ([`AWS_CLI_KEY`]): gpgv, with only that key, must
+/// (its `.sig`) by AWS's key, embedded here (`AWS_CLI_KEY`): gpgv, with only that key, must
 /// report it by its fingerprint. Then `unzip -t` checks the archive is whole before anything
 /// in it runs.
 #[must_use]
@@ -328,7 +328,7 @@ pub fn libvirt_script(user: Option<&str>) -> RootScript {
 /// boots VMs with KVM (`accel=kvm`, as Vagrantfiles ask on Linux) without root; the
 /// group applies from the next login. With `genisoimage`, which has `mkisofs`: vagrant-qemu gives
 /// a VM on a private network its settings in a cloud-init seed, an ISO Vagrant builds with `mkisofs`
-/// on Linux ([`isothrum_machine::providers::needs_mkisofs`]). Every Debian and Ubuntu release has
+/// on Linux ([`crate::providers::needs_mkisofs`]). Every Debian and Ubuntu release has
 /// the package; Debian's `xorriso` has no `mkisofs`, only `xorrisofs`. And `virtiofsd`, which
 /// vagrant-qemu starts to share a folder of this computer with a VM (a VM's shared
 /// folder): its own package from Debian 12 and Ubuntu 23.10 on, QEMU's own

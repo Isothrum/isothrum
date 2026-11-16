@@ -42,7 +42,8 @@ async fn a_tool_is_present_when_its_probe_answers() {
         .expect("vagrant --version", Reply::ok("Vagrant 2.4.9"))
         .expect("docker --version", Reply::missing())
         .build();
-    let cx = Context::new(std::sync::Arc::new(tools), crate::testing::linux_host(&crate::testing::fresh_dir("present")));
+    let root = tempfile::tempdir().unwrap();
+    let cx = Context::new(std::sync::Arc::new(tools), crate::testing::linux_host(root.path()));
     assert_eq!(present(&cx, Dependency::Vagrant).await, Some(true));
     assert_eq!(present(&cx, Dependency::Docker).await, Some(false));
     assert_eq!(present(&cx, Dependency::Wsl).await, None);

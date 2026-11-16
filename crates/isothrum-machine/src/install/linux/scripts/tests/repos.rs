@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg(target_os = "macos")]
 pub(super) fn repo_scripts() -> [(&'static VendorRepo, RootScript); 7] {
     [
         (&HASHICORP, terraform_script()),

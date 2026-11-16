@@ -199,6 +199,7 @@ mod tests {
             &format!("set -e; {head}; echo \"rel=$rel\""),
             &[("PATH", &format!("{}:/usr/bin:/bin", bin.display()))],
         );
+        std::fs::remove_dir_all(&bin).unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             stdout.contains("HashiCorp has no packages for Fedora 45: installing its Fedora 44 ones.") && stdout.trim_end().ends_with("rel=44"),

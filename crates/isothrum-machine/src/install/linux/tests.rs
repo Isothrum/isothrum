@@ -92,6 +92,7 @@ fn a_root_steps_proxy_is_read_from_a_private_file_never_its_command_line() {
     {
         use std::os::unix::fs::PermissionsExt as _;
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(dir.join("proxy")).unwrap().permissions().mode() & 0o777, 0o600);
     }
     assert!(crate::testing::sh_parses(&step.args[3]), "{}", step.args[3]);
     drop(step);

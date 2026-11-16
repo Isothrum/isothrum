@@ -63,7 +63,7 @@ impl Root {
 }
 
 /// An owner-only folder (mode 0700 from its creation, under a name no one can take first) holding
-/// the file `proxy`, one variable a line.
+/// the owner-only file `proxy` (0600), one variable a line.
 fn private_file(proxy: &[&str]) -> std::io::Result<(tempfile::TempDir, std::path::PathBuf)> {
     let mut private = tempfile::Builder::new();
     private.prefix("isothrum-root-");
@@ -73,7 +73,12 @@ fn private_file(proxy: &[&str]) -> std::io::Result<(tempfile::TempDir, std::path
     let file = dir.path().join("proxy");
     let mut lines = proxy.join("\n");
     lines.push('\n');
-    std::fs::write(&file, lines)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Owner-only from its creation.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    std::io::Write::write_all(&mut options.open(&file)?, lines.as_bytes())?;
     Ok((dir, file))
 }
 
