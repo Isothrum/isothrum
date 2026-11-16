@@ -12,29 +12,21 @@ Published to crates.io, in this order (leaf crates first; each crate's dependenc
 before it):
 
 1. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
-2. `isothrum-machine` — which Vagrant providers this computer can drive.
-3. `isothrum-cli` — the `isothrum` command-line runner.
+2. `isothrum-client` — the runner service's client (depends on the runner).
+3. `isothrum-machine` — which Vagrant providers this computer can drive (depends on the runner).
+4. `isothrum-service` — the runner service (depends on the runner and the client).
+5. `isothrum-cli` — the `isothrum` command-line runner (depends on the runner, the client and the
+   service).
 
 Not published (`publish = false`, inherited from `[workspace.package]`):
 
 - `xtask` — the repo's development tasks; of no use to consumers.
 
-## Cross-repo dependency on Isoloom
+## No dependency on Isoloom
 
-Every published crate depends on Isoloom crates (`isoloom-spec`, `isoloom-targets`,
-`isoloom-plan`, `isoloom-manifest`) by version, from crates.io (`[workspace.dependencies]`), as
-each `Cargo.toml` has them:
-
-| Crate | Isoloom crates |
-|---|---|
-| `isothrum-runner`, `isothrum-cli`, `isothrum-machine` | `isoloom-manifest` |
-
-For local development against an Isoloom checkout, a git-ignored `.cargo/config.toml` patches
-them to its paths (`[patch.crates-io]`); the committed manifests never name a path or a git
-source.
-
-**Therefore the Isoloom crates must be on crates.io at the requested version before Isothrum is
-published.** Release Isoloom first, then Isothrum.
+Isothrum links no Isoloom crate (`cargo xtask check`'s `isoloom-free` step refuses one), so its
+crates publish whatever Isoloom has released. The products' release train still releases Isoloom
+first, then Isothrum (the workspace's `./ws release`).
 
 ## Versioning
 
@@ -65,18 +57,18 @@ cargo publish -p <crate>
 ```
 
 after which the crate exists and the Trusted Publisher (added above) handles every later version
-from the workflow. The five crates above are all on crates.io already; only a crate added later
-needs this manual first publish.
+from the workflow. `isothrum-runner`, `isothrum-machine` and `isothrum-cli` are on crates.io
+already; `isothrum-client` and `isothrum-service` are not yet: each needs this manual first
+publish (then its Trusted Publisher) before the workflow can publish it.
 
 ## Release flow
 
-1. Make sure the Isoloom crates for this release are already on crates.io (see above).
+1. Make sure every crate above exists on crates.io (a new name's first publish is by hand, above).
 2. Bump `[workspace.package].version` (and the path dependencies' `version` in
-   `[workspace.dependencies]`) and, if Isoloom moved, the `isoloom-*` versions. The version follows
+   `[workspace.dependencies]`). The version follows
    [the policies](docs/policies.md): a change that breaks what they call stable is a major
    (`cargo semver-checks` in CI says so for the Rust API).
-3. Regenerate `Cargo.lock` **without** the local `.cargo/config.toml` patch (move it aside), so it
-   resolves to crates.io, and check `cargo build --locked` passes.
+3. Check `cargo build --locked` passes, so `Cargo.lock` is the one the release builds with.
 4. Rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] — <date>` and open a new, empty
    `[Unreleased]` above it. The release notes are taken from that section.
 5. Commit, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
@@ -95,13 +87,15 @@ needs this manual first publish.
 
 ### Dry run
 
-Every crate can be dry-run locally (requires the Isoloom crates to be reachable — either already
-on crates.io, or resolved to a local checkout with a `[patch.crates-io]` in a git-ignored
-`.cargo/config.toml`):
+`isothrum-runner` can be dry-run locally as it is; each crate after it depends on crates that are
+not on crates.io at the new version until they are published, so point those at the checkout with
+a `[patch.crates-io]` passed to cargo (`cargo --config patch.toml publish --dry-run -p <crate>`):
 
 ```
 cargo publish --dry-run -p isothrum-runner
+cargo publish --dry-run -p isothrum-client
 cargo publish --dry-run -p isothrum-machine
+cargo publish --dry-run -p isothrum-service
 cargo publish --dry-run -p isothrum-cli
 ```
 

@@ -9,9 +9,8 @@ name: Publish crates
 # Setup (per crate, done once by the maintainer): add a Trusted Publisher on crates.io for the
 # crate, pointing at repository `Isothrum/isothrum`, this workflow file (`publish-crates.yml`) and
 # the `crates-io` environment. A brand-new crate name must be created by one manual `cargo publish`
-# first (trusted publishing cannot create a crate that does not exist). The Isoloom crates this
-# release depends on must already be on crates.io at the requested version (publish isoloom first).
-# See PUBLISHING.md. Keep this file's name: the Trusted Publishers name it.
+# first (trusted publishing cannot create a crate that does not exist). See PUBLISHING.md. Keep
+# this file's name: the Trusted Publishers name it.
 on:
   push:
     tags: ["v*"]
@@ -69,8 +68,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          # Leaf crates first: each crate's dependencies are published before it.
-          crates=(isothrum-runner isothrum-machine isothrum-cli)
+          # Leaf crates first: each crate's dependencies are published before it (PUBLISHING.md's
+          # list; the workspace's `./ws release` checks this list against the dependency graph).
+          crates=(isothrum-runner isothrum-client isothrum-machine isothrum-service isothrum-cli)
           version="${VERSION}"
           echo "Publishing Isothrum crates at version ${version}"
           for crate in "${crates[@]}"; do
