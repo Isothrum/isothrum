@@ -128,7 +128,8 @@ async fn a_machine_another_vagrant_process_holds_reads_busy_and_its_screen_says_
 
     lab.lock().unwrap_or_else(PoisonError::into_inner).held_by_another = None;
     let after = run.status_with(&opts).await.expect("status");
-    assert!(after.live && states(&after).values().all(|s| *s != MachineState::Busy), "{after:?}");
+    assert!(after.live, "{after:?}");
+    isothrum_test_support::assert_every!(states(&after).into_values(), |s: &MachineState| *s != MachineState::Busy);
 }
 
 #[tokio::test(start_paused = true)]

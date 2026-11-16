@@ -28,6 +28,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+pub(crate) use db::dead_pid;
 pub use db::{
     CopyName, Ended, EventCursor, EventPage, Lease, LeaseOutcome, Lifetime, MIRROR_FILE, NewResource, NotPerCopy, OperationId, OperationRow, Outcome, Owner,
     PortReservation, Recovered, Reserver, ResourceId, ResourceKind, ResourceRow, ResourceState, RunRow, Scope, Store, Tx,

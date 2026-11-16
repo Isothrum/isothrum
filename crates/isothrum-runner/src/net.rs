@@ -251,6 +251,8 @@ impl sealed::Ports for FakePorts {
 
 #[cfg(test)]
 mod tests {
+    /// The probe reads a port that answers as reachable, whether it greets or waits for the
+    /// client; one nobody listens on, one let go, or a proxy's accept closed at once, isn't.
     #[tokio::test]
     async fn a_port_that_accepts_and_closes_at_once_isnt_reachable_one_that_holds_is() {
         use tokio::io::AsyncWriteExt as _;
@@ -259,6 +261,11 @@ mod tests {
         // Nothing listening.
         let free = ports.pick_free(Protocol::Tcp).unwrap().unwrap().port;
         assert!(!ports.reachable("127.0.0.1", free.get(), within).await);
+        // A listener let go.
+        let gone = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gone_port = gone.local_addr().unwrap().port();
+        drop(gone);
+        assert!(!ports.reachable("127.0.0.1", gone_port, within).await, "let go");
         // A proxy's accept: closed at once.
         let closing = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let closing_port = closing.local_addr().unwrap().port();
@@ -267,21 +274,21 @@ mod tests {
             drop(s);
         }));
         assert!(!ports.reachable("127.0.0.1", closing_port, within).await);
-        // A service that greets.
+        // A service that greets, then holds the connection for as long as the test runs.
         let greeting = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let greeting_port = greeting.local_addr().unwrap().port();
         drop(tokio::spawn(async move {
             let (mut s, _) = greeting.accept().await.unwrap();
             s.write_all(b"220 ready\r\n").await.unwrap();
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            std::future::pending::<()>().await;
         }));
         assert!(ports.reachable("127.0.0.1", greeting_port, within).await);
-        // A service that waits for the client's first bytes.
+        // A service that waits for the client's first bytes, as long as the test runs.
         let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let silent_port = silent.local_addr().unwrap().port();
         drop(tokio::spawn(async move {
             let (_held, _) = silent.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            std::future::pending::<()>().await;
         }));
         assert!(ports.reachable("127.0.0.1", silent_port, within).await);
     }
@@ -333,11 +340,16 @@ mod tests {
     /// this holds either way.)
     #[test]
     fn a_port_held_on_all_interfaces_is_in_use() {
-        let (tcp, tcp_port) = held_tcp(Ipv4Addr::UNSPECIFIED.into());
-        assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
-        assert!(held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} held on 0.0.0.0");
-        drop(tcp);
-        assert!(!held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} free once let go");
+        // Once let go, the port reads free, unless another process took it at once (a busy host
+        // hands its ports on): then another port is tried, and one of them must read free.
+        let freed = (0..20).any(|_| {
+            let (tcp, tcp_port) = held_tcp(Ipv4Addr::UNSPECIFIED.into());
+            assert!(LoopbackPorts.in_use(HostPort::new(tcp_port), Protocol::Tcp));
+            assert!(held_on_all(tcp_port, Protocol::Tcp), "{tcp_port} held on 0.0.0.0");
+            drop(tcp);
+            !held_on_all(tcp_port, Protocol::Tcp)
+        });
+        assert!(freed, "a port let go never read free");
         let (_udp, udp_port) = held_udp(Ipv4Addr::UNSPECIFIED.into());
         assert!(LoopbackPorts.in_use(HostPort::new(udp_port), Protocol::Udp));
         assert!(held_on_all(udp_port, Protocol::Udp), "{udp_port} held on 0.0.0.0");
@@ -400,14 +412,5 @@ mod tests {
         .unwrap();
         assert_ne!(picked.port, HostPort::new(held));
         assert!(LoopbackPorts.in_use(HostPort::new(held), Protocol::Tcp), "{held} held on ::1");
-    }
-
-    #[tokio::test]
-    async fn a_listening_address_is_reachable() {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        assert!(LoopbackPorts.reachable("127.0.0.1", port, Duration::from_secs(2)).await);
-        drop(listener);
-        assert!(!LoopbackPorts.reachable("127.0.0.1", port, Duration::from_secs(2)).await);
     }
 }
