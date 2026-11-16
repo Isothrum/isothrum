@@ -41,13 +41,8 @@ impl Running<'_> {
                 Ok((seen, derived, screens, native))
             })
             .await?;
-        // A failed run its tool can't read live stays failed until an operation ends well (#113).
         let now = row.as_ref().map_or(recorded, |r| r.state);
-        let derived = if derived == RunState::Ready && now == RunState::Failed && !self.driver.ready_by_observation() {
-            RunState::Failed
-        } else {
-            derived
-        };
+        let derived = self.unless_kept_failed(derived, now, record.as_ref());
         // A machine another process acts on (Vagrant's lock refused the read): the run as last read,
         // that machine busy, nothing reconciled.
         let busy: Vec<&str> = seen
@@ -81,6 +76,21 @@ impl Running<'_> {
         }
         status.native = native;
         Ok(status)
+    }
+
+    /// `derived`, the state the tool's read gives, unless the run, `now` failed, stays so until an
+    /// operation ends well: its tool can't read readiness live (#113), or a start failed it whose
+    /// work the tool can't tell finished (Vagrant's: a VM running says nothing of its
+    /// provisioning). `record` says how its last operation ended.
+    fn unless_kept_failed(&self, derived: RunState, now: RunState, record: Option<&crate::store::RunRecord>) -> RunState {
+        let failed_start = record
+            .and_then(|r| r.last.as_ref())
+            .is_some_and(|last| !last.ok && super::op_goal(last.op) == Some(RunState::Ready));
+        if derived == RunState::Ready && now == RunState::Failed && !self.driver.ready_by_observation(failed_start) {
+            RunState::Failed
+        } else {
+            derived
+        }
     }
 
     /// Whether an operation holds the run, so its tool isn't asked (it would contend with it, as

@@ -288,8 +288,10 @@ pub(crate) trait FormatDriver {
     /// Whether a status read may find a failed run ready: what it reads is live (containers, VMs
     /// that came up after all). A Terraform state isn't: what a failed apply left in it (an
     /// instance made before the one that failed) proves nothing, so only an apply that ends well
-    /// makes the run ready again. Yes by default.
-    fn ready_by_observation(&self) -> bool {
+    /// makes the run ready again. `failed_start` says what failed the run was a start (an `up`, a
+    /// resume, an update) that didn't end well, or never ended (its process killed). Yes by
+    /// default.
+    fn ready_by_observation(&self, _failed_start: bool) -> bool {
         true
     }
     /// Makes and starts everything, and returns once the project says it is ready (Compose's

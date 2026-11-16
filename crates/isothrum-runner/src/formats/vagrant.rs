@@ -213,6 +213,15 @@ impl Vagrant {
 }
 
 impl FormatDriver for Vagrant {
+    /// Not after a start that didn't end well: a VM running says nothing of the provisioning that
+    /// start never finished (one killed while Vagrant provisioned it), and a machine it never
+    /// reached reads `not_created`, which doesn't count ([`gone::run_state`]); read ready, the run
+    /// would refuse the next `up` as already running. A run failed otherwise (a VM that died,
+    /// booted again from its hypervisor's app) is ready again once its VMs all run.
+    fn ready_by_observation(&self, failed_start: bool) -> bool {
+        !failed_start
+    }
+
     /// Hyper-V takes its management commands from an administrator only.
     fn elevates(&self, provider: Option<Provider>) -> bool {
         provider == Some(Provider::Hyperv)

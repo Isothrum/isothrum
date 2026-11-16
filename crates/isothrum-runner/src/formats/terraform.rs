@@ -313,7 +313,7 @@ pub(crate) fn plugin_cache(config: &crate::RunnerConfig) -> PathBuf {
 
 impl FormatDriver for Terraform {
     /// The state a failed apply left proves nothing ready (#113).
-    fn ready_by_observation(&self) -> bool {
+    fn ready_by_observation(&self, _failed_start: bool) -> bool {
         false
     }
 
