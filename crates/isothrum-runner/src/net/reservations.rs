@@ -162,15 +162,17 @@ impl PortReservations {
         }
     }
 
-    /// Each `ports` entry (a host port and its protocol) must be free before run `name` starts:
-    /// not reserved by another run starting meanwhile, and not already bound on this computer.
+    /// Claims each `ports` entry (a host port and its protocol) for run `name` before it starts:
+    /// one reserved by another run, or already bound on this computer, is refused; each other is
+    /// reserved for `name` until its operation ends, so no run starting meanwhile takes it.
     ///
     /// # Errors
     ///
-    /// Fails with `port_in_use` at the first port that is reserved elsewhere or already bound.
-    pub(crate) fn ensure_free(&self, name: &RunName, ports: impl IntoIterator<Item = (HostPort, Protocol)>) -> Result<()> {
+    /// Fails with `port_in_use` at the first port taken; the ports claimed before it stay
+    /// reserved until the operation ends, as a pick's do.
+    pub(crate) fn claim(&self, name: &RunName, ports: impl IntoIterator<Item = (HostPort, Protocol)>, by: Option<OperationId>) -> Result<()> {
         for (port, protocol) in ports {
-            if self.reserved_elsewhere(name, port, protocol) || self.ports.in_use(port, protocol) {
+            if self.reserved_elsewhere(name, port, protocol) || self.ports.in_use(port, protocol) || !self.reserve(name, port, protocol, by) {
                 return Err(Error::PortInUse {
                     port,
                     protocol: wire_name(&protocol),

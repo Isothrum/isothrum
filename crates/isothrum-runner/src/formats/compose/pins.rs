@@ -52,9 +52,9 @@ pub(super) fn file(cx: &ToolCx<'_>) -> Option<PathBuf> {
 /// # Errors
 ///
 /// The config can't be read, no free port is left, or the state folder can't be written.
-pub(super) async fn pin(cx: &ToolCx<'_>) -> Result<()> {
+pub(super) async fn pin(cx: &ToolCx<'_>, first: bool) -> Result<()> {
     let kept: Kept = crate::store::read_json(&cx.state_dir.join(PINNED))?;
-    refresh(cx, kept).await
+    refresh(cx, kept, first).await
 }
 
 /// [`pin`], `service` (one under a profile, started on its own) attached.
@@ -63,7 +63,7 @@ pub(super) async fn attach(cx: &ToolCx<'_>, service: &str) -> Result<()> {
     if !kept.attached.iter().any(|s| s == service) {
         kept.attached.push(service.to_owned());
     }
-    refresh(cx, kept).await
+    refresh(cx, kept, false).await
 }
 
 /// The services under a profile the run attached, and hasn't retired.
@@ -80,8 +80,9 @@ pub(super) fn retire(cx: &ToolCx<'_>, service: &str) -> Result<()> {
     store(cx, &kept)
 }
 
-/// Reads the ports the run's services publish, pins each ephemeral one, and keeps them.
-async fn refresh(cx: &ToolCx<'_>, mut kept: Kept) -> Result<()> {
+/// Reads the ports the run's services publish, pins each ephemeral one, and keeps them. At a
+/// `first` start, the host ports the project fixes itself are claimed first ([`ToolCx::ports`]).
+async fn refresh(cx: &ToolCx<'_>, mut kept: Kept, first: bool) -> Result<()> {
     let base = compose::Project {
         pins: None,
         ..Compose::project(cx)
@@ -91,6 +92,13 @@ async fn refresh(cx: &ToolCx<'_>, mut kept: Kept) -> Result<()> {
     if !kept.attached.is_empty() {
         let theirs = compose::config_ports(&call, &base, &kept.attached).await.map_err(|e| tool_error("pins", e))?;
         ports.extend(theirs.into_iter().filter(|p| !ports.contains(p)).collect::<Vec<_>>());
+    }
+    if first {
+        let fixed: Vec<_> = ports
+            .iter()
+            .filter_map(|p| Some((crate::port::HostPort::new(p.published?), p.protocol)))
+            .collect();
+        cx.ports.claim(&fixed)?;
     }
     kept.pins.retain(|p| ports.contains(&p.port));
     // Each port picked is held until the override is written, so none is picked twice.

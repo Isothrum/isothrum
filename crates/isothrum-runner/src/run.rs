@@ -131,6 +131,10 @@ impl crate::formats::PickPorts for RunPorts<'_> {
     fn pick(&self, protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
         self.runner.pick_reserved(self.run, protocol)
     }
+
+    fn claim(&self, ports: &[(crate::port::HostPort, crate::project::platform::Protocol)]) -> Result<()> {
+        self.runner.claim_ports(self.run, ports.iter().copied())
+    }
 }
 
 /// Removes a recorded resource through the run's driver, by the id its tool gave.

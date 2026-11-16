@@ -134,3 +134,35 @@ async fn a_park_and_a_resume_keep_the_runs_host_ports_an_attached_services_too()
     let left = std::fs::read_to_string(&override_file).expect("web's pin is left");
     assert!(!left.contains("attackbox"), "the attack box's pin went with it: {left}");
 }
+
+/// Docker with Compose, whose `web` publishes host port 8080 itself: how many `up`s it saw.
+fn fixed_8080(ups: &Mutex<u16>, call: &Call) -> Reply {
+    let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
+    match args.as_slice() {
+        ["compose", "version", "--short"] => Reply::ok("2.29.7"),
+        ["compose", "-p", _, rest @ ..] if rest.contains(&"up") => {
+            *ups.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+            Reply::ok("")
+        }
+        ["compose", "-p", _, .., "config", "--format", "json"] => {
+            Reply::ok(r#"{"services": {"web": {"ports": [{"target": 80, "published": "8080", "protocol": "tcp"}]}}}"#)
+        }
+        _ => Reply::ok(""),
+    }
+}
+
+#[tokio::test]
+async fn a_first_up_whose_fixed_host_port_is_taken_is_refused_before_compose_starts_anything() {
+    let root = tempfile::tempdir().expect("a folder");
+    let project = root.path().join("lab");
+    std::fs::create_dir(&project).expect("the project");
+    std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n    ports: [\"8080:80\"]\n").expect("a compose file");
+    let (ups, fake) = modelled::<u16>(fixed_8080);
+    let ports: Arc<dyn crate::HostPorts> = Arc::new(crate::net::FakePorts::new([]).taken(8080, crate::Protocol::Tcp));
+    let config = runner_config(&root.path().join("home"), processes(&fake), ports, crate::runner::this_host());
+    let runner = Runner::new(config).expect("a runner");
+    let run = runner.open(&project, None).expect("opened");
+    let refused = run.up(&RunOptions::new(), &Recorder::new()).await.expect_err("taken");
+    assert_eq!(refused.code(), ErrorCode::PortInUse, "{refused}");
+    assert_eq!(*ups.lock().unwrap_or_else(PoisonError::into_inner), 0, "Compose made nothing");
+}

@@ -53,6 +53,14 @@ pub(crate) trait PickPorts: Send + Sync {
     ///
     /// The loopback couldn't be bound.
     fn pick(&self, protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>>;
+
+    /// Claims the fixed host ports a first start publishes, before anything is made: each
+    /// reserved for the run until its operation ends.
+    ///
+    /// # Errors
+    ///
+    /// `port_in_use` at the first port another run holds or something on this computer binds.
+    fn claim(&self, ports: &[(crate::port::HostPort, crate::project::platform::Protocol)]) -> Result<()>;
 }
 
 /// Picks nothing: a context that starts nothing (a console, a status read).
@@ -61,6 +69,10 @@ pub(crate) struct NoPorts;
 impl PickPorts for NoPorts {
     fn pick(&self, _protocol: crate::project::platform::Protocol) -> std::io::Result<Option<crate::net::HeldPort>> {
         Ok(None)
+    }
+
+    fn claim(&self, _ports: &[(crate::port::HostPort, crate::project::platform::Protocol)]) -> Result<()> {
+        Ok(())
     }
 }
 
