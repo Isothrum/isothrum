@@ -2,9 +2,9 @@
 
 Every operation reports what it does as JSON events. `isothrum <command> --json` prints them on
 standard output, one object per line; an embedder of `isothrum-runner` receives them through its
-`Events` sink. Each run also keeps the last operations' events in `<home>/runs/<run>/events.jsonl`
-(`isothrum events` prints them, and says on standard error how many lines it couldn't read: one
-another version of Isothrum wrote, or one cut short).
+`Events` sink. The home's store (`state.db`, [State layout](state.md)) also keeps each run's
+events, its newest 2000 once over 4000 (`isothrum events` prints them, and says on standard error
+how many it couldn't read: an event kind or a code another version of Isothrum wrote).
 
 The authoritative definition is the JSON Schema committed at
 [`crates/isothrum-runner/schema/events-v1.schema.json`](../../crates/isothrum-runner/schema/events-v1.schema.json)
@@ -15,11 +15,12 @@ The authoritative definition is the JSON Schema committed at
 
 | Field | Meaning |
 |---|---|
-| `v` | The stream's version: `0`. |
+| `v` | The stream's version: `1` (`0` before 3.0; see [Policies](../policies.md#what-is-stable)). |
 | `seq` | The event's place in the operation, from 1. |
 | `time` | When, in UTC (`YYYY-MM-DDTHH:MM:SSZ`). |
 | `run` | The run's name. |
 | `op` | The operation: `up`, `down`, `park`, `resume`, `check`, `provision`, `attach`, `detach`, `update`, `retire`. |
+| `operation` | The operation's id in the home's journal, on every event of a journaled operation (one the runner service queued). |
 | `event` | The kind, below. |
 
 Every event of an operation has `run` and `op`. An event written outside one has those its
@@ -29,26 +30,30 @@ command is an operation, and `run` when `--name` named it (a failure of `status`
 `events` or `key` has no `op`).
 
 With `--json`, a failure before any operation began (code `usage`, for instance) is an `error`
-event too, and `isothrum reap --json` ends with a `result` whose `data` is the sweep (`cloud`,
-`destroyed`, `pending`, `failed`, `orphans`, `unread`), after the events of each run it destroyed;
-when the cloud couldn't be searched (a recorded run's state unreadable), `orphans` and `unread`
-are null and an `error` follows it. So one stream carries every outcome, one event per line. `isothrum attach
---json` says where the machine is in its `result`'s `data` (`machine`, `native`, `network`,
-`address`, `image`).
+event too, and `isothrum reap --json` ends with a `result` whose `data` is the sweep
+(`destroyed`, `pending`: what `--dry-run` would destroy, `failed`: each `run` and its `error`),
+after the events of each run it destroyed. So one stream carries every outcome, one event per
+line.
+
+A `result`'s `data` has one shape per operation, told apart by its fields: `up`'s is `state`
+(`ready`) and `outputs` (each `name` and `value`, `***` when sensitive, null when it can't be
+read); `exec`'s is `machine`, the machine it ran in; `reap`'s is the sweep above; every other
+operation's is `state`, where the run stands now.
 
 ## Kinds
 
 | `event` | Fields | Meaning |
 |---|---|---|
-| `state` | `from`, `to` | The run moved from one state to another (`starting`, `ready`, `failed`, `parking`, `parked`, `resuming`, `stopping`, `absent`). |
+| `state` | `from`, `to` | The run moved from one state to another (`creating`, `ready`, `failed`, `parking`, `parked`, `resuming`, `updating`, `destroying`, `absent`). |
 | `step` | `step`, `state`, `note` | A step started (`running`), finished (`done`), `failed` or was `skipped`. |
 | `log` | `step`, `stream`, `line` | A line a step's tool printed on `stdout` or `stderr`. |
-| `ready` | `condition`, `state`, `detail` | A ready condition was checked: `waiting` (not yet, checked again), `ok` (it holds) or `failed` (it doesn't, and the operation fails with `not_ready`). |
-| `output` | `name`, `role`, `value`, `sensitive` | An output's value, once the run is up (`***` when sensitive). |
-| `check` | `runner`, `from`, `name`, `ok`, `detail` | One check's result. |
+| `desired` | `desired` | What the user wants of the run changed, as an operation that moves it began: `running` (`up`, `resume`), `parked` (`park`), `gone` (`down`). |
+| `resource` | `key`, `kind`, `state`, `native_id` | A resource of the run moved in the home's write-ahead ledger ([State layout](state.md)): `creating` before the call that makes it, `created` with the tool's id (`native_id`) after, `destroying` before the call that removes it, `gone` after. `kind`: `vm`, `container`, `network`, `volume`, `hub`, `process`, `module`, `host_keys`, `state_files`, `archive`, `consoles`, `tool_process`. |
 | `warning` | `code`, `message` | Something worth showing that didn't fail the operation. |
-| `result` | `ok`, `data` | The operation ran to its end. |
-| `error` | `code`, `message`, `step`, `timeout` | The operation failed. `timeout` is set for a step stopped for no progress (`no_progress`, with its last line) or at its ceiling (`ceiling`). A download made before a step in a step of its own (`pull-<step>`: a Compose `up`'s images; `boxes-<step>`: the boxes a `vagrant up` boots), or a step the manifest marks `download`, has no ceiling: stopped for no progress, its code is `download_stalled`, the message quoting its last line; failed, `download_failed`. |
+| `result` | `ok`, `data` | The operation ran to its end. `ok` is false when it didn't reach its goal (a check failed, an `exec`'s command exited non-zero); `data` is above. |
+| `error` | `code`, `message`, `step`, `timeout`, `detail` | The operation failed. `timeout` is set for a step stopped for no progress (`kind` `no_progress`) or at its ceiling (`kind` `ceiling`), with the limit in seconds (`after_s`) and the step's last line (`last_line`, when it printed one). A download made before a step in a step of its own (`pull-<step>`: a Compose `up`'s images; `boxes-<step>`: the boxes a `vagrant up` boots), or a step the manifest marks `download`, has no ceiling: stopped for no progress, its code is `download_stalled`, the message quoting its last line; failed, `download_failed`. `detail` is the failure's typed fields, when it has any (`v`, `kind` and its own fields; see [Runner service](service.md#errors-and-their-detail)). |
+| `operation` | `phase`, `outcome`, `position` | The runner service's, not an operation's: an operation it journals was `queued` (`position` in its run's queue, 0 next), `started` or `ended` (`outcome`: `succeeded`, `failed`, `cancelled`, `abandoned`). The operation's own events still end with exactly one `result` or `error`. |
+| `output` | `name`, `value`, `sensitive` | An output's value (`***` when sensitive). The runner no longer writes it: `up`'s `result` carries the outputs. |
 
 ## Rules
 
