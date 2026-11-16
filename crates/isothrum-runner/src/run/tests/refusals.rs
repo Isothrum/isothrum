@@ -1,5 +1,5 @@
 //! What a run refuses before any tool acts: an `up` of a run that is up and live, a
-//! `resume` of a run of which nothing is left.
+//! `resume` of a run of which nothing is left, a change of a run that isn't up.
 
 use super::*;
 
@@ -81,4 +81,30 @@ async fn an_operation_on_a_run_another_process_holds_is_locked_and_runs_no_tool(
     assert_eq!(journaled, [], "nothing journaled");
     drop(other);
     run.up(&RunOptions::new(), &Recorder::new()).await.expect("up once let go");
+}
+
+#[tokio::test]
+async fn a_change_of_a_run_that_isnt_up_is_not_running_and_runs_no_tool() {
+    let (_root, project, runner, _engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    let opts = RunOptions::new();
+    let refused = |e: crate::Error| {
+        assert_eq!((e.code(), e.report().changed), (ErrorCode::NotRunning, false), "{e}");
+    };
+    // Never started.
+    refused(run.update(&opts, &Recorder::new()).await.expect_err("never started"));
+    refused(run.exec("web", &["true".to_owned()], &opts, &Recorder::new()).await.expect_err("never started"));
+    refused(run.attach("web", &opts, &Recorder::new()).await.expect_err("never started"));
+    assert_eq!(fake.calls().len(), 0, "no tool ran");
+    // Parked: an update would start its machines, a command its services.
+    run.up(&opts, &Recorder::new()).await.expect("up");
+    run.park(crate::Park::Shutdown, &opts, &Recorder::new()).await.expect("parked");
+    let before = fake.calls().len();
+    let events = Recorder::new();
+    refused(run.update(&opts, &events).await.expect_err("parked"));
+    assert_eq!(error_code(&events), Some(ErrorCode::NotRunning));
+    refused(run.retire("web", &opts, &Recorder::new()).await.expect_err("parked"));
+    refused(run.provision(None, None, &opts, &Recorder::new()).await.expect_err("parked"));
+    assert_eq!(fake.calls().len(), before, "no tool ran");
+    assert_eq!(run.status().await.expect("status").state, RunState::Parked, "and the run is as it was");
 }
