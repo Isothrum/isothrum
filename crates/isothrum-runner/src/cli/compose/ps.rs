@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_both_compose_output_formats() {
+    fn both_listing_formats_are_read_one_object_per_line_or_an_array() {
         let lines = "{\"Service\":\"web\",\"State\":\"running\"}\n\n{\"Service\":\"db\",\"State\":\"exited\",\"ExitCode\":3}\n";
         assert_eq!(read(lines).len(), 2);
         assert_eq!(read("[{\"Service\":\"web\",\"State\":\"running\"}]")[0].service, "web");
@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_run_containers_are_one_off() {
+    fn a_compose_run_container_is_a_one_off_and_a_services_isnt() {
         let out = "{\"Service\":\"check\",\"State\":\"running\",\"Labels\":\"com.docker.compose.project=p,com.docker.compose.oneoff=True\"}\n{\"Service\":\"web\",\"State\":\"running\",\"Labels\":\"com.docker.compose.oneoff=False\"}\n";
         let flags: Vec<bool> = read(out).iter().map(Container::one_off).collect();
         assert_eq!(flags, [true, false]);

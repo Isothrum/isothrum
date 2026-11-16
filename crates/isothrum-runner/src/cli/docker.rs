@@ -98,24 +98,42 @@ mod tests {
     use crate::cli::testing;
     use crate::process::fake::{FakeProcesses, Reply};
 
+    const LABEL: &str = "com.docker.compose.project=lab";
+
     #[tokio::test]
-    async fn labelled_objects_are_listed_and_removed_by_id() {
-        let fake = FakeProcesses::new(|c| match c.line().as_str() {
-            l if l.starts_with("docker container ls") => Reply::ok("3f2a9c1e7b6d\n9c1e7b6d3f2a\n"),
-            l if l.starts_with("docker volume rm") => Reply::fail(1, "Error response from daemon: get lab_data: no such volume"),
-            _ => Reply::ok(""),
-        });
-        let call = testing::call(&fake);
-        let ids = labelled(&call, Object::Container, "com.docker.compose.project=lab").await.unwrap();
-        assert_eq!(ids, ["3f2a9c1e7b6d", "9c1e7b6d3f2a"]);
-        remove(&call, Object::Container, &ids).await.unwrap();
-        remove(&call, Object::Volume, &["lab_data".to_owned()]).await.unwrap();
-        assert_eq!(
-            fake.lines()[..2],
-            [
+    async fn labelled_containers_stopped_ones_included_are_listed_and_removed_by_id_with_their_volumes() {
+        let fake = FakeProcesses::script()
+            .expect(
                 "docker container ls --quiet --filter label=com.docker.compose.project=lab --all",
-                "docker container rm --force --volumes 3f2a9c1e7b6d 9c1e7b6d3f2a"
-            ]
+                Reply::ok("3f2a9c1e7b6d\n9c1e7b6d3f2a\n"),
+            )
+            .expect("docker container rm --force --volumes 3f2a9c1e7b6d 9c1e7b6d3f2a", Reply::ok(""))
+            .build();
+        let call = testing::call(&fake);
+        let ids = labelled(&call, Object::Container, LABEL).await.expect("listed");
+        assert_eq!(ids, ["3f2a9c1e7b6d", "9c1e7b6d3f2a"]);
+        remove(&call, Object::Container, &ids).await.expect("removed");
+        remove(&call, Object::Network, &[]).await.expect("nothing to remove runs nothing");
+    }
+
+    #[tokio::test]
+    async fn an_object_already_gone_is_removed_and_any_other_refusal_fails_with_what_docker_said() {
+        for (kind, said) in [
+            (Object::Container, include_str!("../tool_output/fixtures/compose/27.1-container-rm-gone.txt")),
+            (Object::Network, include_str!("../tool_output/fixtures/compose/27.1-network-rm-gone.txt")),
+            (Object::Volume, include_str!("../tool_output/fixtures/compose/27.1-volume-rm-gone.txt")),
+        ] {
+            let fake = FakeProcesses::script().expect(&format!("docker {}", kind.word()), Reply::fail(1, said)).build();
+            remove(&testing::call(&fake), kind, &["x1".to_owned()]).await.expect("gone is removed");
+        }
+        let busy = "Error response from daemon: remove lab_data: volume is in use - [3f2a9c1e7b6d]";
+        let fake = FakeProcesses::script().expect("docker volume rm lab_data", Reply::fail(1, busy)).build();
+        let e = remove(&testing::call(&fake), Object::Volume, &["lab_data".to_owned()])
+            .await
+            .expect_err("in use");
+        assert!(
+            matches!(&e, CliError::Failed { failure: Failure::Other(why), .. } if why.starts_with(busy)),
+            "{e:?}"
         );
     }
 }
