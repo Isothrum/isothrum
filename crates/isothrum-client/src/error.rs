@@ -1,7 +1,7 @@
 //! Why a client call failed.
 
-use isothrum_runner::ErrorCode;
 use isothrum_runner::store::OperationId;
+use isothrum_runner::{ErrorCode, ErrorReport};
 
 /// Why a client call failed.
 #[derive(Debug, thiserror::Error)]
@@ -13,28 +13,13 @@ pub enum ClientError {
     /// A frame the other side can't read, or a protocol the service doesn't speak.
     #[error("protocol: {0}")]
     Protocol(String),
-    /// The service refused the request.
-    #[error("{message}")]
-    Refused {
-        /// Why.
-        code: ErrorCode,
-        /// What it said.
-        message: String,
-        /// The runner's typed fields, when it has them.
-        detail: Option<Box<isothrum_runner::ErrorDetail>>,
-    },
-    /// The operation failed (its `error` event), or was cancelled.
-    #[error("{message}")]
-    Operation {
-        /// Why.
-        code: ErrorCode,
-        /// What it said.
-        message: String,
-        /// The step that failed, when one did.
-        step: Option<String>,
-        /// The runner's typed fields, when it has them.
-        detail: Option<Box<isothrum_runner::ErrorDetail>>,
-    },
+    /// The service refused the request: the runner's report of why (boxed: it is large, and
+    /// rare).
+    #[error("{0}")]
+    Refused(Box<ErrorReport>),
+    /// The operation failed (its `error` event's report), or was cancelled.
+    #[error("{0}")]
+    Operation(Box<ErrorReport>),
     /// The home's service is another release and has operations queued or running: it was left
     /// running ([`Client::connect_exact`](crate::Client::connect_exact)).
     #[error("the runner service (Isothrum {version}, pid {pid}) has {} operation(s) queued or running: it was left running", operations.len())]
@@ -64,10 +49,19 @@ impl ClientError {
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
-            ClientError::Refused { code, .. } | ClientError::Operation { code, .. } => *code,
+            ClientError::Refused(report) | ClientError::Operation(report) => report.code,
             ClientError::Busy { .. } => ErrorCode::Locked,
             ClientError::Version { .. } => ErrorCode::Unsupported,
             ClientError::Unavailable(_) | ClientError::Protocol(_) | ClientError::Io(_) => ErrorCode::Io,
+        }
+    }
+
+    /// The runner's report of the failure, when the service or the operation gave one.
+    #[must_use]
+    pub fn report(&self) -> Option<&ErrorReport> {
+        match self {
+            ClientError::Refused(report) | ClientError::Operation(report) => Some(report),
+            _ => None,
         }
     }
 
@@ -83,11 +77,7 @@ mod tests {
 
     #[test]
     fn each_failure_has_the_code_an_error_event_would() {
-        let refused = ClientError::Refused {
-            code: ErrorCode::NotRunning,
-            message: "x".into(),
-            detail: None,
-        };
+        let refused = ClientError::Refused(Box::new(ErrorReport::new(ErrorCode::NotRunning, "x")));
         assert_eq!(refused.code(), ErrorCode::NotRunning);
         let busy = ClientError::Busy {
             version: "2.1.7".into(),

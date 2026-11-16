@@ -190,12 +190,14 @@ fn up_error(step: &str, e: CliError<Failure>) -> Error {
             Error::PortInUse {
                 port: crate::port::HostPort::new(port),
                 protocol: crate::encoding::wire_name(&protocol),
+                holder: None,
             }
         }
         CliError::Failed {
             failure: Failure::PullRefused(reason),
             ..
         } => Error::DownloadFailed {
+            what: crate::error::DownloadKind::Images,
             step: format!("pull-{step}"),
             reason,
         },

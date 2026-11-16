@@ -3,8 +3,8 @@
 //! server that refused a sign-in, the secret to give). Versioned ([`DETAIL_VERSION`]), so a field
 //! a later runner adds is a new version, never a changed meaning.
 //!
-//! Never a secret, and never free text a tool printed (which may echo one): those stay in the
-//! message, which the event stream masks.
+//! Never a secret. What a tool printed (a download's reason, a timed-out step's last line) is
+//! masked as the message is, wherever the event stream masks it.
 
 use std::path::PathBuf;
 
@@ -14,7 +14,7 @@ use super::{Error, TimedOut};
 use crate::state::RunState;
 
 /// The version of [`ErrorDetail`]'s fields.
-pub const DETAIL_VERSION: u32 = 1;
+pub const DETAIL_VERSION: u32 = 2;
 
 /// A failure's typed fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -25,6 +25,36 @@ pub struct ErrorDetail {
     /// The fields, by the failure's kind.
     #[serde(flatten)]
     pub data: Detail,
+}
+
+/// What a download fetches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DownloadKind {
+    /// Container images (a Compose start's pull).
+    Images,
+    /// Vagrant boxes (what a Vagrant start boots).
+    Boxes,
+}
+
+/// The process that holds a host port: what a `port_in_use` names so the user knows what to stop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[non_exhaustive]
+pub struct PortHolder {
+    /// Its process id.
+    pub pid: u32,
+    /// Its program's name, as the system lists it (`nginx`, `com.docke`: `lsof` cuts it to 9
+    /// characters).
+    pub program: String,
+}
+
+impl PortHolder {
+    /// Process `pid` running `program`.
+    #[must_use]
+    pub fn new(pid: u32, program: impl Into<String>) -> PortHolder {
+        PortHolder { pid, program: program.into() }
+    }
 }
 
 /// A failure's typed fields, by its kind.
@@ -38,6 +68,9 @@ pub enum Detail {
         port: u16,
         /// `tcp` or `udp`.
         protocol: String,
+        /// The process listening on it, when it was found.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        holder: Option<PortHolder>,
     },
     /// A tool isn't installed.
     ToolMissing {
@@ -65,8 +98,29 @@ pub enum Detail {
     },
     /// A download showed no progress for as long as a download may.
     DownloadStalled {
+        /// What it downloads.
+        what: DownloadKind,
         /// How long it went with no progress, in seconds.
         after_s: u64,
+    },
+    /// A download couldn't be made.
+    DownloadFailed {
+        /// What it downloads.
+        what: DownloadKind,
+        /// The last try's last error lines, or its exit status (masked).
+        reason: String,
+    },
+    /// The elevation the run's commands need couldn't be had.
+    Elevation {
+        /// Why (the prompt declined, the elevated session ended).
+        reason: String,
+    },
+    /// A ready condition didn't hold.
+    NotReady {
+        /// The condition (`every machine of the run`, `tcp 127.0.0.1:8080`).
+        condition: String,
+        /// Why it didn't.
+        detail: String,
     },
     /// The run is recorded on another place than the one asked for.
     RunningElsewhere {
@@ -90,10 +144,17 @@ pub enum Detail {
         /// Its name.
         name: String,
     },
-    /// A value the run was given can't be used (its name only: the value may be a secret).
+    /// A value the run was given can't be used.
     InputInvalid {
         /// Its name.
         name: String,
+        /// Why (masked: it may quote the value).
+        reason: String,
+    },
+    /// A step's tool ran and failed.
+    ToolFailed {
+        /// Its last error lines, or its exit status (masked).
+        reason: String,
     },
     /// The folder isn't a project to run.
     ProjectInvalid {
@@ -152,10 +213,17 @@ impl Error {
     /// The failure's typed fields, for one that has any beyond its code and message.
     #[must_use]
     pub fn detail(&self) -> Option<ErrorDetail> {
-        let data = match self {
-            Error::PortInUse { port, protocol } => Detail::PortInUse {
+        let data = self.tool_detail().or_else(|| self.run_detail())?;
+        Some(ErrorDetail { v: DETAIL_VERSION, data })
+    }
+
+    /// The fields of a failure of a tool, a download or a step.
+    fn tool_detail(&self) -> Option<Detail> {
+        Some(match self {
+            Error::PortInUse { port, protocol, holder } => Detail::PortInUse {
                 port: port.get(),
                 protocol: protocol.clone(),
+                holder: holder.clone(),
             },
             Error::ToolMissing { tool, .. } => Detail::ToolMissing { tool: tool.clone() },
             Error::ToolTooOld { tool, found, required } => Detail::ToolTooOld {
@@ -164,20 +232,28 @@ impl Error {
                 required: required.clone(),
             },
             Error::ToolUnanswered { tool, .. } => Detail::ToolUnanswered { tool: tool.clone() },
-            Error::Timeout { timed_out, .. } => Detail::Timeout {
-                // Its last line is a tool's: kept out, as any text a tool printed.
-                timed_out: match timed_out {
-                    TimedOut::NoProgress { after_s, .. } => TimedOut::NoProgress {
-                        after_s: *after_s,
-                        last_line: None,
-                    },
-                    TimedOut::Ceiling { after_s, .. } => TimedOut::Ceiling {
-                        after_s: *after_s,
-                        last_line: None,
-                    },
-                },
+            Error::Timeout { timed_out, .. } => Detail::Timeout { timed_out: timed_out.clone() },
+            Error::DownloadStalled { what, after_s, .. } => Detail::DownloadStalled {
+                what: *what,
+                after_s: *after_s,
             },
-            Error::DownloadStalled { after_s, .. } => Detail::DownloadStalled { after_s: *after_s },
+            Error::DownloadFailed { what, reason, .. } => Detail::DownloadFailed {
+                what: *what,
+                reason: reason.clone(),
+            },
+            Error::Elevation { reason } => Detail::Elevation { reason: reason.clone() },
+            Error::NotReady { condition, detail } => Detail::NotReady {
+                condition: condition.clone(),
+                detail: detail.clone(),
+            },
+            Error::ToolFailed { reason, .. } => Detail::ToolFailed { reason: reason.clone() },
+            _ => return None,
+        })
+    }
+
+    /// The fields of a failure of the run, its inputs or the home.
+    fn run_detail(&self) -> Option<Detail> {
+        Some(match self {
             Error::RunningElsewhere { recorded, asked, .. } => Detail::RunningElsewhere {
                 recorded: recorded.clone(),
                 asked: asked.clone(),
@@ -185,7 +261,10 @@ impl Error {
             Error::NotParkable { mode, .. } => Detail::NotParkable { mode: (*mode).to_owned() },
             Error::PartlyGone { machines, .. } => Detail::PartlyGone { machines: machines.clone() },
             Error::SecretMissing { name } => Detail::SecretMissing { name: name.clone() },
-            Error::Input { name, .. } => Detail::InputInvalid { name: name.clone() },
+            Error::Input { name, reason } => Detail::InputInvalid {
+                name: name.clone(),
+                reason: reason.clone(),
+            },
             Error::Project { dir, .. } => Detail::ProjectInvalid { dir: dir.clone() },
             Error::MachineUnknown { machine, .. } => Detail::MachineUnknown { machine: machine.clone() },
             Error::NetworkUnknown { network, .. } => Detail::NetworkUnknown { network: network.clone() },
@@ -205,8 +284,28 @@ impl Error {
                 pid: *pid,
             },
             _ => return None,
+        })
+    }
+}
+
+impl ErrorDetail {
+    /// The same, the text a tool printed passed through `mask`.
+    pub(crate) fn masked(self, mask: impl Fn(&str) -> String) -> ErrorDetail {
+        let data = match self.data {
+            Detail::Timeout { timed_out } => Detail::Timeout {
+                timed_out: timed_out.masked(&mask),
+            },
+            Detail::DownloadFailed { what, reason } => Detail::DownloadFailed { what, reason: mask(&reason) },
+            Detail::Elevation { reason } => Detail::Elevation { reason: mask(&reason) },
+            Detail::ToolFailed { reason } => Detail::ToolFailed { reason: mask(&reason) },
+            Detail::InputInvalid { name, reason } => Detail::InputInvalid { name, reason: mask(&reason) },
+            Detail::NotReady { condition, detail } => Detail::NotReady {
+                condition,
+                detail: mask(&detail),
+            },
+            other => other,
         };
-        Some(ErrorDetail { v: DETAIL_VERSION, data })
+        ErrorDetail { data, ..self }
     }
 }
 
@@ -219,30 +318,57 @@ mod tests {
         let e = Error::PortInUse {
             port: crate::port::HostPort::new(8080),
             protocol: "tcp".to_owned(),
+            holder: None,
         };
         let json = serde_json::to_value(e.detail().expect("a detail")).expect("json");
-        assert_eq!(json, serde_json::json!({ "v": 1, "kind": "port_in_use", "port": 8080, "protocol": "tcp" }));
+        assert_eq!(json, serde_json::json!({ "v": 2, "kind": "port_in_use", "port": 8080, "protocol": "tcp" }));
+        let held = Error::PortInUse {
+            port: crate::port::HostPort::new(8080),
+            protocol: "tcp".to_owned(),
+            holder: Some(PortHolder::new(4123, "nginx")),
+        };
+        let held_json = serde_json::to_value(held.detail().expect("a detail")).expect("json");
+        assert_eq!(held_json["holder"], serde_json::json!({ "pid": 4123, "program": "nginx" }));
+        assert!(held.to_string().ends_with(": `nginx` (pid 4123) listens on it"), "{held}");
     }
 
     #[test]
-    fn a_timeout_keeps_no_line_a_tool_printed() {
-        let e = Error::Timeout {
+    fn what_a_tool_printed_in_the_fields_is_masked_as_the_message_is() {
+        let timeout = Error::Timeout {
             step: "up".to_owned(),
             timed_out: TimedOut::NoProgress {
                 after_s: 30,
                 last_line: Some("token=s3cret".to_owned()),
             },
         };
-        let json = serde_json::to_string(&e.detail().expect("a detail")).expect("json");
-        assert!(!json.contains("s3cret"), "{json}");
+        let failed = Error::DownloadFailed {
+            what: DownloadKind::Images,
+            step: "pull-up".to_owned(),
+            reason: "denied for s3cret".to_owned(),
+        };
+        for e in [timeout, failed] {
+            let detail = e.detail().expect("a detail");
+            assert!(serde_json::to_string(&detail).expect("json").contains("s3cret"));
+            let masked = serde_json::to_string(&detail.masked(|t| t.replace("s3cret", "***"))).expect("json");
+            assert!(!masked.contains("s3cret"), "{masked}");
+        }
     }
 
     #[test]
-    fn a_failure_with_only_a_reason_has_no_detail() {
-        let e = Error::ToolFailed {
+    fn a_download_says_what_it_fetches() {
+        let e = Error::DownloadStalled {
+            what: DownloadKind::Boxes,
             step: "up".to_owned(),
-            reason: "boom".to_owned(),
+            after_s: 900,
+            last_line: None,
         };
+        let json = serde_json::to_value(e.detail().expect("a detail")).expect("json");
+        assert_eq!(json, serde_json::json!({ "v": 2, "kind": "download_stalled", "what": "boxes", "after_s": 900 }));
+    }
+
+    #[test]
+    fn a_failure_with_only_a_message_has_no_detail() {
+        let e = Error::Locked { run: "r".to_owned() };
         assert!(e.detail().is_none());
     }
 }

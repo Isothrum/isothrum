@@ -217,9 +217,7 @@ mod tests {
                 _ => (
                     Reply::Error {
                         id,
-                        code: ErrorCode::Usage,
-                        message: "not in this fake".into(),
-                        detail: None,
+                        report: isothrum_runner::ErrorReport::new(ErrorCode::Usage, "not in this fake"),
                     },
                     false,
                 ),
@@ -487,7 +485,7 @@ mod tests {
         write_line(&mut writer, &Request { id: 1, command: Command::List }).await.unwrap();
         let refused = reader.next::<Reply>().await.unwrap().unwrap();
         assert!(
-            matches!(&refused, Reply::Error { id: 1, message, .. } if message.contains("shutdown_if_idle")),
+            matches!(&refused, Reply::Error { id: 1, report } if report.message.contains("shutdown_if_idle")),
             "{refused:?}"
         );
         s.stop(client).await;

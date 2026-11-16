@@ -38,7 +38,7 @@ pub(crate) fn sweep(engine: &dyn Engine, queue: &Arc<Queue>, tried: &mut BTreeMa
     let expired = match engine.expired() {
         Ok(expired) => expired,
         Err(refusal) => {
-            tracing::warn!(error = %refusal.message, "the reaper couldn't read the expired runs");
+            tracing::warn!(error = %refusal.0.message, "the reaper couldn't read the expired runs");
             return Vec::new();
         }
     };
@@ -59,7 +59,7 @@ pub(crate) fn sweep(engine: &dyn Engine, queue: &Arc<Queue>, tried: &mut BTreeMa
                 tried.insert(name, now);
                 queued.push(run);
             }
-            Err(refusal) => tracing::warn!(run = %name, error = %refusal.message, "the reaper couldn't queue a run's down"),
+            Err(refusal) => tracing::warn!(run = %name, error = %refusal.0.message, "the reaper couldn't queue a run's down"),
         }
     }
     queued

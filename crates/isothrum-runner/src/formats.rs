@@ -184,7 +184,13 @@ pub(crate) fn tool_error<F: std::fmt::Display>(step: &str, e: CliError<F>) -> Er
             step,
             timed_out: TimedOut::Ceiling { after_s: limit_s, last_line },
         },
-        CliError::Stalled { after_s, last_line, .. } => Error::DownloadStalled { step, after_s, last_line },
+        // Only a download is watched for stalling, and the only one is an image pull.
+        CliError::Stalled { after_s, last_line, .. } => Error::DownloadStalled {
+            what: crate::error::DownloadKind::Images,
+            step,
+            after_s,
+            last_line,
+        },
         unread @ (CliError::Unexpected { .. } | CliError::Spawn { .. }) => Error::ToolFailed {
             step,
             reason: unread.to_string(),

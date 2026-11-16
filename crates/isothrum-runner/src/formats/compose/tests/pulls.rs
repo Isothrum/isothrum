@@ -100,7 +100,7 @@ async fn a_pull_the_network_cut_short_is_tried_again_and_one_refused_never() {
     let (refusal, said) = start(&denied).await;
     let refusal = refusal.expect_err("refused");
     assert!(
-        matches!(&refusal, Error::DownloadFailed { step, reason } if step == "pull-up" && reason.contains("pull access denied")),
+        matches!(&refusal, Error::DownloadFailed { step, reason, .. } if step == "pull-up" && reason.contains("pull access denied")),
         "{refusal:?}"
     );
     assert!(said.is_empty(), "never tried again: {said:?}");

@@ -176,6 +176,7 @@ impl PortReservations {
                 return Err(Error::PortInUse {
                     port,
                     protocol: wire_name(&protocol),
+                    holder: None,
                 });
             }
         }

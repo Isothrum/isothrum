@@ -9,7 +9,7 @@ use super::{Compose, ToolCx, tool_error};
 use crate::Result;
 use crate::cli::CliError;
 use crate::cli::compose::{self, Failure};
-use crate::error::Error;
+use crate::error::{DownloadKind, Error};
 use crate::events::WarningCode;
 
 /// How long a pull may print nothing before it is stopped: a layer's progress is a line, so a
@@ -45,7 +45,11 @@ impl Compose {
                     ..
                 }) => {
                     let Some(wait) = waits.next() else {
-                        return Err(Error::DownloadFailed { step: STEP.to_owned(), reason });
+                        return Err(Error::DownloadFailed {
+                            what: DownloadKind::Images,
+                            step: STEP.to_owned(),
+                            reason,
+                        });
                     };
                     let said = format!("an image's pull was cut short ({reason}): trying again in {}s", wait.as_secs());
                     (cx.warn)(WarningCode::Retrying, &said);
@@ -54,7 +58,13 @@ impl Compose {
                 Err(CliError::Failed {
                     failure: Failure::PullRefused(reason),
                     ..
-                }) => return Err(Error::DownloadFailed { step: STEP.to_owned(), reason }),
+                }) => {
+                    return Err(Error::DownloadFailed {
+                        what: DownloadKind::Images,
+                        step: STEP.to_owned(),
+                        reason,
+                    });
+                }
                 Err(e) => return Err(tool_error(STEP, e)),
             }
         }

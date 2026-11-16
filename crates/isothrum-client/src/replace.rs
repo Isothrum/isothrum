@@ -219,9 +219,9 @@ async fn ask_to_stop((mut reader, mut writer, info): Opened) -> Result<Asked> {
     match answer.await {
         Ok(Ok(Some(Reply::Ok { .. }) | None)) => Ok(Asked::Stopping),
         Ok(Ok(Some(Reply::Busy { operations, .. }))) => Ok(Asked::Busy(operations)),
-        Ok(Ok(Some(Reply::Error { message, .. }))) => Err(ClientError::Protocol(format!(
-            "the runner service (Isothrum {}) refused to stop: {message}",
-            info.version
+        Ok(Ok(Some(Reply::Error { report, .. }))) => Err(ClientError::Protocol(format!(
+            "the runner service (Isothrum {}) refused to stop: {}",
+            info.version, report.message
         ))),
         Ok(Ok(Some(other))) => Err(ClientError::Protocol(format!("expected the answer to `shutdown_if_idle`, got {other:?}"))),
         Ok(Err(_)) | Err(_) => Ok(Asked::Silent),

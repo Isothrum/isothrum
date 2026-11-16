@@ -74,7 +74,7 @@ impl Queue {
     /// operation goes on: its events are what the runner keeps).
     fn keep(&self, id: OperationId, event: &Event) {
         if let Err(refusal) = self.feed.keep(Some(id), event) {
-            tracing::warn!(operation = %id, error = %refusal.message, "an operation's event couldn't be kept");
+            tracing::warn!(operation = %id, error = %refusal.0.message, "an operation's event couldn't be kept");
         }
     }
 
@@ -301,13 +301,7 @@ impl Queue {
 
 /// An `error` event of `op` on `run`.
 fn error_event(run: &RunName, op: Op, code: ErrorCode, message: &str) -> Event {
-    let kind = EventKind::Error {
-        code,
-        message: message.to_owned(),
-        step: None,
-        timeout: None,
-        detail: None,
-    };
+    let kind = EventKind::Error(isothrum_runner::ErrorReport::new(code, message));
     Event::new(0, Some(run.to_string()), Some(op), kind)
 }
 
@@ -335,7 +329,7 @@ impl Journal for Sink<'_> {
         }
         event.operation = Some(self.operation);
         if let Err(refusal) = self.feed.keep(Some(self.operation), &event) {
-            tracing::warn!(operation = %self.operation, error = %refusal.message, "an operation's event couldn't be kept");
+            tracing::warn!(operation = %self.operation, error = %refusal.0.message, "an operation's event couldn't be kept");
         }
     }
 }

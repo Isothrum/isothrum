@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use isothrum_runner::{ErrorCode, Format, InputVariable, Op, Park, Provider, RunName, Status};
+use isothrum_runner::{Format, InputVariable, Op, Park, Provider, RunName, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
@@ -388,13 +388,9 @@ pub enum Reply {
     Error {
         /// The request's id (0 for a line that couldn't be read as a request).
         id: u64,
-        /// Why.
-        code: ErrorCode,
-        /// What went wrong.
-        message: String,
-        /// The runner's typed fields, when the runner refused it ([`isothrum_runner::ErrorDetail`]).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        detail: Option<isothrum_runner::ErrorDetail>,
+        /// Why: its code, message and typed fields, as the runner reports a failure.
+        #[serde(flatten)]
+        report: isothrum_runner::ErrorReport,
     },
     /// To `shutdown_if_idle`, refused: the operations queued or running, which the service goes on
     /// with.
@@ -516,11 +512,9 @@ mod tests {
         assert_eq!(accepted, json!({"reply": "accepted", "id": 1, "operation": 4, "run": "web", "position": 1}));
         let refused = round_trip(&Reply::Error {
             id: 2,
-            code: ErrorCode::Usage,
-            message: "no".into(),
-            detail: None,
+            report: isothrum_runner::ErrorReport::new(isothrum_runner::ErrorCode::Usage, "no").unchanged(),
         });
-        assert_eq!(refused, json!({"reply": "error", "id": 2, "code": "usage", "message": "no"}));
+        assert_eq!(refused, json!({"reply": "error", "id": 2, "code": "usage", "message": "no", "changed": false}));
         let run = RunName::new("web").unwrap();
         let event = crate::v1::phase_event(&run, (Op::Down, OperationId(4)), crate::v1::OperationPhase::Started, None, None);
         let frame = round_trip(&Reply::Event {

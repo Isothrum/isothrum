@@ -17,6 +17,10 @@ use crate::state::{Desired, Op, Park, RunState, Transition};
 use crate::status::MachineState;
 use crate::store::{LastOp, OperationId, Outcome, Owner, RunRecord};
 
+/// How long the lookup of a taken port's holder may take: it runs on the failure path only, so a
+/// missing answer is better than a slow one.
+const HOLDER_LOOKUP: std::time::Duration = std::time::Duration::from_secs(4);
+
 /// What an operation's own work produced.
 pub(crate) struct Done<T> {
     /// What the operation returns.
@@ -111,7 +115,10 @@ impl Running<'_> {
             emitter,
             armed: true,
         };
-        let done = work(opts, emitter, id).await;
+        let done = match work(opts, emitter, id).await {
+            Err(taken @ Error::PortInUse { holder: None, .. }) => Err(self.with_holder(taken).await),
+            done => done,
+        };
         let code = done.as_ref().err().map(Error::code);
         let settled = unfinished.settle(code);
         unfinished.armed = false;
@@ -133,6 +140,27 @@ impl Running<'_> {
             record.parked = Some(mode);
             tx.save_record(&record, row.desired)
         })
+    }
+
+    /// `taken`, a port taken, naming the process that listens on it when one is found within
+    /// [`HOLDER_LOOKUP`].
+    async fn with_holder(&self, taken: Error) -> Error {
+        let Error::PortInUse { port, protocol, .. } = taken else {
+            return taken;
+        };
+        let call = crate::cli::Call {
+            runner: self.runner.config.processes.as_ref(),
+            cwd: None,
+            env: Vec::new(),
+            limit: HOLDER_LOOKUP,
+            sink: &crate::formats::discard,
+            host_env: &self.runner.config.host_env,
+        };
+        let holder = match crate::encoding::from_wire_name(&protocol) {
+            Some(p) => crate::cli::listener::holder(&call, port, p).await,
+            None => None,
+        };
+        Error::PortInUse { port, protocol, holder }
     }
 
     /// The run's record, or a fresh one for this project.
@@ -303,13 +331,10 @@ struct CutShort<'e> {
 impl Drop for CutShort<'_> {
     fn drop(&mut self) {
         if self.armed {
-            self.emitter.emit(EventKind::Error {
-                code: ErrorCode::Cancelled,
-                message: "the operation was cancelled; the tools it started were stopped".to_owned(),
-                step: None,
-                timeout: None,
-                detail: None,
-            });
+            self.emitter.emit(EventKind::Error(crate::ErrorReport::new(
+                ErrorCode::Cancelled,
+                "the operation was cancelled; the tools it started were stopped",
+            )));
         }
     }
 }

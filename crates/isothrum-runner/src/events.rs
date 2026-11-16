@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) use emitter::{Emitter, MASK, StoreLog};
 
-use crate::error::{ErrorCode, TimedOut};
 use crate::state::{Op, RunState};
 pub use result_data::{ResultData, ShownOutput, SweepFailure};
 
@@ -148,22 +147,9 @@ pub enum EventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         native_id: Option<String>,
     },
-    /// Why the operation failed.
-    Error {
-        /// The stable code.
-        code: ErrorCode,
-        /// The message.
-        message: String,
-        /// The step that failed, when one did.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        step: Option<String>,
-        /// Which limit the step ran into, when the code is `timeout`.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        timeout: Option<TimedOut>,
-        /// The failure's typed fields, when it has any ([`crate::Error::detail`]).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        detail: Option<crate::ErrorDetail>,
-    },
+    /// Why the operation failed: its code, message, step, typed fields and whether the run was
+    /// touched ([`crate::ErrorReport`]).
+    Error(crate::ErrorReport),
 }
 
 /// A run's logged events ([`crate::Runner::events`]), and how many of the log's lines it
@@ -339,6 +325,7 @@ pub(crate) fn titled_schema<T: schemars::JsonSchema>(title: &str) -> serde_json:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{ErrorCode, TimedOut};
 
     fn event(kind: EventKind) -> Event {
         Event {
@@ -367,34 +354,27 @@ mod tests {
                 serde_json::json!({"event": "step", "step": "up", "state": "running", "note": "Starting…"}),
             ),
             (
-                EventKind::Error {
-                    code: ErrorCode::Timeout,
-                    message: "m".into(),
+                EventKind::Error(crate::ErrorReport {
                     step: Some("up".into()),
-                    timeout: Some(TimedOut::NoProgress {
-                        after_s: 30,
-                        last_line: Some("pulling".into()),
-                    }),
                     detail: Some(crate::ErrorDetail {
-                        v: 1,
-                        data: crate::Detail::ToolMissing { tool: "docker".into() },
+                        v: 2,
+                        data: crate::Detail::Timeout {
+                            timed_out: TimedOut::NoProgress {
+                                after_s: 30,
+                                last_line: Some("pulling".into()),
+                            },
+                        },
                     }),
-                },
+                    ..crate::ErrorReport::new(ErrorCode::Timeout, "m")
+                }),
                 serde_json::json!({
-                    "event": "error", "code": "timeout", "message": "m", "step": "up",
-                    "timeout": {"kind": "no_progress", "after_s": 30, "last_line": "pulling"},
-                    "detail": {"v": 1, "kind": "tool_missing", "tool": "docker"}
+                    "event": "error", "code": "timeout", "message": "m", "step": "up", "changed": true,
+                    "detail": {"v": 2, "kind": "timeout", "timed_out": {"kind": "no_progress", "after_s": 30, "last_line": "pulling"}}
                 }),
             ),
             (
-                EventKind::Error {
-                    code: ErrorCode::PortInUse,
-                    message: "m".into(),
-                    step: None,
-                    timeout: None,
-                    detail: None,
-                },
-                serde_json::json!({"event": "error", "code": "port_in_use", "message": "m"}),
+                EventKind::Error(crate::ErrorReport::new(ErrorCode::PortInUse, "m").unchanged()),
+                serde_json::json!({"event": "error", "code": "port_in_use", "message": "m", "changed": false}),
             ),
         ];
         for (kind, own) in cases {

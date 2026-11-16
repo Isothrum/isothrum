@@ -136,13 +136,7 @@ async fn every_operation_a_client_submits_runs_to_its_end() {
     };
     let unprovisioned = lab.ran(client.submit(provision).await).await.expect_err("Compose has no provisioning");
     assert!(
-        matches!(
-            &unprovisioned,
-            ClientError::Operation {
-                code: ErrorCode::Unsupported,
-                ..
-            }
-        ),
+        matches!(&unprovisioned, ClientError::Operation(report) if report.code == ErrorCode::Unsupported),
         "{unprovisioned:?}"
     );
     lab.ran(client.down(target.clone(), none()).await).await.expect("down");
@@ -180,13 +174,10 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
 
     // A refusal before anything is queued carries the runner's typed detail.
     let refused = client.variables(target.clone()).await.expect_err("no Terraform module");
-    let ClientError::Refused {
-        code, detail: Some(detail), ..
-    } = &refused
-    else {
+    let Some((code, Some(detail))) = refused.report().map(|r| (r.code, r.detail.as_ref())) else {
         panic!("{refused:?}")
     };
-    assert_eq!((*code, detail.v), (ErrorCode::ProjectInvalid, 1));
+    assert_eq!((code, detail.v), (ErrorCode::ProjectInvalid, 2));
     assert!(
         matches!(&detail.data, Detail::ProjectInvalid { dir } if dir == lab.project.path()),
         "{detail:?}"

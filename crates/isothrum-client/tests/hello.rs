@@ -50,9 +50,7 @@ async fn a_hello_of_this_protocol_connects_and_any_other_answer_is_a_protocol_er
         (
             Reply::Error {
                 id: 0,
-                code: isothrum_runner::ErrorCode::Usage,
-                message: "go away".into(),
-                detail: None,
+                report: isothrum_runner::ErrorReport::new(isothrum_runner::ErrorCode::Usage, "go away"),
             },
             "go away",
         ),

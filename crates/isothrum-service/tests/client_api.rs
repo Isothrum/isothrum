@@ -41,13 +41,7 @@ impl Engine for Lab {
             let (run, op) = (Some(run.to_string()), command.op());
             if run.as_deref() == Some("gone") {
                 let e = web_gone();
-                let error = EventKind::Error {
-                    code: e.code(),
-                    message: e.to_string(),
-                    step: Some("resume".to_owned()),
-                    timeout: None,
-                    detail: e.detail(),
-                };
+                let error = EventKind::Error(e.report().with_step("resume"));
                 journal.keep(Event::new(1, run, op, error));
                 return false;
             }
@@ -107,7 +101,7 @@ fn word(event: &Event) -> String {
         (_, Some(phase)) => format!("{phase:?}").to_lowercase(),
         (EventKind::Log { line, .. }, None) => format!("log {line}"),
         (EventKind::Result { ok, .. }, None) => format!("result {ok}"),
-        (EventKind::Error { code, .. }, None) => format!("error {code:?}"),
+        (EventKind::Error(report), None) => format!("error {:?}", report.code),
         (other, None) => format!("{other:?}"),
     }
 }
@@ -175,20 +169,16 @@ async fn each_failure_comes_back_with_its_code_and_typed_detail() {
     };
 
     let refused = client.submit(up("refused")).await.expect_err("refused before it is queued");
-    let ClientError::Refused { code: why, detail: fields, .. } = &refused else {
-        panic!("{refused:?}")
-    };
+    let ClientError::Refused(refusal) = &refused else { panic!("{refused:?}") };
     assert_eq!(
-        (*why, fields.as_ref().map(|d| (d.v, d.data.clone()))),
-        (ErrorCode::NothingToResume, Some((1, gone.clone())))
+        (refusal.code, refusal.detail.as_ref().map(|d| (d.v, d.data.clone())), refusal.changed),
+        (ErrorCode::NothingToResume, Some((2, gone.clone())), false)
     );
 
     let failed = client.follow(up("gone")).await.expect("queued").outcome().await.expect_err("it fails");
-    let ClientError::Operation { code, step, detail, .. } = &failed else {
-        panic!("{failed:?}")
-    };
-    assert_eq!((*code, step.as_deref()), (ErrorCode::NothingToResume, Some("resume")));
-    assert_eq!(detail.as_ref().map(|d| d.data.clone()), Some(gone));
+    let ClientError::Operation(failure) = &failed else { panic!("{failed:?}") };
+    assert_eq!((failure.code, failure.step.as_deref()), (ErrorCode::NothingToResume, Some("resume")));
+    assert_eq!(failure.detail.as_ref().map(|d| d.data.clone()), Some(gone));
     assert_eq!(failed.code(), ErrorCode::NothingToResume);
 
     let not_running = client.status(&RunName::new("other").expect("a name"), None).await.expect_err("no status");
