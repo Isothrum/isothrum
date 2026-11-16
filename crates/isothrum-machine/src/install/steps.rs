@@ -116,12 +116,15 @@ pub enum StepFailed {
     /// Homebrew itself is broken (a root-owned lock, too old for this macOS, an Xcode too old): the
     /// user's to repair, which an install can't mend.
     Homebrew(super::brew::Trouble),
-    /// The program ran and failed: its exit code, `None` when a signal ended it.
+    /// The program ran and failed: its exit code, `None` when a signal ended it, and what its codes
+    /// say happened when that is known (winget's, an installer's run through PowerShell).
     Exited {
         /// The program.
         program: String,
         /// Its exit code.
         code: Option<i32>,
+        /// What its codes say happened, when known.
+        known: Option<super::exit_codes::Known>,
     },
 }
 
@@ -136,8 +139,8 @@ impl std::fmt::Display for StepFailed {
             StepFailed::SudoRefused => f.write_str("sudo needs a password, and none can be asked for unattended"),
             StepFailed::NotServed(why) => write!(f, "this system isn't one the step serves: {why:?}"),
             StepFailed::Homebrew(trouble) => write!(f, "Homebrew is broken: {trouble:?}"),
-            StepFailed::Exited { program, code: Some(code) } => write!(f, "`{program}` exited with code {code}"),
-            StepFailed::Exited { program, code: None } => write!(f, "`{program}` was ended by a signal"),
+            StepFailed::Exited { program, code: Some(code), .. } => write!(f, "`{program}` exited with code {code}"),
+            StepFailed::Exited { program, code: None, .. } => write!(f, "`{program}` was ended by a signal"),
         }
     }
 }
@@ -164,15 +167,19 @@ pub async fn run_steps(cx: &Context, steps: &[Step], on_line: &mut (dyn FnMut(&s
 /// in a process group of its own, like every tool of the runner: a step dropped mid-way is ended
 /// with what it started, not left installing unattended.
 ///
+/// Done, it says how when its codes say more than "done" ([`super::exit_codes::Done`]: winget's
+/// "already installed", "restart to finish").
+///
 /// # Errors
 ///
 /// [`StepFailed`]: why it failed.
-pub async fn run_step(cx: &Context, step: &Step, on_line: &mut (dyn FnMut(&str) + Send)) -> Result<(), StepFailed> {
+pub async fn run_step(cx: &Context, step: &Step, on_line: &mut (dyn FnMut(&str) + Send)) -> Result<Option<super::exit_codes::Done>, StepFailed> {
     let spec = ProcessSpec::new(&step.program, step.args.iter().map(String::as_str));
     let watch = Mutex::new(Watch::new(step));
     let exit = {
         let mut each = |stream: Stream, line: &str| {
             let mut watched = watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            watched.line(line);
             if stream == Stream::Stderr {
                 watched.error_line(line);
             }
@@ -193,6 +200,10 @@ pub async fn run_step(cx: &Context, step: &Step, on_line: &mut (dyn FnMut(&str) 
 /// The programs whose output a step's watch reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Program {
+    /// winget: the installer it ran exits with a code of its own.
+    Winget,
+    /// PowerShell running an installer (WSL's, Hyper-V's DISM, an MSI): exits with its code.
+    Powershell,
     /// pkexec: its own refusals, told apart from the script's.
     Pkexec,
     /// `sudo -n` (an unattended root step): its refusal to run without a password.
@@ -211,6 +222,8 @@ impl Program {
     /// The program `step` runs.
     fn of(step: &Step) -> Program {
         match step.program.as_str() {
+            "winget" => Program::Winget,
+            "powershell" => Program::Powershell,
             "pkexec" => Program::Pkexec,
             "sudo" if step.args.first().is_some_and(|a| a == "-n") => Program::UnattendedSudo,
             _ => Program::Other,
@@ -229,6 +242,8 @@ struct Watch {
     /// update's lock error comes before the install error it leads to, so it wins).
     brew: bool,
     brew_trouble: Option<super::brew::Trouble>,
+    /// The exit code of the installer winget ran, from its output.
+    installer_code: Option<u32>,
 }
 
 impl Watch {
@@ -239,6 +254,14 @@ impl Watch {
             sudo_refused: false,
             brew: is_brew_step(step),
             brew_trouble: None,
+            installer_code: None,
+        }
+    }
+
+    /// A line of the step's output, either stream.
+    fn line(&mut self, line: &str) {
+        if self.program == Program::Winget {
+            self.installer_code = super::exit_codes::installer_exit_code(line).or(self.installer_code);
         }
     }
 
@@ -258,7 +281,7 @@ impl Watch {
     }
 
     /// How the step ended, once it exited with `code`.
-    fn end(self, step: &Step, code: Option<i32>) -> Result<(), StepFailed> {
+    fn end(self, step: &Step, code: Option<i32>) -> Result<Option<super::exit_codes::Done>, StepFailed> {
         // pkexec exits 126 when the password prompt was dismissed or refused and 127 when no
         // polkit agent could show one, but the script's own 126/127 (a command missing or not
         // executable) come through as is: only pkexec's own message says which it was.
@@ -269,7 +292,12 @@ impl Watch {
             });
         }
         if code == Some(0) {
-            return Ok(());
+            return Ok(None);
+        }
+        if self.program == Program::Winget
+            && let Some(done) = super::exit_codes::winget_done(code)
+        {
+            return Ok(Some(done));
         }
         if self.sudo_refused {
             return Err(StepFailed::SudoRefused);
@@ -280,9 +308,15 @@ impl Watch {
         if let Some(trouble) = self.brew_trouble {
             return Err(StepFailed::Homebrew(trouble));
         }
+        let known = match self.program {
+            Program::Winget => super::exit_codes::winget_failure(code, self.installer_code),
+            Program::Powershell => super::exit_codes::installer_failure(code),
+            Program::Pkexec | Program::UnattendedSudo | Program::Other => None,
+        };
         Err(StepFailed::Exited {
             program: step.program.clone(),
             code,
+            known,
         })
     }
 }

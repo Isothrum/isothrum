@@ -70,3 +70,30 @@ fn a_download_that_isnt_hashicorps_file_fails_before_any_prompt_and_a_declined_p
     assert_eq!(declined, Some(1), "{said}");
     assert!(said.contains("password prompt was cancelled"), "{said}");
 }
+
+#[test]
+fn the_windows_install_checks_hashicorps_file_and_signature_and_elevates_through_uac() {
+    let step = windows_install();
+    assert_eq!(step.program, "powershell");
+    let script = step.args.last().unwrap();
+    assert!(script.contains("https://releases.hashicorp.com/vagrant-vmware-utility/1.0.24/vagrant-vmware-utility_1.0.24_windows_amd64.msi"));
+    assert!(
+        script.contains("-Verb RunAs") && script.contains("catch { exit 1223 }"),
+        "a declined prompt reads as cancelled: {script}"
+    );
+    let elevated = windows_elevated(WINDOWS_MSI.1);
+    let at = |needle: &str| elevated.find(needle).unwrap_or_else(|| panic!("{needle} missing: {elevated}"));
+    assert!(
+        at("Copy-Item") < at("Get-FileHash") && at("Get-FileHash") < at("Get-AuthenticodeSignature") && at("Get-AuthenticodeSignature") < at("msiexec.exe")
+    );
+    assert!(elevated.contains("'HashiCorp, Inc.'") && elevated.contains("$env:SystemRoot"), "{elevated}");
+    // The elevated script is one PowerShell string inside the user's: every quote doubled.
+    assert!(script.contains(&ps_quote(&elevated)));
+    assert!(windows_uninstall().args.last().unwrap().contains(WINDOWS_PRODUCT_CODE));
+    let msi = WINDOWS_MSI.1;
+    assert!(
+        msi.len() == 64 && msi.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "{msi}"
+    );
+    assert!(WINDOWS_MSI.0.contains(VERSION));
+}

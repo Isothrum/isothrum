@@ -19,6 +19,7 @@ use crate::host::{ALL_OSES, HostOs};
 use crate::providers::{Provider, ProviderRow};
 
 pub mod brew;
+pub mod exit_codes;
 pub mod linux;
 pub mod macos;
 mod pkexec;
@@ -26,6 +27,7 @@ pub mod record;
 pub mod root;
 mod steps;
 mod vmware_utility;
+pub mod windows;
 
 pub use steps::{NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
@@ -262,6 +264,18 @@ pub enum Refusal {
     /// VirtualBox's removal on macOS without its installer image, whose uninstaller it runs
     /// ([`macos::virtualbox_image`]).
     NoVirtualboxImage,
+    /// A Windows feature, which its user turns off in Windows Features.
+    WindowsFeature {
+        /// The tool.
+        dependency: Dependency,
+    },
+    /// Windows on Arm, which this hypervisor (or the one this tool serves) isn't built for.
+    NotOnWindowsOnArm {
+        /// The tool.
+        dependency: Dependency,
+        /// The hypervisor.
+        provider: Provider,
+    },
     /// The private file a root step's proxy settings go through couldn't be written: what the OS
     /// said.
     PrivateFile(String),
@@ -274,6 +288,8 @@ impl std::fmt::Display for Refusal {
             Refusal::WithoutPackages { dependency } => write!(f, "{dependency:?}: this distribution has neither apt nor dnf"),
             Refusal::AptOnly { dependency } => write!(f, "{dependency:?} installs through apt only"),
             Refusal::NoHomebrew | Refusal::HomebrewNeeded => f.write_str("Homebrew isn't installed"),
+            Refusal::WindowsFeature { dependency } => write!(f, "{dependency:?} is turned off in Windows Features"),
+            Refusal::NotOnWindowsOnArm { dependency, .. } => write!(f, "{dependency:?} doesn't run on Windows on Arm"),
             Refusal::NoVirtualboxImage => f.write_str("VirtualBox's installer image is needed to run its uninstaller"),
             Refusal::PrivateFile(why) => write!(f, "a root step's private file couldn't be written: {why}"),
         }
