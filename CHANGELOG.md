@@ -213,6 +213,10 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **isothrum-machine finds a UTM installed in the user's own `~/Applications`.** An install
+  without an administrator's password goes there, and only `/Applications/UTM.app` counted, so
+  UTM read as not installed (`Devices::utm_app`: `/Applications`'s, else `~/Applications`').
+
 - **A Compose resume brings back a service stopped outside the run with what shares its network
   namespace.** A service joining another's namespace (`network_mode: service:<host>`, as Isoloom's
   route sidecars do) stayed in the old one when its host was stopped (`docker stop`), and the

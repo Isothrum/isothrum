@@ -132,7 +132,8 @@ pub struct Devices {
     /// KVM's `enable_virt_at_load` parameter (`/sys/module/kvm/parameters/enable_virt_at_load`,
     /// Linux 6.12 and later).
     pub kvm_virt_at_load: PathBuf,
-    /// UTM's app bundle (`/Applications/UTM.app`, macOS).
+    /// UTM's app bundle (macOS): in `/Applications`, else in the user's own `~/Applications` (an
+    /// install without an administrator's password); `/Applications/UTM.app` when in neither.
     pub utm_app: PathBuf,
     /// Hyper-V's Virtual Machine Management service (`%SystemRoot%\System32\vmms.exe`), there
     /// once the Windows feature is on.
@@ -173,6 +174,14 @@ fn mac_apps(bases: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     )
 }
 
+/// UTM's app bundle in the `Applications` folder of the first of `bases` (`/`, then the user's
+/// home) that has it; the first base's when none has.
+fn utm_app(bases: &[PathBuf]) -> PathBuf {
+    let in_each = bases.iter().map(|b| b.join("Applications").join("UTM.app"));
+    let first = in_each.clone().next().unwrap_or_else(|| PathBuf::from("/Applications/UTM.app"));
+    in_each.into_iter().find(|app| app.exists()).unwrap_or(first)
+}
+
 /// Workstation's `vmrun.exe` under each of the install folders `bases`.
 fn workstation(bases: &[PathBuf]) -> Vec<PathBuf> {
     bases.iter().map(|b| b.join("VMware").join("VMware Workstation").join("vmrun.exe")).collect()
@@ -183,12 +192,10 @@ impl Devices {
     #[must_use]
     pub fn here(os: HostOs) -> Devices {
         let windows_folder = |var: &str, default: &str| std::env::var_os(var).map_or_else(|| PathBuf::from(default), PathBuf::from);
+        let mut mac_bases = vec![PathBuf::from("/")];
+        mac_bases.extend(std::env::var_os("HOME").map(PathBuf::from));
         let (vmrun, prlctl) = match os {
-            HostOs::Macos => {
-                let mut bases = vec![PathBuf::from("/")];
-                bases.extend(std::env::var_os("HOME").map(PathBuf::from));
-                mac_apps(&bases)
-            }
+            HostOs::Macos => mac_apps(&mac_bases),
             HostOs::Windows => {
                 let bases: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
                     .iter()
@@ -220,7 +227,7 @@ impl Devices {
             kernel_release: PathBuf::from("/proc/sys/kernel/osrelease"),
             lib_modules: PathBuf::from("/lib/modules"),
             kvm_virt_at_load: PathBuf::from("/sys/module/kvm/parameters/enable_virt_at_load"),
-            utm_app: PathBuf::from("/Applications/UTM.app"),
+            utm_app: utm_app(&mac_bases),
             hyperv_service: windows_folder("SystemRoot", "C:\\Windows").join("System32").join("vmms.exe"),
             vmware_utility,
             vmware_utility_service: SocketAddr::from((Ipv4Addr::LOCALHOST, VMWARE_UTILITY_PORT)),
@@ -415,6 +422,21 @@ mod tests {
     }
 
     #[test]
+    fn utm_is_found_in_the_users_own_applications_folder_too() {
+        // An install without an administrator's password goes in ~/Applications: only
+        // /Applications/UTM.app counted, so that UTM read as not installed.
+        let (system, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let bases = [system.path().to_path_buf(), home.path().to_path_buf()];
+        let in_system = system.path().join("Applications/UTM.app");
+        assert_eq!(utm_app(&bases), in_system, "in neither: the system's, which isn't there");
+        std::fs::create_dir_all(home.path().join("Applications/UTM.app")).unwrap();
+        assert_eq!(utm_app(&bases), home.path().join("Applications/UTM.app"));
+        std::fs::create_dir_all(&in_system).unwrap();
+        assert_eq!(utm_app(&bases), in_system, "the system's first");
+        assert_eq!(utm_app(&[]), Path::new("/Applications/UTM.app"));
+    }
+
+    #[test]
     fn each_oss_devices_are_where_it_keeps_them() {
         let linux = Devices::here(HostOs::Linux);
         assert_eq!(linux.kvm, Path::new("/dev/kvm"));
@@ -436,7 +458,7 @@ mod tests {
             windows.vmware_utility
         );
         assert!(windows.hyperv_service.ends_with("System32/vmms.exe"), "{:?}", windows.hyperv_service);
-        assert_eq!(Devices::here(HostOs::Macos).utm_app, Path::new("/Applications/UTM.app"));
+        assert!(Devices::here(HostOs::Macos).utm_app.ends_with("Applications/UTM.app"));
     }
 
     #[tokio::test(start_paused = true)]
