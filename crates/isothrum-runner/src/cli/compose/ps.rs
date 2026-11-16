@@ -190,4 +190,12 @@ mod tests {
         let published: Vec<_> = read(ps)[0].published().iter().map(|p| (p.guest.get(), p.protocol)).collect();
         assert_eq!(published, [(80, None), (81, None)]);
     }
+
+    /// Regression: the list form's parse error was dropped, unlike a line's.
+    #[tokio::test]
+    async fn a_list_that_doesnt_parse_is_unreadable_and_traced() {
+        let (entries, traced) = crate::testing::traced(async { parse("[{\"Service\":\"web\"},") }).await;
+        assert!(entries.is_none(), "{entries:?}");
+        assert!(traced.contains("WARN") && traced.contains("list couldn't be read"), "{traced}");
+    }
 }

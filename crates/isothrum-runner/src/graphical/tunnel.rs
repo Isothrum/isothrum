@@ -295,4 +295,34 @@ mod tests {
         let err = started("dc", &spec, "127.0.0.1:1".parse().unwrap(), "a@b", dir.path()).unwrap_err();
         assert_eq!(err.code(), crate::ErrorCode::ToolMissing, "{err}");
     }
+
+    /// A tunnel of `script` run by `sh` (a stand-in `ssh`), recorded in a ledger under `dir`.
+    #[cfg(unix)]
+    fn stand_in(script: &str, dir: &Path) -> Tunnel {
+        let spec = ProcessSpec::new("sh", ["-c", script]);
+        start(&spec, "127.0.0.1:1".parse().unwrap(), "admin@203.0.113.7", dir).unwrap()
+    }
+
+    /// Regression: `ssh`'s standard error went to null, so a tunnel that didn't open never said
+    /// why (a host key that changed, a key refused).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_that_closed_says_the_last_line_its_ssh_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut refused = stand_in("echo 'debug1: x' >&2; echo 'Host key verification failed.' >&2; exit 255", dir.path());
+        assert_eq!(refused.why_closed().await.as_deref(), Some("Host key verification failed."));
+        assert_eq!(stand_in("exit 255", dir.path()).why_closed().await, None, "nothing said, nothing made up");
+    }
+
+    /// Regression (#126): nothing said when a tunnel's `ssh` ended, so `isothrum screen` kept
+    /// saying a dead tunnel was open.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tunnel_says_when_its_ssh_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tunnel = stand_in("exit 255", dir.path());
+        tunnel.drain();
+        let said = tokio::time::timeout(Duration::from_secs(10), tunnel.closed()).await.expect("seen closing");
+        assert_eq!(said, "its ssh exited with code 255");
+    }
 }

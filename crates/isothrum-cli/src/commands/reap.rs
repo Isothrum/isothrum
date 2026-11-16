@@ -80,3 +80,55 @@ fn lines(swept: &Swept) -> Vec<String> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, SystemTime};
+
+    use isothrum_runner::fake::FakeProcesses;
+    use isothrum_runner::{Adoption, RunName, RunnerConfig};
+
+    use super::*;
+    use crate::term::Term;
+    use crate::testing::Buf;
+
+    /// Regression: a dry run that found expired runs to remove passed, though they are left
+    /// standing; the docs promise a failure then. With nothing expired, it passes. Nothing runs.
+    #[tokio::test]
+    async fn a_dry_run_fails_on_a_run_it_would_remove_and_passes_on_none() {
+        let (home, module, deployment) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(module.path().join("main.tf"), "variable \"region\" {\n  default = \"eu\"\n}\n").unwrap();
+        std::fs::write(
+            deployment.path().join("terraform.tfstate"),
+            r#"{"version":4,"serial":1,"lineage":"l","outputs":{},"resources":[]}"#,
+        )
+        .unwrap();
+        let mut config = RunnerConfig::new(home.path());
+        // Nothing scripted: a tool run fails the test.
+        config.processes = Arc::new(FakeProcesses::script().build());
+        let runner = Runner::new(config).unwrap();
+        let said = Buf::default();
+        let term = Term::new(Box::new(said.clone()), Box::new(Buf::default()));
+        let out = Out {
+            json: false,
+            term: &term,
+            events: &|_: &isothrum_runner::Event| {},
+        };
+        let dry = ReapArgs {
+            dry_run: true,
+            env: Vec::new(),
+            secrets: Vec::new(),
+        };
+
+        assert_eq!(run(&dry, &runner, &out, &|_| None).await.unwrap(), Verdict::Pass, "nothing expired");
+        assert_eq!(said.take().trim(), "nothing to reap");
+
+        let a_minute_ago = SystemTime::now() - Duration::from_secs(60);
+        let unix = a_minute_ago.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let adoption = Adoption::new(RunName::new("expired").unwrap(), deployment.path()).with_expires_at(unix);
+        runner.adopt(module.path(), adoption).await.unwrap();
+        assert_eq!(run(&dry, &runner, &out, &|_| None).await.unwrap(), Verdict::Fail, "the expired run is left");
+        assert_eq!(said.take().trim(), "would remove expired (--dry-run)");
+    }
+}

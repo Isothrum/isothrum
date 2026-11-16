@@ -332,8 +332,12 @@ fn words<'a>(words: impl IntoIterator<Item = &'a str>) -> String {
 /// A Proxmox VE console's websocket as `screen` prints it: its ticket (the console's password, in
 /// its query) masked unless `show` (`--show-password`).
 fn websocket_shown(vnc: &isothrum_runner::ProxmoxVnc, show: bool) -> String {
+    ticket_shown(vnc.websocket.expose(), vnc.ticket.expose(), show)
+}
+
+/// `url` with `ticket` in it (as it is, or percent-encoded) masked unless `show`.
+fn ticket_shown(url: &str, ticket: &str, show: bool) -> String {
     const HIDDEN: &str = "<hidden: --show-password prints it>";
-    let (url, ticket) = (vnc.websocket.expose(), vnc.ticket.expose());
     if show || ticket.is_empty() {
         return url.to_owned();
     }

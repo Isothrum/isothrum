@@ -64,3 +64,29 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
         renamed => renamed,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: every failed rename fell back to a copy, so a state whose folder can't be
+    /// written was copied into the run and stayed in the old folder too. Only a move across file
+    /// systems copies.
+    #[cfg(unix)]
+    #[test]
+    fn a_state_that_cant_be_moved_stays_only_where_it_was() {
+        use std::os::unix::fs::PermissionsExt;
+        let (old, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (from, to) = (old.path().join("terraform.tfstate"), run.path().join("terraform.tfstate"));
+        std::fs::write(&from, "{}").unwrap();
+        std::fs::set_permissions(old.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let moved = move_file(&from, &to);
+        std::fs::set_permissions(old.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        if moved.is_ok() {
+            return; // root writes any folder: nothing to refuse
+        }
+        assert_eq!(moved.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(!to.exists(), "no second copy in the run");
+        assert!(from.is_file(), "the state stays where it was");
+    }
+}
