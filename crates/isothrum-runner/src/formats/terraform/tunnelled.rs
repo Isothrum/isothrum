@@ -8,7 +8,7 @@
 //!   "10.9.0.20", via = "203.0.113.7", user = "admin" } }`), and no other machine has one. Without
 //!   it, each VM the state says runs Windows ([`crate::cli::terraform::VmFacts::windows`]) has
 //!   Remote Desktop (3389) when the module gives its password (`windows_password`, sensitive): the
-//!   outputs Isoloom's modules give.
+//!   outputs a module gives (the repository's `docs/reference/terraform.md`).
 //! - **Through where.** The module's `ip` output (where a user stands: its access machine, its
 //!   router, its first Linux VM), signed in as the user of the machine at that address
 //!   (`ssh_user_<machine>`, the one whose `address_<machine>` it is), else as `ssh_user`; a
@@ -336,7 +336,7 @@ mod tests {
             ("address_web", "203.0.113.7"),
             ("ssh_user_web", "admin"),
             ("address_dc", "198.51.100.20"),
-            ("ssh_user_dc", "isoloom"),
+            ("ssh_user_dc", "ops"),
         ]);
         let plan = plan(&out, &vm(true)).unwrap().unwrap();
         assert_eq!((plan.protocol, plan.port), (ConsoleProtocol::Rdp, 3389));

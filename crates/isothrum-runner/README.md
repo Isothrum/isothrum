@@ -1,10 +1,9 @@
 # isothrum-runner
 
-Executes the run manifest [Isoloom](https://github.com/isoloom/isoloom) writes next to a target's
-generated files (`.isoloom/<target>/run.json`, `manifest_version` 1): bring an environment up,
-check it, park, resume, update and tear it down with Docker Compose, Vagrant or Terraform. The
-runner keeps each run's state and lock under a home folder, delivers params and secrets without
-ever putting a value on a command line, and reports every operation as a stream of JSON events.
+Runs a Compose project, a Vagrantfile or a Terraform module through its own tool, whoever wrote
+it: bring an environment up, check it, park, resume, update and tear it down. The runner keeps each run's state and lock under a home folder, delivers params and
+secrets without ever putting a value on a command line, and reports every operation as a stream
+of JSON events.
 
 It is the library behind the [`isothrum`](https://crates.io/crates/isothrum-cli) command line;
 embed it to drive runs from your own program.
@@ -30,8 +29,8 @@ use isothrum_runner::{Event, RunOptions, Runner, RunnerConfig};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Runs are recorded under this folder (the CLI uses ~/.isothrum).
     let runner = Runner::new(RunnerConfig::new("/var/lib/my-app/isothrum"))?;
-    // Opening reads and checks the manifest; nothing runs yet.
-    let run = runner.open(Path::new("env/.isoloom/docker/run.json"), None)?;
+    // Opening reads the folder's files (here a Compose project) and checks them; nothing runs yet.
+    let run = runner.open(Path::new("env"), None)?;
 
     // An event sink is any `Fn(&Event)`.
     let events = |event: &Event| println!("{}", serde_json::to_string(event).unwrap_or_default());

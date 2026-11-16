@@ -146,7 +146,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
     let broker = tokio::spawn(broker(root.clone(), "==> dc01: Booting VM...", 0));
     let mut up = ProcessSpec::new("vagrant", ["up", "--provider", "hyperv"]);
     up.env = vec![("DEMO_SECRET".into(), "token-x".into())];
-    up.cwd = Some(PathBuf::from("C:\\work\\ad\\.isoloom\\vagrant"));
+    up.cwd = Some(PathBuf::from("C:\\work\\ad\\vagrant"));
     let (exit, lines) = lines_of(&e, &up).await;
     assert!(exit.unwrap().success());
     assert_eq!(lines[..2], ["vagrant up".to_owned(), "==> dc01: Booting VM...".to_owned()]);
@@ -157,7 +157,7 @@ async fn one_prompt_serves_every_command_of_an_operation_through_the_broker() {
         env.contains("HTTPS_PROXY=http://proxy.corp:3128") && env.contains("no_proxy=.corp") && env.contains("SSL_CERT_FILE=C:\\certs\\corp.pem"),
         "the network the way this account reaches it: {env}"
     );
-    let (halted, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt", "isoloom-controller"])).await;
+    let (halted, _) = lines_of(&e, &ProcessSpec::new("vagrant", ["halt", "gateway"])).await;
     assert!(halted.unwrap().success());
     assert_eq!(fake.lines().iter().filter(|l| l.contains("Start-Process")).count(), 1, "one prompt");
     let dir = session_dir(&root).await;

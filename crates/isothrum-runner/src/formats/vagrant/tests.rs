@@ -9,7 +9,7 @@ use crate::RunName;
 use crate::process::fake::{CallView as _, FakeProcesses, Reply};
 use crate::project::{Format, Project as Folder};
 
-const VAGRANTFILE: &str = "Vagrant.configure('2') do |c|\n  c.vm.define ENV.fetch('ISOLOOM_KEY', 'x') + '-web'\nend\n";
+const VAGRANTFILE: &str = "Vagrant.configure('2') do |c|\n  c.vm.define ENV.fetch('PROJECT_KEY', 'x') + '-web'\nend\n";
 
 /// The warnings a test's driver gave.
 type Warned = Arc<Mutex<Vec<(WarningCode, String)>>>;
@@ -77,7 +77,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
         provider,
         env: vec![
             ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
-            ("ISOLOOM_KEY".to_owned(), "k3y9ab".to_owned()),
+            ("PROJECT_KEY".to_owned(), "k3y9ab".to_owned()),
         ],
         host_env: &crate::host_env::EMPTY,
         processes: fake,
@@ -114,7 +114,7 @@ async fn up_runs_on_the_provider_asked_with_the_dotfile_in_the_state_folder_and_
     assert_eq!(up.args, ["up", "--provider", "libvirt"]);
     assert_eq!(up.cwd.as_deref(), Some(f.project.dir.as_path()));
     assert_eq!(up.env(dotfile::VAR), Some(f.dot().path.display().to_string().as_str()));
-    assert_eq!(up.env("ISOLOOM_KEY"), Some("k3y9ab"), "the key reaches the Vagrantfile's ENV.fetch");
+    assert_eq!(up.env("PROJECT_KEY"), Some("k3y9ab"), "the key reaches the Vagrantfile's ENV.fetch");
     let file = std::fs::read_to_string(f.project.dir.join("Vagrantfile")).unwrap();
     assert_eq!(file, VAGRANTFILE, "the Vagrantfile is never rewritten");
 }

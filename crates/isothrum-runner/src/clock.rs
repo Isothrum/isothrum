@@ -61,8 +61,8 @@ pub fn rfc3339_seconds(text: &str) -> Option<u64> {
     Some(days_from_civil(*year, *month, *day)? * SECS_PER_DAY + h * 3600 + m * 60 + s)
 }
 
-/// Days since 1970-01-01 as a civil date (Howard Hinnant's algorithm, as Isoloom's registry wrote
-/// it; the short names are the published algorithm's own).
+/// Days since 1970-01-01 as a civil date (Howard Hinnant's algorithm; the short names are the
+/// published algorithm's own).
 fn civil(days: u64) -> (i64, i64, i64) {
     let z = days.cast_signed() + 719_468;
     let era = z.div_euclid(146_097);

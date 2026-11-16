@@ -83,7 +83,7 @@ async fn a_failure_keeps_its_exit_code_and_last_lines() {
 #[tokio::test]
 async fn stdin_comes_from_a_file_and_env_and_cwd_are_the_specs() {
     use crate::events::Stream;
-    // Isoloom's exec check runners are piped into `docker compose exec -T … sh -s` this way.
+    // A check script is piped into `docker compose exec -T … sh -s` this way.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("in.sh"), "echo \"$GREETING from $(basename \"$PWD\")\"\n").unwrap();
     let mut job = spec("sh", &["-s"]);

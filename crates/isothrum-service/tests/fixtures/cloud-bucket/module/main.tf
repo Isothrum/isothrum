@@ -11,8 +11,8 @@ variable "region" {
   default = "us-east-1"
 }
 
-# Set by Isoloom for each deployment, so a runner's down can list what is left with its tag.
-variable "isoloom_instance" {
+# Set by whoever runs it for each deployment, so a down can list what is left with its tag.
+variable "deployment_instance" {
   type    = string
   default = ""
 }
@@ -20,7 +20,7 @@ variable "isoloom_instance" {
 provider "aws" {
   region = var.region
   default_tags {
-    tags = { "isoloom-environment" = "cloud-bucket", "managed-by" = "isoloom", "isoloom-instance" = var.isoloom_instance }
+    tags = { "environment" = "cloud-bucket", "managed-by" = "example", "instance" = var.deployment_instance }
   }
 }
 
@@ -29,7 +29,7 @@ resource "random_id" "suffix" {
 }
 
 resource "aws_s3_bucket" "site" {
-  bucket        = "isoloom-cloud-bucket-${random_id.suffix.hex}"
+  bucket        = "example-cloud-bucket-${random_id.suffix.hex}"
   force_destroy = true
 }
 
@@ -60,7 +60,7 @@ resource "aws_s3_bucket_website_configuration" "site" {
 resource "aws_s3_object" "index" {
   bucket       = aws_s3_bucket.site.id
   key          = "index.html"
-  content      = "<!doctype html><p>hello from isoloom</p>\n"
+  content      = "<!doctype html><p>hello from the example</p>\n"
   content_type = "text/html"
 }
 

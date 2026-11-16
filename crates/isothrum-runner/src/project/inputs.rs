@@ -75,15 +75,15 @@ mod tests {
     fn values_then_secrets_reach_every_tool_and_terraform_gets_its_variables_too() {
         let mut secrets = Secrets::new();
         secrets.insert("TOKEN", SecretValue::new("s3cret"));
-        let given = values(&[("ISOLOOM_KEY", "k3y9ab")]);
+        let given = values(&[("PROJECT_KEY", "k3y9ab")]);
         let compose = environment(Format::Compose, &given, &secrets).expect("environment");
-        assert_eq!(compose, vec![("ISOLOOM_KEY".into(), "k3y9ab".into()), ("TOKEN".into(), "s3cret".into())]);
+        assert_eq!(compose, vec![("PROJECT_KEY".into(), "k3y9ab".into()), ("TOKEN".into(), "s3cret".into())]);
         assert_eq!(environment(Format::Vagrant, &given, &secrets).expect("environment"), compose);
         let terraform = environment(Format::Terraform, &given, &secrets).expect("environment");
         assert_eq!(&terraform[..2], &compose[..]);
         assert_eq!(
             &terraform[2..],
-            &[("TF_VAR_ISOLOOM_KEY".into(), "k3y9ab".into()), ("TF_VAR_TOKEN".into(), "s3cret".into())]
+            &[("TF_VAR_PROJECT_KEY".into(), "k3y9ab".into()), ("TF_VAR_TOKEN".into(), "s3cret".into())]
         );
     }
 

@@ -134,7 +134,7 @@ async fn a_hand_written_modules_variables_are_listed_from_its_files() {
     let lab = lab().await.unwrap();
     let vars = lab.client.variables(lab.target()).await.unwrap();
     let region: &InputVariable = &vars[1];
-    assert_eq!(vars.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["isoloom_instance", "region"]);
+    assert_eq!(vars.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["deployment_instance", "region"]);
     assert_eq!(region.type_constraint.as_deref(), Some("string"));
     assert_eq!(region.default, Some(serde_json::json!("us-east-1")));
     assert!(!region.sensitive && !region.required());
@@ -174,7 +174,7 @@ async fn a_hand_written_module_runs_with_its_values_gives_its_outputs_and_goes()
     else {
         panic!("not a start: {result:?}");
     };
-    let url = "http://isoloom-cloud-bucket-3f9a1c2e.s3-website-us-east-1.amazonaws.com/";
+    let url = "http://example-cloud-bucket-3f9a1c2e.s3-website-us-east-1.amazonaws.com/";
     let started: Vec<(&str, Option<&str>)> = outputs.iter().map(|o| (o.name.as_str(), o.value.as_deref())).collect();
     assert_eq!(started, [("website_url", Some(url))]);
 

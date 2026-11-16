@@ -52,7 +52,7 @@ pub fn from_wire_name<T: DeserializeOwned>(name: &str) -> Option<T> {
 
 /// Every name the unit enum `T` is written as, from its JSON Schema (each variant's `const`, or
 /// the `enum` that lists them), in the schema's order: the values a command line offers for a type
-/// of Isoloom's, so a variant added there is offered without a list of its own to keep in step.
+/// of another crate's, so a variant added there is offered without a list of its own to keep in step.
 #[must_use]
 pub fn every_name<T: schemars::JsonSchema>() -> Vec<String> {
     fn names(schema: &serde_json::Value, out: &mut Vec<String>) {

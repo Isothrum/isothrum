@@ -123,7 +123,7 @@ impl<M: Model> Bench<M> {
             provider: M::PROVIDER,
             env: vec![
                 ("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned()),
-                ("ISOLOOM_KEY".to_owned(), "k3y9ab".to_owned()),
+                ("PROJECT_KEY".to_owned(), "k3y9ab".to_owned()),
             ],
             host_env: &crate::host_env::EMPTY,
             processes: &self.fake,

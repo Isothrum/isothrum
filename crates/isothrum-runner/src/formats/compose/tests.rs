@@ -252,7 +252,7 @@ async fn observe_reads_each_service_and_its_published_ports_and_derives_the_runs
     let run = run();
     let listing = [
         ps_line("web", "running", "healthy", 0, Some((41001, 80))),
-        ps_line("isoloom-init-web-1", "exited", "", 0, None),
+        ps_line("init-web-1", "exited", "", 0, None),
         ps_line("db", "running", "", 0, None),
     ]
     .join("\n");
@@ -390,17 +390,17 @@ async fn an_update_removes_the_containers_of_services_moved_under_a_profile_the_
     let state = tempfile::tempdir().expect("a state folder");
     let listing = [
         ps_line("web", "running", "", 0, None),
-        ps_line("isoloom-routes-user", "exited", "", 1, None),
-        ps_line("isoloom-init-web-1", "exited", "", 0, None),
+        ps_line("routes-user", "exited", "", 1, None),
+        ps_line("init-web-1", "exited", "", 0, None),
         ps_line("attackbox", "running", "", 0, None),
     ]
     .join("\n");
-    let rm = "docker compose -p lab -f * rm --stop --force --volumes isoloom-routes-user";
+    let rm = "docker compose -p lab -f * rm --stop --force --volumes routes-user";
     let fake = attackbox_configs()
         .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
         .expect(UP, Reply::ok(""))
         .allow(PULL, Reply::ok(""))
-        .expect("docker compose -p lab -f * config --services", Reply::ok("web\nisoloom-init-web-1\n"))
+        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ninit-web-1\n"))
         .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
         .expect_times(rm, 1, Reply::ok(""))
         .build();

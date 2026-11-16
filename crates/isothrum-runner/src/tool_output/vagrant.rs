@@ -251,10 +251,10 @@ mod tests {
 
     #[test]
     fn windows_line_endings_and_blank_lines_are_read_the_same() {
-        let out = "1,dc01,provider-name,hyperv\r\n\r\n1,dc01,state,running\r\n1,isoloom-controller,state,off\r\n";
+        let out = "1,dc01,provider-name,hyperv\r\n\r\n1,dc01,state,running\r\n1,gateway,state,off\r\n";
         let r = parse(out);
         assert_eq!(r.states["dc01"], "running", "no carriage return in the state");
-        assert_eq!(machine_state(&r.states["isoloom-controller"]), MachineState::Stopped);
+        assert_eq!(machine_state(&r.states["gateway"]), MachineState::Stopped);
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod proptests {
 
     /// A machine name (no comma: machine-readable output is comma-separated).
     fn machine() -> impl Strategy<Value = String> {
-        prop_oneof![Just("isoloom-controller".to_owned()), "[a-z][a-z0-9_-]{0,12}"]
+        prop_oneof![Just("gateway".to_owned()), "[a-z][a-z0-9_-]{0,12}"]
     }
 
     /// A state label as Vagrant prints it, for any provider.

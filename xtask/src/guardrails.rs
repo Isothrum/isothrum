@@ -8,7 +8,8 @@
 //! - `capabilities`: every capability a driver claims (each action it takes, each hook it
 //!   overrides) names the test that shows it reach its tool, or says why it reaches none;
 //! - `layout`: tests live where CONTRIBUTING's "Tests" section says (no `#[path]`, no
-//!   `*_tests.rs`, no `test_` prefix on a test's name).
+//!   `*_tests.rs`, no `test_` prefix on a test's name);
+//! - `vocabulary`: no file under `crates/` names Isoloom (a test's data included).
 //!
 //! Starting a process outside an adapter, and `unwrap()` outside tests, are clippy's
 //! (`disallowed-methods` in clippy.toml, `unwrap_used` in the workspace's lints).
@@ -18,3 +19,4 @@ mod capabilities;
 mod layout;
 mod scans;
 mod source;
+mod vocabulary;
