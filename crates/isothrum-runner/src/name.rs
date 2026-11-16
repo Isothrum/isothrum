@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn a_run_name_is_a_compose_project_name() {
-        for good in ["web-portal", "app-invoice-portal-api", "a", "lab_2", "9lives"] {
+        for good in ["web-portal", "app-invoice-portal-api", "a", "stack_2", "9lives"] {
             assert_eq!(RunName::new(good).unwrap().as_str(), good);
         }
         for bad in ["", "Web", "-x", "_x", "a b", "a/b", "..", "é", &"a".repeat(64)] {
@@ -137,7 +137,7 @@ mod tests {
         for device in ["con", "prn", "aux", "nul", "com0", "com1", "com9", "lpt1", "lpt9"] {
             assert_eq!(RunName::new(device).unwrap_err().code(), crate::ErrorCode::RunName, "{device}");
         }
-        for good in ["console", "con-1", "nul_lab", "com10", "lpt", "com", "auxiliary", "xcon"] {
+        for good in ["console", "con-1", "nul_stack", "com10", "lpt", "com", "auxiliary", "xcon"] {
             assert_eq!(RunName::new(good).unwrap().as_str(), good);
         }
     }

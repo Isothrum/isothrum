@@ -2218,7 +2218,7 @@
         },
         {
           "const": "retrying",
-          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a\nVagrant command another Vagrant process's lock on a machine refused, or a download the\nnetwork cut (a connection reset, a gateway's 502), up to three more times.",
+          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a\nVagrant command another Vagrant process's lock on a machine refused, a UTM `up` an Apple\nevent failed in passing (once), or a download the network cut (a connection reset, a\ngateway's 502), up to three more times.",
           "type": "string"
         },
         {

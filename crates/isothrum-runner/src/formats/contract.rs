@@ -108,7 +108,7 @@ impl<M: Model> Bench<M> {
             _dir: dir,
             state: tempfile::tempdir().expect("a state folder"),
             project,
-            run: RunName::new("lab").expect("a name"),
+            run: RunName::new("stack").expect("a name"),
             model,
             fake,
         }

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
-use super::vagrant::{a_modelled_vagrant_lab, vagrant_answer};
+use super::vagrant::{a_modelled_vagrant_stack, vagrant_answer};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
@@ -20,7 +20,7 @@ fn locked(name: &str) -> Reply {
 /// VirtualBox's machines, whether each runs; the machine another Vagrant process holds; how long
 /// an attach provisions; and the `status` reads made.
 #[derive(Debug, Default)]
-struct Lab {
+struct Stack {
     made: BTreeMap<&'static str, bool>,
     held_by_another: Option<&'static str>,
     attach_takes: Duration,
@@ -28,34 +28,34 @@ struct Lab {
     reads: usize,
 }
 
-/// Vagrant over VirtualBox for `web` (started by `up`) and `attackbox` (by an attach).
-fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
-    vagrant_answer(lab, call, |lab, args| match args {
-        ["up", "--provider", "virtualbox", "attackbox"] => {
-            lab.made.insert("attackbox", true);
+/// Vagrant over VirtualBox for `web` (started by `up`) and `toolbox` (by an attach).
+fn answer(stack: &Mutex<Stack>, call: &Call) -> Reply {
+    vagrant_answer(stack, call, |stack, args| match args {
+        ["up", "--provider", "virtualbox", "toolbox"] => {
+            stack.made.insert("toolbox", true);
             Reply {
-                delay: lab.attach_takes,
+                delay: stack.attach_takes,
                 ..Reply::ok("")
             }
         }
         ["up", "--provider", "virtualbox", ..] => {
-            lab.made.insert("web", true);
+            stack.made.insert("web", true);
             Reply {
-                delay: lab.up_takes,
+                delay: stack.up_takes,
                 ..Reply::ok("")
             }
         }
         ["status", "--machine-readable"] => {
-            lab.reads += 1;
-            if let Some(name) = lab.held_by_another {
+            stack.reads += 1;
+            if let Some(name) = stack.held_by_another {
                 return locked(name);
             }
-            let line = |m: &str| format!("1,{m},state,{}", lab.made.get(m).map_or("not_created", |_| "running"));
-            Reply::ok(&format!("{}\n{}", line("attackbox"), line("web")))
+            let line = |m: &str| format!("1,{m},state,{}", stack.made.get(m).map_or("not_created", |_| "running"));
+            Reply::ok(&format!("{}\n{}", line("toolbox"), line("web")))
         }
         ["port", m, "--machine-readable"] => Reply::ok(&format!("1,{m},forwarded_port,22,2222")),
         ["destroy", "-f"] => {
-            lab.made.clear();
+            stack.made.clear();
             Reply::ok("")
         }
         _ => Reply::ok(""),
@@ -63,8 +63,8 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
 }
 
 /// The model, its fake, and the project with a runner on it.
-fn lab() -> (Arc<Mutex<Lab>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
-    a_modelled_vagrant_lab(answer)
+fn stack() -> (Arc<Mutex<Stack>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
+    a_modelled_vagrant_stack(answer)
 }
 
 /// Another runner on `root`'s home, over `fake`: an app reading the run from another process.
@@ -80,23 +80,23 @@ fn states(status: &crate::Status) -> BTreeMap<String, MachineState> {
 
 #[tokio::test(start_paused = true)]
 async fn a_status_while_another_process_attaches_reads_the_run_as_last_read_without_asking_vagrant() {
-    let (lab, fake, root, project, runner) = lab();
+    let (stack, fake, root, project, runner) = stack();
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     let run = runner.open(&project, None).expect("opened");
     run.up(&opts, &Recorder::new()).await.expect("up");
     assert!(run.status_with(&opts).await.expect("status").live);
-    lab.lock().unwrap_or_else(PoisonError::into_inner).attach_takes = Duration::from_secs(600);
+    stack.lock().unwrap_or_else(PoisonError::into_inner).attach_takes = Duration::from_secs(600);
 
     let app = another(root.path(), &fake);
     let watched = app.open(&project, None).expect("opened from the app");
     let reads = async {
         tokio::time::sleep(Duration::from_secs(120)).await;
-        let before = lab.lock().unwrap_or_else(PoisonError::into_inner).reads;
+        let before = stack.lock().unwrap_or_else(PoisonError::into_inner).reads;
         let read = watched.status_with(&opts).await;
-        (read, before, lab.lock().unwrap_or_else(PoisonError::into_inner).reads)
+        (read, before, stack.lock().unwrap_or_else(PoisonError::into_inner).reads)
     };
     let events = Recorder::new();
-    let (attached, (read, before, after)) = tokio::join!(run.attach("attackbox", &opts, &events), reads);
+    let (attached, (read, before, after)) = tokio::join!(run.attach("toolbox", &opts, &events), reads);
     attached.expect("attached");
     let read = read.expect("a status while the attach provisions");
     assert_eq!(
@@ -107,17 +107,17 @@ async fn a_status_while_another_process_attaches_reads_the_run_as_last_read_with
     assert_eq!(states(&read).get("web"), Some(&MachineState::Running), "as last read");
 
     let live = watched.status_with(&opts).await.expect("status");
-    assert!(live.live && states(&live).get("attackbox") == Some(&MachineState::Running), "{live:?}");
+    assert!(live.live && states(&live).get("toolbox") == Some(&MachineState::Running), "{live:?}");
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_machine_another_vagrant_process_holds_reads_busy_and_its_screen_says_why() {
-    let (lab, _fake, _root, project, runner) = lab();
+    let (stack, _fake, _root, project, runner) = stack();
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     let run = runner.open(&project, None).expect("opened");
     run.up(&opts, &Recorder::new()).await.expect("up");
     run.status_with(&opts).await.expect("read live once");
-    lab.lock().unwrap_or_else(PoisonError::into_inner).held_by_another = Some("web");
+    stack.lock().unwrap_or_else(PoisonError::into_inner).held_by_another = Some("web");
 
     let read = run.status_with(&opts).await.expect("a status Vagrant's lock refused still reads");
     assert_eq!((read.state, read.live), (RunState::Ready, false));
@@ -126,7 +126,7 @@ async fn a_machine_another_vagrant_process_holds_reads_busy_and_its_screen_says_
     assert_eq!(screen.code(), ErrorCode::NoConsole, "{screen}");
     assert!(screen.to_string().contains("another process is acting on it"), "{screen}");
 
-    lab.lock().unwrap_or_else(PoisonError::into_inner).held_by_another = None;
+    stack.lock().unwrap_or_else(PoisonError::into_inner).held_by_another = None;
     let after = run.status_with(&opts).await.expect("status");
     assert!(after.live, "{after:?}");
     isothrum_test_support::assert_every!(states(&after).into_values(), |s: &MachineState| *s != MachineState::Busy);
@@ -134,13 +134,13 @@ async fn a_machine_another_vagrant_process_holds_reads_busy_and_its_screen_says_
 
 #[tokio::test(start_paused = true)]
 async fn a_held_status_after_a_down_shows_none_of_the_machines_that_went() {
-    let (lab, fake, root, project, runner) = lab();
+    let (stack, fake, root, project, runner) = stack();
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     let run = runner.open(&project, None).expect("opened");
     run.up(&opts, &Recorder::new()).await.expect("up");
     assert_eq!(run.status_with(&opts).await.expect("read once").machines.len(), 2);
     run.down(&opts, &Recorder::new()).await.expect("down");
-    lab.lock().unwrap_or_else(PoisonError::into_inner).up_takes = Duration::from_secs(600);
+    stack.lock().unwrap_or_else(PoisonError::into_inner).up_takes = Duration::from_secs(600);
 
     // The next start, read from the app while it brings the machines up.
     let app = another(root.path(), &fake);

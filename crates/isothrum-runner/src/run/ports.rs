@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn a_kept_ports_variable_names_its_machine_guest_port_and_protocol() {
         assert_eq!(var_name("web", 80, Protocol::Tcp), "HOST_PORT_WEB_80_TCP");
-        assert_eq!(var_name("web-1.lab", 53, Protocol::Udp), "HOST_PORT_WEB_1_LAB_53_UDP");
+        assert_eq!(var_name("web-1.stack", 53, Protocol::Udp), "HOST_PORT_WEB_1_STACK_53_UDP");
         assert_eq!(var_name("web·1", 8080, Protocol::Tcp), "HOST_PORT_WEB_1_8080_TCP", "one `_` per character");
         let vars = env(&[k("web", 80, 2200), k("web-1", 22, 2222), k("web_1", 22, 2223)]);
         assert_eq!(

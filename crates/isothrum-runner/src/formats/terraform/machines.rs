@@ -1,7 +1,7 @@
 //! Which of a module's resources are machines, and what each is called: a VM of one of the
 //! providers' VM types ([`VM_TYPES`]), named by its address without its type
 //! ([`machine_name`]): `esxi_guest.web` is `web`, `aws_instance.pool[0]` is `pool[0]`, and
-//! `module.lab.proxmox_virtual_environment_vm.vm["a"]` is `module.lab.vm["a"]`. A machine's
+//! `module.stack.proxmox_virtual_environment_vm.vm["a"]` is `module.stack.vm["a"]`. A machine's
 //! address is the one its provider writes in the state, else the one the module's `machines`
 //! output gives it ([`with_named_addresses`]).
 
@@ -143,16 +143,20 @@ mod tests {
             ("esxi_guest.web", "esxi_guest", "web"),
             ("aws_instance.pool[0]", "aws_instance", "pool[0]"),
             (
-                "module.lab.proxmox_virtual_environment_vm.vm[\"a\"]",
+                "module.stack.proxmox_virtual_environment_vm.vm[\"a\"]",
                 "proxmox_virtual_environment_vm",
-                "module.lab.vm[\"a\"]",
+                "module.stack.vm[\"a\"]",
             ),
             // A module named like the type.
             ("module.esxi_guest.esxi_guest.web", "esxi_guest", "module.esxi_guest.web"),
             // A key holding the type.
             ("module.m[\"esxi_guest.x\"].esxi_guest.web", "esxi_guest", "module.m[\"esxi_guest.x\"].web"),
             // Nested modules, one named like the type.
-            ("module.esxi_guest.module.lab.esxi_guest.web", "esxi_guest", "module.esxi_guest.module.lab.web"),
+            (
+                "module.esxi_guest.module.stack.esxi_guest.web",
+                "esxi_guest",
+                "module.esxi_guest.module.stack.web",
+            ),
             // Another type.
             ("aws_instance.vm", "esxi_guest", "aws_instance.vm"),
         ] {

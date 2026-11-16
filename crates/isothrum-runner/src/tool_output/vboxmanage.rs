@@ -101,7 +101,7 @@ mod tests {
         let names = |text: &str| vms(text).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
         assert_eq!(
             names(include_str!("fixtures/vboxmanage/7.0.20-list-vms.txt")),
-            ["lab · web", "lab · db", "<inaccessible>"]
+            ["stack · web", "stack · db", "<inaccessible>"]
         );
         assert_eq!(
             vms(include_str!("fixtures/vboxmanage/7.1.4-windows-list-vms.txt")),
@@ -110,7 +110,7 @@ mod tests {
         );
         assert_eq!(
             names(include_str!("fixtures/vboxmanage/7.0.20-list-vms-cut.txt")),
-            ["lab · web"],
+            ["stack · web"],
             "a cut line names no VM"
         );
         assert_eq!(vms(""), Vec::<(String, String)>::new());

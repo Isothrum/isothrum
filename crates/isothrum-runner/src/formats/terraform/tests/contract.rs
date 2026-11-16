@@ -69,7 +69,7 @@ impl LibvirtModule {
 impl Model for LibvirtModule {
     const FORMAT: Format = Format::Terraform;
     const PROVIDER: Option<Provider> = None;
-    const FILE: (&'static str, &'static str) = ("main.tf", "resource \"libvirt_domain\" \"web\" {}\nresource \"libvirt_network\" \"lab\" {}\n");
+    const FILE: (&'static str, &'static str) = ("main.tf", "resource \"libvirt_domain\" \"web\" {}\nresource \"libvirt_network\" \"stack\" {}\n");
     const VERSION: &'static str = "terraform version -json";
     const MACHINES: &'static [&'static str] = &["web"];
     const REFUSES: &'static [Op] = &[Op::Park, Op::Resume, Op::Provision, Op::Attach, Op::Retire];

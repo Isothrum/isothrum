@@ -72,19 +72,19 @@ impl ProcessRunner for Embedded {
 }
 
 /// A runner on a fresh home over the modelled engine, and a Compose project beside it.
-struct Lab {
+struct Stack {
     home: tempfile::TempDir,
     project: tempfile::TempDir,
     runner: Runner,
 }
 
-fn lab() -> Outcome<Lab> {
+fn stack() -> Outcome<Stack> {
     let (home, project) = (tempfile::tempdir()?, tempfile::tempdir()?);
     std::fs::write(project.path().join("compose.yaml"), "services:\n  web: {image: nginx}\n")?;
     let mut config = RunnerConfig::new(home.path());
     config.processes = Arc::new(Embedded(Arc::default()));
     let runner = Runner::new(config)?;
-    Ok(Lab { home, project, runner })
+    Ok(Stack { home, project, runner })
 }
 
 /// Says nothing of an event: the test reads the run's state, not its stream.
@@ -92,12 +92,12 @@ fn quiet(_: &Event) {}
 
 #[tokio::test]
 async fn an_embedder_drives_a_compose_run_through_its_life_and_reads_its_records() -> Outcome {
-    let lab = lab()?;
-    let name = RunName::new("lab")?;
-    let run = lab.runner.open(lab.project.path(), Some(name.clone()))?;
+    let stack = stack()?;
+    let name = RunName::new("stack")?;
+    let run = stack.runner.open(stack.project.path(), Some(name.clone()))?;
     let opts = RunOptions::new();
     let started = run.up(&opts, &quiet).await?;
-    assert_eq!((started.record.name.as_str(), started.record.state), ("lab", RunState::Ready));
+    assert_eq!((started.record.name.as_str(), started.record.state), ("stack", RunState::Ready));
     let web = |s: &isothrum_runner::Status| s.machines.iter().map(|m| (m.name.clone(), m.state.clone())).collect::<Vec<_>>();
     let ready = run.status().await?;
     assert_eq!((ready.state, web(&ready)), (RunState::Ready, vec![("web".to_owned(), MachineState::Running)]));
@@ -109,26 +109,26 @@ async fn an_embedder_drives_a_compose_run_through_its_life_and_reads_its_records
     assert_eq!((id.exit, id.stdout.as_str()), (0, "uid=0(root)"));
     run.update(&opts, &quiet).await?;
 
-    let records = lab.runner.runs()?;
+    let records = stack.runner.runs()?;
     assert_eq!(
         records.iter().map(|r| (r.name.as_str(), r.state)).collect::<Vec<_>>(),
-        [("lab", RunState::Ready)]
+        [("stack", RunState::Ready)]
     );
-    let again = lab.runner.reopen(&name)?;
+    let again = stack.runner.reopen(&name)?;
     assert_eq!(again.project().dir, run.project().dir, "the record names its folder");
-    assert!(!lab.runner.events(&name)?.events.is_empty(), "its operations' events are kept");
+    assert!(!stack.runner.events(&name)?.events.is_empty(), "its operations' events are kept");
 
     again.down(&opts, &quiet).await?;
     assert_eq!(run.status().await?.state, RunState::Absent);
-    assert_eq!(lab.runner.run_record(&name)?.map(|r| r.state), Some(RunState::Absent));
+    assert_eq!(stack.runner.run_record(&name)?.map(|r| r.state), Some(RunState::Absent));
     Ok(())
 }
 
 #[tokio::test]
 async fn each_refusal_has_its_code_and_typed_detail() -> Outcome {
-    let lab = lab()?;
+    let stack = stack()?;
     let empty = tempfile::tempdir()?;
-    let Err(e) = lab.runner.open(empty.path(), None) else {
+    let Err(e) = stack.runner.open(empty.path(), None) else {
         return Err("a folder with no project opened".into());
     };
     assert_eq!(e.code(), ErrorCode::ProjectInvalid, "{e}");
@@ -140,12 +140,12 @@ async fn each_refusal_has_its_code_and_typed_detail() -> Outcome {
         }
     );
 
-    let run = lab.runner.open(lab.project.path(), None)?;
+    let run = stack.runner.open(stack.project.path(), None)?;
     let Err(nothing) = run.resume(&RunOptions::new(), &quiet).await else {
         return Err("a run never started resumed".into());
     };
     assert_eq!(nothing.code(), ErrorCode::NothingToResume, "{nothing}");
-    let Err(unknown) = lab.runner.reopen(&RunName::new("never")?) else {
+    let Err(unknown) = stack.runner.reopen(&RunName::new("never")?) else {
         return Err("a run never recorded reopened".into());
     };
     assert_eq!(unknown.code(), ErrorCode::NotRunning, "{unknown}");
@@ -163,7 +163,7 @@ fn module(dir: &Path) -> Outcome {
 
 #[tokio::test]
 async fn a_terraform_folder_reads_its_variables_and_an_outside_deployment_is_adopted_then_expires() -> Outcome {
-    let lab = lab()?;
+    let stack = stack()?;
     let dir = tempfile::tempdir()?;
     module(dir.path())?;
     let variables = variables_of(dir.path())?;
@@ -178,17 +178,17 @@ async fn a_terraform_folder_reads_its_variables_and_an_outside_deployment_is_ado
     let in_an_hour = SystemTime::now() + Duration::from_secs(3600);
     let unix = in_an_hour.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
     let adoption = Adoption::new(RunName::new("adopted")?, outside.path()).with_expires_at(unix);
-    let record = lab.runner.adopt(dir.path(), adoption.clone()).await?;
+    let record = stack.runner.adopt(dir.path(), adoption.clone()).await?;
     assert_eq!((record.state, record.expires_at), (RunState::Ready, Some(unix)));
     assert!(!outside.path().join("terraform.tfstate").exists(), "the state moved into the run");
-    let Err(twice) = lab.runner.adopt(dir.path(), adoption).await else {
+    let Err(twice) = stack.runner.adopt(dir.path(), adoption).await else {
         return Err("adopted twice".into());
     };
     assert_eq!(twice.code(), ErrorCode::AdoptRefused, "{twice}");
 
-    assert_eq!(lab.runner.expired(SystemTime::now())?, [], "not yet");
-    let later = lab.runner.expired(in_an_hour + Duration::from_secs(1))?;
+    assert_eq!(stack.runner.expired(SystemTime::now())?, [], "not yet");
+    let later = stack.runner.expired(in_an_hour + Duration::from_secs(1))?;
     assert_eq!(later.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["adopted"]);
-    drop(lab.home);
+    drop(stack.home);
     Ok(())
 }

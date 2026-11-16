@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn a_relative_home_is_made_absolute_once() {
         // Refs #131: a relative home was kept as given, and the tools, run in other folders,
-        // read it against theirs (a Terraform state under the lab's folder, no SSH key found).
+        // read it against theirs (a Terraform state under the project's folder, no SSH key found).
         let dir = tempfile::tempdir_in(".").unwrap();
         let relative = PathBuf::from(dir.path().file_name().unwrap());
         let r = runner(&relative);

@@ -5,7 +5,7 @@
 //! of the run's own (`ports: !override`, native Compose) passed after the project's files on every
 //! call, until `down`. Ports the project pins itself are left as they are. An update keeps every
 //! pin and gives a publish added since one of its own. A service under a profile the run attached
-//! (an attack box) is pinned when it is attached, kept by every later start, and dropped when it is
+//! (a toolbox) is pinned when it is attached, kept by every later start, and dropped when it is
 //! retired.
 
 use std::path::PathBuf;

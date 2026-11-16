@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::vagrant::{VERSION, a_vagrant_lab_on, up_and_ready};
+use super::vagrant::{VERSION, a_vagrant_stack_on, up_and_ready};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
@@ -84,7 +84,7 @@ async fn a_qemu_run_reads_ready_with_the_ports_its_qemu_forwards_and_parks() {
         let qemu = Arc::clone(&qemu);
         move |call| answer(&qemu, call)
     }));
-    let (_root, project, runner) = a_vagrant_lab_on(&fake);
+    let (_root, project, runner) = a_vagrant_stack_on(&fake);
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Qemu);
 

@@ -319,10 +319,10 @@ mod tests {
         ))
     }
 
-    /// The project `lab` of `compose.yaml`, under profile `access`.
-    fn lab<'a>(files: &'a [PathBuf], profiles: &'a [String]) -> Project<'a> {
+    /// The project `stack` of `compose.yaml`, under profile `access`.
+    fn stack<'a>(files: &'a [PathBuf], profiles: &'a [String]) -> Project<'a> {
         Project {
-            name: "lab",
+            name: "stack",
             files,
             pins: None,
             profiles,
@@ -369,7 +369,7 @@ mod tests {
         }
         for cut in [
             "Error response from daemon: Get \"https://registry-1.docker.io/v2/\": net/http: TLS handshake timeout",
-            "Error response from daemon: Head \"https://registry-1.docker.io/v2/lab/web/manifests/1\": read: connection reset by peer",
+            "Error response from daemon: Head \"https://registry-1.docker.io/v2/stack/web/manifests/1\": read: connection reset by peer",
             "Error response from daemon: received unexpected HTTP status: 502 Bad Gateway",
         ] {
             assert!(matches!(failed(cut), Failure::PullTransient(_)), "{cut}");
@@ -382,16 +382,27 @@ mod tests {
 
     #[tokio::test]
     async fn a_call_names_the_project_its_files_and_its_profiles_before_the_verb() {
-        let fake = FakeProcesses::script().expect("docker compose -p lab", Reply::ok("")).build();
+        let fake = FakeProcesses::script().expect("docker compose -p stack", Reply::ok("")).build();
         let files = [PathBuf::from("compose.yaml")];
         let profiles = ["access".to_owned()];
-        up(&testing::call(&fake), &lab(&files, &profiles), &Up { wait: true, ..Up::default() })
+        up(&testing::call(&fake), &stack(&files, &profiles), &Up { wait: true, ..Up::default() })
             .await
             .expect("up");
         let [call] = fake.made("docker compose").try_into().expect("one call");
         assert_eq!(
             call.args,
-            ["compose", "-p", "lab", "-f", "compose.yaml", "--profile", "access", "up", "--detach", "--wait"]
+            [
+                "compose",
+                "-p",
+                "stack",
+                "-f",
+                "compose.yaml",
+                "--profile",
+                "access",
+                "up",
+                "--detach",
+                "--wait"
+            ]
         );
     }
 
@@ -399,12 +410,12 @@ mod tests {
     async fn a_ps_listing_that_isnt_json_containers_is_unexpected_never_empty() {
         let fake = FakeProcesses::script()
             .expect(
-                "docker compose -p lab -f compose.yaml ps --all --format json",
+                "docker compose -p stack -f compose.yaml ps --all --format json",
                 Reply::ok("{\"Service\": \"web\", \"State\""),
             )
             .build();
         let files = [PathBuf::from("compose.yaml")];
-        let read = ps(&testing::call(&fake), &lab(&files, &[])).await;
+        let read = ps(&testing::call(&fake), &stack(&files, &[])).await;
         assert!(matches!(read, Err(CliError::Unexpected { tool: TOOL, .. })), "{read:?}");
     }
 
@@ -412,7 +423,7 @@ mod tests {
     fn a_console_execs_with_a_terminal_and_a_command_without_one() {
         let fake = FakeProcesses::script().build();
         let files = [PathBuf::from("compose.yaml")];
-        let project = lab(&files, &[]);
+        let project = stack(&files, &[]);
         let call = testing::call(&fake);
         for (tty, user, expected) in [
             (true, Some("root"), &["exec", "--user", "root", "web", "sh"][..]),

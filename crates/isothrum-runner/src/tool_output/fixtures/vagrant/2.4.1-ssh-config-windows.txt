@@ -5,7 +5,7 @@ Host web
   UserKnownHostsFile /dev/null
   StrictHostKeyChecking no
   PasswordAuthentication no
-  IdentityFile C:/lab/.vagrant/machines/web/virtualbox/private_key
+  IdentityFile C:/stack/.vagrant/machines/web/virtualbox/private_key
   IdentitiesOnly yes
   LogLevel FATAL
   PubkeyAcceptedKeyTypes +ssh-rsa

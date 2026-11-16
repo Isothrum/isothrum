@@ -1,7 +1,7 @@
 //! A run left moving by an operation whose process died (an `up` killed midway).
 
-use super::gone::lab;
-use super::vagrant::{a_modelled_vagrant_lab, vagrant_answer};
+use super::gone::stack;
+use super::vagrant::{a_modelled_vagrant_stack, vagrant_answer};
 use super::*;
 use crate::state::{Desired, Op, Transition};
 use crate::store::{Owner, RunRecord};
@@ -28,8 +28,8 @@ fn creating_as(runner: &Runner, run: &crate::Running<'_>, owner: &Owner, format:
 
 #[tokio::test]
 async fn a_run_whose_ups_process_died_reads_failed_and_comes_up_again() {
-    let (_root, project, runner, lab) = lab();
-    lab.lock().unwrap_or_else(PoisonError::into_inner).present = vec!["cache"];
+    let (_root, project, runner, stack) = stack();
+    stack.lock().unwrap_or_else(PoisonError::into_inner).present = vec!["cache"];
     let run = runner.open(&project, None).expect("opened");
     let dead = Owner {
         pid: crate::store::dead_pid(),
@@ -50,7 +50,7 @@ async fn a_run_whose_ups_process_died_reads_failed_and_comes_up_again() {
 
 #[tokio::test]
 async fn a_run_a_live_process_holds_keeps_its_moving_state() {
-    let (_root, project, runner, _lab) = lab();
+    let (_root, project, runner, _stack) = stack();
     let run = runner.open(&project, None).expect("opened");
     creating(&runner, &run, &Owner::this_process());
     assert_eq!(run.status().await.expect("status").state, RunState::Creating);
@@ -64,17 +64,17 @@ struct TwoVms {
     ups: usize,
 }
 
-fn two_vms(lab: &Mutex<TwoVms>, call: &Call) -> Reply {
-    vagrant_answer(lab, call, |lab, args| match args {
+fn two_vms(stack: &Mutex<TwoVms>, call: &Call) -> Reply {
+    vagrant_answer(stack, call, |stack, args| match args {
         ["up", "--provider", "virtualbox", ..] => {
-            lab.ups += 1;
-            lab.web = true;
+            stack.ups += 1;
+            stack.web = true;
             Reply::ok("")
         }
         ["status", "--machine-readable"] => {
-            let (web, controller) = if lab.ups > 0 {
+            let (web, controller) = if stack.ups > 0 {
                 ("running", "running")
-            } else if lab.web {
+            } else if stack.web {
                 ("running", "not_created")
             } else {
                 ("not_created", "not_created")
@@ -88,12 +88,12 @@ fn two_vms(lab: &Mutex<TwoVms>, call: &Call) -> Reply {
 
 #[tokio::test]
 async fn a_vagrant_up_killed_once_a_vm_runs_reads_failed_not_ready_and_the_next_up_takes_it_over() {
-    let (lab, _fake, _root, project, runner) = a_modelled_vagrant_lab(two_vms);
+    let (stack, _fake, _root, project, runner) = a_modelled_vagrant_stack(two_vms);
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     // What a start killed while Vagrant provisioned web leaves: web's VM running, unprovisioned,
     // the controller's never made (`not_created`, which doesn't count), and the run `creating`.
-    lab.lock().unwrap_or_else(PoisonError::into_inner).web = true;
+    stack.lock().unwrap_or_else(PoisonError::into_inner).web = true;
     let dead = Owner {
         pid: crate::store::dead_pid(),
         ..Owner::this_process()

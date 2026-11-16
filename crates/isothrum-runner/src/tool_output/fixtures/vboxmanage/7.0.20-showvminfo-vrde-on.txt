@@ -1,4 +1,4 @@
-name="lab · web"
+name="stack · web"
 VMState="running"
 vrde="on"
 vrdeport=3390

@@ -26,7 +26,7 @@ pub struct RunOptions {
     /// `TF_VAR_NAME` too). Never stored: pass them to every operation.
     pub env: BTreeMap<String, String>,
     /// A status read only: each sensitive output's own value instead of `***`, for its caller
-    /// to use (an admin password a lab gives back). Never in an event, never stored; a service
+    /// to use (an admin password a project gives back). Never in an event, never stored; a service
     /// gives it only over its owner-only endpoint. Off by default.
     pub reveal: bool,
     /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which

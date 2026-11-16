@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(
             failed("", include_str!("../tool_output/fixtures/vagrant/vmware-esxi-2.5.5-auth-failed.txt")),
             Failure::SignInRefused {
-                server: Some("esxi.lab.example".to_owned())
+                server: Some("esxi.stack.example".to_owned())
             }
         );
         assert_eq!(

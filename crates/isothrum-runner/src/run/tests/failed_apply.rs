@@ -33,7 +33,7 @@ impl FailsFirst {
 #[tokio::test]
 async fn a_failed_apply_leaves_the_run_failed_whatever_its_state_holds_and_the_next_up_applies_again() {
     let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
+    let project = root.path().join("stack");
     std::fs::create_dir(&project).expect("the module");
     std::fs::write(project.join(LibvirtModule::FILE.0), LibvirtModule::FILE.1).expect("a module");
     let world = Arc::new(FailsFirst {

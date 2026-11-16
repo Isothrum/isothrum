@@ -9,7 +9,10 @@ const PROXMOX_STATE: &str = r#"{"format_version":"1.0","values":{"root_module":{
 ]}}}"#;
 
 /// The server and the token a Proxmox VE run gives, as bpg/proxmox reads them.
-const PROXMOX_RUN: [(&str, &str); 2] = [("PROXMOX_VE_ENDPOINT", "https://pve.lab:8006"), ("PROXMOX_VE_API_TOKEN", "root@pam!lab=t0ken")];
+const PROXMOX_RUN: [(&str, &str); 2] = [
+    ("PROXMOX_VE_ENDPOINT", "https://pve.stack:8006"),
+    ("PROXMOX_VE_API_TOKEN", "root@pam!stack=t0ken"),
+];
 
 /// Terraform answering the Proxmox state, and Proxmox VE's API (through curl) answering each
 /// request by the URL its config names: `listing` for `cluster/resources`, `free_id` (the id
@@ -25,7 +28,7 @@ fn proxmox_model(listing: &'static str, free_id: Option<&'static str>) -> FakePr
         }
         assert_eq!(call.program, "curl", "{}", call.line());
         let config = std::fs::read_to_string(call.stdin.as_ref().expect("a config piped in")).expect("its config");
-        assert!(config.contains("PVEAPIToken=root@pam!lab=t0ken"), "signed in with the run's token: {config}");
+        assert!(config.contains("PVEAPIToken=root@pam!stack=t0ken"), "signed in with the run's token: {config}");
         assert!(!config.contains("request = \"POST\""), "a read is a GET: {config}");
         if config.contains("cluster/resources?type=vm") {
             Reply::ok(&format!("{listing}\n200"))
@@ -42,8 +45,8 @@ fn proxmox_model(listing: &'static str, free_id: Option<&'static str>) -> FakePr
 
 /// The machines' states `observe` reads for the Proxmox state, the run given `given`.
 async fn proxmox_states(fake: &FakeProcesses, given: &[(&str, &str)]) -> Result<Vec<(String, MachineState)>> {
-    let lab = lab().with_state();
-    let (seen, _) = with_cx_given(&lab, fake, given, async |cx| Terraform.observe(cx).await).await?;
+    let stack = stack().with_state();
+    let (seen, _) = with_cx_given(&stack, fake, given, async |cx| Terraform.observe(cx).await).await?;
     Ok(seen.machines.into_iter().map(|m| (m.name, m.state)).collect())
 }
 

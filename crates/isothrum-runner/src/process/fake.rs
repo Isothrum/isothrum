@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn a_star_stands_for_any_one_argument() {
         let fake = FakeProcesses::script().expect_times("docker compose -p * ps", 2, Reply::ok("[]")).build();
-        assert_eq!(run_on(&fake, "docker compose -p lab ps").unwrap().stdout, ["[]"]);
+        assert_eq!(run_on(&fake, "docker compose -p stack ps").unwrap().stdout, ["[]"]);
         assert_eq!(run_on(&fake, "docker compose -p other ps -a").unwrap().stdout, ["[]"]);
     }
 
@@ -492,7 +492,7 @@ mod tests {
     fn the_calls_made_are_read_by_program_arguments_and_options() {
         let fake = FakeProcesses::script().allow("docker", Reply::ok("")).allow("vagrant", Reply::ok("")).build();
         for line in [
-            "docker compose -p lab --profile access up -d",
+            "docker compose -p stack --profile access up -d",
             "docker info",
             "vagrant up web --provider=libvirt",
         ] {
@@ -501,7 +501,7 @@ mod tests {
         let up = fake.made("docker compose * * --profile");
         assert_eq!(up.len(), 1, "{up:?}");
         let up = up.first().unwrap();
-        assert_eq!((up.flag("-p"), up.flag("--profile")), (Some("lab"), Some("access")));
+        assert_eq!((up.flag("-p"), up.flag("--profile")), (Some("stack"), Some("access")));
         assert!(up.has("-d") && up.has_run(&["access", "up"]) && !up.has_run(&["up", "access"]));
         let vagrant = fake.made("vagrant up");
         assert_eq!(vagrant.first().and_then(|c| c.flag("--provider")), Some("libvirt"));

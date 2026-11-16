@@ -8,7 +8,7 @@ use crate::process::fake::FakeProcesses;
 #[tokio::test]
 async fn a_sensitive_output_is_masked_unless_the_status_read_reveals_it() {
     let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
+    let project = root.path().join("stack");
     std::fs::create_dir(&project).expect("the module");
     std::fs::write(project.join("main.tf"), "output \"token\" {\n  value = \"x\"\n  sensitive = true\n}\n").expect("a module");
     let module = Arc::new(LibvirtModule::new(false));

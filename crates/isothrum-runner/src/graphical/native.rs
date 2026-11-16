@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn a_host_name_is_only_a_name() {
-        assert!(host_name("172.16.1.20") && host_name("pve.lab.example"));
+        assert!(host_name("172.16.1.20") && host_name("pve.stack.example"));
         for bad in ["", "-x", "a b", "user@host", "host/path", "host?q", "host#x", "h:1"] {
             assert!(!host_name(bad), "{bad}");
         }
