@@ -282,7 +282,9 @@ mod tests {
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src").join("lib.rs"), "").unwrap();
         assert_eq!(rust_files(dir.path()).unwrap(), [dir.path().join("src").join("lib.rs")]);
-        assert!(rust_files(&dir.path().join("missing")).is_err());
+        let missing = rust_files(&dir.path().join("missing")).unwrap_err();
+        assert_eq!(missing.kind(), std::io::ErrorKind::NotFound, "{missing}");
+        assert!(missing.to_string().contains("missing"), "names the folder: {missing}");
     }
 
     /// Regression: a package whose manifest wasn't under the workspace's folder was dropped, and
@@ -292,8 +294,10 @@ mod tests {
         let metadata = |path: &str| serde_json::json!({"workspace_root": "/w", "packages": [{"name": "a", "manifest_path": path}]});
         let found = crates_in(&metadata("/w/crates/a/Cargo.toml")).unwrap();
         assert_eq!(found.iter().map(|c| (c.name.as_str(), c.dir.as_str())).collect::<Vec<_>>(), [("a", "crates/a")]);
-        assert!(crates_in(&metadata("/elsewhere/a/Cargo.toml")).is_err());
-        assert!(crates_in(&serde_json::json!({"workspace_root": "/w"})).is_err());
+        let outside = crates_in(&metadata("/elsewhere/a/Cargo.toml")).unwrap_err().to_string();
+        assert!(outside.contains("isn't a Cargo.toml under the workspace"), "{outside}");
+        let none = crates_in(&serde_json::json!({"workspace_root": "/w"})).unwrap_err().to_string();
+        assert_eq!(none, "cargo metadata gives no packages");
     }
 
     #[test]

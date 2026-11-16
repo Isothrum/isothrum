@@ -51,6 +51,7 @@ mod tests {
     fn a_clone_with_no_file_fails_the_count() {
         let named = serde_json::json!({"firstFile": {"name": "/w/crates/a/src/lib.rs"}});
         assert_eq!(first_file(&named).unwrap(), "/w/crates/a/src/lib.rs");
-        assert!(first_file(&serde_json::json!({"secondFile": {"name": "x"}})).is_err());
+        let none = first_file(&serde_json::json!({"secondFile": {"name": "x"}})).unwrap_err().to_string();
+        assert!(none.starts_with("jscpd's report has a clone with no first file"), "{none}");
     }
 }

@@ -15,5 +15,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 toml.workspace = true
 
+[dev-dependencies]
+isothrum-test-support.workspace = true
+
 [lints]
 workspace = true

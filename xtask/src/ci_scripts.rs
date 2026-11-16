@@ -20,24 +20,26 @@ fn declared_args_refuses_a_missing_manifest() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("no run manifest"), "{out:?}");
 }
 
-/// `no-vc-runtime.sh` over an `llvm-objdump` that lists `dlls` as the executable's imports: its
-/// exit status and what it printed.
+/// A stand-in `llvm-objdump` that lists the DLLs in `$ISOTHRUM_TEST_DLLS` as an executable's
+/// imports.
+const OBJDUMP: &str = r#"#!/bin/sh
+echo 'isothrum.exe: file format coff-x86-64'
+for dll in $ISOTHRUM_TEST_DLLS; do echo "    DLL Name: $dll"; done
+"#;
+
+/// `no-vc-runtime.sh` over the stand-in `llvm-objdump` listing `dlls` as the executable's
+/// imports: its exit status and what it printed. The stand-in is installed once under the build
+/// folder's `tmp` (where cargo's `CARGO_TARGET_TMPDIR` is), never written by this process: a new
+/// executable for each call waited, on a loaded Mac, for the system's check of its first run.
 fn no_vc_runtime(dlls: &[&str]) -> std::io::Result<std::process::Output> {
-    use std::os::unix::fs::PermissionsExt as _;
-    let dir = tempfile::tempdir()?;
-    let objdump = dir.path().join("llvm-objdump");
-    let mut script = String::from("#!/bin/sh\necho 'isothrum.exe: file format coff-x86-64'\n");
-    for dll in dlls {
-        script.push_str("echo '    DLL Name: ");
-        script.push_str(dll);
-        script.push_str("'\n");
-    }
-    std::fs::write(&objdump, script)?;
-    std::fs::set_permissions(&objdump, std::fs::Permissions::from_mode(0o755))?;
+    let exe = std::env::current_exe()?;
+    let tmp = exe.ancestors().nth(3).ok_or_else(|| std::io::Error::other("the build folder"))?.join("tmp");
+    let objdump = isothrum_test_support::installed_executable(&tmp, "llvm-objdump", OBJDUMP)?;
     Command::new("bash")
         .arg(repo::root().join(".github/scripts/no-vc-runtime.sh"))
         .arg(&objdump)
         .arg("isothrum.exe")
+        .env("ISOTHRUM_TEST_DLLS", dlls.join(" "))
         .output()
 }
 

@@ -186,10 +186,8 @@ mod tests {
                 (*name, claims_in(&source::code(&text)))
             })
             .collect();
-        assert!(
-            drivers.iter().all(|(_, claims)| !claims.is_empty()),
-            "every driver's impl was read: {drivers:?}"
-        );
+        // Every driver's impl was read.
+        isothrum_test_support::assert_every!(drivers.iter(), |(_, claims): &&(&str, Vec<String>)| !claims.is_empty());
         let tests = source::files("crates/isothrum-runner");
         let found = unproven(&drivers, &tests);
         assert!(found.is_empty(), "{}", found.join("\n"));

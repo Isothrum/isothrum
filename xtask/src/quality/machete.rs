@@ -109,6 +109,7 @@ mod tests {
     /// Regression: a manifest that wouldn't parse counted as one ignoring nothing.
     #[test]
     fn a_manifest_that_isnt_toml_fails_the_count() {
-        assert!(ignored("[package\nname = ").is_err());
+        let broken = ignored("[package\nname = ").unwrap_err().to_string();
+        assert!(broken.contains("TOML parse error"), "{broken}");
     }
 }

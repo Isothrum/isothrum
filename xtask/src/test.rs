@@ -123,7 +123,8 @@ mod tests {
             .map(|(k, v)| (k.to_owned(), v.map(Path::new).map(Path::to_path_buf)))
             .collect();
         assert_eq!(vars.len(), 3);
-        assert!(vars.iter().all(|(_, v)| v.as_deref() == Some(path.as_path())), "{vars:?}");
+        isothrum_test_support::assert_every!(vars.iter(), |(_, v): &&(std::ffi::OsString, Option<PathBuf>)| v.as_deref()
+            == Some(path.as_path()));
         assert!(temp.finish(true).unwrap(), "nothing left");
         assert!(path.exists(), "kept");
         std::fs::remove_dir(&path).unwrap();
