@@ -152,12 +152,25 @@ No `test_` prefix, no `works`, `ok` or `basic`: when the test fails, its name sa
   its own process group, killed and reaped when dropped) or, for a process it learnt the id of,
   `PidGuard`; a helper script's loop is bounded. Nothing a test starts outlives it.
 - Wait for a condition, never for a time: Tokio's paused clock (`start_paused = true`) for code
-  on Tokio's timers, `isothrum_test_support::wait_until` with a deadline for real processes.
+  on Tokio's timers, `isothrum_test_support::wait_until` with a deadline for real processes. The
+  deadline is generous, there only to stop a hang, never to time what it waits for. A `sleep` that
+  is no wait (a stand-in that hangs or answers late, the paused clock, the poll inside a bounded
+  wait) is counted in `xtask/src/guardrails/flakes.rs` with its reason, so a new one fails.
+- A free port is held from the moment it is picked until it is used: bind to port 0 and hand the
+  listener (or its port, while the listener is held) to what uses it. A port read off a listener
+  and let go is anyone's, and a test beside it takes it first under load. The same guardrail
+  fails a listener on port 0 dropped (or read and let go) right after its port is read.
 - A test gets its host as an input (`TEST_HOST`, `TEST_ARCH`, a `Host` value), never this
   machine's; a command it spawns gets a `TempHome` (home, XDG and profile folders, `LC_ALL=C`).
+  Each test owns its folders and its environment: it never changes this process's environment
+  (the variables are every test's), and gives what it spawns the variables it needs.
 - A program a test runs (a stand-in tool) is written with `isothrum_test_support::write_executable`,
   never by the test's own process: a file it has open for writing is open in every process another
-  test thread forks meanwhile, and running it then fails with "Text file busy".
+  test thread forks meanwhile, and running it then fails with "Text file busy". It is written once
+  and found there by every later test and run (`isothrum_test_support::installed_executable`,
+  given `env!("CARGO_TARGET_TMPDIR")`), never written fresh by each test: macOS checks every new
+  program the first time it runs, which takes seconds on a loaded machine. The tests still writing
+  their own are counted in `xtask/src/guardrails/flakes.rs`, so a new one fails.
 - Cases of one behaviour are one table, `for (input, expected) in [...]`, the case named in the
   assert's message; a value many tests build is built by one builder or fixture, not copied.
 - A test's folder is a `tempfile::TempDir` it holds to its end, never a fixed path.

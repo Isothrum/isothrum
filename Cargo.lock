@@ -471,6 +471,7 @@ dependencies = [
  "futures-core",
  "interprocess",
  "isothrum-runner",
+ "isothrum-test-support",
  "nix",
  "serde",
  "serde_json",

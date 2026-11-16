@@ -28,6 +28,7 @@ tracing.workspace = true
 nix.workspace = true
 
 [dev-dependencies]
+isothrum-test-support.workspace = true
 tempfile.workspace = true
 
 [lints]

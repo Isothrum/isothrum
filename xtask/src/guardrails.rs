@@ -11,13 +11,17 @@
 //!   `*_tests.rs`, no `test_` prefix on a test's name);
 //! - `vocabulary`: no file under `crates/` names Isoloom or uses an application's words (lab,
 //!   CTF, player, attack box), a test's data included; and no document names Isoloom but the
-//!   README's one line.
+//!   README's one line;
+//! - `flakes`: no test waits on the clock (a `sleep` there is counted, each with why it is no
+//!   wait), none lets a free port go before it uses it, and a stand-in written by each test
+//!   is counted.
 //!
 //! Starting a process outside an adapter, and `unwrap()` outside tests, are clippy's
 //! (`disallowed-methods` in clippy.toml, `unwrap_used` in the workspace's lints).
 
 mod boundary;
 mod capabilities;
+mod flakes;
 mod layout;
 mod scans;
 mod source;

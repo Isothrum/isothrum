@@ -1,6 +1,7 @@
 //! One service per home: an OS lock on `<home>/service.lock`, held for the service's life and
 //! released by the OS when its process ends, however it ends. Once it listens, the service says
-//! who and where it is in `<home>/service.json`, which it removes when it stops.
+//! who and where it is in `<home>/service.json`, which it removes when it stops. A `service.json`
+//! found when the lock is taken is a dead service's: it goes before the service listens.
 
 use std::fs::{File, TryLockError};
 
@@ -23,7 +24,7 @@ impl Lease {
     /// # Errors
     ///
     /// [`ServeError::Held`] when another service holds it (with what it said of itself), `io`
-    /// when the lock file can't be opened.
+    /// when the lock file can't be opened, or a dead service's `service.json` can't be removed.
     pub(crate) fn acquire(paths: &ServicePaths) -> Result<Lease, ServeError> {
         let path = paths.lock();
         let file = File::options()
@@ -37,11 +38,14 @@ impl Lease {
                 source,
             })?;
         match file.try_lock() {
-            Ok(()) => Ok(Lease {
-                _file: file,
-                paths: paths.clone(),
-                published: false,
-            }),
+            Ok(()) => {
+                forget_the_dead(paths)?;
+                Ok(Lease {
+                    _file: file,
+                    paths: paths.clone(),
+                    published: false,
+                })
+            }
             Err(TryLockError::WouldBlock) => Err(ServeError::Held {
                 home: paths.home().to_path_buf(),
                 holder: paths.read_info(),
@@ -85,6 +89,21 @@ impl Drop for Lease {
     }
 }
 
+/// Removes the `service.json` a service that ended without removing it left (the lock is held
+/// here, so no service runs). This service listens before it writes its own, on Unix at the same
+/// socket: a client that read the dead one's file in between would greet this service and take
+/// the dead one's pid and epoch for its.
+fn forget_the_dead(paths: &ServicePaths) -> Result<(), ServeError> {
+    match std::fs::remove_file(paths.info()) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(ServeError::Io {
+            what: "a dead service's info file",
+            path: paths.info(),
+            source: e,
+        }),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +128,20 @@ mod tests {
         drop(first);
         assert!(paths.read_info().is_none(), "its info goes with it");
         Lease::acquire(&paths).unwrap();
+    }
+
+    #[test]
+    fn the_info_a_dead_service_left_is_gone_before_the_next_one_listens() {
+        // A service killed, or ended by a client replacing it, leaves its service.json behind.
+        let home = tempfile::tempdir().unwrap();
+        let paths = ServicePaths::new(home.path());
+        std::fs::write(
+            paths.info(),
+            r#"{"pid":42,"started":"2026-01-01T00:00:00Z","version":"2.9.0","protocol":1,"endpoint":"here","epoch":7}"#,
+        )
+        .unwrap();
+        assert!(paths.read_info().is_some());
+        let _held = Lease::acquire(&paths).unwrap();
+        assert!(paths.read_info().is_none(), "a client would take the next service for the dead one");
     }
 }
