@@ -4,6 +4,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::OnceLock;
 
 use crate::Res;
 
@@ -30,10 +31,12 @@ pub(crate) fn without_run_env(cmd: &mut Command) -> &mut Command {
 }
 
 /// `cargo`, the one running this xtask (`$CARGO`, so the same toolchain), in `dir`, without the
-/// variables `cargo run` set for the xtask.
+/// variables `cargo run` set for the xtask, compiling through sccache when it is installed
+/// ([`compiler_cache`]).
 pub(crate) fn cargo(dir: &Path) -> Command {
     let mut cmd = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     without_run_env(&mut cmd);
+    compiler_cache(&mut cmd);
     cmd.current_dir(dir);
     cmd
 }
@@ -43,7 +46,27 @@ pub(crate) fn cargo(dir: &Path) -> Command {
 pub(crate) fn rustup_cargo(dir: &Path) -> Command {
     let mut cmd = Command::new("cargo");
     without_run_env(&mut cmd);
+    compiler_cache(&mut cmd);
     cmd.env_remove("RUSTUP_TOOLCHAIN").current_dir(dir);
+    cmd
+}
+
+/// sccache as `cmd`'s compiler wrapper (`RUSTC_WRAPPER`) when it is installed and no wrapper is
+/// set (an empty `RUSTC_WRAPPER` says none): a crate another worktree or target folder already
+/// compiled comes from its cache. Never required: without it, `cmd` is left as it is.
+fn compiler_cache(cmd: &mut Command) -> &mut Command {
+    static INSTALLED: OnceLock<bool> = OnceLock::new();
+    let installed = *INSTALLED.get_or_init(|| {
+        Command::new("sccache")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    });
+    if installed && std::env::var_os("RUSTC_WRAPPER").is_none() {
+        cmd.env("RUSTC_WRAPPER", "sccache");
+    }
     cmd
 }
 
