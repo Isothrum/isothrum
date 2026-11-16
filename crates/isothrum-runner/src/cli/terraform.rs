@@ -571,9 +571,10 @@ mod tests {
             ]
         );
         assert_eq!(shown("{\"format_version\":\"1.0\"}").unwrap(), Shown::default(), "an empty state");
+        let cut = shown("{\"values\":{\"root_module\":{\"resources\":[{\"address\":\"x\"");
         assert!(
-            shown("{\"values\":{\"root_module\":{\"resources\":[{\"address\":\"x\"").is_err(),
-            "a cut answer"
+            cut.as_ref().is_err_and(|e| e.starts_with("`show -json` isn't the state's JSON")),
+            "a cut answer: {cut:?}"
         );
     }
 
@@ -593,7 +594,7 @@ mod tests {
                 "module.lab.terraform_data.vm[\"b\"]",
             ]
         );
-        assert!(read.managed.iter().all(|r| r.id.is_some() && !r.tainted));
+        isothrum_test_support::assert_every!(&read.managed, |r: &&Resource| r.id.is_some() && !r.tainted);
         let tainted = shown(include_str!("../tool_output/fixtures/terraform/1.16-show-tainted.json")).unwrap();
         assert!(tainted.managed[0].tainted);
     }
@@ -743,12 +744,7 @@ mod tests {
         init(&call).await.unwrap();
         state_rm(&call, state, &["a.b".into(), "c.d[\"e\"]".into()]).await.unwrap();
         import(&call, state, "a.b", "id-1").await.unwrap();
-        let calls = fake.calls();
-        assert!(
-            !calls.is_empty() && calls.iter().all(|c| !c.args.iter().any(|a| a.starts_with("-var"))),
-            "{:?}",
-            fake.lines()
-        );
+        isothrum_test_support::assert_every!(fake.calls(), |c: &crate::process::fake::Call| !c.args.iter().any(|a| a.starts_with("-var")));
     }
 
     #[test]
@@ -762,7 +758,7 @@ mod tests {
             Backend::Other("s3".into())
         );
         assert_eq!(backend_of(r#"{"version":3}"#).unwrap(), Backend::Local);
-        assert!(backend_of("{").is_err());
+        assert!(backend_of("{").is_err_and(|e| e.is_eof()), "a cut file");
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(backend(dir.path()).unwrap(), Backend::Local, "no backend block: no file");
     }

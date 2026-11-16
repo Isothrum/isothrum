@@ -80,12 +80,11 @@ async fn a_proxmox_run_without_credentials_reads_its_state_only() {
 /// A server that refuses the token is a refused sign-in, never a run read as it stood.
 #[tokio::test]
 async fn a_proxmox_server_refusing_the_token_is_server_auth_failed() {
-    let fake = FakeProcesses::model(|call| match (call.program.as_str(), call.args.first().map(String::as_str)) {
-        ("terraform", Some("show")) => Reply::ok(PROXMOX_STATE),
-        ("terraform", Some("output")) => Reply::ok("{}"),
-        ("curl", _) => Reply::ok("{\"data\":null}\n401"),
-        _ => panic!("unscripted `{}`", call.line()),
-    });
+    let fake = FakeProcesses::script()
+        .expect("terraform show", Reply::ok(PROXMOX_STATE))
+        .allow("terraform output", Reply::ok("{}"))
+        .expect("curl", Reply::ok("{\"data\":null}\n401"))
+        .build();
     let e = proxmox_states(&fake, &PROXMOX_RUN).await.expect_err("refused");
     assert_eq!(e.code(), ErrorCode::ServerAuthFailed, "{e}");
 }

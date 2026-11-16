@@ -183,12 +183,11 @@ async fn up_inits_then_applies_on_the_runs_own_state_with_inputs_in_the_environm
     assert_eq!(apply.env("TF_DATA_DIR"), Some(data.to_str().expect("a path")));
     assert_eq!(apply.env("TF_IN_AUTOMATION"), Some("1"));
     assert_eq!(apply.env("TF_VAR_token"), Some(SECRET));
-    for call in fake.calls() {
-        assert!(!call.args.iter().any(|a| a.contains(SECRET) || a.starts_with("-var")), "{call:?}");
-    }
+    isothrum_test_support::assert_every!(fake.calls(), |c: &Made| !c.args.iter().any(|a| a.contains(SECRET) || a.starts_with("-var")));
     assert!(!lab.state.path().join(LOCK_INFO).exists(), "the stale lock information is removed");
-    assert!(
-        std::fs::read_dir(lab.module.path()).expect("the module").count() == 1,
+    assert_eq!(
+        std::fs::read_dir(lab.module.path()).expect("the module").count(),
+        1,
         "nothing written beside the module"
     );
     assert!(lab.lines().iter().any(|l| l == "Apply complete! Resources: 6 added, 0 changed, 0 destroyed."));
@@ -348,7 +347,7 @@ async fn a_run_with_no_state_yet_is_absent_and_nothing_runs() {
 }
 
 #[test]
-fn every_instance_ready_is_a_ready_run() {
+fn a_state_of_instances_none_tainted_is_a_ready_run_and_an_empty_one_absent() {
     let ready = tf::shown(&show_of(&[("aws_instance", "vm", "i-1", false)])).expect("a state");
     assert_eq!(run_state(&ready), RunState::Ready);
     assert_eq!(run_state(&tf::shown(r#"{"format_version":"1.0"}"#).expect("no state")), RunState::Absent);
@@ -393,36 +392,6 @@ async fn found_is_every_managed_instance_by_address_and_id() {
 }
 
 #[tokio::test]
-async fn what_a_module_cant_do_is_refused_and_nothing_runs() {
-    let lab = lab();
-    let fake = FakeProcesses::script().build();
-    let refusals = with_cx(&lab, &fake, async |cx| {
-        vec![
-            Terraform.park(cx, Park::Pause).await.err(),
-            Terraform.resume(cx).await.err(),
-            Terraform.provision(cx, None, None).await.err(),
-            Terraform.attach(cx, "web").await.err(),
-            Terraform.retire(cx, "web").await.err(),
-            Terraform.exec(cx, "web", &["true".to_owned()]).await.err(),
-        ]
-    })
-    .await;
-    for e in refusals {
-        assert_eq!(e.map(|e| e.code()), Some(ErrorCode::Unsupported));
-    }
-}
-
-#[tokio::test]
-async fn the_probe_reads_the_version() {
-    let lab = lab();
-    let fake = FakeProcesses::script()
-        .expect("terraform version -json", Reply::ok(r#"{"terraform_version":"0.13.7"}"#))
-        .build();
-    let e = with_cx(&lab, &fake, async |cx| Terraform.probe(cx).await).await.expect_err("too old");
-    assert_eq!(e.code(), ErrorCode::ToolTooOld);
-}
-
-#[tokio::test]
 async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
     let first = lab();
     let from = tempfile::tempdir().expect("a deployment");
@@ -443,4 +412,24 @@ async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
         .await
         .expect_err("no state");
     assert_eq!(none.code(), ErrorCode::AdoptRefused);
+}
+
+/// An adoption that moved the state but can't move its backup (a folder holds the backup's place
+/// in the run's state folder) puts the state back: the deployment is left as it was found.
+#[tokio::test]
+async fn an_adoption_that_cant_move_every_file_puts_back_what_it_moved() {
+    let lab = lab();
+    let from = tempfile::tempdir().expect("a deployment");
+    std::fs::write(from.path().join(STATE_FILE), "{\"version\":4}").expect("its state");
+    std::fs::write(from.path().join(BACKUP_FILE), "{}").expect("its backup");
+    let in_the_way = lab.state.path().join(BACKUP_FILE);
+    std::fs::create_dir(&in_the_way).expect("a folder in the backup's place");
+    std::fs::write(in_the_way.join("kept"), "").expect("a folder that isn't empty");
+    let fake = FakeProcesses::script().build();
+    let e = with_cx(&lab, &fake, async |cx| Terraform::adopt(cx, from.path()))
+        .await
+        .expect_err("the backup can't move");
+    assert_eq!(e.code(), ErrorCode::Io, "{e}");
+    assert_eq!(std::fs::read_to_string(from.path().join(STATE_FILE)).expect("put back"), "{\"version\":4}");
+    assert!(!lab.state_file().exists(), "nothing adopted");
 }

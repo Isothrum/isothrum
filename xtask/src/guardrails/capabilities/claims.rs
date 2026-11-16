@@ -285,12 +285,12 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 54] = [
     (
         "terraform",
         "park",
-        NoTool("refused: a module has no stopped state Terraform keeps (what_a_module_cant_do_is_refused_and_nothing_runs)"),
+        NoTool("refused: a module has no stopped state Terraform keeps (the contract's what_it_refuses_is_unsupported)"),
     ),
     (
         "terraform",
         "resume",
-        NoTool("refused: a module has no stopped state Terraform keeps (what_a_module_cant_do_is_refused_and_nothing_runs)"),
+        NoTool("refused: a module has no stopped state Terraform keeps (the contract's what_it_refuses_is_unsupported)"),
     ),
     (
         "terraform",
