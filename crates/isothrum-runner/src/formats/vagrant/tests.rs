@@ -1,6 +1,7 @@
 mod commands;
 mod contract;
 mod resources;
+mod utm;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 

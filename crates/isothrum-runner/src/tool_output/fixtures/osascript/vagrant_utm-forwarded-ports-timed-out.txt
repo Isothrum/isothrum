@@ -1,0 +1,1 @@
+osascript read_forwarded_ports.applescript: execution error: UTM got an error: AppleEvent timed out. (-1712)

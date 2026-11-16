@@ -42,6 +42,12 @@ Terraform), usable on any project of those formats.
   with `up`, `status`, `exec`, `park`, `resume` and `down`: a Compose project of two services
   (`compose-web-cache`), a Vagrantfile of one VM (`vagrant-one-vm`) and a Terraform module that
   needs no cloud and no provider download (`terraform-local`).
+- **A UTM start or update an Apple event cut short in passing runs once more.** UTM's Vagrant
+  provider drives UTM through `osascript`, and UTM fails some of those events in passing: it says
+  "Application isn't running" of itself (`-600`) right after an import or while a VM boots, and it
+  lets an event time out (`-1712`) while busy. The same `up` then goes through. Such a failure now
+  makes the `up` (or the update's `up --provision`) once more, said as a `retrying` warning; a
+  second one is the operation's failure, with the tool's words.
 - **A deployment's service endpoints, reachable from this computer: `Running::service_endpoints`,
   `ServiceEndpoint`.** Each entry of a Terraform module's `published` output, as the module gives
   it, or, when the run has a jump host (its `ssh_jump` value), at a local forward through it
