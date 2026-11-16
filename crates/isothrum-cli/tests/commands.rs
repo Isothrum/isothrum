@@ -131,6 +131,18 @@ fn exec_exits_0_only_when_its_command_did_and_streams_its_output_as_log_events()
 }
 
 #[test]
+fn exec_without_json_prints_its_commands_output_once_on_its_own_streams() -> Outcome<()> {
+    let lab = Lab::compose()?;
+    assert_eq!(run(&lab, &["up", "--json", lab.dir()])?.0, Some(0));
+    let out = lab.isothrum(&["exec", "web", lab.dir(), "--", "sh", "-c", "echo out; echo err >&2; exit 3"])?;
+    let (stdout, stderr) = (String::from_utf8(out.stdout)?, String::from_utf8(out.stderr)?);
+    assert_eq!((out.status.code(), stdout.as_str()), (Some(1), "out\n"), "standard error: {stderr}");
+    let said: Vec<&str> = stderr.lines().filter(|l| l.contains("out") || l.contains("err")).collect();
+    assert_eq!(said, ["err"], "the command's lines on standard error: {stderr}");
+    Ok(())
+}
+
+#[test]
 fn key_with_json_prints_the_homes_public_key_as_one_document() -> Outcome<()> {
     let lab = Lab::empty()?;
     let ssh = lab.home.path().join("ssh");

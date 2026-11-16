@@ -171,6 +171,39 @@ impl Events for Human<'_> {
     }
 }
 
+/// Events for a person without the tool's `log` lines, which `exec` prints on the command's own
+/// streams once it ends; held, and written before an `error` (the command couldn't run), so the
+/// tool's own words on why still show.
+pub(crate) struct HeldLogs<'a> {
+    sink: &'a dyn Events,
+    held: Mutex<Vec<Event>>,
+}
+
+impl<'a> HeldLogs<'a> {
+    pub(crate) fn new(sink: &'a dyn Events) -> HeldLogs<'a> {
+        HeldLogs {
+            sink,
+            held: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Events for HeldLogs<'_> {
+    fn emit(&self, event: &Event) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        match event.kind {
+            EventKind::Log { .. } => held.push(event.clone()),
+            EventKind::Error { .. } => {
+                for log in held.drain(..) {
+                    self.sink.emit(&log);
+                }
+                self.sink.emit(event);
+            }
+            _ => self.sink.emit(event),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
