@@ -198,6 +198,12 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A Compose resume brings back a service stopped outside the run with what shares its network
+  namespace.** A service joining another's namespace (`network_mode: service:<host>`, as Isoloom's
+  route sidecars do) stayed in the old one when its host was stopped (`docker stop`), and the
+  resume's `up --no-recreate` waited for it there: a sidecar that sets the host's routes ended
+  (exit 1) or came back unhealthy, and the resume failed. A resume now stops those first, so
+  `up` starts them after their host, in its new namespace.
 - **A Terraform module's machine with no address in its state takes the one its `machines`
   output names.** A Proxmox VE VM without a guest agent (every one of Isoloom's lab VMs but its
   router) had none in the status, so nothing could reach it.

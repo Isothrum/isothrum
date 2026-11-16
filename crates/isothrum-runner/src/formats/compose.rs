@@ -7,7 +7,7 @@
 //! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0; an update then removes (`rm --stop --force --volumes`) the containers of services the files declare but no longer start (moved under a profile) and the run hasn't attached |
 //! | down | `down --volumes --remove-orphans`, then whatever still carries the project's label, by id |
 //! | park | `pause` (Pause), `stop` (Shutdown) |
-//! | resume | `unpause` of the paused services, then `up --detach --wait --no-recreate` |
+//! | resume | `unpause` of the paused services, `stop` of those left in the network namespace of one that stopped, then `up --detach --wait --no-recreate` |
 //! | attach, retire | `up --detach --wait <service>` (a service under a profile starts when named), `rm --stop --force --volumes <service>` |
 //! | exec, console | `exec -T`, or `run --rm` for a service with no container (a profile's one-off); a console is `exec` with a terminal |
 //! | observe | `ps --all --format json` |
@@ -22,6 +22,7 @@
 //! (`down`), so the next start, the port free, finds nothing in its way. Compose has no set-up to run again:
 //! `provision` is refused.
 
+mod namespaces;
 mod pins;
 mod pull;
 
@@ -282,13 +283,16 @@ impl FormatDriver for Compose {
                 machines: gone,
             });
         }
-        let paused: Vec<String> = containers
-            .into_iter()
-            .filter(compose::Container::is_paused)
-            .map(|c| c.service().to_owned())
-            .collect();
+        let paused: Vec<String> = containers.iter().filter(|c| c.is_paused()).map(|c| c.service().to_owned()).collect();
         if !paused.is_empty() {
             compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), Verb::Unpause, &paused)
+                .await
+                .map_err(|e| tool_error("resume", e))?;
+        }
+        let stranded = namespaces::stranded(cx, &Self::project(cx), &containers).await;
+        if !stranded.is_empty() {
+            tracing::info!(run = %cx.run, services = ?stranded, "stopping the services left in the network namespace of one that stopped, so the start joins them to its new one");
+            compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), Verb::Stop, &stranded)
                 .await
                 .map_err(|e| tool_error("resume", e))?;
         }

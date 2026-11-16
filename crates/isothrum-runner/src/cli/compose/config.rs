@@ -1,6 +1,6 @@
-//! `docker compose config --format json`, read: the ports each service publishes, parsed once at
-//! the boundary into typed fields (unknown fields skipped), and the override that pins those
-//! Docker would give an ephemeral host port.
+//! `docker compose config --format json`, read: the ports each service publishes and the service
+//! whose network namespace each joins, parsed once at the boundary into typed fields (unknown
+//! fields skipped), and the override that pins those Docker would give an ephemeral host port.
 
 use std::collections::BTreeMap;
 
@@ -16,11 +16,13 @@ struct ComposeConfig {
     services: BTreeMap<String, Service>,
 }
 
-/// A service of the config: its published ports.
+/// A service of the config: its published ports, its network mode.
 #[derive(Debug, Default, Deserialize)]
 struct Service {
     #[serde(default)]
     ports: Vec<PortEntry>,
+    /// `service:<name>` for one that joins another's network namespace.
+    network_mode: Option<String>,
 }
 
 /// A published port as the config writes it (numbers, or strings holding them).
@@ -97,6 +99,23 @@ pub(crate) async fn ports(call: &Call<'_>, project: &Project<'_>, services: &[St
     args.extend(services.iter().cloned());
     let out = call.ok(TOOL, project.args(args), Failure::of).await?;
     ports_of(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
+}
+
+/// Each service that joins another's network namespace (`network_mode: service:<host>`), with
+/// that host, as `config` (what `config --format json` printed) says.
+pub(crate) fn namespace_hosts_of(config: &str) -> Result<BTreeMap<String, String>, String> {
+    let read: ComposeConfig = serde_json::from_str(config).map_err(|e| format!("not the config Compose prints: {e}"))?;
+    Ok(read
+        .services
+        .into_iter()
+        .filter_map(|(service, svc)| Some((service, svc.network_mode?.strip_prefix("service:")?.to_owned())))
+        .collect())
+}
+
+/// Each service `project` starts that joins another's network namespace, with that host.
+pub(crate) async fn namespace_hosts(call: &Call<'_>, project: &Project<'_>) -> Result<BTreeMap<String, String>, CliError<Failure>> {
+    let out = call.ok(TOOL, project.args(argv(["config", "--format", "json"])), Failure::of).await?;
+    namespace_hosts_of(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
 }
 
 /// The override that pins `ports`' ephemeral ones to `pinned` (each one's host port, by its
@@ -198,6 +217,13 @@ mod tests {
             let read = ports_of(config);
             assert!(read.as_ref().is_err_and(|e| e.starts_with(why)), "{config}: {read:?}");
         }
+    }
+
+    #[test]
+    fn a_service_joining_the_network_namespace_of_another_is_read_with_its_host_and_no_other_mode_is() {
+        let config = r#"{"services": {"web": {}, "routes": {"network_mode": "service:web"}, "tools": {"network_mode": "host"}, "old": {"network_mode": "container:abc"}}}"#;
+        let hosts = namespace_hosts_of(config).expect("read");
+        assert_eq!(hosts.into_iter().collect::<Vec<_>>(), [("routes".to_owned(), "web".to_owned())]);
     }
 
     /// A config that can't be read is an error, never a project with no port (which would let
