@@ -38,7 +38,6 @@ pub(crate) enum Op {
     Provision,
     Attach,
     Retire,
-    Exec,
     Console,
 }
 
@@ -158,7 +157,6 @@ async fn attempt(cx: &ToolCx<'_>, op: Op) -> Result<()> {
         Op::Provision => d.provision(cx, None, None).await,
         Op::Attach => d.attach(cx, "web").await,
         Op::Retire => d.retire(cx, "web").await,
-        Op::Exec => d.exec(cx, "web", &["true".to_owned()]).await.map(drop),
         Op::Console => d.console(cx, "web", None).await.map(drop),
     }
 }

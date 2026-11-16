@@ -11,6 +11,18 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A command runs in a Terraform module's VM: `Running::exec`, `isothrum exec`.** An `ssh` into
+  the VM that runs it, with no terminal: what it printed and its exit status, a command that fails
+  being its result and an `ssh` that can't run it (255) `tool_failed`. It was refused. A
+  console goes the same way.
+- **A console or a command reaches a module's VM along its route.** A VM at an address the
+  `machines` output names, on the module's own networks, is reached through the `ip` output's
+  machine (its router), signed in as that machine's user; a VM at its own `address_<machine>`,
+  straight. A run's `ssh_jump` value (`user@host`) is a host every console and command goes
+  through first: a server's node whose lab network only it reaches. The first host on the way is
+  pinned before the call; a host behind it, which only it reaches, the first time the call meets
+  it there. A console went to the address in the state only, which a VM on a node's internal
+  bridge has none of, and which this computer doesn't reach.
 - **A Terraform folder's input variables: `Project::variables`, `Client::variables`, the
   service's `variables` command.** Each `variable` block of any module's `*.tf` and `*.tf.json`
   files (name, type, default, sensitive, description), read from the files, nothing run. Any

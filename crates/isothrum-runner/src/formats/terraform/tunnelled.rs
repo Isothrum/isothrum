@@ -185,6 +185,13 @@ pub(super) fn user_at(out: &BTreeMap<String, String>, host: &str) -> Option<Stri
         .cloned()
 }
 
+/// `machine`'s address in the `machines` output (`{ web = "10.60.0.10" }`, as JSON text): on the
+/// module's own networks.
+pub(super) fn named_address(out: &BTreeMap<String, String>, machine: &str) -> Option<String> {
+    let all: serde_json::Value = serde_json::from_str(out.get("machines")?).ok()?;
+    all.get(machine)?.as_str().filter(|a| !a.is_empty()).map(str::to_owned)
+}
+
 /// What a status says of `machine`'s screen, as the outputs (`out`) say: its protocol, through
 /// the machine it is tunnelled through (unavailable, saying why, when the outputs name none); none
 /// for a Windows VM the module gives no way to; nothing for any other machine.

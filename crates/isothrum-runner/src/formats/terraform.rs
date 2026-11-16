@@ -27,8 +27,10 @@
 //! - Inputs reach the module as `TF_VAR_<name>` in its environment only: never on a command line,
 //!   never in a file (no `-var-file`, no saved plan, which would hold their values), and their
 //!   values are masked in the lines and errors the driver hands on.
-//! - Parking, resuming, provisioning, attaching, retiring, running a command and a console are
-//!   refused: a module's machines are made and removed by its apply and destroy only.
+//! - Parking, resuming, provisioning, attaching and retiring are refused: a module's machines are
+//!   made and removed by its apply and destroy only.
+//! - A console and a command are an `ssh` into the VM, along the route its outputs and the run's
+//!   values give ([`route`]: through the module's router, through the run's `ssh_jump` first).
 //! - A Proxmox VE VM's screen is reached through the server's API ([`screen`]); a Windows VM's
 //!   Remote Desktop (or a VNC server the module names) through an SSH tunnel to the Linux
 //!   machine beside it, as the module's outputs say ([`tunnelled`]).
@@ -37,6 +39,7 @@ mod adopt;
 mod console;
 mod machines;
 mod required;
+mod route;
 use machines::{machines_of, run_state, with_named_addresses};
 mod screen;
 mod tunnelled;
@@ -403,12 +406,14 @@ impl FormatDriver for Terraform {
         std::future::ready(Err(refused(&format!("removing `{machine}` on its own"))))
     }
 
-    fn exec(&self, _cx: &ToolCx<'_>, machine: &str, _argv: &[String]) -> impl Future<Output = Result<Ran>> {
-        std::future::ready(Err(refused(&format!("running a command in `{machine}`"))))
+    /// An `ssh` into the VM that runs the command, along the route the module's outputs and the
+    /// run's values give ([`console::exec`]).
+    async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
+        console::exec(&Module::of(cx), machine, argv).await
     }
 
-    /// An `ssh` into the VM, at the address its state says, as the user the module's outputs
-    /// name, with the run's key ([`console::of`]).
+    /// An `ssh` into the VM, along the route the module's outputs and the run's values give, as
+    /// the user asked for or the one the outputs name, with the run's key ([`console::of`]).
     async fn console(&self, cx: &ToolCx<'_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
         console::of(&Module::of(cx), machine, user).await
     }
