@@ -29,11 +29,9 @@ widestring.workspace = true
 
 [dev-dependencies]
 isothrum-runner = { workspace = true, features = ["fake"] }
+isothrum-test-support.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-
-[target.'cfg(unix)'.dev-dependencies]
-nix.workspace = true
 
 [lints]
 workspace = true

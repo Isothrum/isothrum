@@ -9,9 +9,9 @@ mod tests {
     use std::fs::File;
     use std::io::{BufRead as _, BufReader, Write as _};
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command as Process, Stdio};
+    use std::process::{Command as Process, Stdio};
     use std::sync::Arc;
-    use std::time::{Duration, Instant, SystemTime};
+    use std::time::{Duration, SystemTime};
 
     use interprocess::local_socket::traits::ListenerExt as _;
     use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName as _};
@@ -20,6 +20,11 @@ mod tests {
     use isothrum_runner::store::{OperationId, Owner, Store};
     use isothrum_runner::{BoxFuture, ErrorCode, Op, RunName, Status};
     use isothrum_service::{Engine, Journal, Refusal, ServeOptions, Service};
+    use isothrum_test_support::{ChildGuard, PidGuard, wait_until};
+
+    /// How long a test waits for what a process does on its own: long, as it only bounds a
+    /// failure, and a loaded machine starts a process slowly.
+    const PATIENCE: Duration = Duration::from_secs(60);
 
     /// The role a `service_process` plays: `serve` (what the client starts), `fake`, `exit`, `sleep`.
     const ROLE: &str = "ISOTHRUM_TEST_ROLE";
@@ -229,9 +234,9 @@ mod tests {
         false
     }
 
-    /// This binary as a helper process of `role` on `home`.
-    fn helper(role: &str, home: &Path) -> Child {
-        helper_process(role, home).spawn().unwrap()
+    /// This binary as a helper process of `role` on `home`, ended with the guard.
+    fn helper(role: &str, home: &Path) -> ChildGuard {
+        ChildGuard::spawn(&mut helper_process(role, home)).unwrap()
     }
 
     #[expect(
@@ -251,33 +256,27 @@ mod tests {
     }
 
     /// A fake service of `kind` on `home`, once it said where it listens.
-    fn start_fake(kind: Kind, home: &Path) -> Child {
-        let mut process = helper_process("fake", home);
-        let child = process.env(KIND, kind.name()).spawn().unwrap();
+    fn start_fake(kind: Kind, home: &Path) -> ChildGuard {
+        let child = ChildGuard::spawn(helper_process("fake", home).env(KIND, kind.name())).unwrap();
         let paths = ServicePaths::new(home);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while paths.read_info().is_none() {
-            assert!(Instant::now() < deadline, "the fake didn't start");
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        assert!(wait_until(PATIENCE, || paths.read_info().is_some()), "the fake didn't start");
         child
     }
 
     /// The `isothrum` the client starts: a wrapper that runs this binary as the service of the home
-    /// it is given (`serve --home <home> --detach`).
+    /// it is given (`serve --home <home> --detach`). On Unix it is installed once for this test
+    /// binary and found by every test: one written per test was a new executable each time, whose
+    /// first run waits for macOS's check of it, past the client's start wait on a loaded machine.
     fn wrapper(dir: &Path) -> PathBuf {
         let exe = std::env::current_exe().unwrap();
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt as _;
-            let path = dir.join("isothrum");
+            let _ = dir;
             let script = format!(
                 "#!/bin/sh\n{ROLE}=serve {HOME}=\"$3\" exec '{}' tests::service_process --exact --nocapture --test-threads=1\n",
                 exe.display()
             );
-            std::fs::write(&path, script).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            path
+            isothrum_test_support::installed_executable(Path::new(env!("CARGO_TARGET_TMPDIR")), "isothrum", &script).unwrap()
         }
         #[cfg(windows)]
         {
@@ -316,30 +315,13 @@ mod tests {
             client.shutdown().await.unwrap();
             drop(client);
             let paths = ServicePaths::new(self.home.path());
-            let deadline = Instant::now() + Duration::from_secs(10);
-            while paths.read_info().is_some() {
-                assert!(Instant::now() < deadline, "the service didn't stop");
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            assert!(wait_until(PATIENCE, || paths.read_info().is_none()), "the service didn't stop");
         }
     }
 
     /// Whether `child` ended within `wait`.
-    fn ends(child: &mut Child, wait: Duration) -> bool {
-        let deadline = Instant::now() + wait;
-        while Instant::now() < deadline {
-            if child.try_wait().unwrap().is_some() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        false
-    }
-
-    /// Ends `child` (a helper a test left running).
-    fn reap(mut child: Child) {
-        drop(child.kill());
-        drop(child.wait());
+    fn ends(child: &mut ChildGuard, wait: Duration) -> bool {
+        wait_until(wait, || child.try_wait().unwrap().is_some())
     }
 
     /// The client is this release's, and the service's process isn't `old`.
@@ -368,7 +350,7 @@ mod tests {
         assert!(matches!(&refused, ClientError::Protocol(m) if m.contains("9.0.0")), "{refused}");
         let client = s.connect_exact().await.unwrap();
         is_this_release(&client, old.id());
-        assert!(ends(&mut old, Duration::from_secs(5)), "the old service stopped");
+        assert!(ends(&mut old, PATIENCE), "the old service stopped");
         s.stop(client).await;
     }
 
@@ -379,7 +361,7 @@ mod tests {
         assert_eq!(Client::connect_running(s.home.path()).await.unwrap().service().version, OLD, "connect takes it");
         let client = s.connect_exact().await.unwrap();
         is_this_release(&client, old.id());
-        assert!(ends(&mut old, Duration::from_secs(5)));
+        assert!(ends(&mut old, PATIENCE));
         s.stop(client).await;
     }
 
@@ -394,7 +376,7 @@ mod tests {
         assert_eq!((version.as_str(), *pid, operations.as_slice()), (OLD, old.id(), [OperationId(7)].as_slice()));
         assert_eq!(busy.code(), ErrorCode::Locked);
         assert!(!ends(&mut old, Duration::from_millis(300)), "it runs on");
-        reap(old);
+        drop(old);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -403,7 +385,7 @@ mod tests {
         let mut old = start_fake(Kind::Hung, s.home.path());
         let client = s.connect_exact().await.unwrap();
         is_this_release(&client, old.id());
-        assert!(ends(&mut old, Duration::from_secs(5)), "the hung service was ended");
+        assert!(ends(&mut old, PATIENCE), "the hung service was ended");
         s.stop(client).await;
     }
 
@@ -417,7 +399,7 @@ mod tests {
             "{busy:?}"
         );
         assert!(!ends(&mut old, Duration::from_millis(300)), "it runs on");
-        reap(old);
+        drop(old);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -431,10 +413,9 @@ mod tests {
             isothrum_runner::process_started_at(named).await.is_some(),
             "the process its service.json names still runs"
         );
-        // The fake's own sleeper goes with it: end both.
-        #[cfg(unix)]
-        assert!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(i32::try_from(named).unwrap()), nix::sys::signal::Signal::SIGKILL).is_ok());
-        reap(old);
+        // The fake's own sleeper is in a process group of its own: ended here.
+        drop(PidGuard::new(named));
+        drop(old);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -442,7 +423,7 @@ mod tests {
         let s = setup();
         let paths = ServicePaths::new(s.home.path());
         let mut gone = helper("exit", s.home.path());
-        gone.wait().unwrap();
+        assert!(ends(&mut gone, PATIENCE));
         let mut reused = helper("sleep", s.home.path());
         for pid in [gone.id(), reused.id()] {
             let stale = ServiceInfo {
@@ -459,7 +440,7 @@ mod tests {
             s.stop(client).await;
         }
         assert!(!ends(&mut reused, Duration::from_millis(100)), "the process with the stale pid runs on");
-        reap(reused);
+        drop(reused);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -472,11 +453,10 @@ mod tests {
             "{wrong:?}"
         );
         let paths = ServicePaths::new(s.home.path());
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while paths.read_info().is_some() {
-            assert!(Instant::now() < deadline, "the service of the wrong release was stopped");
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        assert!(
+            wait_until(PATIENCE, || paths.read_info().is_none()),
+            "the service of the wrong release was stopped"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

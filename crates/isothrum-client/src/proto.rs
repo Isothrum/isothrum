@@ -436,10 +436,14 @@ impl Reply {
 mod tests {
     use super::*;
 
-    fn round_trip<T: Serialize + serde::de::DeserializeOwned + PartialEq + fmt::Debug>(value: &T) -> String {
+    use serde_json::json;
+
+    /// `value` written as one line, read back as itself: the line, as JSON.
+    fn round_trip<T: Serialize + serde::de::DeserializeOwned + PartialEq + fmt::Debug>(value: &T) -> serde_json::Value {
         let line = serde_json::to_string(value).unwrap();
+        assert!(!line.contains('\n'), "one line: {line}");
         assert_eq!(&serde_json::from_str::<T>(&line).unwrap(), value, "{line}");
-        line
+        serde_json::from_str(&line).unwrap()
     }
 
     #[test]
@@ -454,7 +458,7 @@ mod tests {
         };
         assert_eq!(
             round_trip(&up),
-            r#"{"id":7,"cmd":"up","target":{"path":"/labs/web","name":"web","format":"compose"},"options":{},"lifetime_s":3600}"#
+            json!({"id": 7, "cmd": "up", "target": {"path": "/labs/web", "name": "web", "format": "compose"}, "options": {}, "lifetime_s": 3600})
         );
         let park = round_trip(&Request {
             id: 8,
@@ -464,7 +468,7 @@ mod tests {
                 mode: Park::Pause,
             },
         });
-        assert!(park.contains(r#""cmd":"park""#) && park.contains(r#""mode":"pause""#), "{park}");
+        assert_eq!((&park["cmd"], &park["mode"]), (&json!("park"), &json!("pause")), "{park}");
         round_trip(&Request { id: 9, command: Command::List });
         assert_eq!(
             round_trip(&Request {
@@ -474,7 +478,7 @@ mod tests {
                     after: Some(EventCursor(41)),
                 },
             }),
-            r#"{"id":10,"cmd":"subscribe","after":41}"#
+            json!({"id": 10, "cmd": "subscribe", "after": 41})
         );
     }
 
@@ -509,21 +513,25 @@ mod tests {
             run: RunName::new("web").unwrap(),
             position: 1,
         });
-        assert_eq!(accepted, r#"{"reply":"accepted","id":1,"operation":4,"run":"web","position":1}"#);
+        assert_eq!(accepted, json!({"reply": "accepted", "id": 1, "operation": 4, "run": "web", "position": 1}));
         let refused = round_trip(&Reply::Error {
             id: 2,
             code: ErrorCode::Usage,
             message: "no".into(),
             detail: None,
         });
-        assert_eq!(refused, r#"{"reply":"error","id":2,"code":"usage","message":"no"}"#);
+        assert_eq!(refused, json!({"reply": "error", "id": 2, "code": "usage", "message": "no"}));
         let run = RunName::new("web").unwrap();
         let event = crate::v1::phase_event(&run, (Op::Down, OperationId(4)), crate::v1::OperationPhase::Started, None, None);
         let frame = round_trip(&Reply::Event {
             cursor: EventCursor(12),
             event: Box::new(event),
         });
-        assert!(frame.starts_with(r#"{"reply":"event","cursor":12,"event":{"v":1"#), "{frame}");
+        assert_eq!(
+            (&frame["reply"], &frame["cursor"], &frame["event"]["v"]),
+            (&json!("event"), &json!(12), &json!(1)),
+            "{frame}"
+        );
     }
 
     #[test]
@@ -535,19 +543,19 @@ mod tests {
                 id: 3,
                 command: Command::ShutdownIfIdle,
             }),
-            r#"{"id":3,"cmd":"shutdown_if_idle"}"#
+            json!({"id": 3, "cmd": "shutdown_if_idle"})
         );
         let hello_reply = round_trip(&Reply::Hello {
             id: 0,
             protocol: 7,
             version: "9.0.0".into(),
         });
-        assert_eq!(hello_reply, r#"{"reply":"hello","id":0,"protocol":7,"version":"9.0.0"}"#);
+        assert_eq!(hello_reply, json!({"reply": "hello", "id": 0, "protocol": 7, "version": "9.0.0"}));
         let busy = round_trip(&Reply::Busy {
             id: 3,
             operations: vec![OperationId(4), OperationId(9)],
         });
-        assert_eq!(busy, r#"{"reply":"busy","id":3,"operations":[4,9]}"#);
-        assert_eq!(round_trip(&Reply::Ok { id: 3 }), r#"{"reply":"ok","id":3}"#);
+        assert_eq!(busy, json!({"reply": "busy", "id": 3, "operations": [4, 9]}));
+        assert_eq!(round_trip(&Reply::Ok { id: 3 }), json!({"reply": "ok", "id": 3}));
     }
 }

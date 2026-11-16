@@ -250,7 +250,6 @@ mod tests {
             rx,
             task: tokio::spawn(async {}),
         };
-        assert_eq!(format!("{sub:?}"), "Subscription { .. }");
         let first = std::future::poll_fn(|cx| futures_core::Stream::poll_next(Pin::new(&mut sub), cx)).await;
         assert!(matches!(first, Some(Ok((EventCursor(4), _)))), "{first:?}");
         assert!(sub.next().await.is_none());

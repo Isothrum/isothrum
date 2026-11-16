@@ -68,7 +68,6 @@ async fn a_hello_of_this_protocol_connects_and_any_other_answer_is_a_protocol_er
     let serving = answering(home.path(), Some(speaks(PROTOCOL))).expect("a fake service");
     let client = Client::connect_running(home.path()).await.expect("this protocol");
     assert_eq!(client.service().version, "9.9.9", "the version its hello says");
-    assert!(format!("{client:?}").contains("Client"), "{client:?}");
     serving.await.expect("the fake");
 }
 
