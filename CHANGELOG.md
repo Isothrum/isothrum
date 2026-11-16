@@ -176,6 +176,14 @@ Terraform), usable on any project of those formats.
 - **`Runner::run_record`: one run's record, read alone.** An embedder asking after one run read
   every record (`runs`) and failed on another run's record it couldn't read.
 
+### Removed
+
+- **Breaking:** the `fake` feature's lenient and implicit forms, `FakeProcesses::new` (a model
+  that answered a silent `docker info` with a version of its own), `FakeProcesses::rules` (first
+  substring match, anything else a silent success) and `FakeProcesses::expect(&[..])`. A test
+  scripts its tools with `FakeProcesses::script()` (`expect`, `expect_times`, `allow`), or models
+  an engine with `FakeProcesses::model`, which adds nothing to its answers.
+
 ### Fixed
 
 - **A first Compose start refused for a taken host port leaves nothing behind.** Compose makes the

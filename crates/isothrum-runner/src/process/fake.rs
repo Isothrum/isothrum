@@ -229,50 +229,9 @@ impl FakeProcesses {
         }
     }
 
-    /// [`FakeProcesses::model`] as the tests written before it have it: the engine probe
-    /// (`docker info --format {{.ServerVersion}}`) that `answer` answers with a silent success
-    /// prints a version, as a running Docker does (the runner reads an empty answer as a daemon
-    /// down). Kept for those tests until they move to [`FakeProcesses::model`] or
-    /// [`FakeProcesses::script`], which add nothing.
-    pub fn new(answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> FakeProcesses {
-        FakeProcesses::model(move |call| {
-            let reply = answer(call);
-            let silent_success = reply.code == 0 && !reply.missing && reply.stdout.is_empty();
-            if silent_success && call.program == "docker" && call.args.first().map(String::as_str) == Some("info") {
-                return Reply::ok("29.0.0");
-            }
-            reply
-        })
-    }
-
     /// A strict script to build: see [`Script`].
     pub fn script() -> Script {
         Script::default()
-    }
-
-    /// Strict fakes for `expected`, each `(call, reply)` made at least once (see [`Script`]).
-    #[must_use]
-    pub fn expect(expected: &[(&str, Reply)]) -> FakeProcesses {
-        expected
-            .iter()
-            .fold(Script::default(), |s, (call, reply)| s.expect(call, reply.clone()))
-            .build()
-    }
-
-    /// Lenient fakes, for the tests written before [`FakeProcesses::script`]: each call answered
-    /// by the first rule whose text its line contains, any other with a silent success (the engine
-    /// probe with a version, as [`FakeProcesses::new`]). Such a test can't see a call it didn't
-    /// expect; new tests script their calls strictly.
-    #[must_use]
-    pub fn rules(rules: &[(&str, Reply)]) -> FakeProcesses {
-        let rules: Vec<(String, Reply)> = rules.iter().map(|(k, r)| ((*k).to_owned(), r.clone())).collect();
-        FakeProcesses::new(move |call| {
-            let line = call.line();
-            rules
-                .iter()
-                .find(|(k, _)| line.contains(k.as_str()))
-                .map_or_else(|| Reply::ok(""), |(_, r)| r.clone())
-        })
     }
 
     /// The reply to `call`; a call a strict script doesn't answer panics.
