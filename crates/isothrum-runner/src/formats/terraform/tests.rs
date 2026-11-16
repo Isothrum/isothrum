@@ -310,6 +310,8 @@ async fn observe_reads_the_vms_and_the_outputs_sensitivity_kept() {
         }
     );
     assert_eq!(seen.outputs["machines"].value, r#"{"web":"10.0.0.10"}"#);
+    let addresses: Vec<Option<&str>> = seen.machines.iter().map(|m| m.address.as_deref()).collect();
+    assert_eq!(addresses, [Some("10.0.0.10"), None], "web at the address its `machines` output names");
     assert!(seen.outputs["token"].sensitive);
     assert!(lab.lines().iter().all(|l| !l.contains(SECRET)));
 }

@@ -1,7 +1,9 @@
 //! Which of a module's resources are machines, and what each is called: a VM of one of the
 //! providers' VM types ([`VM_TYPES`]), named by its address without its type
 //! ([`machine_name`]): `esxi_guest.web` is `web`, `aws_instance.pool[0]` is `pool[0]`, and
-//! `module.lab.proxmox_virtual_environment_vm.vm["a"]` is `module.lab.vm["a"]`.
+//! `module.lab.proxmox_virtual_environment_vm.vm["a"]` is `module.lab.vm["a"]`. A machine's
+//! address is the one its provider writes in the state, else the one the module's `machines`
+//! output gives it ([`with_named_addresses`]).
 
 use crate::cli::terraform as tf;
 use crate::formats::SeenMachine;
@@ -95,6 +97,26 @@ pub(super) fn machines_of(managed: &[tf::Resource]) -> Vec<SeenMachine> {
         .collect()
 }
 
+/// The output naming each machine's address: `{ web = "10.60.0.10" }`.
+const MACHINES_OUTPUT: &str = "machines";
+
+/// Gives each of `machines` the state gave no address the one the module's `machines` output
+/// names (`outputs`, as `output -json` read them), when it is text. A server's VMs on the
+/// module's own networks have none in the state: their provider reads addresses from a guest
+/// agent they don't run (Proxmox VE's), and the module knows them, as it gave them.
+pub(super) fn with_named_addresses(machines: &mut [SeenMachine], outputs: &std::collections::BTreeMap<String, tf::Output>) {
+    let Some(named) = outputs.get(MACHINES_OUTPUT).and_then(|o| o.value.as_object()) else {
+        return;
+    };
+    for machine in machines.iter_mut().filter(|m| m.address.is_none()) {
+        machine.address = named
+            .get(&machine.name)
+            .and_then(serde_json::Value::as_str)
+            .filter(|a| !a.is_empty())
+            .map(str::to_owned);
+    }
+}
+
 /// Where a run stands, from its state as `show` read it: absent when it holds nothing; ready
 /// when every managed instance is sound, or when it holds data sources only (a module that reads
 /// and gives back, making nothing, is up once applied); failed with a tainted instance.
@@ -136,6 +158,50 @@ mod tests {
         ] {
             assert_eq!(machine_name(address, kind), name, "{address}");
         }
+    }
+
+    fn seen(name: &str, address: Option<&str>) -> SeenMachine {
+        SeenMachine {
+            name: name.to_owned(),
+            state: MachineState::Running,
+            published: Vec::new(),
+            kind: Some("proxmox_virtual_environment_vm".to_owned()),
+            address: address.map(str::to_owned),
+            windows: false,
+        }
+    }
+
+    #[test]
+    fn a_machine_the_state_gives_no_address_takes_the_one_the_machines_output_names() {
+        let outputs: std::collections::BTreeMap<String, tf::Output> = serde_json::from_value(serde_json::json!({
+            "machines": { "value": { "web": "10.60.0.10", "cache": "10.60.0.20", "db": "", "odd": 7 } }
+        }))
+        .expect("outputs");
+        let mut machines = vec![
+            seen("web", None),
+            seen("router", Some("192.0.2.10")),
+            seen("cache", Some("198.51.100.4")),
+            seen("db", None),
+            seen("odd", None),
+            seen("nameless", None),
+        ];
+        with_named_addresses(&mut machines, &outputs);
+        let addresses: Vec<(&str, Option<&str>)> = machines.iter().map(|m| (m.name.as_str(), m.address.as_deref())).collect();
+        assert_eq!(
+            addresses,
+            [
+                ("web", Some("10.60.0.10")),
+                ("router", Some("192.0.2.10")),
+                ("cache", Some("198.51.100.4")),
+                ("db", None),
+                ("odd", None),
+                ("nameless", None),
+            ],
+            "the state's address wins; an empty or non-text one is none"
+        );
+        let mut untouched = vec![seen("web", None)];
+        with_named_addresses(&mut untouched, &std::collections::BTreeMap::new());
+        assert_eq!(untouched[0].address, None, "no output: nothing given");
     }
 
     #[test]

@@ -18,7 +18,8 @@
 //!   a crashed run made is removed by its recorded id ([`FormatDriver::destroy_by_id`]: a
 //!   targeted destroy, after an `import` when the state lost it).
 //! - The machines are the module's VMs ([`machines`]); `observe` reads them and the outputs from
-//!   the state (`show -json`, `output -json`, sensitivity kept). A resource the provider removed
+//!   the state (`show -json`, `output -json`, sensitivity kept), each machine at the address its
+//!   provider writes, else the one the module's `machines` output names. A resource the provider removed
 //!   outside the run stays in the state until a refresh, and a status does none: it is read
 //!   often, and a refresh calls the provider's API under the state's lock, with the run's
 //!   credentials. The next `up` or `update` refreshes in its apply and makes it again. A Proxmox
@@ -36,7 +37,7 @@ mod adopt;
 mod console;
 mod machines;
 mod required;
-use machines::{machines_of, run_state};
+use machines::{machines_of, run_state, with_named_addresses};
 mod screen;
 mod tunnelled;
 
@@ -423,6 +424,7 @@ impl FormatDriver for Terraform {
                 .map_err(|e| module.error("output", e))?,
         };
         let mut machines = machines_of(&held.managed);
+        with_named_addresses(&mut machines, &outputs);
         screen::on_server(cx, &outputs, &held.managed, &mut machines).await?;
         let seen = Seen {
             machines,
