@@ -40,6 +40,11 @@ Terraform), usable on any project of those formats.
   same machines ran together and Vagrant refused one. The reads of a run now take turns, and one
   asked while another runs, with the same target and options, takes the next one's answer.
 
+- **`provider_refused` with `need: permission` (`ProviderNeed::Permission`): the system refused
+  the hypervisor's app a permission**, recognized from what Vagrant's provider printed: UTM
+  answering `utmctl start` with `Error from event: … (OSStatus error -2700.) … Operation not
+  permitted`, or macOS refusing the Apple events (`-1743`, in any language). It was
+  `tool_failed`; no wait fixes it, so it is never tried again.
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the
   run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
