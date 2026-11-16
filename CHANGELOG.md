@@ -29,6 +29,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **The `--json` output's schema: `docs/reference/json-output.schema.json`.** One JSON Schema of
+  everything the command line prints with `--json`: the events (results and errors with their
+  typed details), `status`, `console`, `screen`, `screen --app` and `key`. It is written from the
+  types that print them, and a test fails when the code and the committed file differ. The
+  tables of `events.md` (the common fields, the event kinds, the error details) are written from
+  it. `key`, `screen` and `screen --app` print typed documents instead of hand-built JSON.
 - **Getting started: `docs/tutorials/getting-started.md`.** Install, then a Compose project's
   `up`, `status`, `exec`, `park`, `resume` and `down`. It replaces *Your first run*, which needed a
   generated project and a `check` command that is gone. The README describes Isothrum as the

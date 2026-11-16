@@ -17,7 +17,7 @@ pub(crate) mod shells;
 /// files, the Vagrant define, the address and user a module gives), the embedder runs it in its
 /// own terminal. Addresses the machine by service or define name, or by the address the run gives
 /// it, never a guessed container.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct ShellCommand {
     /// The program to run (`docker`, `vagrant`, `ssh`).

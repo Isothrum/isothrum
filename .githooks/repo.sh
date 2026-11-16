@@ -4,7 +4,7 @@
 # refuse (lib.sh) stops git with the reason.
 
 # The files generated from the code (.githooks/regenerate writes and checks them).
-GENERATED="crates/isothrum-runner/schema docs/reference/cli.md docs/reference/exit-codes.md"
+GENERATED="crates/isothrum-runner/schema docs/reference/cli.md docs/reference/exit-codes.md docs/reference/json-output.schema.json docs/reference/events.md"
 export GENERATED
 
 # format_staged <files>: rustfmt over the staged Rust (rustfmt.toml; the toolchain

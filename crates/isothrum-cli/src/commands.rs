@@ -7,6 +7,7 @@ use std::borrow::Borrow;
 use isothrum_runner::{Endpoint, Events, NativeOpen, Op, Park, RunName, RunOptions, Runner, Running, ShellCommand};
 
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
+use crate::documents::{NativeApps, PublicKey, Screen};
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
 use crate::term::{HeldLogs, Human, Json, Term, Traced, Trail};
@@ -75,7 +76,7 @@ async fn on_runner(command: &RunnerCommand, runner: &Runner, out: &Out<'_>, var:
         RunnerCommand::Key => {
             let key = runner.ssh_public_key().await?;
             if out.json {
-                term.out(&serde_json::json!({ "public_key": key }).to_string());
+                term.out(&serde_json::to_string(&PublicKey { public_key: key })?);
             } else {
                 term.out(&key);
             }
@@ -253,11 +254,17 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
     };
     let password = console.password.as_ref().filter(|_| show).map(|p| p.expose().to_owned());
     if json {
-        let line = serde_json::json!({
-            "machine": console.machine, "protocol": protocol, "address": address, "websocket": websocket,
-            "user": console.user, "password": password, "note": console.note, "tunnel": tunnel,
-        });
-        term.out(&line.to_string());
+        let document = Screen {
+            machine: console.machine.clone(),
+            protocol: console.protocol,
+            address,
+            websocket,
+            user: console.user.clone(),
+            password,
+            note: console.note.clone(),
+            tunnel,
+        };
+        term.out(&serde_json::to_string(&document)?);
     } else {
         term.out(&format!("{protocol} {}", address.or(websocket).unwrap_or_default()));
         if let Some(user) = &console.user {
@@ -289,18 +296,8 @@ async fn screen(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptio
 async fn native(out: &Out<'_>, run: &Running<'_>, machine: &str, opts: &RunOptions) -> Result<Verdict> {
     let Out { json, term, .. } = *out;
     let console = run.native_console(machine, opts).await?;
-    let ways: Vec<serde_json::Value> = console
-        .ways
-        .iter()
-        .map(|way| match way {
-            NativeOpen::Program { program, args } => serde_json::json!({ "program": program, "args": args }),
-            NativeOpen::MacApp { app, args } => serde_json::json!({ "mac_app": app, "args": args }),
-            NativeOpen::Url { url } => serde_json::json!({ "url": url }),
-            _ => serde_json::Value::Null,
-        })
-        .collect();
     if json {
-        term.out(&serde_json::json!({ "machine": console.machine, "app": console.app, "ways": ways }).to_string());
+        term.out(&serde_json::to_string(&NativeApps::of(&console))?);
     } else {
         term.out(&format!("{}:", console.app));
         for way in &console.ways {
