@@ -8,6 +8,7 @@ mod endpoints;
 mod graphical;
 mod operate;
 mod ports;
+mod processes;
 pub(crate) mod recovery;
 pub use endpoints::ServiceEndpoint;
 mod status;
@@ -16,7 +17,6 @@ use status::status_of;
 mod tests;
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::Result;
 use crate::console::ShellCommand;
@@ -212,23 +212,6 @@ impl<'r> Running<'r> {
             .or_else(|| self.runner.store.record(&self.name).ok().flatten().and_then(|r| r.provider))
     }
 
-    /// The process runner of an operation: its tools recorded in the run's state folder while they
-    /// run, so a killed operation's are ended by the next ([`crate::process::ledger`]).
-    fn operation_processes(&self, opts: &RunOptions) -> Arc<dyn ProcessRunner> {
-        let tools = self.state_dir().join(crate::process::ledger::DIR);
-        let recorded: Arc<dyn ProcessRunner> = Arc::new(crate::process::Recording::new(
-            Arc::clone(&self.runner.config.processes),
-            tools,
-            self.runner.operation_of(&self.name),
-        ));
-        let windows = self.runner.config.host == crate::project::platform::HostOs::Windows;
-        if windows && self.driver.elevates(self.provider(opts)) {
-            let env = self.runner.config.host_env.for_elevation();
-            return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
-        }
-        recorded
-    }
-
     /// Runs `work` with a tool context for this run, whose tool lines and warnings go to
     /// `emitter` (the lines as the operation's own step).
     async fn with_cx<T>(
@@ -249,6 +232,11 @@ impl<'r> Running<'r> {
             run: &self.name,
         };
         let made = || self.made();
+        let context = self.docker_context(opts);
+        let processes = &crate::process::DockerContext {
+            inner: processes,
+            context: context.as_deref(),
+        };
         let cx = ToolCx {
             project: &self.project,
             run: &self.name,

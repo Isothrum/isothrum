@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A run's Docker context is a run option.** `RunOptions::with_docker_context` (`docker_context`
+  on the wire) sends every `docker` call of the run to that context (`docker --context <it>`),
+  whatever the current one is; the run records it, and every later operation and read that gives
+  none uses it. An embedder that picks an engine per run (OrbStack, Colima, Docker Desktop) no
+  longer wraps the runner's process runner for it.
+
 - **The client asks the service what it would read or write in the home.** `record`, `forget`,
   `expired`, `console_command`, `graphical_console`, `native_console`, `service_endpoints` and
   `public_key` (`Client::record`, `Client::forget`…): an embedder never opens the runner's store

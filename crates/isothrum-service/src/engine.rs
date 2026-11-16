@@ -202,6 +202,9 @@ fn run_options(options: &OpOptions) -> RunOptions {
     if let Some(provider) = options.provider {
         opts = opts.with_provider(provider);
     }
+    if let Some(context) = &options.docker_context {
+        opts = opts.with_docker_context(context);
+    }
     if options.reveal {
         opts = opts.with_reveal();
     }

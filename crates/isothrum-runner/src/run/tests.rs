@@ -148,6 +148,23 @@ async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_
 }
 
 #[tokio::test]
+async fn a_run_started_on_a_docker_context_keeps_going_there_for_every_later_call() {
+    let (_root, project, runner, _engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new().with_docker_context("orbstack"), &Recorder::new()).await.expect("up");
+    run.status().await.expect("status");
+    // A later operation names no context: the one its start recorded is used.
+    run.down(&RunOptions::new(), &Recorder::new()).await.expect("down");
+    let docker: Vec<_> = fake.calls().into_iter().filter(|c| c.program == "docker").collect();
+    assert!(docker.len() > 3, "{docker:?}");
+    for call in &docker {
+        assert_eq!(call.args[..2], ["--context", "orbstack"], "{}", call.line());
+    }
+    let record = runner.run_record(run.name()).expect("read").expect("recorded");
+    assert_eq!(record.docker_context.as_deref(), Some("orbstack"));
+}
+
+#[tokio::test]
 async fn a_parked_run_reads_parked_and_a_resume_brings_it_back() {
     let (_root, project, runner, _engine) = setup();
     let run = runner.open(&project, None).expect("opened");
