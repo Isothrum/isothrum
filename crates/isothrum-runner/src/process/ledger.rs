@@ -441,5 +441,4 @@ pub(crate) fn left_by_a_killed_process(dir: &Path, pid: u32) -> io::Result<()> {
 }
 
 #[cfg(test)]
-#[path = "ledger_tests.rs"]
 mod tests;

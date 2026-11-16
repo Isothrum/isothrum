@@ -221,5 +221,4 @@ impl std::fmt::Debug for PortReservations {
 }
 
 #[cfg(test)]
-#[path = "reservations_tests.rs"]
 mod tests;

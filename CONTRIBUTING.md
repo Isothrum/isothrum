@@ -104,7 +104,39 @@ status schemas after changing them), `msrv`, `features`, `mutants`, `real-run`.
 `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` regenerates
 `docs/reference/cli.md` and `exit-codes.md` after a change to the command line or the error codes.
 
-## Writing tests
+## Tests
+
+A test proves one behaviour that a user, an embedder (an application linking the crates, or
+driving the CLI or the service) or a contract (the events, the status, the exit codes, the
+protocol) depends on, and proves it once. A test that can't fail, or that proves what another
+already does, is deleted; two that differ only in their input are one table of cases.
+
+### Where they live
+
+- **Unit tests** are in the module they test, at its end: `#[cfg(test)] mod tests { use super::*; … }`.
+  The size rule of `cargo xtask quality` doesn't count that block.
+- When a module's tests outgrow it, they move to `<module>/tests.rs`, declared
+  `#[cfg(test)] mod tests;` (Rust finds it there: no `#[path]`), and split by theme into
+  `<module>/tests/<theme>.rs` (`run/tests/refusals.rs`, `store/db/tests/crash.rs`). A test file
+  keeps under the size rule's 400 lines as a source file does. No `*_tests.rs`.
+- **Integration tests** are in the crate's `tests/<subject>.rs` and use only what the crate
+  exports: the runner's API (`runner_api.rs`), the CLI's binary (`failures.rs`), the service
+  over its protocol (`client_api.rs`). One file per subject, named for it.
+- **Helpers.** What the tests of more than one crate share is in `isothrum-test-support`
+  (process guards, `wait_until`, `TempHome`, `write_executable`, `assert_every!`). A helper one
+  crate's tests share stays in that crate: `testing.rs` beside its unit tests, `tests/common/mod.rs`
+  for its integration tests. The scripted processes are the runner's `fake` feature (`fake.rs`),
+  since they implement its `ProcessRunner`.
+
+The xtask's `guardrails::layout` test refuses a `#[path]`, a `*_tests.rs` and a `test_` prefix.
+
+### Names
+
+A test's name is the sentence it proves, in snake case, about the behaviour rather than the
+function: `a_port_held_on_all_interfaces_is_not_free`, `down_of_a_run_never_started_is_a_no_op`.
+No `test_` prefix, no `works`, `ok` or `basic`: when the test fails, its name says what broke.
+
+### How they are written
 
 - Script the tools a test's code runs with `FakeProcesses::script()` (`isothrum-runner`'s `fake`
   feature): each `expect("docker compose ps", reply)` names a program and the arguments its call
@@ -127,10 +159,13 @@ status schemas after changing them), `msrv`, `features`, `mutants`, `real-run`.
 - A program a test runs (a stand-in tool) is written with `isothrum_test_support::write_executable`,
   never by the test's own process: a file it has open for writing is open in every process another
   test thread forks meanwhile, and running it then fails with "Text file busy".
+- Cases of one behaviour are one table, `for (input, expected) in [...]`, the case named in the
+  assert's message; a value many tests build is built by one builder or fixture, not copied.
+- A test's folder is a `tempfile::TempDir` it holds to its end, never a fixed path.
 - `assert_every!` over a collection fails when it is empty, where `iter().all(..)` passes.
 - An error is asserted by its code or its message, never by `is_err()` alone.
 
-## Tests against real tools
+### Against real tools
 
 The test suite never starts a real tool: the `fake` feature's scripted processes stand in. Real
 runs are separate and opt-in:
