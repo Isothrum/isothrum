@@ -131,6 +131,25 @@ mod tests {
     }
 
     #[test]
+    fn libvirt_finds_the_virtiofsd_of_debians_package_beside_qemus_gpu_descriptor() {
+        // Debian 13's descriptors as its packages write them: QEMU's GPU one first by name, then
+        // the `virtiofsd` package's, with its `features`.
+        let root = tempfile::tempdir().unwrap();
+        let share = root.path().join("usr/share/qemu/vhost-user");
+        std::fs::create_dir_all(&share).unwrap();
+        let (gpu, binary) = (root.path().join("vhost-user-gpu"), root.path().join("virtiofsd"));
+        std::fs::write(&gpu, "").unwrap();
+        std::fs::write(&binary, "").unwrap();
+        let gpu_json = format!("{{\n  \"description\": \"QEMU vhost-user-gpu\",\n  \"type\": \"gpu\",\n  \"binary\": {gpu:?}\n}}\n");
+        std::fs::write(share.join("50-qemu-gpu.json"), gpu_json).unwrap();
+        let fs_json = format!(
+            "{{\n  \"description\": \"virtiofsd vhost-user-fs\",\n  \"type\": \"fs\",\n  \"binary\": {binary:?},\n  \"features\": [\n      \"migrate-precopy\",\n      \"separate-options\"\n  ]\n}}\n"
+        );
+        std::fs::write(share.join("50-virtiofsd.json"), fs_json).unwrap();
+        assert_eq!(described_in(&[&share, &root.path().join("etc/qemu/vhost-user")]), Some(binary));
+    }
+
+    #[test]
     fn a_descriptor_of_another_vhost_user_device_isnt_a_virtiofsd() {
         let root = tempfile::tempdir().unwrap();
         let binary = root.path().join("vhost-user-gpu");
