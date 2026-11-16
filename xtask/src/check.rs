@@ -74,7 +74,7 @@ const WINDOWS: (&str, &[&str]) = ("x86_64-pc-windows-gnu", &["x86_64-w64-mingw32
 const MSRV: &str = "1.90";
 
 /// Every step, in the order they run.
-const STEPS: [Step; 17] = [
+const STEPS: [Step; 18] = [
     Step {
         name: "fetch",
         fast: true,
@@ -108,6 +108,28 @@ const STEPS: [Step; 17] = [
         fast: true,
         needs: Needs::CargoTool("nextest"),
         run: |r| cargo(r, &["run", "-p", "xtask", "-q", "--", "test"]),
+        only_on: None,
+    },
+    Step {
+        name: "coverage",
+        fast: false,
+        needs: Needs::CargoTool("llvm-cov"),
+        run: |r| {
+            cargo(
+                r,
+                &[
+                    "llvm-cov",
+                    "nextest",
+                    "--workspace",
+                    "--exclude",
+                    "xtask",
+                    "--locked",
+                    "--summary-only",
+                    "--fail-under-lines",
+                    COVERAGE_FLOOR,
+                ],
+            )
+        },
         only_on: None,
     },
     Step {
@@ -330,6 +352,11 @@ fn msrv(root: &Path) -> Res<bool> {
 /// a breaking change fails until the version is raised on purpose. One exception, decided for the
 /// release after 1.x: while crates.io's latest is a 1.x, the unreleased changes are checked as the
 /// 2.0.0 major they are. Once 2.0.0 is published, the exception no longer matches.
+/// The tests' line coverage floor for the `coverage` step, in percent: about a point under what dev
+/// measures (88.38%, macOS, 2026-11-16, the xtask left out), raised as it rises, never lowered to
+/// let a change in.
+const COVERAGE_FLOOR: &str = "87.4";
+
 fn semver(root: &Path) -> Res<bool> {
     let answer = process::output(Command::new("curl").args([
         "-fsS",

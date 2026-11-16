@@ -80,6 +80,7 @@ that didn't run never passes for one that did. The steps, in order:
 | `deny` | `cargo deny --all-features check` |
 | `msrv` | `cargo +1.90 check --workspace --all-targets` |
 | `windows-gnu` | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` |
+| `coverage` | the tests' line coverage under cargo-llvm-cov, at least `COVERAGE_FLOOR` in `xtask/src/check.rs` (about a point under dev's, raised as it rises) |
 | `semver` | `cargo semver-checks` against each crate's latest release on crates.io |
 | `hooks` | shellcheck over the git hooks, then their own test (needs gitleaks) |
 | `fuzz` | `cargo xtask fuzz --check` |
