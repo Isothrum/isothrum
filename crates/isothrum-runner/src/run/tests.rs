@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::events::{EventKind, Recorder};
 use crate::process::fake::{Call, Reply};
-use crate::state::RunState;
+use crate::state::{Park, RunState};
 use crate::status::MachineState;
 use crate::store::ResourceState;
 use crate::testing::{modelled, no_ports, processes, runner_config};
@@ -162,6 +162,24 @@ async fn a_run_started_on_a_docker_context_keeps_going_there_for_every_later_cal
     }
     let record = runner.run_record(run.name()).expect("read").expect("recorded");
     assert_eq!(record.docker_context.as_deref(), Some("orbstack"));
+}
+
+#[tokio::test]
+async fn a_run_started_on_no_context_records_the_one_a_later_operation_names() {
+    let (_root, project, runner, _engine, fake) = setup_seen();
+    let run = runner.open(&project, None).expect("opened");
+    run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    run.park(Park::Shutdown, &RunOptions::new().with_docker_context("colima"), &Recorder::new())
+        .await
+        .expect("parked");
+    assert_eq!(
+        runner.run_record(run.name()).expect("read").expect("recorded").docker_context.as_deref(),
+        Some("colima")
+    );
+    let before = fake.calls().len();
+    run.resume(&RunOptions::new(), &Recorder::new()).await.expect("resumed");
+    let after: Vec<_> = fake.calls().into_iter().skip(before).filter(|c| c.program == "docker").collect();
+    assert!(!after.is_empty() && after.iter().all(|c| c.args[..2] == ["--context", "colima"]), "{after:?}");
 }
 
 #[tokio::test]

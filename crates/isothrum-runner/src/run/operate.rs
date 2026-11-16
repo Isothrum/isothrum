@@ -193,6 +193,13 @@ impl Running<'_> {
             // An update keeps what it changed on top of what the start kept.
             record.env.extend(opts.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
+        if op != Op::Up
+            && let Some(context) = &opts.docker_context
+        {
+            // A later operation that names the run's engine records it (a run started before its
+            // embedder passed one): every operation after goes there without naming it.
+            record.docker_context = Some(context.clone());
+        }
         let Some(id) = self.runner.operation_of(&self.name) else {
             return self.runner.store.save(&record);
         };
