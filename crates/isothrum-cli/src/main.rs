@@ -12,6 +12,7 @@
 mod args;
 mod cancel;
 mod commands;
+mod documents;
 mod error;
 mod exit;
 mod locate;

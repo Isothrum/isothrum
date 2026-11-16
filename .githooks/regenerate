@@ -2,7 +2,8 @@
 # regenerate: the files Isothrum generates from its code, written again (no argument) or checked
 # (--check, the gate's step: exits 1 naming this command when one is stale):
 #   - the event and status schemas, crates/isothrum-runner/schema/ (`cargo run -p xtask -- schema`);
-#   - the reference pages docs/reference/cli.md and exit-codes.md
+#   - the reference pages docs/reference/cli.md and exit-codes.md, the --json output's schema
+#     docs/reference/json-output.schema.json and the tables of events.md
 #     (`ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference`).
 # pre-commit runs it once `git config hooks.regenerate true` is set (CONTRIBUTING.md, "Git hooks"):
 # it builds, so it is opt-in. Extra arguments go to cargo (CI passes --locked).

@@ -1,6 +1,7 @@
 //! The reference pages written from the code, so they can't drift from it: the command line's
 //! (`docs/reference/cli.md`, from its clap grammar) and its exit codes with every error code
-//! (`docs/reference/exit-codes.md`, from [`crate::exit`] and the runner's `ErrorCode`). A test
+//! (`docs/reference/exit-codes.md`, from [`crate::exit`] and the runner's `ErrorCode`), and the
+//! `--json` output's schema with the event tables ([`json`]). A test
 //! fails when a committed page is stale; `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli
 //! reference` writes them.
 
@@ -11,6 +12,8 @@ use clap::CommandFactory;
 use isothrum_runner::ErrorCode;
 
 use crate::args::Cli;
+
+mod json;
 
 /// The line every generated page starts with.
 const GENERATED: &str = "<!-- Generated from the code: don't edit. `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` writes it. -->";

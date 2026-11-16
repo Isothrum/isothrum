@@ -25,7 +25,8 @@ Organised by what you need: learning, doing a task, looking something up, or und
 - [Command line](reference/cli.md): every command and option
 - [Exit codes and error codes](reference/exit-codes.md)
 - [Environment variables](reference/environment.md)
-- [Event stream](reference/events.md) and the `status --json` schema
+- [The `--json` output](reference/events.md): its schema, written from the code, the events,
+  the error details and `status --json`
 - [State layout](reference/state.md): the home, `state.db`
 - [Runner service](reference/service.md): `isothrum serve`, its files, its protocol, replacing a service of another release
 - [Supported tool versions](reference/tool-versions.md): Compose, Vagrant, Terraform, OpenTofu
