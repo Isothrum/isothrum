@@ -110,6 +110,7 @@ impl Lab {
 
     /// `isothrum`, on this lab's homes, without the runner service, the stand-in `docker` first on
     /// its `PATH` (Unix).
+    #[cfg_attr(not(unix), expect(clippy::unnecessary_wraps, reason = "installing the stand-in, on Unix, can fail"))]
     pub(crate) fn command(&self) -> Outcome<Command> {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
         cmd.envs(self.env.envs())
