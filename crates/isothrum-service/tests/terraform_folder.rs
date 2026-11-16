@@ -132,9 +132,9 @@ impl Lab {
     }
 
     /// Shuts the service down, and waits until it ended well.
-    async fn stop(self) {
-        self.client.shutdown().await.expect("shutdown");
-        common::ended(self.task).await.expect("the service ended");
+    async fn stop(self) -> Outcome<()> {
+        self.client.shutdown().await?;
+        common::ended(self.task).await
     }
 }
 
@@ -148,7 +148,7 @@ async fn a_hand_written_modules_variables_are_listed_from_its_files() {
     assert_eq!(region.default, Some(serde_json::json!("us-east-1")));
     assert!(!region.sensitive && !region.required());
     assert_eq!(lab.terraform.calls.lock().unwrap().len(), 0, "listing runs no tool");
-    lab.stop().await;
+    lab.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -159,7 +159,7 @@ async fn a_folder_that_isnt_terraform_has_its_variables_refused_by_code() {
     let refused = lab.client.variables(lab.target()).await.unwrap_err();
     assert_eq!(refused.code(), ErrorCode::ProjectInvalid, "{refused}");
     assert!(matches!(refused, ClientError::Refused { .. }), "{refused:?}");
-    lab.stop().await;
+    lab.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -215,5 +215,5 @@ async fn a_hand_written_module_runs_with_its_values_gives_its_outputs_and_goes()
     let destroy = lab.terraform.calls("destroy").pop().expect("a destroy");
     assert_eq!(destroy.env("TF_VAR_region"), Some("eu-west-3"), "the start's value, replayed");
     assert_eq!(lab.client.status(&name, None).await.unwrap().state, RunState::Absent);
-    lab.stop().await;
+    lab.stop().await.unwrap();
 }

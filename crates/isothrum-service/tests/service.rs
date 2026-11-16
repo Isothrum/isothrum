@@ -129,7 +129,7 @@ fn options(held: bool) -> OpOptions {
         env: if held {
             [("hold".to_owned(), "1".to_owned())].into()
         } else {
-            Default::default()
+            std::collections::BTreeMap::default()
         },
         ..OpOptions::default()
     }

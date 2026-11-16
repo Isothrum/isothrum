@@ -114,9 +114,12 @@ impl Lab {
     }
 
     /// Ends the service with `shutdown_if_idle` through `client`, and waits until it is gone.
-    async fn end(self, client: &Client) {
-        assert!(matches!(client.request(Command::ShutdownIfIdle).await, Ok(Reply::Ok { .. })));
-        common::ended(self.task).await.expect("the service ended");
+    async fn end(self, client: &Client) -> Outcome<()> {
+        let reply = client.request(Command::ShutdownIfIdle).await?;
+        if !matches!(reply, Reply::Ok { .. }) {
+            return Err(format!("shutdown_if_idle: {reply:?}").into());
+        }
+        common::ended(self.task).await
     }
 }
 
@@ -155,7 +158,7 @@ async fn every_operation_a_client_submits_runs_to_its_end() {
     lab.ran(client.down(target.clone(), none()).await).await.expect("down");
     assert_eq!(client.status(&name, None).await.expect("status").state, RunState::Absent);
     let second = Client::connect_running(lab.home.path()).await.expect("a second client");
-    lab.end(&second).await;
+    lab.end(&second).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -201,5 +204,5 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
     let ended = operations.first().map(|o| o.id).expect("the up, journaled");
     let cancel = client.cancel(ended).await.expect_err("it ended");
     assert_eq!(cancel.code(), ErrorCode::Usage, "{cancel}");
-    lab.end(&exact).await;
+    lab.end(&exact).await.unwrap();
 }
