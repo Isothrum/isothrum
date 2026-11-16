@@ -48,7 +48,7 @@ impl Lease {
             }
             Err(TryLockError::WouldBlock) => Err(ServeError::Held {
                 home: paths.home().to_path_buf(),
-                holder: paths.read_info(),
+                holder: paths.read_info().map(Box::new),
             }),
             Err(TryLockError::Error(source)) => Err(ServeError::Io {
                 what: "the service's lock",

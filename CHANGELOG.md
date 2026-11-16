@@ -53,6 +53,7 @@ Terraform), usable on any project of those formats.
   `connect_exact` replaces one whose build isn't the binary's it would start, as it replaces one
   of another release (left running, `ClientError::Busy`, while it has operations). A service that
   says no build is of before builds were said, and is replaced too.
+  `ServeError::Held`'s `holder` is boxed (`Option<Box<ServiceInfo>>`).
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the
   run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
