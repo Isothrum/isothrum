@@ -4,7 +4,9 @@ Organised by what you need: learning, doing a task, looking something up, or und
 
 ## Tutorial
 
-- [Your first run](tutorials/first-run.md): `up`, `check` and `down` of a Docker Compose example.
+- [Getting started](tutorials/getting-started.md): install Isothrum, then `up`, `status`, `exec`,
+  `park`, `resume` and `down` of a Compose project. The [examples](../examples) run a Vagrant
+  project and a Terraform module the same way.
 
 ## How-to guides
 
