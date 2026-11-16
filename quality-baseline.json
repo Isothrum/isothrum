@@ -7,7 +7,7 @@
     "exception/expect": {
       "isothrum-cli": 3,
       "isothrum-client": 2,
-      "isothrum-runner": 31,
+      "isothrum-runner": 30,
       "isothrum-service": 5,
       "isothrum-test-support": 2,
       "xtask": 2

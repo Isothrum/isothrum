@@ -355,31 +355,44 @@ async fn a_qemu_vm_whose_monitor_cant_say_its_ports_has_none_warned_and_runs_on(
     assert_eq!(f.warnings(), [WarningCode::PortsUnknown]);
 }
 
-/// A VM reached at an address of its own (libvirt's, ESXi's) has it in what is seen; one reached
-/// through a port forwarded on the loopback (VirtualBox's) isn't asked for one.
+/// A VM reached at an address of its own (libvirt's, ESXi's) has the one `ssh-config` gives in
+/// what is seen; one reached through a port forwarded on the loopback (VirtualBox's) isn't asked
+/// for one. Regression: on ESXi, a running VM whose address couldn't be read vanished from
+/// `status` with its ports; it is still read, without one.
 #[tokio::test]
-async fn a_vm_on_a_provider_that_gives_its_own_address_has_it() {
-    let f = Fixture::new();
-    f.made("web", "libvirt", "uuid-web");
-    let fake = FakeProcesses::script()
-        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
-        .expect("vagrant port web --machine-readable", Reply::ok(""))
-        .expect("vagrant ssh-config web", Reply::ok("Host web\n  HostName 192.168.121.10\n  User vagrant\n"))
-        .build();
-    let (seen, _) = Vagrant.observe(&cx(&f, &fake, LIBVIRT)).await.expect("observe");
-    assert_eq!(
-        (seen.machines[0].kind.as_deref(), seen.machines[0].address.as_deref()),
-        (Some("libvirt"), Some("192.168.121.10"))
+async fn a_vm_on_a_provider_that_gives_its_own_address_has_it_and_one_unreadable_is_still_seen() {
+    let not_ready = Reply::fail(
+        1,
+        "The provider for this Vagrant-managed machine is reporting that it is not yet ready for SSH.",
     );
-
-    let vbox = Fixture::new();
-    vbox.made("web", "virtualbox", "uuid-web");
-    let forwarded = FakeProcesses::script()
-        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
-        .expect("vagrant port web --machine-readable", Reply::ok(""))
-        .build();
-    let (on_loopback, _) = Vagrant.observe(&cx(&vbox, &forwarded, VBOX)).await.expect("observe");
-    assert_eq!(on_loopback.machines[0].address, None, "no ssh-config asked");
+    let cases = [
+        (
+            LIBVIRT,
+            "libvirt",
+            Some(Reply::ok("Host web\n  HostName 192.168.121.10\n  User vagrant\n")),
+            Some("192.168.121.10"),
+        ),
+        (LIBVIRT, "libvirt", Some(not_ready), None),
+        (VBOX, "virtualbox", None, None),
+    ];
+    for (provider, kind, ssh_config, address) in cases {
+        let f = Fixture::new();
+        f.made("web", kind, "uuid-web");
+        let mut script = FakeProcesses::script()
+            .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
+            .expect("vagrant port web --machine-readable", Reply::ok(""));
+        if let Some(reply) = ssh_config {
+            script = script.expect("vagrant ssh-config web", reply);
+        }
+        let fake = script.build();
+        let (seen, _) = Vagrant.observe(&cx(&f, &fake, provider)).await.expect("observe");
+        let web: Vec<_> = seen
+            .machines
+            .iter()
+            .map(|m| (m.name.as_str(), m.state.clone(), m.kind.as_deref(), m.address.as_deref()))
+            .collect();
+        assert_eq!(web, [("web", MachineState::Running, Some(kind), address)], "{kind}, {address:?}");
+    }
 }
 
 #[tokio::test]

@@ -121,31 +121,12 @@ async fn an_up_refused_for_a_name_leftovers_hold_clears_them_by_label_and_is_tri
     assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
 }
 
-#[tokio::test]
-async fn a_taken_host_port_is_port_in_use() {
-    let (_dir, project) = folder();
-    let run = run();
-    for said in [
-        include_str!("../../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"),
-        include_str!("../../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"),
-    ] {
-        let fake = undone(
-            FakeProcesses::script()
-                .expect(UP, Reply::fail(1, said))
-                .allow(PULL, Reply::ok(""))
-                .expect(CONFIG, Reply::ok(NO_PORTS)),
-        );
-        let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
-        assert_eq!(e.code(), crate::ErrorCode::PortInUse);
-        assert_eq!(
-            e.detail().map(|d| d.data),
-            Some(crate::Detail::PortInUse {
-                port: 8180,
-                protocol: "tcp".to_owned()
-            }),
-            "the port Docker names, never 0: {said}"
-        );
-    }
+/// A script reading the config of the project and of `attackbox` (a service under a profile,
+/// publishing nothing), as an attach of it does before its `up`.
+fn attackbox_configs() -> crate::process::fake::Script {
+    FakeProcesses::script()
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
 }
 
 /// `script` with the `down` that undoes a refused first start: the project's objects, then
@@ -159,21 +140,34 @@ fn undone(script: crate::process::fake::Script) -> FakeProcesses {
         .build()
 }
 
+/// A host port Docker refuses at a first start (nothing of the run made yet) is `port_in_use`
+/// naming the port Docker names, never 0, in each wording Docker has; Compose made the containers
+/// before the refusal, and they go (`down`), so the next start finds none in its way.
 #[tokio::test]
-async fn a_first_start_refused_for_a_taken_port_removes_what_it_made() {
+async fn a_first_start_docker_refuses_a_host_port_is_port_in_use_naming_it_and_removes_what_it_made() {
     let (_dir, project) = folder();
     let run = run();
-    let taken = include_str!("../../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt");
-    // Nothing of the run made yet: Compose made the containers before Docker refused the bind,
-    // and they go, so the next start finds none in its way.
-    let fake = undone(
-        FakeProcesses::script()
-            .expect_times(UP, 1, Reply::fail(1, taken))
-            .allow(PULL, Reply::ok(""))
-            .expect(CONFIG, Reply::ok(NO_PORTS)),
-    );
-    let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
-    assert_eq!(e.code(), crate::ErrorCode::PortInUse, "{e}");
+    for (said, port) in [
+        (include_str!("../../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"), 8180),
+        (include_str!("../../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"), 8180),
+        (include_str!("../../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt"), 18180),
+    ] {
+        let fake = undone(
+            FakeProcesses::script()
+                .expect_times(UP, 1, Reply::fail(1, said))
+                .allow(PULL, Reply::ok(""))
+                .expect(CONFIG, Reply::ok(NO_PORTS)),
+        );
+        let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
+        assert_eq!(
+            e.detail().map(|d| d.data),
+            Some(crate::Detail::PortInUse {
+                port,
+                protocol: "tcp".to_owned()
+            }),
+            "{said}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -372,9 +366,7 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     let (_dir, project) = folder();
     let run = run();
     let state = tempfile::tempdir().expect("a state folder");
-    let fake = FakeProcesses::script()
-        .expect(CONFIG, Reply::ok(NO_PORTS))
-        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
+    let fake = attackbox_configs()
         .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
         .expect("docker compose -p lab -f * rm --stop --force --volumes attackbox", Reply::ok(""))
         .build();
@@ -401,9 +393,7 @@ async fn an_update_removes_the_containers_of_services_moved_under_a_profile_the_
     ]
     .join("\n");
     let rm = "docker compose -p lab -f * rm --stop --force --volumes isoloom-routes-user";
-    let fake = FakeProcesses::script()
-        .expect(CONFIG, Reply::ok(NO_PORTS))
-        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
+    let fake = attackbox_configs()
         .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
         .expect(UP, Reply::ok(""))
         .allow(PULL, Reply::ok(""))
