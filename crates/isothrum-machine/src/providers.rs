@@ -30,7 +30,7 @@ pub(crate) mod virtiofsd;
 use reasons::hypervisor_too_old;
 use reasons::{plugin_too_old, unavailable_reason};
 
-pub use kvm::{kvm_group, login_groups, uses_kvm};
+pub use kvm::{groups_pending, kvm_group, login_groups, uses_kvm};
 pub use needs::{Need, UtilityState, needs, vmware_utility};
 pub use unavailable::Unavailable;
 pub use virtiofsd::{needs_virtiofsd, virtiofsd};

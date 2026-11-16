@@ -8,10 +8,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Machine-setup domain for Isothrum: detect the Vagrant providers (hypervisors) this computer can drive."
+description = "Machine-setup domain for Isothrum: check this computer's tools, Docker engines and WSL 2, and detect the Vagrant providers (hypervisors) it can drive."
 documentation = "https://docs.rs/isothrum-machine"
 readme = "README.md"
-keywords = ["isothrum", "vagrant", "hypervisor", "virtualization"]
+keywords = ["isothrum", "vagrant", "docker", "hypervisor", "virtualization"]
 categories = ["virtualization", "development-tools"]
 publish = true
 
@@ -34,6 +34,7 @@ ts-rs = { workspace = true, optional = true }
 isothrum-runner = { workspace = true, features = ["fake", "ts-rs"] }
 ts-rs.workspace = true
 isothrum-test-support.workspace = true
+proptest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 

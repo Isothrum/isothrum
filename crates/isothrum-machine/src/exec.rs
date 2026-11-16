@@ -39,8 +39,16 @@ impl std::fmt::Display for Unanswered {
 ///
 /// [`Unanswered`] when the tool couldn't be started or ran out of time.
 pub(crate) async fn probe(runner: &dyn ProcessRunner, limit: Duration, program: &str, args: &[&str]) -> Result<Captured, Unanswered> {
-    let spec = ProcessSpec::new(program, args.iter().copied());
-    match tokio::time::timeout(limit, capture(runner, &spec)).await {
+    probe_spec(runner, limit, &ProcessSpec::new(program, args.iter().copied())).await
+}
+
+/// [`probe`] of a whole `spec` (its variables, say).
+///
+/// # Errors
+///
+/// [`Unanswered`] when the tool couldn't be started or ran out of time.
+pub(crate) async fn probe_spec(runner: &dyn ProcessRunner, limit: Duration, spec: &ProcessSpec) -> Result<Captured, Unanswered> {
+    match tokio::time::timeout(limit, capture(runner, spec)).await {
         Ok(Ok(captured)) => Ok(captured),
         Ok(Err(e)) => Err(Unanswered::NotStarted(e)),
         Err(_) => Err(Unanswered::TimedOut(limit)),

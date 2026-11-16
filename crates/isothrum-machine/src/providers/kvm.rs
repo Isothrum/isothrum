@@ -122,7 +122,7 @@ pub(super) fn new_login_group(provider: Provider, host: &Host) -> String {
 /// logged in, like the libvirt and kvm groups an install adds it to, they apply from its next
 /// login. `id -nG <user>` reads the group database, `id -nG` this process's own groups. Empty
 /// elsewhere, or when it can't be told.
-pub(super) async fn groups_pending(cx: &Context) -> Vec<String> {
+pub async fn groups_pending(cx: &Context) -> Vec<String> {
     if cx.host.os != HostOs::Linux {
         return Vec::new();
     }

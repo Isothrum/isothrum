@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use isothrum_runner::{Captured, ProcessRunner};
+use isothrum_runner::{Captured, ProcessRunner, ProcessSpec};
 
 use crate::exec::{self, Unanswered};
 use crate::host::Host;
@@ -52,6 +52,11 @@ impl Context {
     /// Runs `program args` as a probe ([`exec::probe`], within [`Context::probe_timeout`]).
     pub(crate) async fn probe(&self, program: &str, args: &[&str]) -> Result<Captured, Unanswered> {
         exec::probe(self.runner.as_ref(), self.probe_timeout, program, args).await
+    }
+
+    /// Runs `spec` as a probe given `limit` to answer ([`exec::probe_spec`]).
+    pub(crate) async fn probe_within(&self, limit: Duration, spec: &ProcessSpec) -> Result<Captured, Unanswered> {
+        exec::probe_spec(self.runner.as_ref(), limit, spec).await
     }
 
     /// The standard output of `program args` when it exits 0 ([`exec::read_ok`], within
