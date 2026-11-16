@@ -101,18 +101,40 @@ pub(crate) mod tests {
         other_boot.boot = "another-boot".into();
         other_boot.pid = 1;
         assert!(!other_boot.is_alive());
-        #[cfg(unix)]
-        {
-            let mut gone = me.clone();
-            gone.pid = dead_pid();
-            assert!(!gone.is_alive());
-        }
+        let mut gone = me.clone();
+        gone.pid = dead_pid();
+        assert!(!gone.is_alive(), "a pid no process has (Windows: OpenProcess refuses it)");
+    }
+
+    /// Another process of this boot that runs holds what it took: Unix's signal 0 and Windows'
+    /// `OpenProcess` both find it.
+    #[test]
+    fn another_running_process_is_alive() {
+        let mut command = if cfg!(windows) {
+            let mut ping = std::process::Command::new("ping");
+            ping.args(["-n", "300", "127.0.0.1"]);
+            ping
+        } else {
+            let mut sleep = std::process::Command::new("sleep");
+            sleep.arg("300");
+            sleep
+        };
+        let running = isothrum_test_support::ChildGuard::spawn(command.stdout(std::process::Stdio::null())).unwrap();
+        let mut other = Owner::this_process();
+        other.pid = running.id();
+        assert!(other.is_alive());
     }
 
     /// The pid of a process that ran and exited.
-    #[cfg(unix)]
     pub(crate) fn dead_pid() -> u32 {
-        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let mut command = if cfg!(windows) {
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/C", "exit 0"]);
+            cmd
+        } else {
+            std::process::Command::new("true")
+        };
+        let mut child = command.spawn().unwrap();
         let pid = child.id();
         child.wait().unwrap();
         pid

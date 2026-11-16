@@ -164,6 +164,6 @@ fn a_damaged_store_whose_mirror_cant_be_read_is_store_corrupt_and_left_in_place(
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|n| n.starts_with(DB_FILE))
         .collect();
-    assert!(names.iter().all(|n| !n.contains("corrupt")), "nothing set aside: {names:?}");
+    isothrum_test_support::assert_every!(&names, |n: &&String| !n.contains("corrupt"));
     assert!(home.path().join(DB_FILE).is_file(), "left where it was");
 }

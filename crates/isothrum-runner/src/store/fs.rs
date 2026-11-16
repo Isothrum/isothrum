@@ -122,6 +122,11 @@ fn open(path: &Path, options: &mut std::fs::OpenOptions) -> io::Result<File> {
 mod tests {
     use super::*;
 
+    /// Whether nothing is at `p`, not even a link.
+    fn gone(p: &Path) -> bool {
+        std::fs::symlink_metadata(p).is_err_and(|e| e.kind() == io::ErrorKind::NotFound)
+    }
+
     #[test]
     fn a_file_a_folder_or_nothing_is_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -131,7 +136,7 @@ mod tests {
         std::fs::write(folder.join("inner/g"), "y").unwrap();
         for p in [&file, &folder] {
             remove_path(p).unwrap();
-            assert!(std::fs::symlink_metadata(p).is_err(), "{}", p.display());
+            assert!(gone(p), "{}", p.display());
         }
         remove_path(&dir.path().join("missing")).unwrap();
     }
@@ -146,7 +151,7 @@ mod tests {
         std::os::unix::fs::symlink(elsewhere.path().join("keep.txt"), &to_file).unwrap();
         for link in [&to_folder, &to_file] {
             remove_path(link).unwrap();
-            assert!(std::fs::symlink_metadata(link).is_err(), "{}", link.display());
+            assert!(gone(link), "{}", link.display());
         }
         assert!(elsewhere.path().join("keep.txt").is_file());
     }
@@ -161,9 +166,11 @@ mod tests {
         let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(names, ["record.json"]);
         // A target that can't be replaced (a folder) fails and leaves nothing behind.
-        std::fs::create_dir_all(dir.path().join("folder.json").join("x")).unwrap();
-        assert!(write_private(&dir.path().join("folder.json"), b"{}").is_err());
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        let folder = dir.path().join("folder.json");
+        std::fs::create_dir_all(folder.join("x")).unwrap();
+        write_private(&folder, b"{}").expect_err("a folder isn't replaced by a file");
+        assert!(folder.join("x").is_dir(), "the folder is as it was");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2, "no temporary file left");
     }
 
     #[cfg(unix)]
