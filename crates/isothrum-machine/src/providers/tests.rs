@@ -246,3 +246,33 @@ fn a_status_serializes_in_camel_case_with_its_reason_as_a_code() {
     );
     assert_eq!(serde_json::from_value::<ProviderStatus>(wire).unwrap(), status);
 }
+
+/// The TypeScript types (the `ts-rs` feature) follow the serde form a UI reads: a status's
+/// provider the runner's `VagrantProvider`, its reason a code with its args, its account lacks
+/// optional.
+#[test]
+fn the_typescript_types_are_the_wire_form() {
+    use ts_rs::TS as _;
+    let cfg = ts_rs::Config::new();
+    let status = ProviderStatus::decl(&cfg);
+    for field in [
+        "provider: VagrantProvider",
+        "pluginInstalled: boolean",
+        "needs: Array<Need>",
+        "reason: Unavailable | null",
+        "accountLacks?: AccountLacks | null",
+    ] {
+        assert!(status.contains(field), "{field} in {status}");
+    }
+    let reasons = Unavailable::decl(&cfg);
+    for code in [
+        r#"{ "code": "vagrantMissing" }"#,
+        r#"{ "code": "virtiofsdMissing", "args": {"#,
+        r#"{ "code": "kvmHoldsVirtualization" }"#,
+    ] {
+        assert!(reasons.contains(code), "{code} in {reasons}");
+    }
+    assert!(Provider::decl(&cfg).contains(r#""virtualbox" | "vmware_desktop""#), "{}", Provider::decl(&cfg));
+    assert!(Need::decl(&cfg).contains(r#""vmwareUtility""#) && UtilityState::decl(&cfg).contains(r#""running""#));
+    assert!(AccountLacks::decl(&cfg).contains(r#""newLogin""#));
+}

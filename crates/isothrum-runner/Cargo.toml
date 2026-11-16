@@ -16,6 +16,8 @@ publish = true
 [features]
 # The test doubles (scripted processes, scripted host ports), for embedders' tests.
 fake = []
+# The TypeScript type of `Provider` (`VagrantProvider`), for an embedder whose UI is TypeScript.
+ts-rs = ["dep:ts-rs"]
 
 [dependencies]
 # The random token of an elevated session (`process/elevated.rs`).
@@ -32,6 +34,7 @@ socket2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+ts-rs = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

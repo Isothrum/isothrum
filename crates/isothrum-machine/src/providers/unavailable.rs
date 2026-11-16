@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// [`detect`](super::detect) found it. Its serde form is `{"code": "pluginMissing", "args":
 /// {"plugin": "vagrant-libvirt"}}`: a UI translates the code and fills in the args.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(tag = "code", content = "args", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum Unavailable {

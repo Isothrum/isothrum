@@ -11,6 +11,11 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **TypeScript types for a UI: the `ts-rs` features of isothrum-runner and isothrum-machine.**
+  `ProviderStatus`, `Unavailable`, `Need`, `UtilityState` and `AccountLacks` derive
+  [ts-rs](https://docs.rs/ts-rs)'s `TS`, which follows their serde form, and the runner's
+  `Provider` does as `VagrantProvider`: a UI written in TypeScript shows the machine check
+  without a copy of its types.
 - **Examples: `examples/`.** Three small hand-written projects, each with a README that runs it
   with `up`, `status`, `exec`, `park`, `resume` and `down`: a Compose project of two services
   (`compose-web-cache`), a Vagrantfile of one VM (`vagrant-one-vm`) and a Terraform module that

@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Feature | What it adds |
 |---|---|
 | `fake` | Test doubles for embedders' tests: `isothrum_runner::fake::{FakeProcesses, Reply, Call}` (scripted tools answering at once, every call recorded) and `FakePorts` (the free host ports a run is handed, in order; none taken, no address answering). Set them on `RunnerConfig::processes` and `RunnerConfig::ports`. |
+| `ts-rs` | The TypeScript type of `Provider` (`VagrantProvider`, through [ts-rs](https://docs.rs/ts-rs)), for an embedder whose UI is TypeScript. |
 | `fuzzing` | Internal: the pure cores the repository's fuzz targets drive. Hidden from the docs and not part of the public API. |
 
 No feature is on by default.
