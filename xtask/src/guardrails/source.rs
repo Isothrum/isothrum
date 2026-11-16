@@ -37,11 +37,11 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Whether the file is a test's only: a `tests` folder, `tests.rs`, `*_tests.rs`, or the
-/// helpers the tests share (`testing.rs`, the scripted processes of `fake.rs`).
+/// Whether the file is a test's only: a `tests` folder, `tests.rs`, or the helpers the tests
+/// share (`testing.rs`, the scripted processes of `fake.rs`).
 pub(super) fn is_test_file(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
-    path.contains("/tests/") || matches!(name, "tests.rs" | "testing.rs" | "fake.rs" | "proptests.rs") || name.ends_with("_tests.rs")
+    path.contains("/tests/") || matches!(name, "tests.rs" | "testing.rs" | "fake.rs")
 }
 
 /// `text` without its test modules (`#[cfg(test)]` or `#[cfg(all(test, …))]` before a `mod … {`,
@@ -94,7 +94,7 @@ mod tests {
     fn a_test_module_and_a_test_only_line_are_left_out_of_the_code() {
         let text = "fn a() {}\n#[cfg(test)]\nmod x;\nfn b() {}\n#[cfg(test)]\nmod tests {\n    fn c() {}\n}\nfn d() {}\n#[cfg(all(test, unix))]\nmod real {\n    fn e() {}\n}\n";
         assert_eq!(code(text), "fn a() {}\nfn b() {}\nfn d() {}\n");
-        assert!(is_test_file("crates/a/src/x/tests/y.rs") && is_test_file("crates/a/src/x_tests.rs"));
+        assert!(is_test_file("crates/a/src/x/tests/y.rs") && is_test_file("crates/a/src/x/tests.rs"));
         assert!(!is_test_file("crates/a/src/driver.rs"));
     }
 }

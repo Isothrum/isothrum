@@ -341,7 +341,6 @@ fn spawned(spec: &ProcessSpec, e: std::io::Error) -> ProcessError {
 }
 
 #[cfg(test)]
-#[path = "system_tests.rs"]
 mod tests;
 
 #[cfg(all(test, unix))]
