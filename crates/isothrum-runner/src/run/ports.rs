@@ -1,10 +1,10 @@
 //! The host ports a run keeps: what each machine published at the run's first start, kept in the
 //! run's state folder until `down`. A start, resume or update that finds one moved says so
 //! (`ports_moved`). A Vagrant run's tools get them back as variables
-//! (`ISOTHRUM_HOST_PORT_<MACHINE>_<GUEST>_<PROTO>`, [`var_name`]): Vagrant's providers re-pick a
+//! (`HOST_PORT_<MACHINE>_<GUEST>_<PROTO>`, [`var_name`]): Vagrant's providers re-pick a
 //! port its `auto_correct` moved at each boot (VirtualBox excepted), and no provider takes a
 //! forwarded port's host side from outside the Vagrantfile, so a Vagrantfile that wants stable
-//! ports reads them (`host: ENV.fetch("ISOTHRUM_HOST_PORT_WEB_80_TCP", 8080).to_i`). Nothing
+//! ports reads them (`host: ENV.fetch("HOST_PORT_WEB_80_TCP", 8080).to_i`). Nothing
 //! requires it: a Vagrantfile that ignores them runs as it would, and is warned when they move.
 
 use std::path::Path;
@@ -73,9 +73,9 @@ pub(super) fn forget(state_dir: &Path) -> Result<()> {
     crate::store::remove(&state_dir.join(FILE))
 }
 
-/// The variable a kept port of `machine` is given as: `ISOTHRUM_HOST_PORT_`, the machine's name
+/// The variable a kept port of `machine` is given as: `HOST_PORT_`, the machine's name
 /// upper-cased with every character but `A`–`Z` and `0`–`9` written `_`, `_`, the guest port in
-/// decimal, `_`, and `TCP` or `UDP` (`web-1`'s 80/tcp: `ISOTHRUM_HOST_PORT_WEB_1_80_TCP`).
+/// decimal, `_`, and `TCP` or `UDP` (`web-1`'s 80/tcp: `HOST_PORT_WEB_1_80_TCP`).
 pub(crate) fn var_name(machine: &str, guest: u16, protocol: Protocol) -> String {
     let name: String = machine
         .chars()
@@ -85,8 +85,12 @@ pub(crate) fn var_name(machine: &str, guest: u16, protocol: Protocol) -> String 
         Protocol::Tcp => "TCP",
         Protocol::Udp => "UDP",
     };
-    format!("ISOTHRUM_HOST_PORT_{name}_{guest}_{proto}")
+    format!("HOST_PORT_{name}_{guest}_{proto}")
 }
+
+/// The name a kept port's variable had before [`var_name`]'s, set beside it until the
+/// Vagrantfiles that read it read the new one.
+const LEGACY_PREFIX: &str = "ISOTHRUM_";
 
 /// The variables `kept` ports are given as ([`var_name`]), each to its host port. Two machines
 /// whose names give one variable (`web-1` and `web_1`) give none: which machine it meant would be
@@ -96,7 +100,10 @@ pub(super) fn env(kept: &[Kept]) -> Vec<(String, String)> {
     named
         .iter()
         .filter(|(name, k)| !named.iter().any(|(other, o)| other == name && o.machine != k.machine))
-        .map(|(name, k)| (name.clone(), k.host.to_string()))
+        .flat_map(|(name, k)| {
+            let host = k.host.to_string();
+            [(name.clone(), host.clone()), (format!("{LEGACY_PREFIX}{name}"), host)]
+        })
         .collect()
 }
 
@@ -115,17 +122,16 @@ mod tests {
 
     #[test]
     fn a_kept_ports_variable_names_its_machine_guest_port_and_protocol() {
-        assert_eq!(var_name("web", 80, Protocol::Tcp), "ISOTHRUM_HOST_PORT_WEB_80_TCP");
-        assert_eq!(var_name("web-1.lab", 53, Protocol::Udp), "ISOTHRUM_HOST_PORT_WEB_1_LAB_53_UDP");
-        assert_eq!(
-            var_name("web·1", 8080, Protocol::Tcp),
-            "ISOTHRUM_HOST_PORT_WEB_1_8080_TCP",
-            "one `_` per character"
-        );
+        assert_eq!(var_name("web", 80, Protocol::Tcp), "HOST_PORT_WEB_80_TCP");
+        assert_eq!(var_name("web-1.lab", 53, Protocol::Udp), "HOST_PORT_WEB_1_LAB_53_UDP");
+        assert_eq!(var_name("web·1", 8080, Protocol::Tcp), "HOST_PORT_WEB_1_8080_TCP", "one `_` per character");
         let vars = env(&[k("web", 80, 2200), k("web-1", 22, 2222), k("web_1", 22, 2223)]);
         assert_eq!(
             vars,
-            [("ISOTHRUM_HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned())],
+            [
+                ("HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned()),
+                ("ISOTHRUM_HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned())
+            ],
             "web-1 and web_1 collide: neither"
         );
     }

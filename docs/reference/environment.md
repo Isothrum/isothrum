@@ -50,7 +50,7 @@ Each tool inherits the environment `isothrum` runs in, with these changes:
 | `AWS_*`, `ARM_*`, `AZURE_*`, `GOOGLE_*`, `CLOUDSDK_*`, `GCLOUD_*`, `DIGITALOCEAN_*`, `LINODE_*`, `OCI_*`, `TF_VAR_*`, `TF_CLI_ARGS*` | `terraform`, `tofu` | Not inherited: a destroy goes where the run was applied, not where the shell points now. The manifest's params and connection slots are the only cloud settings Terraform gets. |
 | `DOCKER_HOST`, `DOCKER_CONTEXT` | `docker` | Not inherited when the Docker CLI's config names a current context of the user's own: a stale socket (another engine's) would send the run where the user never looks. |
 | `VAGRANT_DOTFILE_PATH` | `vagrant` | The run's Vagrant state, in the run's state folder (also in the command `isothrum console` prints). |
-| `ISOLOOM_HOSTPORTS` | `vagrant`, a local VM run | The host ports pinned for its forwarded ports, as JSON. |
+| `HOST_PORT_<MACHINE>_<GUEST>_<PROTO>` | `vagrant`, a run started once | The host port the run kept for each forwarded port, so a Vagrantfile that reads it boots on it again ([Vagrant projects](vagrant.md#stable-host-ports)). |
 | `ISOLOOM_CONSOLES` | `vagrant`, a VMware run | The graphical consoles the runner chose (each machine's loopback port and VNC password), as JSON: set for the run's own Vagrant processes only, never in a command an embedder is handed (`isothrum console`). |
 
 ### Tools started elsewhere

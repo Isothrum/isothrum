@@ -23,7 +23,7 @@ host port each machine published at the run's first start, until `down`, and bef
 operation it sets one variable per kept port:
 
 ```
-ISOTHRUM_HOST_PORT_<MACHINE>_<GUEST>_<PROTO>=<host port>
+HOST_PORT_<MACHINE>_<GUEST>_<PROTO>=<host port>
 ```
 
 - `<MACHINE>`: the machine's name upper-cased. Every character other than `A`–`Z` and `0`–`9` is
@@ -34,13 +34,14 @@ ISOTHRUM_HOST_PORT_<MACHINE>_<GUEST>_<PROTO>=<host port>
 - When two machines' names give the same `<MACHINE>` (`web-1` and `web_1`), neither machine gets
   that port's variable.
 
-A Vagrantfile that wants stable ports reads it, with its own port as the fallback, so it runs the
-same without Isothrum:
+The name carries no tool's prefix: a Vagrantfile written by hand or by any generator reads it the
+same way. A Vagrantfile that wants stable ports reads it, with its own port as the fallback, so it
+runs the same without Isothrum:
 
 ```ruby
 config.vm.define "web" do |web|
   web.vm.network "forwarded_port", guest: 80,
-    host: ENV.fetch("ISOTHRUM_HOST_PORT_WEB_80_TCP", "8080").to_i, auto_correct: true
+    host: ENV.fetch("HOST_PORT_WEB_80_TCP", "8080").to_i, auto_correct: true
 end
 ```
 

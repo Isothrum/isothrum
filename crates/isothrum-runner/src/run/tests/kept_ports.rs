@@ -8,7 +8,7 @@ use super::*;
 use crate::process::fake::FakeProcesses;
 
 /// The variable a Vagrantfile reads `web`'s 80/tcp from.
-const WEB_80: &str = "ISOTHRUM_HOST_PORT_WEB_80_TCP";
+const WEB_80: &str = "HOST_PORT_WEB_80_TCP";
 
 /// Vagrant whose Vagrantfile reads [`WEB_80`] when `honours`, else gets what `auto_correct`
 /// picks: 2200 at the first boot, 8080 after.
