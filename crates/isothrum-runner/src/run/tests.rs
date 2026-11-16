@@ -151,11 +151,19 @@ async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_
 async fn a_parked_run_reads_parked_and_a_resume_brings_it_back() {
     let (_root, project, runner, _engine) = setup();
     let run = runner.open(&project, None).expect("opened");
+    let parked = || runner.runs().expect("runs")[0].parked;
     run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
+    assert_eq!(parked(), None);
     run.park(crate::Park::Pause, &RunOptions::new(), &Recorder::new()).await.expect("parked");
     assert_eq!(run.status().await.expect("status").state, RunState::Parked);
+    assert_eq!(parked(), Some(crate::Park::Pause), "the record says how it was parked");
     run.resume(&RunOptions::new(), &Recorder::new()).await.expect("resumed");
     assert_eq!(run.status().await.expect("status").state, RunState::Ready);
+    assert_eq!(parked(), None, "parked no more");
+    run.park(crate::Park::Shutdown, &RunOptions::new(), &Recorder::new()).await.expect("parked");
+    assert_eq!(parked(), Some(crate::Park::Shutdown));
+    run.down(&RunOptions::new(), &Recorder::new()).await.expect("down");
+    assert_eq!(parked(), None);
 }
 
 #[tokio::test]
