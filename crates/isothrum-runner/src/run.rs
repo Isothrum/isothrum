@@ -466,7 +466,7 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// As the tool fails, or as the run's state refuses an update.
+    /// As the tool fails; `not_running`, before any tool acts, when the run isn't ready.
     pub async fn update(&self, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.drive(Act::Update, opts, events).await.map(drop)
     }
@@ -475,8 +475,9 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// As the tool fails; `unsupported` where the format has no set-up of its own to run again.
-    /// `with`, when given, runs only the provisioner of that name (a Vagrant project's `checks`).
+    /// As the tool fails; `unsupported` where the format has no set-up of its own to run again;
+    /// `not_running`, before any tool acts, when nothing of the run runs. `with`, when given, runs
+    /// only the provisioner of that name (a Vagrant project's `checks`).
     pub async fn provision(&self, machine: Option<&str>, with: Option<&str>, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.drive(Act::Provision(machine, with), opts, events).await.map(drop)
     }
@@ -485,7 +486,8 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// As the tool fails; `unsupported` where the format has no such machine.
+    /// As the tool fails; `unsupported` where the format has no such machine; `not_running`,
+    /// before any tool acts, when nothing of the run runs.
     pub async fn attach(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.drive(Act::Attach(machine), opts, events).await.map(drop)
     }
@@ -494,7 +496,7 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// As the tool fails.
+    /// As the tool fails; `not_running`, before any tool acts, when the run isn't ready.
     pub async fn retire(&self, machine: &str, opts: &RunOptions, events: &dyn Events) -> Result<()> {
         self.drive(Act::Retire(machine), opts, events).await.map(drop)
     }
@@ -504,7 +506,8 @@ impl<'r> Running<'r> {
     ///
     /// # Errors
     ///
-    /// When the command can't be run at all (the tool missing, the machine refused).
+    /// When the command can't be run at all (the tool missing, the machine refused);
+    /// `not_running`, before any tool acts, when nothing of the run runs.
     pub async fn exec(&self, machine: &str, argv: &[String], opts: &RunOptions, events: &dyn Events) -> Result<ExecReport> {
         self.operate(Op::Check, opts, events, async |given: &RunOptions, emitter: &Emitter<'_>, _by: OperationId| {
             let processes = self.operation_processes(given);

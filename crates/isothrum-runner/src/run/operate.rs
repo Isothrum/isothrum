@@ -287,13 +287,23 @@ impl Running<'_> {
 }
 
 /// What the run's recorded state `recorded` (none: never recorded) refuses of `op`, before
-/// anything is saved or run: an `up` of a ready run (`already_running`: use it, or bring it down
-/// first), a `resume` of a run of which nothing is left (`nothing_to_resume`: start it again).
+/// anything is saved or run:
+/// - an `up` of a ready run (`already_running`: use it, or bring it down first);
+/// - a `resume` of a run of which nothing is left (`nothing_to_resume`: start it again);
+/// - an `update` or a `retire` of a run that isn't ready, and a command, an `attach` or a
+///   `provision` in a run of which nothing runs (never started, parked or brought down; a run
+///   with a machine down, `failed`, still takes them): `not_running`, start it first. Run
+///   anyway, an update would start a parked run's machines, and a command would start the
+///   services a one-off depends on.
 fn refuse_from(op: Op, recorded: Option<RunState>, name: &crate::RunName) -> Result<()> {
     let run = || name.to_string();
-    match (op, recorded) {
-        (Op::Up, Some(RunState::Ready)) => Err(Error::AlreadyRunning { run: run() }),
-        (Op::Resume, None | Some(RunState::Absent)) => Err(Error::NothingToResume { run: run() }),
+    let ready = recorded == Some(RunState::Ready);
+    let started = ready || recorded == Some(RunState::Failed);
+    match op {
+        Op::Up if ready => Err(Error::AlreadyRunning { run: run() }),
+        Op::Resume if matches!(recorded, None | Some(RunState::Absent)) => Err(Error::NothingToResume { run: run() }),
+        Op::Update | Op::Retire if !ready => Err(Error::NotRunning { run: run() }),
+        Op::Check | Op::Attach | Op::Provision if !started => Err(Error::NotRunning { run: run() }),
         _ => Ok(()),
     }
 }

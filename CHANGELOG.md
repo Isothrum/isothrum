@@ -26,6 +26,11 @@ Terraform), usable on any project of those formats.
   fetch (`images`, `boxes`); `tool_failed` (`reason`), `elevation` (`reason`) and `not_ready`
   (`condition`, `detail`) are new; `input_invalid` has its `reason`; `timeout` keeps the step's
   last line. The text a tool printed in a detail is masked as the message is.
+- **A change of a run that isn't up is `not_running`, before any tool acts.** An `update` or a
+  `retire` of a run that isn't ready, and a command (`exec`), an `attach` or a `provision` in a run
+  of which nothing runs (never started, parked or brought down; a `failed` run still takes them),
+  are refused so. An update of a parked run started its machines, a Compose one-off started the
+  services it depends on, and an update of a run never started was `illegal_transition`.
 
 ### Added
 
