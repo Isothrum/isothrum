@@ -125,7 +125,7 @@ mod tests {
             "HTTPS_PROXY",
             "no_proxy",
             "SSL_CERT_FILE",
-            "ISOLOOM_HOSTPORTS",
+            "PROJECT_HOSTPORTS",
         ] {
             assert!(passes(passed), "{passed}");
         }

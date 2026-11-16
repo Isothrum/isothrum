@@ -126,11 +126,11 @@ fn login(target: &str) -> Login {
 fn a_host_behind_hops_is_reached_through_each_one_ssh_w_nested_its_percent_signs_doubled_per_level() {
     let state = Path::new("/runs/lab state");
     let key = Path::new("/home/me/key 1");
-    let hops = [login("root@node.lab"), login("isoloom@192.0.2.10")];
+    let hops = [login("root@node.lab"), login("ops@192.0.2.10")];
     let proxy = proxy_command(key, state, &hops, PathStyle::Unix).unwrap().unwrap();
     // The last hop is reached through the first, a level down.
     assert!(proxy.starts_with("ssh -F none -i '/home/me/key 1' "), "{proxy}");
-    assert!(proxy.ends_with(" -W %h:%p isoloom@192.0.2.10"), "{proxy}");
+    assert!(proxy.ends_with(" -W %h:%p ops@192.0.2.10"), "{proxy}");
     let inner = "'ProxyCommand=ssh -F none -i '\\''/home/me/key 1'\\''";
     assert!(proxy.contains(inner), "the first hop's own ssh, quoted inside: {proxy}");
     assert!(proxy.contains("-W %%h:%%p root@node.lab"), "its tokens doubled once: {proxy}");

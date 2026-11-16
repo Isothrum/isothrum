@@ -27,7 +27,9 @@ this computer's hypervisors and tools can do.
 `cargo xtask check` enforces it:
 
 - the `isoloom-free` step and the `boundary` guardrail: no crate of the workspace, and no
-  dependency of one, is an Isoloom crate.
+  dependency of one, is an Isoloom crate;
+- the `vocabulary` guardrail: no file under `crates/` (code, tests, fixtures, the crates'
+  READMEs) names Isoloom.
 
 ## Its boundary with the other products
 

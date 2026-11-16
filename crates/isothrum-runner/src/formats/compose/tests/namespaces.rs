@@ -15,27 +15,27 @@ async fn a_resume_stops_the_services_left_in_the_network_namespace_of_one_stoppe
     let run = run();
     let listing = [
         ps_line("web", "exited", "", 0, None),
-        ps_line("isoloom-routes-web", "running", "healthy", 0, None),
+        ps_line("routes-web", "running", "healthy", 0, None),
         ps_line("keeper", "restarting", "", 1, None),
         ps_line("old", "exited", "", 1, None),
         ps_line("cache", "running", "healthy", 0, None),
-        ps_line("isoloom-routes-cache", "running", "healthy", 0, None),
+        ps_line("routes-cache", "running", "healthy", 0, None),
     ]
     .join("\n");
     let config = r#"{"services": {
         "web": {}, "cache": {},
-        "isoloom-routes-web": {"network_mode": "service:web"},
-        "keeper": {"network_mode": "service:isoloom-routes-web"},
+        "routes-web": {"network_mode": "service:web"},
+        "keeper": {"network_mode": "service:routes-web"},
         "old": {"network_mode": "service:web"},
-        "isoloom-routes-cache": {"network_mode": "service:cache"}
+        "routes-cache": {"network_mode": "service:cache"}
     }}"#;
-    let stop = "docker compose -p lab -f * stop isoloom-routes-web keeper";
+    let stop = "docker compose -p lab -f * stop routes-web keeper";
     let up = "docker compose -p lab -f * up --detach --wait --no-recreate";
     let fake = FakeProcesses::script()
         .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
         .expect(
             "docker compose -p lab -f * config --services",
-            Reply::ok("web\ncache\nisoloom-routes-web\nkeeper\nold\nisoloom-routes-cache\n"),
+            Reply::ok("web\ncache\nroutes-web\nkeeper\nold\nroutes-cache\n"),
         )
         .expect(CONFIG, Reply::ok(config))
         .expect_times(stop, 1, Reply::ok(""))
@@ -45,7 +45,7 @@ async fn a_resume_stops_the_services_left_in_the_network_namespace_of_one_stoppe
     let [stopped] = fake.made("docker compose -p lab -f * stop").try_into().expect("one stop");
     assert_eq!(
         stopped.args.iter().skip_while(|a| *a != "stop").skip(1).collect::<Vec<_>>(),
-        ["isoloom-routes-web", "keeper"]
+        ["routes-web", "keeper"]
     );
     let lines = fake.lines();
     let at = |what: &str| {

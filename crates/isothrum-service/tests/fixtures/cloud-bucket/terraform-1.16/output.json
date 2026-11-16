@@ -2,6 +2,6 @@
   "website_url": {
     "sensitive": false,
     "type": "string",
-    "value": "http://isoloom-cloud-bucket-3f9a1c2e.s3-website-us-east-1.amazonaws.com/"
+    "value": "http://example-cloud-bucket-3f9a1c2e.s3-website-us-east-1.amazonaws.com/"
   }
 }

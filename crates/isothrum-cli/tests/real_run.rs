@@ -1,6 +1,6 @@
 //! Real runs on this host's Docker (ignored), each leaving nothing:
 //!
-//! - the run Isoloom generated in `$ISOTHRUM_REAL_RUN_DIR` (`cargo run -p xtask -- real-run` sets
+//! - the Compose project in `$ISOTHRUM_REAL_RUN_DIR` (`cargo run -p xtask -- real-run` sets
 //!   it up) goes up, answers on its entry, passes its checks, parks, resumes on the same address,
 //!   and goes. Every event is kept in `$ISOTHRUM_REAL_EVENTS` when it is set;
 //! - the Compose example, `examples/compose-web-cache`, does what its README shows: up, its page
@@ -182,7 +182,7 @@ fn lifecycle(real: &mut Real) -> Outcome {
 #[test]
 #[ignore = "needs Docker and a generated run: cargo run -p xtask -- real-run"]
 fn a_generated_run_runs_for_real() -> Outcome {
-    let run = PathBuf::from(std::env::var("ISOTHRUM_REAL_RUN_DIR").map_err(|_| "ISOTHRUM_REAL_RUN_DIR: a run folder Isoloom generated for docker")?);
+    let run = PathBuf::from(std::env::var("ISOTHRUM_REAL_RUN_DIR").map_err(|_| "ISOTHRUM_REAL_RUN_DIR: a Compose project's folder")?);
     Real::of(run)?.removed_after(lifecycle)
 }
 

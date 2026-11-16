@@ -1,9 +1,9 @@
 # isothrum-cli
 
 `isothrum`, the command line of the [Isothrum runner](https://crates.io/crates/isothrum-runner):
-bring up, check, park, resume, update and tear down the environments
-[Isoloom](https://github.com/isoloom/isoloom) generates, with Docker Compose, Vagrant or
-Terraform. Add `--json` for one JSON event per line on standard output, for CI and scripts.
+bring up, check, park, resume, update and tear down a Compose project, a Vagrantfile or a
+Terraform module, whoever wrote it. Add `--json` for one JSON event per line on standard output,
+for CI and scripts.
 
 ## Install
 
@@ -25,7 +25,7 @@ cargo install isothrum-cli --locked
 ## Example
 
 ```sh
-# In a folder where Isoloom generated the docker target (.isoloom/docker/run.json):
+# In a Compose project's folder:
 isothrum up
 isothrum check
 isothrum down

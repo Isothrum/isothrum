@@ -347,7 +347,7 @@ mod tests {
             "up",
             "runs/web",
             "--env",
-            "ISOLOOM_KEY=k3y9ab",
+            "PROJECT_KEY=k3y9ab",
             "--secret-from-env",
             "DEMO_SECRET",
             "--provider",
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(op.provider, Some(Provider::Virtualbox));
         assert_eq!(
             (op.run.path, op.env, op.secrets, cli.json),
-            ("runs/web".into(), vec!["ISOLOOM_KEY=k3y9ab".to_owned()], vec!["DEMO_SECRET".to_owned()], true)
+            ("runs/web".into(), vec!["PROJECT_KEY=k3y9ab".to_owned()], vec!["DEMO_SECRET".to_owned()], true)
         );
         let retire = Cli::parse_from(["isothrum", "retire", "web", "runs/web", "--secret-from-env", "DEMO_SECRET"]);
         let RunnerCommand::Lifecycle(Lifecycle::Retire {
