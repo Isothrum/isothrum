@@ -126,6 +126,10 @@ impl AnyFormat {
         dispatch!(self, d => d.native_app(cx, seen))
     }
 
+    pub(crate) async fn published(&self, cx: &ToolCx<'_>) -> Result<Vec<super::Published>> {
+        dispatch!(self, d => d.published(cx).await)
+    }
+
     pub(crate) async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<NativeConsole> {
         dispatch!(self, d => d.native_console(cx, machine).await)
     }

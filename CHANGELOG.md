@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A deployment's service endpoints, reachable from this computer: `Running::service_endpoints`,
+  `ServiceEndpoint`.** Each entry of a Terraform module's `published` output, as the module gives
+  it, or, when the run has a jump host (its `ssh_jump` value), at a local forward through it
+  (`ssh -N -L`, the run's key, the console tunnels' pinning and tool ledger). The process keeps
+  each forward while the endpoint is published, opens it again when its `ssh` ended, and a `down`
+  ends it. One that doesn't open says why (`why`), the others are given all the same.
 - **A command runs in a Terraform module's VM: `Running::exec`, `isothrum exec`.** An `ssh` into
   the VM that runs it, with no terminal: what it printed and its exit status, a command that fails
   being its result and an `ssh` that can't run it (255) `tool_failed`. It was refused. A
@@ -19,7 +25,7 @@ Terraform), usable on any project of those formats.
   `machines` output names, on the module's own networks, is reached through the `ip` output's
   machine (its router), signed in as that machine's user; a VM at its own `address_<machine>`,
   straight. A run's `ssh_jump` value (`user@host`) is a host every console and command goes
-  through first: a server's node whose lab network only it reaches. The first host on the way is
+  through first: a host whose private network only it reaches. The first host on the way is
   pinned before the call; a host behind it, which only it reaches, the first time the call meets
   it there. A console went to the address in the state only, which a VM on a node's internal
   bridge has none of, and which this computer doesn't reach.
@@ -101,6 +107,9 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A Terraform module's console asked for an account signs in as the module's user, then opens
+  a login shell as that account** (`sudo -iu`), as a Vagrant VM's does. It signed in as the
+  account itself, which doesn't let the run's key in.
 - **A first Compose start claims the host ports the project fixes before anything is made.** One
   another run of the home holds, or something on this computer binds, is refused with
   `port_in_use` (naming the port) before a pull or an `up`; the others are reserved for the run

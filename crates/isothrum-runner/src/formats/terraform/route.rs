@@ -8,7 +8,7 @@
 //!   module's `ip` output (its router, its access machine), signed in as the user of the machine
 //!   whose address that is, else `ssh_user`; unless it is at that address itself.
 //! - **First through where.** The run's `ssh_jump` value (`user@host`), when it has one: a host
-//!   this computer reaches that reaches the rest (a server's node whose lab network is internal to
+//!   this computer reaches that reaches the rest (a host whose private network is internal to
 //!   it). Every console and command of the run goes through it first.
 //! - **As whom.** The user asked for, else `ssh_user_<machine>`, else the `ssh_user` of the machine
 //!   whose `address_<machine>` the address is, else `ssh_user`.
@@ -143,7 +143,7 @@ mod tests {
     fn behind_a_router() -> BTreeMap<String, String> {
         outputs(&[
             ("ip", "192.0.2.10"),
-            ("ssh_user", "isoloom"),
+            ("ssh_user", "ops"),
             ("machines", r#"{"web":"10.60.0.10","cache":"10.60.0.20"}"#),
         ])
     }
@@ -153,17 +153,17 @@ mod tests {
         let out = behind_a_router();
         assert_eq!(
             targets(&route(&out, None, "web", None, None).expect("a route")),
-            ["isoloom@192.0.2.10", "isoloom@10.60.0.10"]
+            ["ops@192.0.2.10", "ops@10.60.0.10"]
         );
         assert_eq!(
-            targets(&route(&out, None, "web", Some("player"), Some("root@node.lab")).expect("a route")),
-            ["root@node.lab", "isoloom@192.0.2.10", "player@10.60.0.10"],
+            targets(&route(&out, None, "web", Some("admin"), Some("root@node.lab")).expect("a route")),
+            ["root@node.lab", "ops@192.0.2.10", "admin@10.60.0.10"],
             "the jump first, the router as its own user, the machine as the user asked for"
         );
         // The router itself: at its address in the state, through the jump alone.
         assert_eq!(
-            targets(&route(&out, Some("192.0.2.10"), "isoloom_router", None, Some("root@node.lab")).expect("a route")),
-            ["root@node.lab", "isoloom@192.0.2.10"]
+            targets(&route(&out, Some("192.0.2.10"), "router", None, Some("root@node.lab")).expect("a route")),
+            ["root@node.lab", "ops@192.0.2.10"]
         );
     }
 
@@ -183,8 +183,8 @@ mod tests {
             ["debian@198.51.100.4"]
         );
         // The machine at the router's address is the router: no hop to itself.
-        let at_ip = outputs(&[("ip", "10.60.0.10"), ("ssh_user", "isoloom"), ("machines", r#"{"web":"10.60.0.10"}"#)]);
-        assert_eq!(targets(&route(&at_ip, None, "web", None, None).expect("a route")), ["isoloom@10.60.0.10"]);
+        let at_ip = outputs(&[("ip", "10.60.0.10"), ("ssh_user", "ops"), ("machines", r#"{"web":"10.60.0.10"}"#)]);
+        assert_eq!(targets(&route(&at_ip, None, "web", None, None).expect("a route")), ["ops@10.60.0.10"]);
     }
 
     #[test]

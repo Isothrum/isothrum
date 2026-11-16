@@ -62,7 +62,14 @@ impl Running<'_> {
             })
             .await?;
         if let Some(to) = console.through.take() {
-            let tunnel = crate::graphical::tunnel::open(self.runner, &self.name, &self.state_dir(), machine, &to).await?;
+            let tunnel = crate::graphical::tunnel::open(
+                self.runner,
+                &self.name,
+                &self.state_dir(),
+                crate::graphical::tunnel::Purpose::Console(machine),
+                &to,
+            )
+            .await?;
             console.endpoint = Endpoint::Loopback(tunnel.local());
             console.tunnel = Some(tunnel);
         }

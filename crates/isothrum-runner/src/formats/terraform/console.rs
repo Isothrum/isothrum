@@ -13,16 +13,19 @@ use crate::graphical::no_console;
 /// refused): the command's own is any other.
 const SSH_FAILED: i32 = 255;
 
-/// The console into `machine`, signed in as `user` when given.
+/// The console into `machine`: signed in as the module's user there, then a login shell as
+/// `user` when given (`sudo -iu`, as a Vagrant VM's console: the account asked for doesn't let the
+/// run's key in).
 ///
 /// # Errors
 ///
 /// `machine_unknown` when the module has no such VM; `no_console` when there is no route to it
 /// ([`route`]); as the state's and the outputs' reads and the host key's pin fail.
 pub(super) async fn of(module: &Module<'_, '_>, machine: &str, user: Option<&str>) -> Result<ShellCommand> {
-    let route = route::to(module, machine, user).await?.map_err(|why| no_console(machine, why))?;
+    let route = route::to(module, machine, None).await?.map_err(|why| no_console(machine, why))?;
     let mut args = route.options(module).await?;
     args.extend(["-t".to_owned(), route.to.target()]);
+    args.extend(user.map(crate::console::shells::login_shell_as));
     Ok(ShellCommand::new("ssh", args, module.cx.project.dir.clone()))
 }
 

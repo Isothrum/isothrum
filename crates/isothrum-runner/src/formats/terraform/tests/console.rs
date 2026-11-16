@@ -50,7 +50,7 @@ async fn a_vms_console_is_ssh_as_the_user_the_outputs_name_with_the_runs_key_and
 }
 
 #[tokio::test]
-async fn a_console_without_a_run_key_signs_in_with_the_runners_and_a_user_asked_wins() {
+async fn a_console_without_a_run_key_signs_in_with_the_runners_and_becomes_the_user_asked_for() {
     let lab = lab().with_state();
     let fake = script();
     let console = with_cx(&lab, &fake, async |cx| Terraform.console(cx, "web", Some("root")).await)
@@ -58,7 +58,12 @@ async fn a_console_without_a_run_key_signs_in_with_the_runners_and_a_user_asked_
         .expect("a console");
     let spec = crate::process::ProcessSpec::new(&console.program, console.args.clone());
     assert_eq!(spec.flag("-i"), Some("/nowhere/id_ed25519"), "the runner's own key");
-    assert_eq!(console.args.last().map(String::as_str), Some("root@203.0.113.7"));
+    let n = console.args.len();
+    assert_eq!(
+        &console.args[n - 2..],
+        ["admin@203.0.113.7".to_owned(), crate::console::shells::login_shell_as("root")],
+        "as the module's user, then a login shell as the one asked for"
+    );
 }
 
 /// A state of an Azure Windows VM, `dc`, at 10.9.0.20 on the module's network, and of a Linux one,
@@ -116,20 +121,20 @@ async fn a_vm_whose_module_names_no_screen_has_none_saying_why_and_a_machine_not
     assert_eq!(nope.code(), ErrorCode::MachineUnknown, "{nope}");
 }
 
-/// A state of a Proxmox VE lab: its router, at 192.0.2.10 on the node's internal bridge, and
+/// A state of a Proxmox VE deployment: its router, at 192.0.2.10 on the node's internal bridge, and
 /// `web`, with no address (no guest agent).
 fn web_behind_a_router() -> String {
     serde_json::json!({ "format_version": "1.0", "values": { "root_module": { "resources": [
-        { "address": "proxmox_virtual_environment_vm.isoloom_router", "mode": "managed", "type": "proxmox_virtual_environment_vm",
-          "name": "isoloom_router", "values": { "id": "100", "ipv4_addresses": [["127.0.0.1"], ["192.0.2.10"]] } },
+        { "address": "proxmox_virtual_environment_vm.router", "mode": "managed", "type": "proxmox_virtual_environment_vm",
+          "name": "router", "values": { "id": "100", "ipv4_addresses": [["127.0.0.1"], ["192.0.2.10"]] } },
         { "address": "proxmox_virtual_environment_vm.web", "mode": "managed", "type": "proxmox_virtual_environment_vm",
           "name": "web", "values": { "id": "101" } }
     ]}}})
     .to_string()
 }
 
-/// Isoloom's server module's outputs: its router's address, its user, and the machines behind it.
-const ROUTER_OUTPUTS: &str = r#"{"ip":{"sensitive":false,"type":"string","value":"192.0.2.10"},"ssh_user":{"sensitive":false,"type":"string","value":"isoloom"},"machines":{"sensitive":false,"type":["object",{"web":"string"}],"value":{"web":"10.60.0.10"}}}"#;
+/// A module's outputs: its router's address, its user, and the machines behind it.
+const ROUTER_OUTPUTS: &str = r#"{"ip":{"sensitive":false,"type":"string","value":"192.0.2.10"},"ssh_user":{"sensitive":false,"type":"string","value":"ops"},"machines":{"sensitive":false,"type":["object",{"web":"string"}],"value":{"web":"10.60.0.10"}}}"#;
 
 /// The node every SSH of the run goes through first.
 const NODE_KEY: &str = "node.lab ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
@@ -138,7 +143,7 @@ const NODE_KEY: &str = "node.lab ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm
 /// through first.
 const THROUGH_THE_NODE: &[(&str, &str)] = &[("ssh_private_key_file", "/keys/lab"), ("ssh_jump", "root@node.lab")];
 
-/// Scripted tools for a lab behind its router: the state, the outputs, the node's keys, and `ssh`
+/// Scripted tools for a deployment behind its router: the state, the outputs, the node's keys, and `ssh`
 /// answering `ssh`.
 fn behind_a_router(ssh: Reply) -> FakeProcesses {
     FakeProcesses::script()
@@ -152,19 +157,19 @@ fn behind_a_router(ssh: Reply) -> FakeProcesses {
 #[tokio::test]
 async fn a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_first() {
     let lab = lab().with_state();
-    let fake = behind_a_router(Reply::ok("isoloom-check: web: ok"));
-    let argv = ["sh".to_owned(), "-c".to_owned(), "echo 'isoloom-check: web: ok'".to_owned()];
+    let fake = behind_a_router(Reply::ok("web: ok"));
+    let argv = ["sh".to_owned(), "-c".to_owned(), "echo 'web: ok'".to_owned()];
     let ran = with_cx_given(&lab, &fake, THROUGH_THE_NODE, async |cx| Terraform.exec(cx, "web", &argv).await)
         .await
         .expect("it ran");
-    assert_eq!((ran.exit, ran.stdout.as_str()), (0, "isoloom-check: web: ok"));
+    assert_eq!((ran.exit, ran.stdout.as_str()), (0, "web: ok"));
     let ssh = fake.last("ssh -F none").expect("an ssh");
     assert_eq!(ssh.flag("-i"), Some("/keys/lab"), "the run's own key: {}", ssh.line());
     // Only the node is reached from here, and pinned first; the router and web behind it are
     // pinned as the call first meets them.
     assert!(ssh.has_run(&["-o", "StrictHostKeyChecking=accept-new"]), "{}", ssh.line());
     let proxy = ssh.args.iter().find_map(|a| a.strip_prefix("ProxyCommand=")).expect("a ProxyCommand");
-    assert!(proxy.ends_with(" -W %h:%p isoloom@192.0.2.10"), "web through its router: {proxy}");
+    assert!(proxy.ends_with(" -W %h:%p ops@192.0.2.10"), "web through its router: {proxy}");
     assert!(proxy.contains("-W %%h:%%p root@node.lab"), "the router through the node, a level down: {proxy}");
     assert!(
         proxy.contains("StrictHostKeyChecking=yes") && proxy.contains("StrictHostKeyChecking=accept-new"),
@@ -173,7 +178,7 @@ async fn a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_
     let n = ssh.args.len();
     assert_eq!(
         &ssh.args[n - 2..],
-        ["isoloom@10.60.0.10", "sh -c 'echo '\\''isoloom-check: web: ok'\\'''"],
+        ["ops@10.60.0.10", "sh -c 'echo '\\''web: ok'\\'''"],
         "as the module's user, the command quoted as the machine's shell reads it back"
     );
     let known = std::fs::read_to_string(lab.state.path().join(crate::ssh::KNOWN_HOSTS)).expect("the node's key pinned");
@@ -185,7 +190,7 @@ async fn a_command_that_fails_is_its_exit_status_and_one_ssh_couldnt_run_an_erro
     let lab = lab().with_state();
     let failed = behind_a_router(Reply {
         code: 1,
-        ..Reply::ok("isoloom-check: web: fail: nothing listens on 80")
+        ..Reply::ok("web: nothing listens on 80")
     });
     let ran = with_cx_given(&lab, &failed, THROUGH_THE_NODE, async |cx| {
         Terraform.exec(cx, "web", &["true".to_owned()]).await
@@ -215,12 +220,12 @@ async fn a_console_into_a_vm_behind_the_router_goes_the_same_way_and_a_windows_v
     let console = with_cx_given(&lab, &fake, THROUGH_THE_NODE, async |cx| Terraform.console(cx, "web", None).await)
         .await
         .expect("a console");
-    assert_eq!(console.args.last().map(String::as_str), Some("isoloom@10.60.0.10"));
+    assert_eq!(console.args.last().map(String::as_str), Some("ops@10.60.0.10"));
     assert!(
         console
             .args
             .iter()
-            .any(|a| a.starts_with("ProxyCommand=") && a.ends_with("-W %h:%p isoloom@192.0.2.10")),
+            .any(|a| a.starts_with("ProxyCommand=") && a.ends_with("-W %h:%p ops@192.0.2.10")),
         "{:?}",
         console.args
     );

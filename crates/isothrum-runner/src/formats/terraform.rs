@@ -525,6 +525,14 @@ impl FormatDriver for Terraform {
     async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<crate::graphical::NativeConsole> {
         screen::native(cx, machine).await
     }
+
+    /// The `published` output's entries (`{ "web/site" = "192.0.2.10:8080" }`), each one whose
+    /// address has a host and a port; one without its address yet (an empty host) is left out.
+    async fn published(&self, cx: &ToolCx<'_>) -> Result<Vec<super::Published>> {
+        let module = Module::of(cx);
+        let out = tunnelled::outputs(&module, module.state()?).await?;
+        Ok(tunnelled::published(&out))
+    }
 }
 
 #[cfg(test)]

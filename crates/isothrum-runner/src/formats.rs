@@ -368,4 +368,22 @@ pub(crate) trait FormatDriver {
     async fn native_console(&self, _cx: &ToolCx<'_>, machine: &str) -> Result<NativeConsole> {
         Err(crate::graphical::native::no_app(machine))
     }
+    /// The service endpoints the deployment publishes beyond this computer's own ports (a
+    /// module's `published` output), by name, each at its `host` and `port` as the deployment
+    /// says; none by default.
+    async fn published(&self, _cx: &ToolCx<'_>) -> Result<Vec<Published>> {
+        Ok(Vec::new())
+    }
+}
+
+/// A service endpoint a deployment publishes: its name (`<machine>/<service>`) and its address
+/// as the deployment gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Published {
+    /// Its name.
+    pub(crate) name: String,
+    /// Its host: a name or an address.
+    pub(crate) host: String,
+    /// Its port there.
+    pub(crate) port: u16,
 }

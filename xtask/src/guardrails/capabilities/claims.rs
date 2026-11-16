@@ -3,7 +3,7 @@
 use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
-pub(super) const CLAIMS: [(&str, &str, Proof); 56] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
     (
         "compose",
         "probe",
@@ -338,7 +338,22 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 56] = [
     ),
     ("terraform", "attach", NoTool("refused: a module's machines are all applied together")),
     ("terraform", "retire", NoTool("refused: a module's machines are all applied together")),
-    ("terraform", "exec", NoTool("refused: Terraform reaches no machine to run a command in")),
+    (
+        "terraform",
+        "exec",
+        Witness {
+            test: "a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_first",
+            evidence: "ssh -F none",
+        },
+    ),
+    (
+        "terraform",
+        "published",
+        Witness {
+            test: "without_a_jump_host_each_endpoint_is_where_the_deployment_publishes_it",
+            evidence: "203.0.113.7:8080",
+        },
+    ),
     (
         "terraform",
         "console",
@@ -380,16 +395,4 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 56] = [
         },
     ),
     ("terraform", "native_app", NoTool("a query: the app a module's VMs open in, nothing runs")),
-];
-
-/// The claims whose witness is owed: each a test to write (a scripted process seeing the call),
-/// and the list only shrinks. A claim added to a driver never goes here: it comes with its test.
-pub(super) const OWED: [(&str, &str, &str); 3] = [
-    ("vagrant", "native_console", "a VM's own window opened through its provider's app"),
-    (
-        "terraform",
-        "reach_graphical",
-        "a Proxmox VE VM's VNC websocket asked of its API (curl's vncproxy) from the module's state",
-    ),
-    ("terraform", "native_console", "a Proxmox VE VM's web console address from the module's state"),
 ];
