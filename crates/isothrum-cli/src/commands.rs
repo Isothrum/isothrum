@@ -9,7 +9,7 @@ use isothrum_runner::{Endpoint, Events, NativeOpen, Op, Park, RunName, RunOption
 use crate::args::{Cli, Command, Lifecycle, Mode, OpArgs, RunArgs, RunnerCommand, UpArgs};
 use crate::error::{Error, Result};
 use crate::exit::Verdict;
-use crate::term::{Human, Json, Term, Traced, Trail};
+use crate::term::{HeldLogs, Human, Json, Term, Traced, Trail};
 use crate::text::{human, status_text};
 use crate::values;
 use crate::values::Var;
@@ -217,9 +217,12 @@ async fn status(out: &Out<'_>, run: &Running<'_>) -> Result<Verdict> {
 }
 
 /// Runs `argv` in `machine`: what it printed, on the command's own streams (in its `result` with
-/// `--json`), and a pass only when it exited 0.
+/// `--json`), and a pass only when it exited 0. For a person, what it printed is said once: on
+/// its own streams, not again as the tool's log lines.
 async fn exec(out: &Out<'_>, run: &Running<'_>, machine: &str, argv: &[String], opts: &RunOptions) -> Result<Verdict> {
     let Out { json, term, events } = *out;
+    let held = HeldLogs::new(events);
+    let events: &dyn Events = if json { events } else { &held };
     let Ok(report) = run.exec(machine, argv, opts, events).await else {
         return Ok(Verdict::Fail);
     };

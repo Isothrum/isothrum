@@ -186,6 +186,10 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **`isothrum exec` without `--json` prints its command's output once.** It came twice: as the
+  tool's log lines on standard error while it ran, then on the command's own streams. Now only
+  on its own streams (standard output stays the command's, for a pipe); the log lines show only
+  when the command couldn't run. `--json` is unchanged.
 - **A first Compose start refused for a taken host port leaves nothing behind.** Compose makes the
   project's network and containers, and starts some, before Docker refuses the bind; the start
   failed with `port_in_use` but left them, and the next start, the port free, met them. A first
