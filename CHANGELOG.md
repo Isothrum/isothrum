@@ -89,6 +89,12 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A first Compose start claims the host ports the project fixes before anything is made.** One
+  another run of the home holds, or something on this computer binds, is refused with
+  `port_in_use` (naming the port) before a pull or an `up`; the others are reserved for the run
+  until its start ends, so a run starting meanwhile can't take them. A port Docker refuses anyway
+  (taken since, or seen only by Docker) is still undone as before.
+
 - **The topology compiler and its WebAssembly build moved to Isoloom.** **Breaking:**
   `isothrum-compiler` and `isothrum-wasm` are gone from this repository: they compile Isoloom specs,
   so they are Isoloom's `isoloom-topology` and `isoloom-wasm` now, with the same JavaScript exports

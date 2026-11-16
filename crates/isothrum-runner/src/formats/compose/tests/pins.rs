@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use super::*;
 use crate::formats::PickPorts;
 use crate::net::HeldPort;
+use crate::port::HostPort;
 use crate::project::platform::Protocol;
 
 /// Compose 5.6's config of a service publishing `"80"`, `"127.0.0.1::443"`, `"8080:8080"` and
@@ -17,14 +18,46 @@ const UP_PINNED: &str = "docker compose -p lab -f * -f * up --detach --wait --re
 /// The pull a start makes first, the pins written.
 const PULL_PINNED: &str = "docker compose -p lab -f * -f * pull --ignore-buildable";
 
-/// Hands out 41001, 41002, … in turn.
-struct Picks(Mutex<u16>);
+/// Hands out 41001, 41002, … in turn; claims every fixed port but `taken`, and keeps the claims.
+#[derive(Default)]
+struct Picks {
+    next: Mutex<u16>,
+    taken: Option<HostPort>,
+    claimed: Mutex<Vec<(u16, Protocol)>>,
+}
+
+impl Picks {
+    fn from_41001() -> Picks {
+        Picks {
+            next: Mutex::new(41000),
+            ..Picks::default()
+        }
+    }
+
+    fn claimed(&self) -> Vec<(u16, Protocol)> {
+        self.claimed.lock().expect("the claims").clone()
+    }
+}
 
 impl PickPorts for Picks {
     fn pick(&self, _protocol: Protocol) -> std::io::Result<Option<HeldPort>> {
-        let mut next = self.0.lock().expect("the next port");
+        let mut next = self.next.lock().expect("the next port");
         *next += 1;
-        Ok(Some(HeldPort::new(crate::port::HostPort::new(*next), ())))
+        Ok(Some(HeldPort::new(HostPort::new(*next), ())))
+    }
+
+    fn claim(&self, ports: &[(HostPort, Protocol)]) -> crate::Result<()> {
+        if let Some(&(port, protocol)) = ports.iter().find(|(p, _)| Some(*p) == self.taken) {
+            return Err(crate::error::Error::PortInUse {
+                port,
+                protocol: crate::encoding::wire_name(&protocol),
+            });
+        }
+        self.claimed
+            .lock()
+            .expect("the claims")
+            .extend(ports.iter().map(|(p, protocol)| (p.get(), *protocol)));
+        Ok(())
     }
 }
 
@@ -32,7 +65,7 @@ impl PickPorts for Picks {
 fn bench() -> (tempfile::TempDir, Folder, RunName, tempfile::TempDir, Picks) {
     let (dir, project) = folder();
     let state = tempfile::tempdir().expect("a state folder");
-    (dir, project, run(), state, Picks(Mutex::new(41000)))
+    (dir, project, run(), state, Picks::from_41001())
 }
 
 /// `CONFIG_PORTS` with a service `api` publishing `"3000"` added.
@@ -61,6 +94,7 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
     assert_eq!(files.last(), Some(&pins.as_path()), "the override after the project's files: {:?}", up.args);
     // The config is read without the pins: the script's `CONFIG` names one file, and a read with
     // two would be a call it doesn't answer.
+    assert_eq!(picks.claimed(), [(8080, Protocol::Tcp)], "the first start claims the port the project fixes");
 
     let update = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(&with_api()))
@@ -73,6 +107,11 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
         )
         .build();
     Compose.update(&cx_in(&project, &run, &update, state.path(), &picks)).await.expect("updated");
+    assert_eq!(
+        picks.claimed(),
+        [(8080, Protocol::Tcp)],
+        "an update claims nothing: the run's own containers hold its ports"
+    );
     let kept = std::fs::read_to_string(&pins).expect("the override");
     assert!(kept.contains("\"41001:80/tcp\"") && kept.contains("\"[::1]:41003:53/udp\""), "kept: {kept}");
     assert!(
@@ -113,4 +152,26 @@ async fn an_attached_services_ephemeral_port_is_pinned_kept_by_a_start_and_dropp
     assert_eq!(std::fs::read_to_string(&pins).expect("the override"), pinned, "the same port");
     Compose.retire(&cx, "attackbox").await.expect("retired");
     assert!(!pins.exists(), "its pin went with it, and nothing else is pinned");
+}
+
+#[tokio::test]
+async fn a_first_start_whose_fixed_host_port_is_taken_is_refused_before_anything_is_made() {
+    let (_dir, project, run, state, _) = bench();
+    let picks = Picks {
+        taken: Some(HostPort::new(8080)),
+        ..Picks::from_41001()
+    };
+    // Only the config is scripted: a pull, an `up` or a `down` would be a call the script
+    // doesn't answer.
+    let fake = FakeProcesses::script().expect(CONFIG, Reply::ok(CONFIG_PORTS)).build();
+    let refused = Compose.up(&cx_in(&project, &run, &fake, state.path(), &picks)).await.expect_err("taken");
+    assert_eq!(
+        refused.detail().map(|d| d.data),
+        Some(crate::Detail::PortInUse {
+            port: 8080,
+            protocol: "tcp".to_owned()
+        }),
+        "{refused}"
+    );
+    assert!(!state.path().join("compose-pins.yaml").exists(), "nothing pinned either");
 }

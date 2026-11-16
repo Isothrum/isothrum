@@ -211,6 +211,13 @@ impl FakePorts {
             ..FakePorts::default()
         }
     }
+
+    /// `port` taken over `protocol`, as one something else on this computer binds.
+    #[must_use]
+    pub fn taken(self, port: u16, protocol: Protocol) -> FakePorts {
+        self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((port, protocol));
+        self
+    }
 }
 
 #[cfg(any(test, feature = "fake"))]

@@ -35,7 +35,7 @@ fn two_runners_of_one_home_cant_both_reserve_a_port() {
     assert!(!b.reserve(&two, HostPort::new(8080), Protocol::Tcp, None), "a holds it");
     assert!(b.reserved_elsewhere(&two, HostPort::new(8080), Protocol::Tcp));
     assert_eq!(
-        b.ensure_free(&two, [(HostPort::new(8080), Protocol::Tcp)]).unwrap_err().code(),
+        b.claim(&two, [(HostPort::new(8080), Protocol::Tcp)], None).unwrap_err().code(),
         crate::ErrorCode::PortInUse
     );
     assert!(!a.reserved_elsewhere(&one, HostPort::new(8080), Protocol::Tcp), "its own");
@@ -82,6 +82,34 @@ fn a_free_port_another_runner_reserved_is_skipped() {
     assert!(a.reserve(&run("one"), HostPort::new(41000), Protocol::Tcp, None));
     let picked = b.pick_reserved(&run("two"), Protocol::Tcp, None).unwrap().unwrap();
     assert_eq!(picked.port, HostPort::new(41001), "41000 is reserved in the other runner");
+}
+
+#[test]
+fn a_claim_reserves_its_free_ports_and_refuses_one_held_or_bound() {
+    let home = tempfile::tempdir().unwrap();
+    let (a, b) = (reservations(home.path(), []), reservations(home.path(), []));
+    let (one, two) = (run("one"), run("two"));
+    a.claim(&one, [(HostPort::new(8080), Protocol::Tcp), (HostPort::new(5353), Protocol::Udp)], None)
+        .expect("both free");
+    assert!(
+        b.reserved_elsewhere(&two, HostPort::new(8080), Protocol::Tcp) && b.reserved_elsewhere(&two, HostPort::new(5353), Protocol::Udp),
+        "claimed is reserved for the run"
+    );
+    let held = b.claim(&two, [(HostPort::new(8080), Protocol::Tcp)], None).unwrap_err();
+    assert_eq!(
+        held.detail().map(|d| d.data),
+        Some(crate::Detail::PortInUse {
+            port: 8080,
+            protocol: "tcp".to_owned()
+        })
+    );
+    let bound = PortReservations::new(
+        Arc::new(FakePorts::new([]).taken(9000, Protocol::Tcp)),
+        Arc::new(Store::open(home.path()).unwrap()),
+    );
+    let refused = bound.claim(&two, [(HostPort::new(9000), Protocol::Tcp)], None).unwrap_err();
+    assert_eq!(refused.code(), crate::ErrorCode::PortInUse, "something on this computer binds it");
+    assert!(!a.reserved_elsewhere(&one, HostPort::new(9000), Protocol::Tcp), "a refused port isn't reserved");
 }
 
 #[test]

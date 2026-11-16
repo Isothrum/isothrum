@@ -16,8 +16,10 @@
 //!
 //! Recovery: an `up` refused because a name of the project is taken (a container or network an
 //! earlier start left) removes the project's labelled leftovers by id and starts once more. A
-//! host port taken is `port_in_use`; a first start refused for one removes what it made (`down`),
-//! so the next start, the port free, finds nothing in its way. Compose has no set-up to run again:
+//! host port taken is `port_in_use`. A first start claims the host ports the project fixes before
+//! anything is made (one another run holds or something on this computer binds is refused there);
+//! one refused by Docker anyway (taken since, or seen only by Docker) removes what the start made
+//! (`down`), so the next start, the port free, finds nothing in its way. Compose has no set-up to run again:
 //! `provision` is refused.
 
 mod pins;
@@ -69,15 +71,26 @@ impl Compose {
         format!("{PROJECT_LABEL}={}", cx.run.as_str())
     }
 
-    /// The project's ports pinned, its images pulled, then `up` (a start, an update, a reapply).
+    /// [`Compose::prepare`], then [`Compose::launch`]: an update, a reapply.
     async fn start(&self, cx: &ToolCx<'_>) -> Result<()> {
+        self.prepare(cx, false).await?;
+        self.launch(cx).await
+    }
+
+    /// What a start does before it makes anything: the project's ports pinned (its fixed host
+    /// ports claimed first, at a `first` start), its images pulled.
+    async fn prepare(&self, cx: &ToolCx<'_>, first: bool) -> Result<()> {
+        pins::pin(cx, first).await?;
+        self.pull(cx).await
+    }
+
+    /// `up`, which makes and starts the project's containers.
+    async fn launch(&self, cx: &ToolCx<'_>) -> Result<()> {
         let how = Up {
             wait: true,
             remove_orphans: true,
             ..Up::default()
         };
-        pins::pin(cx).await?;
-        self.pull(cx).await?;
         self.up_recovering(cx, "up", &how).await
     }
 
@@ -220,8 +233,11 @@ impl FormatDriver for Compose {
         // undone: Compose makes the project's network and containers, and starts some, before
         // Docker refuses the bind; left there, they hold the run's names and namespaces, and the
         // next start, the port free, fails on them. A run with machines keeps them.
+        // A first start claims the host ports the project fixes before anything is made: one
+        // another run holds, or something on this computer binds, is refused with nothing to undo.
         let first = (cx.made)()?.is_empty();
-        let started = self.start(cx).await;
+        self.prepare(cx, first).await?;
+        let started = self.launch(cx).await;
         if let Err(e) = &started
             && first
             && e.code() == crate::ErrorCode::PortInUse
