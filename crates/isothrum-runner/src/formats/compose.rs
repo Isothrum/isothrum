@@ -4,7 +4,7 @@
 //!
 //! | Operation | Compose |
 //! |---|---|
-//! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0 |
+//! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0; an update then removes (`rm --stop --force --volumes`) the containers of services the files declare but no longer start (moved under a profile) and the run hasn't attached |
 //! | down | `down --volumes --remove-orphans`, then whatever still carries the project's label, by id |
 //! | park | `pause` (Pause), `stop` (Shutdown) |
 //! | resume | `unpause` of the paused services, then `up --detach --wait --no-recreate` |
@@ -112,6 +112,32 @@ impl Compose {
             }
         };
         declared.into_iter().filter(|s| !containers.iter().any(|c| c.service() == s)).collect()
+    }
+
+    /// After an update: the containers of services the files still declare but no longer start
+    /// (moved under a profile, as an access machine's route keeper is when the machine that stood
+    /// in its place goes back to its own) and the run hasn't attached, removed. `--remove-orphans`
+    /// leaves them, a declared service being no orphan: stale, a namespace they shared gone, they
+    /// read as failed and the run never ready again.
+    async fn retire_unstarted(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let started = compose::services(&cx.read(READ_LIMIT), &Self::project(cx))
+            .await
+            .map_err(|e| tool_error("services", e))?;
+        let attached = pins::attached(cx)?;
+        let mut stale: Vec<String> = Vec::new();
+        for c in self.containers(cx).await? {
+            let service = c.service();
+            if !started.iter().any(|s| s == service) && !attached.iter().any(|s| s == service) && !stale.iter().any(|s| s == service) {
+                stale.push(service.to_owned());
+            }
+        }
+        if stale.is_empty() {
+            return Ok(());
+        }
+        tracing::info!(run = %cx.run, services = ?stale, "removing the containers of services the files no longer start");
+        compose::rm_stop_force(&cx.call(CALL_LIMIT), &Self::project(cx), &stale)
+            .await
+            .map_err(|e| tool_error("update", e))
     }
 
     /// Every container of the project, one-offs (`run`) left out.
@@ -243,7 +269,8 @@ impl FormatDriver for Compose {
     }
 
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
-        self.up(cx).await
+        self.up(cx).await?;
+        self.retire_unstarted(cx).await
     }
 
     async fn machines(&self, cx: &ToolCx<'_>) -> Result<Vec<String>> {

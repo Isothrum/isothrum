@@ -172,6 +172,11 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A Compose update removes the containers of services the files moved under a profile.**
+  `--remove-orphans` leaves a declared service's container, so one the update put under a
+  profile the run hasn't attached (an access machine's route keeper, once the machine that stood
+  in its place was retired) stayed, exited, and the run read failed. The update now removes them
+  (`rm --stop --force --volumes`) after its `up`.
 - **A Proxmox VM missing from the server's resource listing no longer reads as absent (#114).** A
   user without `VM.Audit` on a VM doesn't see it listed; the runner now asks the server whether
   the VM's id is still held (`cluster/nextid`), reads the VM absent only when it isn't, and keeps

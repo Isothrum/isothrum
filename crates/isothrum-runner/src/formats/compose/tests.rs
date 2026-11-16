@@ -331,6 +331,41 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     Compose.retire(&cx, "attackbox").await.expect("retired");
 }
 
+/// Regression: a machine that stood in for an access machine (`user`, under the `access` profile)
+/// retired, the files give the access machine back, its route keeper (which shares `user`'s
+/// namespace) under the profile with it. `--remove-orphans` left the keeper's container, a
+/// declared service, exited once `user`'s namespace went: the run read failed after the update.
+/// The update removes it, as one the files no longer start; an attached service's stays.
+#[tokio::test]
+async fn an_update_removes_the_containers_of_services_moved_under_a_profile_the_run_hasnt_attached() {
+    let (_dir, project) = folder();
+    let run = run();
+    let state = tempfile::tempdir().expect("a state folder");
+    let listing = [
+        ps_line("web", "running", "", 0, None),
+        ps_line("isoloom-routes-user", "exited", "", 1, None),
+        ps_line("isoloom-init-web-1", "exited", "", 0, None),
+        ps_line("attackbox", "running", "", 0, None),
+    ]
+    .join("\n");
+    let rm = "docker compose -p lab -f * rm --stop --force --volumes isoloom-routes-user";
+    let fake = FakeProcesses::script()
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
+        .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
+        .expect(UP, Reply::ok(""))
+        .allow(PULL, Reply::ok(""))
+        .expect("docker compose -p lab -f * config --services", Reply::ok("web\nisoloom-init-web-1\n"))
+        .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
+        .expect_times(rm, 1, Reply::ok(""))
+        .build();
+    let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
+    Compose.attach(&cx, "attackbox").await.expect("attached");
+    Compose.update(&cx).await.expect("updated");
+    let [call] = fake.made(rm).try_into().expect("one removal");
+    assert!(!call.args.iter().any(|a| a == "attackbox" || a == "web"), "{:?}", call.args);
+}
+
 #[tokio::test]
 async fn machines_are_the_services_the_files_declare_and_reapply_is_one_up() {
     let (_dir, project) = folder();
