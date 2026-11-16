@@ -172,6 +172,11 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A first Compose start refused for a taken host port leaves nothing behind.** Compose makes the
+  project's network and containers, and starts some, before Docker refuses the bind; the start
+  failed with `port_in_use` but left them, and the next start, the port free, met them. A first
+  start (nothing of the run made yet) refused for a taken port now removes what it made (`down`);
+  a run with machines, an update and a reapply keep theirs.
 - **A Compose update removes the containers of services the files moved under a profile.**
   `--remove-orphans` leaves a declared service's container, so one the update put under a
   profile the run hasn't attached (an access machine's route keeper, once the machine that stood

@@ -129,11 +129,12 @@ async fn a_taken_host_port_is_port_in_use() {
         include_str!("../../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"),
         include_str!("../../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"),
     ] {
-        let fake = FakeProcesses::script()
-            .expect(UP, Reply::fail(1, said))
-            .allow(PULL, Reply::ok(""))
-            .expect(CONFIG, Reply::ok(NO_PORTS))
-            .build();
+        let fake = undone(
+            FakeProcesses::script()
+                .expect(UP, Reply::fail(1, said))
+                .allow(PULL, Reply::ok(""))
+                .expect(CONFIG, Reply::ok(NO_PORTS)),
+        );
         let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
         assert_eq!(e.code(), crate::ErrorCode::PortInUse);
         assert_eq!(
@@ -145,6 +146,57 @@ async fn a_taken_host_port_is_port_in_use() {
             "the port Docker names, never 0: {said}"
         );
     }
+}
+
+/// `script` with the `down` that undoes a refused first start: the project's objects, then
+/// whatever still carries its label.
+fn undone(script: crate::process::fake::Script) -> FakeProcesses {
+    script
+        .expect_times("docker compose -p lab -f * down --volumes --remove-orphans", 1, Reply::ok(""))
+        .expect_times(&format!("docker container ls --quiet --filter {LABEL} --all"), 1, Reply::ok(""))
+        .expect_times(&format!("docker network ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
+        .expect_times(&format!("docker volume ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
+        .build()
+}
+
+#[tokio::test]
+async fn a_first_start_refused_for_a_taken_port_removes_what_it_made() {
+    let (_dir, project) = folder();
+    let run = run();
+    let taken = include_str!("../../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt");
+    // Nothing of the run made yet: Compose made the containers before Docker refused the bind,
+    // and they go, so the next start finds none in its way.
+    let fake = undone(
+        FakeProcesses::script()
+            .expect_times(UP, 1, Reply::fail(1, taken))
+            .allow(PULL, Reply::ok(""))
+            .expect(CONFIG, Reply::ok(NO_PORTS)),
+    );
+    let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken");
+    assert_eq!(e.code(), crate::ErrorCode::PortInUse, "{e}");
+}
+
+#[tokio::test]
+async fn a_run_with_machines_or_an_update_refused_for_a_taken_port_keeps_them() {
+    let (_dir, project) = folder();
+    let run = run();
+    let taken = include_str!("../../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt");
+    // A run with machines (a parked one started again), and an update of a running one, keep
+    // theirs: no `down` is scripted.
+    let fake = FakeProcesses::script()
+        .expect_times(UP, 2, Reply::fail(1, taken))
+        .allow(PULL, Reply::ok(""))
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .build();
+    let made: &(dyn Fn() -> Result<Vec<String>> + Send + Sync) = &|| Ok(vec!["container:abc".to_owned()]);
+    let with_machines = ToolCx {
+        made,
+        ..cx(&project, &run, &fake)
+    };
+    let started = Compose.up(&with_machines).await.expect_err("taken");
+    assert_eq!(started.code(), crate::ErrorCode::PortInUse, "{started}");
+    let updated = Compose.update(&cx(&project, &run, &fake)).await.expect_err("taken");
+    assert_eq!(updated.code(), crate::ErrorCode::PortInUse, "{updated}");
 }
 
 #[tokio::test]
