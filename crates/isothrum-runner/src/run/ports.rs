@@ -88,10 +88,6 @@ pub(crate) fn var_name(machine: &str, guest: u16, protocol: Protocol) -> String 
     format!("HOST_PORT_{name}_{guest}_{proto}")
 }
 
-/// The name a kept port's variable had before [`var_name`]'s, set beside it until the
-/// Vagrantfiles that read it read the new one.
-const LEGACY_PREFIX: &str = "ISOTHRUM_";
-
 /// The variables `kept` ports are given as ([`var_name`]), each to its host port. Two machines
 /// whose names give one variable (`web-1` and `web_1`) give none: which machine it meant would be
 /// a guess.
@@ -100,10 +96,7 @@ pub(super) fn env(kept: &[Kept]) -> Vec<(String, String)> {
     named
         .iter()
         .filter(|(name, k)| !named.iter().any(|(other, o)| other == name && o.machine != k.machine))
-        .flat_map(|(name, k)| {
-            let host = k.host.to_string();
-            [(name.clone(), host.clone()), (format!("{LEGACY_PREFIX}{name}"), host)]
-        })
+        .map(|(name, k)| (name.clone(), k.host.to_string()))
         .collect()
 }
 
@@ -128,10 +121,7 @@ mod tests {
         let vars = env(&[k("web", 80, 2200), k("web-1", 22, 2222), k("web_1", 22, 2223)]);
         assert_eq!(
             vars,
-            [
-                ("HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned()),
-                ("ISOTHRUM_HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned())
-            ],
+            [("HOST_PORT_WEB_80_TCP".to_owned(), "2200".to_owned())],
             "web-1 and web_1 collide: neither"
         );
     }
