@@ -58,6 +58,13 @@ value as a secret (`options.secrets`), which no record keeps, and the others as 
 (`options.env`), which the run's record keeps and every later operation gives again. Each reaches
 the module as `TF_VAR_<name>`. In Rust: `Client::variables(target)`, `Project::variables()`.
 
+### Status reads
+
+`status` isn't queued, but the reads of one run take turns: never two of one run at once (Vagrant
+refuses a read of a machine another read holds). A read asked while another of the same run runs
+waits, and when it was asked with the same `target` and `options` as the next read to begin, it
+takes that read's answer. A failed read stands for no other.
+
 ### A sensitive output's value
 
 A status read gives every output a module marks sensitive as `***`, as every event does. A client

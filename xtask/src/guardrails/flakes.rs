@@ -20,7 +20,7 @@
 use super::source;
 
 /// The `sleep`s each file's tests have, and why none of them waits for something to happen.
-const SLEEPS: [(&str, usize, &str); 13] = [
+const SLEEPS: [(&str, usize, &str); 14] = [
     (
         "crates/isothrum-runner/src/graphical/tunnel.rs",
         1,
@@ -76,6 +76,11 @@ const SLEEPS: [(&str, usize, &str); 13] = [
         "crates/isothrum-service/tests/service.rs",
         4,
         "three polls to the PATIENCE deadline; and 800 ms to see an idle service with a client NOT stop (an absence takes time to see), the one wall-clock wait left",
+    ),
+    (
+        "crates/isothrum-service/src/reads.rs",
+        1,
+        "Tokio's paused clock: a stand-in read that takes a while, so the others are asked meanwhile",
     ),
     ("crates/isothrum-test-support/src/lib.rs", 1, "`wait_until`'s poll, bounded by its deadline"),
 ];

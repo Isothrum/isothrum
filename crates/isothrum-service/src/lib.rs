@@ -17,6 +17,7 @@ mod error;
 mod feed;
 mod lease;
 mod queue;
+mod reads;
 mod reaper;
 mod session;
 
@@ -99,6 +100,7 @@ pub(crate) struct Shared {
     queue: Arc<Queue>,
     feed: Arc<Feed>,
     store: Arc<Store>,
+    reads: reads::Reads,
     clients: AtomicUsize,
     stop: Notify,
 }
@@ -185,6 +187,7 @@ impl Service {
             queue: Arc::clone(&queue),
             feed,
             store,
+            reads: reads::Reads::default(),
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
         });

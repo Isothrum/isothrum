@@ -330,7 +330,10 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
     let engine = &shared.engine;
     Ok(match command {
         Command::Status { run, target, options } => {
-            let status = engine.status(&run, target.as_ref(), &options).await?;
+            // One read of a run at a time; one asked meanwhile takes the next one's answer.
+            let asked = crate::reads::Asked { target, options };
+            let read = || engine.status(&run, asked.target.as_ref(), &asked.options);
+            let status = shared.reads.status(&run, asked.clone(), read).await?;
             Reply::Status { id, status: Box::new(status) }
         }
         Command::ConsoleCommand { run, target, machine, user } => {

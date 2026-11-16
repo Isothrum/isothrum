@@ -29,6 +29,11 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **The service reads a run's status one at a time.** Two clients asking one run's status at
+  once (a page's poll, another view of it) each asked the tools, so two `vagrant status` of the
+  same machines ran together and Vagrant refused one. The reads of a run now take turns, and one
+  asked while another runs, with the same target and options, takes the next one's answer.
+
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the
   run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
