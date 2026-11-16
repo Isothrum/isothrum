@@ -35,7 +35,9 @@ Organised by what you need: learning, doing a task, looking something up, or und
 
 ## Explanation
 
-- [Architecture](explanation/architecture.md): Isoloom, the run manifest, the runner's parts
+- [Architecture](explanation/architecture.md): what the runner reads and adds, the crates, the runner's parts
+- [What Isothrum is, and what it is not](explanation/boundaries.md): a general-purpose runtime,
+  independent of Isoloom and of any application built on it
 - [Security model](explanation/security-model.md): privileges, secrets, state on disk, SSH
 
 ## Project
