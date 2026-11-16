@@ -1,8 +1,5 @@
 //! The reservations across runners and processes of one home.
 
-use std::io::{BufRead as _, BufReader};
-use std::process::{Command, Stdio};
-
 use std::path::Path;
 
 use super::*;
@@ -130,20 +127,14 @@ fn a_reserving_child() {
 #[test]
 fn a_reservation_whose_process_dies_is_freed() {
     let home = tempfile::tempdir().unwrap();
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "net::reservations::tests::a_reserving_child", "--nocapture", "--test-threads=1"])
-        .env(CHILD_HOME, home.path())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-    let reserved = lines.by_ref().map_while(Result::ok).any(|line| line.contains("reserved"));
+    let (mut child, reserved) = crate::testing::child_test_saying("net::reservations::tests::a_reserving_child", CHILD_HOME, home.path(), "reserved");
+    // Should anything below fail, the child goes with the guard.
+    let guard = isothrum_test_support::PidGuard::new(child.id());
     let here = reservations(home.path(), []);
     let me = run("me");
     let refused = !here.reserve(&me, CHILD_PORT, Protocol::Tcp, None);
     let reserved_elsewhere = here.reserved_elsewhere(&me, CHILD_PORT, Protocol::Tcp);
-    child.kill().unwrap();
+    drop(guard);
     child.wait().unwrap();
     assert!(reserved, "the child reserved the port");
     assert!(refused && reserved_elsewhere, "the child's reservation holds while it lives");

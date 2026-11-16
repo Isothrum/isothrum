@@ -5,14 +5,6 @@ use super::*;
 use crate::state::{Desired, Op, Transition};
 use crate::store::{Owner, RunRecord};
 
-/// The pid of a process that ran and exited.
-fn dead_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().expect("`true` runs");
-    let pid = child.id();
-    child.wait().expect("`true` ended");
-    pid
-}
-
 /// `run` recorded `creating`, its `up` begun by `owner` and never ended.
 fn creating(runner: &Runner, run: &crate::Running<'_>, owner: &Owner) {
     let name = run.name().clone();
@@ -34,7 +26,7 @@ async fn a_run_whose_ups_process_died_reads_failed_and_comes_up_again() {
     lab.lock().unwrap_or_else(PoisonError::into_inner).present = vec!["cache"];
     let run = runner.open(&project, None).expect("opened");
     let dead = Owner {
-        pid: dead_pid(),
+        pid: crate::store::dead_pid(),
         ..Owner::this_process()
     };
     creating(&runner, &run, &dead);

@@ -17,6 +17,10 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+/// The pid of a process that ran and exited, on any OS: an owner that is gone.
+#[cfg(test)]
+pub(crate) use owner::tests::dead_pid;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, PoisonError};

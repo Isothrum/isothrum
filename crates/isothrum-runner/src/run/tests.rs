@@ -1,4 +1,3 @@
-#[cfg(unix)]
 mod cut_off;
 mod failed_apply;
 mod gone;
