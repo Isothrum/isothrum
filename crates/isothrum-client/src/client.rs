@@ -22,7 +22,7 @@ use crate::wire::{Reader, Writer, connect, write_line};
 use crate::{VERSION, replace, spawn};
 
 /// How long a client waits for a service it started to answer: it connects as soon as the
-/// service does, so this only bounds a start that failed. A binary's first run can take long on
+/// service does, so this only bounds a start that hangs. A binary's first run can take long on
 /// a loaded machine (macOS checks a new executable before it runs it).
 const START_WAIT: Duration = Duration::from_secs(30);
 
@@ -112,7 +112,7 @@ async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
 impl Client {
     /// Connects to `home`'s service, starting it (`isothrum serve --home <home> --detach`:
     /// `binary` when given, else the `isothrum` beside this program, else the one on `PATH`)
-    /// when none answers, and waiting up to 10 seconds for it.
+    /// when none answers, and waiting up to 30 seconds for it (less once it ended without answering).
     ///
     /// # Errors
     ///
@@ -165,12 +165,20 @@ impl Client {
     async fn start(paths: ServicePaths, binary: Option<&Path>) -> Result<Client> {
         let binary = spawn::binary(binary);
         let mut child = spawn::start(&binary, &paths).map_err(|e| ClientError::Unavailable(format!("{} couldn't be started: {e}", binary.display())))?;
+        // Until it answers, hangs past START_WAIT, or ends without answering (a binary that
+        // refuses `serve`, a home it can't open): waiting START_WAIT out for that one cost every
+        // connection 30 s for an answer that never comes. Its end is read before the look, so
+        // the look after it ended still meets a service that answers (another client's, which
+        // took the home first and made this one end).
         let deadline = Instant::now() + START_WAIT;
-        let opened = loop {
+        let (opened, ended) = loop {
             tokio::time::sleep(Duration::from_millis(50)).await;
+            let ended = child.try_wait().ok().flatten();
             match open(&paths).await {
-                Err(ClientError::Unavailable(why)) if Instant::now() < deadline => tracing::trace!(%why, "waiting for the service"),
-                opened => break opened,
+                Err(ClientError::Unavailable(why)) if ended.is_none() && Instant::now() < deadline => {
+                    tracing::trace!(%why, "waiting for the service");
+                }
+                opened => break (opened, ended),
             }
         };
         // The service outlives this client; a thread reaps it should it end first.
@@ -178,8 +186,9 @@ impl Client {
         match opened {
             Ok((r, w, info)) => Ok(Client::over(paths, r, w, info)),
             Err(ClientError::Unavailable(why)) => Err(ClientError::Unavailable(format!(
-                "{why}; the service started from {} didn't answer: {}",
+                "{why}; the service started from {} {}: {}",
                 binary.display(),
+                ended.map_or_else(|| "didn't answer".to_owned(), |status| format!("ended without answering ({status})")),
                 spawn::log_tail(&paths)
             ))),
             Err(e) => Err(e),

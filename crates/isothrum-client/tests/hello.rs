@@ -91,3 +91,23 @@ async fn a_service_that_closes_before_its_hello_or_isnt_there_is_unavailable() {
         "{nothing:?}"
     );
 }
+
+/// A binary started as the service that ends without answering (one that refuses `serve`) is
+/// unavailable as soon as it ended, saying so and what it printed, not after the whole start wait.
+#[tokio::test]
+async fn a_service_that_ends_without_answering_is_unavailable_once_it_ended() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let home = tempfile::tempdir().expect("a home");
+    let bin = tempfile::tempdir().expect("a folder for the stand-in");
+    let refusing = bin.path().join("isothrum");
+    std::fs::write(&refusing, "#!/bin/sh\necho \"error: Unrecognized option: 'home'\" >&2\nexit 2\n").expect("the stand-in");
+    std::fs::set_permissions(&refusing, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let began = std::time::Instant::now();
+    let refused = Client::connect(home.path(), Some(&refusing)).await.expect_err("nothing answers");
+    assert!(
+        matches!(&refused, ClientError::Unavailable(m) if m.contains("ended without answering") && m.contains("Unrecognized option")),
+        "{refused:?}"
+    );
+    // Once it ended: well under the 30 s a hung start is given.
+    assert!(began.elapsed() < std::time::Duration::from_secs(15), "took {:?}", began.elapsed());
+}

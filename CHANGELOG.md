@@ -189,6 +189,11 @@ Terraform), usable on any project of those formats.
 - **A Terraform module's machine with no address in its state takes the one its `machines`
   output names.** A Proxmox VE VM without a guest agent (every one of Isoloom's lab VMs but its
   router) had none in the status, so nothing could reach it.
+- **A client whose service ended without answering gives up at once.** `Client::connect` and
+  `connect_exact` start the service and wait up to 30 s for it to answer; one that ended first
+  (a binary that refuses `serve`, a home it can't open) was waited for all 30 s, on every
+  connection, before the caller could fall back. The wait now ends as soon as the process it
+  started has ended, and the error says it ended, with its exit status and the end of its log.
 - **`isothrum exec` without `--json` prints its command's output once.** It came twice: as the
   tool's log lines on standard error while it ran, then on the command's own streams. Now only
   on its own streams (standard output stays the command's, for a pipe); the log lines show only
