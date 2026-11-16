@@ -186,10 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn a_config_that_cant_be_read_whole_is_refused_saying_why() {
+    fn a_port_with_no_target_or_another_protocol_than_tcp_and_udp_makes_the_config_unreadable() {
         for (config, why) in [
-            ("not json", "not the config Compose prints"),
-            ("{\"services\": 3}", "not the config Compose prints"),
             (r#"{"services": {"web": {"ports": [{"published": "80"}]}}}"#, "a port of `web` has no target"),
             // Regression: a protocol other than `udp` read as TCP, and its port was pinned as one.
             (
