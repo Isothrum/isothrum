@@ -392,6 +392,10 @@ pub struct OpOptions {
     /// What to call the place the run is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
+    /// The Docker context the run's `docker` calls go to: given at `up`, recorded with the run,
+    /// used by every later operation that gives none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_context: Option<String>,
     /// A status read only: each sensitive output's own value instead of `***`. The service gives
     /// it only over its owner-only endpoint; it is never in an event, never stored. Off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -413,6 +417,7 @@ impl fmt::Debug for OpOptions {
             .field("env", &self.env)
             .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
             .field("host_label", &self.host_label)
+            .field("docker_context", &self.docker_context)
             .field("reveal", &self.reveal)
             .finish()
     }

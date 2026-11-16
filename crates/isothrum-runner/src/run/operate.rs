@@ -183,6 +183,7 @@ impl Running<'_> {
         if op == Op::Up {
             let now = self.runner.config.clock.now();
             record.provider = opts.provider;
+            record.docker_context.clone_from(&opts.docker_context);
             record.host_label.clone_from(&opts.host_label);
             record.started_at = Some(rfc3339(now));
             record.expires_at = opts.lifetime.map(|l| crate::clock::unix_seconds(now + l));

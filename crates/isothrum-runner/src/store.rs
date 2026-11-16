@@ -140,6 +140,9 @@ pub struct RunRecord {
     /// The Vagrant provider the run uses, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Provider>,
+    /// The Docker context its `docker` calls go to ([`crate::RunOptions::docker_context`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_context: Option<String>,
     /// What the embedder calls the place the run is on (a server, an account).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_label: Option<String>,
@@ -186,6 +189,7 @@ impl RunRecord {
             format,
             cloud: None,
             provider: None,
+            docker_context: None,
             host_label: None,
             state: RunState::Absent,
             parked: None,

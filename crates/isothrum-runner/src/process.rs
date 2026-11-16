@@ -4,6 +4,7 @@
 //! stop on Unix); the `fake` feature's
 //! `fake::FakeProcesses` answers from a test's script instead.
 
+mod docker_context;
 mod elevated;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
@@ -23,6 +24,7 @@ mod win_command;
 
 use std::path::PathBuf;
 
+pub(crate) use docker_context::DockerContext;
 pub(crate) use elevated::Elevated;
 pub use elevated::{HyperVRights, may_manage_hyperv};
 pub use system::SystemProcesses;

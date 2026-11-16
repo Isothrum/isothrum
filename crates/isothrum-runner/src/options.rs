@@ -29,6 +29,10 @@ pub struct RunOptions {
     /// to use (an admin password a project gives back). Never in an event, never stored; a service
     /// gives it only over its owner-only endpoint. Off by default.
     pub reveal: bool,
+    /// The Docker context the run's `docker` calls go to (`docker --context <it>`), whatever the
+    /// current one is: given at `up`, recorded with the run, and used by every later operation
+    /// and read that gives none. None: the current context, as `docker` picks it.
+    pub docker_context: Option<String>,
     /// The journaled operation this one is: a row a service queued (`Tx::queue_operation`), which
     /// the operation begins instead of journaling a new one.
     pub operation: Option<crate::store::OperationId>,
@@ -73,6 +77,13 @@ impl RunOptions {
     #[must_use]
     pub fn with_provider(mut self, provider: Provider) -> RunOptions {
         self.provider = Some(provider);
+        self
+    }
+
+    /// Sends the run's `docker` calls to Docker context `context` ([`RunOptions::docker_context`]).
+    #[must_use]
+    pub fn with_docker_context(mut self, context: impl Into<String>) -> RunOptions {
+        self.docker_context = Some(context.into());
         self
     }
 
