@@ -158,3 +158,35 @@ fn a_command_line_reads_as_typed() {
         "`pkexec` was ended by a signal"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_failing_brew_step_says_homebrews_own_trouble_not_its_exit_code() {
+    let mut locked = Reply::fail(1, "Error: Another `brew update` process is already running.");
+    locked.stderr.push("Error: unknown or unsupported macOS version: :dunno".to_owned());
+    let tools = FakeProcesses::script().expect("/opt/homebrew/bin/brew install", locked).build();
+    let (ran, _) = run(tools, &[step("/opt/homebrew/bin/brew", &["install", "qemu"])]).await;
+    assert_eq!(ran, Err(StepFailed::Homebrew(crate::install::brew::Trouble::Locked)), "the first cause wins");
+    // The same words from a step that succeeds, or that isn't Homebrew's: no trouble.
+    let mut fine = Reply::ok("");
+    fine.stderr = vec!["Error: unknown or unsupported macOS version: :dunno".to_owned()];
+    let tools_ok = FakeProcesses::script().expect("/opt/homebrew/bin/brew", fine).build();
+    assert_eq!(run(tools_ok, &[step("/opt/homebrew/bin/brew", &["install", "qemu"])]).await.0, Ok(()));
+    let tools_apt = FakeProcesses::script()
+        .expect("apt-get", Reply::fail(1, "Error: unknown or unsupported macOS version"))
+        .build();
+    assert_eq!(
+        run(tools_apt, &[step("apt-get", &[])]).await.0,
+        Err(StepFailed::Exited {
+            program: "apt-get".into(),
+            code: Some(1)
+        })
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_step_with_a_note_is_not_announced_by_its_command_line() {
+    let mut noted = step("sh", &["-c", "x"]);
+    noted.note = Some(Note::QemuUpdatingHomebrewFirst);
+    let tools = FakeProcesses::script().expect("sh", Reply::ok("done")).build();
+    assert_eq!(run(tools, &[noted]).await.1, ["done"]);
+}

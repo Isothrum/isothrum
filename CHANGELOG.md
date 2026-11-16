@@ -17,6 +17,13 @@ Terraform), usable on any project of those formats.
   none uses it. An embedder that picks an engine per run (OrbStack, Colima, Docker Desktop) no
   longer wraps the runner's process runner for it. A later operation that names a context records it too (a run started before its embedder passed one).
 
+- **isothrum-machine installs and removes tools on macOS: `install::macos`.** Homebrew's formulae,
+  the vendors' installers for the apps (Homebrew downloads them, then they open in their own
+  window: `macos::fetch_and_open`), HashiCorp's signed and notarized package for VMware's utility
+  (its checksum pinned, checked again as root), and the removals the vendors' uninstallers make,
+  through macOS's administrator prompt; VirtualBox's own uninstaller only ever from the image
+  Homebrew keeps (`macos::virtualbox_image`). A step says what it is with a `Note` a UI words, and
+  a broken Homebrew is told from its formula's failure (`StepFailed::Homebrew`, `brew::Trouble`).
 - **isothrum-machine installs and removes tools on Linux: `install`.** Each tool a setup installs
   (`install::Dependency`: Docker Engine, Vagrant, Terraform, VirtualBox, QEMU, libvirt, the cloud
   CLIs, VMware's utility) has its row (where it runs, what proves it installed), and its install

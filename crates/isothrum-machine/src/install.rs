@@ -18,13 +18,16 @@ use crate::context::Context;
 use crate::host::{ALL_OSES, HostOs};
 use crate::providers::{Provider, ProviderRow};
 
+pub mod brew;
 pub mod linux;
+pub mod macos;
 mod pkexec;
 pub mod record;
 pub mod root;
 mod steps;
+mod vmware_utility;
 
-pub use steps::{NotServed, Step, StepFailed, command_line, run_step, run_steps, step};
+pub use steps::{NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -252,6 +255,13 @@ pub enum Refusal {
         /// The tool.
         dependency: Dependency,
     },
+    /// Homebrew isn't installed, which a macOS install goes through.
+    NoHomebrew,
+    /// Homebrew isn't installed, which this removal on macOS goes through.
+    HomebrewNeeded,
+    /// VirtualBox's removal on macOS without its installer image, whose uninstaller it runs
+    /// ([`macos::virtualbox_image`]).
+    NoVirtualboxImage,
     /// The private file a root step's proxy settings go through couldn't be written: what the OS
     /// said.
     PrivateFile(String),
@@ -263,6 +273,8 @@ impl std::fmt::Display for Refusal {
             Refusal::NotHere { dependency, os } => write!(f, "{dependency:?} doesn't run on {}", crate::host::os_name(*os)),
             Refusal::WithoutPackages { dependency } => write!(f, "{dependency:?}: this distribution has neither apt nor dnf"),
             Refusal::AptOnly { dependency } => write!(f, "{dependency:?} installs through apt only"),
+            Refusal::NoHomebrew | Refusal::HomebrewNeeded => f.write_str("Homebrew isn't installed"),
+            Refusal::NoVirtualboxImage => f.write_str("VirtualBox's installer image is needed to run its uninstaller"),
             Refusal::PrivateFile(why) => write!(f, "a root step's private file couldn't be written: {why}"),
         }
     }

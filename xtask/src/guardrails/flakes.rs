@@ -94,7 +94,17 @@ const PORTS_LET_GO: [(&str, usize, &str); 1] = [(
 
 /// The stand-in programs each file's tests write fresh (`write_executable`), and why they aren't
 /// installed once.
-const STAND_INS: [(&str, usize, &str); 7] = [
+const STAND_INS: [(&str, usize, &str); 9] = [
+    (
+        "crates/isothrum-machine/src/install/macos/tests.rs",
+        1,
+        "a `brew` stand-in whose fetch always fails, logging its calls in the test's folder",
+    ),
+    (
+        "crates/isothrum-machine/src/install/vmware_utility/tests.rs",
+        2,
+        "the `curl` and `osascript` stand-ins of each case: the download and the prompt's answer in their body",
+    ),
     (
         "crates/isothrum-machine/src/install/linux/scripts/dnf.rs",
         2,
