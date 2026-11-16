@@ -6,18 +6,12 @@ the expired ones; you schedule the sweep.
 ## Give a run a lifetime
 
 ```sh
-isothrum up --target cloud-vm/aws --lifetime 120     # minutes
+isothrum up infra --lifetime 120     # minutes
 ```
 
-For a manifest with an `expiry` (Isoloom's cloud targets have one), `up` sets the run's expiry to
-now plus the lifetime: `--lifetime`, else the manifest's default (`expiry.default_minutes`, 240 in
-Isoloom's cloud targets), else 240 minutes. Isothrum records it in the run's record
-(`expires_at`) and passes it to the Terraform module as the variable the manifest names, in Unix
-seconds. Isoloom's cloud modules tag what they create with it; what else a module does with it
-is the module's.
-
-The lifetime is set when the run starts. A manifest without an expiry (Compose, Vagrant, Proxmox)
-ignores `--lifetime`.
+`up` records the run's expiry, now plus the lifetime (a minute or more), in the run's record
+(`expires_at`). A run started without `--lifetime` never expires. Any format takes it, but a
+cloud's Terraform module is where it saves money.
 
 ## Sweep expired runs
 

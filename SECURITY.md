@@ -38,7 +38,7 @@ informed if a target can't be met.
 
 In scope: the code in this repository (the crates, the `isothrum` binary, the release workflow).
 Vulnerabilities in the tools Isothrum runs (Docker, Vagrant, Terraform and its providers, OpenSSH)
-or in the files Isoloom generates belong to those projects; tell us too when Isothrum makes one
+or in the projects it runs belong to those projects and their authors; tell us too when Isothrum makes one
 worse.
 
 ## Security model, briefly

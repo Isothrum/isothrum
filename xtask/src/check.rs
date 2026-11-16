@@ -83,7 +83,7 @@ const STEPS: [Step; 17] = [
         only_on: None,
     },
     Step {
-        name: "isoloom-free",
+        name: "generator-free",
         fast: false,
         needs: Needs::Nothing,
         run: isoloom_free,
@@ -453,7 +453,7 @@ fn isoloom_free(root: &Path) -> Res<bool> {
     let config = std::fs::read_to_string(root.join(".cargo/config.toml")).unwrap_or_default();
     let found = isoloom_found(&lock, &config);
     for why in &found {
-        eprintln!("check isoloom-free: {why}");
+        eprintln!("check generator-free: {why}");
     }
     Ok(found.is_empty())
 }
@@ -501,7 +501,7 @@ mod tests {
             "deny",
             "msrv",
             "semver",
-            "isoloom-free",
+            "generator-free",
             "hooks",
             "windows-binary",
         ] {

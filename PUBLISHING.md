@@ -11,7 +11,7 @@ Everything here is licensed Apache-2.0.
 Published to crates.io, in this order (leaf crates first; each crate's dependencies are published
 before it):
 
-1. `isothrum-runner` — executes the run manifest Isoloom writes (lifecycle, state, drivers, checks, events).
+1. `isothrum-runner` — runs Compose projects, Vagrantfiles and Terraform modules (lifecycle, state, drivers, checks, events).
 2. `isothrum-client` — the runner service's client (depends on the runner).
 3. `isothrum-machine` — which Vagrant providers this computer can drive (depends on the runner).
 4. `isothrum-service` — the runner service (depends on the runner and the client).
@@ -22,17 +22,15 @@ Not published (`publish = false`, inherited from `[workspace.package]`):
 
 - `xtask` — the repo's development tasks; of no use to consumers.
 
-## No dependency on Isoloom
+## No dependency on a generator
 
-Isothrum links no Isoloom crate (`cargo xtask check`'s `isoloom-free` step refuses one), so its
-crates publish whatever Isoloom has released. The products' release train still releases Isoloom
-first, then Isothrum (the workspace's `./ws release`).
+Isothrum links no generator's crate (`cargo xtask check`'s `generator-free` step refuses one), so its
+crates publish on their own, whatever any generator has released.
 
 ## Versioning
 
 All crates share one version through `[workspace.package].version`. Bump that single field; every
-crate moves together. The Isoloom `version`s in `[workspace.dependencies]` name the Isoloom
-release this one pairs with; Isoloom keeps its own version numbers.
+crate moves together.
 
 ## Authentication: crates.io Trusted Publishing (OIDC)
 

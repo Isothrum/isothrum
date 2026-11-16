@@ -2,7 +2,8 @@
 
 Thank you for helping. Bug reports, fixes, documentation and new features are welcome. For a
 large change, open an issue first so we can agree on the approach. Isothrum stays generic: it runs
-any run manifest Isoloom writes, and holds nothing specific to one product built on it.
+any Compose project, Vagrantfile or Terraform module, whoever wrote it, and holds nothing specific
+to one product built on it ([what Isothrum is, and what it is not](docs/explanation/boundaries.md)).
 
 By contributing, you agree that your contribution is licensed under the Apache License 2.0, as the
 project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -11,8 +12,8 @@ project is. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.m
 
 1. Install Rust with [rustup](https://rustup.rs/). The toolchain is pinned by
    `rust-toolchain.toml` (1.99.0, with rustfmt and clippy); rustup installs it on first use.
-2. **Clone and build.** Isothrum links no Isoloom crate (it runs the files Isoloom writes), so a
-   plain clone builds:
+2. **Clone and build.** Isothrum links no generator's crate (it runs the files, whoever wrote
+   them), so a plain clone builds:
 
    ```sh
    git clone https://github.com/Isothrum/isothrum
@@ -68,7 +69,7 @@ that didn't run never passes for one that did. The steps, in order:
 | Step | What it runs |
 |---|---|
 | `fetch` | `cargo fetch` |
-| `isoloom-free` | `Cargo.lock` lists no Isoloom crate, and `.cargo/config.toml` patches none in |
+| `generator-free` | `Cargo.lock` lists no generator's crate, and `.cargo/config.toml` patches none in |
 | `fmt` | `cargo fmt --all --check` |
 | `clippy` | `cargo clippy --workspace --all-targets -- -D warnings` |
 | `test` | `cargo xtask test`: nextest, then the doctests; fails on what they leave in temp |
@@ -93,8 +94,8 @@ tests that need a real VM run elsewhere, not on GitHub's runners.
 Every lint in the workspace's `[lints]` is at deny: a finding fails the build. An exception is a
 local `#[expect(lint, reason = "...")]`, never an `#[allow]`. A process starts through the runner's process
 module only (`disallowed-methods` in clippy.toml): an adapter that must start one itself says why
-in its `#[expect]`. The xtask's `guardrails` tests keep the rest: no Isothrum crate depends on an
-Isoloom crate beyond the listed edges, a tool's output is parsed in its adapter, a `-c` script
+in its `#[expect]`. The xtask's `guardrails` tests keep the rest: no Isothrum crate depends on a
+generator's crate, no file under `crates/` or `docs/` names one or uses an application's words, a tool's output is parsed in its adapter, a `-c` script
 comes from `driver::shells` and chains nothing with `&&`, and every capability a driver claims
 names the test that shows it reach its tool.
 
@@ -168,8 +169,8 @@ No `test_` prefix, no `works`, `ok` or `basic`: when the test fails, its name sa
 The test suite never starts a real tool: the `fake` feature's scripted processes stand in. Real
 runs are separate and opt-in:
 
-- `cargo run -p xtask -- real-run` generates an Isoloom example (default `hello-stack`) with the
-  Isoloom checkout beside this one (`--isoloom <dir>` for another), runs it on this computer's
+- `cargo run -p xtask -- real-run` generates an example (default `hello-stack`) with a
+  generator's checkout beside this one (`--help` says which, and how to name another), runs it on this computer's
   Docker (`up`, `status`, `check`, `park`, `resume`, `down`) and keeps the events under
   `target/real-run/`.
 - `cargo test -p isothrum-cli --test real_run -- --ignored the_compose_example` runs `examples/compose-web-cache` on

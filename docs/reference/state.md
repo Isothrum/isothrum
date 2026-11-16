@@ -1,7 +1,7 @@
 # State layout
 
 Isothrum keeps everything under one folder, its **home**: `--home DIR`, else `$ISOTHRUM_HOME`,
-else `~/.isothrum`. It writes nothing into the run's folder (the one holding `.isoloom/`).
+else `~/.isothrum`. It writes nothing into the run's folder (the project's own).
 
 ```text
 <home>/
@@ -35,16 +35,14 @@ the user's profile gets an owner-only DACL
 
 ## The run's state folder
 
-`<home>/runs/<run>/` is also the run's `${run.state_dir}`: what the generated manifest keeps there
-depends on the target. With Isoloom's current targets:
+`<home>/runs/<run>/` is the run's state folder. What it keeps depends on the project's format:
 
-| Target | What it keeps |
+| Format | What it keeps |
 |---|---|
 | Compose | `ports.yml`, the host ports pinned for the run. |
 | Vagrant | `vagrant/`, Vagrant's own state (`VAGRANT_DOTFILE_PATH`), and the host ports the run forwards (in the record); `consoles.json`, the loopback port and password the runner chose for each VM's VMware VNC console, until `down`. |
 | Terraform | `terraform.tfstate` and its backup, `.terraform/` (`TF_DATA_DIR`), a `state_file` delivery's variable file while the run exists, and `module/`, the copy of the run's own module a `terraform.copy_module` step makes. |
 | Any, over SSH | `ssh_config` and `known_hosts` for the run; `guest-<machine>-<random>.in`, a guest delivery's values, one file per delivery, only while it is delivered. |
-| Any, with `project.archive` | `project.tgz`, the project as a gzipped tar for a later step to pipe into a guest: what the generated files' copies leave out stays out (`.isoloomignore`, Isoloom's outputs but those `with.outputs` names, version control and the tools' state such as a Terraform state). |
 | Proxmox | `proxmox-console-<random>.curl`, the credentials of an API request (a file per request) (a console's `vncproxy`, a status read asking where the VMs stand), only while `curl` reads them: removed however the request ends (a cancel, Ctrl-C). |
 | Any | `tools/`, the tools an operation runs, while they run: `<token>-<pid>.tool` each (its process id and start), and `<token>.owner`, which the process that started them holds locked while it lives. The next operation ends the tools of a process that died (killed, crashed) before it acts, and removes their entries. |
 | Hyper-V on Windows | `elevated/<token>/`, the elevated broker's session folder, one per operation. |

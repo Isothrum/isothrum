@@ -15,7 +15,6 @@ marked **Breaking**.
 | Surface | Stable within a major | How it is versioned and checked |
 |---|---|---|
 | **Rust API** of `isothrum-runner` and `isothrum-machine` | Public items, their signatures and behaviour, every feature included (`fake` too). Not stable: `#[doc(hidden)]` items and the `fuzzing` feature. | The crate version. CI runs `cargo semver-checks` against the last release on crates.io. `#[non_exhaustive]` types may gain variants and fields in a minor release. |
-| **The re-exported `isoloom_manifest`** (`isothrum_runner::isoloom_manifest`) | As stable as the Isoloom release it pins. | Raising it to a new major of `isoloom-manifest` is a major release of Isothrum. |
 | **CLI**: commands, flags, exit codes | Names, meanings and exit codes ([Exit codes](reference/exit-codes.md)). | The crate version. New commands and flags may come in a minor release. |
 | **CLI output for machines**: everything `--json` prints ([`json-output.schema.json`](reference/json-output.schema.json), [The `--json` output](reference/events.md)) | What each command prints, field names and meanings, and the codes. The schema is written from the code, and a test fails when they differ. | Events: as the event schema below. The other documents (`status`, `console`, `screen`, `key`): additions in minor releases; removals and renames in a major. |
 | **CLI output for people** (text without `--json`) | Not stable. | Don't parse it. |
@@ -24,25 +23,6 @@ marked **Breaking**.
 | **`ErrorCode` and `WarningCode` values** (`code` in events, `last.code` in the record) | A code's string and meaning. | A code is never renamed or reused within a major. New codes may come in a minor release, so handle an unknown code as a generic failure or warning. Removing a code is a major release. |
 | **`state.db`** ([State layout](reference/state.md#statedb)) | Isothrum reads every store an earlier release of the same major wrote. It reads nothing a 2.x release left in a home. | The schema's version (`schema_migrations`), migrated forward on open; a store a newer release wrote is refused (`store_version`). Going back to an earlier release after a newer one wrote the home is not supported. |
 | **The rest of the home** (the run's state folder, file names, the event log) | Not an interface. | The tools' own files (Terraform state, Vagrant's state) follow those tools' rules. |
-
-## Run manifest versions
-
-Isothrum reads the run manifest Isoloom writes (`run.json`), whose `manifest_version` says its
-contract. Isothrum reads exactly the one version that the `isoloom-manifest` crate it is built
-with accepts; any other fails with `manifest_version` before anything runs. What may change
-within a version, and what bumps it, is Isoloom's policy (`isoloom_manifest::COMPATIBILITY`, also
-stated in the [run manifest schema](https://raw.githubusercontent.com/isoloom/isoloom/main/schemas/run-manifest-v1.schema.json)):
-within a version changes are additive, but the reader is strict, so a manifest that uses a field
-added in a minor Isoloom release needs an Isothrum built with that release.
-
-| Isothrum | `isoloom-manifest` it builds with | Reads `manifest_version` |
-|---|---|---|
-| 1.0.0 to 1.0.5 | 1.0.x (1.0.9 for 1.0.5) | 0 |
-| 2.0.0 to 2.1.3 | 2.0.x (2.0.0 for 2.0.0 to 2.1.3) | 1 |
-
-Each Isothrum release names the Isoloom release it pairs with in `Cargo.toml`
-(`[workspace.dependencies]`). Moving to a new `manifest_version` means older manifests are
-refused: that is a major release of Isothrum.
 
 ## Minimum supported Rust version (MSRV)
 

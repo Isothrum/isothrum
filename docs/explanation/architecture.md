@@ -26,7 +26,7 @@ event stream.
 | `isothrum-machine` | This computer's hypervisors and tools: detects the Vagrant providers it can drive, and why one can't. |
 
 The dependency direction is one way: every crate depends on the runner, and the runner on none
-of them. No crate depends on an Isoloom crate (`cargo xtask check`'s `isoloom-free` step, and the
+of them. No crate depends on a generator's crate (`cargo xtask check`'s `generator-free` step, and the
 `boundary` guardrail).
 
 ## Inside the runner

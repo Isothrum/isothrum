@@ -51,7 +51,6 @@ Each tool inherits the environment `isothrum` runs in, with these changes:
 | `DOCKER_HOST`, `DOCKER_CONTEXT` | `docker` | Not inherited when the Docker CLI's config names a current context of the user's own: a stale socket (another engine's) would send the run where the user never looks. |
 | `VAGRANT_DOTFILE_PATH` | `vagrant` | The run's Vagrant state, in the run's state folder (also in the command `isothrum console` prints). |
 | `HOST_PORT_<MACHINE>_<GUEST>_<PROTO>` | `vagrant`, a run started once | The host port the run kept for each forwarded port, so a Vagrantfile that reads it boots on it again ([Vagrant projects](vagrant.md#stable-host-ports)). |
-| `ISOLOOM_CONSOLES` | `vagrant`, a VMware run | The graphical consoles the runner chose (each machine's loopback port and VNC password), as JSON: set for the run's own Vagrant processes only, never in a command an embedder is handed (`isothrum console`). |
 
 ### Tools started elsewhere
 
@@ -67,7 +66,7 @@ Each tool inherits the environment `isothrum` runs in, with these changes:
   cache at its own.
 - **Vagrant on an ESXi host (macOS).** macOS keeps third-party tools off the local network, so
   the run goes through loopback relays: `ESXI_HOSTNAME` and `ESXI_HOSTPORT` point at the SSH
-  relay, `ISOLOOM_SSH_PROXY_COMMAND` is `/usr/bin/nc %h %p`, `http_proxy` is the relay's WinRM
+  relay, `http_proxy` is the relay's WinRM
   proxy (the one override: WinRM reaches the guests only through it; `https_proxy` is left as it
   is), `no_proxy` is the user's own plus `localhost,127.0.0.1`, and `ovftool` runs through a
   wrapper (`ISOTHRUM_REAL_OVFTOOL`, `ISOTHRUM_OVFTOOL_PORT`). A `no_proxy` entry covering the

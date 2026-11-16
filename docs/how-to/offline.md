@@ -10,7 +10,7 @@ List every image the generated Compose file uses, pull them on a connected machi
 on the closed one (or push them to an internal registry the engine can reach):
 
 ```sh
-docker compose -f .isoloom/docker/compose.yml config --images > images.txt
+docker compose -f compose.yaml config --images > images.txt
 xargs -n1 docker pull < images.txt
 docker save $(cat images.txt) -o images.tar     # carry images.tar across
 docker load -i images.tar                       # on the closed machine

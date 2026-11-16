@@ -15,7 +15,7 @@ Regenerate the files with the Isoloom release that writes version 1 (`isoloom ge
 run 1.x brought up, either take it down with 1.x before upgrading, or regenerate its files in the
 same folder: the record names the `run.json` it was brought up from, and 2.0 reads the regenerated
 one there. Detach a 1.x ad-hoc access machine (`<run>-isoloom-access`) with 1.x first: 2.0 no
-longer knows it, so a later `down` leaves it running. [Policies](policies.md#run-manifest-versions) has which Isothrum reads which version.
+longer knows it, so a later `down` leaves it running. The [changelog](../CHANGELOG.md) has which Isothrum reads which version.
 
 ## Command line
 

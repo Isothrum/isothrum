@@ -17,8 +17,8 @@ Bring an environment up in a pipeline, test against it, and always tear it down.
 4. **Pass secrets from the environment.** `--secret-from-env NAME[=VAR]` reads a slot's value from
    a CI secret; values never go on the command line and are masked as `***` in the output.
    Terraform doesn't inherit the shell's cloud settings (`AWS_*`, `ARM_*`, `GOOGLE_*`, `TF_VAR_*`,
-   ...): give the cloud credentials as the manifest's connection slots (`--secret-from-env`) and
-   its settings as `--param`.
+   ...): give the cloud credentials as secrets (`--secret-from-env`) and the module's settings as
+   values (`--env`).
 5. **Read the outcome from the exit code and the events.** `--json` prints one event per line on
    standard output, a usage error included; the exit codes are in
    [Exit codes](../reference/exit-codes.md). A cancelled job's SIGINT or SIGTERM asks the tools
@@ -53,7 +53,7 @@ jobs:
           tar -xzf "isothrum-${VERSION}-${TARGET}.tar.gz"
           echo "${PWD}/isothrum-${VERSION}-${TARGET}" >> "$GITHUB_PATH"
           echo "ISOTHRUM_HOME=${RUNNER_TEMP}/isothrum-home" >> "$GITHUB_ENV"
-      # The generated files: run `isoloom generate --target docker` here, or commit them.
+      # The project's files (a compose.yaml here): committed, or generated in a step before.
       - run: isothrum up --json > up.jsonl
       - run: ./run-your-tests.sh
       - run: isothrum check
@@ -72,9 +72,9 @@ jobs:
 
 ## GitHub Actions, across jobs (Terraform targets)
 
-The example is Isoloom's `cloud-vm/aws` target. Keep the home in the workspace, pack it with `tar` (which keeps the files' modes: `ssh` refuses a
-private key others can read) together with the generated `.isoloom/` folder, and carry it to the
-job that tears down.
+The example is a Terraform module for AWS in `infra/`. Keep the home in the workspace, pack it
+with `tar` (which keeps the files' modes: `ssh` refuses a private key others can read) together
+with the module's folder, and carry it to the job that tears down.
 
 ```yaml
 jobs:
@@ -83,19 +83,18 @@ jobs:
     steps:
       - uses: actions/checkout@<commit sha>
       # ... install isothrum as above, with ISOTHRUM_HOME=${GITHUB_WORKSPACE}/.isothrum-home ...
-      # ... generate the files (.isoloom/) ...
       - run: |
-          isothrum up --target cloud-vm/aws --name "ci-${GITHUB_RUN_ID}" \
+          isothrum up infra --name "ci-${GITHUB_RUN_ID}" \
             --secret-from-env AWS_ACCESS_KEY_ID --secret-from-env AWS_SECRET_ACCESS_KEY \
-            --param region=eu-west-3 \
-            --param allowed_cidr="$(curl -fsS https://checkip.amazonaws.com)/32" \
+            --env region=eu-west-3 \
+            --env allowed_cidr="$(curl -fsS https://checkip.amazonaws.com)/32" \
             --lifetime 120
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      - name: Pack the home and the generated files
+      - name: Pack the home and the module
         if: always()
-        run: tar -czf isothrum-state.tgz .isothrum-home .isoloom
+        run: tar -czf isothrum-state.tgz .isothrum-home infra
       - uses: actions/upload-artifact@<commit sha>
         if: always()
         with:
@@ -117,18 +116,16 @@ jobs:
           name: isothrum-state
       - run: tar -xzf isothrum-state.tgz
       - run: |
-          isothrum down --target cloud-vm/aws --name "ci-${GITHUB_RUN_ID}" \
+          isothrum down infra --name "ci-${GITHUB_RUN_ID}" \
             --secret-from-env AWS_ACCESS_KEY_ID --secret-from-env AWS_SECRET_ACCESS_KEY
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
-`down` replays the params the run was started with; secrets are never recorded, so it takes the
-credentials again. The example assumes the run's folder is the repository's root; `up` and `down`
-take another one as their argument. The slot and param names come from your manifest
-(`jq '.secrets, .params' .isoloom/cloud-vm/aws/run.json`). `--target cloud-vm/aws` picks the
-manifest Isoloom wrote for AWS (`.isoloom/cloud-vm/aws/run.json`), where it writes one per cloud.
+Secrets are never recorded, so `down` takes the credentials again. The variable names
+(`region`, `allowed_cidr`) are the module's own `variable` blocks; `isothrum` gives each `--env`
+value to Terraform as that variable.
 
 The archive holds the Terraform state and the runner's SSH private key: anyone who can download
 the artifact can reach the machines. Keep the retention short, and prefer a single job when the
