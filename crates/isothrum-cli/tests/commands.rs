@@ -115,12 +115,14 @@ fn exec_exits_0_only_when_its_command_did_and_streams_its_output_as_log_events()
     assert_eq!(run(&lab, &["up", "--json", lab.dir()])?.0, Some(0));
     let (code, events) = run(&lab, &["exec", "web", "--json", lab.dir(), "--", "sh", "-c", "echo out; echo err >&2; exit 3"])?;
     assert_eq!(code, Some(1), "{events:?}");
-    let logs: Vec<(&str, &str)> = events
+    let mut logs: Vec<(&str, &str)> = events
         .iter()
         .filter(|e| at(e, "event") == "log")
         .filter_map(|e| Some((at(e, "stream").as_str()?, at(e, "line").as_str()?)))
         .collect();
-    assert_eq!(logs, [("stdout", "out"), ("stderr", "err")]);
+    // Two pipes: which line comes first is the scheduler's.
+    logs.sort_unstable();
+    assert_eq!(logs, [("stderr", "err"), ("stdout", "out")]);
     let result = events.last().cloned().unwrap_or_default();
     assert_eq!(
         (at(&result, "event"), at(&result, "ok"), at(at(&result, "data"), "machine")),
