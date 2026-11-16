@@ -11,7 +11,7 @@ async fn exec_runs_the_command_over_ssh_quoted_and_a_failing_command_is_its_resu
         .await
         .expect("ran");
     assert_eq!((ran.exit, ran.stderr.as_str()), (3, "no such file"));
-    let call = fake.last("ssh").unwrap();
+    let [call] = fake.made("vagrant ssh").try_into().expect("one ssh");
     assert_eq!(
         call.args,
         ["ssh", "web", "-c", "cat '/etc/a b'", "--", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20"],
@@ -52,9 +52,21 @@ async fn a_console_is_vagrant_ssh_with_the_dotfile_and_a_user_is_checked() {
     let fake = FakeProcesses::script().build();
     let cx = cx(&f, &fake, LIBVIRT);
     let plain = Vagrant.console(&cx, "web", None).await.expect("a console");
-    assert!(plain.sh_line().contains("vagrant ssh web"), "{}", plain.sh_line());
+    assert_eq!(
+        (plain.program.as_str(), plain.args.as_slice()),
+        ("vagrant", &["ssh".to_owned(), "web".to_owned()][..])
+    );
+    assert!(
+        plain.env.iter().any(|(k, _)| k == dotfile::VAR),
+        "Vagrant finds the VM by the run's dotfile: {:?}",
+        plain.env
+    );
     let as_user = Vagrant.console(&cx, "web", Some("alice")).await.expect("a console as alice");
-    assert!(as_user.sh_line().contains("sudo -iu alice"), "{}", as_user.sh_line());
+    assert_eq!(
+        as_user.args,
+        ["ssh", "web", "-c", &crate::console::shells::login_shell_as("alice")],
+        "a login shell as alice"
+    );
     assert_eq!(
         Vagrant.console(&cx, "web", Some("a; rm -rf /")).await.map(drop).map_err(|e| e.code()),
         Err(crate::ErrorCode::Unsupported)
@@ -73,7 +85,10 @@ async fn probe_refuses_a_provider_this_host_doesnt_run_a_missing_plugin_and_an_o
         .expect("vagrant plugin list --machine-readable", Reply::ok("1,,plugin-name,vagrant-qemu\n"))
         .build();
     let plugin = Vagrant.probe(&cx(&f, &no_plugin, LIBVIRT)).await.expect_err("no vagrant-libvirt");
-    assert!(plugin.to_string().contains("vagrant plugin install vagrant-libvirt"), "{plugin}");
+    assert!(
+        matches!(&plugin, Error::Provider { .. }) && plugin.to_string().contains("vagrant plugin install vagrant-libvirt"),
+        "the refusal says how to install it: {plugin}"
+    );
     let fine = FakeProcesses::script()
         .expect("vagrant --version", Reply::ok("Vagrant 2.4.9"))
         .expect("vagrant plugin list --machine-readable", Reply::ok(&fixture("vagrant/2.4.1-plugin-list.txt")))
@@ -115,19 +130,53 @@ async fn a_libvirt_screen_asks_virsh_on_the_connection_the_runners_environment_n
         (&session, "virsh domdisplay dom-web"),
     ] {
         let fake = FakeProcesses::script().expect(call, Reply::ok("vnc://127.0.0.1:0\n")).build();
-        let console = super::screen::reach(
-            &ToolCx {
-                host_env: env,
-                ..cx(&f, &fake, LIBVIRT)
-            },
-            "web",
-        )
-        .await
-        .expect(call);
+        let console = Vagrant
+            .reach_graphical(
+                &ToolCx {
+                    host_env: env,
+                    ..cx(&f, &fake, LIBVIRT)
+                },
+                "web",
+            )
+            .await
+            .expect(call);
         assert_eq!(
             console.endpoint,
             crate::graphical::Endpoint::Loopback("127.0.0.1:5900".parse().unwrap()),
             "{call}"
         );
     }
+}
+
+/// A VirtualBox VM's screen is its remote display (VRDE) on this computer's loopback, as
+/// `VBoxManage showvminfo` says; one that is off says how to turn it on.
+#[tokio::test]
+async fn a_virtualbox_vms_screen_is_its_remote_display_and_one_off_says_why() {
+    let f = Fixture::new();
+    f.made("web", "virtualbox", "uuid-web");
+    let on = FakeProcesses::script()
+        .expect(
+            "VBoxManage showvminfo uuid-web --machinereadable",
+            Reply::ok(&fixture("vboxmanage/7.0.20-showvminfo-vrde-on.txt")),
+        )
+        .build();
+    let console = Vagrant.reach_graphical(&cx(&f, &on, VBOX), "web").await.expect("a screen");
+    assert_eq!(
+        (console.protocol, console.endpoint),
+        (
+            crate::graphical::ConsoleProtocol::Rdp,
+            crate::graphical::Endpoint::Loopback("127.0.0.1:3390".parse().unwrap())
+        )
+    );
+    let off = FakeProcesses::script()
+        .expect(
+            "VBoxManage showvminfo uuid-web --machinereadable",
+            Reply::ok(&fixture("vboxmanage/7.0.20-showvminfo-vrde-off.txt")),
+        )
+        .build();
+    let e = Vagrant.reach_graphical(&cx(&f, &off, VBOX), "web").await.expect_err("off");
+    assert!(
+        matches!(&e, Error::NoConsole { why, .. } if why.starts_with("VirtualBox's remote display is off")),
+        "{e:?}"
+    );
 }

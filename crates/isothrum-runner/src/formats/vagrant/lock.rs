@@ -131,7 +131,16 @@ mod tests {
             Err(locked(true))
         })
         .await;
-        assert!(out.is_err());
+        assert!(
+            matches!(
+                out,
+                Err(CliError::Failed {
+                    failure: Failure::Locked { acted: true, .. },
+                    ..
+                })
+            ),
+            "{out:?}"
+        );
         assert_eq!(tries.load(Ordering::SeqCst), 1, "it had acted: never twice");
         let fresh = AtomicUsize::new(0);
         let through: Result<(), _> = retrying(&quiet, "provision", Rerun::Repeats, PATIENCE, || async {
@@ -142,7 +151,8 @@ mod tests {
             }
         })
         .await;
-        assert!(through.is_ok());
+        through.expect("a call that hadn't acted is made again");
+        assert_eq!(fresh.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test(start_paused = true)]
@@ -171,7 +181,10 @@ mod tests {
             })
         })
         .await;
-        assert!(failed.is_err());
-        assert_eq!(other.load(Ordering::SeqCst), 1);
+        assert!(
+            matches!(&failed, Err(CliError::Failed { failure: Failure::Other(why), .. }) if why == "boom"),
+            "{failed:?}"
+        );
+        assert_eq!(other.load(Ordering::SeqCst), 1, "never tried again");
     }
 }

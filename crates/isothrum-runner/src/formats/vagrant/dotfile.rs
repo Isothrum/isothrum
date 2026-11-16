@@ -165,6 +165,7 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let dot = Dotfile::in_state(state.path());
         write(&dot.path, "machines", "a file, not a folder");
-        assert!(dot.recorded().is_err());
+        let e = dot.recorded().expect_err("unreadable");
+        assert_eq!(e.code(), crate::ErrorCode::Io, "{e}");
     }
 }

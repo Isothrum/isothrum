@@ -3,7 +3,7 @@
 use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
-pub(super) const CLAIMS: [(&str, &str, Proof); 54] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 55] = [
     (
         "compose",
         "probe",
@@ -250,6 +250,14 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 54] = [
             evidence: "Provider::Virtualbox",
         },
     ),
+    (
+        "vagrant",
+        "reach_graphical",
+        Witness {
+            test: "a_virtualbox_vms_screen_is_its_remote_display_and_one_off_says_why",
+            evidence: "VBoxManage showvminfo uuid-web --machinereadable",
+        },
+    ),
     ("vagrant", "native_app", NoTool("a query: the app a provider's VMs open in, nothing runs")),
     (
         "terraform",
@@ -369,12 +377,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 54] = [
 
 /// The claims whose witness is owed: each a test to write (a scripted process seeing the call),
 /// and the list only shrinks. A claim added to a driver never goes here: it comes with its test.
-pub(super) const OWED: [(&str, &str, &str); 4] = [
-    (
-        "vagrant",
-        "reach_graphical",
-        "a VM's screen read from its provider (VBoxManage's remote display, virsh domdisplay) by a scripted process",
-    ),
+pub(super) const OWED: [(&str, &str, &str); 3] = [
     ("vagrant", "native_console", "a VM's own window opened through its provider's app"),
     (
         "terraform",

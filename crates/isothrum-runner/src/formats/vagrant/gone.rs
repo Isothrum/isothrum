@@ -72,44 +72,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_run_state_rule() {
-        let m = |name: &str, state: MachineState| SeenMachine {
-            name: name.into(),
-            state,
+    fn the_runs_state_follows_its_machines_and_those_gone_outside_it() {
+        use MachineState::{Absent, Running, Stopped, Unknown};
+        let m = |(name, state): &(&str, MachineState)| SeenMachine {
+            name: (*name).into(),
+            state: state.clone(),
             published: Vec::new(),
             kind: None,
             address: None,
             windows: false,
         };
-        assert_eq!(run_state(&[], &[]), RunState::Absent);
-        assert_eq!(run_state(&[m("a", MachineState::Absent)], &[]), RunState::Absent);
-        assert_eq!(
-            run_state(&[m("a", MachineState::Stopped), m("b", MachineState::Stopped)], &[]),
-            RunState::Parked
-        );
-        assert_eq!(
-            run_state(&[m("a", MachineState::Running), m("attack", MachineState::Absent)], &[]),
-            RunState::Ready,
-            "a machine left down at up (autostart: false) isn't a failure"
-        );
-        assert_eq!(
-            run_state(&[m("a", MachineState::Running), m("controller", MachineState::Stopped)], &[]),
-            RunState::Ready,
-            "a machine that powered itself off among running ones isn't a failure"
-        );
-        assert_eq!(
-            run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("aborted".into()))], &[]),
-            RunState::Failed
-        );
-        assert_eq!(
-            run_state(&[m("a", MachineState::Running), m("b", MachineState::Unknown("shut".into()))], &[]),
-            RunState::Failed
-        );
-        let web = || vec!["web".to_owned()];
-        assert_eq!(
-            run_state(&[m("web", MachineState::Absent)], &web()),
-            RunState::Failed,
-            "the run's one machine destroyed outside it fails it, never reads as never made"
-        );
+        let aborted = || Unknown("aborted".into());
+        for (machines, gone, expected, why) in [
+            (vec![], &[][..], RunState::Absent, "nothing made"),
+            (vec![("a", Absent)], &[][..], RunState::Absent, "nothing made yet"),
+            (vec![("a", Stopped), ("b", Stopped)], &[][..], RunState::Parked, "all stopped"),
+            (
+                vec![("a", Running), ("attack", Absent)],
+                &[][..],
+                RunState::Ready,
+                "a machine left down at up (autostart: false)",
+            ),
+            (
+                vec![("a", Running), ("controller", Stopped)],
+                &[][..],
+                RunState::Ready,
+                "a machine that powered itself off",
+            ),
+            (vec![("a", Running), ("b", aborted())], &[][..], RunState::Failed, "a VM that died"),
+            (
+                vec![("a", Running), ("b", Unknown("shut".into()))],
+                &[][..],
+                RunState::Failed,
+                "a state cut short",
+            ),
+            (
+                vec![("web", Absent)],
+                &["web".to_owned()][..],
+                RunState::Failed,
+                "its one machine destroyed outside it",
+            ),
+        ] {
+            let seen: Vec<SeenMachine> = machines.iter().map(m).collect();
+            assert_eq!(run_state(&seen, gone), expected, "{why}");
+        }
     }
 }
