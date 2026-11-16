@@ -150,7 +150,7 @@ mod tests {
     fn an_argument_that_could_be_read_as_more_is_refused() {
         assert_eq!(argument("web", "web-vm - web").unwrap(), "web-vm - web");
         for bad in ["", "  ", "--type=gui", "a\nb", "a\u{0}b"] {
-            assert!(argument("web", bad).is_err(), "{bad:?}");
+            assert_eq!(argument("web", bad).unwrap_err().code(), crate::ErrorCode::NoConsole, "{bad:?}");
         }
     }
 

@@ -251,10 +251,9 @@ mod tests {
         });
         let got = sink.events();
         assert_eq!(got.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2]);
-        assert!(
-            got.iter()
-                .all(|event| event.time == "2026-10-15T12:00:00Z" && event.run.as_deref() == Some("web-portal") && event.op == Some(Op::Up))
-        );
+        isothrum_test_support::assert_every!(&got, |event: &&Event| event.time == "2026-10-15T12:00:00Z"
+            && event.run.as_deref() == Some("web-portal")
+            && event.op == Some(Op::Up));
         assert!(
             matches!(&got[0].kind, EventKind::Log { line, .. } if line == "seeding *** and ***"),
             "{:?}",

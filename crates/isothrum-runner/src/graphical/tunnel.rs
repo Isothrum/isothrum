@@ -278,7 +278,8 @@ mod tests {
         assert!(!spec.args.iter().any(|a| a.ends_with("=accept-new")), "{:?}", spec.args);
         assert_eq!((spec.flag("-F"), spec.flag("-i")), (Some("none"), Some("/k/id")), "{:?}", spec.args);
         assert_eq!(spec.args.last().map(String::as_str), Some("admin@203.0.113.7"));
-        assert!(ssh_spec("dc", &to("-oProxyCommand=x"), Path::new("/k"), dir.path(), 1).is_err());
+        let refused = ssh_spec("dc", &to("-oProxyCommand=x"), Path::new("/k"), dir.path(), 1).unwrap_err();
+        assert_eq!(refused.code(), crate::ErrorCode::NoConsole, "an option, never an address: {refused}");
     }
 
     #[test]

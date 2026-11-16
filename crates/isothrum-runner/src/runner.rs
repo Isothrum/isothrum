@@ -379,7 +379,8 @@ mod tests {
         assert_eq!(copy_key(Path::new("/other"), &name), "1imar2", "another home, another key");
         assert_eq!(copy_key(Path::new("/h"), &RunName::new("web-vm-2").unwrap()), "yjcqv3", "another run");
         let key = copy_key(Path::new("/h"), &name);
-        assert!(key.len() == 6 && key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()), "{key}");
+        assert_eq!(key.len(), 6, "{key}");
+        isothrum_test_support::assert_every!(key.bytes(), |b: &u8| b.is_ascii_lowercase() || b.is_ascii_digit());
     }
 
     #[test]

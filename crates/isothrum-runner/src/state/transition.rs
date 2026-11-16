@@ -311,12 +311,12 @@ mod tests {
             let refused = Transition::begin(from, op, OP).unwrap_err();
             assert_eq!(refused.from, from, "{op}");
         }
-        assert!(Transition::cut_off(RunState::Ready, OP).is_err(), "a settled run isn't recovered");
-        assert!(
-            Transition::observed(RunState::Creating, RunState::Ready).is_err(),
-            "an observation never moves a moving run"
-        );
-        assert!(Transition::observed(RunState::Absent, RunState::Ready).is_err());
+        let settled = Transition::cut_off(RunState::Ready, OP).unwrap_err();
+        assert_eq!((settled.from, settled.what), (RunState::Ready, "be recovered (it isn't moving)"));
+        for from in [RunState::Creating, RunState::Absent] {
+            let refused = Transition::observed(from, RunState::Ready).unwrap_err();
+            assert_eq!((refused.from, refused.what), (from, "be moved there by an observation"), "a moving or gone run");
+        }
         assert_eq!(
             Transition::begin(RunState::Parked, Op::Park, OP).unwrap_err().to_string(),
             "a run parked can't be parked"
