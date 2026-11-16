@@ -49,6 +49,28 @@ pub(crate) struct To {
     pub(crate) key: Option<PathBuf>,
 }
 
+/// What a tunnel is for, which its errors name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Purpose<'a> {
+    /// A machine's console: its errors are `no_console`.
+    Console(&'a str),
+    /// A service endpoint the deployment publishes: its errors are `tool_failed`.
+    Endpoint(&'a str),
+}
+
+impl Purpose<'_> {
+    /// Why a tunnel for it couldn't open, as its error.
+    pub(crate) fn refused(self, why: impl Into<String>) -> Error {
+        match self {
+            Purpose::Console(machine) => no_console(machine, why),
+            Purpose::Endpoint(name) => Error::ToolFailed {
+                step: "endpoint".to_owned(),
+                reason: format!("`{name}`: {}", why.into()),
+            },
+        }
+    }
+}
+
 /// An open tunnel to a machine's console: where it listens, and its `ssh`, ended when it is
 /// dropped (and its ledger entry removed).
 #[derive(Debug)]
@@ -82,6 +104,11 @@ impl Tunnel {
     #[must_use]
     pub fn local(&self) -> SocketAddr {
         self.local
+    }
+
+    /// Whether its `ssh` still runs (it listens).
+    pub(crate) fn runs(&mut self) -> bool {
+        matches!(self.ssh.try_wait(), Ok(None))
     }
 
     /// The machine it goes through, as `user@host`.
@@ -141,13 +168,10 @@ impl Tunnel {
 
 /// `ssh`'s process for a tunnel to `machine`'s console from loopback port `local` to `to`, signing
 /// in with `key`, the run's state folder `state_dir` holding its pinned host keys.
-fn ssh_spec(machine: &str, to: &To, key: &Path, state_dir: &Path, local: u16) -> Result<ProcessSpec> {
+fn ssh_spec(purpose: Purpose<'_>, to: &To, key: &Path, state_dir: &Path, local: u16) -> Result<ProcessSpec> {
     let address = |h: &str| !h.is_empty() && !h.starts_with('-') && h.chars().all(|c| c.is_ascii_alphanumeric() || ".:-".contains(c));
     if !address(&to.host) {
-        return Err(no_console(
-            machine,
-            format!("its address `{}` isn't one a tunnel goes to", to.host.escape_debug()),
-        ));
+        return Err(purpose.refused(format!("its address `{}` isn't one a tunnel goes to", to.host.escape_debug())));
     }
     let forward = format!("{LOOPBACK}:{local}:{}:{}", bracketed(&to.host), to.port);
     let mut args = crate::ssh::options(key, state_dir)?;
@@ -167,29 +191,26 @@ fn bracketed(host: &str) -> String {
 /// time ([`crate::ssh::pin`]), a free loopback port no run holds, `ssh` started and recorded in
 /// the run's tool ledger, and the port answering within [`OPENING`]; when it doesn't, why, in
 /// `ssh`'s own words when it said any.
-pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, machine: &str, to: &To) -> Result<Tunnel> {
+pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, purpose: Purpose<'_>, to: &To) -> Result<Tunnel> {
     let config = &runner.config;
     crate::ssh::pin(config.processes.as_ref(), state_dir, &to.via.host).await?;
     let key = to.key.clone().unwrap_or_else(|| crate::ssh::key_path(&config.home));
     let free = runner
         .pick_unreserved(run, Protocol::Tcp)
         .map_err(Error::io("a tcp port on 127.0.0.1", "bound"))?
-        .ok_or_else(|| no_console(machine, "no free port on this computer's loopback for its tunnel"))?;
+        .ok_or_else(|| purpose.refused("no free port on this computer's loopback for its tunnel"))?;
     let local = free.port.get();
     // Freed for `ssh` to bind it.
     drop(free);
-    let spec = ssh_spec(machine, to, &key, state_dir, local)?;
+    let spec = ssh_spec(purpose, to, &key, state_dir, local)?;
     let ledger = state_dir.join(crate::process::ledger::DIR);
-    let mut tunnel = started(machine, &spec, SocketAddr::new(LOOPBACK, local), &to.via.target(), &ledger)?;
+    let mut tunnel = started(purpose, &spec, SocketAddr::new(LOOPBACK, local), &to.via.target(), &ledger)?;
     if !config.ports.reachable(&LOOPBACK.to_string(), local, OPENING).await {
         let because = tunnel.why_closed().await.map_or_else(String::new, |line| format!(": ssh said `{line}`"));
-        return Err(no_console(
-            machine,
-            format!(
-                "its tunnel through {} didn't open (SSH refused, or {}:{} doesn't answer from there){because}",
-                tunnel.via, to.host, to.port
-            ),
-        ));
+        return Err(purpose.refused(format!(
+            "its tunnel through {} didn't open (SSH refused, or {}:{} doesn't answer from there){because}",
+            tunnel.via, to.host, to.port
+        )));
     }
     tunnel.drain();
     Ok(tunnel)
@@ -197,13 +218,13 @@ pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, machi
 
 /// [`start`] for `machine`'s console: a program that isn't installed is `tool_missing`, another
 /// failure to start it `no_console` saying why.
-fn started(machine: &str, spec: &ProcessSpec, local: SocketAddr, via: &str, ledger: &Path) -> Result<Tunnel> {
+fn started(purpose: Purpose<'_>, spec: &ProcessSpec, local: SocketAddr, via: &str, ledger: &Path) -> Result<Tunnel> {
     start(spec, local, via, ledger).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => Error::ToolMissing {
             step: STEP.to_owned(),
             tool: spec.program.clone(),
         },
-        _ => no_console(machine, format!("its tunnel's `{}` didn't start: {e}", spec.program)),
+        _ => purpose.refused(format!("its tunnel's `{}` didn't start: {e}", spec.program)),
     })
 }
 
@@ -270,7 +291,7 @@ mod tests {
     fn the_forward_listens_on_the_loopback_and_checks_the_pinned_keys() {
         use crate::process::fake::CallView as _;
         let dir = tempfile::tempdir().unwrap();
-        let spec = ssh_spec("dc", &to("10.9.0.20"), Path::new("/k/id"), dir.path(), 40000).unwrap();
+        let spec = ssh_spec(Purpose::Console("dc"), &to("10.9.0.20"), Path::new("/k/id"), dir.path(), 40000).unwrap();
         assert_eq!(spec.flag("-L"), Some("127.0.0.1:40000:10.9.0.20:3389"), "{:?}", spec.args);
         for never_waits in ["StrictHostKeyChecking=yes", "BatchMode=yes", "ConnectTimeout=10"] {
             assert!(spec.has_run(&["-o", never_waits]), "{never_waits}: {:?}", spec.args);
@@ -278,7 +299,7 @@ mod tests {
         assert!(!spec.args.iter().any(|a| a.ends_with("=accept-new")), "{:?}", spec.args);
         assert_eq!((spec.flag("-F"), spec.flag("-i")), (Some("none"), Some("/k/id")), "{:?}", spec.args);
         assert_eq!(spec.args.last().map(String::as_str), Some("admin@203.0.113.7"));
-        let refused = ssh_spec("dc", &to("-oProxyCommand=x"), Path::new("/k"), dir.path(), 1).unwrap_err();
+        let refused = ssh_spec(Purpose::Console("dc"), &to("-oProxyCommand=x"), Path::new("/k"), dir.path(), 1).unwrap_err();
         assert_eq!(refused.code(), crate::ErrorCode::NoConsole, "an option, never an address: {refused}");
     }
 
@@ -292,7 +313,7 @@ mod tests {
     fn a_missing_ssh_is_a_tool_missing() {
         let dir = tempfile::tempdir().unwrap();
         let spec = ProcessSpec::new("isothrum-no-such-ssh", ["-N"]);
-        let err = started("dc", &spec, "127.0.0.1:1".parse().unwrap(), "a@b", dir.path()).unwrap_err();
+        let err = started(Purpose::Console("dc"), &spec, "127.0.0.1:1".parse().unwrap(), "a@b", dir.path()).unwrap_err();
         assert_eq!(err.code(), crate::ErrorCode::ToolMissing, "{err}");
     }
 

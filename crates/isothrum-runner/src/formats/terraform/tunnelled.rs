@@ -192,6 +192,28 @@ pub(super) fn named_address(out: &BTreeMap<String, String>, machine: &str) -> Op
     all.get(machine)?.as_str().filter(|a| !a.is_empty()).map(str::to_owned)
 }
 
+/// The `published` output's entries (`{ "web/site" = "192.0.2.10:8080" }`, as JSON text), by
+/// name, each whose address has a host and a port.
+pub(super) fn published(out: &BTreeMap<String, String>) -> Vec<crate::formats::Published> {
+    let Some(all) = out.get("published").and_then(|v| serde_json::from_str::<BTreeMap<String, String>>(v).ok()) else {
+        return Vec::new();
+    };
+    all.into_iter()
+        .filter_map(|(name, at)| {
+            let (host, port) = at.rsplit_once(':')?;
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            if host.is_empty() {
+                return None;
+            }
+            Some(crate::formats::Published {
+                name,
+                host: host.to_owned(),
+                port: port.parse().ok()?,
+            })
+        })
+        .collect()
+}
+
 /// What a status says of `machine`'s screen, as the outputs (`out`) say: its protocol, through
 /// the machine it is tunnelled through (unavailable, saying why, when the outputs name none); none
 /// for a Windows VM the module gives no way to; nothing for any other machine.

@@ -8,8 +8,10 @@
 //! longer makes.
 
 mod claims;
+mod owed;
 use super::source;
-use claims::{CLAIMS, OWED};
+use claims::CLAIMS;
+use owed::OWED;
 
 /// How a claim is shown.
 #[derive(Debug, Clone, Copy)]

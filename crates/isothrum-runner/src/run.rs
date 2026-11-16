@@ -4,10 +4,12 @@
 //! way for every format; only the driver knows its tool. `operate` is what every operation does
 //! around its own work, `recovery` what it does about what dead operations left.
 
+mod endpoints;
 mod graphical;
 mod operate;
 mod ports;
 pub(crate) mod recovery;
+pub use endpoints::ServiceEndpoint;
 mod status;
 use status::status_of;
 #[cfg(test)]
