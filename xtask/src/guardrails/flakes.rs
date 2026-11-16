@@ -8,7 +8,11 @@
 //! - a free port is held until it is used: a listener bound to port 0 then let go (`drop(l)` a
 //!   few lines on, or a `.local_addr()` read off a listener the statement doesn't keep) hands its
 //!   port to whichever process asks next ([`PORTS_LET_GO`]: the tests whose subject is a port let
-//!   go).
+//!   go);
+//! - a stand-in program is installed once (`installed_executable`) and found by every test and
+//!   run, not written fresh by each test with `write_executable`: macOS checks each new program on
+//!   its first run, seconds on a loaded machine. The tests still writing their own are counted per
+//!   file ([`STAND_INS`]), each with why.
 //!
 //! The tests' sources: a test file whole (`source::is_test_file`, and `isothrum-test-support`),
 //! and any other file from its inline `#[cfg(test)] mod … {` on.
@@ -16,7 +20,12 @@
 use super::source;
 
 /// The `sleep`s each file's tests have, and why none of them waits for something to happen.
-const SLEEPS: [(&str, usize, &str); 12] = [
+const SLEEPS: [(&str, usize, &str); 13] = [
+    (
+        "crates/isothrum-runner/src/graphical/tunnel.rs",
+        1,
+        "wall clock: 300 ms for the stand-in ssh to exit before the tunnel is waited for (to replace with its exit)",
+    ),
     ("crates/isothrum-machine/src/testing.rs", 1, "`Stuck`, a stand-in tool that never answers"),
     (
         "crates/isothrum-runner/src/process/elevated/tests.rs",
@@ -77,6 +86,41 @@ const PORTS_LET_GO: [(&str, usize, &str); 1] = [(
     1,
     "`reachable` said no to a listener let go: the port let go is the subject",
 )];
+
+/// The stand-in programs each file's tests write fresh (`write_executable`), and why they aren't
+/// installed once.
+const STAND_INS: [(&str, usize, &str); 4] = [
+    (
+        "crates/isothrum-runner/src/console/shells.rs",
+        1,
+        "three stand-ins per case, the `id` one answering the case's account: to install once, the account from the environment",
+    ),
+    (
+        "crates/isothrum-runner/src/process/elevated/tests/real.rs",
+        2,
+        "the opt-in PowerShell broker test (ignored by default): its `taskkill` and `vagrant` stand-ins",
+    ),
+    (
+        "crates/isothrum-runner/src/process/system/tests/stopping.rs",
+        1,
+        "a `docker` stand-in naming this test's log and pid files: to install once, the files from the environment",
+    ),
+    (
+        "crates/isothrum-test-support/src/lib.rs",
+        1,
+        "`installed_executable` writing the one copy every test finds",
+    ),
+];
+
+/// The line numbers of `lines` writing a program a test runs (`write_executable(`), the
+/// test-support crate's own definition aside.
+fn stand_ins(lines: &[(usize, String)]) -> Vec<usize> {
+    lines
+        .iter()
+        .filter(|(_, l)| l.contains("write_executable(") && !l.contains("fn write_executable(") && !l.trim_start().starts_with("//"))
+        .map(|(n, _)| *n)
+        .collect()
+}
 
 /// How many lines after the bind a port let go is looked for: bound, its port read, dropped.
 const LET_GO_WITHIN: usize = 4;
@@ -219,9 +263,23 @@ mod tests {
     }
 
     #[test]
+    fn a_stand_in_program_is_installed_once_not_written_by_each_test() {
+        let wrong = counted(
+            stand_ins,
+            &STAND_INS,
+            "STAND_INS",
+            "install it once with isothrum_test_support::installed_executable(env!(\"CARGO_TARGET_TMPDIR\"), …), what differs between tests in its environment",
+        );
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    #[test]
     fn the_flake_scans_see_what_they_look_for() {
         let sleep = "std::thread::sleep(Duration::from_secs(1));\n// thread::sleep(x)\ntokio::time::sleep(d).await;\nsleep(d).await;\nfn sleep(d: u64) {}\ntokio::time::sleep_until(t).await;\n";
         assert_eq!(sleeps(&numbered(sleep)), [1, 3, 4]);
+        let writes =
+            "write_executable(&bin.join(\"x\"), \"#!/bin/sh\").unwrap();\npub fn write_executable(path: &Path) {}\ninstalled_executable(root, \"x\", s);\n";
+        assert_eq!(stand_ins(&numbered(writes)), [1]);
         let ports = [
             (
                 "let l = TcpListener::bind(\"127.0.0.1:0\")?;\nlet port = l.local_addr()?.port();\ndrop(l);\n",

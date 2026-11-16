@@ -169,7 +169,8 @@ No `test_` prefix, no `works`, `ok` or `basic`: when the test fails, its name sa
   test thread forks meanwhile, and running it then fails with "Text file busy". It is written once
   and found there by every later test and run (`isothrum_test_support::installed_executable`,
   given `env!("CARGO_TARGET_TMPDIR")`), never written fresh by each test: macOS checks every new
-  program the first time it runs, which takes seconds on a loaded machine.
+  program the first time it runs, which takes seconds on a loaded machine. The tests still writing
+  their own are counted in `xtask/src/guardrails/flakes.rs`, so a new one fails.
 - Cases of one behaviour are one table, `for (input, expected) in [...]`, the case named in the
   assert's message; a value many tests build is built by one builder or fixture, not copied.
 - A test's folder is a `tempfile::TempDir` it holds to its end, never a fixed path.
