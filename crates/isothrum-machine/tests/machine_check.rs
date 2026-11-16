@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use isothrum_machine::providers::{self, Need, Provider, ProviderRow, Unavailable, UtilityState};
+use isothrum_machine::providers::{self, Need, Provider, Unavailable, UtilityState};
 use isothrum_machine::{Arch, Context, Devices, Host, HostOs};
 use isothrum_runner::fake::{FakeProcesses, Reply};
 
@@ -82,7 +82,6 @@ async fn a_fresh_linux_machine_offers_its_providers_each_needing_vagrant_in_the_
         (libvirt["pluginInstalled"].as_bool(), libvirt["hypervisor"].as_bool()),
         (Some(false), Some(false))
     );
-    assert_ne!(Unavailable::VagrantMissing.message(), "");
 }
 
 #[tokio::test]
@@ -170,18 +169,13 @@ async fn parallels_desktop_off_path_is_found_in_its_app() {
     assert!(ran.iter().any(|r| Path::new(r) == prlctl), "{ran:?}");
 }
 
+/// A provider this host isn't offered (Hyper-V on Linux) is no status, and nothing is run for
+/// it but Vagrant's probe.
 #[tokio::test]
-async fn a_provider_this_host_isnt_offered_is_never_checked_and_each_mac_is_offered_its_own() {
+async fn a_provider_this_host_isnt_offered_is_never_checked() {
     let root = tempfile::tempdir().expect("a root");
     // Vagrant missing: nothing else may be asked.
     let nothing_asked = FakeProcesses::script().expect("vagrant --version", Reply::missing()).build();
     let linux = host(HostOs::Linux, Arch::Amd64, root.path());
     assert_eq!(providers::status(&context(nothing_asked, linux), Provider::Hyperv).await, None);
-
-    let (apple, intel) = (host(HostOs::Macos, Arch::Arm64, root.path()), host(HostOs::Macos, Arch::Amd64, root.path()));
-    assert_eq!(ProviderRow::of(Provider::Utm).mac_cpu, Some(Arch::Arm64));
-    assert!(providers::offered(Provider::Utm, &apple, false) && !providers::offered(Provider::Utm, &intel, false));
-    assert!(providers::offered(Provider::Virtualbox, &intel, false) && !providers::offered(Provider::Virtualbox, &apple, false));
-    assert!(providers::offered(Provider::Virtualbox, &apple, true), "installed: the user chose it");
-    assert!(ProviderRow::of(Provider::VmwareEsxi).remote() && providers::applicable(Provider::VmwareEsxi, &apple));
 }

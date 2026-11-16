@@ -40,8 +40,8 @@ async fn a_pc_with_hyperv_on_and_its_hypervisor_running_is_ready_and_offers_no_q
         [Provider::Virtualbox, Provider::VmwareDesktop, Provider::Hyperv, Provider::VmwareEsxi]
     );
     assert_eq!(status_of(&statuses, Provider::Hyperv).reason, None);
-    let asked = tools.last("powershell").unwrap();
-    assert_eq!(asked.args.last().map(String::as_str), Some(hyperv::HYPERVISOR_PRESENT));
+    let asked: Vec<Option<String>> = tools.made("powershell").iter().map(|c| c.args.last().cloned()).collect();
+    assert_eq!(asked, [Some(hyperv::HYPERVISOR_PRESENT.to_owned())], "the hypervisor's presence, asked once");
 }
 
 #[tokio::test(start_paused = true)]

@@ -120,5 +120,3 @@ async fn an_intel_mac_is_offered_virtualbox_and_utm_only_once_installed() {
     let qemu = status_of(&statuses, Provider::Qemu);
     assert_eq!((qemu.hypervisor, qemu.needs.as_slice()), (Some(true), [Need::Plugin].as_slice()));
 }
-
-// Windows.
