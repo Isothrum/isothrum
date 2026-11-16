@@ -1,0 +1,22 @@
+# One small Debian VM, `server`, set up by a shell provisioner.
+#
+# The box is `bento/debian-12` (VirtualBox, VMware, Parallels). Another one can be given with
+# `isothrum up --env BOX=<box>`, which reaches this file as `ENV["BOX"]`.
+
+Vagrant.configure("2") do |config|
+  config.vm.box = ENV.fetch("BOX", "bento/debian-12")
+
+  config.vm.define "server" do |server|
+    server.vm.hostname = "server"
+
+    server.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    # Runs at the first `up`, and again at `isothrum provision`.
+    server.vm.provision "shell", inline: <<~SHELL
+      echo "set up by Vagrant's shell provisioner" > /etc/greeting
+    SHELL
+  end
+end
