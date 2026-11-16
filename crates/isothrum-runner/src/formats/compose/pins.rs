@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use super::{Compose, READ_LIMIT, ToolCx, tool_error};
+use super::{Compose, READ_LIMIT, ToolCx, engine_error};
 use crate::Result;
 use crate::cli::compose::{self, ConfigPort};
 use crate::error::Error;
@@ -88,9 +88,9 @@ async fn refresh(cx: &ToolCx<'_>, mut kept: Kept, first: bool) -> Result<()> {
         ..Compose::project(cx)
     };
     let call = cx.read(READ_LIMIT);
-    let mut ports = compose::config_ports(&call, &base, &[]).await.map_err(|e| tool_error("pins", e))?;
+    let mut ports = compose::config_ports(&call, &base, &[]).await.map_err(|e| engine_error("pins", e))?;
     if !kept.attached.is_empty() {
-        let theirs = compose::config_ports(&call, &base, &kept.attached).await.map_err(|e| tool_error("pins", e))?;
+        let theirs = compose::config_ports(&call, &base, &kept.attached).await.map_err(|e| engine_error("pins", e))?;
         ports.extend(theirs.into_iter().filter(|p| !ports.contains(p)).collect::<Vec<_>>());
     }
     if first {

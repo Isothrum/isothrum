@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 pub use self::code::ErrorCode;
-pub use self::detail::{DETAIL_VERSION, Detail, DownloadKind, ErrorDetail, PortHolder};
+pub use self::detail::{DETAIL_VERSION, Detail, DownloadKind, ErrorDetail, PortHolder, ProviderNeed};
 pub use self::report::ErrorReport;
 pub use self::timed_out::TimedOut;
 pub(crate) use self::timed_out::kept_line;
@@ -79,9 +79,9 @@ pub enum Error {
         /// Its last error lines, or its exit status (secrets masked).
         reason: String,
     },
-    /// A tool the run needs is installed, but its probe got no answer from it: a container
-    /// engine stopped, or one this account can't reach. Said by its code, so a caller never reads
-    /// it out of a [`Error::ToolFailed`]'s wording.
+    /// A tool the run needs is installed, but its service didn't answer: a container engine
+    /// stopped, or quit while a step ran. Said by its code, so a caller never reads it out of a
+    /// [`Error::ToolFailed`]'s wording.
     #[error("step `{step}` failed: `{tool}` doesn't answer: {reason}")]
     ToolUnanswered {
         /// The probing step (`tools`).
@@ -89,6 +89,34 @@ pub enum Error {
         /// The tool, by its manifest name (`docker`).
         tool: String,
         /// What it said, or why its answer is none (secrets masked).
+        reason: String,
+    },
+    /// A tool refused this account: Docker's engine its socket or named pipe.
+    #[error("step `{step}` failed: `{tool}` refused this account: {reason}")]
+    ToolDenied {
+        /// The step.
+        step: String,
+        /// The tool (`docker`).
+        tool: String,
+        /// What it said (secrets masked).
+        reason: String,
+    },
+    /// A cloud refused the sign-in the run's tools use: it ran out, or was never made.
+    #[error("step `{step}`: the sign-in to {} ran out or is missing: {reason}", cloud.map_or_else(|| "the cloud".to_owned(), |c| format!("`{}`", crate::encoding::wire_name(&c))))]
+    CredentialsExpired {
+        /// The step.
+        step: String,
+        /// The cloud, when the failure names its Terraform provider.
+        cloud: Option<crate::project::platform::Cloud>,
+        /// What the tool said (secrets masked).
+        reason: String,
+    },
+    /// A network the run makes needs an address block another network holds.
+    #[error("step `{step}`: another network holds the addresses a network of the run needs: {reason}")]
+    AddressPoolOverlap {
+        /// The step.
+        step: String,
+        /// What the tool said (secrets masked).
         reason: String,
     },
     /// A step ran out of time: it showed no progress for its limit, or it ran to the ceiling.
@@ -251,6 +279,8 @@ pub enum Error {
         provider: String,
         /// Why it can't run the run, and what to do.
         reason: String,
+        /// What this computer lacks for it, when that is what refused it.
+        need: Option<ProviderNeed>,
     },
     /// A Vagrant run was asked for with no provider.
     #[error("a Vagrant run needs a provider: pass one of this run's ({providers})")]
@@ -345,6 +375,9 @@ impl Error {
             Error::ToolMissing { step, .. }
             | Error::ToolFailed { step, .. }
             | Error::ToolUnanswered { step, .. }
+            | Error::ToolDenied { step, .. }
+            | Error::CredentialsExpired { step, .. }
+            | Error::AddressPoolOverlap { step, .. }
             | Error::Timeout { step, .. }
             | Error::DownloadStalled { step, .. }
             | Error::DownloadFailed { step, .. }
@@ -375,6 +408,9 @@ impl Error {
             Error::ToolTooOld { .. } => ErrorCode::ToolTooOld,
             Error::ToolFailed { .. } => ErrorCode::ToolFailed,
             Error::ToolUnanswered { .. } => ErrorCode::ToolUnanswered,
+            Error::ToolDenied { .. } => ErrorCode::ToolDenied,
+            Error::CredentialsExpired { .. } => ErrorCode::CredentialsExpired,
+            Error::AddressPoolOverlap { .. } => ErrorCode::AddressPoolOverlap,
             Error::Timeout { .. } => ErrorCode::Timeout,
             Error::DownloadStalled { .. } => ErrorCode::DownloadStalled,
             Error::DownloadFailed { .. } => ErrorCode::DownloadFailed,

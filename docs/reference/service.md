@@ -83,7 +83,8 @@ runner's API gives (`Error::report`, `isothrum_runner::ErrorReport`):
 - `detail`, the failure's typed fields, when it has any;
 - `changed`: false when the failure is a refusal made before anything acted on the run (another
   operation holds it, it is already up or isn't up, it is recorded elsewhere, nothing is left to
-  resume, a value it needs is missing or unusable, a tool it needs is missing), so whatever the
+  resume, a value it needs is missing or unusable, a tool it needs is missing or refuses this
+  account, a cloud refuses the sign-in), so whatever the
   embedder prepared for the operation can be put back; true otherwise. A service refusal is
   always `false`.
 
@@ -116,7 +117,12 @@ runner's API gives (`Error::report`, `isothrum_runner::ErrorReport`):
   - `project_invalid`: `dir`.
   - `machine_unknown`: `machine`.
   - `network_unknown`: `network`.
-  - `provider_refused`: `provider`.
+  - `provider_refused`: `provider`, and `need` (`virtiofsd`) when the hypervisor found nothing
+    this computer must have for it.
+  - `tool_denied`: `tool`.
+  - `credentials_expired`: `cloud` (`aws`, `azure`, `gcp`, `oci`, `digitalocean`, `linode`), when
+    the failure names its Terraform provider, and `reason`.
+  - `address_pool_overlap`: `reason`.
   - `no_console`: `machine`.
   - `server_auth_failed`: `server`.
   - `io`: `path`, `action`.

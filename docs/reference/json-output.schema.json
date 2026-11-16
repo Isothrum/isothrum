@@ -1,5 +1,40 @@
 {
   "$defs": {
+    "Cloud": {
+      "description": "A public cloud.",
+      "oneOf": [
+        {
+          "const": "aws",
+          "description": "Amazon Web Services.",
+          "type": "string"
+        },
+        {
+          "const": "azure",
+          "description": "Microsoft Azure.",
+          "type": "string"
+        },
+        {
+          "const": "gcp",
+          "description": "Google Cloud.",
+          "type": "string"
+        },
+        {
+          "const": "digitalocean",
+          "description": "DigitalOcean.",
+          "type": "string"
+        },
+        {
+          "const": "linode",
+          "description": "Akamai Linode.",
+          "type": "string"
+        },
+        {
+          "const": "oci",
+          "description": "Oracle Cloud Infrastructure.",
+          "type": "string"
+        }
+      ]
+    },
     "ConsoleOffer": {
       "description": "What a status says of a machine's graphical console: its protocol, or `none` and why.",
       "properties": {
@@ -117,12 +152,27 @@
         },
         {
           "const": "tool_unanswered",
-          "description": "A tool the run needs is installed, but its probe got no answer from it (Docker's engine\nstopped, or not this account's to reach): the message says what the tool said.",
+          "description": "A tool the run needs is installed, but got no answer from its service: Docker's engine\nstopped, or quit while a step ran (the `step` says which): the message says what the tool\nsaid.",
           "type": "string"
         },
         {
           "const": "tool_too_old",
           "description": "A tool answers at a version older than the run needs.",
+          "type": "string"
+        },
+        {
+          "const": "tool_denied",
+          "description": "A tool refused this account (Docker's engine its socket or named pipe): the account needs\nthe access (a group), not the tool started.",
+          "type": "string"
+        },
+        {
+          "const": "credentials_expired",
+          "description": "A cloud refused the sign-in the run's tools use: a CLI or SSO session that ran out, an\nexpired token, application-default credentials gone stale, a profile never signed in.\nSigning in again fixes it; the cloud refused before Terraform changed anything.",
+          "type": "string"
+        },
+        {
+          "const": "address_pool_overlap",
+          "description": "A network the run makes needs an address block another network on the engine already\nholds (Docker's `Pool overlaps with other one on this address space`).",
           "type": "string"
         },
         {
@@ -192,7 +242,7 @@
         },
         {
           "const": "provider_refused",
-          "description": "The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or\nlacks its plugin.",
+          "description": "The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or\nlacks its plugin, or the hypervisor lacks what it needs on this computer (virtiofsd, for a\nshared folder on Linux: the `detail`'s `need`).",
           "type": "string"
         },
         {
@@ -665,6 +715,17 @@
               "const": "provider_refused",
               "type": "string"
             },
+            "need": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProviderNeed"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What this computer lacks for it, when that is what refused it."
+            },
             "provider": {
               "description": "The provider.",
               "type": "string"
@@ -673,6 +734,71 @@
           "required": [
             "kind",
             "provider"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool refused this account.",
+          "properties": {
+            "kind": {
+              "const": "tool_denied",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cloud refused the sign-in the run's tools use.",
+          "properties": {
+            "cloud": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Cloud"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The cloud, when the failure names its Terraform provider."
+            },
+            "kind": {
+              "const": "credentials_expired",
+              "type": "string"
+            },
+            "reason": {
+              "description": "What the tool said (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A network the run makes needs an address block another network holds.",
+          "properties": {
+            "kind": {
+              "const": "address_pool_overlap",
+              "type": "string"
+            },
+            "reason": {
+              "description": "What the tool said (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
           ],
           "type": "object"
         },
@@ -1572,6 +1698,16 @@
         {
           "const": "vmware_esxi",
           "description": "An ESXi server.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProviderNeed": {
+      "description": "What a computer lacks for a Vagrant provider to run a run.",
+      "oneOf": [
+        {
+          "const": "virtiofsd",
+          "description": "virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs\n(Linux): none is installed where they look.",
           "type": "string"
         }
       ]

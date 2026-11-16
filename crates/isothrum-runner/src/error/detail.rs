@@ -38,6 +38,16 @@ pub enum DownloadKind {
     Boxes,
 }
 
+/// What a computer lacks for a Vagrant provider to run a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ProviderNeed {
+    /// virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs
+    /// (Linux): none is installed where they look.
+    Virtiofsd,
+}
+
 /// The process that holds a host port: what a `port_in_use` names so the user knows what to stop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
@@ -175,6 +185,27 @@ pub enum Detail {
     ProviderRefused {
         /// The provider.
         provider: String,
+        /// What this computer lacks for it, when that is what refused it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        need: Option<ProviderNeed>,
+    },
+    /// A tool refused this account.
+    ToolDenied {
+        /// The tool.
+        tool: String,
+    },
+    /// A cloud refused the sign-in the run's tools use.
+    CredentialsExpired {
+        /// The cloud, when the failure names its Terraform provider.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cloud: Option<crate::project::platform::Cloud>,
+        /// What the tool said (masked).
+        reason: String,
+    },
+    /// A network the run makes needs an address block another network holds.
+    AddressPoolOverlap {
+        /// What the tool said (masked).
+        reason: String,
     },
     /// A machine has no graphical console to reach.
     NoConsole {
@@ -247,6 +278,12 @@ impl Error {
                 detail: detail.clone(),
             },
             Error::ToolFailed { reason, .. } => Detail::ToolFailed { reason: reason.clone() },
+            Error::ToolDenied { tool, .. } => Detail::ToolDenied { tool: tool.clone() },
+            Error::CredentialsExpired { cloud, reason, .. } => Detail::CredentialsExpired {
+                cloud: *cloud,
+                reason: reason.clone(),
+            },
+            Error::AddressPoolOverlap { reason, .. } => Detail::AddressPoolOverlap { reason: reason.clone() },
             _ => return None,
         })
     }
@@ -268,7 +305,10 @@ impl Error {
             Error::Project { dir, .. } => Detail::ProjectInvalid { dir: dir.clone() },
             Error::MachineUnknown { machine, .. } => Detail::MachineUnknown { machine: machine.clone() },
             Error::NetworkUnknown { network, .. } => Detail::NetworkUnknown { network: network.clone() },
-            Error::Provider { provider, .. } => Detail::ProviderRefused { provider: provider.clone() },
+            Error::Provider { provider, need, .. } => Detail::ProviderRefused {
+                provider: provider.clone(),
+                need: *need,
+            },
             Error::NoConsole { machine, .. } => Detail::NoConsole { machine: machine.clone() },
             Error::ServerAuthFailed { server, .. } => Detail::ServerAuthFailed { server: server.clone() },
             Error::Io { path, action, .. } => Detail::Io {
@@ -298,6 +338,8 @@ impl ErrorDetail {
             Detail::DownloadFailed { what, reason } => Detail::DownloadFailed { what, reason: mask(&reason) },
             Detail::Elevation { reason } => Detail::Elevation { reason: mask(&reason) },
             Detail::ToolFailed { reason } => Detail::ToolFailed { reason: mask(&reason) },
+            Detail::CredentialsExpired { cloud, reason } => Detail::CredentialsExpired { cloud, reason: mask(&reason) },
+            Detail::AddressPoolOverlap { reason } => Detail::AddressPoolOverlap { reason: mask(&reason) },
             Detail::InputInvalid { name, reason } => Detail::InputInvalid { name, reason: mask(&reason) },
             Detail::NotReady { condition, detail } => Detail::NotReady {
                 condition,

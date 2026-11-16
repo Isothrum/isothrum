@@ -106,7 +106,10 @@ An `error`'s `detail`, when the failure has typed fields: `v`, its `kind`, and t
 | `project_invalid` | `dir` | The folder isn't a project to run. |
 | `machine_unknown` | `machine` | A machine the run doesn't have. |
 | `network_unknown` | `network` | A network the run doesn't have. |
-| `provider_refused` | `provider` | A Vagrant provider refused. |
+| `provider_refused` | `need`?, `provider` | A Vagrant provider refused. |
+| `tool_denied` | `tool` | A tool refused this account. |
+| `credentials_expired` | `cloud`?, `reason` | A cloud refused the sign-in the run's tools use. |
+| `address_pool_overlap` | `reason` | A network the run makes needs an address block another network holds. |
 | `no_console` | `machine` | A machine has no graphical console to reach. |
 | `server_auth_failed` | `server`? | The server the run is on refused its credentials. |
 | `io` | `action`, `path` | A file or folder couldn't be read or written. |

@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use super::{Compose, ToolCx, tool_error};
+use super::{Compose, ToolCx, engine_error};
 use crate::Result;
 use crate::cli::CliError;
 use crate::cli::compose::{self, Failure};
@@ -65,7 +65,7 @@ impl Compose {
                         reason,
                     });
                 }
-                Err(e) => return Err(tool_error(STEP, e)),
+                Err(e) => return Err(engine_error(STEP, e)),
             }
         }
     }

@@ -1,0 +1,2 @@
+ Network stack_default  Creating
+failed to create network stack_default: Error response from daemon: invalid pool request: Pool overlaps with other one on this address space

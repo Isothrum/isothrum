@@ -13,6 +13,7 @@
 //! - [`prlctl`]: where a Parallels VM's bundle is.
 //! - [`osascript`]: an Apple event's error number (UTM's Vagrant provider drives UTM with it).
 //! - [`ruby`]: a Ruby tool's backtrace frames and fog's warnings.
+//! - [`sign_in`]: a cloud's sign-in run out or missing, and the cloud a Terraform failure names.
 //!
 //! Tools whose whole answer is a document are read in their adapter ([`crate::cli`]): Compose's
 //! `ps`, Terraform's JSON UI, state and outputs, Proxmox VE's API.
@@ -21,6 +22,7 @@ pub(crate) mod osascript;
 pub(crate) mod prlctl;
 pub(crate) mod qemu;
 pub(crate) mod ruby;
+pub(crate) mod sign_in;
 pub(crate) mod vagrant;
 pub(crate) mod vboxmanage;
 pub(crate) mod virsh;
