@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_virtualboxs_machine_folder() {
+    fn virtualboxs_machine_folder_is_read_and_an_empty_one_is_none() {
         let out = "API version: 7_0\nDefault machine folder:          /Users/a/VirtualBox VMs\nVRDE auth library: x\n";
         assert_eq!(machine_folder(out), Some(PathBuf::from("/Users/a/VirtualBox VMs")));
         assert_eq!(machine_folder("Default machine folder:  D:\\VMs\r\n"), Some(PathBuf::from("D:\\VMs")));

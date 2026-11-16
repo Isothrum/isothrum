@@ -143,7 +143,10 @@ mod tests {
         );
         assert_eq!(Failure::of(&said), Failure::NotFound);
         let other = Captured::new(TOOL, Exit::new(Some(1)), Vec::new(), lines("VBoxManage: error: The machine is locked"));
-        assert!(matches!(Failure::of(&other), Failure::Other(_)));
+        assert_eq!(
+            Failure::of(&other),
+            Failure::Other("VBoxManage: error: The machine is locked (exited with code 1)".to_owned())
+        );
     }
 
     #[tokio::test]
@@ -160,7 +163,7 @@ mod tests {
             .build();
         let call = testing::call(&fake);
         assert_eq!(vms(&call).await.unwrap().len(), 3);
-        assert!(machine_folder(&call).await.is_ok());
+        assert_eq!(machine_folder(&call).await.unwrap(), std::path::PathBuf::from("C:\\Users\\ada\\VirtualBox VMs"));
     }
 
     #[tokio::test]

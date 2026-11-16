@@ -64,11 +64,13 @@ mod tests {
 
     #[test]
     fn qemu_says_its_vnc_server_in_either_format() {
-        let new = "info vnc\r\ndefault:\r\n  Server: 127.0.0.1:5901 (ipv4)\r\n    Auth: none (Sub: none)\r\n(qemu) ";
-        assert_eq!(vnc_server(new), Some("127.0.0.1:5901".parse().unwrap()));
-        let old = "Server:\n     address: 127.0.0.1:5900\n        auth: none\n";
-        assert_eq!(vnc_server(old), Some("127.0.0.1:5900".parse().unwrap()));
-        assert_eq!(vnc_server("default:\n  Server: none\n"), None);
+        for (said, server) in [
+            (include_str!("fixtures/qemu/8.2-info-vnc.txt"), Some("127.0.0.1:5901")),
+            (include_str!("fixtures/qemu/6.2-info-vnc.txt"), Some("127.0.0.1:5900")),
+            ("default:\n  Server: none\n", None),
+        ] {
+            assert_eq!(vnc_server(said), server.map(|s| s.parse().unwrap()), "{said}");
+        }
     }
 
     #[test]
@@ -91,17 +93,5 @@ mod tests {
             [fw(Protocol::Tcp, 8080, 80), fw(Protocol::Udp, 5353, 53), fw(Protocol::Tcp, 50022, 22)]
         );
         assert_eq!(host_forwards("info usernet\r\n(qemu) "), []);
-    }
-
-    #[test]
-    fn fixtures_read_as_qemu_prints_them() {
-        assert_eq!(
-            vnc_server(include_str!("fixtures/qemu/8.2-info-vnc.txt")),
-            Some("127.0.0.1:5901".parse().unwrap())
-        );
-        assert_eq!(
-            vnc_server(include_str!("fixtures/qemu/6.2-info-vnc.txt")),
-            Some("127.0.0.1:5900".parse().unwrap())
-        );
     }
 }

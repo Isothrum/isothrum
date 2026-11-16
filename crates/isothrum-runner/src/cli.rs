@@ -312,11 +312,28 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_tool_and_a_failure_are_told_apart() {
-        let fake = FakeProcesses::rules(&[("docker version", Reply::missing()), ("vagrant status", Reply::fail(1, "boom"))]);
+        let fake = FakeProcesses::script()
+            .expect("docker version", Reply::missing())
+            .expect("vagrant status", Reply::fail(1, "boom"))
+            .build();
         let call = testing::call(&fake);
         let missing = call.run::<String>("docker", argv(["version"])).await.unwrap_err();
         assert!(matches!(missing, CliError::Missing { tool: "docker" }), "{missing}");
         let failed = call.ok("vagrant", argv(["status"]), Captured::reason).await.unwrap_err();
-        assert_eq!(failed.to_string(), "`vagrant` failed: boom (exited with code 1)");
+        assert!(
+            matches!(&failed, CliError::Failed { tool: "vagrant", failure } if failure == "boom (exited with code 1)"),
+            "{failed}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tool_past_its_limit_is_ended_as_timed_out_keeping_its_last_line() {
+        let slow = Reply::ok("Waiting for machine to boot\nnever printed").paced(Duration::from_secs(40));
+        let fake = FakeProcesses::script().expect("vagrant up", slow).build();
+        let e = testing::call(&fake).run::<String>("vagrant", argv(["up"])).await.unwrap_err();
+        assert!(
+            matches!(&e, CliError::TimedOut { tool: "vagrant", limit_s: 60, last_line: Some(l) } if l == "Waiting for machine to boot"),
+            "{e:?}"
+        );
     }
 }

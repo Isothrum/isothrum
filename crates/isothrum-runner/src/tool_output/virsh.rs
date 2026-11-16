@@ -56,13 +56,10 @@ mod tests {
         );
         assert_eq!(vnc_display("spice://127.0.0.1:5930"), None);
         assert_eq!(vnc_display(""), None);
-    }
-
-    #[test]
-    fn fixtures_read_as_virsh_prints_them() {
         assert_eq!(
             vnc_display(include_str!("fixtures/virsh/10.0.0-domdisplay-vnc.txt")),
-            Some("127.0.0.1:5900".parse().unwrap())
+            Some("127.0.0.1:5900".parse().unwrap()),
+            "as virsh 10.0 prints it"
         );
         assert_eq!(vnc_display(include_str!("fixtures/virsh/10.0.0-domdisplay-spice.txt")), None, "no VNC display");
     }
