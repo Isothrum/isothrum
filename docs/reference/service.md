@@ -11,7 +11,7 @@ links [`isothrum-client`](https://docs.rs/isothrum-client).
 |---|---|
 | `service.lock` | The OS lock the service holds for its life (released by the OS however it ends): a second service of the home exits naming the holder. |
 | `service.json` | Written once it listens, removed when it stops: `pid`, `started` (RFC 3339, UTC), `version` (its release), `protocol`, `endpoint`, `epoch`. A dead service's may stay: a client checks it. |
-| `service.sock` | Unix: the owner-only socket it listens on. Windows: a named pipe of a random name only the user may open, named in `service.json`. |
+| `service.sock` | Unix: the owner-only socket it listens on. A home on a path too long for a socket (over 103 bytes on macOS, 107 on Linux) listens in `isothrum-<uid>/` of the user's runtime folder (`XDG_RUNTIME_DIR`) or temporary folder instead, owner-only, named in `service.json`. Windows: a named pipe of a random name only the user may open, named in `service.json`. |
 | `service.log` | What a service a client started writes. |
 | `service.replace.lock` | Held by a client while it replaces a service of another release. |
 
