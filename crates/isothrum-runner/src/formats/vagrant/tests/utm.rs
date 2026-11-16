@@ -4,20 +4,6 @@ use super::*;
 
 const UTM: Option<Provider> = Some(Provider::Utm);
 
-/// Vagrant whose `up` fails with `fixture` its first `failing` times, then succeeds: an answer
-/// that changes over time, which a script doesn't give.
-fn failing_first(failing: usize, fixture_name: &str) -> FakeProcesses {
-    let said = fixture(fixture_name);
-    let tries = std::sync::atomic::AtomicUsize::new(0);
-    FakeProcesses::model(move |_| {
-        if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < failing {
-            Reply::fail(1, &said)
-        } else {
-            Reply::ok("")
-        }
-    })
-}
-
 #[tokio::test]
 async fn a_utm_up_an_apple_event_cut_short_in_passing_runs_once_more_and_says_so() {
     for said in [
