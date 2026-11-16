@@ -46,6 +46,11 @@ pub enum ProviderNeed {
     /// virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs
     /// (Linux): none is installed where they look.
     Virtiofsd,
+    /// A permission of the operating system's: the hypervisor's app, driven through Apple events
+    /// (UTM, by `vagrant_utm`), refused to act with the system's `Operation not permitted`, or
+    /// the program driving it may not send it Apple events (`-1743`, macOS's Automation
+    /// permission). Waiting doesn't fix it; the user's settings, or the hypervisor's, do.
+    Permission,
 }
 
 /// The process that holds a host port: what a `port_in_use` names so the user knows what to stop.

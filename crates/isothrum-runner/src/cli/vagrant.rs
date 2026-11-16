@@ -90,6 +90,11 @@ impl Failure {
                 number: event.number(),
                 reason: out.reason(),
             }
+        } else if refused_by_the_system(out) {
+            Failure::Lacks {
+                need: crate::error::ProviderNeed::Permission,
+                reason: out.reason(),
+            }
         } else if said_any(out, &["unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable"]) {
             Failure::Lacks {
                 need: crate::error::ProviderNeed::Virtiofsd,
@@ -115,6 +120,19 @@ impl fmt::Display for Failure {
         }
     }
 }
+
+/// Whether failed call `out` is the system refusing the provider a permission: an Apple event its
+/// hypervisor's app answered with the system's `Operation not permitted` (`utmctl`'s `Error from
+/// event: … (OSStatus error -2700.) … Operation not permitted`, the app's own failure: its VM
+/// files or a helper refused), or one macOS didn't let it send (`-1743`, in any language).
+fn refused_by_the_system(out: &Captured) -> bool {
+    let event_failed = said_any(out, &["osstatus error", "error from event"]) || AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail)).is_some();
+    (event_failed && said_any(out, &["operation not permitted"]))
+        || AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail)).is_some_and(|e| e.number() == NOT_AUTHORIZED)
+}
+
+/// The Apple event error macOS answers when the sender may not drive the app (Automation).
+const NOT_AUTHORIZED: i32 = -1743;
 
 /// The host a refused ESXi sign-in names (`Authentication failed for user root@<host>`).
 fn refused_host(out: &Captured) -> Option<String> {
@@ -393,6 +411,34 @@ mod tests {
             failed("", "The box 'nope' could not be found"),
             Failure::Other("The box 'nope' could not be found (exited with code 1)".to_owned())
         );
+    }
+
+    #[test]
+    fn the_system_refusing_the_hypervisors_app_is_a_permission_it_lacks() {
+        // UTM refusing a VM's start with the system's EPERM, or macOS refusing the Apple events.
+        for said in [
+            include_str!("../tool_output/fixtures/vagrant/vagrant_utm-0.2-start-not-permitted.txt"),
+            "execution error: Not authorized to send Apple events to UTM. (-1743)",
+            "erreur d’exécution : Non autorisé à envoyer des Apple Events à UTM. (-1743)",
+        ] {
+            assert!(
+                matches!(
+                    failed("", said),
+                    Failure::Lacks {
+                        need: crate::error::ProviderNeed::Permission,
+                        ..
+                    }
+                ),
+                "{said}"
+            );
+        }
+        // EPERM said outside an Apple event (a file of the run's), or another event's error, isn't.
+        for said in [
+            "cp: /data/disk.img: Operation not permitted",
+            "Error from event: The operation couldn’t be completed. (OSStatus error -2700.)",
+        ] {
+            assert!(matches!(failed("", said), Failure::Other(_)), "{said}");
+        }
     }
 
     #[test]
