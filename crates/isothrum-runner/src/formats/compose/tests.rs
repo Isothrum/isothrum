@@ -1,4 +1,5 @@
 mod contract;
+mod namespaces;
 mod pins;
 mod pulls;
 
@@ -234,6 +235,7 @@ async fn park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_wi
             Reply::ok(&[ps_line("web", "paused", "", 0, None), ps_line("db", "exited", "", 0, None)].join("\n")),
         )
         .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
+        .expect(CONFIG, Reply::ok(r#"{"services": {"web": {}, "db": {}}}"#))
         .expect("docker compose -p lab -f * unpause web", Reply::ok(""))
         .expect("docker compose -p lab -f * up --detach --wait --no-recreate", Reply::ok(""))
         .build();

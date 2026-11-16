@@ -67,6 +67,16 @@ impl Container {
         self.state == "paused"
     }
 
+    /// Whether its process runs: running, or paused (a resume unpauses it).
+    pub(crate) fn runs(&self) -> bool {
+        matches!(self.state.as_str(), "running" | "paused")
+    }
+
+    /// Whether its process runs, or Docker is about to start it again (its restart policy).
+    pub(crate) fn runs_or_restarts(&self) -> bool {
+        self.runs() || self.state == "restarting"
+    }
+
     /// A `docker compose run` container: not one of the project's machines.
     pub(crate) fn one_off(&self) -> bool {
         self.labels.split(',').any(|l| l.trim() == ONE_OFF_LABEL)

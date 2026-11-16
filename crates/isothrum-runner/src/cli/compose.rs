@@ -13,7 +13,7 @@ const TOOL: &str = "docker";
 mod config;
 mod ps;
 
-pub(crate) use config::{ConfigPort, pins_override, ports as config_ports};
+pub(crate) use config::{ConfigPort, namespace_hosts, pins_override, ports as config_ports};
 pub(crate) use ps::Container;
 
 /// A failed Compose call, as far as a driver acts on it.
