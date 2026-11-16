@@ -159,30 +159,46 @@ mod tests {
     const CONFIG: &str = include_str!("../../tool_output/fixtures/compose/5.6-config-ports.json");
 
     #[test]
-    fn the_configs_ports_are_read_and_the_ephemeral_ones_pinned_with_the_rest_kept() {
+    fn the_configs_ports_are_read_with_their_address_and_protocol_and_ephemeral_ones_have_no_host_port() {
         let ports = ports_of(CONFIG).expect("read");
-        let ephemeral: Vec<(u16, Protocol, Option<&str>)> = ports
-            .iter()
-            .filter(|p| p.published.is_none())
-            .map(|p| (p.target, p.protocol, p.host_ip.as_deref()))
-            .collect();
+        let read: Vec<(u16, Protocol, Option<&str>, Option<u16>)> = ports.iter().map(|p| (p.target, p.protocol, p.host_ip.as_deref(), p.published)).collect();
         assert_eq!(
-            ephemeral,
+            read,
             [
-                (80, Protocol::Tcp, None),
-                (443, Protocol::Tcp, Some("127.0.0.1")),
-                (53, Protocol::Udp, Some("::1"))
+                (80, Protocol::Tcp, None, None),
+                (443, Protocol::Tcp, Some("127.0.0.1"), None),
+                (8080, Protocol::Tcp, None, Some(8080)),
+                (53, Protocol::Udp, Some("::1"), None)
             ]
         );
+    }
+
+    #[test]
+    fn the_override_pins_each_ephemeral_port_and_writes_the_services_other_ports_again() {
+        let ports = ports_of(CONFIG).expect("read");
         let pinned = pins_override(&ports, |p| Some(41000 + p.target)).expect("an override");
         assert_eq!(
             pinned,
             "# Written by the Isothrum runner: the run's host ports, kept until it is brought down.\nservices:\n  \"web\":\n    ports: !override\n      - \"41080:80/tcp\"\n      - \"127.0.0.1:41443:443/tcp\"\n      - \"8080:8080/tcp\"\n      - \"[::1]:41053:53/udp\"\n"
         );
-        assert_eq!(pins_override(&[], |_| None), None, "nothing ephemeral");
-        assert!(ports_of("{\"services\": 3}").is_err() && ports_of("not json").is_err());
-        // Regression: a protocol other than `udp` read as TCP, and its port was pinned as one.
-        let sctp = ports_of(r#"{"services": {"web": {"ports": [{"target": 9, "protocol": "sctp"}]}}}"#);
-        assert!(sctp.as_ref().is_err_and(|why| why.contains("`sctp`")), "{sctp:?}");
+        let fixed: Vec<ConfigPort> = ports.into_iter().filter(|p| p.published.is_some()).collect();
+        assert_eq!(pins_override(&fixed, |_| None), None, "nothing ephemeral, nothing to override");
+    }
+
+    #[test]
+    fn a_config_that_cant_be_read_whole_is_refused_saying_why() {
+        for (config, why) in [
+            ("not json", "not the config Compose prints"),
+            ("{\"services\": 3}", "not the config Compose prints"),
+            (r#"{"services": {"web": {"ports": [{"published": "80"}]}}}"#, "a port of `web` has no target"),
+            // Regression: a protocol other than `udp` read as TCP, and its port was pinned as one.
+            (
+                r#"{"services": {"web": {"ports": [{"target": 9, "protocol": "sctp"}]}}}"#,
+                "a port of `web` has the protocol `sctp`, neither tcp nor udp",
+            ),
+        ] {
+            let read = ports_of(config);
+            assert!(read.as_ref().is_err_and(|e| e.starts_with(why)), "{config}: {read:?}");
+        }
     }
 }

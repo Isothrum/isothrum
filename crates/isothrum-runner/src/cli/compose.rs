@@ -283,16 +283,17 @@ pub(crate) fn exec_spec(call: &Call<'_>, project: &Project<'_>, what: &Exec<'_>)
     call.spec(TOOL, exec_args(project, what))
 }
 
-/// `exec` of `what`, its output captured (a failed command is `Failed` with its reason).
+/// `exec` of `what`, its output and exit status captured, whatever the status: a command that
+/// failed is its result, not the adapter's failure.
 pub(crate) async fn exec(call: &Call<'_>, project: &Project<'_>, what: &Exec<'_>) -> Result<Captured, CliError<Failure>> {
-    call.ok(TOOL, exec_args(project, what), Failure::of).await
+    call.run(TOOL, exec_args(project, what)).await
 }
 
-/// `run --rm` of `service` with `argv` (a one-off, a check runner), its output captured; the
-/// project's profiles are the call's.
+/// `run --rm` of `service` with `argv` (a one-off, a check runner), its output and exit status
+/// captured as [`exec`]'s; the project's profiles are the call's.
 pub(crate) async fn run_rm(call: &Call<'_>, project: &Project<'_>, service: &str, argv_: &[String]) -> Result<Captured, CliError<Failure>> {
     let rest = argv(["run", "--rm", "-T", service]).into_iter().chain(argv_.iter().cloned());
-    call.ok(TOOL, project.args(rest), Failure::of).await
+    call.run(TOOL, project.args(rest)).await
 }
 
 /// `rm --stop --force --volumes` of `services`: their containers and anonymous volumes gone.
@@ -307,6 +308,7 @@ mod tests {
     use crate::cli::testing;
     use crate::process::Exit;
     use crate::process::fake::{FakeProcesses, Reply};
+    use crate::project::platform::Protocol::{Tcp, Udp};
 
     fn failed(stderr: &str) -> Failure {
         Failure::of(&Captured::new(
@@ -317,28 +319,47 @@ mod tests {
         ))
     }
 
+    /// The project `lab` of `compose.yaml`, under profile `access`.
+    fn lab<'a>(files: &'a [PathBuf], profiles: &'a [String]) -> Project<'a> {
+        Project {
+            name: "lab",
+            files,
+            pins: None,
+            profiles,
+        }
+    }
+
     #[test]
     fn failures_read_as_compose_prints_them() {
-        use crate::project::platform::Protocol::Tcp;
         assert_eq!(failed(include_str!("../tool_output/fixtures/compose/2.29-name-in-use.txt")), Failure::NameInUse);
         assert_eq!(
             failed(include_str!("../tool_output/fixtures/compose/2.29-network-incorrect-label.txt")),
             Failure::NetworkExists
         );
         for (said, port) in [
-            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated.txt"), 8080),
-            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"), 8180),
-            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated-loopback.txt"), 8180),
-            (include_str!("../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt"), 18180),
-            (include_str!("../tool_output/fixtures/compose/29.9-bind-loopback-port-in-use.txt"), 18181),
-            (include_str!("../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"), 8180),
+            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated.txt"), Some((8080, Tcp))),
+            (include_str!("../tool_output/fixtures/compose/2.29-port-allocated-v6.txt"), Some((8180, Tcp))),
+            (
+                include_str!("../tool_output/fixtures/compose/2.29-port-allocated-loopback.txt"),
+                Some((8180, Tcp)),
+            ),
+            (
+                include_str!("../tool_output/fixtures/compose/29.9-bind-host-port-in-use.txt"),
+                Some((18180, Tcp)),
+            ),
+            (
+                include_str!("../tool_output/fixtures/compose/29.9-bind-loopback-port-in-use.txt"),
+                Some((18181, Tcp)),
+            ),
+            (
+                include_str!("../tool_output/fixtures/compose/4.30-desktop-listen-in-use.txt"),
+                Some((8180, Tcp)),
+            ),
+            ("Error: listen udp 0.0.0.0:5353: bind: address already in use", Some((5353, Udp))),
+            ("Error: port is already allocated", None),
         ] {
-            assert_eq!(failed(said), Failure::PortTaken(Some((port, Tcp))), "{said}");
+            assert_eq!(failed(said), Failure::PortTaken(port), "{said}");
         }
-        assert_eq!(
-            failed("Error: listen udp 0.0.0.0:5353: bind: address already in use"),
-            Failure::PortTaken(Some((5353, crate::project::platform::Protocol::Udp)))
-        );
         for refused in [
             include_str!("../tool_output/fixtures/compose/5.6-pull-access-denied.txt"),
             include_str!("../tool_output/fixtures/compose/5.6-tag-not-found.txt"),
@@ -346,54 +367,81 @@ mod tests {
         ] {
             assert!(matches!(failed(refused), Failure::PullRefused(_)), "{refused}");
         }
-        assert!(matches!(failed("no such service: nope"), Failure::Other(r) if r.contains("no such service")));
-    }
-
-    #[tokio::test]
-    async fn the_project_is_named_and_an_unreadable_listing_isnt_an_empty_one() {
-        let fake = FakeProcesses::new(|c| {
-            if c.line().contains(" ps ") {
-                Reply::ok("{\"Service\": \"web\", \"State\"")
-            } else {
-                Reply::ok("")
-            }
-        });
-        let call = testing::call(&fake);
-        let files = [PathBuf::from("compose.yaml")];
-        let project = Project {
-            name: "lab",
-            files: &files,
-            pins: None,
-            profiles: &["access".to_owned()],
-        };
-        up(&call, &project, &Up { wait: true, ..Up::default() }).await.unwrap();
-        assert_eq!(fake.lines(), ["docker compose -p lab -f compose.yaml --profile access up --detach --wait"]);
-        assert!(matches!(ps(&call, &project).await, Err(CliError::Unexpected { .. })));
-        let console = exec_spec(
-            &call,
-            &project,
-            &Exec {
-                service: "web",
-                user: Some("root"),
-                argv: &["sh".to_owned()],
-                tty: true,
-            },
+        for cut in [
+            "Error response from daemon: Get \"https://registry-1.docker.io/v2/\": net/http: TLS handshake timeout",
+            "Error response from daemon: Head \"https://registry-1.docker.io/v2/lab/web/manifests/1\": read: connection reset by peer",
+            "Error response from daemon: received unexpected HTTP status: 502 Bad Gateway",
+        ] {
+            assert!(matches!(failed(cut), Failure::PullTransient(_)), "{cut}");
+        }
+        assert_eq!(
+            failed("no such service: nope"),
+            Failure::Other("no such service: nope (exited with code 1)".to_owned())
         );
-        assert_eq!(console.line(), "docker compose -p lab -f compose.yaml --profile access exec --user root web sh");
     }
 
     #[tokio::test]
-    async fn a_compose_older_than_2_17_is_too_old() {
-        for (said, ok) in [("2.29.7\n", true), ("v2.17.0", true), ("2.16.9-desktop.1", false)] {
-            let fake = FakeProcesses::rules(&[("docker compose version", Reply::ok(said))]);
+    async fn a_call_names_the_project_its_files_and_its_profiles_before_the_verb() {
+        let fake = FakeProcesses::script().expect("docker compose -p lab", Reply::ok("")).build();
+        let files = [PathBuf::from("compose.yaml")];
+        let profiles = ["access".to_owned()];
+        up(&testing::call(&fake), &lab(&files, &profiles), &Up { wait: true, ..Up::default() })
+            .await
+            .expect("up");
+        let [call] = fake.made("docker compose").try_into().expect("one call");
+        assert_eq!(
+            call.args,
+            ["compose", "-p", "lab", "-f", "compose.yaml", "--profile", "access", "up", "--detach", "--wait"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_ps_listing_that_isnt_json_containers_is_unexpected_never_empty() {
+        let fake = FakeProcesses::script()
+            .expect(
+                "docker compose -p lab -f compose.yaml ps --all --format json",
+                Reply::ok("{\"Service\": \"web\", \"State\""),
+            )
+            .build();
+        let files = [PathBuf::from("compose.yaml")];
+        let read = ps(&testing::call(&fake), &lab(&files, &[])).await;
+        assert!(matches!(read, Err(CliError::Unexpected { tool: TOOL, .. })), "{read:?}");
+    }
+
+    #[test]
+    fn a_console_execs_with_a_terminal_and_a_command_without_one() {
+        let fake = FakeProcesses::script().build();
+        let files = [PathBuf::from("compose.yaml")];
+        let project = lab(&files, &[]);
+        let call = testing::call(&fake);
+        for (tty, user, expected) in [
+            (true, Some("root"), &["exec", "--user", "root", "web", "sh"][..]),
+            (false, None, &["exec", "-T", "web", "sh"][..]),
+        ] {
+            let what = Exec {
+                service: "web",
+                user,
+                argv: &["sh".to_owned()],
+                tty,
+            };
+            let spec = exec_spec(&call, &project, &what);
+            let args: Vec<&str> = spec.args.iter().map(String::as_str).collect();
+            assert_eq!(args.get(5..), Some(expected), "tty {tty}: {args:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_compose_older_than_2_17_is_too_old_and_one_saying_no_version_is_used_unchecked() {
+        for (said, too_old) in [("2.29.7\n", false), ("v2.17.0", false), ("2.16.9-desktop.1", true)] {
+            let fake = FakeProcesses::script().expect("docker compose version --short", Reply::ok(said)).build();
             let read = version(&testing::call(&fake)).await;
-            assert_eq!(read.is_ok(), ok, "{said}");
-            if !ok {
-                assert!(matches!(read, Err(CliError::TooOld { min: m, .. }) if m == MIN_VERSION));
+            if too_old {
+                assert!(matches!(read, Err(CliError::TooOld { ref min, .. }) if min == MIN_VERSION), "{said}: {read:?}");
+            } else {
+                assert!(matches!(read, Ok(Some(_))), "{said}: {read:?}");
             }
         }
-        // A version it can't read is no refusal: the tool is used, its minimum unchecked.
-        let empty = FakeProcesses::rules(&[("docker compose version", Reply::ok(""))]);
+        let empty = FakeProcesses::script().expect("docker compose version --short", Reply::ok("")).build();
         assert!(matches!(version(&testing::call(&empty)).await, Ok(None)), "no version is used, unchecked");
     }
 }

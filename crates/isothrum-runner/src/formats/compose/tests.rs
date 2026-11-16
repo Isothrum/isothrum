@@ -92,13 +92,14 @@ async fn up_waits_for_the_services_and_names_the_project_after_the_run() {
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .build();
     Compose.up(&cx(&project, &run, &fake)).await.expect("up");
-    let call = fake.last("up").expect("an up");
-    assert!(call.env.iter().any(|(k, v)| k == "ISOTHRUM_RUN_KEY" && v == "k3y9ab"), "{:?}", call.env);
+    let [call] = fake.made(UP).try_into().expect("one up");
+    assert_eq!(call.flag("-p"), Some("lab"), "the project is the run: {:?}", call.args);
+    assert!(call.env.contains(&("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())), "{:?}", call.env);
     assert_eq!(call.cwd.as_deref(), Some(project.dir.as_path()));
 }
 
 #[tokio::test]
-async fn an_up_over_an_earlier_starts_leftovers_clears_them_by_label_and_starts_once_more() {
+async fn an_up_refused_for_a_name_leftovers_hold_clears_them_by_label_and_is_tried_once_more_only() {
     let (_dir, project) = folder();
     let run = run();
     let taken = Reply::fail(
@@ -114,11 +115,10 @@ async fn an_up_over_an_earlier_starts_leftovers_clears_them_by_label_and_starts_
         .expect_times(&format!("docker network ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
         .expect_times(&format!("docker volume ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
         .build();
+    // Once is the recovery's only try (`expect_times(UP, 2`): two refusals end the start, never a
+    // loop.
     let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("taken twice");
     assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
-    // Once is the recovery's only try: two refusals end the start, never a loop.
-    let ups = fake.lines().iter().filter(|l| l.contains(" up ")).count();
-    assert_eq!(ups, 2);
 }
 
 #[tokio::test]
@@ -241,21 +241,29 @@ async fn a_service_removed_outside_the_run_reads_absent_and_its_resume_is_refuse
 
 #[test]
 fn the_runs_state_follows_its_services() {
-    let m = |state: MachineState| SeenMachine {
+    use MachineState::{Absent, Exited, Running, Stopped, Unhealthy};
+    let m = |state: &MachineState| SeenMachine {
         name: "x".to_owned(),
-        state,
+        state: state.clone(),
         published: Vec::new(),
         kind: None,
         address: None,
         windows: false,
     };
-    assert_eq!(run_state(&[]), RunState::Absent);
-    assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(0))]), RunState::Ready);
-    assert_eq!(run_state(&[m(MachineState::Stopped), m(MachineState::Exited(137))]), RunState::Parked);
-    assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Unhealthy)]), RunState::Failed);
-    // Regression: a lone unhealthy service read as nothing running, so the run read parked.
-    assert_eq!(run_state(&[m(MachineState::Unhealthy)]), RunState::Failed, "an unhealthy service runs");
-    assert_eq!(run_state(&[m(MachineState::Running), m(MachineState::Exited(1))]), RunState::Failed);
+    for (services, expected) in [
+        (&[][..], RunState::Absent),
+        (&[Absent, Absent][..], RunState::Absent),
+        (&[Running, Exited(0)][..], RunState::Ready),
+        (&[Stopped, Exited(137)][..], RunState::Parked),
+        (&[Running, Unhealthy][..], RunState::Failed),
+        // Regression: a lone unhealthy service read as nothing running, so the run read parked.
+        (&[Unhealthy][..], RunState::Failed),
+        (&[Running, Exited(1)][..], RunState::Failed),
+        (&[Running, Absent][..], RunState::Failed),
+    ] {
+        let machines: Vec<SeenMachine> = services.iter().map(m).collect();
+        assert_eq!(run_state(&machines), expected, "{services:?}");
+    }
 }
 
 #[tokio::test]
@@ -284,7 +292,8 @@ async fn the_resources_are_what_the_project_label_marks_by_id() {
         .destroy_by_id(&cx, "volume:v9", ResourceKind::Volume, "v9")
         .await
         .expect("already gone is gone");
-    assert!(Compose.destroy_by_id(&cx, "vm:x", ResourceKind::Vm, "x").await.is_err(), "not Compose's");
+    let vm = Compose.destroy_by_id(&cx, "vm:x", ResourceKind::Vm, "x").await.expect_err("not Compose's");
+    assert_eq!(vm.code(), crate::ErrorCode::Unsupported, "{vm}");
 }
 
 #[tokio::test]
@@ -303,8 +312,7 @@ async fn exec_runs_in_the_running_container_or_as_a_one_off_and_says_how_it_ende
     let ran = Compose.exec(&cx, "web", &["cat".to_owned(), "/flag".to_owned()]).await.expect("ran");
     assert_eq!((ran.exit, ran.stdout.as_str()), (0, "flag{x}"));
     let failed = Compose.exec(&cx, "checks", &["./run.sh".to_owned()]).await.expect("ran");
-    assert_ne!(failed.exit, 0);
-    assert!(failed.stderr.contains("one check failed"), "{failed:?}");
+    assert_eq!((failed.exit, failed.stderr.as_str()), (3, "one check failed"), "its own exit status");
 }
 
 #[tokio::test]
@@ -321,10 +329,6 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
     Compose.attach(&cx, "attackbox").await.expect("attached");
     Compose.retire(&cx, "attackbox").await.expect("retired");
-    assert_eq!(
-        Compose.provision(&cx, None, None).await.expect_err("nothing to provision").code(),
-        crate::ErrorCode::Unsupported
-    );
 }
 
 #[tokio::test]

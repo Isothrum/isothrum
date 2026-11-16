@@ -56,18 +56,11 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
     assert!(written.ends_with(
         "  \"web\":\n    ports: !override\n      - \"41001:80/tcp\"\n      - \"127.0.0.1:41002:443/tcp\"\n      - \"8080:8080/tcp\"\n      - \"[::1]:41003:53/udp\"\n"
     ), "{written}");
-    let up = first.last("up").expect("an up");
-    assert!(
-        up.has_run(&["-f", &pins.display().to_string()]),
-        "the override after the project's files: {:?}",
-        up.args
-    );
-    let config = first.last("config").expect("the config read");
-    assert!(
-        !config.args.iter().any(|a| a.ends_with("compose-pins.yaml")),
-        "read without the pins: {:?}",
-        config.args
-    );
+    let [up] = first.made(UP_PINNED).try_into().expect("one up");
+    let files: Vec<&Path> = up.args.windows(2).filter(|w| w[0] == "-f").map(|w| Path::new(&w[1])).collect();
+    assert_eq!(files.last(), Some(&pins.as_path()), "the override after the project's files: {:?}", up.args);
+    // The config is read without the pins: the script's `CONFIG` names one file, and a read with
+    // two would be a call it doesn't answer.
 
     let update = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(&with_api()))

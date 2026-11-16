@@ -402,19 +402,10 @@ fn object_word(object: Object) -> &'static str {
     }
 }
 
-/// A command's outcome as [`Ran`]: a command that ran and failed is its exit status, not an error.
+/// A command's outcome as [`Ran`]: a command that ran and failed is its exit status and what it
+/// printed, not an error.
 fn ran(out: std::result::Result<crate::process::Captured, CliError<Failure>>) -> Result<Ran> {
-    let captured = match out {
-        Ok(c) => c,
-        Err(CliError::Failed { failure, .. }) => {
-            return Ok(Ran {
-                exit: 1,
-                stdout: String::new(),
-                stderr: failure.to_string(),
-            });
-        }
-        Err(e) => return Err(tool_error("exec", e)),
-    };
+    let captured = out.map_err(|e| tool_error("exec", e))?;
     Ok(Ran {
         exit: captured.exit.code.unwrap_or(-1),
         stdout: captured.stdout.join("\n"),
