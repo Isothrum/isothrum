@@ -94,7 +94,22 @@ const PORTS_LET_GO: [(&str, usize, &str); 1] = [(
 
 /// The stand-in programs each file's tests write fresh (`write_executable`), and why they aren't
 /// installed once.
-const STAND_INS: [(&str, usize, &str); 4] = [
+const STAND_INS: [(&str, usize, &str); 7] = [
+    (
+        "crates/isothrum-machine/src/install/linux/scripts/dnf.rs",
+        2,
+        "the `curl` and `rpm` stand-ins of a Fedora release the repository serves or not: the release in their body",
+    ),
+    (
+        "crates/isothrum-machine/src/install/linux/scripts/tests.rs",
+        1,
+        "a package manager's stand-in that fails as the case says",
+    ),
+    (
+        "crates/isothrum-machine/src/install/linux/scripts/tests/repos.rs",
+        3,
+        "`curl` stand-ins answering the HTTP code the case is about, and the kernel packages a case's apt has",
+    ),
     (
         "crates/isothrum-runner/src/console/shells.rs",
         1,

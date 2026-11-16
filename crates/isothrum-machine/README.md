@@ -67,11 +67,29 @@ async fn main() {
 }
 ```
 
+Installing a tool on Linux, through pkexec's password prompt:
+
+```rust,no_run
+use std::sync::Arc;
+
+use isothrum_machine::install::{self, Dependency, Elevation, linux};
+use isothrum_machine::Context;
+use isothrum_runner::SystemProcesses;
+
+#[tokio::main]
+async fn main() {
+    let cx = Context::here(Arc::new(SystemProcesses::default())).await;
+    let root = linux::Root { elevation: Elevation::Prompt, proxy: linux::proxy_assignments(|v| std::env::var(v).ok()) };
+    let steps = linux::install(Dependency::Vagrant, cx.host.packages, None, &root).expect("a plan here");
+    install::run_steps(&cx, &steps, &mut |line: &str| println!("{line}")).await.expect("installed");
+}
+```
+
 ## Feature flags
 
 | Feature | What it adds |
 |---|---|
-| `ts-rs` | The TypeScript types (through [ts-rs](https://docs.rs/ts-rs)) of `ProviderStatus`, `Unavailable`, `Need`, `UtilityState`, `AccountLacks`, `Tool`, `CloudClis`, `PackageManager`, `Engine` (as `DockerEngine`), `EngineStatus` and `WslState`, which follow their serde form, for a UI in TypeScript; with the runner's `VagrantProvider`. |
+| `ts-rs` | The TypeScript types (through [ts-rs](https://docs.rs/ts-rs)) of `ProviderStatus`, `Unavailable`, `Need`, `UtilityState`, `AccountLacks`, `Tool`, `CloudClis`, `PackageManager`, `Engine` (as `DockerEngine`), `EngineStatus`, `WslState` and `Dependency`, which follow their serde form, for a UI in TypeScript; with the runner's `VagrantProvider`. |
 
 No feature is on by default.
 

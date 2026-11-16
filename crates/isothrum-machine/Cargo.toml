@@ -26,6 +26,7 @@ ts-rs = ["dep:ts-rs", "isothrum-runner/ts-rs"]
 isothrum-runner.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 ts-rs = { workspace = true, optional = true }
 
@@ -35,7 +36,6 @@ isothrum-runner = { workspace = true, features = ["fake", "ts-rs"] }
 ts-rs.workspace = true
 isothrum-test-support.workspace = true
 proptest.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [package.metadata.docs.rs]
