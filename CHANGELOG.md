@@ -26,7 +26,8 @@ Terraform), usable on any project of those formats.
   Vagrant providers, the groups joined since logging in (`providers::groups_pending`) and, on
   Windows, whether WSL 2 is ready (`wsl::check`, the readiness classifier `wsl::classify` over
   `wsl.exe`'s exit codes, the registry and WMI, given what the caller did itself as `wsl::Marks`).
-  `docker::use_engine` points the CLI at an engine's context. The `ts-rs` feature types `Tool`,
+  `docker::use_engine` points the CLI at an engine's context. The runner reads the Azure CLI's
+  version (`az version --output json`) in its tool-output readers: `azure_cli_version`. The `ts-rs` feature types `Tool`,
   `CloudClis`, `PackageManager`, `Engine` (as `DockerEngine`), `EngineStatus` and `WslState`.
 - **The client asks the service what it would read or write in the home.** `record`, `forget`,
   `expired`, `console_command`, `graphical_console`, `native_console`, `service_endpoints` and

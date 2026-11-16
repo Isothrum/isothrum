@@ -32,17 +32,6 @@ fn a_version_on_windows_line_endings_or_without_a_newline_has_no_stray_character
     assert_eq!(first_line("\r\n"), None);
 }
 
-#[test]
-fn the_azure_cli_version_comes_from_its_json() {
-    let out = "{\r\n  \"azure-cli\": \"2.66.0\",\r\n  \"azure-cli-core\": \"2.66.0\",\r\n  \"extensions\": {}\r\n}\r\n";
-    assert_eq!(azure_version(out).as_deref(), Some("2.66.0"));
-    assert_eq!(azure_version("{\"azure-cli\": \"2.90.0\"}\r\n").as_deref(), Some("2.90.0"));
-    assert_eq!(azure_version("WARNING: something\n{}"), None);
-    assert_eq!(azure_version("{\"azure-cli\": 2.9}"), None, "a version that isn't text");
-    assert_eq!(azure_version("not json"), None);
-    assert_eq!(azure_version(""), None);
-}
-
 /// A tool that fails its probe (a wedged daemon, a tool refusing `--version`) or isn't installed
 /// reads as not installed with no version.
 #[tokio::test(start_paused = true)]
@@ -118,21 +107,5 @@ proptest! {
     ) {
         let out = format!("{}{version}\n{rest}", blank.iter().flat_map(|b| [b.as_str(), "\n"]).collect::<String>());
         prop_assert_eq!(first_line(&out), Some(version));
-    }
-
-    #[test]
-    fn azure_version_reads_only_the_azure_cli_string(
-        noise in "(?s).{0,80}",
-        v in "\\PC{0,12}",
-        extra in proptest::collection::btree_map("[a-z-]{1,12}", "\\PC{0,8}", 0..4),
-        pad in "[ \n\r\t]{0,3}",
-    ) {
-        let _ = azure_version(&noise);
-        let mut doc = serde_json::json!(extra);
-        doc["azure-cli"] = serde_json::json!(v);
-        let text = format!("{pad}{}{pad}", serde_json::to_string_pretty(&doc).unwrap());
-        prop_assert_eq!(azure_version(&text), Some(v));
-        doc["azure-cli"] = serde_json::json!(1);
-        prop_assert_eq!(azure_version(&doc.to_string()), None);
     }
 }

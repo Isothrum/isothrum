@@ -19,6 +19,11 @@ fn on(os: HostOs, tools: FakeProcesses) -> (Context, Arc<FakeProcesses>) {
     (Context::new(runner, host), tools)
 }
 
+/// Each engine found: which, its context, whether it runs, whether it is current.
+fn brief(found: &[EngineStatus]) -> Vec<(Engine, &str, bool, bool)> {
+    found.iter().map(|e| (e.engine, e.context.as_str(), e.running, e.current)).collect()
+}
+
 #[test]
 fn every_engine_has_its_id_back_and_its_serde_name_is_its_id() {
     for engine in Engine::ALL {
@@ -100,9 +105,8 @@ async fn every_engine_is_listed_with_its_own_state_and_the_current_one_marked() 
         .build();
     let (cx, tools) = on(HostOs::Macos, tools);
     let found = engines(&cx).await;
-    let brief: Vec<(Engine, &str, bool, bool)> = found.iter().map(|e| (e.engine, e.context.as_str(), e.running, e.current)).collect();
     assert_eq!(
-        brief,
+        brief(&found),
         [
             (Engine::Orbstack, "orbstack", true, true),
             (Engine::DockerDesktop, "desktop-linux", true, false),
@@ -122,8 +126,7 @@ async fn a_context_without_a_telling_name_is_known_by_its_daemon() {
         .expect("docker --context * info", Reply::ok("Docker Desktop\n"))
         .build();
     let found = engines(&on(HostOs::Macos, tools).0).await;
-    let brief: Vec<(Engine, &str, bool, bool)> = found.iter().map(|e| (e.engine, e.context.as_str(), e.running, e.current)).collect();
-    assert_eq!(brief, [(Engine::DockerDesktop, "default", true, true)]);
+    assert_eq!(brief(&found), [(Engine::DockerDesktop, "default", true, true)]);
 }
 
 #[tokio::test(start_paused = true)]

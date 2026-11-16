@@ -34,7 +34,6 @@ use crate::host::HostOs;
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub enum WslState {
     /// On and running.
     Ready,

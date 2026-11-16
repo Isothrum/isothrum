@@ -22,7 +22,6 @@ pub const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS), ts(rename = "DockerEngine"))]
 #[serde(rename_all = "kebab-case")]
-#[non_exhaustive]
 pub enum Engine {
     /// Docker Desktop.
     DockerDesktop,
@@ -101,7 +100,6 @@ impl Engine {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct EngineStatus {
     /// Which engine it is.
     pub engine: Engine,

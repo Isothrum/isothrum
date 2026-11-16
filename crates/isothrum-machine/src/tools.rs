@@ -11,7 +11,6 @@ use crate::host::{Packages, usual_packages};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Tool {
     /// Whether it answered its version probe.
     pub installed: bool,
@@ -73,22 +72,15 @@ pub fn first_line(out: &str) -> Option<String> {
 pub async fn azure_cli(cx: &Context) -> Tool {
     let (program, args) = probes::AZURE;
     match cx.read_ok(program, args).await {
-        Ok(out) => Tool::installed(azure_version(&out)),
+        Ok(out) => Tool::installed(isothrum_runner::azure_cli_version(&out)),
         Err(_) => Tool::MISSING,
     }
-}
-
-/// The `azure-cli` entry of `az version`'s JSON, when it is text.
-fn azure_version(json: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
-    value.get("azure-cli")?.as_str().map(str::to_owned)
 }
 
 /// The cloud providers' command-line tools.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct CloudClis {
     /// The AWS CLI (`aws`).
     pub aws: Tool,
@@ -108,7 +100,6 @@ pub async fn cloud_clis(cx: &Context) -> CloudClis {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct PackageManager {
     /// Its name: `Homebrew`, `winget`, `apt` or `dnf`.
     pub name: String,
