@@ -144,10 +144,9 @@ No `test_` prefix, no `works`, `ok` or `basic`: when the test fails, its name sa
   so the order of a script never matters. Nothing is answered for you: a test of a running Docker
   answers `docker info` itself. Read what was run with `fake.made("docker compose")` and
   `CallView` (`flag("--profile")`, `has("-d")`), not by matching the quoted command line.
-  `FakeProcesses::model` is for a model of an engine that answers whatever it is asked, and adds
-  nothing either. `FakeProcesses::new` (a model whose silent `docker info` prints a version) and
-  `FakeProcesses::rules` (a lenient script: first substring match, anything else succeeds) are
-  the old forms, kept until their tests move.
+  `FakeProcesses::model` is for a model of an engine that answers whatever it is asked (its
+  state changes with the calls, or one call is answered differently over time), and adds nothing
+  either. These two are the only ways a test stands in for a tool.
 - A test that starts a real process holds it in `isothrum-test-support`'s `ChildGuard` (spawned in
   its own process group, killed and reaped when dropped) or, for a process it learnt the id of,
   `PidGuard`; a helper script's loop is bounded. Nothing a test starts outlives it.
