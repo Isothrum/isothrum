@@ -49,6 +49,7 @@ pub(crate) fn start(binary: &Path, paths: &ServicePaths) -> std::io::Result<Chil
         .arg("--home")
         .arg(paths.home())
         .arg("--detach")
+        .env(crate::BUILD_ENV, crate::build_of(binary).unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);

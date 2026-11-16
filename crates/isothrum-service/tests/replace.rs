@@ -43,6 +43,9 @@ mod tests {
         Protocol,
         /// Another version of this protocol, and stops when asked.
         Version,
+        /// This release and protocol, of another build (an app updated in place, its old program
+        /// still serving), and stops when asked.
+        Build,
         /// Another version, with an operation running: refuses to stop.
         Busy,
         /// Holds the home and never answers.
@@ -59,6 +62,7 @@ mod tests {
             match text {
                 "protocol" => Kind::Protocol,
                 "version" => Kind::Version,
+                "build" => Kind::Build,
                 "busy" => Kind::Busy,
                 "hung" => Kind::Hung,
                 "hung-busy" => Kind::HungBusy,
@@ -71,6 +75,7 @@ mod tests {
             match self {
                 Kind::Protocol => "protocol",
                 Kind::Version => "version",
+                Kind::Build => "build",
                 Kind::Busy => "busy",
                 Kind::Hung => "hung",
                 Kind::HungBusy => "hung-busy",
@@ -150,10 +155,16 @@ mod tests {
         let mut info = ServiceInfo {
             pid: std::process::id(),
             started: isothrum_runner::rfc3339(SystemTime::now()),
-            version: if kind == Kind::Protocol { "9.0.0" } else { OLD }.to_owned(),
+            version: match kind {
+                Kind::Protocol => "9.0.0",
+                Kind::Build => VERSION,
+                _ => OLD,
+            }
+            .to_owned(),
             protocol: if kind == Kind::Protocol { PROTOCOL + 1 } else { PROTOCOL },
             endpoint,
             epoch: 1,
+            build: (kind == Kind::Build).then(|| "1-1".to_owned()),
         };
         let mut sleeper = None;
         match kind {
@@ -364,6 +375,21 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_service_of_this_release_from_another_build_is_stopped_and_replaced() {
+        let s = setup();
+        let mut old = start_fake(Kind::Build, s.home.path());
+        let client = s.connect_exact().await.unwrap();
+        is_this_release(&client, old.id());
+        assert_eq!(
+            client.service().build,
+            isothrum_client::build_of(&s.isothrum),
+            "the build of the binary it started"
+        );
+        assert!(ends(&mut old, PATIENCE), "the old build's service stopped");
+        s.stop(client).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_busy_service_of_another_version_is_left_running() {
         let s = setup();
         let mut old = start_fake(Kind::Busy, s.home.path());
@@ -431,6 +457,7 @@ mod tests {
                 protocol: PROTOCOL,
                 endpoint: paths.socket().to_str().unwrap().to_owned(),
                 epoch: 1,
+                build: None,
             };
             std::fs::write(paths.info(), serde_json::to_vec(&stale).unwrap()).unwrap();
             let client = s.connect_exact().await.unwrap();

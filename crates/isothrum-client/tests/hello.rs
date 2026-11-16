@@ -25,6 +25,7 @@ fn answering(home: &Path, reply: Option<Reply>) -> std::io::Result<tokio::task::
         protocol: PROTOCOL,
         endpoint: socket.display().to_string(),
         epoch: 1,
+        build: None,
     };
     std::fs::write(home.join("service.json"), serde_json::to_string(&info).map_err(std::io::Error::other)?)?;
     Ok(tokio::spawn(async move {

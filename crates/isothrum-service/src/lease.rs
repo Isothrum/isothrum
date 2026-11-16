@@ -48,7 +48,7 @@ impl Lease {
             }
             Err(TryLockError::WouldBlock) => Err(ServeError::Held {
                 home: paths.home().to_path_buf(),
-                holder: paths.read_info(),
+                holder: paths.read_info().map(Box::new),
             }),
             Err(TryLockError::Error(source)) => Err(ServeError::Io {
                 what: "the service's lock",
@@ -120,6 +120,7 @@ mod tests {
             protocol: 1,
             endpoint: "here".into(),
             epoch: 7,
+            build: None,
         };
         first.publish(&info).unwrap();
         let held = Lease::acquire(&paths).unwrap_err();

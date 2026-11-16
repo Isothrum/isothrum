@@ -13,8 +13,10 @@
 //!
 //! [`Client::connect`] takes the service it finds, whatever its release (it fails only when the
 //! service speaks another protocol). An app that bundles Isothrum wants its own release:
-//! [`Client::connect_exact`] connects only to a service of this crate's [`VERSION`] and protocol.
-//! It finds the one that runs, and when it is another release's:
+//! [`Client::connect_exact`] connects only to a service of this crate's [`VERSION`] and protocol,
+//! started from the build of the binary it would start ([`ServiceInfo::build`]: an app updated in
+//! place carries the same release, and its old service still runs the old program). It finds the
+//! one that runs, and when it is another release's or another build's:
 //!
 //! - it asks it to stop when idle (`shutdown_if_idle`, which every protocol keeps): one with
 //!   operations queued or running is left running, and [`ClientError::Busy`] names them, for the
@@ -73,7 +75,7 @@ pub mod v1;
 pub mod wire;
 
 pub use client::{Accepted, Client, Followed, HeldConsole, Subscription};
-pub use discovery::{ServiceInfo, ServicePaths};
+pub use discovery::{BUILD_ENV, ServiceInfo, ServicePaths, build_of};
 pub use error::ClientError;
 pub use isothrum_runner::InputVariable;
 

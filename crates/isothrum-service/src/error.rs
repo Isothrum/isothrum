@@ -9,12 +9,12 @@ use isothrum_client::ServiceInfo;
 #[non_exhaustive]
 pub enum ServeError {
     /// Another service holds the home.
-    #[error("a runner service already holds {}{}", home.display(), holder_text(holder.as_ref()))]
+    #[error("a runner service already holds {}{}", home.display(), holder_text(holder.as_deref()))]
     Held {
         /// The home.
         home: PathBuf,
-        /// What the holder says of itself, when it said.
-        holder: Option<ServiceInfo>,
+        /// What the holder says of itself, when it said (boxed: the error stays small).
+        holder: Option<Box<ServiceInfo>>,
     },
     /// A file of the service couldn't be used.
     #[error("{what} ({}) couldn't be used: {source}", path.display())]
