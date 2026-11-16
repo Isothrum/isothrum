@@ -13,11 +13,11 @@ async fn refusal(provider: Provider, said: &str) -> Option<crate::Detail> {
 }
 
 /// `provider_refused` by `provider`, needing `need`.
-fn needs(provider: Provider, need: crate::ProviderNeed) -> Option<crate::Detail> {
-    Some(crate::Detail::ProviderRefused {
+fn needs(provider: Provider, need: crate::ProviderNeed) -> crate::Detail {
+    crate::Detail::ProviderRefused {
         provider: provider.id().to_owned(),
         need: Some(need),
-    })
+    }
 }
 
 #[tokio::test]
@@ -26,7 +26,7 @@ async fn a_hypervisor_finding_no_virtiofsd_refuses_the_provider_naming_it() {
         (Provider::Libvirt, "vagrant/vagrant-libvirt-no-virtiofsd.txt"),
         (Provider::Qemu, "vagrant/vagrant-qemu-0.8-no-virtiofsd.txt"),
     ] {
-        assert_eq!(refusal(provider, said).await, needs(provider, crate::ProviderNeed::Virtiofsd), "{said}");
+        assert_eq!(refusal(provider, said).await, Some(needs(provider, crate::ProviderNeed::Virtiofsd)), "{said}");
     }
 }
 
@@ -34,5 +34,5 @@ async fn a_hypervisor_finding_no_virtiofsd_refuses_the_provider_naming_it() {
 #[tokio::test]
 async fn a_hypervisor_app_refused_by_the_system_refuses_the_provider_needing_a_permission() {
     let said = "vagrant/vagrant_utm-0.2-start-not-permitted.txt";
-    assert_eq!(refusal(Provider::Utm, said).await, needs(Provider::Utm, crate::ProviderNeed::Permission));
+    assert_eq!(refusal(Provider::Utm, said).await, Some(needs(Provider::Utm, crate::ProviderNeed::Permission)));
 }
