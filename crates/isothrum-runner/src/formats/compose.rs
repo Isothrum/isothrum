@@ -16,7 +16,9 @@
 //!
 //! Recovery: an `up` refused because a name of the project is taken (a container or network an
 //! earlier start left) removes the project's labelled leftovers by id and starts once more. A
-//! host port taken is `port_in_use`. Compose has no set-up to run again: `provision` is refused.
+//! host port taken is `port_in_use`; a first start refused for one removes what it made (`down`),
+//! so the next start, the port free, finds nothing in its way. Compose has no set-up to run again:
+//! `provision` is refused.
 
 mod pins;
 mod pull;
@@ -65,6 +67,18 @@ impl Compose {
     /// The `label=` filter that finds the project's objects.
     fn label(cx: &ToolCx<'_>) -> String {
         format!("{PROJECT_LABEL}={}", cx.run.as_str())
+    }
+
+    /// The project's ports pinned, its images pulled, then `up` (a start, an update, a reapply).
+    async fn start(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let how = Up {
+            wait: true,
+            remove_orphans: true,
+            ..Up::default()
+        };
+        pins::pin(cx).await?;
+        self.pull(cx).await?;
+        self.up_recovering(cx, "up", &how).await
     }
 
     /// `up` as `how`, with one recovery: a name the project's leftovers hold is cleared by id, then
@@ -202,14 +216,23 @@ impl FormatDriver for Compose {
     }
 
     async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
-        let how = Up {
-            wait: true,
-            remove_orphans: true,
-            ..Up::default()
-        };
-        pins::pin(cx).await?;
-        self.pull(cx).await?;
-        self.up_recovering(cx, "up", &how).await
+        // A first start (nothing of the run recorded as made) refused for a taken host port is
+        // undone: Compose makes the project's network and containers, and starts some, before
+        // Docker refuses the bind; left there, they hold the run's names and namespaces, and the
+        // next start, the port free, fails on them. A run with machines keeps them.
+        let first = (cx.made)()?.is_empty();
+        let started = self.start(cx).await;
+        if let Err(e) = &started
+            && first
+            && e.code() == crate::ErrorCode::PortInUse
+        {
+            tracing::info!(run = %cx.run, "the start was refused for a taken host port: removing what it made");
+            if let Err(undo) = self.down(cx).await {
+                let said = format!("what the refused start made wasn't all removed (the next start clears it): {undo}");
+                (cx.warn)(crate::events::WarningCode::CleanupFailed, &said);
+            }
+        }
+        started
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
@@ -269,7 +292,7 @@ impl FormatDriver for Compose {
     }
 
     async fn update(&self, cx: &ToolCx<'_>) -> Result<()> {
-        self.up(cx).await?;
+        self.start(cx).await?;
         self.retire_unstarted(cx).await
     }
 
@@ -282,7 +305,7 @@ impl FormatDriver for Compose {
     async fn reapply(&self, cx: &ToolCx<'_>, _change: &Change) -> Result<()> {
         // Compose diffs the files against the project's containers itself: one `up` makes what was
         // added, remakes what changed and (with --remove-orphans) removes what went.
-        self.up(cx).await
+        self.start(cx).await
     }
 
     #[expect(
