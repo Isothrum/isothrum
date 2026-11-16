@@ -45,6 +45,18 @@ impl ChildGuard {
         self.child.as_mut()?.stderr.take()
     }
 
+    /// Its exit status, once it has ended (`None` while it runs); the guard still ends it when
+    /// dropped.
+    ///
+    /// # Errors
+    /// When its status can't be read.
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self.child.as_mut() {
+            Some(child) => child.try_wait(),
+            None => Err(std::io::Error::other("the child was already waited for")),
+        }
+    }
+
     /// Waits for it to end and gives what it printed (when its output was piped); the guard is
     /// then spent.
     ///
@@ -127,6 +139,37 @@ pub fn write_executable(path: &Path, contents: &str) -> std::io::Result<()> {
     } else {
         Err(std::io::Error::other(format!("writing {}: {status}", path.display())))
     }
+}
+
+/// The executable `name` holding `contents`, written once in a folder of `root` named for its
+/// contents and found there by every later test and test run: give it `env!("CARGO_TARGET_TMPDIR")`.
+/// An operating system that checks a new executable on its first run (macOS's `XProtect`) checks
+/// it once, where a stand-in written for each test made each first call wait for that check,
+/// for many seconds on a loaded machine. A test that changes the contents gets another folder;
+/// tests writing it at the same time each write their own copy and rename it into place, so none
+/// runs a file half written.
+///
+/// # Errors
+/// When it can't be written.
+#[cfg(unix)]
+pub fn installed_executable(root: &Path, name: &str, contents: &str) -> std::io::Result<std::path::PathBuf> {
+    // FNV-1a: a hash that is the same in every build, unlike the standard library's.
+    let hash = contents
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    let dir = root.join(format!("{name}-{hash:016x}"));
+    let path = dir.join(name);
+    if std::fs::read_to_string(&path).is_ok_and(|there| there == contents) {
+        return Ok(path);
+    }
+    std::fs::create_dir_all(&dir)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let partial = dir.join(format!(".{name}.{}.{nanos}", std::process::id()));
+    write_executable(&partial, contents)?;
+    std::fs::rename(&partial, &path)?;
+    Ok(path)
 }
 
 /// The process id `file` holds, once it holds one.
@@ -332,6 +375,24 @@ mod tests {
         drop(guard);
         let status = child.wait().unwrap();
         assert!(!status.success(), "it was killed: {status:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_installed_executable_is_written_once_per_contents() {
+        let root = tempfile::tempdir().unwrap();
+        let tool = installed_executable(root.path(), "tool", "#!/bin/sh\necho one\n").unwrap();
+        let written = std::fs::metadata(&tool).unwrap().modified().unwrap();
+        assert_eq!(installed_executable(root.path(), "tool", "#!/bin/sh\necho one\n").unwrap(), tool);
+        assert_eq!(std::fs::metadata(&tool).unwrap().modified().unwrap(), written, "found, not written again");
+        let other = installed_executable(root.path(), "tool", "#!/bin/sh\necho two\n").unwrap();
+        assert_ne!(other.parent(), tool.parent(), "other contents, another folder");
+        // Not run: a new executable's first run waits for macOS's check of it, for seconds.
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "#!/bin/sh\necho two\n");
+        let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&other).unwrap().permissions());
+        assert_eq!(mode & 0o777, 0o755, "executable");
+        let names: Vec<_> = std::fs::read_dir(tool.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["tool"], "nothing half written is left");
     }
 
     #[test]

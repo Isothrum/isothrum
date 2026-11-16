@@ -71,21 +71,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_person_sees_notes_logs_and_errors() {
-        let step = EventKind::Step {
+    fn a_person_sees_steps_logs_outputs_warnings_and_errors_and_nothing_else() {
+        let step = |state: StepState, note: Option<&str>| EventKind::Step {
             step: "up".into(),
-            state: StepState::Running,
-            note: Some("Starting…".into()),
+            state,
+            note: note.map(Into::into),
         };
-        assert_eq!(human(&step).as_deref(), Some("==> Starting…"));
-        assert_eq!(
-            human(&EventKind::Step {
-                step: "up".into(),
-                state: StepState::Done,
-                note: None
-            }),
-            None
-        );
+        let event = |json: serde_json::Value| -> EventKind { serde_json::from_value(json).unwrap() };
+        for (kind, line) in [
+            (step(StepState::Running, Some("Starting…")), Some("==> Starting…")),
+            (step(StepState::Running, None), Some("==> up")),
+            (step(StepState::Failed, None), Some("==> up: failed")),
+            (step(StepState::Skipped, None), Some("==> up: skipped")),
+            (step(StepState::Done, None), None),
+            (
+                event(serde_json::json!({"event": "log", "step": "up", "stream": "stdout", "line": "pulled"})),
+                Some("    pulled"),
+            ),
+            (
+                event(serde_json::json!({"event": "warning", "code": "step_tolerated", "message": "slow"})),
+                Some("warning: slow"),
+            ),
+            (
+                event(serde_json::json!({"event": "output", "name": "url", "value": "http://web", "sensitive": false})),
+                Some("url: http://web"),
+            ),
+            (
+                event(serde_json::json!({"event": "output", "name": "url", "value": null, "sensitive": false})),
+                None,
+            ),
+            (
+                event(serde_json::json!({"event": "error", "code": "tool_failed", "message": "docker failed"})),
+                Some("error: docker failed"),
+            ),
+        ] {
+            assert_eq!(human(&kind).as_deref(), line, "{kind:?}");
+        }
     }
 
     #[test]

@@ -66,13 +66,3 @@ pub(crate) async fn requested() -> std::io::Result<Signal> {
         _ = shutdown.recv() => Ok(Signal::Terminate),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_signal_exits_as_a_shell_says_it() {
-        assert_eq!((Signal::Interrupt.exit_code(), Signal::Terminate.exit_code()), (130, 143));
-    }
-}

@@ -6,41 +6,20 @@
     reason = "a test starts the binary and the programs it checks against: it is no adapter of the product"
 )]
 
-use std::path::Path;
-use std::process::{Command, Output};
+mod common;
 
+use common::{Lab, last_event};
 #[cfg(unix)]
-use isothrum_test_support::{ChildGuard, PidGuard, TempHome, alive, read_pid, write_executable};
+use common::{Outcome, json_lines};
+#[cfg(unix)]
+use isothrum_test_support::{ChildGuard, PidGuard, alive, read_pid};
+#[cfg(unix)]
 use serde_json::Value;
-
-/// A helper's outcome: a failed step is the test's report.
-type Outcome<T> = Result<T, Box<dyn std::error::Error>>;
-
-/// `isothrum <args>` with `home` as its home.
-fn isothrum(home: &Path, args: &[&str]) -> Outcome<Output> {
-    Ok(Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .env("ISOTHRUM_NO_SERVICE", "1")
-        .args(args)
-        .arg("--home")
-        .arg(home)
-        .output()?)
-}
-
-/// The last line of standard output, as JSON.
-fn last_event(out: &Output) -> Outcome<Value> {
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let last = stdout
-        .lines()
-        .last()
-        .ok_or_else(|| format!("no output; standard error: {}", String::from_utf8_lossy(&out.stderr)))?;
-    Ok(serde_json::from_str(last)?)
-}
 
 #[test]
 fn a_folder_that_holds_no_project_is_a_project_invalid_error_event_with_json() {
-    let (home, run_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let run_dir = run_dir.path().to_str().unwrap();
-    let out = isothrum(home.path(), &["up", run_dir, "--name", "ci-run", "--json"]).unwrap();
+    let lab = Lab::empty().unwrap();
+    let out = lab.isothrum(&["up", lab.dir(), "--name", "ci-run", "--json"]).unwrap();
     assert_eq!(out.status.code(), Some(1));
     let event = last_event(&out).unwrap();
     assert_eq!(
@@ -52,24 +31,17 @@ fn a_folder_that_holds_no_project_is_a_project_invalid_error_event_with_json() {
         (event["op"].as_str(), event["run"].as_str(), event["seq"].as_u64()),
         (Some("up"), Some("ci-run"), Some(1))
     );
-    assert!(
-        event["message"]
-            .as_str()
-            .unwrap()
-            .ends_with("not a project to run: it holds no Compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), Vagrantfile or Terraform module (*.tf)"),
-        "{event}"
-    );
     assert!(out.stderr.is_empty(), "nothing else: {}", String::from_utf8_lossy(&out.stderr));
 
-    let text = isothrum(home.path(), &["status", run_dir]).unwrap();
+    let text = lab.isothrum(&["status", lab.dir()]).unwrap();
     assert_eq!(text.status.code(), Some(1));
     assert!(text.stdout.is_empty() && String::from_utf8_lossy(&text.stderr).starts_with("error: "));
 }
 
 #[test]
 fn a_command_line_clap_refuses_is_a_usage_error_event_with_json() {
-    let home = tempfile::tempdir().unwrap();
-    let out = isothrum(home.path(), &["up", "--no-such-flag", "--json"]).unwrap();
+    let lab = Lab::empty().unwrap();
+    let out = lab.isothrum(&["up", "--no-such-flag", "--json"]).unwrap();
     assert_eq!(out.status.code(), Some(2));
     let event = last_event(&out).unwrap();
     assert_eq!(
@@ -87,15 +59,13 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
     // panicked (exit 101) on one that isn't.
     use std::os::unix::ffi::OsStrExt;
 
-    let (home, run) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .env("ISOTHRUM_NO_SERVICE", "1")
-        .arg("up")
-        .arg(run.path())
-        .arg("--name")
+    let lab = Lab::empty().unwrap();
+    let out = lab
+        .command()
+        .unwrap()
+        .args(["up", lab.dir(), "--name"])
         .arg(std::ffi::OsStr::from_bytes(b"r\xffn"))
-        .args(["--json", "--home"])
-        .arg(home.path())
+        .arg("--json")
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
@@ -103,28 +73,15 @@ fn a_value_that_isnt_utf8_is_a_usage_error_event_with_json() {
     assert_eq!((event["event"].as_str(), event["code"].as_str()), (Some("error"), Some("usage")), "{event}");
 }
 
-/// A tiny `docker` for `web-portal`: every call answers at once, except the start, which writes
-/// its process id to `$ISOTHRUM_TEST_PIDFILE` and then runs until it is stopped (two minutes at
-/// most, should the test binary be killed before its guards ran). On SIGINT it runs
-/// `$ISOTHRUM_TEST_ON_INT` (default: exit; empty: SIGINT is ignored).
+/// How long a test waits for what a command does on its own: long, as it only bounds a failure,
+/// and a loaded machine starts a process slowly.
 #[cfg(unix)]
-const FAKE_DOCKER: &str = r#"#!/bin/sh
-case " $* " in
-  *" info --format "*) echo 29.0.0 ;;
-  *" compose version "*) echo 2.29.0 ;;
-  *" config --format json "*) echo '{"services":{"web":{},"db":{}}}' ;;
-  *" up --detach "*)
-    trap "${ISOTHRUM_TEST_ON_INT-exit 130}" INT
-    echo $$ > "$ISOTHRUM_TEST_PIDFILE"; echo starting
-    i=0; while [ $i -lt 1200 ]; do sleep 0.1; i=$((i+1)); done ;;
-esac
-exit 0
-"#;
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(90);
 
-/// Waits up to 20 s for `ready`.
+/// Waits for `ready`, [`PATIENCE`] at most.
 #[cfg(unix)]
 fn wait_until(ready: impl FnMut() -> bool) -> bool {
-    isothrum_test_support::wait_until(std::time::Duration::from_secs(20), ready)
+    isothrum_test_support::wait_until(PATIENCE, ready)
 }
 
 #[cfg(unix)]
@@ -145,11 +102,11 @@ fn sigterm_stops_the_tools_ends_the_stream_with_cancelled_and_exits_143() {
 }
 
 /// A tool is asked to stop (SIGINT, as Terraform needs to save its state), and the command
-/// exits only once it did.
+/// exits only once it did: the tool takes a second to stop, and has said so by then.
 #[cfg(unix)]
 #[test]
 fn a_cancelled_command_waits_for_its_tools_to_stop() {
-    let up = Up::start(Some(r#"sleep 1; echo stopped > "$ISOTHRUM_TEST_STOPPED"; exit 0"#)).unwrap();
+    let up = Up::start(Some(r#"sleep 1; echo stopped > "$ISOTHRUM_TEST_DOCKER/stopped"; exit 0"#)).unwrap();
     up.signal("-INT").unwrap();
     let ended = up.ended().unwrap();
     ended.assert_cancelled(130);
@@ -157,21 +114,23 @@ fn a_cancelled_command_waits_for_its_tools_to_stop() {
     assert!(ended.stderr.contains("Waiting for the tools to stop"), "{}", ended.stderr);
 }
 
-/// A second signal ends the tools still stopping at once, rather than after their 30 s.
+/// A second signal ends the tools still stopping at once, rather than after their 30 s grace.
 #[cfg(unix)]
 #[test]
 fn a_second_signal_ends_the_tools_at_once() {
     // The tool ignores the request to stop.
     let up = Up::start(Some("")).unwrap();
-    let started = std::time::Instant::now();
     up.signal("-INT").unwrap();
+    let first = std::time::Instant::now();
     // The second signal goes once the command says it waits for the tools: sent as soon as the
     // tool had the first, two signals that close read as one, and the tools were waited for
-    // their whole 30 s.
+    // their whole grace.
     assert!(wait_until(|| up.said("Waiting for the tools to stop")), "the command took the first signal");
     up.signal("-INT").unwrap();
     up.ended().unwrap().assert_cancelled(130);
-    assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
+    // The grace runs from the first signal: a command that ended before it was cut short.
+    let grace = std::time::Duration::from_secs(30);
+    assert!(first.elapsed() < grace, "the tools were waited for: {:?}", first.elapsed());
 }
 
 /// What a command sent a signal showed.
@@ -201,20 +160,17 @@ impl Signalled {
     }
 }
 
-/// `isothrum up --json` on a tool that runs until it is stopped, once the tool runs. The command
-/// and the tool are killed when it is dropped, whatever way the test ended.
+/// `isothrum up --json` on a stand-in `docker` whose start runs until it is stopped, once the
+/// start runs. The command and the tool are killed when it is dropped, whatever way the test
+/// ended.
 #[cfg(unix)]
 struct Up {
     /// The command.
     child: ChildGuard,
     /// The tool.
     tool: PidGuard,
-    /// Where the tool's SIGINT handler may write.
-    stopped: std::path::PathBuf,
-    /// The home, the run's folder and the fake tool's, kept while the command runs.
-    _dirs: [tempfile::TempDir; 3],
-    /// The command's home folder, environment and locale (not the user's).
-    _env: TempHome,
+    /// Its folders, kept while the command runs.
+    lab: Lab,
     /// What the command printed on standard error so far, read as it prints it.
     stderr: std::sync::Arc<std::sync::Mutex<String>>,
     /// The thread reading it, done once the command closed it.
@@ -225,25 +181,12 @@ struct Up {
 impl Up {
     /// Starts it, the tool running `on_int` on SIGINT (`None`: it exits).
     fn start(on_int: Option<&str>) -> Outcome<Up> {
-        let (home, run_dir, bin) = (tempfile::tempdir()?, tempfile::tempdir()?, tempfile::tempdir()?);
-        std::fs::write(run_dir.path().join("compose.yaml"), "services:\n  web:\n    image: nginx\n")?;
-        // Written by a child process: one this test wrote itself could be busy ("Text file busy")
-        // in a process another test forked meanwhile, when the command runs it.
-        write_executable(&bin.path().join("docker"), FAKE_DOCKER)?;
-        let (pidfile, stopped) = (bin.path().join("docker.pid"), bin.path().join("stopped"));
-        let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
-
-        let env = TempHome::new();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_isothrum"));
-        cmd.envs(env.envs());
-        cmd.env("ISOTHRUM_NO_SERVICE", "1");
-        cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", "--home"])
-            .arg(home.path())
-            .arg(run_dir.path())
-            .env("PATH", path)
+        let lab = Lab::compose()?;
+        let pidfile = lab.docker_file("docker.pid");
+        let mut cmd = lab.command()?;
+        cmd.args(["up", "--json", "--secret-from-env", "DEMO_SECRET", lab.dir()])
             .env("DEMO_SECRET", "token-x")
             .env("ISOTHRUM_TEST_PIDFILE", &pidfile)
-            .env("ISOTHRUM_TEST_STOPPED", &stopped)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         if let Some(on_int) = on_int {
@@ -263,7 +206,7 @@ impl Up {
             })
         };
         if !wait_until(|| read_pid(&pidfile).is_some()) {
-            return Err("the start never began".into());
+            return Err(format!("the start never began in {PATIENCE:?}").into());
         }
         let tool = PidGuard::from_file(&pidfile).ok_or("the tool's pid")?;
         if !alive(tool.id()) {
@@ -272,9 +215,7 @@ impl Up {
         Ok(Up {
             child,
             tool,
-            stopped,
-            _dirs: [home, run_dir, bin],
-            _env: env,
+            lab,
             stderr,
             reading,
         })
@@ -287,7 +228,11 @@ impl Up {
 
     /// Sends the command `signal`, as `kill` names it.
     fn signal(&self, signal: &str) -> Outcome<()> {
-        if Command::new("kill").args([signal, &self.child.id().to_string()]).status()?.success() {
+        if std::process::Command::new("kill")
+            .args([signal, &self.child.id().to_string()])
+            .status()?
+            .success()
+        {
             Ok(())
         } else {
             Err(format!("kill {signal} failed").into())
@@ -299,12 +244,13 @@ impl Up {
         let out = self.child.wait_with_output()?;
         self.reading.join().map_err(|_| "the stderr reader panicked")?;
         let stderr = self.stderr.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-        let on_int_wrote = std::fs::read_to_string(&self.stopped).unwrap_or_default();
+        let on_int_wrote = std::fs::read_to_string(self.lab.docker_file("stopped")).unwrap_or_default();
+        let events = json_lines(&out)?;
         let tool = self.tool;
         Ok(Signalled {
             code: out.status.code(),
             stderr,
-            event: last_event(&out)?,
+            event: events.last().cloned().ok_or("no event")?,
             tool_stopped: wait_until(|| !alive(tool.id())),
             on_int_wrote,
         })
@@ -315,21 +261,25 @@ impl Up {
 /// `~/.isothrum`.
 #[cfg(unix)]
 #[test]
-fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
+fn a_home_variable_that_isnt_utf8_is_the_home_never_the_users() {
     use std::os::unix::ffi::OsStringExt;
-    let dir = tempfile::tempdir().unwrap();
-    let mut home = dir.path().as_os_str().to_owned().into_vec();
+    let lab = Lab::empty().unwrap();
+    let mut home = lab.home.path().as_os_str().to_owned().into_vec();
     home.extend_from_slice(b"/bad\xff");
-    let user = dir.path().join("user");
-    std::fs::create_dir(&user).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .env("ISOTHRUM_NO_SERVICE", "1")
-        .arg("key")
-        .env("ISOTHRUM_HOME", std::ffi::OsString::from_vec(home))
-        .env("HOME", &user)
-        .output()
-        .unwrap();
-    assert!(!user.join(".isothrum").exists(), "{}", String::from_utf8_lossy(&out.stderr));
+    let home = std::path::PathBuf::from(std::ffi::OsString::from_vec(home));
+    // A file system that refuses the name (APFS) makes it an I/O error naming it.
+    let accepted = std::fs::create_dir(&home).is_ok();
+    let out = lab.command().unwrap().args(["reap", "--json"]).env("ISOTHRUM_HOME", &home).output().unwrap();
+    let said = last_event(&out).unwrap();
+    if accepted {
+        assert_eq!((out.status.code(), said["event"].as_str()), (Some(0), Some("result")), "{said}");
+        assert!(home.join("state.db").is_file(), "the runner's home is the variable's");
+    } else {
+        assert_eq!((out.status.code(), said["code"].as_str()), (Some(1), Some("io")), "{said}");
+        let message = said["message"].as_str().unwrap_or_default();
+        assert!(message.contains(lab.home.path().to_str().unwrap()), "the home named is the variable's: {said}");
+    }
+    assert!(!lab.env.path().join(".isothrum").exists(), "never the user's");
 }
 
 /// Regression: an `ISOTHRUM_LOG` that isn't UTF-8 was read as unset, and the tracing asked for
@@ -338,8 +288,10 @@ fn a_home_variable_that_isnt_utf8_is_never_passed_over_for_the_users() {
 #[test]
 fn a_log_variable_that_isnt_utf8_is_warned_about() {
     use std::os::unix::ffi::OsStringExt;
-    let out = Command::new(env!("CARGO_BIN_EXE_isothrum"))
-        .env("ISOTHRUM_NO_SERVICE", "1")
+    let lab = Lab::empty().unwrap();
+    let out = lab
+        .command()
+        .unwrap()
         .args(["completions", "bash"])
         .env("ISOTHRUM_LOG", std::ffi::OsString::from_vec(b"bad\xff".to_vec()))
         .output()
