@@ -54,6 +54,11 @@ Terraform), usable on any project of those formats.
   of another release (left running, `ClientError::Busy`, while it has operations). A service that
   says no build is of before builds were said, and is replaced too.
   `ServeError::Held`'s `holder` is boxed (`Option<Box<ServiceInfo>>`).
+- **A Vagrant `up` that provisions a machine still booting is made again once it may answer.**
+  An `up` taking over a start that was cut off finds the machine running and provisions it at
+  once, before its SSH server answers (net-ssh's `timeout during server version negotiating`):
+  a slow boot (QEMU on macOS) failed the start again. It is made again 15 s apart, up to eight
+  times, said once as a `retrying` warning.
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the
   run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
