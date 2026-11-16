@@ -172,19 +172,7 @@ impl<'a> Emitter<'a> {
                 code,
                 message: self.mask(&message),
             },
-            EventKind::Error {
-                code,
-                message,
-                step,
-                timeout,
-                detail,
-            } => EventKind::Error {
-                code,
-                message: self.mask(&message),
-                step,
-                timeout: timeout.map(|t| t.masked(|l| self.mask(l))),
-                detail,
-            },
+            EventKind::Error(report) => EventKind::Error(report.masked(|t| self.mask(t))),
             EventKind::Resource { key, kind, state, native_id } => EventKind::Resource {
                 key: self.mask(&key),
                 kind,
@@ -218,13 +206,7 @@ impl<'a> Emitter<'a> {
 
     /// The operation's failure.
     pub(crate) fn error(&self, err: &Error) {
-        self.emit(EventKind::Error {
-            code: err.code(),
-            message: err.to_string(),
-            step: err.step().map(str::to_owned),
-            timeout: err.timed_out().cloned(),
-            detail: err.detail(),
-        });
+        self.emit(EventKind::Error(err.report()));
     }
 }
 

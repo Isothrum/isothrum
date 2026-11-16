@@ -49,6 +49,7 @@ impl PickPorts for Picks {
     fn claim(&self, ports: &[(HostPort, Protocol)]) -> crate::Result<()> {
         if let Some(&(port, protocol)) = ports.iter().find(|(p, _)| Some(*p) == self.taken) {
             return Err(crate::error::Error::PortInUse {
+                holder: None,
                 port,
                 protocol: crate::encoding::wire_name(&protocol),
             });
@@ -169,7 +170,8 @@ async fn a_first_start_whose_fixed_host_port_is_taken_is_refused_before_anything
         refused.detail().map(|d| d.data),
         Some(crate::Detail::PortInUse {
             port: 8080,
-            protocol: "tcp".to_owned()
+            protocol: "tcp".to_owned(),
+            holder: None,
         }),
         "{refused}"
     );

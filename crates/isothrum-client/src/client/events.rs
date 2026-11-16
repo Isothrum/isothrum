@@ -1,7 +1,8 @@
 //! A subscription's events, and one operation's read off it to its end.
 
 use super::{
-    Accepted, ClientError, Context, ErrorCode, Event, EventCursor, EventKind, OperationId, OperationPhase, Pin, Poll, Result, is_outcome, mpsc, phase_of,
+    Accepted, ClientError, Context, ErrorCode, ErrorReport, Event, EventCursor, EventKind, OperationId, OperationPhase, Pin, Poll, Result, is_outcome, mpsc,
+    phase_of,
 };
 
 /// A subscription: the events of the stream, each with its cursor. It ends when the service
@@ -118,22 +119,13 @@ impl OperationEvents {
 /// it began).
 pub(super) fn outcome_of(event: Option<Event>) -> Result<Event> {
     let Some(event) = event else {
-        return Err(ClientError::Operation {
-            code: ErrorCode::Cancelled,
-            message: "the operation was cancelled before it began".to_owned(),
-            step: None,
-            detail: None,
-        });
+        return Err(ClientError::Operation(Box::new(ErrorReport::new(
+            ErrorCode::Cancelled,
+            "the operation was cancelled before it began",
+        ))));
     };
     match &event.kind {
-        EventKind::Error {
-            code, message, step, detail, ..
-        } => Err(ClientError::Operation {
-            code: *code,
-            message: message.clone(),
-            step: step.clone(),
-            detail: detail.clone().map(Box::new),
-        }),
+        EventKind::Error(report) => Err(ClientError::Operation(Box::new(report.clone()))),
         _ => Ok(event),
     }
 }
@@ -141,7 +133,7 @@ pub(super) fn outcome_of(event: Option<Event>) -> Result<Event> {
 #[cfg(test)]
 mod tests {
     use isothrum_runner::store::EventCursor;
-    use isothrum_runner::{ErrorCode, EventKind, Op, ResultData, RunState, Stream};
+    use isothrum_runner::{ErrorCode, ErrorReport, EventKind, Op, ResultData, RunState, Stream};
 
     use super::*;
     use crate::v1::Event;
@@ -213,19 +205,10 @@ mod tests {
 
     #[tokio::test]
     async fn an_error_event_is_the_operations_failure_with_its_code_and_step() {
-        let failed = of(
-            7,
-            EventKind::Error {
-                code: ErrorCode::ToolFailed,
-                message: "compose said no".into(),
-                step: Some("up".into()),
-                timeout: None,
-                detail: None,
-            },
-        );
+        let failed = of(7, EventKind::Error(ErrorReport::new(ErrorCode::ToolFailed, "compose said no").with_step("up")));
         let e = following(vec![Ok(failed), Ok(ended(7))]).outcome().await.expect_err("failed");
         assert!(
-            matches!(&e, ClientError::Operation { code: ErrorCode::ToolFailed, step: Some(step), .. } if step == "up"),
+            matches!(&e, ClientError::Operation(r) if r.code == ErrorCode::ToolFailed && r.step.as_deref() == Some("up")),
             "{e:?}"
         );
     }

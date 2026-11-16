@@ -10,35 +10,28 @@ use isothrum_runner::{
     BoxFuture, ErrorCode, Event, EventKind, Events, Format, InputVariable, Project, RunName, RunOptions, Runner, Running, SecretValue, Secrets, Status,
 };
 
-/// Why the engine refused a request: a code and a message.
+/// Why the engine refused a request: the runner's report of it (boxed: it is large, and rare). A
+/// refusal never changed a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Refusal {
-    /// The code.
-    pub code: ErrorCode,
-    /// The message.
-    pub message: String,
-    /// The runner's typed fields, for a refusal the runner made.
-    pub detail: Option<isothrum_runner::ErrorDetail>,
-}
+pub struct Refusal(pub Box<isothrum_runner::ErrorReport>);
 
 impl Refusal {
     /// A refusal of code `code`.
     #[must_use]
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Refusal {
-        Refusal {
-            code,
-            message: message.into(),
-            detail: None,
-        }
+        Refusal(Box::new(isothrum_runner::ErrorReport::new(code, message).unchanged()))
+    }
+
+    /// Its code.
+    #[must_use]
+    pub fn code(&self) -> ErrorCode {
+        self.0.code
     }
 }
 
 impl From<isothrum_runner::Error> for Refusal {
     fn from(e: isothrum_runner::Error) -> Refusal {
-        Refusal {
-            detail: e.detail(),
-            ..Refusal::new(e.code(), e.to_string())
-        }
+        Refusal(Box::new(e.report().unchanged()))
     }
 }
 
@@ -175,13 +168,7 @@ impl Engine for RunnerEngine {
                 Ok(running) => running,
                 Err(refusal) => {
                     // Refused before the runner began: its `error` is written here.
-                    let kind = EventKind::Error {
-                        code: refusal.code,
-                        message: refusal.message,
-                        step: None,
-                        timeout: None,
-                        detail: refusal.detail,
-                    };
+                    let kind = EventKind::Error(*refusal.0);
                     journal.keep(Event::new(1, Some(run.to_string()), command.op(), kind));
                     return false;
                 }

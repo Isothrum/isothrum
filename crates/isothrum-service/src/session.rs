@@ -52,12 +52,7 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
             }
             Ok(None) => break,
             Err(e) => {
-                let refused = Reply::Error {
-                    id: 0,
-                    code: ErrorCode::Usage,
-                    message: format!("a line that isn't a request: {e}"),
-                    detail: None,
-                };
+                let refused = error(0, ErrorCode::Usage, format!("a line that isn't a request: {e}"));
                 drop(session.outbox.send(refused).await);
                 break;
             }
@@ -224,20 +219,13 @@ fn hello(id: u64) -> Reply {
 fn error(id: u64, code: ErrorCode, message: String) -> Reply {
     Reply::Error {
         id,
-        code,
-        message,
-        detail: None,
+        report: isothrum_runner::ErrorReport::new(code, message).unchanged(),
     }
 }
 
 /// The error reply of `refusal`, with the runner's typed fields when it has them.
 fn refused(id: u64, refusal: crate::engine::Refusal) -> Reply {
-    Reply::Error {
-        id,
-        code: refusal.code,
-        message: refusal.message,
-        detail: refusal.detail,
-    }
+    Reply::Error { id, report: *refusal.0 }
 }
 
 /// Sends a subscription's events to `outbox`: those the store keeps after `after` (every one
@@ -252,7 +240,7 @@ async fn forward(feed: Arc<Feed>, run: Option<RunName>, after: Option<EventCurso
         let (batch, scanned) = match feed.after(last, run.as_ref()) {
             Ok(page) => page,
             Err(refusal) => {
-                tracing::warn!(error = %refusal.message, "a subscription couldn't read the store");
+                tracing::warn!(error = %refusal.0.message, "a subscription couldn't read the store");
                 return;
             }
         };

@@ -20,6 +20,21 @@
         }
       ]
     },
+    "DownloadKind": {
+      "description": "What a download fetches.",
+      "oneOf": [
+        {
+          "const": "images",
+          "description": "Container images (a Compose start's pull).",
+          "type": "string"
+        },
+        {
+          "const": "boxes",
+          "description": "Vagrant boxes (what a Vagrant start boots).",
+          "type": "string"
+        }
+      ]
+    },
     "ErrorCode": {
       "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
       "oneOf": [
@@ -65,7 +80,7 @@
         },
         {
           "const": "timeout",
-          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `detail` says which).",
           "type": "string"
         },
         {
@@ -216,6 +231,17 @@
         {
           "description": "A host port the run publishes is taken.",
           "properties": {
+            "holder": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PortHolder"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The process listening on it, when it was found."
+            },
             "kind": {
               "const": "port_in_use",
               "type": "string"
@@ -333,11 +359,80 @@
             "kind": {
               "const": "download_stalled",
               "type": "string"
+            },
+            "what": {
+              "$ref": "#/$defs/DownloadKind",
+              "description": "What it downloads."
             }
           },
           "required": [
             "kind",
+            "what",
             "after_s"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A download couldn't be made.",
+          "properties": {
+            "kind": {
+              "const": "download_failed",
+              "type": "string"
+            },
+            "reason": {
+              "description": "The last try's last error lines, or its exit status (masked).",
+              "type": "string"
+            },
+            "what": {
+              "$ref": "#/$defs/DownloadKind",
+              "description": "What it downloads."
+            }
+          },
+          "required": [
+            "kind",
+            "what",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The elevation the run's commands need couldn't be had.",
+          "properties": {
+            "kind": {
+              "const": "elevation",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why (the prompt declined, the elevated session ended).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ready condition didn't hold.",
+          "properties": {
+            "condition": {
+              "description": "The condition (`every machine of the run`, `tcp 127.0.0.1:8080`).",
+              "type": "string"
+            },
+            "detail": {
+              "description": "Why it didn't.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "not_ready",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "condition",
+            "detail"
           ],
           "type": "object"
         },
@@ -422,7 +517,7 @@
           "type": "object"
         },
         {
-          "description": "A value the run was given can't be used (its name only: the value may be a secret).",
+          "description": "A value the run was given can't be used.",
           "properties": {
             "kind": {
               "const": "input_invalid",
@@ -431,11 +526,34 @@
             "name": {
               "description": "Its name.",
               "type": "string"
+            },
+            "reason": {
+              "description": "Why (masked: it may quote the value).",
+              "type": "string"
             }
           },
           "required": [
             "kind",
-            "name"
+            "name",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step's tool ran and failed.",
+          "properties": {
+            "kind": {
+              "const": "tool_failed",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Its last error lines, or its exit status (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
           ],
           "type": "object"
         },
@@ -640,6 +758,47 @@
       ],
       "type": "object"
     },
+    "ErrorReport": {
+      "description": "A failure, as one value: its stable code, its message, the step it happened in, its typed\nfields, and whether the run was touched. An embedder branches on [`ErrorReport::code`] and\nreads [`ErrorReport::detail`]'s fields; it never needs the runner's [`Error`] variants.",
+      "properties": {
+        "changed": {
+          "default": true,
+          "description": "Whether the run may have changed: false only when the failure is a refusal made before\nanything acted on the run (another operation holds it, it is already up or isn't up, a\nvalue it needs is missing or unusable, a tool it needs is missing), so whatever the caller\nprepared for the operation can be put back. Read as true when absent.",
+          "type": "boolean"
+        },
+        "code": {
+          "$ref": "#/$defs/ErrorCode",
+          "description": "The stable code."
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The failure's typed fields, when it has any."
+        },
+        "message": {
+          "description": "The message: plain and technical, secrets masked.",
+          "type": "string"
+        },
+        "step": {
+          "description": "The step that failed, when one did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "Op": {
       "description": "An operation on a run.",
       "oneOf": [
@@ -744,6 +903,26 @@
           "type": "string"
         }
       ]
+    },
+    "PortHolder": {
+      "description": "The process that holds a host port: what a `port_in_use` names so the user knows what to stop.",
+      "properties": {
+        "pid": {
+          "description": "Its process id.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "program": {
+          "description": "Its program's name, as the system lists it (`nginx`, `com.docke`: `lsof` cuts it to 9\ncharacters).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "program"
+      ],
+      "type": "object"
     },
     "ResourceKind": {
       "description": "What a resource is. The provider kinds are manifest v2's `resources[].kind`; the local ones\nthe runner's own.",
@@ -1455,54 +1634,16 @@
       "type": "object"
     },
     {
-      "description": "Why the operation failed.",
+      "$ref": "#/$defs/ErrorReport",
+      "description": "Why the operation failed: its code, message, step, typed fields and whether the run was\ntouched ([`crate::ErrorReport`]).",
       "properties": {
-        "code": {
-          "$ref": "#/$defs/ErrorCode",
-          "description": "The stable code."
-        },
-        "detail": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ErrorDetail"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The failure's typed fields, when it has any ([`crate::Error::detail`])."
-        },
         "event": {
           "const": "error",
           "type": "string"
-        },
-        "message": {
-          "description": "The message.",
-          "type": "string"
-        },
-        "step": {
-          "description": "The step that failed, when one did.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "timeout": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TimedOut"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Which limit the step ran into, when the code is `timeout`."
         }
       },
       "required": [
-        "event",
-        "code",
-        "message"
+        "event"
       ],
       "type": "object"
     }

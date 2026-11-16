@@ -112,7 +112,7 @@
         },
         {
           "const": "timeout",
-          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `timeout` says which).",
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `detail` says which).",
           "type": "string"
         },
         {

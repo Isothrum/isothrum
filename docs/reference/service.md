@@ -74,30 +74,45 @@ keeps these two frames as they are:
 
 ### Errors and their detail
 
-A refused request is answered `{"reply":"error","id":N,"code":"…","message":"…"}`, and an operation
-that fails ends with an `error` event (`{"kind":"error","code":"…","message":"…",…}`). Both keep
-their `code` and `message` as before. When the runner's failure has typed fields, both also carry
-a `detail` object:
+A refused request is answered `{"reply":"error","id":N,…}`, and an operation that fails ends with
+an `error` event (`{"event":"error",…}`). Both carry the same report of the failure, the one the
+runner's API gives (`Error::report`, `isothrum_runner::ErrorReport`):
+
+- `code` and `message`;
+- `step`, the step that failed, when one did;
+- `detail`, the failure's typed fields, when it has any;
+- `changed`: false when the failure is a refusal made before anything acted on the run (another
+  operation holds it, it is already up or isn't up, it is recorded elsewhere, nothing is left to
+  resume, a value it needs is missing or unusable, a tool it needs is missing), so whatever the
+  embedder prepared for the operation can be put back; true otherwise. A service refusal is
+  always `false`.
 
 ```json
-{"reply":"error","id":7,"code":"port_in_use","message":"…",
- "detail":{"v":1,"kind":"port_in_use","port":8080,"protocol":"tcp"}}
+{"reply":"error","id":7,"code":"port_in_use","message":"…","changed":true,
+ "detail":{"v":2,"kind":"port_in_use","port":8080,"protocol":"tcp",
+           "holder":{"pid":4123,"program":"nginx"}}}
 ```
 
-- `v` is the version of the fields (1). A later runner adding a field makes a new version and never
+- `v` is the version of the fields (2). A later runner adding a field makes a new version and never
   changes what a field means.
 - `kind` names the failure. Its fields are its own:
-  - `port_in_use`: `port`, `protocol`.
+  - `port_in_use`: `port`, `protocol`, and `holder` (`pid`, `program`) when the process listening
+    on it was found (`lsof` or `ss`, PowerShell on Windows, looked up once the operation failed).
   - `tool_missing`: `tool`.
   - `tool_too_old`: `tool`, `found`, `required`.
   - `tool_unanswered`: `tool`.
-  - `timeout`: `timed_out`, without the tool's last line.
-  - `download_stalled`: `after_s`.
+  - `timeout`: `timed_out` (`kind` `no_progress` or `ceiling`, `after_s`, and `last_line` when the
+    step printed one).
+  - `download_stalled`: `what` (`images` or `boxes`), `after_s`.
+  - `download_failed`: `what`, `reason`.
+  - `elevation`: `reason`.
+  - `not_ready`: `condition`, `detail`.
   - `running_elsewhere`: `recorded`, `asked`.
   - `not_parkable`: `mode`.
   - `partly_gone`: `machines`.
   - `secret_missing`: `name`.
-  - `input_invalid`: `name`.
+  - `input_invalid`: `name`, `reason`.
+  - `tool_failed`: `reason`.
   - `project_invalid`: `dir`.
   - `machine_unknown`: `machine`.
   - `network_unknown`: `network`.
@@ -107,11 +122,12 @@ a `detail` object:
   - `io`: `path`, `action`.
   - `state_conflict`: `expected`, `found`.
   - `lease_held`: `scope`, `pid`.
-- `detail` never holds a secret, nor any text a tool printed (which might echo one): those stay in
-  `message`, which the event stream masks. It is absent when the failure has no typed fields.
+- `detail` never holds a secret. The text a tool printed in it (a reason, a last line) is masked
+  as `message` is. It is absent when the failure has no typed fields.
 
-The Rust types are `isothrum_runner::ErrorDetail` and `isothrum_runner::Detail`. The client hands
-them on as `ClientError::Refused { detail, .. }` and `ClientError::Operation { detail, .. }`.
+The Rust types are `isothrum_runner::ErrorReport`, `ErrorDetail` and `Detail`. The client hands
+the report on as it is: `ClientError::Refused(report)` and `ClientError::Operation(report)`
+(`ClientError::report()`).
 
 ### Stopping
 

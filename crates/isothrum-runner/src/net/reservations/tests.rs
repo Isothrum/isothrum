@@ -100,7 +100,8 @@ fn a_claim_reserves_its_free_ports_and_refuses_one_held_or_bound() {
         held.detail().map(|d| d.data),
         Some(crate::Detail::PortInUse {
             port: 8080,
-            protocol: "tcp".to_owned()
+            protocol: "tcp".to_owned(),
+            holder: None,
         })
     );
     let bound = PortReservations::new(

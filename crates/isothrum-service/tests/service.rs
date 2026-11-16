@@ -175,10 +175,7 @@ async fn ends_cancelled(followed: &mut Followed) -> bool {
     let outcome = tokio::time::timeout(PATIENCE, followed.outcome()).await;
     matches!(
         outcome,
-        Ok(Err(ClientError::Operation {
-            code: ErrorCode::Cancelled,
-            ..
-        }))
+        Ok(Err(ClientError::Operation(ref report))) if report.code == ErrorCode::Cancelled
     )
 }
 
@@ -265,20 +262,18 @@ async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
     client.cancel(queued.accepted.operation).await.unwrap();
     let dropped = events_of(&mut queued).await.unwrap();
     assert!(!dropped.iter().any(|e| phase_of(e) == Some(OperationPhase::Started)), "{dropped:?}");
-    assert!(dropped.iter().any(|e| matches!(
-        e.kind,
-        EventKind::Error {
-            code: ErrorCode::Cancelled,
-            ..
-        }
-    )));
+    assert!(
+        dropped
+            .iter()
+            .any(|e| matches!(&e.kind, EventKind::Error(report) if report.code == ErrorCode::Cancelled))
+    );
     // Wait for the long one to begin, then cut it short.
     begun(&mut long).await.unwrap();
     client.cancel(long.accepted.operation).await.unwrap();
     assert!(ends_cancelled(&mut long).await);
     assert!(!s.engine.log().contains(&"end web up".to_owned()));
     let refused = client.cancel(long.accepted.operation).await;
-    assert!(matches!(refused, Err(ClientError::Refused { .. })), "an ended operation: {refused:?}");
+    assert!(matches!(refused, Err(ClientError::Refused(_))), "an ended operation: {refused:?}");
     s.task.abort();
 }
 
@@ -288,13 +283,7 @@ async fn a_refused_run_is_answered_at_once() {
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let refused = client.submit(up("missing", false)).await;
     assert!(
-        matches!(
-            refused,
-            Err(ClientError::Refused {
-                code: ErrorCode::Unsupported,
-                ..
-            })
-        ),
+        matches!(&refused, Err(ClientError::Refused(report)) if report.code == ErrorCode::Unsupported),
         "{refused:?}"
     );
     s.task.abort();

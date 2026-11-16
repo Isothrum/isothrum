@@ -6,7 +6,7 @@ use super::*;
 /// The code of the `error` event `events` ended with.
 fn error_code(events: &Recorder) -> Option<ErrorCode> {
     events.events().into_iter().find_map(|e| match e.kind {
-        EventKind::Error { code, .. } => Some(code),
+        EventKind::Error(report) => Some(report.code),
         _ => None,
     })
 }

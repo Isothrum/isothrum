@@ -76,13 +76,7 @@ impl Term {
 
 /// The kind of an `error` event the command line writes itself (no step failed, no timeout).
 pub(crate) fn failure(code: ErrorCode, message: String) -> EventKind {
-    EventKind::Error {
-        code,
-        message,
-        step: None,
-        timeout: None,
-        detail: None,
-    }
+    EventKind::Error(isothrum_runner::ErrorReport::new(code, message))
 }
 
 /// Events as JSON lines on standard output.

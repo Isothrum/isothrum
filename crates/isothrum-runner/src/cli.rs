@@ -12,6 +12,7 @@
 pub(crate) mod compose;
 pub(crate) mod docker;
 mod installed;
+pub(crate) mod listener;
 pub(crate) mod prlctl;
 pub(crate) mod proxmox;
 pub(crate) mod qemu;

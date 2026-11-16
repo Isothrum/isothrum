@@ -29,7 +29,7 @@ pub enum ErrorCode {
     /// A tool answers at a version older than the run needs.
     ToolTooOld,
     /// A step showed no progress for its time limit, or ran to the ceiling every step stops at,
-    /// and was stopped, with what it started (the `error` event's `timeout` says which).
+    /// and was stopped, with what it started (the `error` event's `detail` says which).
     Timeout,
     /// A download (what a step needs, fetched in a phase of its own before it: a Compose start's
     /// images, a Vagrant start's boxes; or a step the manifest marks a download) showed no

@@ -4,12 +4,14 @@
 use std::path::PathBuf;
 
 pub use self::code::ErrorCode;
-pub use self::detail::{DETAIL_VERSION, Detail, ErrorDetail};
+pub use self::detail::{DETAIL_VERSION, Detail, DownloadKind, ErrorDetail, PortHolder};
+pub use self::report::ErrorReport;
 pub use self::timed_out::TimedOut;
 pub(crate) use self::timed_out::kept_line;
 
 mod code;
 mod detail;
+mod report;
 mod timed_out;
 
 /// The runner's `Result`: its error is a [`Error`] unless said otherwise.
@@ -94,6 +96,8 @@ pub enum Error {
     /// has no other limit: one still moving runs as long as it moves.
     #[error("step `{step}` showed no progress downloading for {after_s}s and was stopped{}", last_line.as_ref().map_or_else(String::new, |l| format!("; its last line: `{l}`")))]
     DownloadStalled {
+        /// What it downloads.
+        what: DownloadKind,
         /// The download's step (`pull-up` or `boxes-up`, before the `up` it downloads for; a
         /// manifest's own, `pull-start`).
         step: String,
@@ -106,6 +110,8 @@ pub enum Error {
     /// A download couldn't be made.
     #[error("step `{step}` couldn't download what it needs: {reason}")]
     DownloadFailed {
+        /// What it downloads.
+        what: DownloadKind,
         /// The download's step (`pull-up`, `boxes-up`, `pull-start`).
         step: String,
         /// The last try's last error lines, or its exit status (secrets masked).
@@ -128,12 +134,15 @@ pub enum Error {
         asked: String,
     },
     /// A host port the run publishes is taken.
-    #[error("host port {port}/{protocol} is in use")]
+    #[error("host port {port}/{protocol} is in use{}", holder.as_ref().map_or_else(String::new, |h| format!(": `{}` (pid {}) listens on it", h.program, h.pid)))]
     PortInUse {
         /// The port, on the host.
         port: crate::port::HostPort,
         /// `tcp` or `udp`.
         protocol: String,
+        /// The process listening on it, when the runner found it (looked up once the operation
+        /// failed, best-effort).
+        holder: Option<PortHolder>,
     },
     /// No park steps for that mode.
     #[error("run `{run}` can't be parked ({mode}): its manifest has no steps for it")]
@@ -337,6 +346,7 @@ impl Error {
     }
 
     /// What ran out of time, for a step that did.
+    #[cfg(test)]
     pub(crate) fn timed_out(&self) -> Option<&TimedOut> {
         match self {
             Error::Timeout { timed_out, .. } => Some(timed_out),

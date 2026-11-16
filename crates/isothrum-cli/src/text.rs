@@ -23,7 +23,7 @@ pub(crate) fn human(kind: &EventKind) -> Option<String> {
         EventKind::Log { line, .. } => format!("    {line}"),
         EventKind::Output { name, value: Some(value), .. } => format!("{name}: {value}"),
         EventKind::Warning { message, .. } => format!("warning: {message}"),
-        EventKind::Error { message, .. } => format!("error: {message}"),
+        EventKind::Error(report) => format!("error: {}", report.message),
         _ => return None,
     })
 }

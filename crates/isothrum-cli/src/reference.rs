@@ -188,7 +188,7 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
         }
         ErrorCode::Locked => "Wait for the other operation on the run to end, or stop the process running it.",
         ErrorCode::Timeout => {
-            "See the event's `timeout`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
+            "See the event's `detail`: a step stuck with no output, or one that needs longer. Check the network (proxy) and the engine, then retry."
         }
         ErrorCode::DownloadStalled => {
             "The download stopped moving: check the network (proxy, VPN, the registry's or the box catalog's status) and the free disk space, then retry: the image layers it finished are kept."

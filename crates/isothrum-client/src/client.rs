@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use isothrum_runner::{ErrorCode, EventKind, InputVariable, Park, RunName, Status};
+use isothrum_runner::{ErrorCode, ErrorReport, EventKind, InputVariable, Park, RunName, Status};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::discovery::{ServiceInfo, ServicePaths};
@@ -103,7 +103,7 @@ async fn open(paths: &ServicePaths) -> Result<(Reader, Writer, ServiceInfo)> {
         Some(Reply::Hello { protocol, version, .. }) => Err(ClientError::Protocol(format!(
             "the service (Isothrum {version}) speaks protocol {protocol}, this client {PROTOCOL}: stop it to let this version start its own"
         ))),
-        Some(Reply::Error { message, .. }) => Err(ClientError::Protocol(message)),
+        Some(Reply::Error { report, .. }) => Err(ClientError::Protocol(report.message)),
         Some(other) => Err(ClientError::Protocol(format!("expected the service's hello, got {other:?}"))),
         None => Err(ClientError::closed()),
     }
@@ -250,11 +250,7 @@ impl Client {
             return Err(e.into());
         }
         match rx.await.map_err(|_| ClientError::closed())? {
-            Reply::Error { code, message, detail, .. } => Err(ClientError::Refused {
-                code,
-                message,
-                detail: detail.map(Box::new),
-            }),
+            Reply::Error { report, .. } => Err(ClientError::Refused(Box::new(report))),
             reply => Ok(reply),
         }
     }
@@ -473,13 +469,7 @@ impl Client {
             match reader.next::<Reply>().await? {
                 Some(Reply::Hello { .. }) => {}
                 Some(Reply::Ok { id: 1 }) => break,
-                Some(Reply::Error { code, message, detail, .. }) => {
-                    return Err(ClientError::Refused {
-                        code,
-                        message,
-                        detail: detail.map(Box::new),
-                    });
-                }
+                Some(Reply::Error { report, .. }) => return Err(ClientError::Refused(Box::new(report))),
                 Some(other) => return Err(unexpected(&other)),
                 None => return Err(ClientError::closed()),
             }

@@ -9,6 +9,24 @@ Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: one report of a failure, `ErrorReport`, the same from every path.** `Error::report()`
+  gives its `code`, `message`, `step`, `detail` and `changed`; the `error` event is
+  `EventKind::Error(ErrorReport)`, the service's error reply carries it flattened, and the client
+  hands it on as `ClientError::Refused(Box<ErrorReport>)` and `ClientError::Operation(..)`
+  (`ClientError::report()`). An embedder never matches the runner's `Error` variants. The event's
+  `timeout` field is gone: the `timeout` detail carries `timed_out` with its last line.
+- **`changed`** says whether the run may have changed: false for the refusals made before anything
+  acted on it (`locked`, `already_running`, `running_elsewhere`, `nothing_to_resume` of a run
+  never recorded or gone, `not_running`, `secret_missing`, `input_invalid`, `tool_missing`).
+- **Breaking: detail version 2.** `port_in_use` names the process listening on the port
+  (`holder`: `pid`, `program`), looked up once the operation failed (`lsof`, then `ss`; PowerShell
+  on Windows). `download_stalled` and the new `download_failed` (with its `reason`) say `what` they
+  fetch (`images`, `boxes`); `tool_failed` (`reason`), `elevation` (`reason`) and `not_ready`
+  (`condition`, `detail`) are new; `input_invalid` has its `reason`; `timeout` keeps the step's
+  last line. The text a tool printed in a detail is masked as the message is.
+
 ### Added
 
 - **TypeScript types for a UI: the `ts-rs` features of isothrum-runner and isothrum-machine.**

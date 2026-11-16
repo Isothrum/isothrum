@@ -164,7 +164,8 @@ async fn a_first_start_docker_refuses_a_host_port_is_port_in_use_naming_it_and_r
             e.detail().map(|d| d.data),
             Some(crate::Detail::PortInUse {
                 port,
-                protocol: "tcp".to_owned()
+                protocol: "tcp".to_owned(),
+                holder: None,
             }),
             "{said}"
         );
