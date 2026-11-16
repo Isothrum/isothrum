@@ -45,6 +45,14 @@ Terraform), usable on any project of those formats.
   answering `utmctl start` with `Error from event: … (OSStatus error -2700.) … Operation not
   permitted`, or macOS refusing the Apple events (`-1743`, in any language). It was
   `tool_failed`; no wait fixes it, so it is never tried again.
+- **`Client::connect_exact` replaces a service of another build, not only of another release.**
+  An app updated in place carries the same release of Isothrum, and the service its old program
+  started kept serving the new one. A service now writes its build in `service.json`
+  (`ServiceInfo::build`: the size and modification time of the binary the client started, given
+  as `ISOTHRUM_SERVICE_BUILD`, else of its own executable; `isothrum_client::build_of`), and
+  `connect_exact` replaces one whose build isn't the binary's it would start, as it replaces one
+  of another release (left running, `ClientError::Busy`, while it has operations). A service that
+  says no build is of before builds were said, and is replaced too.
 - **A refusal before anything acted leaves the run as it was.** A failure whose report says the
   run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
   never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose

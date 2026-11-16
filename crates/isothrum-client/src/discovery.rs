@@ -79,4 +79,24 @@ pub struct ServiceInfo {
     pub endpoint: String,
     /// Its life: a random number each start draws.
     pub epoch: u64,
+    /// The build it runs ([`build_of`]): of the binary the client that started it started (the
+    /// [`BUILD_ENV`] it was given), else of its own executable. A service of another build is
+    /// replaced as one of another release is ([`Client::connect_exact`](crate::Client::connect_exact));
+    /// none from a service of before builds were written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+}
+
+/// The variable a client gives the service it starts: the build of the binary it started
+/// ([`build_of`]), which the service writes as its [`ServiceInfo::build`].
+pub const BUILD_ENV: &str = "ISOTHRUM_SERVICE_BUILD";
+
+/// The build of the executable at `path`: its size and modification time (`<bytes>-<nanoseconds
+/// since the epoch>`), which an update of the program changes; none when it can't be read. Two
+/// versions of an app may carry the same release of Isothrum: this tells them apart.
+#[must_use]
+pub fn build_of(path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("{}-{}", meta.len(), modified.as_nanos()))
 }

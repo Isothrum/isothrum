@@ -86,20 +86,24 @@ enum Found {
     Silent(Option<ServiceInfo>),
 }
 
-/// The connection to the home's service when it is this release's and protocol; else none, once
-/// no process holds the home (the one of another release stopped or ended).
+/// The connection to the home's service when it is this release's and protocol, of `build` (the
+/// binary the client would start, when it knows it; a service that says no build is of before
+/// builds were said); else none, once no process holds the home (the one of another release or
+/// build stopped or ended).
 ///
 /// # Errors
 ///
 /// [`ClientError::Busy`] when the service of another release has operations queued or running;
 /// [`ClientError::Unavailable`] when it can't be stopped; [`ClientError::Protocol`] when it
 /// refused to.
-pub(crate) async fn make_room(paths: &ServicePaths) -> Result<Option<Opened>> {
+pub(crate) async fn make_room(paths: &ServicePaths, build: Option<&str>) -> Result<Option<Opened>> {
     let (mut rounds, mut silent_since) = (0, None::<Instant>);
     while rounds < ROUNDS {
         match look(paths).await {
             Found::Nothing => return Ok(None),
-            Found::Answered(opened, protocol) if protocol == PROTOCOL && opened.2.version == VERSION => return Ok(Some(opened)),
+            Found::Answered(opened, protocol) if protocol == PROTOCOL && opened.2.version == VERSION && of_build(&opened.2, build) => {
+                return Ok(Some(opened));
+            }
             Found::Answered(opened, _) => stop(paths, opened).await?,
             Found::Silent(info) => {
                 // A service starting up holds the home before it says where it listens.
@@ -117,6 +121,11 @@ pub(crate) async fn make_room(paths: &ServicePaths) -> Result<Option<Opened>> {
         "the runner service of {} couldn't be replaced: one kept coming back",
         paths.home().display()
     )))
+}
+
+/// Whether the service `info` describes runs `build` (any, when the client doesn't know it).
+fn of_build(info: &ServiceInfo, build: Option<&str>) -> bool {
+    build.is_none_or(|build| info.build.as_deref() == Some(build))
 }
 
 /// What the home has now.

@@ -30,7 +30,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use isothrum_client::proto::PROTOCOL;
-use isothrum_client::{ServiceInfo, ServicePaths};
+use isothrum_client::{BUILD_ENV, ServiceInfo, ServicePaths, build_of};
 use isothrum_runner::SystemProcesses;
 use isothrum_runner::store::{LeaseOutcome, Owner, Store};
 use tokio::sync::Notify;
@@ -198,6 +198,7 @@ impl Service {
             protocol: PROTOCOL,
             endpoint,
             epoch: random_u64(),
+            build: build(),
         };
         self.lease.publish(&info)?;
         tracing::info!(home = %self.paths.home().display(), endpoint = %info.endpoint, pid = info.pid, "the runner service listens");
@@ -304,6 +305,15 @@ fn cancel_orphaned(store: &Store) {
 /// is bound to one transaction's lifetime).
 fn orphans_cancelled(tx: &mut isothrum_runner::store::Tx<'_>) -> isothrum_runner::Result<Vec<isothrum_runner::store::OperationId>> {
     tx.cancel_orphaned_queued()
+}
+
+/// The build this service runs: the one the client that started it gave ([`BUILD_ENV`]: of the
+/// binary it started, which may be a wrapper of this one), else this executable's.
+fn build() -> Option<String> {
+    std::env::var(BUILD_ENV)
+        .ok()
+        .filter(|build| !build.is_empty())
+        .or_else(|| std::env::current_exe().ok().and_then(|exe| build_of(&exe)))
 }
 
 /// A random number (the time's, if the OS has no randomness to give).

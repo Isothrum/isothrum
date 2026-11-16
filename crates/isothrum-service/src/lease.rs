@@ -120,6 +120,7 @@ mod tests {
             protocol: 1,
             endpoint: "here".into(),
             epoch: 7,
+            build: None,
         };
         first.publish(&info).unwrap();
         let held = Lease::acquire(&paths).unwrap_err();

@@ -137,9 +137,9 @@ impl Client {
         Client::start(paths, binary).await
     }
 
-    /// Connects to `home`'s service of this release ([`VERSION`]) and protocol: the one that runs
-    /// when it is, else after replacing the one of another release (stopped, or ended when it
-    /// doesn't answer), else none; a service it then starts as [`Client::connect`] does
+    /// Connects to `home`'s service of this release ([`VERSION`]), protocol and build (of
+    /// `binary`: [`ServiceInfo::build`]): the one that runs when it is, else after replacing the one
+    /// of another release or build (stopped, or ended when it doesn't answer), else none; a service it then starts as [`Client::connect`] does
     /// (`binary`: the `isothrum` of this release). How it replaces a service is in the crate's
     /// documentation.
     ///
@@ -152,11 +152,12 @@ impl Client {
     /// none could be started; [`ClientError::Protocol`] when it refused to stop.
     pub async fn connect_exact(home: &Path, binary: Option<&Path>) -> Result<Client> {
         let paths = ServicePaths::new(resolve(home));
+        let binary = spawn::binary(binary);
         let _turn = replace::Turn::take(&paths).await?;
-        if let Some((r, w, info)) = replace::make_room(&paths).await? {
+        if let Some((r, w, info)) = replace::make_room(&paths, crate::build_of(&binary).as_deref()).await? {
             return Ok(Client::over(paths, r, w, info));
         }
-        let client = Client::start(paths, binary).await?;
+        let client = Client::start(paths, Some(&binary)).await?;
         if client.info.version == VERSION {
             return Ok(client);
         }
