@@ -83,13 +83,13 @@ pub(crate) struct Lab {
 impl Lab {
     /// A lab whose project folder holds nothing.
     pub(crate) fn empty() -> Outcome<Lab> {
-        let mut path = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::var_os("PATH").unwrap_or_default();
         #[cfg(unix)]
-        {
+        let path = {
             let docker = isothrum_test_support::installed_executable(std::path::Path::new(env!("CARGO_TARGET_TMPDIR")), "docker", DOCKER)?;
             let dir = docker.parent().ok_or("the stand-in's folder")?;
-            path = std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)))?;
-        }
+            std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)))?
+        };
         Ok(Lab {
             env: TempHome::new(),
             home: tempfile::tempdir()?,
