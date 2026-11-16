@@ -203,7 +203,7 @@ mod tests {
             if call.program == "utmctl" {
                 Reply::missing()
             } else {
-                Reply::ok("1f0e  started  lab-web")
+                Reply::ok("1f0e  started  stack-web")
             }
         });
         let call = crate::cli::Call {
@@ -218,7 +218,7 @@ mod tests {
         let utmctl = app.join("Contents/MacOS/utmctl");
         file(&utmctl);
         let name = crate::cli::utmctl::name_of(&call, "1f0e").await.expect("the app's utmctl");
-        assert_eq!(name.as_deref(), Some("lab-web"));
+        assert_eq!(name.as_deref(), Some("stack-web"));
         // As a path: the one joined for a Mac has `/` where Windows would write `\\`.
         let ran = fake.calls().last().map(|c| std::path::PathBuf::from(&c.program));
         assert_eq!(ran.as_deref(), Some(utmctl.as_path()));

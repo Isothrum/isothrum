@@ -98,13 +98,13 @@ mod tests {
     use crate::cli::testing;
     use crate::process::fake::{FakeProcesses, Reply};
 
-    const LABEL: &str = "com.docker.compose.project=lab";
+    const LABEL: &str = "com.docker.compose.project=stack";
 
     #[tokio::test]
     async fn labelled_containers_stopped_ones_included_are_listed_and_removed_by_id_with_their_volumes() {
         let fake = FakeProcesses::script()
             .expect(
-                "docker container ls --quiet --filter label=com.docker.compose.project=lab --all",
+                "docker container ls --quiet --filter label=com.docker.compose.project=stack --all",
                 Reply::ok("3f2a9c1e7b6d\n9c1e7b6d3f2a\n"),
             )
             .expect("docker container rm --force --volumes 3f2a9c1e7b6d 9c1e7b6d3f2a", Reply::ok(""))
@@ -126,9 +126,9 @@ mod tests {
             let fake = FakeProcesses::script().expect(&format!("docker {}", kind.word()), Reply::fail(1, said)).build();
             remove(&testing::call(&fake), kind, &["x1".to_owned()]).await.expect("gone is removed");
         }
-        let busy = "Error response from daemon: remove lab_data: volume is in use - [3f2a9c1e7b6d]";
-        let fake = FakeProcesses::script().expect("docker volume rm lab_data", Reply::fail(1, busy)).build();
-        let e = remove(&testing::call(&fake), Object::Volume, &["lab_data".to_owned()])
+        let busy = "Error response from daemon: remove stack_data: volume is in use - [3f2a9c1e7b6d]";
+        let fake = FakeProcesses::script().expect("docker volume rm stack_data", Reply::fail(1, busy)).build();
+        let e = remove(&testing::call(&fake), Object::Volume, &["stack_data".to_owned()])
             .await
             .expect_err("in use");
         assert!(

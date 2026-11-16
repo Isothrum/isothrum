@@ -156,14 +156,14 @@ mod tests {
             ["ops@192.0.2.10", "ops@10.60.0.10"]
         );
         assert_eq!(
-            targets(&route(&out, None, "web", Some("admin"), Some("root@node.lab")).expect("a route")),
-            ["root@node.lab", "ops@192.0.2.10", "admin@10.60.0.10"],
+            targets(&route(&out, None, "web", Some("admin"), Some("root@node.stack")).expect("a route")),
+            ["root@node.stack", "ops@192.0.2.10", "admin@10.60.0.10"],
             "the jump first, the router as its own user, the machine as the user asked for"
         );
         // The router itself: at its address in the state, through the jump alone.
         assert_eq!(
-            targets(&route(&out, Some("192.0.2.10"), "router", None, Some("root@node.lab")).expect("a route")),
-            ["root@node.lab", "ops@192.0.2.10"]
+            targets(&route(&out, Some("192.0.2.10"), "router", None, Some("root@node.stack")).expect("a route")),
+            ["root@node.stack", "ops@192.0.2.10"]
         );
     }
 
@@ -193,7 +193,7 @@ mod tests {
         let why = |r: std::result::Result<(Vec<Login>, Login), String>| r.expect_err("no route");
         assert!(why(route(&out, None, "db", None, None)).contains("give it an address"));
         assert!(why(route(&outputs(&[("machines", r#"{"web":"10.60.0.10"}"#)]), None, "web", None, None)).contains("`ip` output"));
-        assert!(why(route(&out, None, "web", None, Some("node.lab"))).contains("isn't `user@host`"));
+        assert!(why(route(&out, None, "web", None, Some("node.stack"))).contains("isn't `user@host`"));
         assert!(why(route(&out, None, "web", None, Some("root@-oProxyCommand=x"))).contains("isn't an SSH login"));
         let no_user = outputs(&[("machines", r#"{"web":"10.60.0.10"}"#), ("ip", "10.60.0.10")]);
         assert!(why(route(&no_user, None, "web", None, None)).contains("no SSH user"));

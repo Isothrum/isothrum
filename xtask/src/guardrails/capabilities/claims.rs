@@ -33,7 +33,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
         "park",
         Witness {
             test: "park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_without_remaking",
-            evidence: "docker compose -p lab -f * pause",
+            evidence: "docker compose -p stack -f * pause",
         },
     ),
     (
@@ -67,7 +67,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
         "attach",
         Witness {
             test: "attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes",
-            evidence: "up --detach --wait attackbox",
+            evidence: "up --detach --wait toolbox",
         },
     ),
     (
@@ -75,7 +75,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
         "retire",
         Witness {
             test: "attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes",
-            evidence: "rm --stop --force --volumes attackbox",
+            evidence: "rm --stop --force --volumes toolbox",
         },
     ),
     (

@@ -1,8 +1,8 @@
 {
-  "name": "lab",
+  "name": "stack",
   "networks": {
     "default": {
-      "name": "lab_default",
+      "name": "stack_default",
       "ipam": {}
     }
   },

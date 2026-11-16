@@ -107,11 +107,11 @@ fn hyper_v_takes_its_commands_elevated() {
 
 #[test]
 fn a_vm_is_this_runs_by_its_key_as_a_word() {
-    assert!(ours("lab-k3x9a2 - dc01", "k3x9a2") && ours("k3x9a2", "k3x9a2"));
-    for theirs in ["lab-zz0000 - dc01", "lab-k3x9a2x - dc01", "labk3x9a2 - dc01"] {
+    assert!(ours("stack-k3x9a2 - dc01", "k3x9a2") && ours("k3x9a2", "k3x9a2"));
+    for theirs in ["stack-zz0000 - dc01", "stack-k3x9a2x - dc01", "labk3x9a2 - dc01"] {
         assert!(!ours(theirs, "k3x9a2"), "{theirs}");
     }
-    assert!(!ours("lab", ""), "no key matches nothing");
+    assert!(!ours("stack", ""), "no key matches nothing");
     assert_eq!(of_key("vm:web", LIBVIRT), Some(("web".into(), Some("libvirt".into()))));
     assert_eq!(of_key("vm:web@virtualbox", LIBVIRT), Some(("web".into(), Some("virtualbox".into()))));
     assert_eq!(of_key("network:x", LIBVIRT), None);

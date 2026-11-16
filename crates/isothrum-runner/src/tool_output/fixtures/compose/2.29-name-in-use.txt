@@ -1,1 +1,1 @@
-Error response from daemon: Conflict. The container name "/lab-web-1" is already in use by container "3f2a9c1e7b6d". You have to remove (or rename) that container to be able to reuse that name.
+Error response from daemon: Conflict. The container name "/stack-web-1" is already in use by container "3f2a9c1e7b6d". You have to remove (or rename) that container to be able to reuse that name.

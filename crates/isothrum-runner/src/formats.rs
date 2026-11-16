@@ -39,7 +39,7 @@ use crate::state::{Park, RunState};
 use crate::status::MachineState;
 use crate::store::{Lifetime, ResourceKind};
 
-/// How long a command run in a machine may take (an `exec`, a lab's checks, one provisioner run
+/// How long a command run in a machine may take (an `exec`, a project's checks, one provisioner run
 /// alone): a check is short, so one that hangs (a guest that never answers its SSH) fails as a
 /// timeout, with its last line, well before the operation's caller gives up on it.
 pub(crate) const CHECK_LIMIT: Duration = Duration::from_secs(300);
@@ -333,7 +333,7 @@ pub(crate) trait FormatDriver {
     async fn reapply(&self, cx: &ToolCx<'_>, change: &Change) -> Result<()>;
     /// Runs the set-up again, on `machine` or on every machine.
     /// `with`, when given, runs only the provisioner of that name (Vagrant's
-    /// `--provision-with`: a lab's checks, re-read from the project before they run).
+    /// `--provision-with`: a project's checks, re-read from the project before they run).
     async fn provision(&self, cx: &ToolCx<'_>, machine: Option<&str>, with: Option<&str>) -> Result<()>;
     /// Starts `machine`, one the project leaves down at `up` (a Compose service under a profile,
     /// a Vagrant machine with `autostart: false`).

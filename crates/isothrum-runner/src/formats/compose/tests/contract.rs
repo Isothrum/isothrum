@@ -15,9 +15,9 @@ const VOLUME_GONE: &str = include_str!("../../../tool_output/fixtures/compose/27
 /// project's network and its volume.
 const CONTAINERS: [&str; 2] = ["4b0f1d7e2c3a", "9a8b7c6d5e4f"];
 const NETWORK: &str = "3f2e1d0c9b8a";
-const VOLUME: &str = "lab_data";
+const VOLUME: &str = "stack_data";
 
-/// Docker with Compose: the objects of project `lab`, by kind.
+/// Docker with Compose: the objects of project `stack`, by kind.
 pub(super) struct Docker {
     old: bool,
     held: Mutex<Vec<(&'static str, String)>>,
@@ -46,7 +46,7 @@ impl Docker {
         Reply::ok(&ids.join("\n"))
     }
 
-    /// `compose -p lab -f <file> <rest>`.
+    /// `compose -p stack -f <file> <rest>`.
     fn compose(&self, rest: &[&str]) -> Reply {
         match rest {
             ["up", "--detach", "--wait", "--remove-orphans"] => {
@@ -98,8 +98,8 @@ impl Model for Docker {
         let args: Vec<&str> = call.args.iter().map(String::as_str).collect();
         match args.as_slice() {
             ["compose", "version", "--short"] => Reply::ok(if self.old { TOO_OLD } else { VERSION }),
-            ["compose", "-p", "lab", "-f", _, rest @ ..] => self.compose(rest),
-            [kind, "ls", "--quiet", "--filter", "label=com.docker.compose.project=lab", ..] => Reply::ok(&self.holding(kind).join("\n")),
+            ["compose", "-p", "stack", "-f", _, rest @ ..] => self.compose(rest),
+            [kind, "ls", "--quiet", "--filter", "label=com.docker.compose.project=stack", ..] => Reply::ok(&self.holding(kind).join("\n")),
             ["container", "rm", "--force", "--volumes", ids @ ..] => self.remove("container", ids),
             [kind @ ("network" | "volume"), "rm", ids @ ..] => self.remove(kind, ids),
             other => panic!("a Docker call the model doesn't know: {other:?}"),

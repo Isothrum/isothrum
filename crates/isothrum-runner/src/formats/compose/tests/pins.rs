@@ -14,9 +14,9 @@ use crate::project::platform::Protocol;
 const CONFIG_PORTS: &str = include_str!("../../../tool_output/fixtures/compose/5.6-config-ports.json");
 
 /// The `up` of a run with its override: the project's file, then the run's.
-const UP_PINNED: &str = "docker compose -p lab -f * -f * up --detach --wait --remove-orphans";
+const UP_PINNED: &str = "docker compose -p stack -f * -f * up --detach --wait --remove-orphans";
 /// The pull a start makes first, the pins written.
-const PULL_PINNED: &str = "docker compose -p lab -f * -f * pull --ignore-buildable";
+const PULL_PINNED: &str = "docker compose -p stack -f * -f * pull --ignore-buildable";
 
 /// Hands out 41001, 41002, … in turn; claims every fixed port but `taken`, and keeps the claims.
 #[derive(Default)]
@@ -101,9 +101,9 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
         .expect(CONFIG, Reply::ok(&with_api()))
         .expect(UP_PINNED, Reply::ok(""))
         .allow(PULL_PINNED, Reply::ok(""))
-        .expect("docker compose -p lab -f * -f * config --services", Reply::ok("web\napi\n"))
+        .expect("docker compose -p stack -f * -f * config --services", Reply::ok("web\napi\n"))
         .expect(
-            "docker compose -p lab -f * -f * ps --all --format json",
+            "docker compose -p stack -f * -f * ps --all --format json",
             Reply::ok(&ps_line("web", "running", "", 0, None)),
         )
         .build();
@@ -121,7 +121,7 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
     );
 
     let down = FakeProcesses::script()
-        .expect("docker compose -p lab -f * -f * down --volumes --remove-orphans", Reply::ok(""))
+        .expect("docker compose -p stack -f * -f * down --volumes --remove-orphans", Reply::ok(""))
         .allow("docker", Reply::ok(""))
         .build();
     Compose.down(&cx_in(&project, &run, &down, state.path(), &picks)).await.expect("down");
@@ -131,27 +131,27 @@ async fn ephemeral_publishes_are_pinned_at_the_first_up_kept_by_an_update_and_dr
 #[tokio::test]
 async fn an_attached_services_ephemeral_port_is_pinned_kept_by_a_start_and_dropped_at_its_retire() {
     let (_dir, project, run, state, picks) = bench();
-    let attackbox = r#"{"services": {"attackbox": {"ports": [{"mode": "ingress", "target": 7681, "protocol": "tcp"}]}}}"#;
-    let attached = format!("{CONFIG} attackbox");
+    let toolbox = r#"{"services": {"toolbox": {"ports": [{"mode": "ingress", "target": 7681, "protocol": "tcp"}]}}}"#;
+    let attached = format!("{CONFIG} toolbox");
     let fake = FakeProcesses::script()
         .expect_times(CONFIG, 2, Reply::ok(NO_PORTS))
-        .expect_times(&attached, 2, Reply::ok(attackbox))
-        .expect("docker compose -p lab -f * -f * up --detach --wait attackbox", Reply::ok(""))
+        .expect_times(&attached, 2, Reply::ok(toolbox))
+        .expect("docker compose -p stack -f * -f * up --detach --wait toolbox", Reply::ok(""))
         .expect(UP_PINNED, Reply::ok(""))
         .allow(PULL_PINNED, Reply::ok(""))
-        .expect("docker compose -p lab -f * -f * rm --stop --force --volumes attackbox", Reply::ok(""))
+        .expect("docker compose -p stack -f * -f * rm --stop --force --volumes toolbox", Reply::ok(""))
         .build();
     let cx = cx_in(&project, &run, &fake, state.path(), &picks);
     let pins = state.path().join("compose-pins.yaml");
-    Compose.attach(&cx, "attackbox").await.expect("attached");
+    Compose.attach(&cx, "toolbox").await.expect("attached");
     let pinned = std::fs::read_to_string(&pins).expect("the override");
     assert!(
-        pinned.ends_with("  \"attackbox\":\n    ports: !override\n      - \"41001:7681/tcp\"\n"),
+        pinned.ends_with("  \"toolbox\":\n    ports: !override\n      - \"41001:7681/tcp\"\n"),
         "{pinned}"
     );
     Compose.up(&cx).await.expect("a start keeps it");
     assert_eq!(std::fs::read_to_string(&pins).expect("the override"), pinned, "the same port");
-    Compose.retire(&cx, "attackbox").await.expect("retired");
+    Compose.retire(&cx, "toolbox").await.expect("retired");
     assert!(!pins.exists(), "its pin went with it, and nothing else is pinned");
 }
 

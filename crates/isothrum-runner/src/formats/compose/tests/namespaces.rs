@@ -29,12 +29,12 @@ async fn a_resume_stops_the_services_left_in_the_network_namespace_of_one_stoppe
         "old": {"network_mode": "service:web"},
         "routes-cache": {"network_mode": "service:cache"}
     }}"#;
-    let stop = "docker compose -p lab -f * stop routes-web keeper";
-    let up = "docker compose -p lab -f * up --detach --wait --no-recreate";
+    let stop = "docker compose -p stack -f * stop routes-web keeper";
+    let up = "docker compose -p stack -f * up --detach --wait --no-recreate";
     let fake = FakeProcesses::script()
-        .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
+        .expect("docker compose -p stack -f * ps --all --format json", Reply::ok(&listing))
         .expect(
-            "docker compose -p lab -f * config --services",
+            "docker compose -p stack -f * config --services",
             Reply::ok("web\ncache\nroutes-web\nkeeper\nold\nroutes-cache\n"),
         )
         .expect(CONFIG, Reply::ok(config))
@@ -42,7 +42,7 @@ async fn a_resume_stops_the_services_left_in_the_network_namespace_of_one_stoppe
         .expect_times(up, 1, Reply::ok(""))
         .build();
     Compose.resume(&cx(&project, &run, &fake)).await.expect("resumed");
-    let [stopped] = fake.made("docker compose -p lab -f * stop").try_into().expect("one stop");
+    let [stopped] = fake.made("docker compose -p stack -f * stop").try_into().expect("one stop");
     assert_eq!(
         stopped.args.iter().skip_while(|a| *a != "stop").skip(1).collect::<Vec<_>>(),
         ["routes-web", "keeper"]

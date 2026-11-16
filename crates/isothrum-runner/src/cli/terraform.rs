@@ -74,7 +74,7 @@ pub(crate) struct Diagnostic {
     /// Its detail (several lines, or none).
     #[serde(default)]
     pub(crate) detail: String,
-    /// The resource instance it is about (`module.lab.aws_instance.vm["web"]`), when it is about
+    /// The resource instance it is about (`module.stack.aws_instance.vm["web"]`), when it is about
     /// one.
     #[serde(default)]
     pub(crate) address: Option<String>,
@@ -555,7 +555,7 @@ mod tests {
             read.managed,
             [
                 Resource {
-                    address: "aws_security_group.lab".into(),
+                    address: "aws_security_group.stack".into(),
                     kind: "aws_security_group".into(),
                     id: Some("sg-0a1b2c3d".into()),
                     tainted: false,
@@ -590,8 +590,8 @@ mod tests {
                 "terraform_data.pool[0]",
                 "terraform_data.pool[1]",
                 "terraform_data.web",
-                "module.lab.terraform_data.vm[\"a\"]",
-                "module.lab.terraform_data.vm[\"b\"]",
+                "module.stack.terraform_data.vm[\"a\"]",
+                "module.stack.terraform_data.vm[\"b\"]",
             ]
         );
         isothrum_test_support::assert_every!(&read.managed, |r: &&Resource| r.id.is_some() && !r.tainted);
@@ -658,11 +658,11 @@ mod tests {
     async fn outputs_keep_their_sensitivity() {
         let fake = FakeProcesses::script()
             .expect(
-                "terraform output -json -no-color -state=/runs/lab/terraform.tfstate",
+                "terraform output -json -no-color -state=/runs/stack/terraform.tfstate",
                 Reply::ok(include_str!("../tool_output/fixtures/terraform/1.16-output.json")),
             )
             .build();
-        let state = Path::new("/runs/lab/terraform.tfstate");
+        let state = Path::new("/runs/stack/terraform.tfstate");
         let read = outputs(&crate::cli::testing::call(&fake), StateAt::File(state)).await.unwrap();
         assert_eq!(read["ip"].value, serde_json::json!("10.0.0.5"));
         assert_eq!(read["machines"].value, serde_json::json!({ "web": "10.0.0.10" }));

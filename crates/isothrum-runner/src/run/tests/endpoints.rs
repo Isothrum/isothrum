@@ -45,7 +45,7 @@ async fn a_jump_host_that_isnt_a_login_is_refused() {
     let (_root, runner, project) = published(r#"{"web/site":"192.0.2.10:8080"}"#);
     let run = runner.open(&project, None).expect("opened");
     let e = run
-        .service_endpoints(&RunOptions::new().with_env("ssh_jump", "node.lab"))
+        .service_endpoints(&RunOptions::new().with_env("ssh_jump", "node.stack"))
         .await
         .expect_err("no user");
     assert_eq!(e.code(), crate::ErrorCode::InputInvalid, "{e}");

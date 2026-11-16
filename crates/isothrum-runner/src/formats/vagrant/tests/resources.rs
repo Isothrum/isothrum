@@ -243,12 +243,12 @@ async fn a_vm_clean_up_virtualbox_refuses_is_a_cleanup_warning_never_said_remove
         Reply::fail(1, "VBoxManage: error: Failed to create the VirtualBox object!"),
     );
     let removal_refused = FakeProcesses::script()
-        .expect("VBoxManage list vms", Reply::ok("\"lab-k3y9ab-web\" {uuid-old}\n"))
+        .expect("VBoxManage list vms", Reply::ok("\"stack-k3y9ab-web\" {uuid-old}\n"))
         .expect("VBoxManage discardstate uuid-old", Reply::fail(1, "not saved"))
         .expect("VBoxManage controlvm uuid-old poweroff", Reply::ok(""))
         .expect(
             "VBoxManage unregistervm uuid-old --delete",
-            Reply::fail(1, "VBoxManage: error: Cannot unregister the machine 'lab-k3y9ab-web' while it is locked"),
+            Reply::fail(1, "VBoxManage: error: Cannot unregister the machine 'stack-k3y9ab-web' while it is locked"),
         );
     for (case, script) in [("the listing fails", listing_fails), ("the removal is refused", removal_refused)] {
         let f = Fixture::new();

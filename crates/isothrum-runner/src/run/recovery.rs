@@ -92,7 +92,7 @@ mod tests {
         let current = store
             .write(|tx| {
                 let done = tx.begin_operation(&r, Op::Up, &me, None)?;
-                let net = tx.creating(&NewResource::new(&r, "network:lab", ResourceKind::Network, done.id).living(Lifetime::Run))?;
+                let net = tx.creating(&NewResource::new(&r, "network:stack", ResourceKind::Network, done.id).living(Lifetime::Run))?;
                 tx.created(net, "net-1")?;
                 tx.end_operation(done.id, Outcome::Succeeded, None)?;
                 let dead = tx.begin_operation(&r, Op::Up, &gone, None)?;
@@ -172,7 +172,7 @@ mod tests {
         let live: Vec<String> = store.read(|tx| tx.live_resources(&r)).unwrap().into_iter().map(|row| row.key).collect();
         assert_eq!(
             live,
-            ["network:lab", "vm:b", "vm:c"],
+            ["network:stack", "vm:b", "vm:c"],
             "the failed one stays, destroying, for the next operation"
         );
         // The next recovery finds it again (its operation is still dead), and never the gone one.

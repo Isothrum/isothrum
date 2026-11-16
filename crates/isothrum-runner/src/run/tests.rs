@@ -82,7 +82,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     }
 }
 
-/// A Compose project in a temporary folder named `my-Lab`, and a runner with a temporary home on
+/// A Compose project in a temporary folder named `my-Stack`, and a runner with a temporary home on
 /// the modelled engine.
 fn setup() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<Mutex<Engine>>) {
     let (root, project, runner, engine, _) = setup_seen();
@@ -98,7 +98,7 @@ fn setup_seen() -> (
     Arc<crate::process::fake::FakeProcesses>,
 ) {
     let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("my-Lab");
+    let project = root.path().join("my-Stack");
     std::fs::create_dir(&project).expect("the project");
     std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n").expect("a compose file");
     let (engine, fake) = modelled::<Engine>(answer);
@@ -111,7 +111,7 @@ fn setup_seen() -> (
 async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_recorded() {
     let (_root, project, runner, engine) = setup();
     let run = runner.open(&project, None).expect("opened");
-    assert_eq!(run.name().as_str(), "my-lab", "named after its folder");
+    assert_eq!(run.name().as_str(), "my-stack", "named after its folder");
     assert_eq!(run.project().format, Format::Compose);
 
     let events = Recorder::new();
@@ -129,7 +129,7 @@ async fn a_compose_folder_comes_up_reads_ready_and_goes_down_with_its_resources_
     assert_eq!(web.state, MachineState::Running);
     assert_eq!((web.published[0].port.get(), web.published[0].host_port.get()), (80, 41001));
 
-    let name = RunName::new("my-lab").expect("a name");
+    let name = RunName::new("my-stack").expect("a name");
     let live = runner.store.db().read(|tx| tx.live_resources(&name)).expect("rows");
     let ids: Vec<_> = live.iter().map(|r| (r.key.as_str(), r.state, r.native_id.as_deref())).collect();
     assert_eq!(
@@ -169,7 +169,7 @@ async fn a_parked_run_reads_parked_and_a_resume_brings_it_back() {
 #[tokio::test]
 async fn a_recorded_run_reopens_from_its_folder_and_a_folder_of_nothing_is_refused_before_any_tool() {
     let (root, project, runner, _engine) = setup();
-    let name = RunName::new("lab-1").expect("a name");
+    let name = RunName::new("stack-1").expect("a name");
     runner
         .open(&project, Some(name.clone()))
         .expect("opened")

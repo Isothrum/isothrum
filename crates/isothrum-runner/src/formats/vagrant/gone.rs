@@ -46,7 +46,7 @@ impl Vagrant {
 /// The run's state as `machines` show it, `gone` of them destroyed outside the run ([`gone`]):
 /// absent when none was made; failed when one made is gone; parked when none of those made runs;
 /// ready when each one made runs or is stopped (a machine its own provisioner powers off, such as
-/// a lab's controller, among running ones: it reads stopped); failed otherwise (one unhealthy,
+/// a project's controller, among running ones: it reads stopped); failed otherwise (one unhealthy,
 /// aborted, or in a state of its own). A machine never made (one the Vagrantfile leaves down at
 /// `up`, `autostart: false`) doesn't count: a start that failed midway fails its own operation.
 pub(super) fn run_state(machines: &[SeenMachine], gone: &[String]) -> RunState {

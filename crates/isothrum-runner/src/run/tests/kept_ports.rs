@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
-use super::vagrant::{VERSION, a_vagrant_lab_on};
+use super::vagrant::{VERSION, a_vagrant_stack_on};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
@@ -58,7 +58,7 @@ async fn up_park_resume(honours: bool) -> (Vec<crate::events::Event>, Arc<FakePr
         let model = Arc::clone(&model);
         move |call| model.answer(call)
     }));
-    let (_root, project, runner) = a_vagrant_lab_on(&fake);
+    let (_root, project, runner) = a_vagrant_stack_on(&fake);
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     run.up(&opts, &Recorder::new()).await.expect("up");

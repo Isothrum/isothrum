@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn an_endpoint_is_an_https_server_with_or_without_its_path() {
         let api = |e: &str| Api::at(e, false).map(|a| a.base);
-        assert_eq!(api("https://pve.lab:8006/api2/json").as_deref(), Some("https://pve.lab:8006"));
+        assert_eq!(api("https://pve.stack:8006/api2/json").as_deref(), Some("https://pve.stack:8006"));
         assert_eq!(api("https://10.0.0.5:8006/").as_deref(), Some("https://10.0.0.5:8006"));
         assert_eq!(api("https://pve").as_deref(), Some("https://pve"));
         for bad in ["http://pve:8006", "https://user@pve:8006", "https://pve:x", "https://pve/a/b", ""] {

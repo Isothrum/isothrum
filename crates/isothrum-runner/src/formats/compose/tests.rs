@@ -22,7 +22,7 @@ fn quiet(_: crate::events::Stream, _: &str) {}
 
 fn unwarned(_: crate::events::WarningCode, _: &str) {}
 
-/// A context for run `lab` of `project` on `fake`, with no state folder and no port to pick.
+/// A context for run `stack` of `project` on `fake`, with no state folder and no port to pick.
 fn cx<'a>(project: &'a Folder, run: &'a RunName, fake: &'a FakeProcesses) -> ToolCx<'a> {
     cx_in(project, run, fake, Path::new("/nowhere"), &crate::formats::NoPorts)
 }
@@ -62,7 +62,7 @@ fn cx_warned<'a>(
 }
 
 fn run() -> RunName {
-    RunName::new("lab").expect("a name")
+    RunName::new("stack").expect("a name")
 }
 
 /// One `ps` line for `service` in `state` (healthy when `health`), publishing `published` →
@@ -75,13 +75,13 @@ fn ps_line(service: &str, state: &str, health: &str, exit: i32, ports: Option<(u
     format!(r#"{{"Service":"{service}","State":"{state}","Health":"{health}","ExitCode":{exit},"Publishers":{publishers},"Labels":""}}"#)
 }
 
-const UP: &str = "docker compose -p lab -f * up --detach --wait --remove-orphans";
+const UP: &str = "docker compose -p stack -f * up --detach --wait --remove-orphans";
 /// The pull a start makes first.
-const PULL: &str = "docker compose -p lab -f * pull --ignore-buildable";
+const PULL: &str = "docker compose -p stack -f * pull --ignore-buildable";
 /// The config a project of no published port prints: nothing to pin.
-const CONFIG: &str = "docker compose -p lab -f * config --format json";
+const CONFIG: &str = "docker compose -p stack -f * config --format json";
 const NO_PORTS: &str = r#"{"services": {"web": {}}}"#;
-const LABEL: &str = "label=com.docker.compose.project=lab";
+const LABEL: &str = "label=com.docker.compose.project=stack";
 
 #[tokio::test]
 async fn up_waits_for_the_services_and_names_the_project_after_the_run() {
@@ -94,7 +94,7 @@ async fn up_waits_for_the_services_and_names_the_project_after_the_run() {
         .build();
     Compose.up(&cx(&project, &run, &fake)).await.expect("up");
     let [call] = fake.made(UP).try_into().expect("one up");
-    assert_eq!(call.flag("-p"), Some("lab"), "the project is the run: {:?}", call.args);
+    assert_eq!(call.flag("-p"), Some("stack"), "the project is the run: {:?}", call.args);
     assert!(call.env.contains(&("ISOTHRUM_RUN_KEY".to_owned(), "k3y9ab".to_owned())), "{:?}", call.env);
     assert_eq!(call.cwd.as_deref(), Some(project.dir.as_path()));
 }
@@ -105,7 +105,7 @@ async fn an_up_refused_for_a_name_leftovers_hold_clears_them_by_label_and_is_tri
     let run = run();
     let taken = Reply::fail(
         1,
-        "Error response from daemon: Conflict. The container name \"/lab-web-1\" is already in use by container \"abc\"",
+        "Error response from daemon: Conflict. The container name \"/stack-web-1\" is already in use by container \"abc\"",
     );
     let fake = FakeProcesses::script()
         .expect_times(UP, 2, taken)
@@ -122,19 +122,19 @@ async fn an_up_refused_for_a_name_leftovers_hold_clears_them_by_label_and_is_tri
     assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
 }
 
-/// A script reading the config of the project and of `attackbox` (a service under a profile,
+/// A script reading the config of the project and of `toolbox` (a service under a profile,
 /// publishing nothing), as an attach of it does before its `up`.
-fn attackbox_configs() -> crate::process::fake::Script {
+fn toolbox_configs() -> crate::process::fake::Script {
     FakeProcesses::script()
         .expect(CONFIG, Reply::ok(NO_PORTS))
-        .expect(&format!("{CONFIG} attackbox"), Reply::ok(r#"{"services": {"attackbox": {}}}"#))
+        .expect(&format!("{CONFIG} toolbox"), Reply::ok(r#"{"services": {"toolbox": {}}}"#))
 }
 
 /// `script` with the `down` that undoes a refused first start: the project's objects, then
 /// whatever still carries its label.
 fn undone(script: crate::process::fake::Script) -> FakeProcesses {
     script
-        .expect_times("docker compose -p lab -f * down --volumes --remove-orphans", 1, Reply::ok(""))
+        .expect_times("docker compose -p stack -f * down --volumes --remove-orphans", 1, Reply::ok(""))
         .expect_times(&format!("docker container ls --quiet --filter {LABEL} --all"), 1, Reply::ok(""))
         .expect_times(&format!("docker network ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
         .expect_times(&format!("docker volume ls --quiet --filter {LABEL}"), 1, Reply::ok(""))
@@ -215,7 +215,7 @@ async fn down_takes_the_volumes_then_whatever_still_carries_the_label() {
     let (_dir, project) = folder();
     let run = run();
     let fake = FakeProcesses::script()
-        .expect("docker compose -p lab -f * down --volumes --remove-orphans", Reply::ok(""))
+        .expect("docker compose -p stack -f * down --volumes --remove-orphans", Reply::ok(""))
         .expect(&format!("docker container ls --quiet --filter {LABEL} --all"), Reply::ok(""))
         .expect(&format!("docker network ls --quiet --filter {LABEL}"), Reply::ok("n1\n"))
         .expect("docker network rm n1", Reply::fail(1, "Error: network n1 not found"))
@@ -229,16 +229,16 @@ async fn park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_wi
     let (_dir, project) = folder();
     let run = run();
     let fake = FakeProcesses::script()
-        .expect("docker compose -p lab -f * pause", Reply::ok(""))
-        .expect("docker compose -p lab -f * stop", Reply::ok(""))
+        .expect("docker compose -p stack -f * pause", Reply::ok(""))
+        .expect("docker compose -p stack -f * stop", Reply::ok(""))
         .expect(
-            "docker compose -p lab -f * ps --all --format json",
+            "docker compose -p stack -f * ps --all --format json",
             Reply::ok(&[ps_line("web", "paused", "", 0, None), ps_line("db", "exited", "", 0, None)].join("\n")),
         )
-        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
+        .expect("docker compose -p stack -f * config --services", Reply::ok("web\ndb\n"))
         .expect(CONFIG, Reply::ok(r#"{"services": {"web": {}, "db": {}}}"#))
-        .expect("docker compose -p lab -f * unpause web", Reply::ok(""))
-        .expect("docker compose -p lab -f * up --detach --wait --no-recreate", Reply::ok(""))
+        .expect("docker compose -p stack -f * unpause web", Reply::ok(""))
+        .expect("docker compose -p stack -f * up --detach --wait --no-recreate", Reply::ok(""))
         .build();
     let cx = cx(&project, &run, &fake);
     Compose.park(&cx, Park::Pause).await.expect("paused");
@@ -257,8 +257,8 @@ async fn observe_reads_each_service_and_its_published_ports_and_derives_the_runs
     ]
     .join("\n");
     let fake = FakeProcesses::script()
-        .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
-        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
+        .expect("docker compose -p stack -f * ps --all --format json", Reply::ok(&listing))
+        .expect("docker compose -p stack -f * config --services", Reply::ok("web\ndb\n"))
         .build();
     let (seen, state) = Compose.observe(&cx(&project, &run, &fake)).await.expect("read");
     assert_eq!(state, RunState::Ready, "an init job that ended well is no failure");
@@ -272,8 +272,8 @@ async fn observe_reads_each_service_and_its_published_ports_and_derives_the_runs
 async fn a_service_removed_outside_the_run_reads_absent_and_its_resume_is_refused_naming_it() {
     let (_dir, project) = folder();
     let run = run();
-    let ps = "docker compose -p lab -f * ps --all --format json";
-    let services = "docker compose -p lab -f * config --services";
+    let ps = "docker compose -p stack -f * ps --all --format json";
+    let services = "docker compose -p stack -f * config --services";
     let fake = FakeProcesses::script()
         .expect_times(ps, 2, Reply::ok(&ps_line("cache", "running", "", 0, None)))
         .expect_times(services, 2, Reply::ok("web\ncache\n"))
@@ -351,11 +351,11 @@ async fn exec_runs_in_the_running_container_or_as_a_one_off_and_says_how_it_ende
     let run = run();
     let fake = FakeProcesses::script()
         .allow(
-            "docker compose -p lab -f * ps --all --format json",
+            "docker compose -p stack -f * ps --all --format json",
             Reply::ok(&ps_line("web", "running", "", 0, None)),
         )
-        .expect("docker compose -p lab -f * exec -T web cat /flag", Reply::ok("flag{x}"))
-        .expect("docker compose -p lab -f * run --rm -T checks ./run.sh", Reply::fail(3, "one check failed"))
+        .expect("docker compose -p stack -f * exec -T web cat /flag", Reply::ok("flag{x}"))
+        .expect("docker compose -p stack -f * run --rm -T checks ./run.sh", Reply::fail(3, "one check failed"))
         .build();
     let cx = cx(&project, &run, &fake);
     let ran = Compose.exec(&cx, "web", &["cat".to_owned(), "/flag".to_owned()]).await.expect("ran");
@@ -369,13 +369,13 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     let (_dir, project) = folder();
     let run = run();
     let state = tempfile::tempdir().expect("a state folder");
-    let fake = attackbox_configs()
-        .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
-        .expect("docker compose -p lab -f * rm --stop --force --volumes attackbox", Reply::ok(""))
+    let fake = toolbox_configs()
+        .expect("docker compose -p stack -f * up --detach --wait toolbox", Reply::ok(""))
+        .expect("docker compose -p stack -f * rm --stop --force --volumes toolbox", Reply::ok(""))
         .build();
     let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
-    Compose.attach(&cx, "attackbox").await.expect("attached");
-    Compose.retire(&cx, "attackbox").await.expect("retired");
+    Compose.attach(&cx, "toolbox").await.expect("attached");
+    Compose.retire(&cx, "toolbox").await.expect("retired");
 }
 
 /// Regression: a machine that stood in for an access machine (`user`, under the `access` profile)
@@ -392,23 +392,23 @@ async fn an_update_removes_the_containers_of_services_moved_under_a_profile_the_
         ps_line("web", "running", "", 0, None),
         ps_line("routes-user", "exited", "", 1, None),
         ps_line("init-web-1", "exited", "", 0, None),
-        ps_line("attackbox", "running", "", 0, None),
+        ps_line("toolbox", "running", "", 0, None),
     ]
     .join("\n");
-    let rm = "docker compose -p lab -f * rm --stop --force --volumes routes-user";
-    let fake = attackbox_configs()
-        .expect("docker compose -p lab -f * up --detach --wait attackbox", Reply::ok(""))
+    let rm = "docker compose -p stack -f * rm --stop --force --volumes routes-user";
+    let fake = toolbox_configs()
+        .expect("docker compose -p stack -f * up --detach --wait toolbox", Reply::ok(""))
         .expect(UP, Reply::ok(""))
         .allow(PULL, Reply::ok(""))
-        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ninit-web-1\n"))
-        .expect("docker compose -p lab -f * ps --all --format json", Reply::ok(&listing))
+        .expect("docker compose -p stack -f * config --services", Reply::ok("web\ninit-web-1\n"))
+        .expect("docker compose -p stack -f * ps --all --format json", Reply::ok(&listing))
         .expect_times(rm, 1, Reply::ok(""))
         .build();
     let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
-    Compose.attach(&cx, "attackbox").await.expect("attached");
+    Compose.attach(&cx, "toolbox").await.expect("attached");
     Compose.update(&cx).await.expect("updated");
     let [call] = fake.made(rm).try_into().expect("one removal");
-    assert!(!call.args.iter().any(|a| a == "attackbox" || a == "web"), "{:?}", call.args);
+    assert!(!call.args.iter().any(|a| a == "toolbox" || a == "web"), "{:?}", call.args);
 }
 
 #[tokio::test]
@@ -416,7 +416,7 @@ async fn machines_are_the_services_the_files_declare_and_reapply_is_one_up() {
     let (_dir, project) = folder();
     let run = run();
     let fake = FakeProcesses::script()
-        .expect("docker compose -p lab -f * config --services", Reply::ok("web\ndb\n"))
+        .expect("docker compose -p stack -f * config --services", Reply::ok("web\ndb\n"))
         .expect(UP, Reply::ok(""))
         .allow(PULL, Reply::ok(""))
         .expect(CONFIG, Reply::ok(NO_PORTS))

@@ -92,7 +92,7 @@ async fn a_pull_the_network_cut_short_is_tried_again_and_one_refused_never() {
     let (cut, _) = start(&always).await;
     assert_eq!(cut.expect_err("cut short every time").code(), crate::ErrorCode::DownloadFailed);
 
-    let refused = "Error response from daemon: pull access denied for lab/web, repository does not exist or may require 'docker login'";
+    let refused = "Error response from daemon: pull access denied for stack/web, repository does not exist or may require 'docker login'";
     let denied = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .expect_times(PULL, 1, Reply::fail(1, refused))

@@ -39,7 +39,7 @@ impl Fixture {
             _dir: dir,
             state: tempfile::tempdir().expect("a state folder"),
             project,
-            run: RunName::new("lab").expect("a name"),
+            run: RunName::new("stack").expect("a name"),
             warned,
             warn: Box::new(move |code, said| into.lock().unwrap().push((code, said.to_owned()))),
         }
@@ -68,7 +68,7 @@ impl Fixture {
 
 fn quiet(_: crate::events::Stream, _: &str) {}
 
-/// A context for run `lab` of the fixture's project on `fake`, on `provider`.
+/// A context for run `stack` of the fixture's project on `fake`, on `provider`.
 fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -> ToolCx<'a> {
     ToolCx {
         project: &f.project,
@@ -182,10 +182,10 @@ async fn an_up_refused_for_a_vm_name_taken_clears_what_the_run_made_and_is_tried
     let f = Fixture::new();
     f.made("web", "virtualbox", "uuid-web");
     let machine_folder = tempfile::tempdir().unwrap();
-    std::fs::create_dir(machine_folder.path().join("lab-k3y9ab-web")).unwrap();
-    std::fs::create_dir(machine_folder.path().join("lab-zz0000-web")).unwrap();
+    std::fs::create_dir(machine_folder.path().join("stack-k3y9ab-web")).unwrap();
+    std::fs::create_dir(machine_folder.path().join("stack-zz0000-web")).unwrap();
     let taken = Reply::fail(1, &fixture("vagrant/2.4.1-virtualbox-7.0-already-exists.txt"));
-    let vms = "\"lab-k3y9ab-db\" {uuid-db}\n\"lab-zz0000-db\" {uuid-other}\n";
+    let vms = "\"stack-k3y9ab-db\" {uuid-db}\n\"stack-zz0000-db\" {uuid-other}\n";
     let fake = FakeProcesses::script()
         .expect("VBoxManage showvminfo uuid-web --machinereadable", Reply::ok("VMState=\"poweroff\""))
         .expect_times("vagrant up --provider virtualbox", 2, taken)
@@ -204,8 +204,8 @@ async fn an_up_refused_for_a_vm_name_taken_clears_what_the_run_made_and_is_tried
     let e = Vagrant.up(&cx(&f, &fake, VBOX)).await.expect_err("taken twice");
     assert_eq!(e.code(), crate::ErrorCode::ToolFailed, "{e}");
     isothrum_test_support::assert_every!(fake.calls(), |c: &crate::process::fake::Call| !c.has("uuid-other"));
-    assert!(!machine_folder.path().join("lab-k3y9ab-web").exists());
-    assert!(machine_folder.path().join("lab-zz0000-web").exists());
+    assert!(!machine_folder.path().join("stack-k3y9ab-web").exists());
+    assert!(machine_folder.path().join("stack-zz0000-web").exists());
     assert_eq!(f.dot().recorded().unwrap(), Vec::<Record>::new());
 }
 

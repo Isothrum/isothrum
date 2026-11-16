@@ -134,7 +134,7 @@ mod tests {
     fn a_value_from_a_variable_file_or_one_that_cant_be_read_is_never_refused() {
         for files in [
             &[("terraform.tfvars", "token = \"x\"\nregion = \"eu\"\n")][..],
-            &[("terraform.tfvars.json", r#"{"token": "x"}"#), ("lab.auto.tfvars", "region = \"eu\"\n")][..],
+            &[("terraform.tfvars.json", r#"{"token": "x"}"#), ("stack.auto.tfvars", "region = \"eu\"\n")][..],
             &[("prod.auto.tfvars.json", r#"{"token": "x", "region": "eu"}"#)][..],
             // A file that doesn't parse may set anything.
             &[("terraform.tfvars.json", "{ not json")][..],

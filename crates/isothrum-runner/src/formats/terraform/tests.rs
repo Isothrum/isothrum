@@ -29,7 +29,7 @@ const DESTROYED_ONE: &str = include_str!("../../tool_output/fixtures/terraform/1
 const SECRET: &str = "s3cretTOKEN";
 
 /// A module in a folder of its own, and the run's state folder apart.
-struct Lab {
+struct Stack {
     module: tempfile::TempDir,
     state: tempfile::TempDir,
     project: Project,
@@ -38,21 +38,21 @@ struct Lab {
     warnings: Mutex<Vec<(WarningCode, String)>>,
 }
 
-fn lab() -> Lab {
+fn stack() -> Stack {
     let module = tempfile::tempdir().expect("a folder");
     std::fs::write(module.path().join("main.tf"), "resource \"terraform_data\" \"web\" {}\n").expect("a module");
     let project = Project::open(module.path(), Some(Format::Terraform)).expect("a project");
-    Lab {
+    Stack {
         module,
         state: tempfile::tempdir().expect("a state folder"),
         project,
-        run: RunName::new("lab").expect("a name"),
+        run: RunName::new("stack").expect("a name"),
         lines: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
     }
 }
 
-impl Lab {
+impl Stack {
     fn state_file(&self) -> PathBuf {
         self.state.path().join(STATE_FILE)
     }
@@ -63,13 +63,13 @@ impl Lab {
     }
 
     /// The run's state file, written (its content is the fake's: `show` reads it).
-    fn with_state(self) -> Lab {
+    fn with_state(self) -> Stack {
         std::fs::write(self.state_file(), "{}").expect("a state");
         self
     }
 
     /// `init` chose the backend `name`.
-    fn with_backend(self, name: &str) -> Lab {
+    fn with_backend(self, name: &str) -> Stack {
         let data = self.state.path().join(DATA_DIR);
         std::fs::create_dir_all(&data).expect("a data folder");
         let doc = format!(r#"{{"version":3,"backend":{{"type":"{name}","config":{{}}}}}}"#);
@@ -86,20 +86,20 @@ impl Lab {
     }
 }
 
-/// Runs `f` with a context for `lab` on `fake`.
-async fn with_cx<T>(lab: &Lab, fake: &FakeProcesses, f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
-    with_cx_given(lab, fake, &[], f).await
+/// Runs `f` with a context for `stack` on `fake`.
+async fn with_cx<T>(stack: &Stack, fake: &FakeProcesses, f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
+    with_cx_given(stack, fake, &[], f).await
 }
 
 /// [`with_cx`], the run given `extra` values too.
-async fn with_cx_given<T>(lab: &Lab, fake: &FakeProcesses, extra: &[(&str, &str)], f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
-    let sink = |_: Stream, l: &str| lab.lines.lock().expect("lines").push(l.to_owned());
-    let warn = |c: WarningCode, m: &str| lab.warnings.lock().expect("warnings").push((c, m.to_owned()));
+async fn with_cx_given<T>(stack: &Stack, fake: &FakeProcesses, extra: &[(&str, &str)], f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
+    let sink = |_: Stream, l: &str| stack.lines.lock().expect("lines").push(l.to_owned());
+    let warn = |c: WarningCode, m: &str| stack.warnings.lock().expect("warnings").push((c, m.to_owned()));
     let cx = ToolCx {
-        project: &lab.project,
-        run: &lab.run,
+        project: &stack.project,
+        run: &stack.run,
         key: "k3y9ab",
-        state_dir: lab.state.path(),
+        state_dir: stack.state.path(),
         provider: None,
         env: vec![
             ("name".to_owned(), "web".to_owned()),
@@ -151,8 +151,8 @@ fn failing(stdout: &str) -> Reply {
 
 /// The calls made, as `program arg…` lines with the run's state folder written `<state>` and the
 /// paths under it with `/` (Windows joins them with `\\`).
-fn made(fake: &FakeProcesses, lab: &Lab) -> Vec<String> {
-    let state = lab.state.path().display().to_string();
+fn made(fake: &FakeProcesses, stack: &Stack) -> Vec<String> {
+    let state = stack.state.path().display().to_string();
     let arg = |a: &String| {
         let a = a.replace(&state, "<state>");
         if a.contains("<state>") { a.replace('\\', "/") } else { a }
@@ -165,33 +165,33 @@ fn made(fake: &FakeProcesses, lab: &Lab) -> Vec<String> {
 
 #[tokio::test]
 async fn up_inits_then_applies_on_the_runs_own_state_with_inputs_in_the_environment_only() {
-    let lab = lab();
-    std::fs::write(lab.state.path().join(LOCK_INFO), "{}").expect("a killed run's lock information");
+    let stack = stack();
+    std::fs::write(stack.state.path().join(LOCK_INFO), "{}").expect("a killed run's lock information");
     let fake = FakeProcesses::script()
         .expect(
             "terraform init -input=false -no-color",
             Reply::ok("Terraform has been successfully initialized!"),
         )
         .expect(
-            &format!("terraform apply -auto-approve -input=false -json {}", lab.state_flag()),
+            &format!("terraform apply -auto-approve -input=false -json {}", stack.state_flag()),
             Reply::ok(APPLY),
         )
         .build();
-    with_cx(&lab, &fake, async |cx| Terraform.up(cx).await).await.expect("up");
+    with_cx(&stack, &fake, async |cx| Terraform.up(cx).await).await.expect("up");
     let apply = fake.last("terraform apply").expect("an apply");
-    let data = lab.state.path().join(DATA_DIR);
+    let data = stack.state.path().join(DATA_DIR);
     assert_eq!(apply.env("TF_DATA_DIR"), Some(data.to_str().expect("a path")));
     assert_eq!(apply.env("TF_IN_AUTOMATION"), Some("1"));
     assert_eq!(apply.env("TF_VAR_token"), Some(SECRET));
     isothrum_test_support::assert_every!(fake.calls(), |c: &Made| !c.args.iter().any(|a| a.contains(SECRET) || a.starts_with("-var")));
-    assert!(!lab.state.path().join(LOCK_INFO).exists(), "the stale lock information is removed");
+    assert!(!stack.state.path().join(LOCK_INFO).exists(), "the stale lock information is removed");
     assert_eq!(
-        std::fs::read_dir(lab.module.path()).expect("the module").count(),
+        std::fs::read_dir(stack.module.path()).expect("the module").count(),
         1,
         "nothing written beside the module"
     );
-    assert!(lab.lines().iter().any(|l| l == "Apply complete! Resources: 6 added, 0 changed, 0 destroyed."));
-    assert_eq!(lab.warnings(), Vec::<WarningCode>::new());
+    assert!(stack.lines().iter().any(|l| l == "Apply complete! Resources: 6 added, 0 changed, 0 destroyed."));
+    assert_eq!(stack.warnings(), Vec::<WarningCode>::new());
 }
 
 /// Answers `apply` from `applies` in turn, everything else by `other`.
@@ -209,14 +209,14 @@ fn sequenced(applies: Vec<Reply>, other: impl Fn(&Made) -> Option<Reply> + Send 
 
 #[tokio::test]
 async fn a_lock_left_on_a_backends_state_is_released_once_and_the_apply_made_again() {
-    let lab = lab().with_backend("s3");
+    let stack = stack().with_backend("s3");
     let fake = sequenced(vec![failing(LOCKED), Reply::ok(APPLY)], |call| match call.args.first().map(String::as_str) {
         Some("init" | "force-unlock") => Some(Reply::ok("")),
         _ => None,
     });
-    with_cx(&lab, &fake, async |cx| Terraform.up(cx).await).await.expect("up");
+    with_cx(&stack, &fake, async |cx| Terraform.up(cx).await).await.expect("up");
     assert_eq!(
-        made(&fake, &lab),
+        made(&fake, &stack),
         [
             "terraform init -input=false -no-color",
             "terraform apply -auto-approve -input=false -json",
@@ -224,25 +224,25 @@ async fn a_lock_left_on_a_backends_state_is_released_once_and_the_apply_made_aga
             "terraform apply -auto-approve -input=false -json",
         ]
     );
-    assert_eq!(lab.warnings(), [WarningCode::SharedState, WarningCode::Retrying]);
+    assert_eq!(stack.warnings(), [WarningCode::SharedState, WarningCode::Retrying]);
 }
 
 #[tokio::test]
 async fn a_local_states_lock_is_a_live_processes_and_is_never_forced() {
-    let lab = lab();
+    let stack = stack();
     let fake = FakeProcesses::script()
         .expect("terraform init", Reply::ok(""))
         .expect_times("terraform apply", 1, failing(LOCKED))
         .build();
-    let e = with_cx(&lab, &fake, async |cx| Terraform.up(cx).await).await.expect_err("locked");
+    let e = with_cx(&stack, &fake, async |cx| Terraform.up(cx).await).await.expect_err("locked");
     assert_eq!(e.code(), ErrorCode::ToolFailed);
     assert!(e.to_string().contains("another process holds the state's lock"), "{e}");
 }
 
 #[tokio::test]
 async fn down_drops_what_a_provider_says_is_gone_destroys_again_then_forgets_the_runs_state() {
-    let lab = lab().with_state();
-    std::fs::write(lab.state.path().join(BACKUP_FILE), "{}").expect("a backup");
+    let stack = stack().with_state();
+    std::fs::write(stack.state.path().join(BACKUP_FILE), "{}").expect("a backup");
     let held = show_of(&[("terraform_data", "ipset", "98d6", false)]);
     let fake = sequenced(vec![failing(GONE), Reply::ok(DESTROYED_ONE)], move |call| {
         match call.args.first().map(String::as_str) {
@@ -251,9 +251,9 @@ async fn down_drops_what_a_provider_says_is_gone_destroys_again_then_forgets_the
             _ => None,
         }
     });
-    with_cx(&lab, &fake, async |cx| Terraform.down(cx).await).await.expect("down");
+    with_cx(&stack, &fake, async |cx| Terraform.down(cx).await).await.expect("down");
     assert_eq!(
-        made(&fake, &lab),
+        made(&fake, &stack),
         [
             "terraform init -input=false -no-color",
             "terraform destroy -auto-approve -input=false -json -state=<state>/terraform.tfstate",
@@ -262,43 +262,43 @@ async fn down_drops_what_a_provider_says_is_gone_destroys_again_then_forgets_the
             "terraform destroy -auto-approve -input=false -json -state=<state>/terraform.tfstate",
         ]
     );
-    assert_eq!(lab.warnings(), [WarningCode::AlreadyGone]);
+    assert_eq!(stack.warnings(), [WarningCode::AlreadyGone]);
     for gone in [STATE_FILE, BACKUP_FILE, DATA_DIR] {
-        assert!(!lab.state.path().join(gone).exists(), "{gone} is forgotten");
+        assert!(!stack.state.path().join(gone).exists(), "{gone} is forgotten");
     }
 }
 
 #[tokio::test]
 async fn a_destroy_failing_for_another_reason_fails_and_keeps_the_state() {
-    let lab = lab().with_state();
+    let stack = stack().with_state();
     let held = show_of(&[("terraform_data", "ipset", "98d6", false)]);
     let fake = FakeProcesses::script()
         .expect("terraform init", Reply::ok(""))
         .expect_times("terraform destroy", 1, failing(PROVISIONER_FAILED))
         .expect("terraform show -json", Reply::ok(&held))
         .build();
-    let e = with_cx(&lab, &fake, async |cx| Terraform.down(cx).await)
+    let e = with_cx(&stack, &fake, async |cx| Terraform.down(cx).await)
         .await
         .expect_err("a provisioner's failure");
     assert_eq!(e.code(), ErrorCode::ToolFailed);
     assert!(e.to_string().contains("local-exec provisioner error (terraform_data.ipset)"), "{e}");
-    assert!(lab.state_file().exists(), "what still exists keeps its state");
-    assert_eq!(lab.warnings(), Vec::<WarningCode>::new());
+    assert!(stack.state_file().exists(), "what still exists keeps its state");
+    assert_eq!(stack.warnings(), Vec::<WarningCode>::new());
 }
 
 #[tokio::test]
 async fn observe_reads_the_vms_and_the_outputs_sensitivity_kept() {
-    let lab = lab().with_state();
+    let stack = stack().with_state();
     let held = show_of(&[
         ("esxi_guest", "web", "42", false),
         ("esxi_guest", "db", "43", true),
-        ("esxi_vswitch", "lab", "vs", false),
+        ("esxi_vswitch", "stack", "vs", false),
     ]);
     let fake = FakeProcesses::script()
         .expect("terraform show -json -no-color", Reply::ok(&held))
-        .expect(&format!("terraform output -json -no-color {}", lab.state_flag()), Reply::ok(OUTPUT))
+        .expect(&format!("terraform output -json -no-color {}", stack.state_flag()), Reply::ok(OUTPUT))
         .build();
-    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    let (seen, state) = with_cx(&stack, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
     let machines: Vec<(&str, &MachineState)> = seen.machines.iter().map(|m| (m.name.as_str(), &m.state)).collect();
     assert_eq!(machines, [("web", &MachineState::Running), ("db", &MachineState::Unhealthy)]);
     assert_eq!(state, RunState::Failed, "a tainted instance");
@@ -313,7 +313,7 @@ async fn observe_reads_the_vms_and_the_outputs_sensitivity_kept() {
     let addresses: Vec<Option<&str>> = seen.machines.iter().map(|m| m.address.as_deref()).collect();
     assert_eq!(addresses, [Some("10.0.0.10"), None], "web at the address its `machines` output names");
     assert!(seen.outputs["token"].sensitive);
-    assert!(lab.lines().iter().all(|l| !l.contains(SECRET)));
+    assert!(stack.lines().iter().all(|l| !l.contains(SECRET)));
 }
 
 /// A VM the provider destroyed outside the run (deleted in the cloud's console) stays in the state
@@ -322,13 +322,13 @@ async fn observe_reads_the_vms_and_the_outputs_sensitivity_kept() {
 /// lock); the next `up` or `update`, whose apply refreshes, makes it again.
 #[tokio::test]
 async fn a_vm_destroyed_outside_reads_as_the_state_holds_it_with_no_refresh_until_an_apply() {
-    let lab = lab().with_state();
+    let stack = stack().with_state();
     let held = show_of(&[("aws_instance", "web", "i-gone", false)]);
     let fake = FakeProcesses::script()
         .expect("terraform show -json -no-color", Reply::ok(&held))
-        .expect(&format!("terraform output -json -no-color {}", lab.state_flag()), Reply::ok("{}"))
+        .expect(&format!("terraform output -json -no-color {}", stack.state_flag()), Reply::ok("{}"))
         .build();
-    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    let (seen, state) = with_cx(&stack, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
     let machines: Vec<(&str, &MachineState)> = seen.machines.iter().map(|m| (m.name.as_str(), &m.state)).collect();
     assert_eq!((machines.as_slice(), state), ([("web", &MachineState::Running)].as_slice(), RunState::Ready));
     let programs: Vec<String> = fake.calls().iter().map(|c| c.args.first().cloned().unwrap_or_default()).collect();
@@ -337,13 +337,13 @@ async fn a_vm_destroyed_outside_reads_as_the_state_holds_it_with_no_refresh_unti
 
 #[tokio::test]
 async fn a_run_with_no_state_yet_is_absent_and_nothing_runs() {
-    let lab = lab();
+    let stack = stack();
     let fake = FakeProcesses::script().build();
-    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    let (seen, state) = with_cx(&stack, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
     assert_eq!(state, RunState::Absent);
     assert!(seen.machines.is_empty() && seen.outputs.is_empty());
     assert_eq!(
-        with_cx(&lab, &fake, async |cx| Terraform.found(cx).await).await.expect("found"),
+        with_cx(&stack, &fake, async |cx| Terraform.found(cx).await).await.expect("found"),
         Vec::<Found>::new()
     );
 }
@@ -359,31 +359,31 @@ fn a_state_of_instances_none_tainted_is_a_ready_run_and_an_empty_one_absent() {
 /// up once applied, has no machine, makes nothing to remove, and gives its outputs back.
 #[tokio::test]
 async fn a_state_of_data_sources_only_is_a_ready_run_with_its_outputs_and_nothing_to_remove() {
-    let lab = lab().with_state();
+    let stack = stack().with_state();
     let fake = FakeProcesses::script()
         .expect_times("terraform show -json -no-color", 2, Reply::ok(DATA_ONLY))
         .expect(
-            &format!("terraform output -json -no-color {}", lab.state_flag()),
+            &format!("terraform output -json -no-color {}", stack.state_flag()),
             Reply::ok(r#"{"account_id":{"sensitive":false,"type":"string","value":"123456789012"}}"#),
         )
         .build();
-    let (seen, state) = with_cx(&lab, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
+    let (seen, state) = with_cx(&stack, &fake, async |cx| Terraform.observe(cx).await).await.expect("observed");
     assert_eq!((seen.machines.len(), state), (0, RunState::Ready));
     assert_eq!(seen.outputs["account_id"].value, "123456789012");
-    let found = with_cx(&lab, &fake, async |cx| Terraform.found(cx).await).await.expect("found");
+    let found = with_cx(&stack, &fake, async |cx| Terraform.found(cx).await).await.expect("found");
     assert_eq!(found, Vec::<Found>::new(), "a data source is no resource");
 }
 
 #[tokio::test]
 async fn found_is_every_managed_instance_by_address_and_id() {
-    let lab = lab().with_state();
+    let stack = stack().with_state();
     let fake = FakeProcesses::script().expect("terraform show -json", Reply::ok(SHOW)).build();
-    let found = with_cx(&lab, &fake, async |cx| Terraform.found(cx).await).await.expect("found");
+    let found = with_cx(&stack, &fake, async |cx| Terraform.found(cx).await).await.expect("found");
     assert_eq!(found.len(), 6, "data sources are no resources: {found:?}");
     assert_eq!(
         found[4],
         Found {
-            key: "module.lab.terraform_data.vm[\"a\"]".into(),
+            key: "module.stack.terraform_data.vm[\"a\"]".into(),
             kind: ResourceKind::Module,
             native_id: "e19f0c3c-3c9c-e4c2-659d-b357c4b36370".into(),
             lifetime: Lifetime::Run,
@@ -395,7 +395,7 @@ async fn found_is_every_managed_instance_by_address_and_id() {
 
 #[tokio::test]
 async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
-    let first = lab();
+    let first = stack();
     let from = tempfile::tempdir().expect("a deployment");
     std::fs::write(from.path().join(STATE_FILE), "{\"version\":4}").expect("its state");
     std::fs::write(from.path().join(BACKUP_FILE), "{}").expect("its backup");
@@ -409,7 +409,7 @@ async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
         .expect_err("a state already");
     assert_eq!(again.code(), ErrorCode::AdoptRefused);
     let empty = tempfile::tempdir().expect("no deployment");
-    let other = lab();
+    let other = stack();
     let none = with_cx(&other, &fake, async |cx| Terraform::adopt(cx, empty.path()))
         .await
         .expect_err("no state");
@@ -420,18 +420,18 @@ async fn adopt_moves_a_deployments_state_in_and_refuses_a_second() {
 /// in the run's state folder) puts the state back: the deployment is left as it was found.
 #[tokio::test]
 async fn an_adoption_that_cant_move_every_file_puts_back_what_it_moved() {
-    let lab = lab();
+    let stack = stack();
     let from = tempfile::tempdir().expect("a deployment");
     std::fs::write(from.path().join(STATE_FILE), "{\"version\":4}").expect("its state");
     std::fs::write(from.path().join(BACKUP_FILE), "{}").expect("its backup");
-    let in_the_way = lab.state.path().join(BACKUP_FILE);
+    let in_the_way = stack.state.path().join(BACKUP_FILE);
     std::fs::create_dir(&in_the_way).expect("a folder in the backup's place");
     std::fs::write(in_the_way.join("kept"), "").expect("a folder that isn't empty");
     let fake = FakeProcesses::script().build();
-    let e = with_cx(&lab, &fake, async |cx| Terraform::adopt(cx, from.path()))
+    let e = with_cx(&stack, &fake, async |cx| Terraform::adopt(cx, from.path()))
         .await
         .expect_err("the backup can't move");
     assert_eq!(e.code(), ErrorCode::Io, "{e}");
     assert_eq!(std::fs::read_to_string(from.path().join(STATE_FILE)).expect("put back"), "{\"version\":4}");
-    assert!(!lab.state_file().exists(), "nothing adopted");
+    assert!(!stack.state_file().exists(), "nothing adopted");
 }

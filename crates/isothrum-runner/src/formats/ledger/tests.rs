@@ -51,10 +51,10 @@ fn what_the_tool_reports_is_recorded_once_with_its_id() {
     let (_home, store, run, by) = with_operation(Op::Up);
     let seen = [
         found("container:web-1", ResourceKind::Container, "c0ffee"),
-        found("network:lab", ResourceKind::Network, "n1"),
+        found("network:stack", ResourceKind::Network, "n1"),
     ];
     let (made, _) = record(&store, &run, by, &seen);
-    assert_eq!(made, ["container:web-1", "network:lab"]);
+    assert_eq!(made, ["container:web-1", "network:stack"]);
     let again = store.write(|tx| record_found(tx, &run, by, &seen)).expect("recorded");
     assert_eq!(again, Recorded::default(), "the same report records nothing more");
     assert_eq!(states(&store, &run).len(), 2);

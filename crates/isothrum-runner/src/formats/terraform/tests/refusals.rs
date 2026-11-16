@@ -4,18 +4,20 @@ use super::*;
 
 #[tokio::test]
 async fn an_up_of_a_module_whose_required_secret_has_no_value_is_refused_before_terraform_runs() {
-    let lab = lab();
+    let stack = stack();
     std::fs::write(
-        lab.module.path().join("main.tf"),
+        stack.module.path().join("main.tf"),
         "variable \"password\" {\n  sensitive = true\n}\nvariable \"token\" {}\n",
     )
     .expect("a module");
-    let lab = Lab {
-        project: Project::open(lab.module.path(), Some(Format::Terraform)).expect("a project"),
-        ..lab
+    let stack = Stack {
+        project: Project::open(stack.module.path(), Some(Format::Terraform)).expect("a project"),
+        ..stack
     };
     let nothing_runs = FakeProcesses::script().build();
-    let e = with_cx(&lab, &nothing_runs, async |cx| Terraform.up(cx).await).await.expect_err("no password");
+    let e = with_cx(&stack, &nothing_runs, async |cx| Terraform.up(cx).await)
+        .await
+        .expect_err("no password");
     assert!(matches!(&e, Error::SecretMissing { name } if name == "password"), "{e:?}");
     assert_eq!(e.code(), ErrorCode::SecretMissing);
 }
@@ -24,15 +26,15 @@ async fn an_up_of_a_module_whose_required_secret_has_no_value_is_refused_before_
 /// decision: its minimum is then unchecked).
 #[tokio::test]
 async fn a_terraform_whose_version_cant_be_read_is_used_with_a_warning() {
-    let lab = lab();
+    let stack = stack();
     let fake = FakeProcesses::script()
         .expect("terraform version -json", Reply::ok("a build of its own"))
         .build();
-    with_cx(&lab, &fake, async |cx| Terraform.probe(cx).await).await.expect("used");
-    assert_eq!(lab.warnings(), [WarningCode::VersionUnknown]);
+    with_cx(&stack, &fake, async |cx| Terraform.probe(cx).await).await.expect("used");
+    assert_eq!(stack.warnings(), [WarningCode::VersionUnknown]);
     let read = FakeProcesses::script()
         .expect("terraform version -json", Reply::ok(r#"{"terraform_version": "1.16.0"}"#))
         .build();
-    with_cx(&lab, &read, async |cx| Terraform.probe(cx).await).await.expect("used");
-    assert_eq!(lab.warnings(), [WarningCode::VersionUnknown], "a version read: nothing more said");
+    with_cx(&stack, &read, async |cx| Terraform.probe(cx).await).await.expect("used");
+    assert_eq!(stack.warnings(), [WarningCode::VersionUnknown], "a version read: nothing more said");
 }

@@ -134,7 +134,7 @@ mod tests {
         let tests = [source::File {
             path: "t.rs".to_owned(),
             text:
-                "#[test]\nfn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes() { x(\"up --detach --wait attackbox\") }"
+                "#[test]\nfn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes() { x(\"up --detach --wait toolbox\") }"
                     .to_owned(),
         }];
         let found = unproven(&[("compose", claims)], &tests);

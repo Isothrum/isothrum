@@ -1,6 +1,6 @@
 //! A Compose run's published host ports stay the run's across a park and a resume, though
 //! Docker gives an ephemeral publish a new port each time its container starts: those of the
-//! services it starts, and those of a service under a profile it attached (an attack box).
+//! services it starts, and those of a service under a profile it attached (a toolbox).
 
 use std::collections::BTreeMap;
 
@@ -8,7 +8,7 @@ use super::*;
 use crate::testing::modelled;
 
 /// Each service's container port.
-const SERVICES: [(&str, u16); 2] = [("web", 80), ("attackbox", 7681)];
+const SERVICES: [(&str, u16); 2] = [("web", 80), ("toolbox", 7681)];
 
 /// What the engine holds: each service's container, running or not, with the host port it
 /// published at its last start, and how many starts it saw.
@@ -30,7 +30,7 @@ fn pinned(call: &Call, service: &str, target: u16) -> Option<u16> {
         .find_map(|l| l.trim().strip_prefix("- \"")?.strip_suffix(&format!(":{target}/tcp\""))?.parse().ok())
 }
 
-/// Docker with Compose: `web` and `attackbox` (under a profile) each publish one port with no
+/// Docker with Compose: `web` and `toolbox` (under a profile) each publish one port with no
 /// host port, which gets a new ephemeral one at each start unless the override pins it.
 fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
     let mut e = engine.lock().unwrap_or_else(PoisonError::into_inner);
@@ -86,7 +86,7 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
             Reply::ok(&lines.join("\n"))
         }
         Some("config") if words.get(1) == Some(&"--services") => Reply::ok("web\n"),
-        Some("config") if named.contains(&"attackbox") => Reply::ok(r#"{"services": {"attackbox": {"ports": [{"target": 7681, "protocol": "tcp"}]}}}"#),
+        Some("config") if named.contains(&"toolbox") => Reply::ok(r#"{"services": {"toolbox": {"ports": [{"target": 7681, "protocol": "tcp"}]}}}"#),
         Some("config") => Reply::ok(r#"{"services": {"web": {"ports": [{"target": 80, "protocol": "tcp"}]}}}"#),
         _ => Reply::ok(""),
     }
@@ -94,9 +94,9 @@ fn answer(engine: &Mutex<Engine>, call: &Call) -> Reply {
 
 /// A Compose project whose `web` publishes `"80"`, and a runner on the modelled engine with free
 /// host ports from 41001, and its processes.
-pub(super) fn compose_lab() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<crate::process::fake::FakeProcesses>) {
+pub(super) fn compose_stack() -> (tempfile::TempDir, std::path::PathBuf, Runner, Arc<crate::process::fake::FakeProcesses>) {
     let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
+    let project = root.path().join("stack");
     std::fs::create_dir(&project).expect("the project");
     std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n    ports: [\"80\"]\n").expect("a compose file");
     let (_engine, fake) = modelled::<Engine>(answer);
@@ -114,25 +114,25 @@ async fn port_of(run: &crate::Running<'_>, machine: &str) -> Option<u16> {
 
 #[tokio::test]
 async fn a_park_and_a_resume_keep_the_runs_host_ports_an_attached_services_too() {
-    let (_root, project, runner, _fake) = compose_lab();
+    let (_root, project, runner, _fake) = compose_stack();
     let run = runner.open(&project, None).expect("opened");
 
     run.up(&RunOptions::new(), &Recorder::new()).await.expect("up");
-    run.attach("attackbox", &RunOptions::new(), &Recorder::new()).await.expect("attached");
-    let first = (port_of(&run, "web").await, port_of(&run, "attackbox").await);
+    run.attach("toolbox", &RunOptions::new(), &Recorder::new()).await.expect("attached");
+    let first = (port_of(&run, "web").await, port_of(&run, "toolbox").await);
     assert_eq!(first, (Some(41001), Some(41002)), "pinned to the ports the runner picked");
     for mode in [crate::Park::Shutdown, crate::Park::Pause] {
         run.park(mode, &RunOptions::new(), &Recorder::new()).await.expect("parked");
         run.resume(&RunOptions::new(), &Recorder::new()).await.expect("resumed");
-        let again = (port_of(&run, "web").await, port_of(&run, "attackbox").await);
+        let again = (port_of(&run, "web").await, port_of(&run, "toolbox").await);
         assert_eq!(again, first, "the same ports after {mode:?} and a resume");
     }
     run.update(&RunOptions::new(), &Recorder::new()).await.expect("updated");
     assert_eq!(port_of(&run, "web").await, Some(41001), "and after an update");
-    run.retire("attackbox", &RunOptions::new(), &Recorder::new()).await.expect("retired");
+    run.retire("toolbox", &RunOptions::new(), &Recorder::new()).await.expect("retired");
     let override_file = runner.store.run_dir_path(run.name()).join("compose-pins.yaml");
     let left = std::fs::read_to_string(&override_file).expect("web's pin is left");
-    assert!(!left.contains("attackbox"), "the attack box's pin went with it: {left}");
+    assert!(!left.contains("toolbox"), "the toolbox's pin went with it: {left}");
 }
 
 /// Docker with Compose, whose `web` publishes host port 8080 itself: how many `up`s it saw.
@@ -154,7 +154,7 @@ fn fixed_8080(ups: &Mutex<u16>, call: &Call) -> Reply {
 #[tokio::test]
 async fn a_first_up_whose_fixed_host_port_is_taken_is_refused_before_compose_starts_anything() {
     let root = tempfile::tempdir().expect("a folder");
-    let project = root.path().join("lab");
+    let project = root.path().join("stack");
     std::fs::create_dir(&project).expect("the project");
     std::fs::write(project.join("compose.yaml"), "services:\n  web:\n    image: nginx\n    ports: [\"8080:80\"]\n").expect("a compose file");
     let (ups, fake) = modelled::<u16>(fixed_8080);

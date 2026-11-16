@@ -1,1 +1,1 @@
-network lab_default was found but has incorrect label com.docker.compose.network set to "" (expected: "default")
+network stack_default was found but has incorrect label com.docker.compose.network set to "" (expected: "default")

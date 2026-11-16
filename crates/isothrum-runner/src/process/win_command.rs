@@ -134,7 +134,7 @@ mod tests {
             r"trailing\\",
             r#"back\"quote"#,
             r"a\\\b",
-            "--name=lab one",
+            "--name=stack one",
         ]
         .map(String::from)
         .to_vec();

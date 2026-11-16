@@ -1,17 +1,17 @@
 //! A Vagrant run one of whose VMs is destroyed outside it (`vagrant destroy -f web` in a
 //! terminal, or the VM deleted in the hypervisor's app), beside a machine the Vagrantfile never
-//! starts (`autostart: false`, the attack box): `vagrant status` says both `not_created`.
+//! starts (`autostart: false`, the toolbox): `vagrant status` says both `not_created`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::vagrant::{a_modelled_vagrant_lab, vagrant_answer};
+use super::vagrant::{a_modelled_vagrant_stack, vagrant_answer};
 use super::*;
 use crate::process::fake::FakeProcesses;
 
-/// What VirtualBox holds of the lab: each machine made, whether it runs; and the `up`s seen.
+/// What VirtualBox holds of the stack: each machine made, whether it runs; and the `up`s seen.
 #[derive(Debug, Default)]
-struct Lab {
+struct Stack {
     made: BTreeMap<&'static str, bool>,
     ups: usize,
 }
@@ -21,26 +21,26 @@ fn dotfile(call: &Call) -> std::path::PathBuf {
     Path::new(call.env("VAGRANT_DOTFILE_PATH").expect("the dotfile folder")).join("machines")
 }
 
-/// Vagrant over VirtualBox, for a Vagrantfile of `web` and `attackbox` (never started by an
+/// Vagrant over VirtualBox, for a Vagrantfile of `web` and `toolbox` (never started by an
 /// `up`). A destroy forgets the machine's id, as Vagrant does.
-fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
-    vagrant_answer(lab, call, |lab, args| match args {
+fn answer(stack: &Mutex<Stack>, call: &Call) -> Reply {
+    vagrant_answer(stack, call, |stack, args| match args {
         ["up", "--provider", "virtualbox", ..] => {
-            lab.ups += 1;
+            stack.ups += 1;
             // An `up` of a machine there keeps its VM; one not there is made, a new VM.
-            if !lab.made.contains_key("web") {
+            if !stack.made.contains_key("web") {
                 let dir = dotfile(call).join("web").join("virtualbox");
                 std::fs::create_dir_all(&dir).expect("its folder");
-                std::fs::write(dir.join("id"), format!("uuid-web-{}", lab.ups)).expect("its id");
+                std::fs::write(dir.join("id"), format!("uuid-web-{}", stack.ups)).expect("its id");
             }
-            lab.made.insert("web", true);
+            stack.made.insert("web", true);
             Reply::ok("")
         }
         ["status", "--machine-readable"] => {
-            let lines: Vec<String> = ["attackbox", "web"]
+            let lines: Vec<String> = ["toolbox", "web"]
                 .iter()
                 .map(|m| {
-                    let state = lab.made.get(m).map_or("not_created", |runs| if *runs { "running" } else { "poweroff" });
+                    let state = stack.made.get(m).map_or("not_created", |runs| if *runs { "running" } else { "poweroff" });
                     format!("1794305819,{m},state,{state}")
                 })
                 .collect();
@@ -48,7 +48,7 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
         }
         ["port", m, "--machine-readable"] => Reply::ok(&format!("1794305819,{m},forwarded_port,22,2222")),
         ["destroy", "-f"] => {
-            lab.made.clear();
+            stack.made.clear();
             Reply::ok("")
         }
         _ => panic!("a call the model doesn't know: {}", call.line()),
@@ -57,20 +57,20 @@ fn answer(lab: &Mutex<Lab>, call: &Call) -> Reply {
 
 /// `web` destroyed outside the run, as `vagrant destroy -f web` leaves it: no VM, no id in the
 /// dotfile folder `dot`.
-fn destroy_web_outside(lab: &Mutex<Lab>, dot: &Path) {
-    lab.lock().unwrap_or_else(PoisonError::into_inner).made.remove("web");
+fn destroy_web_outside(stack: &Mutex<Stack>, dot: &Path) {
+    stack.lock().unwrap_or_else(PoisonError::into_inner).made.remove("web");
     let id = dot.join("machines/web/virtualbox/id");
     std::fs::remove_file(&id).expect("its id was recorded");
 }
 
 /// The modelled VirtualBox, the fake answering from it, and a Vagrant project with a runner on it.
-fn virtualbox_lab() -> (Arc<Mutex<Lab>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
-    a_modelled_vagrant_lab(answer)
+fn virtualbox_stack() -> (Arc<Mutex<Stack>>, Arc<FakeProcesses>, tempfile::TempDir, std::path::PathBuf, Runner) {
+    a_modelled_vagrant_stack(answer)
 }
 
 #[tokio::test]
 async fn a_vm_destroyed_outside_reads_absent_beside_one_never_made_its_resume_is_refused_and_an_up_makes_it_again() {
-    let (lab, fake, _root, project, runner) = virtualbox_lab();
+    let (stack, fake, _root, project, runner) = virtualbox_stack();
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     // The run's state and each machine's, as a status reads them now.
@@ -84,28 +84,28 @@ async fn a_vm_destroyed_outside_reads_absent_beside_one_never_made_its_resume_is
     run.up(&opts, &Recorder::new()).await.expect("up");
     assert_eq!(
         read().await,
-        (RunState::Ready, vec![absent("attackbox"), running("web")]),
-        "the attack box was never made: not gone"
+        (RunState::Ready, vec![absent("toolbox"), running("web")]),
+        "the toolbox was never made: not gone"
     );
 
     let up = fake.made("vagrant up").pop().expect("an up");
-    destroy_web_outside(&lab, Path::new(up.env("VAGRANT_DOTFILE_PATH").expect("the dotfile folder")));
+    destroy_web_outside(&stack, Path::new(up.env("VAGRANT_DOTFILE_PATH").expect("the dotfile folder")));
     assert_eq!(
         read().await,
-        (RunState::Failed, vec![absent("attackbox"), absent("web")]),
+        (RunState::Failed, vec![absent("toolbox"), absent("web")]),
         "web was made, then destroyed: gone, and the run failed"
     );
 
     refused_as_gone(&run.resume(&opts, &Recorder::new()).await.expect_err("web is gone"));
-    assert_eq!(lab.lock().unwrap_or_else(PoisonError::into_inner).ups, 1, "nothing was started");
+    assert_eq!(stack.lock().unwrap_or_else(PoisonError::into_inner).ups, 1, "nothing was started");
 
     run.up(&opts, &Recorder::new()).await.expect("up makes it again");
-    assert_eq!(read().await, (RunState::Ready, vec![absent("attackbox"), running("web")]));
+    assert_eq!(read().await, (RunState::Ready, vec![absent("toolbox"), running("web")]));
 }
 
 #[tokio::test]
 async fn a_vm_made_again_has_its_pinned_host_keys_forgotten_and_one_kept_keeps_them() {
-    let (lab, fake, _root, project, runner) = virtualbox_lab();
+    let (stack, fake, _root, project, runner) = virtualbox_stack();
     let run = runner.open(&project, None).expect("opened");
     let opts = RunOptions::new().with_provider(crate::Provider::Virtualbox);
     run.up(&opts, &Recorder::new()).await.expect("up");
@@ -117,7 +117,7 @@ async fn a_vm_made_again_has_its_pinned_host_keys_forgotten_and_one_kept_keeps_t
     run.update(&opts, &Recorder::new()).await.expect("an update keeps web's VM");
     assert!(known.exists(), "the same VM: its keys still hold");
 
-    destroy_web_outside(&lab, &dot);
+    destroy_web_outside(&stack, &dot);
     run.up(&opts, &Recorder::new()).await.expect("up makes web again");
     assert!(!known.exists(), "a new VM, maybe at the old address: its old keys would refuse it");
 }
