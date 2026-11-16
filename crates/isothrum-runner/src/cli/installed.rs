@@ -174,7 +174,10 @@ mod tests {
         assert_eq!(find("vmrun", &mac), Installed::At(systems), "/Applications first");
 
         let (x86, x64) = (tempfile::tempdir().expect("ProgramFiles(x86)"), tempfile::tempdir().expect("ProgramFiles"));
-        let windows = HostEnv::of([("ProgramFiles(x86)", x86.path().as_os_str()), ("ProgramFiles", x64.path().as_os_str())]);
+        // Rooted in an empty folder: a Mac running the test with Fusion installed has a real
+        // /Applications/VMware Fusion.app, which the lookup would find before the Windows folders.
+        let nowhere = tempfile::tempdir().expect("an empty root");
+        let windows = HostEnv::of([("ProgramFiles(x86)", x86.path().as_os_str()), ("ProgramFiles", x64.path().as_os_str())]).rooted(nowhere.path());
         let in_x64 = x64.path().join("VMware/VMware Workstation/vmrun.exe");
         file(&in_x64);
         assert_eq!(find("vmrun", &windows), Installed::At(in_x64));
