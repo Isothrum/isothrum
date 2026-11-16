@@ -143,7 +143,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_manifest_value_is_named_without_json_quotes() {
+    fn a_value_is_named_by_its_json_text_without_quotes() {
         assert_eq!(wire_name(&Provider::VmwareDesktop), "vmware_desktop");
         assert_eq!(wire_name(&crate::project::Format::Compose), "compose");
         assert_eq!(wire_name(&3), "3", "not written as a string: its JSON text");

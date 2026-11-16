@@ -24,12 +24,11 @@ pub(crate) fn container_shell_as() -> String {
     format!("cd 2>/dev/null; {LOGIN_SHELL}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     /// The scripts are sh: a console that runs them doesn't fail on a quote or a brace.
-    #[cfg(unix)]
     #[test]
     fn the_scripts_as_an_account_are_sh() {
         for script in [login_shell_as("user"), container_shell_as()] {
@@ -38,33 +37,26 @@ mod tests {
         }
     }
 
-    /// From another account's session (Vagrant's), the script hands over to `sudo -iu` the account.
-    #[cfg(unix)]
+    /// The login is the session's own shell when the session is the account's (a container's,
+    /// a cloud VM's), and `sudo -iu` the account from another's (Vagrant's).
     #[test]
-    fn from_another_account_the_login_is_sudo_as_the_account() {
-        use std::os::unix::fs::PermissionsExt;
-        let bin = tempfile::tempdir().unwrap();
-        for (tool, says) in [("id", "echo vagrant"), ("sudo", "echo \"sudo $*\"")] {
-            let path = bin.path().join(tool);
-            std::fs::write(&path, format!("#!/bin/sh\n{says}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fn a_login_as_an_account_is_the_sessions_shell_or_a_sudo_into_it() {
+        for (session, said) in [("user", "bash -l\n"), ("vagrant", "sudo -iu user\n")] {
+            let bin = tempfile::tempdir().unwrap();
+            for (tool, says) in [
+                ("id", format!("echo {session}")),
+                ("sudo", "echo \"sudo $*\"".into()),
+                ("bash", "echo \"bash $*\"".into()),
+            ] {
+                isothrum_test_support::write_executable(&bin.path().join(tool), &format!("#!/bin/sh\n{says}\n")).unwrap();
+            }
+            let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+            let out = std::process::Command::new("sh")
+                .args(["-c", &login_shell_as("user")])
+                .env("PATH", path)
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), said, "as {session}");
         }
-        let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
-        let out = std::process::Command::new("sh")
-            .args(["-c", &login_shell_as("user")])
-            .env("PATH", path)
-            .output()
-            .unwrap();
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "sudo -iu user\n");
-    }
-
-    /// Run as the account already, the login shell is the session's own; as another, `sudo -i`.
-    #[test]
-    fn a_login_as_an_account_is_a_sudo_login_unless_it_is_the_sessions() {
-        let script = login_shell_as("user");
-        assert_eq!(
-            script,
-            "if [ $(id -un) = user ]; then if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi; else exec sudo -iu user; fi"
-        );
     }
 }

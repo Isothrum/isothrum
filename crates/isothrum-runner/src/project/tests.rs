@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::*;
 
 fn folder(files: &[&str]) -> tempfile::TempDir {
@@ -18,6 +16,8 @@ fn detected(files: &[&str]) -> Result<Format> {
 fn each_format_is_recognised_by_its_own_files() {
     for (files, format) in [
         (&["compose.yaml"][..], Format::Compose),
+        (&["compose.yml"][..], Format::Compose),
+        (&["docker-compose.yaml"][..], Format::Compose),
         (&["docker-compose.yml"][..], Format::Compose),
         (&["Vagrantfile", "setup.sh"][..], Format::Vagrant),
         (&["main.tf", "variables.tf"][..], Format::Terraform),
@@ -29,21 +29,18 @@ fn each_format_is_recognised_by_its_own_files() {
 
 #[test]
 fn a_folder_of_no_format_or_of_several_is_refused_with_the_fix() {
-    let none = detected(&["README.md"]).expect_err("nothing to run");
-    assert_eq!(none.code(), crate::ErrorCode::ProjectInvalid);
-    assert!(none.to_string().contains("no Compose file"), "{none}");
+    let reason = match detected(&["README.md"]) {
+        Err(e @ Error::Project { .. }) if e.code() == crate::ErrorCode::ProjectInvalid => e.to_string(),
+        other => panic!("not refused as no project: {other:?}"),
+    };
+    assert!(
+        reason
+            .contains("it holds no Compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), Vagrantfile or Terraform module (*.tf)"),
+        "every file a format takes is named: {reason}"
+    );
     let both = detected(&["compose.yaml", "Vagrantfile"]).expect_err("two formats");
     assert!(both.to_string().contains("compose, vagrant"), "{both}");
     assert!(both.to_string().contains("name the one to run"), "{both}");
-}
-
-#[test]
-fn each_name_compose_takes_is_a_compose_project() {
-    for name in ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"] {
-        let dir = folder(&[name]);
-        let project = Project::open(dir.path(), None).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!((project.format, project.files), (Format::Compose, vec![dir.path().join(name)]), "{name}");
-    }
 }
 
 #[test]
@@ -56,19 +53,6 @@ fn compose_reads_one_file_in_its_own_order_of_precedence() {
             assert_eq!(files, vec![dir.path().join(first)], "{first} before {later}");
         }
     }
-}
-
-#[test]
-fn a_folder_of_nothing_names_every_file_compose_takes() {
-    let dir = folder(&["README.md"]);
-    let reason = match Format::detect(dir.path()) {
-        Err(Error::Project { reason, .. }) => reason,
-        other => panic!("not refused as no project: {other:?}"),
-    };
-    assert_eq!(
-        reason,
-        "it holds no Compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), Vagrantfile or Terraform module (*.tf)"
-    );
 }
 
 #[test]
@@ -95,7 +79,8 @@ fn the_digest_follows_the_files_and_only_them() {
 
 #[test]
 fn a_missing_folder_is_no_project() {
-    let e = Project::open(Path::new("/no/such/folder/anywhere"), None).expect_err("missing");
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let e = Project::open(&dir.path().join("missing"), None).expect_err("missing");
     assert_eq!(e.code(), crate::ErrorCode::ProjectInvalid);
 }
 

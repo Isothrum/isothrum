@@ -15,12 +15,21 @@ use crate::{HostPorts, ProcessRunner, RunnerConfig};
 pub(crate) const TEST_TIME: u64 = 1_792_065_600;
 
 /// A test's model of an engine (a Compose project, a Vagrantfile's VMs), and fake processes that
-/// `answer` from it: the test reads and changes the model, the runner's calls see it.
+/// `answer` from it: the test reads and changes the model, the runner's calls see it. The model
+/// is of a running Docker: its probe (`docker info`), when `answer` gives it a silent success,
+/// prints a version (the runner reads an empty answer as a daemon down).
 pub(crate) fn modelled<E: Default + Send + 'static>(answer: fn(&Mutex<E>, &Call) -> Reply) -> (Arc<Mutex<E>>, Arc<FakeProcesses>) {
     let engine = Arc::new(Mutex::new(E::default()));
-    let fake = Arc::new(FakeProcesses::new({
+    let fake = Arc::new(FakeProcesses::model({
         let engine = Arc::clone(&engine);
-        move |call| answer(&engine, call)
+        move |call| {
+            let reply = answer(&engine, call);
+            let silent = reply.code == 0 && !reply.missing && reply.stdout.is_empty();
+            if silent && call.program == "docker" && call.args.first().map(String::as_str) == Some("info") {
+                return Reply::ok("29.0.0");
+            }
+            reply
+        }
     }));
     (engine, fake)
 }

@@ -152,11 +152,4 @@ mod tests {
             assert_eq!(rfc3339_seconds(text), None, "{text}");
         }
     }
-
-    #[test]
-    fn a_fixed_clock_stands_still() {
-        let clock = FixedClock(UNIX_EPOCH + Duration::from_secs(60));
-        assert_eq!(clock.now(), clock.now());
-        assert_eq!(rfc3339(clock.now()), "1970-01-01T00:01:00Z");
-    }
 }

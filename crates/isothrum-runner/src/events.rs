@@ -352,33 +352,85 @@ mod tests {
         }
     }
 
+    /// The JSON an embedder reads: the common fields, then the kind's own, an optional field
+    /// left out when it has no value; and each reads back as itself.
     #[test]
-    fn an_event_has_the_documented_shape() {
-        let e = event(EventKind::Step {
-            step: "up".into(),
-            state: StepState::Running,
-            note: Some("Starting…".into()),
-        });
-        assert_eq!(
-            serde_json::to_value(&e).unwrap(),
-            serde_json::json!({"v":1,"seq":1,"time":"2026-10-15T12:00:00Z","run":"web-portal","op":"up","event":"step","step":"up","state":"running","note":"Starting…"})
-        );
-        let error = event(EventKind::Error {
-            code: ErrorCode::PortInUse,
-            message: "m".into(),
-            step: None,
-            timeout: None,
-            detail: None,
-        });
-        let back: Event = serde_json::from_value(serde_json::to_value(&error).unwrap()).unwrap();
-        assert_eq!(back, error);
+    fn each_event_is_written_as_documented_and_reads_back() {
+        let common = serde_json::json!({"v": 1, "seq": 1, "time": "2026-10-15T12:00:00Z", "run": "web-portal", "op": "up"});
+        let cases = [
+            (
+                EventKind::Step {
+                    step: "up".into(),
+                    state: StepState::Running,
+                    note: Some("Starting…".into()),
+                },
+                serde_json::json!({"event": "step", "step": "up", "state": "running", "note": "Starting…"}),
+            ),
+            (
+                EventKind::Error {
+                    code: ErrorCode::Timeout,
+                    message: "m".into(),
+                    step: Some("up".into()),
+                    timeout: Some(TimedOut::NoProgress {
+                        after_s: 30,
+                        last_line: Some("pulling".into()),
+                    }),
+                    detail: Some(crate::ErrorDetail {
+                        v: 1,
+                        data: crate::Detail::ToolMissing { tool: "docker".into() },
+                    }),
+                },
+                serde_json::json!({
+                    "event": "error", "code": "timeout", "message": "m", "step": "up",
+                    "timeout": {"kind": "no_progress", "after_s": 30, "last_line": "pulling"},
+                    "detail": {"v": 1, "kind": "tool_missing", "tool": "docker"}
+                }),
+            ),
+            (
+                EventKind::Error {
+                    code: ErrorCode::PortInUse,
+                    message: "m".into(),
+                    step: None,
+                    timeout: None,
+                    detail: None,
+                },
+                serde_json::json!({"event": "error", "code": "port_in_use", "message": "m"}),
+            ),
+        ];
+        for (kind, own) in cases {
+            let e = event(kind);
+            let mut expected = common.clone();
+            expected.as_object_mut().unwrap().extend(own.as_object().unwrap().clone());
+            let json = serde_json::to_value(&e).unwrap();
+            assert_eq!(json, expected);
+            assert_eq!(serde_json::from_value::<Event>(json).unwrap(), e);
+        }
     }
 
+    /// A kind is never removed or renamed within a version of the stream: the schema still names
+    /// each the stream has had (it may name more).
     #[test]
-    fn the_schema_names_every_event_kind() {
-        let schema = events_schema().to_string();
-        for kind in ["state", "step", "log", "ready", "output", "check", "warning", "result", "error"] {
-            assert!(schema.contains(&format!("\"{kind}\"")), "{kind}");
+    fn the_schema_keeps_every_event_kind_the_stream_has_had() {
+        let schema = events_schema();
+        let kinds: Vec<&str> = schema["oneOf"]
+            .as_array()
+            .expect("one schema per kind")
+            .iter()
+            .filter_map(|kind| kind["properties"]["event"]["const"].as_str())
+            .collect();
+        for kind in [
+            "state",
+            "step",
+            "log",
+            "output",
+            "warning",
+            "result",
+            "operation",
+            "desired",
+            "resource",
+            "error",
+        ] {
+            assert!(kinds.contains(&kind), "{kind}: {kinds:?}");
         }
     }
 }

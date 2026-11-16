@@ -112,38 +112,33 @@ impl ResultData {
 mod tests {
     use super::*;
 
-    /// Each shape reads back as itself from the JSON it writes: its fields alone tell it apart.
+    /// Each shape is the JSON each operation wrote by hand before the type, and reads back as
+    /// itself from it: its fields alone tell it apart.
     #[test]
-    fn every_shape_reads_back_from_its_json() {
+    fn every_shape_is_its_wire_json_and_reads_back_from_it() {
         let shapes = [
-            ResultData::Started {
-                state: RunState::Ready,
-                outputs: vec![ShownOutput::new("web", Some("http://127.0.0.1:8080".into()))],
-            },
-            ResultData::Swept {
-                destroyed: vec!["a".into()],
-                pending: Vec::new(),
-                failed: vec![SweepFailure::new("b", "x")],
-            },
-            ResultData::Machine { machine: Some("web".into()) },
-            ResultData::Machine { machine: None },
-            ResultData::Moved { state: RunState::Absent },
+            (
+                ResultData::Started {
+                    state: RunState::Ready,
+                    outputs: vec![ShownOutput::new("web", Some("http://127.0.0.1:8080".into()))],
+                },
+                serde_json::json!({"state": "ready", "outputs": [{"name": "web", "value": "http://127.0.0.1:8080"}]}),
+            ),
+            (
+                ResultData::Swept {
+                    destroyed: vec!["a".into()],
+                    pending: Vec::new(),
+                    failed: vec![SweepFailure::new("b", "x")],
+                },
+                serde_json::json!({"destroyed": ["a"], "pending": [], "failed": [{"run": "b", "error": "x"}]}),
+            ),
+            (ResultData::Machine { machine: Some("web".into()) }, serde_json::json!({"machine": "web"})),
+            (ResultData::Machine { machine: None }, serde_json::json!({"machine": null})),
+            (ResultData::Moved { state: RunState::Parked }, serde_json::json!({"state": "parked"})),
         ];
-        for shape in shapes {
-            let json = serde_json::to_string(&shape).unwrap();
-            assert_eq!(serde_json::from_str::<ResultData>(&json).unwrap(), shape, "{json}");
+        for (shape, json) in shapes {
+            assert_eq!(serde_json::to_value(&shape).unwrap(), json, "{shape:?}");
+            assert_eq!(serde_json::from_value::<ResultData>(json.clone()).unwrap(), shape, "{json}");
         }
-    }
-
-    /// The JSON is the one each operation wrote by hand before the type.
-    #[test]
-    fn the_wire_shapes_are_unchanged() {
-        let up = ResultData::Started {
-            state: RunState::Ready,
-            outputs: Vec::new(),
-        };
-        assert_eq!(serde_json::to_value(&up).unwrap(), serde_json::json!({ "state": "ready", "outputs": [] }));
-        let moved = ResultData::Moved { state: RunState::Parked };
-        assert_eq!(serde_json::to_value(&moved).unwrap(), serde_json::json!({ "state": "parked" }));
     }
 }

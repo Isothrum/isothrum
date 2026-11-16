@@ -216,6 +216,57 @@ pub(crate) fn any_present(machines: &[MachineStatus]) -> bool {
 mod tests {
     use super::*;
 
+    /// The JSON `isothrum status --json` prints and an embedder reads: a machine's state by its
+    /// name (an exit with its code), a port with no protocol said as null, the optional fields
+    /// left out when unset; and it reads back as itself.
+    #[test]
+    fn a_status_is_written_as_its_schema_documents_and_reads_back() {
+        let machine = |name: &str, state: MachineState| MachineStatus {
+            name: name.into(),
+            state,
+            published: Vec::new(),
+            address: None,
+            console: None,
+        };
+        let mut web = machine("web", MachineState::Running);
+        web.published = vec![PublishedPort {
+            port: crate::port::GuestPort::new(80),
+            protocol: Some(Protocol::Tcp),
+            host_port: crate::port::HostPort::new(41001),
+        }];
+        let mut vm = machine("vm", MachineState::Unknown("saved".into()));
+        vm.published = vec![PublishedPort {
+            port: crate::port::GuestPort::new(22),
+            protocol: None,
+            host_port: crate::port::HostPort::new(2222),
+        }];
+        vm.address = Some("192.0.2.10".into());
+        let status = Status {
+            state: RunState::Ready,
+            live: true,
+            desired: Some(crate::state::Desired::Running),
+            failed_cause: None,
+            provider: Some(Provider::Virtualbox),
+            machines: vec![web, machine("job", MachineState::Exited(3)), vm],
+            outputs: vec![OutputValue::new("url".into(), false, Some("http://127.0.0.1:41001".into()))],
+            native: None,
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "state": "ready", "live": true, "desired": "running", "provider": "virtualbox",
+                "machines": [
+                    {"name": "web", "state": "running", "published": [{"port": 80, "protocol": "tcp", "host_port": 41001}]},
+                    {"name": "job", "state": {"exited": 3}, "published": []},
+                    {"name": "vm", "state": {"unknown": "saved"}, "published": [{"port": 22, "protocol": null, "host_port": 2222}], "address": "192.0.2.10"}
+                ],
+                "outputs": [{"name": "url", "sensitive": false, "value": "http://127.0.0.1:41001"}]
+            })
+        );
+        assert_eq!(serde_json::from_value::<Status>(json).unwrap(), status);
+    }
+
     #[test]
     fn a_status_from_before_live_reads_as_live() {
         let json = r#"{"state":"ready","provider":null,"machines":[],"outputs":[]}"#;

@@ -71,18 +71,14 @@ async fn a_key_left_without_its_public_half_gets_it_back_from_the_private_one() 
     std::fs::create_dir_all(key.parent().unwrap()).unwrap();
     std::fs::write(&key, "private").unwrap();
     std::fs::write(key.with_extension("pub"), "").unwrap();
-    let fake = crate::process::fake::FakeProcesses::new(|call| {
-        if call.args.iter().any(|a| a == "-y") {
-            crate::process::fake::Reply::ok("ssh-ed25519 AAAAkept")
-        } else {
-            crate::process::fake::Reply::fail(1, "id_ed25519 already exists.\nOverwrite (y/n)? ")
-        }
-    });
+    let fake = crate::process::fake::FakeProcesses::script()
+        .expect("ssh-keygen -y", crate::process::fake::Reply::ok("ssh-ed25519 AAAAkept"))
+        .build();
     let got = ensure_key(&fake, home.path()).await.unwrap();
     assert_eq!(got, "ssh-ed25519 AAAAkept isothrum");
     assert_eq!(public_key(home.path()).unwrap().as_deref(), Some(got.as_str()));
     assert_eq!(std::fs::read_to_string(&key).unwrap(), "private", "the private key is kept");
-    assert_eq!(fake.calls().len(), 1, "no new key: {:?}", fake.lines());
+    // No new key: the script has no `ssh-keygen -q`, which would fail the test.
 }
 
 /// A private key that isn't one (a truncated write) is set aside and a new key made.
@@ -93,7 +89,8 @@ async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
     std::fs::create_dir_all(key.parent().unwrap()).unwrap();
     std::fs::write(&key, "trunc").unwrap();
     let made = key.clone();
-    let fake = crate::process::fake::FakeProcesses::new(move |call| {
+    // A model of `ssh-keygen`: `-y` can't read the key, a new key is written as it writes one.
+    let fake = crate::process::fake::FakeProcesses::model(move |call| {
         if call.args.iter().any(|a| a == "-y") {
             return crate::process::fake::Reply::fail(255, "Load key: invalid format");
         }
@@ -106,7 +103,8 @@ async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
     });
     assert_eq!(ensure_key(&fake, home.path()).await.unwrap(), "ssh-ed25519 AAAAnew isothrum");
     assert_eq!(std::fs::read_to_string(key.with_extension("unusable")).unwrap(), "trunc", "set aside, not lost");
-    assert_eq!(fake.calls().len(), 2, "{:?}", fake.lines());
+    let derived: Vec<bool> = fake.calls().iter().map(|c| c.args.iter().any(|a| a == "-y")).collect();
+    assert_eq!(derived, [true, false], "derived, then made once: {:?}", fake.lines());
 }
 
 /// Regression: a login with no user went out as `@host`, which ssh reads as a host named that.

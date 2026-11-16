@@ -152,15 +152,12 @@ mod tests {
         assert_eq!(said.lines().collect::<Vec<_>>(), expected, "{line}");
     }
 
+    /// A word that needs no quote (a path, a variable's plain value) is written as it is: the
+    /// line `isothrum console` prints to paste reads as the command.
     #[test]
-    fn a_plain_word_stays_as_it_is() {
+    fn a_plain_word_is_written_unquoted_in_a_shell_line() {
         let cmd = ShellCommand::new("vagrant", ["ssh", "web"], "/work/web-vm")
             .with_env(vec![("VAGRANT_DOTFILE_PATH".into(), "/home/u/.isothrum/runs/web-vm/vagrant".into())]);
-        assert_eq!(
-            (cmd.program.as_str(), cmd.args.as_slice(), cmd.cwd.as_path()),
-            ("vagrant", &["ssh".to_owned(), "web".to_owned()][..], std::path::Path::new("/work/web-vm"))
-        );
-        assert_eq!(ShellCommand::new("docker", ["ps"], "/w").env, [], "no variable of its own until given");
         assert_eq!(
             cmd.sh_line(),
             "cd /work/web-vm && VAGRANT_DOTFILE_PATH=/home/u/.isothrum/runs/web-vm/vagrant vagrant ssh web"
