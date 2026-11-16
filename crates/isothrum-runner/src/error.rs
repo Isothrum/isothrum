@@ -29,6 +29,14 @@ pub enum Error {
         /// `ssh.run` on a compose run.
         what: String,
     },
+    /// The run's format doesn't do the operation asked (Terraform parks, resumes and provisions
+    /// nothing; Compose provisions nothing): refused before anything acts on the run. Its code is
+    /// `unsupported`.
+    #[error("{what} isn't supported")]
+    Declined {
+        /// What, in a few words: `parking on a Terraform run: …`.
+        what: String,
+    },
     /// A file or folder couldn't be read or written, or a loopback port bound.
     #[error("{} couldn't be {action}: {source}", path.display())]
     Io {
@@ -358,7 +366,7 @@ impl Error {
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
-            Error::Unsupported { .. } => ErrorCode::Unsupported,
+            Error::Unsupported { .. } | Error::Declined { .. } => ErrorCode::Unsupported,
             Error::Project { .. } => ErrorCode::ProjectInvalid,
             Error::Io { .. } => ErrorCode::Io,
             Error::Corrupt { .. } => ErrorCode::Corrupt,

@@ -189,6 +189,18 @@ impl Transition {
         }
     }
 
+    /// The operation that made `begun` was refused before anything acted on the run: it stands
+    /// where it stood before.
+    #[must_use]
+    pub fn undone(begun: Transition) -> Transition {
+        Transition {
+            from: begun.to,
+            to: begun.from,
+            cause: None,
+            by: begun.by,
+        }
+    }
+
     /// The operation that made `begun` failed with `cause` (`cancelled` when cut short).
     #[must_use]
     pub fn fail(begun: Transition, cause: ErrorCode) -> Transition {

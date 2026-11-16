@@ -335,7 +335,7 @@ impl FormatDriver for Compose {
         reason = "the trait's operations are async; Compose refuses this one before calling anything"
     )]
     async fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>, _with: Option<&str>) -> Result<()> {
-        Err(Error::Unsupported {
+        Err(Error::Declined {
             what: "provisioning a Compose project again (its services set themselves up when they start: update it instead)".to_owned(),
         })
     }

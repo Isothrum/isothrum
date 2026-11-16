@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A refusal before anything acted leaves the run as it was.** A failure whose report says the
+  run wasn't changed (`changed: false`) moves it back where it stood, with what was wanted of it,
+  never to `failed`. A park, resume or provision Terraform doesn't do (and a provision of a Compose
+  project) is `Error::Declined`, code `unsupported`, unchanged: it left a ready run `failed` until
+  an `up`. A tool missing at the probe no longer fails the run either.
+
 - **Breaking: one report of a failure, `ErrorReport`, the same from every path.** `Error::report()`
   gives its `code`, `message`, `step`, `detail` and `changed`; the `error` event is
   `EventKind::Error(ErrorReport)`, the service's error reply carries it flattened, and the client
