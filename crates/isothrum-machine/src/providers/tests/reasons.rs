@@ -114,13 +114,29 @@ fn qemu_without_mkisofs_says_its_vms_need_it_vagrant_first() {
     // ("The executable 'mkisofs' Vagrant is trying to run was not found in the PATH variable").
     let qemu = Findings {
         hypervisor: Some(false),
-        mkisofs_missing: true,
+        part_missing: Some(Part::Mkisofs),
         program: Some("qemu-system-x86_64"),
         plugin: Some("vagrant-qemu"),
         ..installed()
     };
     assert_eq!(reason_of(Provider::Qemu, true, &qemu), Some(Unavailable::MkisofsMissing));
     assert_eq!(reason_of(Provider::Qemu, false, &qemu), Some(Unavailable::VagrantMissing));
+}
+
+#[test]
+fn libvirt_or_qemu_without_virtiofsd_says_its_shared_folders_need_it_vagrant_first() {
+    let without = |provider: Provider| Findings {
+        hypervisor: Some(false),
+        part_missing: Some(Part::Virtiofsd),
+        program: probe_of(provider, Arch::Amd64).map(|(program, _)| program),
+        plugin: provider.plugin(),
+        ..installed()
+    };
+    for (provider, name) in [(Provider::Libvirt, "libvirt"), (Provider::Qemu, "QEMU")] {
+        let missing = Some(Unavailable::VirtiofsdMissing { hypervisor: name.into() });
+        assert_eq!(reason_of(provider, true, &without(provider)), missing, "said instead of not installed");
+        assert_eq!(reason_of(provider, false, &without(provider)), Some(Unavailable::VagrantMissing));
+    }
 }
 
 #[test]

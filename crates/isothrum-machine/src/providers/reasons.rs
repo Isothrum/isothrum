@@ -1,6 +1,6 @@
 //! Why a provider can't run VMs here, from what detection found.
 
-use super::{Account, Findings, Need, Provider, ProviderRow, Unavailable, UtilityState};
+use super::{Account, Findings, Need, Part, Provider, ProviderRow, Unavailable, UtilityState};
 
 /// Why `provider` can't run VMs here (`None`: it can), from what is still to install for it
 /// (`needs`, which its status carries too, [`status_from`]) and what detection found: KVM holding the CPU's
@@ -27,8 +27,12 @@ pub(super) fn hypervisor_reason(provider: Provider, f: &Findings) -> Option<Unav
         Some(Unavailable::HypervOff)
     } else if f.account == Some(Account::HypervAdmin) {
         Some(Unavailable::HypervNeedsAdmin)
-    } else if f.mkisofs_missing {
+    } else if f.part_missing == Some(Part::Mkisofs) {
         Some(Unavailable::MkisofsMissing)
+    } else if f.part_missing == Some(Part::Virtiofsd) {
+        Some(Unavailable::VirtiofsdMissing {
+            hypervisor: hypervisor_name(provider).to_owned(),
+        })
     } else if f.hypervisor == Some(false) {
         Some(Unavailable::NotInstalled {
             program: f.program.map(str::to_owned),
@@ -37,6 +41,21 @@ pub(super) fn hypervisor_reason(provider: Provider, f: &Findings) -> Option<Unav
         Some(Unavailable::NewLogin { group: group.clone() })
     } else {
         None
+    }
+}
+
+/// The name `provider`'s hypervisor goes by in a reason: the provider's own, written as its
+/// maker writes it.
+fn hypervisor_name(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Virtualbox => "VirtualBox",
+        Provider::VmwareDesktop => "VMware",
+        Provider::Hyperv => "Hyper-V",
+        Provider::Parallels => "Parallels",
+        Provider::Libvirt => "libvirt",
+        Provider::Qemu => "QEMU",
+        Provider::Utm => "UTM",
+        Provider::VmwareEsxi => "VMware ESXi",
     }
 }
 

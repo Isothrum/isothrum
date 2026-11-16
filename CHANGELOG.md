@@ -17,6 +17,12 @@ Terraform), usable on any project of those formats.
   (`ssh -N -L`, the run's key, the console tunnels' pinning and tool ledger). The process keeps
   each forward while the endpoint is published, opens it again when its `ssh` ended, and a `down`
   ends it. One that doesn't open says why (`why`), the others are given all the same.
+- **isothrum-machine: libvirt and QEMU on Linux are ready only with a virtiofsd they find
+  (`Unavailable::VirtiofsdMissing`, `providers::virtiofsd`).** libvirt's is the one its vhost-user
+  descriptors name (`/usr/share/qemu/vhost-user`, then `/etc/qemu/vhost-user`); vagrant-qemu's the
+  first it may run on `PATH`, then `/usr/libexec/virtiofsd`, then `/usr/lib/qemu/virtiofsd`
+  (`Devices::vhost_user`, `Devices::virtiofsd`). Without one each read as ready, and a VM sharing
+  a folder failed at its start in the Vagrant plugin.
 - **A command runs in a Terraform module's VM: `Running::exec`, `isothrum exec`.** An `ssh` into
   the VM that runs it, with no terminal: what it printed and its exit status, a command that fails
   being its result and an `ssh` that can't run it (255) `tool_failed`. It was refused. A

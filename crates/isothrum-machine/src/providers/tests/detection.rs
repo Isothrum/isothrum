@@ -44,6 +44,32 @@ async fn qemu_on_linux_reads_as_not_installed_without_mkisofs_which_its_install_
 }
 
 #[tokio::test(start_paused = true)]
+async fn libvirt_and_qemu_on_linux_read_as_not_installed_without_a_virtiofsd_they_find() {
+    // Regression: each read as ready without one, and a VM sharing a folder failed at its start
+    // ("Unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable").
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = linux(dir.path());
+    host.devices.vhost_user = vec![dir.path().join("no-descriptors")];
+    host.devices.virtiofsd = vec![dir.path().join("no-virtiofsd")];
+    let tools = on_linux(FakeProcesses::script())
+        .expect("virsh --version", Reply::ok("10.0.0"))
+        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
+        .expect("mkisofs -version", Reply::ok("mkisofs 2.01"))
+        .expect(PLUGINS, listing(&[("vagrant-libvirt", "0.12.2"), ("vagrant-qemu", "0.7.0")]))
+        .build();
+    let (cx, _) = context(tools, host);
+    let statuses = detect(&cx, true).await;
+    for (provider, name) in [(Provider::Libvirt, "libvirt"), (Provider::Qemu, "QEMU")] {
+        let status = status_of(&statuses, provider);
+        assert_eq!(
+            (status.hypervisor, status.available, status.reason.clone()),
+            (Some(false), false, Some(Unavailable::VirtiofsdMissing { hypervisor: name.into() })),
+            "{provider:?}"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_qemu_without_its_plugin_says_so_and_needs_it() {
     let tools = on_linux(FakeProcesses::script())
         .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))

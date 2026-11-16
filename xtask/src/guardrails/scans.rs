@@ -36,7 +36,7 @@ const ADAPTERS: [(&str, &str); 3] = [
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 8] = [
+const NOT_TOOL_OUTPUT: [(&str, &str); 9] = [
     (
         "crates/isothrum-runner/src/formats/terraform/required.rs",
         "a Terraform module's own `*.tfvars.json` files, read for the names they set",
@@ -60,6 +60,10 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 8] = [
         "the service's discovery file, which the service wrote",
     ),
     ("crates/isothrum-client/src/wire.rs", "the service protocol's frames, Isothrum's own"),
+    (
+        "crates/isothrum-machine/src/providers/virtiofsd.rs",
+        "QEMU's vhost-user descriptors, the files libvirt reads to start a virtiofsd",
+    ),
 ];
 
 /// The scripts a shell's or an ssh's `-c` may run besides the shell scripts' module's, by file

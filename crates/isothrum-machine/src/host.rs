@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use isothrum_runner::{ProcessRunner, this_arch, this_host};
 
 use crate::exec;
+use crate::providers::virtiofsd::{VAGRANT_QEMU_FALLBACKS, VHOST_USER_DIRS, vagrant_qemu_candidates};
 
 /// The OS and the CPU machine setup runs on: the runner's ([`isothrum_runner::this_host`],
 /// [`isothrum_runner::this_arch`]), written as the runner writes them (`macos`, `amd64`).
@@ -149,6 +150,14 @@ pub struct Devices {
     /// Where Parallels Desktop installs `prlctl`, looked at when it isn't on `PATH`: the app's
     /// `Contents/MacOS/prlctl` in `/Applications`, then in `~/Applications`.
     pub prlctl: Vec<PathBuf>,
+    /// The folders libvirt reads QEMU's vhost-user descriptors from, in its order, a later
+    /// folder's file taking the place of an earlier one's of the same name: the distribution's
+    /// (`/usr/share/qemu/vhost-user`), then an administrator's (`/etc/qemu/vhost-user`) (Linux).
+    pub vhost_user: Vec<PathBuf>,
+    /// Where vagrant-qemu looks for the virtiofsd it shares folders through, in its order:
+    /// `virtiofsd` in each folder of `PATH`, then `/usr/libexec/virtiofsd`, then
+    /// `/usr/lib/qemu/virtiofsd` (Linux).
+    pub virtiofsd: Vec<PathBuf>,
 }
 
 /// The port the Vagrant VMware Utility's service listens on.
@@ -197,6 +206,13 @@ impl Devices {
                 .join("certificates"),
             HostOs::Macos | HostOs::Linux => PathBuf::from("/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),
         };
+        let (vhost_user, virtiofsd) = match os {
+            HostOs::Linux => (
+                VHOST_USER_DIRS.iter().map(PathBuf::from).collect(),
+                vagrant_qemu_candidates(std::env::var_os("PATH").as_deref(), &VAGRANT_QEMU_FALLBACKS),
+            ),
+            HostOs::Macos | HostOs::Windows => (Vec::new(), Vec::new()),
+        };
         Devices {
             kvm: PathBuf::from("/dev/kvm"),
             etc_group: PathBuf::from("/etc/group"),
@@ -210,6 +226,8 @@ impl Devices {
             vmware_utility_service: SocketAddr::from((Ipv4Addr::LOCALHOST, VMWARE_UTILITY_PORT)),
             vmrun,
             prlctl,
+            vhost_user,
+            virtiofsd,
         }
     }
 
@@ -217,7 +235,8 @@ impl Devices {
     /// `root/proc/modules`, `root/Applications/UTM.app`...), none of which exist until it does;
     /// the VMware Utility's service at port 0 of this machine, which nothing answers. The apps'
     /// tools are under `root` and `root/home` (macOS's), and `root/Program Files (x86)` and
-    /// `root/Program Files` (Workstation's).
+    /// `root/Program Files` (Workstation's); libvirt's descriptor folders and vagrant-qemu's
+    /// virtiofsd fallbacks under `root`, with no `PATH` folder before them.
     #[must_use]
     pub fn under(root: &Path) -> Devices {
         let (fusion, prlctl) = mac_apps(&[root.to_path_buf(), root.join("home")]);
@@ -236,6 +255,8 @@ impl Devices {
             vmware_utility_service: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             vmrun,
             prlctl,
+            vhost_user: VHOST_USER_DIRS.iter().map(|d| root.join(d.trim_start_matches('/'))).collect(),
+            virtiofsd: VAGRANT_QEMU_FALLBACKS.iter().map(|f| root.join(f.trim_start_matches('/'))).collect(),
         }
     }
 }
@@ -382,7 +403,12 @@ mod tests {
             &devices.hyperv_service,
             &devices.vmware_utility,
         ];
-        let paths = fixed.into_iter().chain(&devices.vmrun).chain(&devices.prlctl);
+        let paths = fixed
+            .into_iter()
+            .chain(&devices.vmrun)
+            .chain(&devices.prlctl)
+            .chain(&devices.vhost_user)
+            .chain(&devices.virtiofsd);
         isothrum_test_support::assert_every!(paths, |path: &&PathBuf| path.starts_with(root));
         assert_eq!(devices.vmware_utility_service.port(), 0);
         assert!(devices.vmware_utility_service.ip().is_loopback());
@@ -394,6 +420,15 @@ mod tests {
         assert_eq!(linux.kvm, Path::new("/dev/kvm"));
         assert_eq!(linux.vmware_utility, Path::new("/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"));
         assert_eq!(linux.vmware_utility_service, SocketAddr::from((Ipv4Addr::LOCALHOST, 9922)));
+        assert_eq!(linux.vhost_user, [Path::new("/usr/share/qemu/vhost-user"), Path::new("/etc/qemu/vhost-user")]);
+        assert!(
+            linux
+                .virtiofsd
+                .ends_with(&[PathBuf::from("/usr/libexec/virtiofsd"), PathBuf::from("/usr/lib/qemu/virtiofsd")]),
+            "the PATH's, then vagrant-qemu's fallbacks: {:?}",
+            linux.virtiofsd
+        );
+        assert!(Devices::here(HostOs::Macos).virtiofsd.is_empty() && Devices::here(HostOs::Windows).vhost_user.is_empty());
         let windows = Devices::here(HostOs::Windows);
         assert!(
             windows.vmware_utility.ends_with("HashiCorp/vagrant-vmware-desktop/certificates"),
