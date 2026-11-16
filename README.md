@@ -87,7 +87,7 @@ codes, environment variables, events, state) and the architecture and security m
 | [`isothrum-runner`](crates/isothrum-runner) | The engine: lifecycle, state and locks, drivers, secrets, checks, events. |
 | [`isothrum-machine`](crates/isothrum-machine) | Which Vagrant providers (hypervisors) a computer can drive. |
 
-All crates share one version. `xtask` and `fuzz/` are not published.
+All crates share one version. `xtask` is not published.
 
 ## Stability
 

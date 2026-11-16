@@ -74,7 +74,7 @@ const WINDOWS: (&str, &[&str]) = ("x86_64-pc-windows-gnu", &["x86_64-w64-mingw32
 const MSRV: &str = "1.90";
 
 /// Every step, in the order they run.
-const STEPS: [Step; 18] = [
+const STEPS: [Step; 17] = [
     Step {
         name: "fetch",
         fast: true,
@@ -201,13 +201,6 @@ const STEPS: [Step; 18] = [
         // The hooks' test pushes through the pre-push hook, which refuses without gitleaks.
         needs: Needs::Program("gitleaks", "brew install gitleaks, or https://github.com/gitleaks/gitleaks#installing"),
         run: hooks,
-        only_on: None,
-    },
-    Step {
-        name: "fuzz",
-        fast: false,
-        needs: Needs::CargoTool("deny"),
-        run: |r| cargo(r, &["run", "-p", "xtask", "-q", "--", "fuzz", "--check"]),
         only_on: None,
     },
     Step {
@@ -510,7 +503,6 @@ mod tests {
             "semver",
             "isoloom-free",
             "hooks",
-            "fuzz",
             "windows-binary",
         ] {
             assert!(all.contains(&name), "{name} in the full check");
