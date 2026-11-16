@@ -21,8 +21,10 @@ use crate::v1::{Event, EventCursor, OperationId, OperationPhase, OperationRow, R
 use crate::wire::{Reader, Writer, connect, write_line};
 use crate::{VERSION, replace, spawn};
 
-/// How long a client waits for a service it started to answer.
-const START_WAIT: Duration = Duration::from_secs(10);
+/// How long a client waits for a service it started to answer: it connects as soon as the
+/// service does, so this only bounds a start that failed. A binary's first run can take long on
+/// a loaded machine (macOS checks a new executable before it runs it).
+const START_WAIT: Duration = Duration::from_secs(30);
 
 /// How many of a subscription's events wait for their reader before the connection is read no
 /// further (the service then sends what was missed as it can).

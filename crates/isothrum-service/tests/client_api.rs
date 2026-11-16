@@ -7,17 +7,13 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use isothrum_client::proto::{Command, OpOptions, PROTOCOL, Target};
 use isothrum_client::v1::{Event, EventKind, OperationPhase, phase_of};
 use isothrum_client::{Client, ClientError, VERSION};
 use isothrum_runner::store::OperationId;
 use isothrum_runner::{BoxFuture, Detail, ErrorCode, ResultData, RunName, RunState, Status};
-use isothrum_service::{Engine, Journal, Refusal, ServeError, ServeOptions, Service, StopSignal};
-
-/// What a helper's failure fails the test with.
-type Outcome<T> = Result<T, Box<dyn std::error::Error>>;
+use isothrum_service::{Engine, Journal, Refusal, ServeOptions};
 
 /// The failure every run named `gone` has: its machine `web` removed outside it.
 fn web_gone() -> isothrum_runner::Error {
@@ -81,29 +77,18 @@ impl Engine for Lab {
     }
 }
 
-/// A service on `home` over [`Lab`], never stopped but by a request.
-fn serve(home: &Path) -> Outcome<tokio::task::JoinHandle<Result<(), ServeError>>> {
-    let never: StopSignal = Box::new(|| Box::pin(std::future::pending()));
-    let options = ServeOptions::new(Arc::new(Lab), never);
-    Ok(tokio::spawn(Service::hold(home)?.serve(options)))
-}
+mod common;
+use common::{Outcome, Serving};
 
-/// A client of `home`'s service once it answers.
-async fn answering(home: &Path) -> Outcome<Client> {
-    for _ in 0..200 {
-        if let Ok(client) = Client::connect_running(home).await {
-            return Ok(client);
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    Err("the service didn't answer".into())
+/// A service on `home` over [`Lab`], never stopped but by a request, and a client of it.
+async fn serve(home: &Path) -> Outcome<(Client, Serving)> {
+    common::serve_with(home, ServeOptions::new(Arc::new(Lab), common::never())).await
 }
 
 /// A service on a fresh home, its task, and a client of it.
-async fn started() -> Outcome<(tempfile::TempDir, tokio::task::JoinHandle<Result<(), ServeError>>, Client)> {
+async fn started() -> Outcome<(tempfile::TempDir, Serving, Client)> {
     let home = tempfile::tempdir()?;
-    let serving = serve(home.path())?;
-    let client = answering(home.path()).await?;
+    let (client, serving) = serve(home.path()).await?;
     Ok((home, serving, client))
 }
 
@@ -134,8 +119,7 @@ async fn a_client_finds_no_service_then_the_one_running_by_each_way_in() {
     assert!(matches!(&none, ClientError::Unavailable(why) if why.contains("no service runs for")), "{none}");
     assert_eq!(none.code(), ErrorCode::Io);
 
-    let serving = serve(home.path()).expect("a service");
-    let running = answering(home.path()).await.expect("it answers");
+    let (running, serving) = serve(home.path()).await.expect("a service answering");
     let info = running.service().clone();
     assert_eq!((info.protocol, info.version.as_str()), (PROTOCOL, VERSION));
     let exact = Client::connect_exact(home.path(), None).await.expect("this release's own");
@@ -144,10 +128,12 @@ async fn a_client_finds_no_service_then_the_one_running_by_each_way_in() {
         .expect("the running one, nothing started");
     assert_eq!((exact.service().pid, started.service().pid), (info.pid, info.pid));
 
+    let asked = std::time::Instant::now();
     running.shutdown().await.expect("shut down");
-    // Its open connections close with it, within moments: none waits to be cut.
-    let ended = tokio::time::timeout(Duration::from_secs(3), serving).await;
-    assert!(matches!(ended, Ok(Ok(Ok(())))), "{ended:?}");
+    common::ended(serving).await.expect("the service ended");
+    // Its open connections (`exact`'s, `started`'s) close with it: none is left to be cut after
+    // the 5 s the service gives them.
+    assert!(asked.elapsed() < std::time::Duration::from_secs(5), "{:?}", asked.elapsed());
     let after = exact.list().await.expect_err("its service is gone");
     assert_eq!(after.code(), ErrorCode::Io, "{after}");
 }
@@ -159,7 +145,7 @@ async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_out
     let mut followed = client.follow(up("lab")).await.expect("followed");
     assert_eq!((followed.accepted.run.as_str(), followed.accepted.position), ("lab", 0));
     let mut words = Vec::new();
-    while let Some(event) = tokio::time::timeout(Duration::from_secs(5), followed.next()).await.expect("in time") {
+    while let Some(event) = tokio::time::timeout(common::PATIENCE, followed.next()).await.expect("in time") {
         let event = event.expect("an event");
         assert_eq!(event.operation, Some(followed.accepted.operation), "only its own: {event:?}");
         words.push(word(&event));
@@ -224,7 +210,7 @@ async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_
     let mut seen = Vec::new();
     let mut last = None;
     while seen.last().map(String::as_str) != Some("ended") {
-        let (cursor, event) = tokio::time::timeout(Duration::from_secs(5), events.next())
+        let (cursor, event) = tokio::time::timeout(common::PATIENCE, events.next())
             .await
             .expect("in time")
             .expect("open")
@@ -237,7 +223,7 @@ async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_
 
     client.follow(up("lab")).await.expect("followed").outcome().await.expect("lab again");
     let mut after = client.subscribe(Some(lab), last).await.expect("resumed");
-    let (_, first) = tokio::time::timeout(Duration::from_secs(5), after.next())
+    let (_, first) = tokio::time::timeout(common::PATIENCE, after.next())
         .await
         .expect("in time")
         .expect("open")

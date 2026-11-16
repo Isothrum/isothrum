@@ -40,8 +40,11 @@ mod tests {
         let run = RunName::new("web").unwrap();
         let queued = phase_event(&run, (Op::Up, OperationId(3)), OperationPhase::Queued, Some(1), None);
         let line = serde_json::to_string(&queued).unwrap();
-        assert!(
-            line.contains(r#""operation":3"#) && line.contains(r#""event":"operation","phase":"queued","position":1"#),
+        let fields: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let said = |key: &str| fields.get(key).cloned().unwrap_or_default();
+        assert_eq!(
+            (said("operation"), said("event"), said("phase"), said("position")),
+            (3.into(), "operation".into(), "queued".into(), 1.into()),
             "{line}"
         );
         let back = serde_json::from_str::<Event>(&line).unwrap();

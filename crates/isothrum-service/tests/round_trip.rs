@@ -4,15 +4,26 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
-use std::time::Duration;
 
 use isothrum_client::proto::{Command, OpOptions, PROTOCOL, Reply, Target};
 use isothrum_client::{Client, ClientError, VERSION};
-use isothrum_runner::fake::{Call, Reply as Answer};
+use isothrum_runner::fake::{Call, FakeProcesses, Reply as Answer};
 use isothrum_runner::{Detail, ErrorCode, Park, RunName, RunState};
+use isothrum_runner::{Runner, RunnerConfig};
+use isothrum_service::{RunnerEngine, ServeOptions};
+use std::sync::Arc;
 
 mod common;
 use common::Outcome;
+
+/// A service on `home` over a runner whose tools `answer` answers (a model of them), never
+/// stopped but by a request; a client of it once it answers.
+async fn serve(home: &Path, answer: impl Fn(&Call) -> Answer + Send + Sync + 'static) -> Outcome<(Client, common::Serving)> {
+    let mut config = RunnerConfig::new(home);
+    config.processes = Arc::new(FakeProcesses::model(answer));
+    let engine = Arc::new(RunnerEngine::new(Arc::new(Runner::new(config)?)));
+    common::serve_with(home, ServeOptions::new(engine, common::never())).await
+}
 
 /// Docker with Compose, for a project of `web` and `attackbox` (under a profile): the services
 /// with a container, and whether each runs.
@@ -86,7 +97,7 @@ async fn lab() -> Outcome<Lab> {
         "services:\n  web: {image: nginx}\n  attackbox: {image: kali, profiles: [attack]}\n",
     )?;
     let docker = Docker::default();
-    let (client, task) = common::serve(home.path(), move |call| docker.answer(call)).await?;
+    let (client, task) = serve(home.path(), move |call| docker.answer(call)).await?;
     Ok(Lab { home, project, client, task })
 }
 
@@ -105,8 +116,7 @@ impl Lab {
     /// Ends the service with `shutdown_if_idle` through `client`, and waits until it is gone.
     async fn end(self, client: &Client) {
         assert!(matches!(client.request(Command::ShutdownIfIdle).await, Ok(Reply::Ok { .. })));
-        let ended = tokio::time::timeout(Duration::from_secs(10), self.task).await;
-        assert!(matches!(ended, Ok(Ok(Ok(())))), "the service ended: {ended:?}");
+        common::ended(self.task).await.expect("the service ended");
     }
 }
 
@@ -167,7 +177,7 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
     assert_eq!(client.status_with(&name, None, revealing).await.expect("status").state, RunState::Ready);
     assert!(client.list().await.expect("list").iter().any(|r| r.name == name), "the run is listed");
     let operations = client.operations(&name, 10).await.expect("operations");
-    let (_, first) = tokio::time::timeout(Duration::from_secs(5), events.next())
+    let (_, first) = tokio::time::timeout(common::PATIENCE, events.next())
         .await
         .expect("an event in time")
         .expect("the subscription")
@@ -192,15 +202,4 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
     let cancel = client.cancel(ended).await.expect_err("it ended");
     assert_eq!(cancel.code(), ErrorCode::Usage, "{cancel}");
     lab.end(&exact).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_shutdown_stops_the_service_whatever_it_holds() {
-    let lab = lab().await.unwrap();
-    lab.client.shutdown().await.expect("shutdown");
-    tokio::time::timeout(Duration::from_secs(10), lab.task)
-        .await
-        .expect("the service ended")
-        .expect("its task")
-        .expect("its serve");
 }

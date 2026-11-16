@@ -523,7 +523,7 @@ dependencies = [
  "interprocess",
  "isothrum-client",
  "isothrum-runner",
- "nix",
+ "isothrum-test-support",
  "serde_json",
  "tempfile",
  "thiserror",
