@@ -172,6 +172,10 @@ runs are separate and opt-in:
   Isoloom checkout beside this one (`--isoloom <dir>` for another), runs it on this computer's
   Docker (`up`, `status`, `check`, `park`, `resume`, `down`) and keeps the events under
   `target/real-run/`.
+- `cargo test -p isothrum-cli --test real_run -- --ignored the_compose_example` runs `examples/compose-web-cache` on
+  this computer's Docker, as its README does. Every example's README commands also run on a model
+  of its tool in the ordinary tests (`commands/tests/examples.rs`): change an example's README and
+  that test together.
 - `cargo run -p xtask -- real-run cloud <cloud>` does the same on a cloud account whose credentials
   are in the environment, then tears down and reaps whatever happened. It costs money.
 - The manual *Cert — real runner* workflow (`real-runner.yml`) runs Proxmox and AWS from CI, when
