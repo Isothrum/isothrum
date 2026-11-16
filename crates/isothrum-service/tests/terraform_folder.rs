@@ -94,7 +94,7 @@ fn files_holding(dir: &Path, needle: &[u8]) -> Vec<PathBuf> {
 
 /// A service over a runner whose Terraform is `terraform`, on a fresh home; the module copied to
 /// a folder of its own.
-struct Lab {
+struct Stack {
     home: tempfile::TempDir,
     module: tempfile::TempDir,
     terraform: Arc<Terraform>,
@@ -102,13 +102,13 @@ struct Lab {
     task: common::Serving,
 }
 
-async fn lab() -> Outcome<Lab> {
+async fn stack() -> Outcome<Stack> {
     let (home, module) = (tempfile::tempdir()?, tempfile::tempdir()?);
     std::fs::copy(fixture("module/main.tf"), module.path().join("main.tf"))?;
     let terraform = Arc::new(Terraform::default());
     let answering = Arc::clone(&terraform);
     let (client, task) = serve(home.path(), move |call| answering.answer(call)).await?;
-    Ok(Lab {
+    Ok(Stack {
         home,
         module,
         terraform,
@@ -117,7 +117,7 @@ async fn lab() -> Outcome<Lab> {
     })
 }
 
-impl Lab {
+impl Stack {
     fn target(&self) -> Target {
         Target::new(self.module.path(), RunName::new("cloud-bucket").ok())
     }
@@ -131,42 +131,42 @@ impl Lab {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_hand_written_modules_variables_are_listed_from_its_files() {
-    let lab = lab().await.unwrap();
-    let vars = lab.client.variables(lab.target()).await.unwrap();
+    let stack = stack().await.unwrap();
+    let vars = stack.client.variables(stack.target()).await.unwrap();
     let region: &InputVariable = &vars[1];
     assert_eq!(vars.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["deployment_instance", "region"]);
     assert_eq!(region.type_constraint.as_deref(), Some("string"));
     assert_eq!(region.default, Some(serde_json::json!("us-east-1")));
     assert!(!region.sensitive && !region.required());
-    assert_eq!(lab.terraform.calls.lock().unwrap().len(), 0, "listing runs no tool");
-    lab.stop().await.unwrap();
+    assert_eq!(stack.terraform.calls.lock().unwrap().len(), 0, "listing runs no tool");
+    stack.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_folder_that_isnt_terraform_has_its_variables_refused_by_code() {
-    let lab = lab().await.unwrap();
-    std::fs::remove_file(lab.module.path().join("main.tf")).unwrap();
-    std::fs::write(lab.module.path().join("compose.yaml"), "services: {}\n").unwrap();
-    let refused = lab.client.variables(lab.target()).await.unwrap_err();
+    let stack = stack().await.unwrap();
+    std::fs::remove_file(stack.module.path().join("main.tf")).unwrap();
+    std::fs::write(stack.module.path().join("compose.yaml"), "services: {}\n").unwrap();
+    let refused = stack.client.variables(stack.target()).await.unwrap_err();
     assert_eq!(refused.code(), ErrorCode::ProjectInvalid, "{refused}");
     assert!(matches!(refused, ClientError::Refused { .. }), "{refused:?}");
-    lab.stop().await.unwrap();
+    stack.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_hand_written_module_runs_with_its_values_gives_its_outputs_and_goes() {
-    let lab = lab().await.unwrap();
+    let stack = stack().await.unwrap();
     let options = OpOptions {
         env: [("region".to_owned(), "eu-west-3".to_owned())].into(),
         secrets: [("AWS_SECRET_ACCESS_KEY".to_owned(), "wJalrXUtnFEMI".to_owned())].into(),
         ..OpOptions::default()
     };
     let up = Command::Up {
-        target: lab.target(),
+        target: stack.target(),
         options: options.clone(),
         lifetime_s: Some(3600),
     };
-    let result = lab.client.follow(up).await.unwrap().outcome().await.unwrap();
+    let result = stack.client.follow(up).await.unwrap().outcome().await.unwrap();
     let EventKind::Result {
         ok: true,
         data: ResultData::Started { outputs, .. },
@@ -178,33 +178,37 @@ async fn a_hand_written_module_runs_with_its_values_gives_its_outputs_and_goes()
     let started: Vec<(&str, Option<&str>)> = outputs.iter().map(|o| (o.name.as_str(), o.value.as_deref())).collect();
     assert_eq!(started, [("website_url", Some(url))]);
 
-    let apply = lab.terraform.calls("apply").pop().expect("an apply");
+    let apply = stack.terraform.calls("apply").pop().expect("an apply");
     assert_eq!(apply.env("TF_VAR_region"), Some("eu-west-3"), "a value is the module's variable");
     assert_eq!(apply.env("AWS_SECRET_ACCESS_KEY"), Some("wJalrXUtnFEMI"), "a secret reaches the provider");
     assert!(!apply.args.iter().any(|a| a.contains("wJalrXUtnFEMI") || a.starts_with("-var")), "{apply:?}");
 
     let name = RunName::new("cloud-bucket").unwrap();
-    let status = lab.client.status(&name, None).await.unwrap();
+    let status = stack.client.status(&name, None).await.unwrap();
     assert_eq!(status.state, RunState::Ready);
     let read: Vec<(&str, bool, Option<&str>)> = status.outputs.iter().map(|o| (o.name.as_str(), o.sensitive, o.value.as_deref())).collect();
     assert_eq!(read, [("website_url", false, Some(url))]);
 
     // The home keeps the value, never the secret.
-    let kept = files_holding(lab.home.path(), b"eu-west-3");
+    let kept = files_holding(stack.home.path(), b"eu-west-3");
     assert!(!kept.is_empty(), "the value is recorded, to be replayed");
-    assert_eq!(files_holding(lab.home.path(), b"wJalrXUtnFEMI"), Vec::<PathBuf>::new(), "no secret in the home");
+    assert_eq!(
+        files_holding(stack.home.path(), b"wJalrXUtnFEMI"),
+        Vec::<PathBuf>::new(),
+        "no secret in the home"
+    );
 
     // The down names no value: the recorded one is replayed, the secret given again.
     let down = Command::Down {
-        target: lab.target(),
+        target: stack.target(),
         options: OpOptions {
             secrets: options.secrets.clone(),
             ..OpOptions::default()
         },
     };
-    lab.client.follow(down).await.unwrap().outcome().await.unwrap();
-    let destroy = lab.terraform.calls("destroy").pop().expect("a destroy");
+    stack.client.follow(down).await.unwrap().outcome().await.unwrap();
+    let destroy = stack.terraform.calls("destroy").pop().expect("a destroy");
     assert_eq!(destroy.env("TF_VAR_region"), Some("eu-west-3"), "the start's value, replayed");
-    assert_eq!(lab.client.status(&name, None).await.unwrap().state, RunState::Absent);
-    lab.stop().await.unwrap();
+    assert_eq!(stack.client.status(&name, None).await.unwrap().state, RunState::Absent);
+    stack.stop().await.unwrap();
 }

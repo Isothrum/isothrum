@@ -73,7 +73,7 @@ pub(crate) enum RunnerCommand {
         /// Only this machine.
         #[arg(long)]
         machine: Option<String>,
-        /// Only the provisioner of this name (Vagrant's `--provision-with`, a lab's `checks`).
+        /// Only the provisioner of this name (Vagrant's `--provision-with`, a project's `checks`).
         #[arg(long)]
         with: Option<String>,
     },

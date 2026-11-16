@@ -29,7 +29,7 @@ this computer's hypervisors and tools can do.
 - the `isoloom-free` step and the `boundary` guardrail: no crate of the workspace, and no
   dependency of one, is an Isoloom crate;
 - the `vocabulary` guardrail: no file under `crates/` (code, tests, fixtures, the crates'
-  READMEs) names Isoloom.
+  READMEs) names Isoloom, nor uses an application's words (lab, CTF, player, attack box).
 
 ## Its boundary with the other products
 

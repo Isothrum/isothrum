@@ -51,7 +51,7 @@
 //!
 //! let client = Client::connect(std::path::Path::new("/home/ada/.isothrum"), None).await?;
 //! let up = Command::Up {
-//!     target: Target::new("/labs/web", None),
+//!     target: Target::new("/stacks/web", None),
 //!     options: OpOptions::default(),
 //!     lifetime_s: None,
 //! };
