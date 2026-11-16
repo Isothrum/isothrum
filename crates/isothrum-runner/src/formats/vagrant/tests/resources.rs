@@ -222,3 +222,68 @@ async fn a_machine_folder_that_cant_be_listed_is_a_cleanup_warning_never_taken_f
     Vagrant.virtualbox_leftovers(&cx(&f, &missing, VBOX)).await;
     assert_eq!(f.warnings(), [WarningCode::CleanupFailed], "no folder holds no VM: nothing more is said");
 }
+
+/// What `VBoxManage list systemproperties` says of a machine folder that isn't there: one that
+/// holds no VM, about which nothing is said.
+fn no_machine_folder(f: &Fixture) -> Reply {
+    Reply::ok(&format!("Default machine folder:          {}\n", f.state.path().join("none").display()))
+}
+
+/// Regression: a VM listing that failed skipped the clean-up without a word (then was only
+/// traced, which an embedder with no subscriber never sees): it is a `cleanup_failed` warning,
+/// and nothing is removed.
+#[tokio::test]
+async fn a_vm_listing_that_fails_is_a_cleanup_warning_and_removes_nothing() {
+    let f = Fixture::new();
+    let fake = FakeProcesses::script()
+        .expect(
+            "VBoxManage list vms",
+            Reply::fail(1, "VBoxManage: error: Failed to create the VirtualBox object!"),
+        )
+        .expect("VBoxManage list systemproperties", no_machine_folder(&f))
+        .build();
+    Vagrant.virtualbox_leftovers(&cx(&f, &fake, VBOX)).await;
+    assert_eq!(f.warnings(), [WarningCode::CleanupFailed]);
+}
+
+/// Regression: an earlier run's VM was announced removed before VirtualBox was asked, and a
+/// removal it refused was only traced: the events said it was gone, and the next import still
+/// met it. It is a `cleanup_failed` warning, never `orphan_removed`.
+#[tokio::test]
+async fn a_vm_virtualbox_wont_remove_is_warned_about_never_said_removed() {
+    let f = Fixture::new();
+    let fake = FakeProcesses::script()
+        .expect("VBoxManage list vms", Reply::ok("\"lab-k3y9ab-web\" {uuid-old}\n"))
+        .expect("VBoxManage discardstate uuid-old", Reply::fail(1, "not saved"))
+        .expect("VBoxManage controlvm uuid-old poweroff", Reply::ok(""))
+        .expect(
+            "VBoxManage unregistervm uuid-old --delete",
+            Reply::fail(1, "VBoxManage: error: Cannot unregister the machine 'lab-k3y9ab-web' while it is locked"),
+        )
+        .expect("VBoxManage list systemproperties", no_machine_folder(&f))
+        .build();
+    Vagrant.virtualbox_leftovers(&cx(&f, &fake, VBOX)).await;
+    assert_eq!(f.warnings(), [WarningCode::CleanupFailed]);
+}
+
+/// Regression: on ESXi, a VM whose address couldn't be read vanished from `status` with its
+/// ports. A running VM whose address can't be read is still read, without one.
+#[tokio::test]
+async fn a_running_vm_whose_address_cant_be_read_is_read_without_one() {
+    let f = Fixture::new();
+    f.made("web", "libvirt", "uuid-web");
+    let fake = FakeProcesses::script()
+        .expect("vagrant status --machine-readable", Reply::ok("1,web,state,running\n"))
+        .expect("vagrant port web --machine-readable", Reply::ok(""))
+        .expect(
+            "vagrant ssh-config web",
+            Reply::fail(
+                1,
+                "The provider for this Vagrant-managed machine is reporting that it is not yet ready for SSH.",
+            ),
+        )
+        .build();
+    let (seen, _) = Vagrant.observe(&cx(&f, &fake, LIBVIRT)).await.expect("observe");
+    let web: Vec<_> = seen.machines.iter().map(|m| (m.name.as_str(), m.state.clone(), m.address.as_deref())).collect();
+    assert_eq!(web, [("web", MachineState::Running, None)]);
+}

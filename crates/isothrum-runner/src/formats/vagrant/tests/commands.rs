@@ -101,3 +101,33 @@ fn a_vm_is_this_runs_by_its_key_as_a_word() {
     assert_eq!(of_key("vm:web@virtualbox", LIBVIRT), Some(("web".into(), Some("virtualbox".into()))));
     assert_eq!(of_key("network:x", LIBVIRT), None);
 }
+
+/// Regression: the libvirt connection was read from the process's environment mid-operation, a
+/// value that isn't UTF-8 as unset. It is the runner's own environment's: vagrant-libvirt's
+/// default connection named, unless `LIBVIRT_DEFAULT_URI` names one (`virsh` reads it itself).
+#[tokio::test]
+async fn a_libvirt_screen_asks_virsh_on_the_connection_the_runners_environment_names() {
+    let f = Fixture::new();
+    f.made("web", "libvirt", "dom-web");
+    let session = crate::host_env::HostEnv::of([(crate::host_env::LIBVIRT_DEFAULT_URI, "qemu:///session")]);
+    for (env, call) in [
+        (&crate::host_env::EMPTY, "virsh -c qemu:///system domdisplay dom-web"),
+        (&session, "virsh domdisplay dom-web"),
+    ] {
+        let fake = FakeProcesses::script().expect(call, Reply::ok("vnc://127.0.0.1:0\n")).build();
+        let console = super::screen::reach(
+            &ToolCx {
+                host_env: env,
+                ..cx(&f, &fake, LIBVIRT)
+            },
+            "web",
+        )
+        .await
+        .expect(call);
+        assert_eq!(
+            console.endpoint,
+            crate::graphical::Endpoint::Loopback("127.0.0.1:5900".parse().unwrap()),
+            "{call}"
+        );
+    }
+}

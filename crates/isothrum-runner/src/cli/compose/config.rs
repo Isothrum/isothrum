@@ -201,4 +201,18 @@ mod tests {
             assert!(read.as_ref().is_err_and(|e| e.starts_with(why)), "{config}: {read:?}");
         }
     }
+
+    /// A config that can't be read is an error, never a project with no port (which would let
+    /// every port through the free-ports check), and says why. Regression: serde's error was
+    /// dropped, and the step's failure said only that the config couldn't be read.
+    #[test]
+    fn a_config_that_cant_be_read_says_why() {
+        for (config, why) in [("not json", "expected ident"), ("{\"services\": 3}", "invalid type: integer `3`")] {
+            let refused = ports_of(config).expect_err(config);
+            assert!(
+                refused.starts_with("not the config Compose prints: ") && refused.contains(why),
+                "{config}: {refused}"
+            );
+        }
+    }
 }

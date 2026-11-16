@@ -4,6 +4,7 @@ mod failed_apply;
 mod gone;
 mod held;
 mod kept_ports;
+mod left_behind;
 mod one_update;
 mod pins;
 mod plugin_cache;

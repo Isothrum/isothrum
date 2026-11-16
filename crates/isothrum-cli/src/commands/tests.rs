@@ -93,3 +93,15 @@ async fn key_prints_the_public_key_or_with_json_one_document() {
         assert_eq!(s.out.take(), said);
     }
 }
+
+/// Regression (#127): a Proxmox console's websocket carried its VNC ticket, the password
+/// `--show-password` is for, into the terminal whatever the flag.
+#[test]
+fn a_proxmox_websocket_hides_its_ticket_without_show_password() {
+    let ticket = "PVEVNC:6553F0A4::dGlja2V0";
+    let url = "wss://pve:8006/api2/json/nodes/pve/qemu/101/vncwebsocket?port=5900&vncticket=PVEVNC%3A6553F0A4%3A%3AdGlja2V0";
+    let hidden = commands::ticket_shown(url, ticket, false);
+    assert!(!hidden.contains("dGlja2V0"), "{hidden}");
+    assert!(hidden.ends_with("vncticket=<hidden: --show-password prints it>"), "{hidden}");
+    assert_eq!(commands::ticket_shown(url, ticket, true), url);
+}
