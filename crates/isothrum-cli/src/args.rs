@@ -297,9 +297,9 @@ mod tests {
         for name in every_name::<Provider>() {
             assert!(up(&name).is_ok(), "{name}");
         }
-        let typo = up("virtualbx").unwrap_err().to_string();
-        assert!(typo.contains("invalid value 'virtualbx' for '--provider <PROVIDER>'"), "{typo}");
-        assert!(typo.contains("virtualbox"), "{typo}");
+        let typo = up("virtualbx").unwrap_err();
+        assert_eq!((typo.kind(), typo.exit_code()), (clap::error::ErrorKind::InvalidValue, 2), "{typo}");
+        assert!(typo.to_string().contains("virtualbox"), "the name meant is shown: {typo}");
     }
 
     #[test]
@@ -380,14 +380,20 @@ mod tests {
         assert!(
             matches!(on_runner(exec.command), RunnerCommand::Exec { machine, op, argv } if machine == "web" && op.run.path.as_os_str() == "runs/web" && argv == ["id", "-u"])
         );
-        assert!(Cli::try_parse_from(["isothrum", "exec", "web"]).is_err(), "a command is required");
+        let no_command = Cli::try_parse_from(["isothrum", "exec", "web"]).unwrap_err();
+        assert_eq!(
+            no_command.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument,
+            "a command is required: {no_command}"
+        );
     }
 
     #[test]
     fn a_format_names_the_project_when_its_folder_holds_several() {
         let up = Cli::parse_from(["isothrum", "up", "--format", "vagrant"]);
         assert!(matches!(on_runner(up.command), RunnerCommand::Lifecycle(Lifecycle::Up(UpArgs { op, .. })) if op.run.format == Some(FormatArg::Vagrant)));
-        assert!(Cli::try_parse_from(["isothrum", "up", "--format", "docker"]).is_err());
+        let unknown = Cli::try_parse_from(["isothrum", "up", "--format", "docker"]).unwrap_err();
+        assert_eq!(unknown.kind(), clap::error::ErrorKind::InvalidValue, "{unknown}");
     }
 
     #[test]

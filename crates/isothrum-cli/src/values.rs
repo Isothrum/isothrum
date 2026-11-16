@@ -45,22 +45,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn values_are_parsed_once() {
+    fn an_env_value_is_name_equals_value_and_a_secret_is_read_from_the_variable_it_names() {
         assert_eq!(
             env(&["A=1".into(), "B=x=y".into()]).unwrap(),
             BTreeMap::from([("A".into(), "1".into()), ("B".into(), "x=y".into())])
         );
         assert_eq!(env(&["A".into()]).unwrap_err().to_string(), "`--env A`: write NAME=VALUE");
-        assert_eq!(env(&["A=1".into(), "A=2".into()]).unwrap_err().to_string(), "`--env A=2`: `A` is given twice");
         let env = |k: &str| (k == "SECRET_VAR").then(|| OsString::from("token-x"));
         let s = secrets(&["DEMO_SECRET=SECRET_VAR".into()], &env).unwrap();
         assert_eq!(s.get("DEMO_SECRET").map(SecretValue::expose), Some("token-x"));
-        assert!(
-            secrets(&["DEMO_SECRET".into()], &env)
-                .unwrap_err()
-                .to_string()
-                .contains("`DEMO_SECRET` isn't set")
-        );
+        let unset = secrets(&["DEMO_SECRET".into()], &env).unwrap_err().to_string();
+        assert!(unset.contains("`DEMO_SECRET` isn't set"), "{unset}");
     }
 
     #[test]

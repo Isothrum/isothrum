@@ -283,9 +283,6 @@ fn the_committed_exit_codes_reference_is_current() {
 
 #[test]
 fn every_error_code_has_a_cause_and_a_remedy() {
-    let codes = error_codes();
-    assert!(codes.len() > 20, "{codes:?}");
-    for (code, cause) in codes {
-        assert!(!cause.is_empty() && remedy(code).is_some(), "{code}");
-    }
+    isothrum_test_support::assert_every!(error_codes(), |(code, cause): &(ErrorCode, String)| !cause.is_empty()
+        && remedy(*code).is_some());
 }

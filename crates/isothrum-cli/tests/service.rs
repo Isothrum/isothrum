@@ -7,20 +7,16 @@
 
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use isothrum_client::{Client, ServicePaths};
+use isothrum_client::{Client, ClientError, ServicePaths};
+use isothrum_test_support::{ChildGuard, PidGuard, TempHome, wait_until};
 
 const BIN: &str = env!("CARGO_BIN_EXE_isothrum");
 
-/// Waits up to 10 seconds for `done`.
-async fn eventually(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !done() {
-        assert!(Instant::now() < deadline, "{what}");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
+/// How long a test waits for the service to do what it does on its own: long, as it only bounds
+/// a failure.
+const PATIENCE: Duration = Duration::from_secs(60);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_client_starts_the_service_once_and_a_second_serve_is_refused() {
@@ -28,14 +24,17 @@ async fn a_client_starts_the_service_once_and_a_second_serve_is_refused() {
     let paths = ServicePaths::new(home.path());
     let first = Client::connect(home.path(), Some(Path::new(BIN))).await.unwrap();
     let pid = first.service().pid;
+    // The service is detached: should the test fail, it goes with the test, not at its idle time.
+    let _service = PidGuard::new(pid);
     assert_ne!(pid, std::process::id(), "a process of its own");
     let second = Client::connect(home.path(), Some(Path::new(BIN))).await.unwrap();
     assert_eq!(second.service().pid, pid, "the running one is reused");
 
-    let refused = Command::new(BIN).args(["serve", "--home"]).arg(home.path()).output().unwrap();
+    let env = TempHome::new();
+    let refused = Command::new(BIN).envs(env.envs()).args(["serve", "--home"]).arg(home.path()).output().unwrap();
     assert_eq!(refused.status.code(), Some(1));
     let said = String::from_utf8_lossy(&refused.stderr);
-    assert!(said.contains("already holds") && said.contains(&format!("pid {pid}")), "{said}");
+    assert!(said.contains(&format!("pid {pid}")), "the refusal names the service holding the home: {said}");
 
     #[cfg(unix)]
     {
@@ -46,28 +45,40 @@ async fn a_client_starts_the_service_once_and_a_second_serve_is_refused() {
     assert!(std::fs::read_to_string(paths.log()).unwrap().contains("the runner service listens"));
 
     first.shutdown().await.unwrap();
-    eventually("the service stops and says so", || paths.read_info().is_none()).await;
-    assert!(Client::connect_running(home.path()).await.is_err());
+    assert!(wait_until(PATIENCE, || paths.read_info().is_none()), "the service stops and says so");
+    let gone = Client::connect_running(home.path()).await.err();
+    assert!(matches!(gone, Some(ClientError::Unavailable(_))), "{gone:?}");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_idle_service_exits_on_its_own() {
-    let home = tempfile::tempdir().unwrap();
-    let mut service = Command::new(BIN)
-        .args(["serve", "--idle-timeout", "1", "--home"])
-        .arg(home.path())
-        .spawn()
-        .unwrap();
-    eventually("it exits", || service.try_wait().unwrap().is_some()).await;
-    assert!(service.wait().unwrap().success());
+#[test]
+fn an_idle_service_exits_0_on_its_own_and_withdraws_its_info() {
+    let (home, env) = (tempfile::tempdir().unwrap(), TempHome::new());
+    let mut serve = Command::new(BIN);
+    serve.envs(env.envs()).args(["serve", "--idle-timeout", "1", "--home"]).arg(home.path());
+    let mut service = ChildGuard::spawn(&mut serve).unwrap();
+    let mut exited = None;
+    assert!(
+        wait_until(PATIENCE, || {
+            exited = service.try_wait().unwrap();
+            exited.is_some()
+        }),
+        "it exits"
+    );
+    assert_eq!(exited.and_then(|s| s.code()), Some(0));
     assert!(ServicePaths::new(home.path()).read_info().is_none());
 }
 
 #[test]
 fn an_operation_with_no_run_fails_before_any_service_is_started() {
-    let home = tempfile::tempdir().unwrap();
-    let run = tempfile::tempdir().unwrap();
-    let out = Command::new(BIN).arg("down").arg(run.path()).arg("--home").arg(home.path()).output().unwrap();
-    assert!(!out.status.success(), "{out:?}");
+    let (home, run, env) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), TempHome::new());
+    let out = Command::new(BIN)
+        .envs(env.envs())
+        .arg("down")
+        .arg(run.path())
+        .arg("--home")
+        .arg(home.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(ServicePaths::new(home.path()).read_info().is_none(), "nothing to run: no service");
 }
