@@ -11,6 +11,14 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine says whether a provider is ready for a start right now:
+  `providers::ready`.** `utm` opens UTM hidden and in the background (`open -g -j`) and asks it
+  for its machines until it answers (`UTM_WAIT` by default); macOS refusing the Apple events
+  (`-1743`) is `NotReady::Needs(ProviderNeed::Automation)`, not waited on. `emulators` checks
+  QEMU's system emulator for each CPU of a project's machines other than this computer's
+  (`NotReady::Emulator`). The hypervisor self-test asks UTM through it, so
+  `selftest::hypervisor::Choices::probe` is gone: the caller no longer probes UTM.
+
 - **isothrum-machine works out a guided setup from the machine check: `setup`.** `options`
   says what each choice takes on this computer (WSL 2, each Docker engine, each local hypervisor
   and what Vagrant needs to drive it) as `Action`s a UI renders; `plan` puts them in order for

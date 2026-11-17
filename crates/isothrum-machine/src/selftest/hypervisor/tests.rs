@@ -64,10 +64,6 @@ impl Choices for Picks {
         Box::pin(async move { Ok(p) })
     }
 
-    fn probe(&self, provider: Provider) -> BoxFuture<'_, Result<bool, String>> {
-        Box::pin(async move { Ok(provider == Provider::Utm) })
-    }
-
     fn fetch_box<'a>(&'a self, _: Provider, _: &'static str, line: &'a (dyn Fn(String) + Send + Sync)) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
             line("held".to_owned());
@@ -78,6 +74,11 @@ impl Choices for Picks {
 
 /// The test on the modelled machine with `provider` picked: what it said, how it ran, the calls.
 async fn tested(provider: Provider, boot_fails: bool) -> (Vec<StepProgress>, Ran, Arc<FakeProcesses>) {
+    tested_on(linux_host(Path::new("/nonexistent/isothrum-machine-test")), provider, boot_fails).await
+}
+
+/// [`tested`] on `host`.
+async fn tested_on(host: crate::Host, provider: Provider, boot_fails: bool) -> (Vec<StepProgress>, Ran, Arc<FakeProcesses>) {
     let state = Mutex::new(Machine {
         boot_fails,
         ifs: vec!["vboxnet0"],
@@ -85,7 +86,7 @@ async fn tested(provider: Provider, boot_fails: bool) -> (Vec<StepProgress>, Ran
     });
     let tools = Arc::new(FakeProcesses::model(move |call| machine(&state, call)));
     let runner: Arc<dyn ProcessRunner> = Arc::<FakeProcesses>::clone(&tools);
-    let cx = Context::new(runner, linux_host(Path::new("/nonexistent/isothrum-machine-test")));
+    let cx = Context::new(runner, host);
     let dir = tempfile::tempdir().expect("a folder");
     let said = Mutex::new(Vec::new());
     let sink = |p: StepProgress| said.lock().unwrap_or_else(PoisonError::into_inner).push(p);
@@ -171,12 +172,20 @@ async fn a_hypervisor_with_no_private_network_skips_the_ping() {
 }
 
 #[tokio::test]
-async fn a_hypervisor_without_a_quiet_probe_is_asked_by_the_caller_never_by_its_tool() {
-    // Only the hypervisor's step matters here: UTM boots on a Mac only.
-    let (said, _, tools) = tested(Provider::Utm, false).await;
+async fn utm_is_opened_hidden_and_asked_as_a_start_asks_it_never_by_utmctl() {
+    // Only the hypervisor's step matters here.
+    let mut mac = linux_host(Path::new("/nonexistent/isothrum-machine-test"));
+    mac.os = isothrum_runner::HostOs::Macos;
+    let (said, _, tools) = tested_on(mac, Provider::Utm, false).await;
     assert!(said.contains(&Progress::Passed(Step::Hypervisor, Found::Responds)), "{said:?}");
+    let calls = tools.calls();
     assert!(
-        !tools.calls().iter().any(|c| c.program.ends_with("utmctl")),
+        calls.iter().any(|c| c.program == "open" && c.args.starts_with(&["-g".into(), "-j".into()])),
+        "{calls:?}"
+    );
+    assert!(calls.iter().any(|c| c.program == "osascript"), "{calls:?}");
+    assert!(
+        !calls.iter().any(|c| c.program.ends_with("utmctl")),
         "never `utmctl list`, which opens UTM's window"
     );
 }

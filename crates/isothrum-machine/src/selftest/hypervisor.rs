@@ -171,21 +171,12 @@ pub struct Ran {
     pub cleaned_up: Option<Result<(), Failure>>,
 }
 
-/// What the caller decides during the test: the hypervisor, once Vagrant answers; how a
-/// hypervisor with no quiet probe of its own is asked whether it answers; the test box, once the
-/// hypervisor answers (added by [`add_box`], or waited for while a fetch ahead of the test adds
-/// it).
+/// What the caller decides during the test: the hypervisor, once Vagrant answers; the test box,
+/// once the hypervisor answers (added by [`add_box`], or waited for while a fetch ahead of the
+/// test adds it).
 pub trait Choices: Send + Sync {
     /// The hypervisor to test; why none can be.
     fn provider(&self) -> BoxFuture<'_, Result<Provider, String>>;
-
-    /// Asks `provider`, which has no quiet probe here (UTM's `utmctl list` brings its window to
-    /// the front), whether it answers, as the caller's own start of it would: whether it was asked
-    /// (false: nothing to probe); why it doesn't answer. By default, it isn't asked.
-    fn probe(&self, provider: Provider) -> BoxFuture<'_, Result<bool, String>> {
-        let _ = provider;
-        Box::pin(async { Ok(false) })
-    }
 
     /// Makes sure box `name` is here for `provider`, each line its fetch prints said to `line`:
     /// whether it was here already.
@@ -251,7 +242,8 @@ fn responds(p: Provider) -> Option<(String, &'static [&'static str])> {
         Provider::VmwareDesktop => (tool("vmrun"), &["list"]),
         Provider::Parallels => (tool("prlctl"), &["list", "--all"]),
         Provider::Libvirt => (tool("virsh"), &["-c", "qemu:///system", "list", "--all"]),
-        // `utmctl list` opens UTM with its window in front: the caller probes it.
+        // `utmctl list` opens UTM with its window in front: it is asked as a start asks it
+        // ([`crate::providers::ready::utm`]), hidden.
         Provider::Utm | Provider::Hyperv | Provider::Qemu | Provider::VmwareEsxi => (None, &[]),
     };
     program.map(|found| (found, args))
@@ -413,9 +405,12 @@ impl<'a> Test<'a> {
         .await?;
         let Some(provider) = picked else { return Ok(()) };
         step.run(Step::Hypervisor, async {
+            if provider == Provider::Utm {
+                let ready = crate::providers::ready::utm(cx, crate::providers::ready::UTM_WAIT, &mut || {}).await;
+                return ready.map(|()| Found::Responds).map_err(|e| Failure::Said(e.to_string()));
+            }
             let Some((program, args)) = responds(provider) else {
-                let asked = choices.probe(provider).await.map_err(Failure::Said)?;
-                return Ok(if asked { Found::Responds } else { Found::NothingToProbe });
+                return Ok(Found::NothingToProbe);
             };
             cx.read_ok(&program, args).await.map(|_| Found::Responds).map_err(Failure::Said)
         })
