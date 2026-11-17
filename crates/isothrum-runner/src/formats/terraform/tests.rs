@@ -118,6 +118,7 @@ async fn with_cx_given<T>(stack: &Stack, fake: &FakeProcesses, extra: &[(&str, &
         sink: &sink,
         warn: &warn,
         made: crate::formats::NOTHING_MADE,
+        fetched: None,
     };
     f(&cx).await
 }

@@ -1,8 +1,9 @@
 //! What a client asks of a home besides its operations: a run's record, forgetting it, the runs
 //! past their lifetime, the way into a machine, its screen and its hypervisor's app, where its
-//! services are reached, and the runner's key. The client never opens the home's files.
+//! services are reached, the runner's key, and what the runs' downloads fetched. The client never
+//! opens the home's files.
 
-use isothrum_runner::{NativeConsole, RunName, ServiceEndpoint, ShellCommand};
+use isothrum_runner::{Download, DownloadRemoval, DownloadsToRemove, NativeConsole, RunName, ServiceEndpoint, ShellCommand};
 
 use super::console::{self, HeldConsole};
 use super::{Client, Reply, Request, Result, unexpected};
@@ -135,6 +136,34 @@ impl Client {
         };
         self.answer(command, |reply| match reply {
             Reply::Endpoints { endpoints, .. } => Ok(endpoints),
+            other => Err(Box::new(other)),
+        })
+        .await
+    }
+
+    /// What the runs' own downloads fetched and the home records (images a pull pulled, boxes an
+    /// `up` added), oldest first, each with its size when it can be read.
+    ///
+    /// # Errors
+    ///
+    /// The store couldn't be read, or the connection ended.
+    pub async fn downloads(&self) -> Result<Vec<Download>> {
+        self.answer(Command::Downloads, |reply| match reply {
+            Reply::Downloads { downloads, .. } => Ok(downloads),
+            other => Err(Box::new(other)),
+        })
+        .await
+    }
+
+    /// Removes the recorded downloads `which` names, each on its own (never forced): how each
+    /// went, one its tool refused kept and said, the others removed.
+    ///
+    /// # Errors
+    ///
+    /// The store couldn't be read or written, or the connection ended.
+    pub async fn remove_downloads(&self, which: DownloadsToRemove) -> Result<Vec<DownloadRemoval>> {
+        self.answer(Command::RemoveDownloads { which }, |reply| match reply {
+            Reply::DownloadsRemoved { removed, .. } => Ok(removed),
             other => Err(Box::new(other)),
         })
         .await

@@ -1,0 +1,14 @@
+1794875822,,ui,info,bento/debian-12                            (virtualbox%!(VAGRANT_COMMA) 202510.26.0%!(VAGRANT_COMMA) (arm64))
+1794875822,,box-name,bento/debian-12
+1794875822,,box-provider,virtualbox
+1794875822,,box-version,202510.26.0
+1794875822,,box-architecture,arm64
+1794875822,,ui,info,bento/debian-12                            (vmware_desktop%!(VAGRANT_COMMA) 202510.26.0%!(VAGRANT_COMMA) (amd64%!(VAGRANT_COMMA) arm64))
+1794875822,,box-name,bento/debian-12
+1794875822,,box-provider,vmware_desktop
+1794875822,,box-version,202510.26.0
+1794875822,,box-architecture,amd64
+1794875822,,box-name,bento/debian-12
+1794875822,,box-provider,vmware_desktop
+1794875822,,box-version,202510.26.0
+1794875822,,box-architecture,arm64

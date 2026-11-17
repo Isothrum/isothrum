@@ -6,7 +6,7 @@
 //! one test, not a run. The tools are spawned with their messages in the C locale
 //! (`process::locale`), so what they say is in the words these readers know.
 //!
-//! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, the `error-exit`
+//! - [`vagrant`]: `status --machine-readable`, `ssh-config`, `plugin list`, `box list`, the `error-exit`
 //!   record, a held lock and ESXi's refused halt ([`vagrant::Failure`]).
 //! - [`vboxmanage`]: `list vms`, `list systemproperties`, `showvminfo --machinereadable`.
 //! - [`virsh`]: `domdisplay`. [`qemu`]: the monitor's `info vnc`, vagrant-qemu's `options.yml`.

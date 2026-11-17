@@ -1,5 +1,7 @@
 //! The Docker adapter: the objects a project's label marks (its containers, networks and volumes,
-//! the anonymous ones included), their removal by id, and the networks a container is on.
+//! the anonymous ones included), their removal by id, and the networks a container is on; the
+//! images the engine holds, what a reference stands for, an image's size, and the removal of a
+//! reference.
 
 use std::fmt;
 
@@ -34,7 +36,8 @@ impl Object {
 /// A failed Docker call, as far as a driver acts on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Failure {
-    /// The object is gone already (`No such container`, `network … not found`, `no such volume`).
+    /// The object is gone already (`No such container`, `network … not found`, `no such volume`,
+    /// `No such image`).
     NoSuchObject,
     /// Any other failure: its reason.
     Other(String),
@@ -43,7 +46,11 @@ pub(crate) enum Failure {
 impl Failure {
     /// What a failed call that printed `out` failed with.
     pub(crate) fn of(out: &Captured) -> Failure {
-        if said_any(out, &["no such container", "no such volume", "no such network"]) || said_any(out, &["network"]) && said_any(out, &["not found"]) {
+        if said_any(
+            out,
+            &["no such container", "no such volume", "no such network", "no such image", "no such object"],
+        ) || said_any(out, &["network"]) && said_any(out, &["not found"])
+        {
             Failure::NoSuchObject
         } else {
             Failure::Other(out.reason())
@@ -90,6 +97,48 @@ pub(crate) async fn remove(call: &Call<'_>, kind: Object, ids: &[String]) -> Res
         | Ok(_) => Ok(()),
         Err(e) => Err(e),
     }
+}
+
+/// The id of every image the engine holds (`image ls --quiet --no-trunc`), each once.
+pub(crate) async fn image_ids(call: &Call<'_>) -> Result<std::collections::BTreeSet<String>, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["image", "ls", "--quiet", "--no-trunc"]), Failure::of).await?;
+    Ok(out.stdout.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect())
+}
+
+/// What `image inspect --format <format> <image>` prints, trimmed; none when the engine holds no
+/// such image.
+async fn inspect(call: &Call<'_>, image: &str, format: &str) -> Result<Option<String>, CliError<Failure>> {
+    let args = vec!["image".into(), "inspect".into(), "--format".into(), format.into(), image.into()];
+    match call.ok(TOOL, args, Failure::of).await {
+        Ok(out) => Ok(Some(out.stdout.join("\n").trim().to_owned()).filter(|s| !s.is_empty())),
+        Err(CliError::Failed {
+            failure: Failure::NoSuchObject,
+            ..
+        }) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The id of the image `reference` (`nginx:1.27`) now stands for; none when no image has it.
+pub(crate) async fn image_id(call: &Call<'_>, reference: &str) -> Result<Option<String>, CliError<Failure>> {
+    inspect(call, reference, "{{.Id}}").await
+}
+
+/// Image `image`'s size in bytes, as the engine says; none when it holds no such image.
+pub(crate) async fn image_size(call: &Call<'_>, image: &str) -> Result<Option<u64>, CliError<Failure>> {
+    let Some(said) = inspect(call, image, "{{.Size}}").await? else {
+        return Ok(None);
+    };
+    said.parse().map(Some).map_err(|e| CliError::Unexpected {
+        tool: TOOL,
+        what: format!("an image size `{said}`: {e}"),
+    })
+}
+
+/// Removes image reference `reference` (`image rm`, never forced: an image a container uses is
+/// refused); the image goes with its last reference.
+pub(crate) async fn remove_image(call: &Call<'_>, reference: &str) -> Result<(), CliError<Failure>> {
+    call.ok(TOOL, vec!["image".into(), "rm".into(), reference.into()], Failure::of).await.map(drop)
 }
 
 #[cfg(test)]

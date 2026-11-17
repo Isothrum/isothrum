@@ -116,6 +116,7 @@ impl Quiet {
             sink: &crate::formats::discard,
             warn: &unwarned,
             made: crate::formats::NOTHING_MADE,
+            fetched: None,
         }
     }
 }
@@ -233,6 +234,7 @@ impl<'r> Running<'r> {
         };
         let made = || self.made();
         let context = self.docker_context(opts);
+        let fetched = |item: crate::DownloadItem| self.record_fetched(item, context.as_deref());
         let processes = &crate::process::DockerContext {
             inner: processes,
             context: context.as_deref(),
@@ -251,19 +253,9 @@ impl<'r> Running<'r> {
             sink: &sink,
             warn: &warn,
             made: &made,
+            fetched: Some(&fetched),
         };
         work(&cx).await
-    }
-
-    /// The keys of the run's resources the store records as made by its tool: the provider's,
-    /// with their id, not gone.
-    fn made(&self) -> Result<Vec<String>> {
-        let rows = self.runner.store.db().read(|tx| tx.live_resources(&self.name))?;
-        Ok(rows
-            .into_iter()
-            .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
-            .map(|r| r.key)
-            .collect())
     }
 
     /// Keeps `seen`, an operation's own read, as what the runner last saw of the run, its state

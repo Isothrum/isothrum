@@ -82,6 +82,8 @@ fn two_vms(stack: &Mutex<TwoVms>, call: &Call) -> Reply {
             Reply::ok(&format!("1794305819,controller,state,{controller}\n1794305819,web,state,{web}"))
         }
         ["port", m, "--machine-readable"] => Reply::ok(&format!("1794305819,{m},forwarded_port,22,2222")),
+        // What the runner reads of the boxes around an `up`: none held.
+        ["box", "list", ..] => Reply::ok(""),
         _ => panic!("a call the model doesn't know: {}", call.line()),
     })
 }

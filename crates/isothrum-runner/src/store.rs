@@ -1,7 +1,7 @@
 //! The runner's state: the home's transactional store ([`Store`], `<home>/state.db`: the runs,
-//! the journal of operations, the events, the resources each run made, the host ports reserved,
-//! the leases), and one folder per run for what the tools keep (the reference, with what each
-//! target keeps in a run's folder: `docs/reference/state.md`):
+//! the journal of operations, the events, the resources each run made, what the runs' downloads
+//! fetched, the host ports reserved, the leases), and one folder per run for what the tools keep
+//! (the reference, with what each target keeps in a run's folder: `docs/reference/state.md`):
 //!
 //! ```text
 //! <home>/state.db            the store (SQLite, WAL: with `state.db-wal` and `state.db-shm`)

@@ -325,7 +325,7 @@ fn error(id: u64, code: ErrorCode, message: String) -> Reply {
 }
 
 /// The engine's answer to `command`, request `id`: a status, the way into a machine or its
-/// hypervisor's app, its endpoints, the runner's key.
+/// hypervisor's app, its endpoints, the runner's key, the downloads and their removal.
 async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Reply, Refusal> {
     let engine = &shared.engine;
     Ok(match command {
@@ -363,6 +363,14 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
         Command::PublicKey => Reply::PublicKey {
             id,
             key: engine.public_key().await?,
+        },
+        Command::Downloads => Reply::Downloads {
+            id,
+            downloads: engine.downloads().await?,
+        },
+        Command::RemoveDownloads { which } => Reply::DownloadsRemoved {
+            id,
+            removed: engine.remove_downloads(&which).await?,
         },
         _ => return Err(Refusal::new(ErrorCode::Usage, "not a question the engine answers")),
     })
