@@ -1622,6 +1622,21 @@
       ],
       "type": "object"
     },
+    "Park": {
+      "description": "How a run is parked: the manifest's `lifecycle.park.pause` or `.shutdown` steps.",
+      "oneOf": [
+        {
+          "const": "pause",
+          "description": "Suspended, memory kept where the target can (Docker: stopped).",
+          "type": "string"
+        },
+        {
+          "const": "shutdown",
+          "description": "Shut down.",
+          "type": "string"
+        }
+      ]
+    },
     "PortHolder": {
       "description": "The process that holds a host port: what a `port_in_use` names so the user knows what to stop.",
       "properties": {
@@ -2175,6 +2190,13 @@
           "description": "What the project gives back (a module's outputs), as read; none while not\n[`Status::live`].",
           "items": {
             "$ref": "#/$defs/OutputValue"
+          },
+          "type": "array"
+        },
+        "parks": {
+          "description": "The ways the run can be parked, by its format and provider ([`park_modes`]): none for a\nrun never recorded, nor for a Terraform module, which is never parked. Whether it can be\nparked now is its `state`'s: a run is parked from `ready`.",
+          "items": {
+            "$ref": "#/$defs/Park"
           },
           "type": "array"
         },

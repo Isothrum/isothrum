@@ -5,9 +5,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::events::MASK;
+use crate::project::Format;
 use crate::project::platform::{Protocol, Provider};
 use crate::secrets::SecretValue;
-use crate::state::RunState;
+use crate::state::{Park, RunState};
 use crate::store::RunRecord;
 
 /// A machine's state, as its engine reports it.
@@ -201,6 +202,11 @@ pub struct Status {
     /// where there is none (containers, QEMU), and while not [`Status::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native: Option<crate::graphical::NativeApp>,
+    /// The ways the run can be parked, by its format and provider ([`park_modes`]): none for a
+    /// run never recorded, nor for a Terraform module, which is never parked. Whether it can be
+    /// parked now is its `state`'s: a run is parked from `ready`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parks: Vec<Park>,
 }
 
 impl Status {
@@ -208,6 +214,18 @@ impl Status {
     #[must_use]
     pub fn any_present(&self) -> bool {
         any_present(&self.machines)
+    }
+}
+
+/// The ways a run of `format`, on the Vagrant `provider` (none: not Vagrant's, or not known yet),
+/// can be parked: Compose pauses (`pause`) and stops; Vagrant suspends and halts, but for QEMU's
+/// provider, which has no suspend; Terraform parks nothing (`park` is refused).
+#[must_use]
+pub fn park_modes(format: Format, provider: Option<Provider>) -> Vec<Park> {
+    match format {
+        Format::Vagrant if provider == Some(Provider::Qemu) => vec![Park::Shutdown],
+        Format::Compose | Format::Vagrant => vec![Park::Pause, Park::Shutdown],
+        Format::Terraform => Vec::new(),
     }
 }
 
@@ -276,6 +294,7 @@ mod tests {
             machines: vec![web, machine("job", MachineState::Exited(3)), vm],
             outputs: vec![OutputValue::new("url".into(), false, Some("http://127.0.0.1:41001".into()))],
             native: None,
+            parks: vec![Park::Pause, Park::Shutdown],
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(
@@ -287,10 +306,19 @@ mod tests {
                     {"name": "job", "state": {"exited": 3}, "published": []},
                     {"name": "vm", "state": {"unknown": "saved"}, "published": [{"port": 22, "protocol": null, "host_port": 2222}], "address": "192.0.2.10"}
                 ],
-                "outputs": [{"name": "url", "sensitive": false, "value": "http://127.0.0.1:41001"}]
+                "outputs": [{"name": "url", "sensitive": false, "value": "http://127.0.0.1:41001"}],
+                "parks": ["pause", "shutdown"]
             })
         );
         assert_eq!(serde_json::from_value::<Status>(json).unwrap(), status);
+    }
+
+    #[test]
+    fn a_run_is_parked_as_its_format_and_provider_can() {
+        assert_eq!(park_modes(Format::Compose, None), [Park::Pause, Park::Shutdown]);
+        assert_eq!(park_modes(Format::Vagrant, Some(Provider::Virtualbox)), [Park::Pause, Park::Shutdown]);
+        assert_eq!(park_modes(Format::Vagrant, Some(Provider::Qemu)), [Park::Shutdown]);
+        assert_eq!(park_modes(Format::Terraform, None), []);
     }
 
     #[test]

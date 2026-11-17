@@ -235,6 +235,7 @@ pub(super) fn status_of(seen: &Seen, state: RunState, live: bool, row: Option<&c
         machines: machine_statuses(&seen.machines),
         outputs,
         native: None,
+        parks: row.map(|r| crate::status::park_modes(r.record.format, r.record.provider)).unwrap_or_default(),
     }
 }
 

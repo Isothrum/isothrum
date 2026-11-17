@@ -151,8 +151,7 @@ impl fmt::Display for RunState {
 }
 
 /// How a run is parked: the manifest's `lifecycle.park.pause` or `.shutdown` steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Park {
