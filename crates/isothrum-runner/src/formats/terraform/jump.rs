@@ -4,7 +4,8 @@
 //! `destroy` runs with a SOCKS proxy through it on this computer's loopback, `ssh -N -D`, named in
 //! the module's `ssh_proxy_host` and `ssh_proxy_port` variables.
 //!
-//! - **Signing in.** With the run's `ssh_jump_key_file` value, else the runner's own key; the
+//! - **Signing in.** With the run's `ssh_jump_key_file` value, else the key its other SSH signs in
+//!   with at every hop (its `ssh_private_key_file` value, else the runner's own key); the
 //!   host's key pinned in the run's `known_hosts` the first time the run meets it, then checked
 //!   strictly ([`crate::ssh::pin`]).
 //! - **For how long.** The step's: the proxy's `ssh` is a tool of the operation, ended with its
@@ -57,7 +58,10 @@ fn jump(module: &Module<'_, '_>) -> Result<Option<(Login, PathBuf)>> {
         .split_once('@')
         .ok_or_else(|| refused(format!("the run's `{JUMP_VAR}` value `{}` isn't `user@host`", jump.escape_debug())))?;
     let login = Login::new(user, host).ok_or_else(|| refused(format!("the run's `{JUMP_VAR}` value `{}` isn't an SSH login", jump.escape_debug())))?;
-    let key = cx.var(KEY_VAR).map_or_else(|| cx.ssh_key.to_path_buf(), PathBuf::from);
+    let key = cx
+        .var(KEY_VAR)
+        .or_else(|| cx.var(super::tunnelled::KEY_VAR))
+        .map_or_else(|| cx.ssh_key.to_path_buf(), PathBuf::from);
     Ok(Some((login, key)))
 }
 
