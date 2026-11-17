@@ -197,8 +197,8 @@ pub struct Ran {
     /// Whether every step passed; why not.
     pub passed: Result<(), Failure>,
     /// Whether what the test made was taken down; why not. None: it made nothing (the server
-    /// didn't answer, the project couldn't be written, or an earlier test's VM couldn't be
-    /// removed).
+    /// didn't answer, the project couldn't be written, an earlier test's VM couldn't be removed,
+    /// or `up` was refused before it acted, a tool it needs missing).
     pub cleaned_up: Option<Result<(), Failure>>,
 }
 
@@ -387,7 +387,17 @@ async fn test<C: Course>(run: &impl Deployment, left: bool, course: C, progress:
         }
     }
     progress(Progress::Passed(Step::Prepare, Found::Nothing));
-    let passed = Box::pin(steps(run, course, progress, ssh_wait)).await;
+    let passed = match Box::pin(up(run, course, progress)).await {
+        Ok(()) => Box::pin(inside(run, progress, C::UP.contains(&Step::Ssh), ssh_wait)).await,
+        // Refused before it acted (a tool missing, a value unusable): nothing to take down.
+        Err((why, false)) => {
+            return Ran {
+                passed: Err(why),
+                cleaned_up: None,
+            };
+        }
+        Err((why, true)) => Err(why),
+    };
     progress(Progress::Running(Step::Down));
     let down = run
         .down(&|l| {
@@ -417,18 +427,30 @@ async fn test<C: Course>(run: &impl Deployment, left: bool, course: C, progress:
     }
 }
 
-/// Up, SSH, the command: the first that fails ends them.
-async fn steps<C: Course>(run: &impl Deployment, course: C, progress: &(dyn Fn(StepProgress) + Send + Sync), ssh_wait: Duration) -> Result<(), Failure> {
+/// Brings the run up along `course`, each step said as its line ends it: why not, and whether
+/// the run may have changed (false: refused before it acted).
+async fn up<C: Course>(run: &impl Deployment, course: C, progress: &(dyn Fn(StepProgress) + Send + Sync)) -> Result<(), (Failure, bool)> {
     let course = std::sync::Mutex::new(UpSteps::new(course, progress));
     lock(&course).start();
     let up = run.up(&|line| lock(&course).line(line)).await;
     let mut course = course.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     match up {
-        Ok(()) => course.finish(),
-        Err(report) => return Err(course.fail(report)),
+        Ok(()) => {
+            course.finish();
+            Ok(())
+        }
+        Err(report) => {
+            let changed = report.changed;
+            Err((course.fail(report), changed))
+        }
     }
+}
+
+/// Inside the VM once up: SSH waited for (within `ssh_wait`) unless `up` did (`ssh_up`), then
+/// the command. The first that fails ends them.
+async fn inside(run: &impl Deployment, progress: &(dyn Fn(StepProgress) + Send + Sync), ssh_up: bool, ssh_wait: Duration) -> Result<(), Failure> {
     let step = super::Steps(progress);
-    if !C::UP.contains(&Step::Ssh) {
+    if !ssh_up {
         step.run(Step::Ssh, wait_ssh(run, ssh_wait)).await?;
     }
     step.run(Step::Exec, async {

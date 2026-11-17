@@ -217,6 +217,23 @@ async fn a_failed_teardown_is_said_and_handed_back_after_a_pass_or_a_failure() {
 }
 
 #[tokio::test]
+async fn a_start_refused_before_it_acted_leaves_nothing_to_take_down() {
+    let mut run = Scripted::new(&[], None);
+    let mut refused = ErrorReport::new(ErrorCode::ToolMissing, "`terraform` is not installed or not on PATH");
+    refused.changed = false;
+    run.up = Some(Box::new(refused));
+    let (said, ran) = tested(&run, false, proxmox::Pve).await;
+    assert!(
+        matches!(&ran.passed, Err(Failure::Runner(r)) if r.code == ErrorCode::ToolMissing),
+        "{:?}",
+        ran.passed
+    );
+    assert_eq!(ran.cleaned_up, None);
+    assert_eq!(ends(&said), ["Prepare:ok", "Image:fail"]);
+    assert_eq!(run.calls(), ["up"], "no teardown of what was never made");
+}
+
+#[tokio::test]
 async fn what_an_earlier_test_left_is_taken_down_first_and_stops_the_test_when_it_cant_be() {
     let run = Scripted::new(&PVE_ALL_THE_WAY, None);
     let (said, ran) = tested(&run, true, proxmox::Pve).await;
