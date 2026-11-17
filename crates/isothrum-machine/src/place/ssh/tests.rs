@@ -129,3 +129,29 @@ async fn a_real_server() {
     println!("after confirming: {denied}");
     assert!(matches!(&denied, SshError::Failed(why) if why.contains("Permission denied")), "{denied:?}");
 }
+
+#[tokio::test]
+async fn a_password_sign_in_answers_ssh_once_through_askpass_and_never_shows() {
+    let dir = tempfile::tempdir().unwrap();
+    let node = target().with_password("s3cr&t%", dir.path().to_path_buf());
+    let args = node.exec_args("true").unwrap();
+    assert!(!args.contains(&"-i".to_owned()), "no key: {args:?}");
+    assert!(!args.contains(&"BatchMode=yes".to_owned()), "batch mode turns askpass off");
+    assert!(args.contains(&"NumberOfPasswordPrompts=1".to_owned()) && args.contains(&"StrictHostKeyChecking=yes".to_owned()));
+    assert_eq!(args[args.len() - 3..], ["--", "debian@10.0.0.5", "true"]);
+    assert!(!format!("{node:?}").contains("s3cr"), "the password never shows");
+    let fake = Arc::new(FakeProcesses::script().expect("ssh -p 22", Reply::ok("")).build());
+    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
+    node.exec(&shared(runner), "true", Duration::from_secs(5)).await.unwrap();
+    let call = fake.last("ssh").unwrap();
+    assert_eq!(call.env("ISOTHRUM_SSH_PASSWORD"), Some("s3cr&t%"));
+    assert_eq!(call.env("SSH_ASKPASS_REQUIRE"), Some("force"));
+    let askpass = PathBuf::from(call.env("SSH_ASKPASS").unwrap());
+    assert!(askpass.starts_with(dir.path()), "in the caller's folder: {}", askpass.display());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(std::fs::metadata(&askpass).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    assert!(askpass_script(true).1.contains("EnableDelayedExpansion"));
+}
