@@ -258,17 +258,6 @@ impl<'r> Running<'r> {
         work(&cx).await
     }
 
-    /// The keys of the run's resources the store records as made by its tool: the provider's,
-    /// with their id, not gone.
-    fn made(&self) -> Result<Vec<String>> {
-        let rows = self.runner.store.db().read(|tx| tx.live_resources(&self.name))?;
-        Ok(rows
-            .into_iter()
-            .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
-            .map(|r| r.key)
-            .collect())
-    }
-
     /// Keeps `seen`, an operation's own read, as what the runner last saw of the run, its state
     /// left to the operation: a status read after it compares with it.
     fn keep_seen(&self, seen: &Seen) -> Result<()> {

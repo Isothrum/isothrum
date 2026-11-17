@@ -1,10 +1,11 @@
 //! The tools of a run: an operation's recorded in the run's state folder (and elevated where its
-//! hypervisor needs it), every `docker` call of the run sent to its Docker context, and what its
-//! downloads fetched recorded.
+//! hypervisor needs it), every `docker` call of the run sent to its Docker context, and what the
+//! store keeps of what they did: the resources they made, what their downloads fetched.
 
 use std::sync::Arc;
 
 use super::Running;
+use crate::Result;
 use crate::options::RunOptions;
 use crate::process::ProcessRunner;
 
@@ -50,5 +51,16 @@ impl Running<'_> {
             Ok(_) => tracing::info!(run = %self.name, ?item, "recorded what the run's download fetched"),
             Err(e) => tracing::warn!(run = %self.name, ?item, error = %e, "what the run's download fetched wasn't recorded"),
         }
+    }
+
+    /// The keys of the run's resources the store records as made by its tool: the provider's,
+    /// with their id, not gone.
+    pub(super) fn made(&self) -> Result<Vec<String>> {
+        let rows = self.runner.store.db().read(|tx| tx.live_resources(&self.name))?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
+            .map(|r| r.key)
+            .collect())
     }
 }
