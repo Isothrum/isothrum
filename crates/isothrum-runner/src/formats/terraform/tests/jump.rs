@@ -135,7 +135,7 @@ async fn a_jump_host_whose_known_hosts_the_run_gives_is_checked_against_that_fil
     let calls = fake.calls();
     assert!(!calls.iter().any(|c| c.program == "ssh-keyscan"), "never scanned: {calls:?}");
     let proxy = calls.iter().find(|c| c.program == "ssh").expect("the proxy");
-    assert!(proxy.args.contains(&format!("UserKnownHostsFile=\"{path}\"")), "{:?}", proxy.args);
+    assert!(proxy.args.contains(&format!("UserKnownHostsFile=\"{}\"", ssh_named(&file))), "{:?}", proxy.args);
     assert!(proxy.args.iter().any(|a| a == "StrictHostKeyChecking=yes"), "{:?}", proxy.args);
     assert!(!stack.state.path().join("known_hosts").exists(), "nothing pinned in the run's");
     assert_eq!(std::fs::read_to_string(&file).expect("the file"), format!("{NODE_KEY}\n"));
