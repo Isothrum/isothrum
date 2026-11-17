@@ -11,6 +11,23 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine asks the cloud accounts this computer's cloud CLIs are signed in to:
+  `cloud`.** Whether a sign-in still reaches its provider (AWS's identity, an Azure token, Google
+  Cloud's own and application-default tokens, Oracle Cloud's config file), and what an account
+  offers: AWS's profiles, its spend this month (Cost Explorer) and whether it may create instances
+  (a dry run, which creates nothing), with the CLI's own credentials or an access key given to the
+  CLI's official container (`aws::Credentials`); Azure's subscriptions, the VM sizes a region
+  lists for a subscription with why one is refused to it, and its core quotas (`azure::sizes`,
+  `in_region`, `elsewhere`, `alike`, `quotas`); Google Cloud's billing accounts and organizations;
+  an Oracle Cloud compartment's name and the config file's default profile. `cloud::sign_in`
+  runs a CLI's browser sign-in (`aws login`, `az login`, `gcloud auth login --update-adc`), each
+  line handed on as it comes; dropping it ends the CLI. A CLI that gives no usable answer says why
+  (`Failure`: not installed, no answer in time, refused, unreadable), a refusal read from its words
+  (`Refusal`: a sign-in run out or missing is `CredentialsExpired`, with the runner's
+  `ErrorCode::CredentialsExpired`; a permission denied, not found, an API not enabled, a quota used
+  up), each wording backed by a fixture. The runner's reading of an expired sign-in is public:
+  `sign_in_expired`. `failure::ask` asks any tool a question within the probe time.
+
 - **The runner records what its own downloads fetched, and removes only that.** A Compose
   start's pull records each image whose reference, once pulled, stands for an id the engine didn't
   hold before it (its reference, id and Docker context); a Vagrant `up` records each box `vagrant

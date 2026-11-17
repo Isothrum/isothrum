@@ -1,0 +1,10 @@
+[
+  {
+    "creationTime": "2024-02-01T10:00:00.000Z",
+    "directoryCustomerId": "C00000000",
+    "displayName": "example.com",
+    "etag": "BwX0000000=",
+    "lifecycleState": "ACTIVE",
+    "name": "organizations/1234567890"
+  }
+]

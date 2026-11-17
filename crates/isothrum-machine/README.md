@@ -13,6 +13,11 @@ answering or its kernel driver not loaded, KVM holding the CPU's virtualization,
 missing or not this account's, a group joined since logging in, Hyper-V turned off, its
 hypervisor not running, or this account not allowed to manage it.
 
+It also asks the cloud accounts this computer's cloud CLIs (`aws`, `az`, `gcloud`, `oci`) are
+signed in to (`cloud`): whether a sign-in still holds, and what an account offers (AWS's spend and
+launch permission, Azure's subscriptions, VM sizes and quotas, Google Cloud's billing accounts and
+organizations), a refusal read as a code (`Refusal::CredentialsExpired` for a sign-in run out).
+
 Every tool it runs (`vagrant plugin list`, `VBoxManage`, `vmrun`, `whoami`, `id`, ...) goes
 through `isothrum-runner`'s `ProcessRunner`, each probe within a time limit, so tests script them;
 the files it reads instead (`/dev/kvm`, `/proc/modules`, UTM's app bundle, Hyper-V's service...)

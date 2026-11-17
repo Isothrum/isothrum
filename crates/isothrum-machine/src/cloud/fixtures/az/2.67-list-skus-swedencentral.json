@@ -1,0 +1,58 @@
+[
+  {
+    "capabilities": [
+      { "name": "vCPUs", "value": "2" },
+      { "name": "MemoryGB", "value": "4" }
+    ],
+    "family": "standardDALSv6Family",
+    "locationInfo": [{ "location": "swedencentral", "zoneDetails": [], "zones": ["1", "2", "3"] }],
+    "locations": ["swedencentral"],
+    "name": "Standard_D2als_v6",
+    "resourceType": "virtualMachines",
+    "restrictions": [
+      {
+        "reasonCode": "NotAvailableForSubscription",
+        "restrictionInfo": { "locations": ["swedencentral"], "zones": null },
+        "type": "Location",
+        "values": ["swedencentral"]
+      }
+    ],
+    "size": "D2als_v6",
+    "tier": "Standard"
+  },
+  {
+    "capabilities": [
+      { "name": "vCPUs", "value": "2" },
+      { "name": "MemoryGB", "value": "4" }
+    ],
+    "family": "standardBSFamily",
+    "locationInfo": [{ "location": "swedencentral", "zoneDetails": [], "zones": ["1", "2", "3"] }],
+    "locations": ["swedencentral"],
+    "name": "Standard_B2s",
+    "resourceType": "virtualMachines",
+    "restrictions": [
+      {
+        "reasonCode": "NotAvailableForSubscription",
+        "restrictionInfo": { "locations": ["swedencentral"], "zones": ["3"] },
+        "type": "Zone",
+        "values": ["swedencentral"]
+      }
+    ],
+    "size": "B2s",
+    "tier": "Standard"
+  },
+  {
+    "capabilities": [
+      { "name": "vCPUs", "value": "2" },
+      { "name": "MemoryGB", "value": "8" }
+    ],
+    "family": "standardDSv5Family",
+    "locationInfo": [{ "location": "swedencentral", "zoneDetails": [], "zones": ["1", "2", "3"] }],
+    "locations": ["swedencentral"],
+    "name": "Standard_D2s_v5",
+    "resourceType": "virtualMachines",
+    "restrictions": [],
+    "size": "D2s_v5",
+    "tier": "Standard"
+  }
+]

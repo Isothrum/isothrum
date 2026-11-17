@@ -1,0 +1,1 @@
+ERROR: (gcloud.billing.accounts.list) PERMISSION_DENIED: Cloud Billing API has not been used in project 123456789012 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/cloudbilling.googleapis.com/overview?project=123456789012 then retry.

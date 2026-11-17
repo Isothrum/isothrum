@@ -1,0 +1,16 @@
+[
+  {
+    "displayName": "My Billing Account",
+    "masterBillingAccount": "",
+    "name": "billingAccounts/0X0X0X-0X0X0X-0X0X0X",
+    "open": true,
+    "parent": ""
+  },
+  {
+    "displayName": "Closed trial",
+    "masterBillingAccount": "",
+    "name": "billingAccounts/AAAAAA-BBBBBB-CCCCCC",
+    "open": false,
+    "parent": ""
+  }
+]

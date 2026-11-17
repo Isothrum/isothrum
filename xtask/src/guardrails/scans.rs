@@ -23,12 +23,16 @@ const CRATES: [&str; 5] = [
 
 /// Where a tool's answer is read, beside `tool_output` (the tool-output module's own list of the
 /// documents read beside their tool).
-const ADAPTERS: [(&str, &str); 3] = [
+const ADAPTERS: [(&str, &str); 4] = [
     (
         "crates/isothrum-runner/src/cli/",
         "one adapter per tool: its argv, its spawn and the parse of its answers into typed values",
     ),
     ("crates/isothrum-runner/src/tool_output/", "what the tools print, one reader per tool"),
+    (
+        "crates/isothrum-machine/src/cloud",
+        "one adapter per cloud CLI: its argv, its runs and the parse of its answers about an account",
+    ),
     (
         "crates/isothrum-runner/src/formats/terraform/tunnelled.rs",
         "a module's `consoles` output, the value `terraform output` gave, read in its one reader",

@@ -1,0 +1,3 @@
+ERROR: AADSTS700082: The refresh token has expired due to inactivity. The token was issued on 2026-05-01T09:12:44.0000000Z and was inactive for 90.00:00:00.
+Interactive authentication is needed. Please run:
+az login

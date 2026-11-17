@@ -30,6 +30,7 @@ pub(crate) mod vboxmanage;
 pub(crate) mod virsh;
 
 pub use az::version as azure_cli_version;
+pub use sign_in::expired as sign_in_expired;
 pub use vagrant::plugins as vagrant_plugins;
 pub use vboxmanage::vms as virtualbox_vms;
 

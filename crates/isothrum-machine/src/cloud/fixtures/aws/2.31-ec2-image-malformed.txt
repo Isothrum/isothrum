@@ -1,0 +1,2 @@
+
+An error occurred (InvalidAMIID.Malformed) when calling the RunInstances operation: Invalid id: "ami-00000000000000000" (expecting "ami-...")
