@@ -219,9 +219,9 @@ mod tests {
     #[tokio::test]
     async fn the_servers_own_options_with_their_defaults() {
         let ip = "10.0.0.50".parse().ok();
-        let p = read_answers(|p: String| answer(&p), &Needs::default(), ip).await.unwrap();
+        let found = read_answers(|p: String| answer(&p), &Needs::default(), ip).await.unwrap();
         assert_eq!(
-            p,
+            found,
             Placement {
                 nodes: vec![NodeChoices {
                     name: "pve".into(),

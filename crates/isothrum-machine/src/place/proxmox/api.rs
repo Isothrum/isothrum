@@ -54,7 +54,7 @@ impl Storage {
     /// What it accepts (`images`, `iso`, `snippets`), each trimmed.
     #[must_use]
     pub fn contents(&self) -> Vec<String> {
-        self.content.as_deref().unwrap_or_default().split(',').map(|c| c.trim().to_string()).collect()
+        self.content.as_deref().unwrap_or_default().split(',').map(|c| c.trim().to_owned()).collect()
     }
 
     /// Whether it can be used: not disabled, not inactive (when the API says).
