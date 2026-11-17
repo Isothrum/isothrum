@@ -197,7 +197,8 @@ runs are separate and opt-in:
   and readiness, the engine and hypervisor self-tests, a start of the running engine, the tool
   path, the network, the OVF Tool, the terminal; and, on a clean machine with its owner there for
   the administrator prompts, each missing tool `ISOTHRUM_E2E_INSTALL` names (`docker,vagrant`,
-  or `all`) installed for real, as a setup installs it. `--tier server` runs them against the test
+  or `all`, the tools a setup offers there) installed for real, as a setup installs it.
+  `--tier server` runs them against the test
   servers the `ISOTHRUM_TEST_*` variables name (`tests/real/server.rs` lists them): an SSH
   server, a Proxmox VE node, an ESXi host. Each test runs alone and leaves the machine and the
   server as it found them; one whose tool or server isn't there skips, saying why, and never

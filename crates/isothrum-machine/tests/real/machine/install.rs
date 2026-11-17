@@ -4,7 +4,8 @@
 //! hypervisor read installed by its provider's detection.
 //!
 //! An install changes the computer for good, so it only runs where it is asked for:
-//! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`, or `all`), on a clean
+//! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`, or `all`: those a setup
+//! offers here, a Mac's hypervisor the one made for its CPU), on a clean
 //! machine with its owner there for the administrator prompts and the installers' windows. A
 //! tool already installed skips, and so does one missing that isn't asked for. What is installed
 //! stays: the tests after these run on it.
@@ -24,11 +25,30 @@ const FINISH: Duration = Duration::from_secs(30 * 60);
 /// How often the tool is looked for meanwhile.
 const LOOK_EVERY: Duration = Duration::from_secs(10);
 
-/// Whether `ISOTHRUM_E2E_INSTALL` asks for `dep`'s install (its name as the setup's table spells
-/// it, or `all`).
-fn asked(dep: Dependency) -> bool {
+/// How `ISOTHRUM_E2E_INSTALL` asks for `dep`'s install: by its name as the setup's table spells
+/// it, or among `all` (the tools a setup offers here); not at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// By its name.
+    ByName,
+    /// Among `all`.
+    AmongAll,
+    /// Not at all.
+    No,
+}
+
+/// How `ISOTHRUM_E2E_INSTALL` asks for `dep`'s install.
+fn asked(dep: Dependency) -> Asked {
     let name = serde_json::to_value(dep).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
-    setting("ISOTHRUM_E2E_INSTALL").is_some_and(|list| list.split(',').map(str::trim).any(|t| t == "all" || t == name))
+    let list = setting("ISOTHRUM_E2E_INSTALL").unwrap_or_default();
+    let named: Vec<&str> = list.split(',').map(str::trim).collect();
+    if named.contains(&name.as_str()) {
+        Asked::ByName
+    } else if named.contains(&"all") {
+        Asked::AmongAll
+    } else {
+        Asked::No
+    }
 }
 
 /// How a root step is elevated here: pkexec's prompt where a desktop session answers it, else
@@ -65,10 +85,18 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     match install::present(cx, dep).await {
         Some(true) => Some(format!("{dep:?} is installed here already: an install is tested on a machine without it")),
         None => Some(format!("whether {dep:?} is installed can't be told here")),
-        Some(false) if !asked(dep) => Some(format!(
-            "{dep:?} is missing here; ISOTHRUM_E2E_INSTALL doesn't ask for its install (it changes this computer for good)"
-        )),
-        Some(false) => None,
+        Some(false) => match asked(dep) {
+            Asked::No => Some(format!(
+                "{dep:?} is missing here; ISOTHRUM_E2E_INSTALL doesn't ask for its install (it changes this computer for good)"
+            )),
+            // A setup offers a Mac the hypervisor made for its CPU only (UTM on Apple silicon,
+            // VirtualBox on Intel): `all` installs what it offers, a name installs that tool.
+            Asked::AmongAll if dep.hypervisor().is_some_and(|p| !providers::offered(p, &cx.host, false)) => Some(format!(
+                "{dep:?} isn't offered on this computer's CPU ({:?}); ISOTHRUM_E2E_INSTALL names it to install it anyway",
+                cx.host.arch
+            )),
+            Asked::AmongAll | Asked::ByName => None,
+        },
     }
 }
 
