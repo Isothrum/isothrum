@@ -23,8 +23,8 @@
 //!   the entries. It ends only the very process
 //!   that was recorded: one whose id now names another process (a later start, another program)
 //!   is left alone, and so is a group whose leader is gone, which can't be told from another.
-//! - On Windows a tool's job object already ends its tree when this process dies ([`super::job`]):
-//!   its entry is the backstop, for a tree the job didn't hold.
+//! - On Windows a tool's job object already ends its tree when this process dies (the
+//!   runner's `job` module): its entry is the backstop, for a tree the job didn't hold.
 
 use std::collections::BTreeMap;
 use std::fs::File;
