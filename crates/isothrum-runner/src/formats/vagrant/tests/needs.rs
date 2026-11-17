@@ -30,9 +30,12 @@ async fn a_hypervisor_finding_no_virtiofsd_refuses_the_provider_naming_it() {
     }
 }
 
-/// UTM answering the VM's start with the system's `Operation not permitted`.
+/// UTM answering the VM's start with the system's `Operation not permitted`: its machine's files.
 #[tokio::test]
-async fn a_hypervisor_app_refused_by_the_system_refuses_the_provider_needing_a_permission() {
+async fn a_hypervisor_app_that_couldnt_open_the_machines_files_refuses_the_provider_naming_them() {
     let said = "vagrant/vagrant_utm-0.2-start-not-permitted.txt";
-    assert_eq!(refusal(Provider::Utm, said).await, Some(needs(Provider::Utm, crate::ProviderNeed::Permission)));
+    assert_eq!(
+        refusal(Provider::Utm, said).await,
+        Some(needs(Provider::Utm, crate::ProviderNeed::MachineFiles))
+    );
 }

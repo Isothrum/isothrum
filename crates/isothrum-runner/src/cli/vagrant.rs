@@ -98,11 +98,8 @@ impl Failure {
                 number: event.number(),
                 reason: out.reason(),
             }
-        } else if refused_by_the_system(out) {
-            Failure::Lacks {
-                need: crate::error::ProviderNeed::Permission,
-                reason: out.reason(),
-            }
+        } else if let Some(need) = refused_by_the_system(out) {
+            Failure::Lacks { need, reason: out.reason() }
         } else if said_any(out, &["timeout during server version negotiating"]) {
             Failure::Booting { reason: out.reason() }
         } else if said_any(out, &["unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable"]) {
@@ -133,14 +130,22 @@ impl fmt::Display for Failure {
     }
 }
 
-/// Whether failed call `out` is the system refusing the provider a permission: an Apple event its
-/// hypervisor's app answered with the system's `Operation not permitted` (`utmctl`'s `Error from
-/// event: … (OSStatus error -2700.) … Operation not permitted`, the app's own failure: its VM
-/// files or a helper refused), or one macOS didn't let it send (`-1743`, in any language).
-fn refused_by_the_system(out: &Captured) -> bool {
-    let event_failed = said_any(out, &["osstatus error", "error from event"]) || AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail)).is_some();
-    (event_failed && said_any(out, &["operation not permitted"]))
-        || AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail)).is_some_and(|e| e.number() == NOT_AUTHORIZED)
+/// What the system refused the provider in failed call `out`, if it did: the Apple events to its
+/// hypervisor's app (`-1743`, in any language: [`ProviderNeed::Automation`]), or the machine's files,
+/// an event the app answered with the system's `Operation not permitted` (`utmctl`'s `Error from
+/// event: … (OSStatus error -2700.) … Operation not permitted`: [`ProviderNeed::MachineFiles`]).
+///
+/// [`ProviderNeed::Automation`]: crate::error::ProviderNeed::Automation
+/// [`ProviderNeed::MachineFiles`]: crate::error::ProviderNeed::MachineFiles
+fn refused_by_the_system(out: &Captured) -> Option<crate::error::ProviderNeed> {
+    let event = AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail));
+    if event.is_some_and(|e| e.number() == NOT_AUTHORIZED) {
+        Some(crate::error::ProviderNeed::Automation)
+    } else if (event.is_some() || said_any(out, &["osstatus error", "error from event"])) && said_any(out, &["operation not permitted"]) {
+        Some(crate::error::ProviderNeed::MachineFiles)
+    } else {
+        None
+    }
 }
 
 /// The Apple event error macOS answers when the sender may not drive the app (Automation).
@@ -449,23 +454,26 @@ mod tests {
     }
 
     #[test]
-    fn the_system_refusing_the_hypervisors_app_is_a_permission_it_lacks() {
-        // UTM refusing a VM's start with the system's EPERM, or macOS refusing the Apple events.
-        for said in [
-            include_str!("../tool_output/fixtures/vagrant/vagrant_utm-0.2-start-not-permitted.txt"),
-            "execution error: Not authorized to send Apple events to UTM. (-1743)",
-            "erreur d’exécution : Non autorisé à envoyer des Apple Events à UTM. (-1743)",
+    fn the_system_refusing_the_hypervisors_app_says_whether_the_automation_or_the_machines_files() {
+        use crate::error::ProviderNeed::{Automation, MachineFiles};
+        // macOS refusing the Apple events (in any language, whatever else was said), or UTM
+        // answering a VM's start with the system's EPERM.
+        for (said, need) in [
+            ("execution error: Not authorized to send Apple events to UTM. (-1743)", Automation),
+            ("erreur d’exécution : Non autorisé à envoyer des Apple Events à UTM. (-1743)", Automation),
+            (
+                "execution error: Not authorized to send Apple events to UTM. (-1743)\nOperation not permitted",
+                Automation,
+            ),
+            (
+                include_str!("../tool_output/fixtures/vagrant/vagrant_utm-0.2-start-not-permitted.txt"),
+                MachineFiles,
+            ),
         ] {
-            assert!(
-                matches!(
-                    failed("", said),
-                    Failure::Lacks {
-                        need: crate::error::ProviderNeed::Permission,
-                        ..
-                    }
-                ),
-                "{said}"
-            );
+            match failed("", said) {
+                Failure::Lacks { need: lacks, .. } => assert_eq!(lacks, need, "{said}"),
+                other => panic!("{said}: {other:?}"),
+            }
         }
         // EPERM said outside an Apple event (a file of the run's), or another event's error, isn't.
         for said in [

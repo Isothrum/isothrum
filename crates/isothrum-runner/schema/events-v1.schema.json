@@ -1059,8 +1059,13 @@
           "type": "string"
         },
         {
-          "const": "permission",
-          "description": "A permission of the operating system's: the hypervisor's app, driven through Apple events\n(UTM, by `vagrant_utm`), refused to act with the system's `Operation not permitted`, or\nthe program driving it may not send it Apple events (`-1743`, macOS's Automation\npermission). Waiting doesn't fix it; the user's settings, or the hypervisor's, do.",
+          "const": "automation",
+          "description": "The automation of the hypervisor's app: the program driving it through Apple events (UTM,\nby `vagrant_utm`) may not send them (`-1743`, `Not authorized to send Apple events`, macOS's\nAutomation permission). Waiting doesn't fix it; the user's settings do.",
+          "type": "string"
+        },
+        {
+          "const": "machine_files",
+          "description": "The machine's files, which the hypervisor's app couldn't open: it answered the machine's\nstart, driven through Apple events, with the system's `Operation not permitted` (UTM's\n`utmctl start`: `OSStatus error -2700`), its own process refused them though the events\nreached it. Waiting doesn't fix it; the hypervisor's install or settings do.",
           "type": "string"
         }
       ]

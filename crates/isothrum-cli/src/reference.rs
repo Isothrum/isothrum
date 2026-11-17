@@ -212,7 +212,7 @@ fn remedy(code: ErrorCode) -> Option<&'static str> {
             "Give `--name` 1 to 63 lowercase letters, digits, `-` or `_`, starting with a letter or digit, not a Windows device name (`con`, `nul`, `com1`…)."
         }
         ErrorCode::ProviderRefused => {
-            "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed; install what the `detail`'s `need` names (`virtiofsd`), or give the hypervisor's app the system permission it was refused (`permission`: the message says what it said)."
+            "Pick a provider the run supports and this host has (`--provider`), with its Vagrant plugin installed; install what the `detail`'s `need` names (`virtiofsd`); allow the program driving the hypervisor's app to automate it in the system's settings (`automation`); start the machine from the hypervisor itself, and update or reinstall it if it fails there too (`machine_files`: its app couldn't open the machine's files)."
         }
         ErrorCode::ElevationFailed => {
             "Approve the Windows permission prompt, or run as a member of Hyper-V Administrators; the message says what ended an elevated session."
