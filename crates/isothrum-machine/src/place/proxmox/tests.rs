@@ -195,24 +195,3 @@ async fn refused_credentials_are_rejected() {
         );
     }
 }
-
-/// Against a real Proxmox VE server, given by `PLACE_PROXMOX_{HOST,PORT,LOGIN,SECRET,FINGERPRINT}`:
-/// a pinned sign-in, its placement and capacity read, a wrong pin refused.
-#[tokio::test]
-#[ignore = "needs a Proxmox VE server"]
-async fn a_real_server() {
-    let var = |name: &str| std::env::var(format!("PLACE_PROXMOX_{name}")).unwrap();
-    let server = Server::new(var("HOST"), var("PORT").parse().unwrap());
-    let credentials = Credentials::from_login(&var("LOGIN"), &var("SECRET"));
-    let pin = Fingerprint::parse(&var("FINGERPRINT")).unwrap();
-    let wrong = Fingerprint::parse(&"00".repeat(32)).unwrap();
-    let refused = sign_in(&server, &credentials, Trust::Pinned(Some(wrong))).await.unwrap_err();
-    println!("wrong pin: {refused}");
-    assert!(matches!(refused, SignInError::Certificate(Refusal::Changed { presented, .. }) if presented == pin));
-    let session = sign_in(&server, &credentials, Trust::Pinned(Some(pin))).await.unwrap();
-    let placement = placement::read(&session, &Needs::default(), server.host.parse().ok()).await.unwrap();
-    println!("placement: {placement:#?}");
-    let node = session.node(None).await.unwrap();
-    println!("capacity of {node}: {:?}", session.capacity(&node).await.unwrap());
-    println!("findings: {:?}", check::check(&session, &node, &Needs::default()).await);
-}

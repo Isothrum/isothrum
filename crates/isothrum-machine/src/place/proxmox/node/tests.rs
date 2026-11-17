@@ -30,32 +30,3 @@ async fn a_key_the_node_lets_in_signs_in() {
     let ok = shared(Arc::new(FakeProcesses::script().expect("ssh -i /k/id", Reply::ok("")).build()));
     assert_eq!(signs_in(&ok, &node()).await, Ok(()));
 }
-
-/// A real node signed in to by password (`ISOTHRUM_TEST_SSH_HOST`, `ISOTHRUM_TEST_SSH_PASSWORD`,
-/// as root), its host keys confirmed first: whether it sources its SDN config, and a second key
-/// let in by password then signing in by itself.
-#[tokio::test]
-#[ignore = "needs a real Proxmox VE node: ISOTHRUM_TEST_SSH_HOST and ISOTHRUM_TEST_SSH_PASSWORD"]
-async fn a_real_node_by_password() {
-    use crate::place::ssh::known_hosts;
-    let host = std::env::var("ISOTHRUM_TEST_SSH_HOST").unwrap();
-    let password = std::env::var("ISOTHRUM_TEST_SSH_PASSWORD").unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let (ctx, key, known, public) = crate::testing::real_ssh(dir.path()).await;
-    let offered = known_hosts::offered(&ctx, &host, 22, &known).await.unwrap();
-    let shown: Vec<String> = offered.keys.iter().map(|k| k.fingerprint.clone()).collect();
-    known_hosts::confirm(&ctx, &host, 22, &shown, std::slice::from_ref(&known)).await.unwrap();
-    let by_key = Target::new(host.clone(), "root", key, known);
-    let by_password = by_key.clone().with_password(password, dir.path().to_path_buf());
-    println!("sdn sourced: {:?}", sdn_sourced(&ctx, &by_password).await);
-    let added = crate::place::proxmox::bootstrap::authorize(&ctx, &by_password, &public).await.unwrap();
-    println!("key added: {added}");
-    signs_in(&ctx, &by_key).await.unwrap();
-    // Taken out again: the test leaves the node's authorized_keys as it found them.
-    let key_part = public.split_whitespace().nth(1).unwrap().to_owned();
-    by_key
-        .exec(&ctx, &format!("sed -i '\\#{key_part}#d' ~/.ssh/authorized_keys"), Duration::from_secs(30))
-        .await
-        .unwrap();
-    assert!(signs_in(&ctx, &by_key).await.is_err(), "the key is gone again");
-}

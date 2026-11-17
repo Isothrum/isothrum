@@ -97,37 +97,6 @@ async fn a_key_is_made_once_where_the_caller_keeps_it() {
     assert_eq!(public_half(Path::new("/a/id_ed25519")), Path::new("/a/id_ed25519.pub"));
 }
 
-/// A real server's SSH, its host keys trusted on first use: `ISOTHRUM_TEST_SSH_HOST` (and
-/// `ISOTHRUM_TEST_SSH_PORT`, 22 when unset). With no key confirmed, ssh refuses the server before
-/// signing in; once its keys are confirmed, ssh gets as far as signing in (a key the server doesn't
-/// know is denied), and the keys read back as confirmed.
-#[tokio::test]
-#[ignore = "needs a real SSH server: ISOTHRUM_TEST_SSH_HOST"]
-async fn a_real_server() {
-    let host = std::env::var("ISOTHRUM_TEST_SSH_HOST").unwrap();
-    let port = std::env::var("ISOTHRUM_TEST_SSH_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(22);
-    let dir = tempfile::tempdir().unwrap();
-    let (ctx, key, known, public) = crate::testing::real_ssh(dir.path()).await;
-    assert!(public.starts_with("ssh-ed25519 "), "{public}");
-    let target = Target::new(host.clone(), "root", key, known.clone()).on_port(port);
-    let limit = Duration::from_secs(30);
-    assert_eq!(target.exec(&ctx, "true", limit).await, Err(SshError::HostKeyRefused { host: host.clone() }));
-    let offered = known_hosts::offered(&ctx, &host, port, &known).await.unwrap();
-    assert_eq!(offered.state, known_hosts::State::New);
-    let fingerprints: Vec<String> = offered.keys.iter().map(|k| k.fingerprint.clone()).collect();
-    println!("offered: {offered:?}");
-    known_hosts::confirm(&ctx, &host, port, &fingerprints, std::slice::from_ref(&known))
-        .await
-        .unwrap();
-    assert_eq!(
-        known_hosts::offered(&ctx, &host, port, &known).await.unwrap().state,
-        known_hosts::State::Confirmed
-    );
-    let denied = target.exec(&ctx, "true", limit).await.unwrap_err();
-    println!("after confirming: {denied}");
-    assert!(matches!(&denied, SshError::Failed(why) if why.contains("Permission denied")), "{denied:?}");
-}
-
 #[tokio::test]
 async fn a_password_sign_in_answers_ssh_once_through_askpass_and_never_shows() {
     let dir = tempfile::tempdir().unwrap();

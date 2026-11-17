@@ -41,11 +41,3 @@ fn the_endpoints_are_the_providers_account_ones() {
     assert_eq!(digitalocean::ACCOUNT_URL, "https://api.digitalocean.com/v2/account");
     assert_eq!(linode::ACCOUNT_URL, "https://api.linode.com/v4/account");
 }
-
-/// The real providers, over the network: a made-up token is rejected by each.
-#[tokio::test]
-#[ignore = "asks DigitalOcean's and Linode's APIs over the network"]
-async fn the_real_providers_reject_a_made_up_token() {
-    assert_eq!(digitalocean::check_token("not-a-token").await, Err(TokenError::Rejected));
-    assert_eq!(linode::check_token("not-a-token").await, Err(TokenError::Rejected));
-}

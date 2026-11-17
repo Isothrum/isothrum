@@ -211,41 +211,6 @@ fn the_vagrantfile_names_the_vm_and_marks_it_as_the_tests() {
     assert_eq!(uname_line("\n Linux 6.6 x86_64\n"), "Linux 6.6 x86_64");
 }
 
-/// The real choices: the provider `ISOTHRUM_TEST_PROVIDER` names, its box added when missing.
-struct Here<'a>(&'a Context, Provider);
-
-impl Choices for Here<'_> {
-    fn provider(&self) -> BoxFuture<'_, Result<Provider, String>> {
-        let p = self.1;
-        Box::pin(async move { Ok(p) })
-    }
-
-    fn fetch_box<'a>(&'a self, p: Provider, name: &'static str, line: &'a (dyn Fn(String) + Send + Sync)) -> BoxFuture<'a, Result<bool, String>> {
-        Box::pin(async move {
-            if box_for(self.0, p).await == (name, true) {
-                return Ok(true);
-            }
-            add_box(self.0, p, name, &mut |l| line(l.to_owned())).await.map(|_| false)
-        })
-    }
-}
-
-#[tokio::test]
-#[ignore = "needs Vagrant and the hypervisor ISOTHRUM_TEST_PROVIDER names (`libvirt`, `utm`…)"]
-async fn the_test_passes_on_this_computers_hypervisor() {
-    let id = std::env::var("ISOTHRUM_TEST_PROVIDER").expect("ISOTHRUM_TEST_PROVIDER");
-    let provider = isothrum_runner::from_wire_name::<Provider>(&id).expect("a provider");
-    let cx = Context::here(Arc::new(isothrum_runner::SystemProcesses::default())).await;
-    let dir = tempfile::tempdir().expect("a folder");
-    let said = Mutex::new(Vec::new());
-    let sink = |p: StepProgress| said.lock().unwrap_or_else(PoisonError::into_inner).push(p);
-    let vm = TestVm::new("Isothrum test VM", "isothrum-selftest");
-    let ran = run(&cx, dir.path(), &vm, &Here(&cx, provider), &sink).await;
-    let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
-    assert_eq!((&ran.passed, &ran.cleaned_up), (&Ok(()), &Some(Ok(()))), "{:?}", ended(&said));
-    eprintln!("{:#?}", ended(&said));
-}
-
 #[tokio::test]
 async fn a_hypervisor_tool_off_path_is_asked_where_its_app_installs_it() {
     let dir = tempfile::tempdir().expect("a folder");

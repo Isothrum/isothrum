@@ -100,7 +100,7 @@ comes from `driver::shells` and chains nothing with `&&`, and every capability a
 names the test that shows it reach its tool.
 
 Other tasks are `cargo xtask <task>`, the same on every OS: `schema` (regenerate the event and
-status schemas after changing them), `msrv`, `features`, `mutants`, `real-run`.
+status schemas after changing them), `msrv`, `features`, `mutants`, `real-run`, `e2e`.
 `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` regenerates
 `docs/reference/cli.md` and `exit-codes.md` after a change to the command line or the error codes.
 
@@ -192,6 +192,17 @@ runs are separate and opt-in:
   that test together.
 - `cargo run -p xtask -- real-run cloud <cloud>` does the same on a cloud account whose credentials
   are in the environment, then tears down and reaps whatever happened. It costs money.
+- `cargo xtask e2e --tier machine` runs isothrum-machine's `real` tests (`crates/isothrum-machine/tests/real/`)
+  against this computer's own tools, through the crate's public API: each provider's detection
+  and readiness, the engine and hypervisor self-tests, a start of the running engine, the tool
+  path, the network, the OVF Tool, the terminal; and, on a clean machine with its owner there for
+  the administrator prompts, each missing tool `ISOTHRUM_E2E_INSTALL` names (`docker,vagrant`,
+  or `all`) installed for real, as a setup installs it. `--tier server` runs them against the test
+  servers the `ISOTHRUM_TEST_*` variables name (`tests/real/server.rs` lists them): an SSH
+  server, a Proxmox VE node, an ESXi host. Each test runs alone and leaves the machine and the
+  server as it found them; one whose tool or server isn't there skips, saying why, and never
+  fails. `--results <file>` appends a JSON line per test (`suite`, `tier`, `case`, `result`:
+  `pass`, `fail` or `skip`, `reason`, `seconds`, `log`), its log beside the file.
 - The manual *Cert — real runner* workflow (`real-runner.yml`) runs Proxmox and AWS from CI, when
   its runner and secrets are configured.
 

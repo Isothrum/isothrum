@@ -149,12 +149,3 @@ pub(crate) fn write_executable(path: impl AsRef<std::path::Path>, contents: impl
 pub(crate) fn fresh_dir(tag: &str) -> std::path::PathBuf {
     tempfile::Builder::new().prefix(&format!("isothrum-machine-{tag}-")).tempdir().unwrap().keep()
 }
-
-/// For a test against a real server: this computer's context, and a key made in `dir` with the
-/// `known_hosts` file beside it (its path, that file's, and the key's public half).
-pub(crate) async fn real_ssh(dir: &std::path::Path) -> (crate::Context, std::path::PathBuf, std::path::PathBuf, String) {
-    let ctx = crate::Context::here(std::sync::Arc::new(isothrum_runner::SystemProcesses::default())).await;
-    let (key, known) = (dir.join("id_ed25519"), dir.join("known_hosts"));
-    let public = crate::place::ssh::ensure_key(&ctx, &key, "isothrum-test").await.unwrap();
-    (ctx, key, known, public)
-}
