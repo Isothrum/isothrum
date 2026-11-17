@@ -6,16 +6,20 @@
 //!   itself;
 //! - [`plan()`] puts them in order for a whole setup, from what is [`Wanted`];
 //! - [`walk`] runs that plan step by step through the caller's own runner of each step, the
-//!   machine checked again after each (an install changes what comes next).
+//!   machine checked again after each (an install changes what comes next);
+//! - on Windows, [`join_hyperv_admins`] and [`schedule_restart`] carry out what a setup asks
+//!   beyond installs, as [`crate::docker::start_engine`] starts an engine.
 //!
 //! Why something is passed over or left alone is a code ([`PassedOver`], [`LeftAlone`]) a UI says
 //! in its own words.
 
 mod plan;
 mod walk;
+mod windows;
 
 pub use plan::{LeftAlone, PassedOver, Plan, SetupPath, Step, Wanted, left_alone, plan};
 pub use walk::{Event, OnFailure, Steps, Walked, walk};
+pub use windows::{RESTART_NOTE_MAX, Restart, RestartFailed, join_hyperv_admins, join_hyperv_admins_step, schedule_restart};
 
 use serde::{Deserialize, Serialize};
 

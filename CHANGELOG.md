@@ -11,6 +11,15 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine carries out a setup's start and Windows actions itself.**
+  `docker::start_engine` starts an installed engine as its user would (`open -a` Docker
+  Desktop or OrbStack, Docker Desktop's program on Windows, `colima start`, Docker Engine's
+  service as root through pkexec or unattended), points the CLI at it and waits until its daemon
+  answers this account (`StartFailed`; `start_steps` are its steps).
+  `setup::join_hyperv_admins` adds this account to "Hyper-V Administrators" through one UAC
+  prompt (a declined prompt reads as cancelled), and `setup::schedule_restart` asks Windows to
+  restart with a note, a restart already scheduled being the same one (`Restart`).
+
 - **isothrum-machine says whether a provider is ready for a start right now:
   `providers::ready`.** `utm` opens UTM hidden and in the background (`open -g -j`) and asks it
   for its machines until it answers (`UTM_WAIT` by default); macOS refusing the Apple events
