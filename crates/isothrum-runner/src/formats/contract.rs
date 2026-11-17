@@ -132,6 +132,7 @@ impl<M: Model> Bench<M> {
             sink: &quiet,
             warn: &unwarned,
             made: crate::formats::NOTHING_MADE,
+            fetched: None,
         }
     }
 

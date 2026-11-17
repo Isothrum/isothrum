@@ -51,6 +51,8 @@ fn answer(stack: &Mutex<Stack>, call: &Call) -> Reply {
             stack.made.clear();
             Reply::ok("")
         }
+        // What the runner reads of the boxes around an `up`: none held.
+        ["box", "list", ..] => Reply::ok(""),
         _ => panic!("a call the model doesn't know: {}", call.line()),
     })
 }

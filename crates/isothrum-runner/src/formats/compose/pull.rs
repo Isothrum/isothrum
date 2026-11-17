@@ -1,10 +1,12 @@
 //! A start's images, pulled before its `up` (`pull --ignore-buildable`), so a pull is watched on
 //! its own: one that prints nothing for [`PULL_STALL`] is stopped as `download_stalled`, one the
 //! network cut short is tried again ([`RETRY_AFTER`]), and one the registry refused (no such
-//! image or tag, a sign-in it needs) is `download_failed` at once, never tried again.
+//! image or tag, a sign-in it needs) is `download_failed` at once, never tried again. What it
+//! fetched is recorded, however it ended ([`fetched`](super::fetched)).
 
 use std::time::Duration;
 
+use super::fetched::Before;
 use super::{Compose, ToolCx, engine_error};
 use crate::Result;
 use crate::cli::CliError;
@@ -27,13 +29,23 @@ const PULL_LIMIT: Duration = Duration::from_secs(3600);
 const STEP: &str = "pull-up";
 
 impl Compose {
-    /// Pulls the images the run's start runs, as the module says.
+    /// Pulls the images the run's start runs, as the module says, and records those it fetched.
     ///
     /// # Errors
     ///
     /// `download_stalled` when a pull printed nothing for [`PULL_STALL`]; `download_failed` when
     /// the registry refused an image, or the network cut every try short; any other tool error.
     pub(super) async fn pull(&self, cx: &ToolCx<'_>) -> Result<()> {
+        let before = Before::read(cx).await;
+        let pulled = self.pull_tried(cx).await;
+        if let Some(before) = before {
+            before.record_pulled(cx).await;
+        }
+        pulled
+    }
+
+    /// The pull, tried again while the network cuts it short.
+    async fn pull_tried(&self, cx: &ToolCx<'_>) -> Result<()> {
         let call = cx.call(PULL_LIMIT);
         let project = Self::project(cx);
         let mut waits = RETRY_AFTER.iter();

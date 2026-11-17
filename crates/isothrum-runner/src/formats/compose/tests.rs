@@ -49,6 +49,7 @@ fn cx_warned<'a>(
         warn,
         sink: &quiet,
         made: crate::formats::NOTHING_MADE,
+        fetched: None,
         processes: fake,
         ports: &crate::formats::NoPorts,
         state_dir: Path::new("/nowhere"),

@@ -7,7 +7,8 @@ else `~/.isothrum`. It writes nothing into the run's folder (the project's own).
 <home>/
   state.db                 the home's store (SQLite, WAL: with state.db-wal and state.db-shm):
                            the runs, the journal of operations, the events, the resources each
-                           run made, the host ports reserved and the leases (below)
+                           run made, what the runs' downloads fetched, the host ports reserved
+                           and the leases (below)
   runs/
     <run>/                 one folder per run, named after the run
       lock                 the OS lock: one operation per run at a time, across processes
@@ -69,6 +70,7 @@ The home's store, one SQLite database, every change one transaction. It holds no
 | `operations`, `operation_steps` | The journal: each operation's start, its steps, and its end (`succeeded`, `failed`, `cancelled`, `abandoned`). An operation with no end is one whose process died midway (killed, crashed, the computer off): the next operation on the run, once it holds the run, ends it `abandoned` and records a run it left moving (`creating`, `destroying`, `parking`, `resuming`, `updating`) as `failed` (`cancelled`), so the next `up` clears what it left. |
 | `events` | The runs' events, in order; a run's are trimmed to the newest 2000 once over 4000, by the operation holding the run. |
 | `resources` | What each run made or keeps, written ahead: `creating` before the call that makes it, `created` with the tool's id after, `destroying` before the call that removes it, `gone` after. Provider resources (a Compose run's anonymous volumes today) and the runner's own local things (state files, pinned host keys, the project archive, consoles). A resource an operation whose process died left behind is removed by the id the tool gave it, never by a name. Each move is a `resource` event. |
+| `downloads` | What the runs' own downloads fetched: each image a Compose start's pull pulled (its reference, the id it stood for once pulled, the Docker context it went through) and each box a Vagrant `up` added (name, provider, version, architecture), with the run and when. An image counts only when its reference stands, after the pull, for an id the engine didn't hold before it; a box only when `vagrant box list` lists it after the `up` and didn't before. What was there before, or what anything else fetched, is never recorded. A row is forgotten once its download is removed or found gone ([Runner service](service.md#everything-else-a-client-asks-of-a-home)). |
 | `port_reservations`, `leases` | The host ports a start reserved, held under its run's lease, which its process renews while it holds them: a process that dies stops renewing it, and the next start takes the port over. |
 
 The record's fields:
@@ -102,7 +104,8 @@ trace of it. Every open runs `PRAGMA quick_check` first.
 Beside the store, `state.mirror` holds a copy of the rows a later operation can't do without:
 - every run, but its last observation;
 - every live resource with the tool's id for it;
-- the operations those refer to, and every open one.
+- the operations those refer to, and every open one;
+- what the runs' downloads fetched.
 
 It is rewritten whole (temporary file, `fsync`, rename) by each transaction that changes those
 rows, and only by those.

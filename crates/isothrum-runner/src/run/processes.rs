@@ -1,5 +1,6 @@
 //! The tools of a run: an operation's recorded in the run's state folder (and elevated where its
-//! hypervisor needs it), and every `docker` call of the run sent to its Docker context.
+//! hypervisor needs it), every `docker` call of the run sent to its Docker context, and what its
+//! downloads fetched recorded.
 
 use std::sync::Arc;
 
@@ -31,5 +32,23 @@ impl Running<'_> {
         opts.docker_context
             .clone()
             .or_else(|| self.runner.store.record(&self.name).ok().flatten()?.docker_context)
+    }
+
+    /// Records that the run's tool fetched `item` (an image through Docker context `context`,
+    /// when the run names one). One the store can't record is said in the runner's log only: the
+    /// operation goes on, and the download is never removed as the runner's.
+    pub(super) fn record_fetched(&self, item: crate::DownloadItem, context: Option<&str>) {
+        let item = match item {
+            crate::DownloadItem::Image { reference, image_id, .. } => crate::DownloadItem::Image {
+                reference,
+                image_id,
+                docker_context: context.map(str::to_owned),
+            },
+            other @ crate::DownloadItem::Box { .. } => other,
+        };
+        match self.runner.store.db().write(|tx| tx.record_download(&self.name, &item)) {
+            Ok(_) => tracing::info!(run = %self.name, ?item, "recorded what the run's download fetched"),
+            Err(e) => tracing::warn!(run = %self.name, ?item, error = %e, "what the run's download fetched wasn't recorded"),
+        }
     }
 }

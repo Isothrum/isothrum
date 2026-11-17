@@ -116,6 +116,7 @@ impl Quiet {
             sink: &crate::formats::discard,
             warn: &unwarned,
             made: crate::formats::NOTHING_MADE,
+            fetched: None,
         }
     }
 }
@@ -233,6 +234,7 @@ impl<'r> Running<'r> {
         };
         let made = || self.made();
         let context = self.docker_context(opts);
+        let fetched = |item: crate::DownloadItem| self.record_fetched(item, context.as_deref());
         let processes = &crate::process::DockerContext {
             inner: processes,
             context: context.as_deref(),
@@ -251,6 +253,7 @@ impl<'r> Running<'r> {
             sink: &sink,
             warn: &warn,
             made: &made,
+            fetched: Some(&fetched),
         };
         work(&cx).await
     }

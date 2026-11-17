@@ -1,5 +1,6 @@
 //! The Vagrant adapter: its lifecycle commands on a project's machines, its failures read as
-//! [`Failure`], and what it says of the machines (`status`, `ssh-config`, `port`, `plugin list`).
+//! [`Failure`], and what it says of the machines (`status`, `ssh-config`, `port`, `plugin list`);
+//! the boxes it holds (`box list`), and the removal of one (`box remove`).
 
 use std::fmt;
 
@@ -267,6 +268,29 @@ pub(crate) async fn act(call: &Call<'_>, verb: Verb, machines: &[String]) -> Res
 pub(crate) async fn status(call: &Call<'_>) -> Result<said::Reading, CliError<Failure>> {
     let out = call.ok(TOOL, argv(["status", "--machine-readable"]), Failure::of).await?;
     Ok(said::parse(&out.stdout.join("\n")))
+}
+
+/// Every box Vagrant holds, one per architecture (`box list --machine-readable`).
+pub(crate) async fn boxes(call: &Call<'_>) -> Result<Vec<said::InstalledBox>, CliError<Failure>> {
+    let out = call.ok(TOOL, argv(["box", "list", "--machine-readable"]), Failure::of).await?;
+    Ok(said::boxes(&out.stdout.join("\n")))
+}
+
+/// Removes box `held`: that name, provider, version and architecture alone, never forced (one a
+/// machine uses is refused: Vagrant asks, and there is no terminal to answer).
+pub(crate) async fn remove_box(call: &Call<'_>, held: &said::InstalledBox) -> Result<(), CliError<Failure>> {
+    let mut args = argv(["box", "remove"]);
+    args.extend([
+        held.name.clone(),
+        "--provider".into(),
+        held.provider.clone(),
+        "--box-version".into(),
+        held.version.clone(),
+    ]);
+    if let Some(arch) = &held.architecture {
+        args.extend(["--architecture".into(), arch.clone()]);
+    }
+    call.ok(TOOL, args, Failure::of).await.map(drop)
 }
 
 /// The address `ssh-config <machine>` gives it; [`CliError::Unexpected`] when it names none.

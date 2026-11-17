@@ -23,6 +23,7 @@
 //! `provision` is refused.
 
 mod failures;
+mod fetched;
 mod namespaces;
 mod pins;
 mod pull;

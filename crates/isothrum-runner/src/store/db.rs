@@ -1,11 +1,13 @@
 //! The home's transactional store: one SQLite database, `<home>/state.db`, in WAL mode with
 //! foreign keys on. It holds the runs (what the user wants of each and where each stands), the
 //! journal of operations, the events, the resources each run made (written ahead of the call
-//! that makes them), the host ports reserved, and the leases. Every change is one transaction.
+//! that makes them), what the runs' downloads fetched, the host ports reserved, and the leases.
+//! Every change is one transaction.
 //!
 //! The store is synchronous: its transactions are a few rows, and the runner calls it inline
 //! from async code, as it read and wrote its files before.
 
+mod downloads;
 mod journal;
 mod leases;
 mod mirror;

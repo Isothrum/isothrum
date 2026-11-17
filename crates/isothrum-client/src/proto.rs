@@ -13,8 +13,9 @@
 //! home's files: a run's record (`record`), forgetting it (`forget`), the runs past their lifetime
 //! (`expired`), the way into a machine (`console_command`), its screen (`graphical_console`, whose
 //! tunnel, when it has one, stays open as long as the connection that asked) or its hypervisor's
-//! app (`native_console`), where its published services are reached (`service_endpoints`), and the
-//! runner's SSH key (`public_key`).
+//! app (`native_console`), where its published services are reached (`service_endpoints`), the
+//! runner's SSH key (`public_key`), and what the runs' own downloads fetched (`downloads`) and their
+//! removal (`remove_downloads`).
 //!
 //! # What every protocol keeps
 //!
@@ -34,7 +35,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use isothrum_runner::{Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint, ShellCommand, Status};
+use isothrum_runner::{
+    Download, DownloadRemoval, DownloadsToRemove, Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint, ShellCommand, Status,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
@@ -253,6 +256,17 @@ pub enum Command {
     /// The public half of the runner's SSH key, one line (the key is made when there is none):
     /// what the client authorizes where a run's SSH goes.
     PublicKey,
+    /// What the runs' own downloads fetched and the home's store records (the images a Compose
+    /// start's pull pulled, the boxes a Vagrant `up` added), each with its size when it can be read
+    /// (not queued: it reads).
+    Downloads,
+    /// Removes the recorded downloads `which` names, each on its own: one its tool refuses (in
+    /// use) is said in its outcome and kept, the others go on. Nothing the store doesn't record is
+    /// removed (not queued).
+    RemoveDownloads {
+        /// All, or those of the given ids.
+        which: DownloadsToRemove,
+    },
     /// The run's latest operations, newest first.
     Operations {
         /// The run.
@@ -307,7 +321,8 @@ impl Command {
     }
 
     /// Whether it asks the service about the home, running no operation: a run's status or
-    /// record, forgetting it, the expired runs, a way into a machine, its endpoints, the key.
+    /// record, forgetting it, the expired runs, a way into a machine, its endpoints, the key, the
+    /// downloads and their removal.
     #[must_use]
     pub fn is_question(&self) -> bool {
         matches!(
@@ -321,6 +336,8 @@ impl Command {
                 | Command::NativeConsole { .. }
                 | Command::PublicKey
                 | Command::ServiceEndpoints { .. }
+                | Command::Downloads
+                | Command::RemoveDownloads { .. }
         )
     }
 
@@ -520,6 +537,20 @@ pub enum Reply {
         /// The key's public half, one line.
         key: String,
     },
+    /// To `downloads`.
+    Downloads {
+        /// The request's id.
+        id: u64,
+        /// The recorded downloads, oldest first.
+        downloads: Vec<Download>,
+    },
+    /// To `remove_downloads`: how each removal went, in the order asked.
+    DownloadsRemoved {
+        /// The request's id.
+        id: u64,
+        /// Each removal.
+        removed: Vec<DownloadRemoval>,
+    },
     /// To `operations`.
     Operations {
         /// The request's id.
@@ -575,6 +606,8 @@ impl Reply {
             | Reply::PublicKey { id, .. }
             | Reply::Variables { id, .. }
             | Reply::Operations { id, .. }
+            | Reply::Downloads { id, .. }
+            | Reply::DownloadsRemoved { id, .. }
             | Reply::Ok { id }
             | Reply::Busy { id, .. }
             | Reply::Error { id, .. } => Some(*id),
@@ -739,6 +772,44 @@ mod tests {
             assert_eq!(command.op(), None, "{command:?} queues nothing");
             assert!(command.is_question(), "{command:?} is a question");
         }
+    }
+
+    #[test]
+    fn the_downloads_and_their_removal_are_flat_objects_too() {
+        assert_eq!(
+            round_trip(&Request {
+                id: 3,
+                command: Command::Downloads
+            }),
+            json!({"id": 3, "cmd": "downloads"})
+        );
+        let remove = |which| Request {
+            id: 4,
+            command: Command::RemoveDownloads { which },
+        };
+        assert_eq!(
+            round_trip(&remove(DownloadsToRemove::All)),
+            json!({"id": 4, "cmd": "remove_downloads", "which": "all"})
+        );
+        assert_eq!(
+            round_trip(&remove(DownloadsToRemove::Only(vec![isothrum_runner::DownloadId(7)]))),
+            json!({"id": 4, "cmd": "remove_downloads", "which": {"only": [7]}})
+        );
+        assert!(Command::Downloads.is_question() && Command::Downloads.op().is_none());
+        assert!(remove(DownloadsToRemove::All).command.is_question());
+
+        let image = json!({"id": 7, "kind": "image", "reference": "nginx:1.27", "image_id": "sha256:a", "docker_context": "orbstack",
+            "run": "web", "fetched_at": "2026-11-17T10:00:00Z", "size_bytes": 187_654_321});
+        let listed = json!({"reply": "downloads", "id": 5, "downloads": [image.clone()]});
+        let downloads: Reply = serde_json::from_value(listed.clone()).unwrap();
+        assert_eq!(round_trip(&downloads), listed);
+        assert_eq!(downloads.id(), Some(5));
+        let removed = json!({"reply": "downloads_removed", "id": 6, "removed": [
+            {"id": 7, "outcome": "failed", "reason": "in use", "download": image},
+            {"id": 8, "outcome": "not_recorded"}
+        ]});
+        let outcomes: Reply = serde_json::from_value(removed.clone()).unwrap();
+        assert_eq!(round_trip(&outcomes), removed);
     }
 
     #[test]

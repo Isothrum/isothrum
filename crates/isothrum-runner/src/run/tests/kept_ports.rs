@@ -41,6 +41,8 @@ impl Box_ {
                 Reply::ok(&format!("1794305819,web,state,{state}"))
             }
             ["port", "web", "--machine-readable"] => Reply::ok(&format!("1794305819,web,forwarded_port,80,{}", self.host.load(Ordering::SeqCst))),
+            // What the runner reads of the boxes around an `up`: none held.
+            ["box", "list", ..] => Reply::ok(""),
             _ => panic!("a call the model doesn't know: {}", call.line()),
         }
     }

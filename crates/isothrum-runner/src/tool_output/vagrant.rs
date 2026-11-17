@@ -1,6 +1,6 @@
 //! What Vagrant prints, read: `vagrant status --machine-readable` (a state kept whole as printed,
 //! then read as a [`MachineState`]), `vagrant ssh-config`, `vagrant plugin list
-//! --machine-readable`, the `error-exit` record a machine-readable call fails with, and the
+//! --machine-readable`, `vagrant box list --machine-readable` ([`boxes`]), the `error-exit` record a machine-readable call fails with, and the
 //! failures a driver acts on ([`Failure`]). Each wording is backed by a fixture of the text as the
 //! named Vagrant or plugin version prints it (`fixtures/vagrant/`).
 
@@ -75,6 +75,54 @@ pub fn plugins(out: &str) -> Vec<(String, Option<String>)> {
         .filter(|(_, kind, data)| *kind == "plugin-name" && !data.is_empty())
         .map(|(_, _, name)| ((*name).to_owned(), version(name)))
         .collect()
+}
+
+/// A box Vagrant holds: its name, provider, version, and architecture when it has one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct InstalledBox {
+    /// Its name (`bento/debian-12`).
+    pub(crate) name: String,
+    /// The provider it is for (`virtualbox`).
+    pub(crate) provider: String,
+    /// Its version.
+    pub(crate) version: String,
+    /// Its architecture (`amd64`); none for a box of no architecture (`n/a`).
+    pub(crate) architecture: Option<String>,
+}
+
+/// Each box `vagrant box list --machine-readable` lists: a `box-name` record, then its
+/// `box-provider`, `box-version` and `box-architecture` (`n/a` for none) ones, once per
+/// architecture of a box held for several. A box missing its provider or version is left out.
+pub(crate) fn boxes(out: &str) -> Vec<InstalledBox> {
+    /// The box being read: its name, provider, version, architecture.
+    type Reading = (String, Option<String>, Option<String>, Option<String>);
+    fn done(reading: Option<Reading>, into: &mut Vec<InstalledBox>) {
+        if let Some((name, Some(provider), Some(version), architecture)) = reading {
+            into.push(InstalledBox {
+                name,
+                provider,
+                version,
+                architecture: architecture.filter(|a| a != "n/a"),
+            });
+        }
+    }
+    let mut listed = Vec::new();
+    let mut reading: Option<Reading> = None;
+    for (_, kind, data) in out.lines().filter_map(fields) {
+        let data = unescape(data).trim().to_owned();
+        match (kind, reading.as_mut()) {
+            ("box-name", _) => {
+                done(reading.take(), &mut listed);
+                reading = Some((data, None, None, None));
+            }
+            ("box-provider", Some(r)) => r.1 = Some(data),
+            ("box-version", Some(r)) => r.2 = Some(data),
+            ("box-architecture", Some(r)) => r.3 = Some(data),
+            _ => {}
+        }
+    }
+    done(reading, &mut listed);
+    listed
 }
 
 /// The error a Vagrant call printed as its `--machine-readable` `error-exit` record among `stdout`
@@ -192,6 +240,34 @@ mod tests {
             Failure::of(&lines("There was an error talking to ESXi.\n  Unable to shutdown the VM: timed out")),
             Failure::Other
         );
+    }
+
+    #[test]
+    fn boxes_are_read_one_per_architecture_and_one_of_no_architecture_has_none() {
+        let listed = boxes(include_str!("fixtures/vagrant/2.4.9-box-list.txt"));
+        let held = |provider: &str, arch: &str| InstalledBox {
+            name: "bento/debian-12".into(),
+            provider: provider.into(),
+            version: "202510.26.0".into(),
+            architecture: Some(arch.into()),
+        };
+        assert_eq!(
+            listed,
+            [held("virtualbox", "arm64"), held("vmware_desktop", "amd64"), held("vmware_desktop", "arm64")]
+        );
+        // A box of no architecture, its `box-info` records between, a line cut short.
+        let out = "1,,box-name,generic/alpine319\n1,,box-provider,libvirt\n1,,box-version,4.3.12\n\
+                   1,,box-architecture,n/a\n1,,box-info,Author,Ladar Levison\n1,,box-name,cut\n1,,box-provider,qemu\n";
+        assert_eq!(
+            boxes(out),
+            [InstalledBox {
+                name: "generic/alpine319".into(),
+                provider: "libvirt".into(),
+                version: "4.3.12".into(),
+                architecture: None,
+            }]
+        );
+        assert_eq!(boxes(""), []);
     }
 
     #[test]

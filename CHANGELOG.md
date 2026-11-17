@@ -11,6 +11,23 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **The runner records what its own downloads fetched, and removes only that.** A Compose
+  start's pull records each image whose reference, once pulled, stands for an id the engine didn't
+  hold before it (its reference, id and Docker context); a Vagrant `up` records each box `vagrant
+  box list` lists after it and didn't before (name, provider, version, architecture). The home's
+  store keeps them (`downloads`, schema version 3, carried by the mirror; `Tx::record_download`,
+  `Tx::downloads`, `Tx::forget_download`). `Runner::downloads` lists them with their size
+  (`Download`, `DownloadItem`, `DownloadId`); `Runner::remove_downloads` removes those
+  `DownloadsToRemove` names (`All`, `Only`) each on its own, never forced: an image only while its
+  reference still stands for the recorded id, a box by its name, provider, version and
+  architecture; one in use fails alone (`DownloadRemoval`, `RemovalOutcome`: `removed`, `gone`,
+  `moved`, `failed`, `not_recorded`), and the record of one removed, gone or moved is forgotten.
+  On the wire: `downloads` and `remove_downloads` (`Reply::Downloads`,
+  `Reply::DownloadsRemoved`, `Client::downloads`, `Client::remove_downloads`), answered by the
+  `Engine` port's `downloads` and `remove_downloads`, unsupported by default. An embedder that
+  scanned the engine and Vagrant before and after a start to find what to clean up asks the runner
+  instead.
+
 - **A run's Docker context is a run option.** `RunOptions::with_docker_context` (`docker_context`
   on the wire) sends every `docker` call of the run to that context (`docker --context <it>`),
   whatever the current one is; the run records it, and every later operation and read that gives

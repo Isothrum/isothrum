@@ -3,7 +3,7 @@
 
 /// The migrations, by version from 1. A home whose newest recorded version is past the last is
 /// refused (`store_version`): a newer runner wrote it.
-pub(super) const MIGRATIONS: &[&str] = &[V1, V2];
+pub(super) const MIGRATIONS: &[&str] = &[V1, V2, V3];
 
 /// Version 1: the runs, their transitions, the journal, the events, the resources, the port
 /// reservations and the leases.
@@ -122,4 +122,26 @@ CREATE TRIGGER mirror_operations_delete AFTER DELETE ON operations BEGIN UPDATE 
 CREATE TRIGGER mirror_resources_insert AFTER INSERT ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
 CREATE TRIGGER mirror_resources_update AFTER UPDATE ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
 CREATE TRIGGER mirror_resources_delete AFTER DELETE ON resources BEGIN UPDATE mirror_generation SET n = n + 1; END;
+";
+
+/// Version 3: what the runs' own downloads fetched (the images a Compose start's pull pulled, the
+/// boxes a Vagrant `up` added), one row each, which the mirror carries too: what an embedder lists
+/// and removes, never anything the runner didn't fetch.
+const V3: &str = r"
+CREATE TABLE downloads (
+  id             INTEGER PRIMARY KEY,
+  kind           TEXT NOT NULL CHECK (kind IN ('image', 'box')),
+  name           TEXT NOT NULL,
+  image_id       TEXT,
+  docker_context TEXT,
+  provider       TEXT,
+  version        TEXT,
+  architecture   TEXT,
+  run            TEXT NOT NULL,
+  fetched_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX downloads_once ON downloads(kind, name, IFNULL(image_id, ''), IFNULL(docker_context, ''),
+  IFNULL(provider, ''), IFNULL(version, ''), IFNULL(architecture, ''));
+CREATE TRIGGER mirror_downloads_insert AFTER INSERT ON downloads BEGIN UPDATE mirror_generation SET n = n + 1; END;
+CREATE TRIGGER mirror_downloads_delete AFTER DELETE ON downloads BEGIN UPDATE mirror_generation SET n = n + 1; END;
 ";

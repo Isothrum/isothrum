@@ -113,6 +113,10 @@ pub(crate) struct ToolCx<'a> {
     /// made. An operation records what its tool made before it observes, so a read after it is
     /// current.
     pub(crate) made: &'a (dyn Fn() -> Result<Vec<String>> + Send + Sync),
+    /// Where a driver records what its download fetched for the run that wasn't there before (an
+    /// image its pull pulled, a box its `up` added: [`crate::downloads`]); none for a context
+    /// that records nothing (a read, a console, a test's), whose driver then doesn't look.
+    pub(crate) fetched: Option<&'a (dyn Fn(crate::DownloadItem) + Send + Sync)>,
 }
 
 impl ToolCx<'_> {

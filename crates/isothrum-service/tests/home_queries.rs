@@ -1,6 +1,6 @@
 //! What an embedder asks of a home besides operations, through the client alone: a run's record,
 //! forgetting it, the runs past their lifetime, the way into a machine, its screen, its
-//! hypervisor's app, where its services are reached, and the runner's key. The engine is the
+//! hypervisor's app, where its services are reached, the runner's key, and the downloads. The engine is the
 //! test's own, so each answer is known; the records are the home's store, written before the
 //! service starts.
 
@@ -88,6 +88,23 @@ impl Engine for Machines {
 
     fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
         Box::pin(async { Ok("ssh-ed25519 AAAA engine".to_owned()) })
+    }
+
+    fn downloads(&self) -> BoxFuture<'_, Result<Vec<isothrum_runner::Download>, Refusal>> {
+        Box::pin(async {
+            let image = serde_json::json!({"id": 1, "kind": "image", "reference": "nginx:1.27", "image_id": "sha256:a", "run": "web", "fetched_at": "t"});
+            Ok(vec![serde_json::from_value(image).map_err(|e| Refusal::new(ErrorCode::Io, e.to_string()))?])
+        })
+    }
+
+    fn remove_downloads<'a>(&'a self, which: &'a isothrum_runner::DownloadsToRemove) -> BoxFuture<'a, Result<Vec<isothrum_runner::DownloadRemoval>, Refusal>> {
+        Box::pin(async move {
+            let isothrum_runner::DownloadsToRemove::Only(ids) = which else {
+                return Err(Refusal::new(ErrorCode::Usage, "only by id here"));
+            };
+            let removed = ids.iter().map(|id| serde_json::json!({"id": id.0, "outcome": "not_recorded"}));
+            serde_json::from_value(removed.collect()).map_err(|e| Refusal::new(ErrorCode::Io, e.to_string()))
+        })
     }
 }
 
@@ -182,6 +199,16 @@ async fn the_way_into_a_machine_its_screen_its_app_and_the_key_come_from_the_eng
     let app = client.native_console(&web, None, OpOptions::default(), "web").await.expect("its app");
     assert_eq!((app.app.as_str(), app.ways.len()), ("VirtualBox", 1));
     assert_eq!(client.public_key().await.expect("the key"), "ssh-ed25519 AAAA engine");
+    let downloads = client.downloads().await.expect("the downloads");
+    assert_eq!(downloads.iter().map(|d| (d.id.0, d.run.as_str())).collect::<Vec<_>>(), [(1, "web")]);
+    let which = isothrum_runner::DownloadsToRemove::Only(vec![isothrum_runner::DownloadId(9)]);
+    let removed = client.remove_downloads(which).await.expect("asked");
+    assert_eq!(
+        removed.iter().map(|r| (r.id.0, &r.outcome)).collect::<Vec<_>>(),
+        [(9, &isothrum_runner::RemovalOutcome::NotRecorded)]
+    );
+    let refused = client.remove_downloads(isothrum_runner::DownloadsToRemove::All).await.expect_err("refused");
+    assert_eq!(refused.code(), ErrorCode::Usage, "{refused}");
     let endpoints = client.service_endpoints(&web, None, OpOptions::default()).await.expect("its endpoints");
     assert_eq!(
         endpoints

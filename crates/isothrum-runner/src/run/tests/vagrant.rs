@@ -63,6 +63,8 @@ fn answer(stack: &Mutex<Stack>, call: &Call) -> Reply {
             Reply::ok("")
         }
         ("VBoxManage", ["showvminfo", _, "--machinereadable"]) => Reply::ok("VMState=\"running\""),
+        // What the runner reads of the boxes around an `up`: none held.
+        ("vagrant", ["box", "list", ..]) => Reply::ok(""),
         _ => panic!("a call the model doesn't know: {}", call.line()),
     }
 }

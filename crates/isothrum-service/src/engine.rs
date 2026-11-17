@@ -10,6 +10,7 @@ use isothrum_runner::{
     BoxFuture, Console, ErrorCode, Event, EventKind, Events, Format, InputVariable, NativeConsole, Project, RunName, RunOptions, Runner, Running, SecretValue,
     Secrets, ServiceEndpoint, ShellCommand, Status,
 };
+use isothrum_runner::{Download, DownloadRemoval, DownloadsToRemove};
 
 /// Why the engine refused a request: the runner's report of it (boxed: it is large, and rare). A
 /// refusal never changed a run.
@@ -113,6 +114,17 @@ pub trait Engine: Send + Sync + 'static {
     /// The public half of the engine's SSH key, one line; by default, none.
     fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
         Box::pin(async { Err(unsupported("SSH keys")) })
+    }
+
+    /// What the runs' own downloads fetched, as the home records them; by default, none.
+    fn downloads(&self) -> BoxFuture<'_, Result<Vec<Download>, Refusal>> {
+        Box::pin(async { Err(unsupported("recorded downloads")) })
+    }
+
+    /// Removes the recorded downloads `which` names, each on its own; by default, none.
+    fn remove_downloads<'a>(&'a self, which: &'a DownloadsToRemove) -> BoxFuture<'a, Result<Vec<DownloadRemoval>, Refusal>> {
+        let _ = which;
+        Box::pin(async { Err(unsupported("recorded downloads")) })
     }
 }
 
@@ -274,5 +286,13 @@ impl Engine for RunnerEngine {
 
     fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
         Box::pin(async move { Ok(self.runner.ssh_public_key().await?) })
+    }
+
+    fn downloads(&self) -> BoxFuture<'_, Result<Vec<Download>, Refusal>> {
+        Box::pin(async move { Ok(self.runner.downloads().await?) })
+    }
+
+    fn remove_downloads<'a>(&'a self, which: &'a DownloadsToRemove) -> BoxFuture<'a, Result<Vec<DownloadRemoval>, Refusal>> {
+        Box::pin(async move { Ok(self.runner.remove_downloads(which).await?) })
     }
 }

@@ -110,15 +110,20 @@ fn the_wal_a_killed_process_committed_into_is_replayed_at_open() {
     assert_eq!(runs_of(&store), COMMITTED, "replayed from the WAL");
 }
 
-#[test]
-fn a_store_whose_file_is_gone_is_rebuilt_from_its_mirror() {
-    let (home, op) = a_home_with_a_vm();
+/// Removes the store's file in `home`, with its `-wal` and `-shm`: its mirror stays.
+fn remove_store(home: &Path) {
     for suffix in ["", "-wal", "-shm"] {
-        let file = home.path().join(format!("{DB_FILE}{suffix}"));
+        let file = home.join(format!("{DB_FILE}{suffix}"));
         if file.exists() {
             std::fs::remove_file(file).unwrap();
         }
     }
+}
+
+#[test]
+fn a_store_whose_file_is_gone_is_rebuilt_from_its_mirror() {
+    let (home, op) = a_home_with_a_vm();
+    remove_store(home.path());
     let rebuilt = Store::open(home.path()).expect("rebuilt from the mirror");
     assert!(rebuilt.recovered().is_some(), "says it repaired");
     let row = rebuilt.read(|tx| tx.run(&name("web"))).unwrap().expect("the run is back");
@@ -166,4 +171,41 @@ fn a_damaged_store_whose_mirror_cant_be_read_is_store_corrupt_and_left_in_place(
         .collect();
     isothrum_test_support::assert_every!(&names, |n: &&String| !n.contains("corrupt"));
     assert!(home.path().join(DB_FILE).is_file(), "left where it was");
+}
+
+/// Every recorded download.
+fn recorded(tx: &Tx<'_>) -> Result<Vec<crate::Download>> {
+    tx.downloads()
+}
+
+#[test]
+fn a_download_is_recorded_once_and_a_store_rebuilt_from_its_mirror_keeps_it() {
+    let home = tempfile::tempdir().unwrap();
+    let image = crate::DownloadItem::Image {
+        reference: "nginx:1.27".into(),
+        image_id: "sha256:a1".into(),
+        docker_context: Some("orbstack".into()),
+    };
+    let held = crate::DownloadItem::Box {
+        name: "bento/debian-12".into(),
+        provider: "virtualbox".into(),
+        version: "202510.26.0".into(),
+        architecture: None,
+    };
+    {
+        let store = Store::open(home.path()).unwrap();
+        let run = name("web");
+        assert!(store.write(|tx| tx.record_download(&run, &image)).unwrap(), "new");
+        assert!(!store.write(|tx| tx.record_download(&run, &image)).unwrap(), "recorded once");
+        assert!(store.write(|tx| tx.record_download(&run, &held)).unwrap());
+    }
+    remove_store(home.path());
+    let rebuilt = Store::open(home.path()).expect("rebuilt from the mirror");
+    assert!(rebuilt.recovered().is_some(), "says it repaired");
+    let kept = rebuilt.read(recorded).unwrap();
+    let items: Vec<&crate::DownloadItem> = kept.iter().map(|d| &d.item).collect();
+    assert_eq!(items, [&image, &held]);
+    assert!(kept.iter().all(|d| d.run.as_str() == "web" && d.size_bytes.is_none()), "{kept:?}");
+    rebuilt.write(|tx| tx.forget_download(kept[0].id)).unwrap();
+    assert_eq!(rebuilt.read(recorded).unwrap().len(), 1, "forgotten");
 }

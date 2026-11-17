@@ -32,10 +32,10 @@ mod busy;
 mod clear;
 mod dotfile;
 mod failures;
+mod fetched;
 mod forwards;
 mod gone;
 mod lock;
-use gone::run_state;
 mod names;
 mod providers;
 mod screen;
@@ -110,16 +110,17 @@ impl Vagrant {
     /// process's lock refuses it and a second run is safe.
     /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]); one
     /// a machine still booting failed is made again once it may answer ([`booting::until_it_answers`]).
+    /// The boxes it added are recorded, however it ended ([`fetched`]).
     async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
         let provider = cx.provider.map(Provider::id);
         let rerun = if provision == Provision::Yes { Rerun::Repeats } else { Rerun::Converges };
         let call = &call(cx, UP_LIMIT);
-        booting::until_it_answers(cx, step, move || {
+        let up = booting::until_it_answers(cx, step, move || {
             utm::once_more(cx, step, move || {
                 retrying(cx.warn, step, rerun, PATIENCE, move || vagrant::up(call, provider, provision, machines))
             })
-        })
-        .await
+        });
+        fetched::recording(cx, up).await
     }
 
     /// `verb` on `machines` (all when empty), made again as [`Rerun`] allows.
@@ -442,7 +443,7 @@ impl FormatDriver for Vagrant {
                 windows: false,
             });
         }
-        let state = run_state(&machines, &gone);
+        let state = gone::run_state(&machines, &gone);
         Ok((Seen { machines, ..Seen::default() }, state))
     }
 

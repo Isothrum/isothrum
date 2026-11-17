@@ -251,6 +251,8 @@ fn vagrant(machine: String) -> FakeProcesses {
             )),
             ["port", m, "--machine-readable"] if *m == machine => Reply::ok(&format!("1794305819,{machine},forwarded_port,22,2222")),
             ["ssh", m, "-c", "cat /etc/greeting", ..] if *m == machine && *state == "running" => Reply::ok("set up by Vagrant's shell provisioner"),
+            // What the runner reads of the boxes around an `up`: none held.
+            ["box", "list", ..] => Reply::ok(""),
             _ => panic!("a Vagrant call the model doesn't answer: {}", call.line()),
         }
     })

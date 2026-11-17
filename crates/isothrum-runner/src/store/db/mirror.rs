@@ -2,7 +2,7 @@
 //! to `<home>/state.mirror` after each committed transaction that changed them, so a store whose
 //! file is damaged can be rebuilt. It carries every run (but its last observation, which a status
 //! read refreshes), every live resource with its recorded id, the operations those reference and
-//! every open one, the schema version and the event cursor.
+//! every open one, what the runs' downloads fetched, the schema version and the event cursor.
 //!
 //! The file is written whole and atomically: a temporary file beside it, `fsync`, `rename` over
 //! the mirror, then `fsync` of the folder. A crash leaves the previous mirror or the new one,
@@ -50,6 +50,9 @@ struct Mirror {
     operations: Rows,
     /// The live resources.
     resources: Rows,
+    /// What the runs' downloads fetched (none in a mirror written before they were recorded).
+    #[serde(default)]
+    downloads: Rows,
 }
 
 /// A repair from the mirror: where the damaged store was kept, when the mirror was written, and
@@ -122,6 +125,7 @@ pub(super) fn write(conn: &Connection, generation: i64, path: &Path) -> Result<(
         )
         .map_err(read)?,
         resources: rows(conn, "SELECT * FROM resources WHERE state <> 'gone' ORDER BY id").map_err(read)?,
+        downloads: rows(conn, "SELECT * FROM downloads ORDER BY id").map_err(read)?,
     };
     let text = serde_json::to_vec(&mirror).map_err(|e| Error::io(path, "written")(e.into()))?;
     write_durably(path, &text).map_err(Error::io(path, "written"))
@@ -166,9 +170,9 @@ impl MirrorFile {
         &self.0.written_at
     }
 
-    /// Whether it holds anything: a run, an operation or a resource.
+    /// Whether it holds anything: a run, an operation, a resource or a download.
     pub(super) fn holds_rows(&self) -> bool {
-        !(self.0.runs.is_empty() && self.0.operations.is_empty() && self.0.resources.is_empty())
+        !(self.0.runs.is_empty() && self.0.operations.is_empty() && self.0.resources.is_empty() && self.0.downloads.is_empty())
     }
 
     /// The schema version it copies.
@@ -191,7 +195,13 @@ impl MirrorFile {
         // The rows reference each other (a run its last operation, an operation the one it
         // recovered): checked once all are in.
         tx.pragma_update(None, "defer_foreign_keys", "ON").map_err(corrupt)?;
-        for (table, rows) in [("operations", &self.0.operations), ("runs", &self.0.runs), ("resources", &self.0.resources)] {
+        let tables = [
+            ("operations", &self.0.operations),
+            ("runs", &self.0.runs),
+            ("resources", &self.0.resources),
+            ("downloads", &self.0.downloads),
+        ];
+        for (table, rows) in tables {
             for row in rows {
                 insert(&tx, table, row).map_err(corrupt)?;
             }

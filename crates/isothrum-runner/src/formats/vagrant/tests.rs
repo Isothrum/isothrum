@@ -89,6 +89,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
         sink: &quiet,
         warn: &*f.warn,
         made: crate::formats::NOTHING_MADE,
+        fetched: None,
     }
 }
 
