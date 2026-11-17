@@ -132,6 +132,12 @@ pub trait Engine: Send + Sync + 'static {
         let _ = adopted;
         Box::pin(async { Err(unsupported("recorded downloads")) })
     }
+
+    /// The address blocks the engine's networks hold, but `except`'s own; by default, none asked.
+    fn address_blocks_in_use<'a>(&'a self, except: Option<&'a RunName>, docker_context: Option<&'a str>) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
+        let _ = (except, docker_context);
+        Box::pin(async { Err(unsupported("address blocks")) })
+    }
 }
 
 /// A run as a query names it: by name, opened from `target` when given, else as its record says.
@@ -304,5 +310,9 @@ impl Engine for RunnerEngine {
 
     fn adopt_downloads<'a>(&'a self, adopted: &'a [DownloadToAdopt]) -> BoxFuture<'a, Result<Vec<Download>, Refusal>> {
         Box::pin(async move { Ok(self.runner.adopt_downloads(adopted).await?) })
+    }
+
+    fn address_blocks_in_use<'a>(&'a self, except: Option<&'a RunName>, docker_context: Option<&'a str>) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
+        Box::pin(async move { Ok(self.runner.address_blocks_in_use(except, docker_context).await?) })
     }
 }

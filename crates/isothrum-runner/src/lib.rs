@@ -95,6 +95,7 @@
     )
 )]
 
+mod address_blocks;
 mod adopt;
 mod cli;
 mod clock;
