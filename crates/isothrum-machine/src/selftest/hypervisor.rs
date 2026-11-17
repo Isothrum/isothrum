@@ -171,12 +171,21 @@ pub struct Ran {
     pub cleaned_up: Option<Result<(), Failure>>,
 }
 
-/// What the caller decides during the test: the hypervisor, once Vagrant answers; the test box,
-/// once the hypervisor answers (added by [`add_box`], or waited for while a fetch ahead of the
-/// test adds it).
+/// What the caller decides during the test: the hypervisor, once Vagrant answers; how a
+/// hypervisor with no quiet probe of its own is asked whether it answers; the test box, once the
+/// hypervisor answers (added by [`add_box`], or waited for while a fetch ahead of the test adds
+/// it).
 pub trait Choices: Send + Sync {
     /// The hypervisor to test; why none can be.
     fn provider(&self) -> BoxFuture<'_, Result<Provider, String>>;
+
+    /// Asks `provider`, which has no quiet probe here (UTM's `utmctl list` brings its window to
+    /// the front), whether it answers, as the caller's own start of it would: whether it was asked
+    /// (false: nothing to probe); why it doesn't answer. By default, it isn't asked.
+    fn probe(&self, provider: Provider) -> BoxFuture<'_, Result<bool, String>> {
+        let _ = provider;
+        Box::pin(async { Ok(false) })
+    }
 
     /// Makes sure box `name` is here for `provider`, each line its fetch prints said to `line`:
     /// whether it was here already.
@@ -233,20 +242,17 @@ fn ruby_quote(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
-/// A read-only command that succeeds only when `p`'s service is up and usable by this account.
-fn responds(cx: &Context, p: Provider) -> Option<(String, &'static [&'static str])> {
+/// A read-only command that succeeds only when `p`'s service is up and usable by this account,
+/// and opens no window.
+fn responds(p: Provider) -> Option<(String, &'static [&'static str])> {
     let tool = |t: &str| Some(t.to_owned());
     let (program, args): (Option<String>, &'static [&'static str]) = match p {
         Provider::Virtualbox => (tool("VBoxManage"), &["list", "hostinfo"]),
         Provider::VmwareDesktop => (tool("vmrun"), &["list"]),
         Provider::Parallels => (tool("prlctl"), &["list", "--all"]),
         Provider::Libvirt => (tool("virsh"), &["-c", "qemu:///system", "list", "--all"]),
-        // Inside UTM's bundle, wherever UTM is installed.
-        Provider::Utm => (
-            Some(cx.host.devices.utm_app.join("Contents/MacOS/utmctl").to_string_lossy().into_owned()),
-            &["list"],
-        ),
-        Provider::Hyperv | Provider::Qemu | Provider::VmwareEsxi => (None, &[]),
+        // `utmctl list` opens UTM with its window in front: the caller probes it.
+        Provider::Utm | Provider::Hyperv | Provider::Qemu | Provider::VmwareEsxi => (None, &[]),
     };
     program.map(|found| (found, args))
 }
@@ -407,8 +413,9 @@ impl<'a> Test<'a> {
         .await?;
         let Some(provider) = picked else { return Ok(()) };
         step.run(Step::Hypervisor, async {
-            let Some((program, args)) = responds(cx, provider) else {
-                return Ok(Found::NothingToProbe);
+            let Some((program, args)) = responds(provider) else {
+                let asked = choices.probe(provider).await.map_err(Failure::Said)?;
+                return Ok(if asked { Found::Responds } else { Found::NothingToProbe });
             };
             cx.read_ok(&program, args).await.map(|_| Found::Responds).map_err(Failure::Said)
         })

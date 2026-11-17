@@ -64,6 +64,10 @@ impl Choices for Picks {
         Box::pin(async move { Ok(p) })
     }
 
+    fn probe(&self, provider: Provider) -> BoxFuture<'_, Result<bool, String>> {
+        Box::pin(async move { Ok(provider == Provider::Utm) })
+    }
+
     fn fetch_box<'a>(&'a self, _: Provider, _: &'static str, line: &'a (dyn Fn(String) + Send + Sync)) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
             line("held".to_owned());
@@ -162,6 +166,17 @@ async fn a_hypervisor_with_no_private_network_skips_the_ping() {
     assert!(
         said.contains(&Progress::Skipped(Step::Network, Found::NoPrivateNetwork(Provider::Qemu))),
         "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_hypervisor_without_a_quiet_probe_is_asked_by_the_caller_never_by_its_tool() {
+    // Only the hypervisor's step matters here: UTM boots on a Mac only.
+    let (said, _, tools) = tested(Provider::Utm, false).await;
+    assert!(said.contains(&Progress::Passed(Step::Hypervisor, Found::Responds)), "{said:?}");
+    assert!(
+        !tools.calls().iter().any(|c| c.program.ends_with("utmctl")),
+        "never `utmctl list`, which opens UTM's window"
     );
 }
 
