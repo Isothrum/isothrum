@@ -10,7 +10,7 @@ use isothrum_runner::{
     BoxFuture, Console, ErrorCode, Event, EventKind, Events, Format, InputVariable, NativeConsole, Project, RunName, RunOptions, Runner, Running, SecretValue,
     Secrets, ServiceEndpoint, ShellCommand, Status,
 };
-use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove};
+use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, MachineUsage};
 
 /// Why the engine refused a request: the runner's report of it (boxed: it is large, and rare). A
 /// refusal never changed a run.
@@ -109,6 +109,12 @@ pub trait Engine: Send + Sync + 'static {
     fn service_endpoints<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<ServiceEndpoint>, Refusal>> {
         let _ = (at, options);
         Box::pin(async { Err(unsupported("service endpoints")) })
+    }
+
+    /// What each running machine of the run uses now; by default, nothing.
+    fn usage<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<MachineUsage>, Refusal>> {
+        let _ = (at, options);
+        Box::pin(async { Err(unsupported("machine usage")) })
     }
 
     /// The public half of the engine's SSH key, one line; by default, none.
@@ -294,6 +300,10 @@ impl Engine for RunnerEngine {
 
     fn service_endpoints<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<ServiceEndpoint>, Refusal>> {
         Box::pin(async move { Ok(self.reopen(at)?.service_endpoints(&run_options(options)).await?) })
+    }
+
+    fn usage<'a>(&'a self, at: Opened<'a>, options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<MachineUsage>, Refusal>> {
+        Box::pin(async move { Ok(self.reopen(at)?.usage(&run_options(options)).await?) })
     }
 
     fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {

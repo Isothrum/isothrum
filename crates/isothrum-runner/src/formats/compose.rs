@@ -12,6 +12,7 @@
 //! | exec, console | `exec -T`, or `run --rm` for a service with no container (a profile's one-off); a console is `exec` with a terminal |
 //! | observe | `ps --all --format json` |
 //! | found | the containers, networks and volumes labelled `com.docker.compose.project=<run>` |
+//! | usage | `ps`, then `docker stats --no-stream`: each running service's containers, summed |
 //! | reapply | `up --detach --wait --remove-orphans` on the files: Compose makes or remakes only what changed |
 //!
 //! Recovery: an `up` refused because a name of the project is taken (a container or network an
@@ -27,6 +28,7 @@ mod fetched;
 mod namespaces;
 mod pins;
 mod pull;
+mod usage;
 
 use std::time::Duration;
 
@@ -431,6 +433,11 @@ impl FormatDriver for Compose {
         }));
         let state = run_state(&machines);
         Ok((Seen { machines, ..Seen::default() }, state))
+    }
+
+    async fn usage(&self, cx: &ToolCx<'_>) -> Result<Vec<crate::MachineUsage>> {
+        let running: Vec<compose::Container> = self.containers(cx).await?.into_iter().filter(compose::Container::runs).collect();
+        usage::of(cx, &running).await
     }
 
     async fn found(&self, cx: &ToolCx<'_>) -> Result<Vec<Found>> {
