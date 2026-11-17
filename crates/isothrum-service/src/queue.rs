@@ -1,7 +1,10 @@
-//! The operations: one queue per run, a worker per run with work, so a run's operations run one
-//! after the other in the order they were accepted and different runs' run side by side. Each
-//! operation is journaled as queued when it is accepted (its id is the one the client and every
-//! event see), and framed by its `operation` events (queued, started, ended), kept in the store.
+//! The operations: one at a time per run, a worker per run with work, different runs' side by
+//! side. An operation asked while another of its run is queued or running is refused
+//! (`locked`, nothing changed), so the service alone says which operation a run has: no client
+//! keeps a lock of its own. Only one asked once the run's running operation was cancelled waits,
+//! queued, for that one to end (a `down` that cuts an `up` short). Each operation is journaled as
+//! queued when it is accepted (its id is the one the client and every event see), and framed by
+//! its `operation` events (queued, started, ended), kept in the store.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,6 +52,8 @@ struct Job {
 /// The operation running on a run.
 struct Current {
     id: OperationId,
+    op: Op,
+    /// How to cut it short; taken once its cancel was asked.
     cancel: Option<oneshot::Sender<()>>,
 }
 
@@ -83,7 +88,8 @@ impl Queue {
     ///
     /// # Errors
     ///
-    /// The run can't be opened, the store can't be written, or the service is stopping.
+    /// The run can't be opened, the service is stopping, another operation of the run is queued
+    /// or running ([`ErrorCode::Locked`]: see [`State::holder`]), or the store can't be written.
     pub(crate) fn submit(self: &Arc<Self>, command: Command) -> Result<(OperationId, RunName, u32), Refusal> {
         let (Some(op), Some((target, _))) = (command.op(), command.target()) else {
             return Err(Refusal::new(ErrorCode::Usage, "not an operation"));
@@ -92,6 +98,12 @@ impl Queue {
         let mut state = self.state();
         if state.stopping {
             return Err(Refusal::new(ErrorCode::Cancelled, "the service is stopping: it takes no new operation"));
+        }
+        if let Some((holder, held)) = state.holder(&run) {
+            return Err(Refusal::new(
+                ErrorCode::Locked,
+                format!("run `{run}` is busy: its operation {holder} ({held}) is queued or running; one operation per run at a time"),
+            ));
         }
         let id = self.store.write(|tx| tx.queue_operation(&run, op, &self.owner))?.id;
         let ahead = state.pending.get(&run).map_or(0, VecDeque::len) + usize::from(state.running.contains_key(&run));
@@ -125,6 +137,7 @@ impl Queue {
                     run.clone(),
                     Current {
                         id: job.id,
+                        op: job.op,
                         cancel: Some(cancel),
                     },
                 );
@@ -302,6 +315,18 @@ impl Queue {
             }
             changed.await;
         }
+    }
+}
+
+impl State {
+    /// The operation that holds `run`, and what it does: one queued, else the one running unless
+    /// its cancel was asked (one asked after it then waits for it to end). None when the run is
+    /// free.
+    fn holder(&self, run: &RunName) -> Option<(OperationId, Op)> {
+        if let Some(job) = self.pending.get(run).and_then(VecDeque::front) {
+            return Some((job.id, job.op));
+        }
+        self.running.get(run).filter(|c| c.cancel.is_some()).map(|c| (c.id, c.op))
     }
 }
 

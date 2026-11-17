@@ -1,4 +1,4 @@
-//! The service over its real endpoint, with a scripted engine: the queue per run, two clients,
+//! The service over its real endpoint, with a scripted engine: one operation per run, two clients,
 //! replay after a reconnection, one service per home, cancel, shutdown, the idle stop, the
 //! reaper, and the tools ended when it stops.
 
@@ -179,36 +179,62 @@ async fn ends_cancelled(followed: &mut Followed) -> bool {
     )
 }
 
+/// The refusal of an operation asked while `holder` holds its run: `locked`, nothing changed.
+fn refused_as_busy(asked: &Result<Followed, ClientError>, holder: OperationId) -> bool {
+    matches!(
+        asked,
+        Err(ClientError::Refused(report))
+            if report.code == ErrorCode::Locked && !report.changed && report.message.contains(&format!("operation {holder} "))
+    )
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn two_clients_operations_on_one_run_run_in_order_and_other_runs_alongside() {
+async fn a_second_operation_on_a_busy_run_is_refused_and_other_runs_go_on() {
     let s = start(None).await.unwrap();
     let (a, b) = (
         Client::connect_running(s.home.path()).await.unwrap(),
         Client::connect_running(s.home.path()).await.unwrap(),
     );
+    // Two starts of one run, from two clients: the second is refused, whatever it asks.
     let mut first = a.follow(up("web", true)).await.unwrap();
-    let mut second = b.follow(down("web")).await.unwrap();
+    let holder = first.accepted.operation;
+    assert!(refused_as_busy(&b.follow(up("web", false)).await, holder));
+    assert!(refused_as_busy(&b.follow(down("web")).await, holder), "a stop while it starts");
+    // Another run's operation runs to its end while web's holds.
     let mut other = b.follow(up("db", false)).await.unwrap();
-    assert_eq!((first.accepted.position, second.accepted.position, other.accepted.position), (0, 1, 0));
-    // Another run's operation runs to its end while web's first holds.
+    assert_eq!((first.accepted.position, other.accepted.position), (0, 0));
     assert!(events_of(&mut other).await.unwrap().iter().any(is_outcome));
-    let held = s.engine.log();
-    let said = |line: &str| held.iter().any(|l| l == line);
-    assert!(said("end db up") && !said("end web up") && !said("begin web down"), "{held:?}");
+    // Which operation holds the run is the service's to say.
+    begun(&mut first).await.unwrap();
+    let web = RunName::new("web").unwrap();
+    let rows = b.operations(&web, 10).await.unwrap();
+    let under_way: Vec<_> = rows.iter().filter(|o| o.ended.is_none()).map(|o| (o.id, o.op)).collect();
+    assert_eq!(under_way, [(holder, isothrum_runner::Op::Up)]);
+    assert_eq!(rows.len(), 1, "a refused operation is never journaled: {rows:?}");
     s.engine.release("web");
-    let (first_events, second_events) = tokio::join!(events_of(&mut first), events_of(&mut second));
-    let (first_events, second_events) = (first_events.unwrap(), second_events.unwrap());
-    let log = s.engine.log();
-    let at = |line: &str| log.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line} in {log:?}"));
-    assert!(at("end web up") < at("begin web down"), "one run's operations one after the other: {log:?}");
-    assert!(at("end db up") < at("end web up"), "another run's alongside: {log:?}");
-    let phases: Vec<_> = second_events.iter().filter_map(phase_of).collect();
-    assert_eq!(phases, [OperationPhase::Queued, OperationPhase::Started, OperationPhase::Ended]);
-    assert!(first_events.iter().any(is_outcome) && second_events.iter().any(is_outcome));
-    assert_every!(second_events.iter(), |e: &&Event| e.operation == Some(second.accepted.operation));
-    let ops = a.operations(&RunName::new("web").unwrap(), 10).await.unwrap();
-    assert_eq!(ops.len(), 2);
-    assert_every!(ops.iter(), |o: &&isothrum_client::v1::OperationRow| o.ended.is_some());
+    assert!(events_of(&mut first).await.unwrap().iter().any(is_outcome));
+    // Once it ended, the run takes the next one.
+    b.follow(down("web")).await.unwrap().outcome().await.unwrap();
+    let web_log: Vec<String> = s.engine.log().into_iter().filter(|l| l.contains(" web ")).collect();
+    assert_eq!(web_log, ["begin web up", "end web up", "begin web down", "end web down"]);
+    s.task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_during_a_stop_is_refused() {
+    let s = start(None).await.unwrap();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    let mut stopping = client
+        .follow(Command::Down {
+            target: Target::new(PathBuf::from("/runs/web"), None),
+            options: options(true),
+        })
+        .await
+        .unwrap();
+    assert!(refused_as_busy(&client.follow(up("web", false)).await, stopping.accepted.operation));
+    s.engine.release("web");
+    stopping.outcome().await.unwrap();
+    assert!(!s.engine.log().contains(&"begin web up".to_owned()), "{:?}", s.engine.log());
     s.task.abort();
 }
 
@@ -254,26 +280,33 @@ async fn one_service_per_home() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_cancelled_operation_ends_cancelled_queued_or_running() {
+async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_be_cancelled_too() {
     let s = start(None).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
     let mut long = client.follow(up("web", true)).await.unwrap();
-    let mut queued = client.follow(down("web")).await.unwrap();
-    client.cancel(queued.accepted.operation).await.unwrap();
-    let dropped = events_of(&mut queued).await.unwrap();
-    assert!(!dropped.iter().any(|e| phase_of(e) == Some(OperationPhase::Started)), "{dropped:?}");
-    assert!(
-        dropped
-            .iter()
-            .any(|e| matches!(&e.kind, EventKind::Error(report) if report.code == ErrorCode::Cancelled))
-    );
-    // Wait for the long one to begin, then cut it short.
     begun(&mut long).await.unwrap();
+    // A stop cuts the start short: the start cancelled, the stop is taken, never refused (queued
+    // behind the start while it is still being cut short, else begun at once).
     client.cancel(long.accepted.operation).await.unwrap();
+    let mut stop = client
+        .follow(Command::Down {
+            target: Target::new(PathBuf::from("/runs/web"), None),
+            options: options(true),
+        })
+        .await
+        .unwrap();
+    assert!(stop.accepted.position <= 1, "{:?}", stop.accepted);
     assert!(ends_cancelled(&mut long).await);
-    assert!(!s.engine.log().contains(&"end web up".to_owned()));
+    // A third waits for nobody: the stop holds the run, queued or running.
+    assert!(refused_as_busy(&client.follow(up("web", false)).await, stop.accepted.operation));
+    // Cancelled too, it ends cancelled, and the run is free.
+    client.cancel(stop.accepted.operation).await.unwrap();
+    assert!(ends_cancelled(&mut stop).await);
     let refused = client.cancel(long.accepted.operation).await;
     assert!(matches!(refused, Err(ClientError::Refused(_))), "an ended operation: {refused:?}");
+    let engine_said = s.engine.log();
+    assert!(!engine_said.iter().any(|l| l.starts_with("end web")), "{engine_said:?}");
+    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
     s.task.abort();
 }
 
@@ -344,6 +377,8 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
     let ops = client.operations(&run, 10).await.unwrap();
     let row = ops.iter().find(|o| o.id == left).unwrap();
     assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
+    // What held the run died with its service: nothing is left holding it.
+    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
     s.task.abort();
 }
 

@@ -4,8 +4,9 @@
 //! The client writes [`Request`]s, each with an id of its choosing; the service answers each with
 //! one [`Reply`] carrying that id. The first request of a connection is [`Command::Hello`]; the
 //! service refuses any other before it. An operation command (`up`, `down`, `park`, `resume`,
-//! `update`, `attach`, `detach`, `retire`, `provision`, `check`) is queued on its run and
-//! answered at once with [`Reply::Accepted`]; the operation's events, ending with its `result` or
+//! `update`, `attach`, `detach`, `retire`, `provision`, `check`) is answered at once with
+//! [`Reply::Accepted`], or refused (`locked`) while another of its run is queued or running: one
+//! operation per run, but for one asked once the running one was cancelled, queued behind it; the operation's events, ending with its `result` or
 //! `error` and an `operation` event of phase `ended`, arrive on a subscription: after `subscribe`,
 //! the connection carries [`Reply::Event`] frames until it closes or `unsubscribe`.
 //!
@@ -405,8 +406,8 @@ pub enum Reply {
         /// Its version.
         version: String,
     },
-    /// An operation command was queued: its id, and its place in the run's queue (0: it begins
-    /// now).
+    /// An operation command was accepted: its id, and its place on its run (0: it begins now; 1:
+    /// it waits for the run's cancelled operation to end).
     Accepted {
         /// The request's id.
         id: u64,
