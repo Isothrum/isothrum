@@ -1,5 +1,5 @@
 //! What a run looks like from outside: its state, its machines and the host ports they publish,
-//! what they use, and the outputs the project gives back, each as its tool reports it. What a machine or a port
+//! and the outputs the project gives back, each as its tool reports it. What a machine or a port
 //! is for is the embedder's to know, from the project's own description.
 
 use serde::{Deserialize, Serialize};
@@ -86,32 +86,6 @@ pub struct MachineStatus {
     /// speak of (a container), and while not [`Status::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<crate::graphical::ConsoleOffer>,
-}
-
-/// What one machine of a run uses now, as its engine reports it (several instances of it, a
-/// service scaled up, summed).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct MachineUsage {
-    /// Its name in the project.
-    pub name: String,
-    /// Its CPU use, in percent of one CPU (over 100 on several); none when the engine has no
-    /// figure for it yet.
-    pub cpu_percent: Option<f64>,
-    /// The memory it uses, in bytes; none when the engine has no figure for it yet.
-    pub memory_bytes: Option<u64>,
-}
-
-impl MachineUsage {
-    /// Machine `name` using `cpu_percent` and `memory_bytes`.
-    #[must_use]
-    pub fn new(name: impl Into<String>, cpu_percent: Option<f64>, memory_bytes: Option<u64>) -> MachineUsage {
-        MachineUsage {
-            name: name.into(),
-            cpu_percent,
-            memory_bytes,
-        }
-    }
 }
 
 /// An output's value (a Terraform module's output). A sensitive one shows as `***` wherever it

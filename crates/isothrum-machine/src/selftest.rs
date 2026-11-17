@@ -5,8 +5,10 @@
 //! downloads. A step's reason is the tool's or the runner's text; the UI words the steps.
 //!
 //! - [`engine`]: a two-container deployment on a container engine.
+//! - [`hypervisor`]: a VM on a hypervisor, through Vagrant.
 
 pub mod engine;
+pub mod hypervisor;
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +26,12 @@ pub enum Progress<S, F, E> {
     Passed(S, F),
     /// It failed: why.
     Failed(S, E),
+    /// It was skipped: why.
+    Skipped(S, F),
 }
+
+/// How long an elevated step may wait for its prompt's answer and its end.
+const PROMPT_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Says each step's progress to its sink.
 struct Steps<'a, S, F, E>(&'a (dyn Fn(Progress<S, F, E>) + Send + Sync));

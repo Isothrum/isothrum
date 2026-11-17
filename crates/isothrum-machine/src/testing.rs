@@ -52,14 +52,11 @@ pub(crate) fn linux_host(root: &std::path::Path) -> crate::host::Host {
     }
 }
 
-/// How a tool a test ran ended, and what it printed (each stream's lines, one `\n` after each),
-/// kept on unix only, where the shell tests read it.
+/// How a tool a test ran ended, and what it printed (each stream's lines, one `\n` after each).
 #[derive(Debug)]
 pub(crate) struct Out {
     pub(crate) status: isothrum_runner::Exit,
-    #[cfg(unix)]
     pub(crate) stdout: Vec<u8>,
-    #[cfg(unix)]
     pub(crate) stderr: Vec<u8>,
 }
 
@@ -69,8 +66,7 @@ pub(crate) fn run(program: &str, args: &[&str]) -> Option<Out> {
     run_with(program, args, &[])
 }
 
-/// [`run`], with the variables `env` added (macOS's tests only call it).
-#[cfg(target_os = "macos")]
+/// [`run`], with the variables `env` added.
 pub(crate) fn run_env(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
     run_with(program, args, env)
 }
@@ -94,17 +90,10 @@ fn run_with(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
         };
         isothrum_runner::ProcessRunner::run(&isothrum_runner::SystemProcesses::default(), &spec, &mut keep).await
     });
-    exit.ok().map(|status| Out {
-        status,
-        #[cfg(unix)]
-        stdout,
-        #[cfg(unix)]
-        stderr,
-    })
+    exit.ok().map(|status| Out { status, stdout, stderr })
 }
 
 /// `sh -c script` with the variables `env` added ([`run`]); a test that can't start `sh` fails.
-#[cfg(unix)]
 pub(crate) fn sh(script: &str, env: &[(&str, &str)]) -> Out {
     run_with("sh", &["-c", script], env).expect("sh starts")
 }
@@ -118,7 +107,6 @@ pub(crate) fn sh_parses(script: &str) -> bool {
 }
 
 /// Writes `contents` at `path`, executable (mode 0755).
-#[cfg(unix)]
 pub(crate) fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<str>) {
     let path = path.as_ref();
     std::fs::write(path, contents.as_ref()).unwrap();
@@ -130,7 +118,6 @@ pub(crate) fn write_executable(path: impl AsRef<std::path::Path>, contents: impl
 }
 
 /// A fresh folder of its own for one test, named after `tag`, which the test removes.
-#[cfg(unix)]
 pub(crate) fn fresh_dir(tag: &str) -> std::path::PathBuf {
     tempfile::Builder::new().prefix(&format!("isothrum-machine-{tag}-")).tempdir().unwrap().keep()
 }

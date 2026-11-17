@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use interprocess::local_socket::tokio::Stream;
-use isothrum_client::proto::{Command, PROTOCOL, ReachedConsole, Reply, Request, Target};
+use isothrum_client::proto::{Command, PROTOCOL, ReachedConsole, Reply, Request};
 use isothrum_client::v1::EventCursor;
 use isothrum_client::wire::{LineReader, write_line};
 use isothrum_runner::{ErrorCode, RunName};
@@ -217,7 +217,10 @@ impl Session {
         let Command::GraphicalConsole { run, target, options, machine } = command else {
             return error(id, ErrorCode::Usage, "not a graphical console".to_owned());
         };
-        let at = opened(&run, target.as_ref());
+        let at = Opened {
+            run: &run,
+            target: target.as_ref(),
+        };
         match self.shared.engine.graphical_console(at, &options, &machine).await {
             Ok(mut console) => match ReachedConsole::of(&console) {
                 Some(reached) => {
@@ -322,8 +325,7 @@ fn error(id: u64, code: ErrorCode, message: String) -> Reply {
 }
 
 /// The engine's answer to `command`, request `id`: a status, the way into a machine or its
-/// hypervisor's app, its endpoints, what its machines use, the runner's key, the downloads and
-/// their removal.
+/// hypervisor's app, its endpoints, the runner's key, the downloads and their removal.
 async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Reply, Refusal> {
     let engine = &shared.engine;
     Ok(match command {
@@ -335,24 +337,28 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
             Reply::Status { id, status: Box::new(status) }
         }
         Command::ConsoleCommand { run, target, machine, user } => {
-            let at = opened(&run, target.as_ref());
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
             let shell = engine.console_command(at, &machine, user.as_deref()).await?;
             Reply::Shell { id, command: shell }
         }
         Command::NativeConsole { run, target, options, machine } => {
-            let at = opened(&run, target.as_ref());
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
             let console = engine.native_console(at, &options, &machine).await?;
             Reply::Native { id, console }
         }
         Command::ServiceEndpoints { run, target, options } => {
-            let at = opened(&run, target.as_ref());
+            let at = Opened {
+                run: &run,
+                target: target.as_ref(),
+            };
             let endpoints = engine.service_endpoints(at, &options).await?;
             Reply::Endpoints { id, endpoints }
-        }
-        Command::Usage { run, target, options } => {
-            let at = opened(&run, target.as_ref());
-            let machines = engine.usage(at, &options).await?;
-            Reply::Usage { id, machines }
         }
         Command::PublicKey => Reply::PublicKey {
             id,
@@ -376,11 +382,6 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
         },
         _ => return Err(Refusal::new(ErrorCode::Usage, "not a question the engine answers")),
     })
-}
-
-/// Run `run`, opened from `target` when given, else where its record says.
-fn opened<'a>(run: &'a RunName, target: Option<&'a Target>) -> Opened<'a> {
-    Opened { run, target }
 }
 
 /// The error reply of `refusal`, with the runner's typed fields when it has them.

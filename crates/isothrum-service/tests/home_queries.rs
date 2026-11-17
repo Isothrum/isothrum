@@ -1,8 +1,8 @@
 //! What an embedder asks of a home besides operations, through the client alone: a run's record,
 //! forgetting it, the runs past their lifetime, the way into a machine, its screen, its
-//! hypervisor's app, where its services are reached, what its machines use, the runner's key, and
-//! the downloads. The engine is the test's own, so each answer is known; the records are the
-//! home's store, written before the service starts.
+//! hypervisor's app, where its services are reached, the runner's key, and the downloads. The engine is the
+//! test's own, so each answer is known; the records are the home's store, written before the
+//! service starts.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -84,10 +84,6 @@ impl Engine for Machines {
             let site = serde_json::json!({"name": "web/site", "address": "127.0.0.1:41000", "forwarded": true, "why": null});
             Ok(vec![serde_json::from_value(site).map_err(|e| Refusal::new(ErrorCode::Io, e.to_string()))?])
         })
-    }
-
-    fn usage<'a>(&'a self, _at: Opened<'a>, _options: &'a OpOptions) -> BoxFuture<'a, Result<Vec<isothrum_runner::MachineUsage>, Refusal>> {
-        Box::pin(async { Ok(vec![isothrum_runner::MachineUsage::new("web", Some(1.5), Some(10_485_760))]) })
     }
 
     fn public_key(&self) -> BoxFuture<'_, Result<String, Refusal>> {
@@ -243,8 +239,6 @@ async fn the_way_into_a_machine_its_screen_its_app_and_the_key_come_from_the_eng
             .collect::<Vec<_>>(),
         [("web/site", Some("127.0.0.1:41000"), true)]
     );
-    let used = client.usage(&web, None, OpOptions::default()).await.expect("what it uses");
-    assert_eq!(used, [isothrum_runner::MachineUsage::new("web", Some(1.5), Some(10_485_760))]);
 
     let options = OpOptions {
         secrets: [("VNC_PASSWORD".to_owned(), "s3cret".to_owned())].into(),

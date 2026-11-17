@@ -1,3 +1,0 @@
-{"BlockIO":"0B / 0B","CPUPerc":"1.78%","Container":"1f77731b33ce31d18de8e49eabcc73b83c68dafecd58d42ba781b4ef379f9a32","ID":"1f77731b33ce","MemPerc":"0.02%","MemUsage":"10.27MiB / 46.92GiB","Name":"wlstats-web-1","NetIO":"5.87kB / 126B","PIDs":"6"}
-{"BlockIO":"1.14MB / 0B","CPUPerc":"0.00%","Container":"fde9a446efcd7bed477ec81683aab62adfae6234ab61b3a609fb10f597acd708","ID":"fde9a446efcd","MemPerc":"0.00%","MemUsage":"1.43MiB / 46.92GiB","Name":"wlstats-idle-1","NetIO":"6.16kB / 126B","PIDs":"1"}
-{"BlockIO":"160kB / 264MB","CPUPerc":"27.00%","Container":"24a6f5aa08beb182558200555cbd873c100e82c213810ad9f9d9640d41034ce3","ID":"24a6f5aa08be","MemPerc":"34.84%","MemUsage":"356.8MiB / 1GiB","Name":"other-database-1","NetIO":"6.62kB / 126B","PIDs":"38"}

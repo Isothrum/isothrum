@@ -312,7 +312,7 @@ async fn registry(cx: &Context, query: &[&str]) -> Option<bool> {
 
 /// A script for `powershell -EncodedCommand`: base64 of its UTF-16LE text (no quoting to get
 /// wrong on the command line).
-fn encoded(script: &str) -> String {
+pub(crate) fn encoded(script: &str) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);

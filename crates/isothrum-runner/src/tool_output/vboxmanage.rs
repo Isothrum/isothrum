@@ -5,7 +5,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 /// `(name, uuid)` of each VM `VBoxManage list vms` prints (`"<name>" {<uuid>}` per line).
-pub(crate) fn vms(out: &str) -> Vec<(String, String)> {
+#[must_use]
+pub fn vms(out: &str) -> Vec<(String, String)> {
     out.lines()
         .filter_map(|line| {
             let line = line.trim_end_matches('\r');
