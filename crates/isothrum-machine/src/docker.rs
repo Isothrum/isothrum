@@ -4,7 +4,8 @@
 //!
 //! A daemon that gives no answer says why ([`NoAnswer`]): no CLI, refused to this account (its
 //! socket's or named pipe's permission: joining a group helps, starting the engine doesn't),
-//! stopped, or an empty answer.
+//! stopped, or an empty answer. An installed engine that doesn't answer is started as its user
+//! would start it ([`start_engine`]).
 
 use std::time::Duration;
 
@@ -14,6 +15,10 @@ use serde::{Deserialize, Serialize};
 use crate::context::Context;
 use crate::exec::Unanswered;
 use crate::host::HostOs;
+
+mod start;
+
+pub use start::{START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
 
 /// How long each engine's context may take to answer before it counts as stopped.
 pub const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
