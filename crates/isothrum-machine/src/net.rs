@@ -1,17 +1,35 @@
-//! This computer's public IPv4 address, as the internet sees it ([`public_ipv4`]): what a cloud
-//! firewall opens to when it lets this computer alone in. Independent services, run by different
+//! This computer's network, as a caller needs it before it acts: whether a host port is free
+//! ([`port_free`]), and its public IPv4 address, as the internet sees it ([`public_ipv4`]): what a
+//! cloud firewall opens to when it lets this computer alone in. Independent services, run by different
 //! companies, are asked at once (`curl`, through the [`Context`]'s runner), and two must give the
 //! same address: one that is down or blocked fails nothing, and one that answers wrong (a captive
 //! portal's page, a compromised service) can't open a firewall to someone else.
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
-use isothrum_runner::ProcessSpec;
+use isothrum_runner::{ProcessSpec, Protocol};
 use tokio::task::JoinSet;
 
 use crate::context::Context;
 use crate::exec;
+
+/// How long [`port_free`] waits for a listener on the loopback to answer: one there answers at once.
+const LISTENER_ANSWER: Duration = Duration::from_millis(250);
+
+/// Whether nothing on this computer holds host `port` for `protocol` where a published port goes
+/// (the loopback): a socket bound there and let go at once, nothing kept. A TCP port is also
+/// taken when something answers on it: a listener on every address (`0.0.0.0`) doesn't stop a
+/// loopback bind on every system (macOS lets one through), but it does answer. A free port can
+/// still be taken a moment later: this is a check before acting, not a reservation.
+#[must_use]
+pub fn port_free(port: u16, protocol: Protocol) -> bool {
+    let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    match protocol {
+        Protocol::Tcp => TcpListener::bind(loopback).is_ok() && TcpStream::connect_timeout(&loopback, LISTENER_ANSWER).is_err(),
+        Protocol::Udp => UdpSocket::bind(loopback).is_ok(),
+    }
+}
 
 /// The services asked by default: each answers a plain-text address over HTTPS.
 pub const RESOLVERS: [&str; 4] = [
@@ -242,5 +260,25 @@ mod tests {
             assert!(!is_public_ipv4(special.parse().unwrap()), "{special}");
         }
         assert!(is_public_ipv4(Ipv4Addr::new(1, 2, 3, 4)) && is_public_ipv4(Ipv4Addr::new(100, 128, 0, 1)));
+    }
+
+    #[test]
+    fn a_port_something_holds_is_not_free_and_a_released_one_is() {
+        // TCP: held on the loopback, then on every address (which answers on the loopback too).
+        let held = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+        let port = held.local_addr().expect("its port").port();
+        assert!(!port_free(port, Protocol::Tcp));
+        drop(held);
+        assert!(port_free(port, Protocol::Tcp), "released, it is free again");
+        let everywhere = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("a free port");
+        let wide = everywhere.local_addr().expect("its port").port();
+        assert!(!port_free(wide, Protocol::Tcp), "a listener on every address holds it");
+        drop(everywhere);
+        // UDP: its own sockets, apart from TCP's.
+        let udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
+        let datagrams = udp.local_addr().expect("its port").port();
+        assert!(!port_free(datagrams, Protocol::Udp));
+        drop(udp);
+        assert!(port_free(datagrams, Protocol::Udp));
     }
 }
