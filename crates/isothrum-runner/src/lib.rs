@@ -129,7 +129,7 @@ mod tool_output;
 pub use adopt::Adoption;
 pub use clock::{rfc3339, rfc3339_seconds};
 pub use console::ShellCommand;
-pub use downloads::{Download, DownloadId, DownloadItem, DownloadRemoval, DownloadsToRemove, RemovalOutcome};
+pub use downloads::{Download, DownloadId, DownloadItem, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, RemovalOutcome};
 pub use encoding::{every_name, from_wire_name, percent_encoded, wire_name};
 pub use error::{DETAIL_VERSION, Detail, DownloadKind, Error, ErrorCode, ErrorDetail, ErrorReport, PortHolder, ProviderNeed, Result, TimedOut};
 pub use events::{Event, EventKind, EventLog, Events, OperationPhase, ResultData, ShownOutput, StepState, Stream, SweepFailure, WarningCode, events_schema};

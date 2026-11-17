@@ -115,7 +115,10 @@ async fn a_start_records_the_images_it_pulled_and_built_and_an_attach_the_one_it
         [&in_orbstack("app:dev", "sha256:app"), &in_orbstack("nginx:1.27", "sha256:nginx")],
         "the built one and the pulled one"
     );
-    assert_eq!((listed[1].run.as_str(), listed[1].size_bytes), ("stack", Some(187_654_321)));
+    assert_eq!(
+        (listed[1].run.as_ref().map(RunName::as_str), listed[1].size_bytes),
+        (Some("stack"), Some(187_654_321))
+    );
     let sized = fake.last("{{.Size}}").expect("its size read");
     assert_eq!(sized.flag("--context"), Some("orbstack"), "in the context it was pulled through");
 
@@ -256,7 +259,7 @@ async fn recorded(runner: &Runner) -> Vec<DownloadId> {
     runner
         .store
         .db()
-        .write(|tx| recorded.iter().try_for_each(|item| tx.record_download(&run, item).map(drop)))
+        .write(|tx| recorded.iter().try_for_each(|item| tx.record_download(Some(&run), item).map(drop)))
         .expect("recorded");
     runner.downloads().await.unwrap().iter().map(|d| d.id).collect()
 }
@@ -347,4 +350,74 @@ fn the_wire_reads_back_as_written() {
         (&serde_json::json!("moved"), &serde_json::json!("sha256:b"), &serde_json::json!("image"))
     );
     assert_eq!(serde_json::from_value::<DownloadRemoval>(written).unwrap(), moved);
+}
+
+/// The engine and Vagrant of an adoption: `nginx:1.27` stands for `sha256:nginx`, `redis:7` for
+/// `sha256:new`; Vagrant holds `bento/debian-12` 1 in two architectures.
+fn held(_: &Mutex<()>, call: &Call) -> Reply {
+    if let Some((_, image)) = inspected(call) {
+        return match image {
+            "nginx:1.27" => Reply::ok("sha256:nginx"),
+            "redis:7" => Reply::ok("sha256:new"),
+            other => Reply::fail(1, &format!("Error: No such object: {other}")),
+        };
+    }
+    if call.line().contains("box list") {
+        return Reply::ok(&box_list(&[
+            ("bento/debian-12", "virtualbox", "1", "amd64"),
+            ("bento/debian-12", "virtualbox", "1", "arm64"),
+            ("bento/debian-12", "virtualbox", "2", "amd64"),
+        ]));
+    }
+    Reply::ok("")
+}
+
+#[tokio::test]
+async fn an_adopted_download_is_recorded_with_no_run_only_while_it_is_here_as_it_was_fetched() {
+    let (_held, fake) = modelled::<()>(held);
+    let (_root, _project, runner) = a_runner(&fake, "compose.yaml", "services: {}\n");
+    let image = |reference: &str, id: Option<&str>| DownloadToAdopt::Image {
+        reference: reference.into(),
+        image_id: id.map(str::to_owned),
+    };
+    let debian = |version: &str| DownloadToAdopt::Box {
+        name: "bento/debian-12".into(),
+        provider: "virtualbox".into(),
+        version: version.into(),
+    };
+    let asked = [
+        image("nginx:1.27", Some("sha256:nginx")),
+        image("redis:7", Some("sha256:old")),
+        image("gone:1", None),
+        debian("1"),
+        debian("3"),
+    ];
+    let adopted = runner.adopt_downloads(&asked).await.expect("adopted");
+    let items: Vec<&DownloadItem> = adopted.iter().map(|d| &d.item).collect();
+    let arch = |a: &str| DownloadItem::Box {
+        name: "bento/debian-12".into(),
+        provider: "virtualbox".into(),
+        version: "1".into(),
+        architecture: Some(a.into()),
+    };
+    assert_eq!(
+        items,
+        [&image_item("nginx:1.27"), &arch("amd64"), &arch("arm64")],
+        "moved, gone and unheld ones aren't"
+    );
+    assert!(adopted.iter().all(|d| d.run.is_none()), "{adopted:?}");
+    assert_eq!(fake.made("vagrant box list").len(), 1, "Vagrant's boxes read once");
+
+    let again = runner.adopt_downloads(&asked[..1]).await.expect("adopted again");
+    assert_eq!(
+        again.iter().map(|d| d.id).collect::<Vec<_>>(),
+        [adopted[0].id],
+        "one recorded already keeps its row"
+    );
+    assert_eq!(runner.downloads().await.expect("listed").len(), 3);
+}
+
+/// `nginx:1.27` as adopted: on this computer's engine.
+fn image_item(reference: &str) -> DownloadItem {
+    image(reference, "sha256:nginx")
 }

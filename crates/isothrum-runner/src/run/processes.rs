@@ -47,7 +47,7 @@ impl Running<'_> {
             },
             other @ crate::DownloadItem::Box { .. } => other,
         };
-        match self.runner.store.db().write(|tx| tx.record_download(&self.name, &item)) {
+        match self.runner.store.db().write(|tx| tx.record_download(Some(&self.name), &item)) {
             Ok(_) => tracing::info!(run = %self.name, ?item, "recorded what the run's download fetched"),
             Err(e) => tracing::warn!(run = %self.name, ?item, error = %e, "what the run's download fetched wasn't recorded"),
         }

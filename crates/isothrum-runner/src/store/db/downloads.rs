@@ -22,7 +22,7 @@ struct RawDownload {
     provider: Option<String>,
     version: Option<String>,
     architecture: Option<String>,
-    run: String,
+    run: Option<String>,
     fetched_at: String,
 }
 
@@ -60,20 +60,23 @@ fn download(raw: RawDownload) -> Result<Download> {
     Ok(Download {
         id: DownloadId(raw.id),
         item,
-        run: RunName::new(&raw.run).map_err(|_| super::corrupt("run name", &raw.run))?,
+        run: raw
+            .run
+            .map(|run| RunName::new(&run).map_err(|_| super::corrupt("run name", &run)))
+            .transpose()?,
         fetched_at: raw.fetched_at,
         size_bytes: None,
     })
 }
 
 impl Tx<'_> {
-    /// Records that run `run`'s tool fetched `item`; one recorded already keeps its row. Whether
-    /// it was new to the record.
+    /// Records that run `run`'s tool fetched `item` (no run: adopted); one recorded already keeps
+    /// its row. Whether it was new to the record.
     ///
     /// # Errors
     ///
     /// The store can't be written.
-    pub fn record_download(&mut self, run: &RunName, item: &DownloadItem) -> Result<bool> {
+    pub fn record_download(&mut self, run: Option<&RunName>, item: &DownloadItem) -> Result<bool> {
         let (kind, name, image_id, context, provider, version, arch) = match item {
             DownloadItem::Image {
                 reference,
@@ -92,7 +95,7 @@ impl Tx<'_> {
             .execute(
                 "INSERT OR IGNORE INTO downloads (kind, name, image_id, docker_context, provider, version, architecture, run, fetched_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![kind, name, image_id, context, provider, version, arch, run.as_str(), now()],
+                params![kind, name, image_id, context, provider, version, arch, run.map(RunName::as_str), now()],
             )
             .map_err(failed("written"))?;
         Ok(added > 0)

@@ -17,6 +17,10 @@ use crate::process::{DockerContext, ProcessRunner};
 use crate::runner::Runner;
 use crate::tool_output::vagrant::InstalledBox;
 
+mod adopt;
+
+pub use adopt::DownloadToAdopt;
+
 /// How long one call of a listing or a removal may take.
 const CALL_LIMIT: Duration = Duration::from_secs(300);
 
@@ -75,8 +79,9 @@ pub struct Download {
     /// What was fetched.
     #[serde(flatten)]
     pub item: DownloadItem,
-    /// The run whose operation fetched it.
-    pub run: RunName,
+    /// The run whose operation fetched it; none for one adopted ([`Runner::adopt_downloads`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunName>,
     /// When (RFC 3339, UTC).
     pub fetched_at: String,
     /// Its size on disk in bytes, when it could be read (an image's as its engine says, a box's
@@ -249,7 +254,7 @@ impl Runner {
     }
 
     /// The runner's processes, their `docker` calls sent to `context` when there is one.
-    fn docker<'a>(&'a self, context: Option<&'a str>) -> DockerContext<'a> {
+    pub(super) fn docker<'a>(&'a self, context: Option<&'a str>) -> DockerContext<'a> {
         DockerContext {
             inner: self.config.processes.as_ref(),
             context,
@@ -258,7 +263,7 @@ impl Runner {
 
     /// A call of a tool through `processes`, in the home (no project's folder: Vagrant reads the
     /// Vagrantfile of the folder it runs in), saying nothing.
-    fn call<'a>(&'a self, processes: &'a dyn ProcessRunner) -> Call<'a> {
+    pub(super) fn call<'a>(&'a self, processes: &'a dyn ProcessRunner) -> Call<'a> {
         Call {
             runner: processes,
             cwd: Some(self.config.home.clone()),

@@ -372,6 +372,10 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
             id,
             removed: engine.remove_downloads(&which).await?,
         },
+        Command::AdoptDownloads { adopted } => Reply::DownloadsAdopted {
+            id,
+            adopted: engine.adopt_downloads(&adopted).await?,
+        },
         _ => return Err(Refusal::new(ErrorCode::Usage, "not a question the engine answers")),
     })
 }
