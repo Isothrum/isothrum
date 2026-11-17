@@ -19,12 +19,14 @@ async fn a_signed_download_is_copied_into_the_callers_folder_and_the_download_le
     assert!(is_program(&d.dest().join(EXE)), "the copy is still a program");
     // The program and its library are both held to VMware's team, on the copy only.
     let calls = lines(&fake);
-    let checked = |name: &str| {
-        calls
-            .iter()
-            .any(|c| c.contains("anchor apple generic and certificate leaf[subject.OU] = \"EG7KH642X6\"") && c.ends_with(name))
+    let held = |file: &Path| {
+        fake.calls().iter().any(|c| {
+            c.program == CODESIGN
+                && c.args.iter().any(|a| a.contains("certificate leaf[subject.OU] = \"EG7KH642X6\""))
+                && c.args.last().is_some_and(|last| Path::new(last).ends_with(file))
+        })
     };
-    assert!(checked(&format!("/{EXE}")) && checked("lib/libvmomi.dylib"), "{calls:?}");
+    assert!(held(Path::new(EXE)) && held(&Path::new("lib").join("libvmomi.dylib")), "{calls:?}");
     let picked_text = picked.to_string_lossy().into_owned();
     assert!(
         !calls.iter().any(|c| c.contains(&picked_text)),
@@ -113,8 +115,10 @@ async fn an_unsigned_library_is_refused_with_what_codesign_said() {
             Reply::ok("")
         }
     });
-    let said = "lib/libvmomi.dylib: libvmomi.dylib: code object is not signed at all";
-    assert_eq!(refused_on_a_mac("unsigned", fake).await, Outcome::refused(Refusal::Unsigned, Some(said.into())));
+    // The library as the folder names it, in this machine's own separators.
+    let library = Path::new("lib").join("libvmomi.dylib");
+    let said = format!("{}: libvmomi.dylib: code object is not signed at all", library.display());
+    assert_eq!(refused_on_a_mac("unsigned", fake).await, Outcome::refused(Refusal::Unsigned, Some(said)));
 }
 
 #[tokio::test]
