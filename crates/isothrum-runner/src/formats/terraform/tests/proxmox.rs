@@ -74,7 +74,7 @@ async fn proxmox_states(fake: &FakeProcesses, given: &[(String, String)]) -> Res
 #[tokio::test]
 async fn a_proxmox_vm_powered_off_or_removed_on_its_server_reads_so() {
     let listing = r#"{"data":[{"vmid":101,"node":"pve","status":"stopped","type":"qemu"}]}"#;
-    let server = Server::start(api(listing, Some("102"))).await;
+    let server = Server::start(api(listing, Some("102"))).await.unwrap();
     let states = proxmox_states(&terraform(), &run(&server, Some(pinned()), true)).await.expect("observed");
     assert_eq!(states, [("web".to_owned(), MachineState::Stopped), ("db".to_owned(), MachineState::Absent)]);
 }
@@ -84,7 +84,7 @@ async fn a_proxmox_vm_powered_off_or_removed_on_its_server_reads_so() {
 #[tokio::test]
 async fn a_proxmox_vm_hidden_from_the_listing_but_holding_its_id_keeps_its_state() {
     let listing = r#"{"data":[{"vmid":"101","node":"pve","status":"running","type":"qemu"}]}"#;
-    let server = Server::start(api(listing, None)).await;
+    let server = Server::start(api(listing, None)).await.unwrap();
     let states = proxmox_states(&terraform(), &run(&server, Some(pinned()), true)).await.expect("observed");
     assert_eq!(states, [("web".to_owned(), MachineState::Running), ("db".to_owned(), MachineState::Running)]);
 }
@@ -92,7 +92,7 @@ async fn a_proxmox_vm_hidden_from_the_listing_but_holding_its_id_keeps_its_state
 /// A server that refuses the token is a refused sign-in, never a run read as it stood.
 #[tokio::test]
 async fn a_proxmox_server_refusing_the_token_is_server_auth_failed() {
-    let server = Server::start(|_| (401, "{\"data\":null}".to_owned())).await;
+    let server = Server::start(|_| (401, "{\"data\":null}".to_owned())).await.unwrap();
     let e = proxmox_states(&terraform(), &run(&server, Some(pinned()), true)).await.expect_err("refused");
     assert_eq!(e.code(), ErrorCode::ServerAuthFailed, "{e}");
 }
@@ -102,7 +102,7 @@ async fn a_proxmox_server_refusing_the_token_is_server_auth_failed() {
 /// none for, or a pin that isn't a fingerprint (said).
 #[tokio::test]
 async fn a_run_without_its_token_or_the_servers_pin_sends_it_nothing() {
-    let server = Server::start(api("{}", None)).await;
+    let server = Server::start(api("{}", None)).await.unwrap();
     let other = crate::tls::Fingerprint::of(b"another certificate").to_string();
     let runs = [
         run(&server, Some(pinned()), false),

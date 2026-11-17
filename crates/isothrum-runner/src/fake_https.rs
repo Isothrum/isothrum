@@ -58,21 +58,20 @@ pub struct Server {
 impl Server {
     /// Serves on a free loopback port, each request answered by `answer`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// The loopback has no free port, or the test certificate isn't read: the test's failure.
-    #[expect(clippy::expect_used, reason = "a test server that can't start fails the test that started it")]
-    pub async fn start(answer: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static) -> Server {
+    /// The loopback has no free port, or the test certificate isn't read.
+    pub async fn start(answer: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static) -> std::io::Result<Server> {
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()));
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
-            .expect("TLS versions")
+            .map_err(std::io::Error::other)?
             .with_no_client_auth()
             .with_single_cert(vec![CertificateDer::from(CERT.to_vec())], key)
-            .expect("the test certificate");
+            .map_err(std::io::Error::other)?;
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
-        let endpoint = format!("https://127.0.0.1:{}", listener.local_addr().expect("its address").port());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let endpoint = format!("https://127.0.0.1:{}", listener.local_addr()?.port());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let answer: Arc<Answer> = Arc::new(answer);
         let kept = Arc::clone(&requests);
@@ -87,7 +86,7 @@ impl Server {
                 });
             }
         });
-        Server { endpoint, requests, task }
+        Ok(Server { endpoint, requests, task })
     }
 
     /// The requests that reached it, in order.

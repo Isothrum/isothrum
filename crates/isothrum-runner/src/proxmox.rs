@@ -378,7 +378,8 @@ mod tests {
             }
             _ => panic!("an unscripted request: {r:?}"),
         })
-        .await;
+        .await
+        .unwrap();
         let client = Api::at(&server.endpoint, Trust::Pinned(Some(fingerprint()))).unwrap().client().unwrap();
         let password = Credentials::Password {
             user: "root@pam".into(),
@@ -393,7 +394,9 @@ mod tests {
     /// checks: refused before any request, the one offered told.
     #[tokio::test]
     async fn a_certificate_not_pinned_is_refused_before_anything_is_sent() {
-        let server = Server::start(|_| (200, r#"{"data":{"ticket":"t","CSRFPreventionToken":"c"}}"#.to_owned())).await;
+        let server = Server::start(|_| (200, r#"{"data":{"ticket":"t","CSRFPreventionToken":"c"}}"#.to_owned()))
+            .await
+            .unwrap();
         let password = Credentials::Password {
             user: "root@pam".into(),
             password: SecretValue::new("pw"),

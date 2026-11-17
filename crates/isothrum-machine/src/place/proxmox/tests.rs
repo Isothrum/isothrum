@@ -150,7 +150,7 @@ fn port(https: &https::Server) -> u16 {
 
 #[tokio::test]
 async fn a_self_signed_server_gets_no_credential_until_its_certificate_is_pinned() {
-    let https = https::Server::start(proxmox).await;
+    let https = https::Server::start(proxmox).await.unwrap();
     let server = Server::new("127.0.0.1", port(&https));
     let password = Credentials::from_login("root@pam", "pw");
     match sign_in(&server, &password, Trust::Pinned(None)).await {
@@ -185,7 +185,7 @@ async fn a_self_signed_server_gets_no_credential_until_its_certificate_is_pinned
 
 #[tokio::test]
 async fn refused_credentials_are_rejected() {
-    let https = https::Server::start(|_: &Request| (401, "{}".into())).await;
+    let https = https::Server::start(|_: &Request| (401, "{}".into())).await.unwrap();
     let server = Server::new("127.0.0.1", port(&https));
     let pinned = Trust::Pinned(Some(https::fingerprint()));
     for login in ["root@pam", "root@pam!t"] {
