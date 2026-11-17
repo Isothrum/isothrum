@@ -77,8 +77,11 @@ impl Compose {
 
     /// [`Compose::prepare`], then [`Compose::launch`]: an update, a reapply.
     async fn start(&self, cx: &ToolCx<'_>) -> Result<()> {
-        self.prepare(cx, false).await?;
-        self.launch(cx).await
+        fetched::recording(cx, &[], async {
+            self.prepare(cx, false).await?;
+            self.launch(cx).await
+        })
+        .await
     }
 
     /// What a start does before it makes anything: the project's ports pinned (its fixed host
@@ -242,8 +245,11 @@ impl FormatDriver for Compose {
         // A first start claims the host ports the project fixes before anything is made: one
         // another run holds, or something on this computer binds, is refused with nothing to undo.
         let first = (cx.made)()?.is_empty();
-        self.prepare(cx, first).await?;
-        let started = self.launch(cx).await;
+        let started = fetched::recording(cx, &[], async {
+            self.prepare(cx, first).await?;
+            Ok::<_, crate::Error>(self.launch(cx).await)
+        })
+        .await?;
         if let Err(e) = &started
             && first
             && e.code() == crate::ErrorCode::PortInUse
@@ -351,7 +357,7 @@ impl FormatDriver for Compose {
             ..Up::default()
         };
         pins::attach(cx, machine).await?;
-        self.up_recovering(cx, "attach", &how).await
+        fetched::recording(cx, &services, self.up_recovering(cx, "attach", &how)).await
     }
 
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()> {

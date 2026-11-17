@@ -11,9 +11,10 @@ use crate::testing::{modelled, no_ports, processes, runner_config};
 use crate::{RunName, RunOptions};
 
 /// The images a project's services run: `web`'s is pulled, `cache`'s is there already, `app`'s
-/// is built.
+/// is built by `up`; `kit`, under a profile, is started on its own, its image pulled by that `up`.
 const CONFIG: &str = r#"{"services": {"web": {"image": "nginx:1.27"}, "cache": {"image": "redis:7"},
     "app": {"image": "app:dev", "build": {"context": "."}}}}"#;
+const KIT: &str = r#"{"services": {"kit": {"image": "toolkit:3"}}}"#;
 
 /// What `call` inspects, when it is `docker image inspect --format <format> <image>`: the
 /// format and the image.
@@ -25,13 +26,17 @@ fn inspected(call: &Call) -> Option<(&str, &str)> {
     }
 }
 
-/// What a modelled Docker engine holds: whether the pull ran.
+/// What a modelled Docker engine holds: whether the pull ran, whether `up` built, whether `kit`
+/// was started.
 #[derive(Debug, Default)]
 struct Engine {
     pulled: bool,
+    built: bool,
+    kit: bool,
 }
 
-/// The engine's answer to `call`: `redis:7` held from the start, `nginx:1.27` once pulled.
+/// The engine's answer to `call`: `redis:7` held from the start, `nginx:1.27` once pulled,
+/// `app:dev` once `up` built it, `toolkit:3` once `up kit` pulled it.
 fn engine(e: &Mutex<Engine>, call: &Call) -> Reply {
     let mut e = e.lock().unwrap_or_else(PoisonError::into_inner);
     let line = call.line();
@@ -40,23 +45,33 @@ fn engine(e: &Mutex<Engine>, call: &Call) -> Reply {
         return match inspected {
             ("{{.Id}}", "redis:7") => Reply::ok("sha256:redis"),
             ("{{.Id}}", "nginx:1.27") if e.pulled => Reply::ok("sha256:nginx"),
+            ("{{.Id}}", "app:dev") if e.built => Reply::ok("sha256:app"),
+            ("{{.Id}}", "toolkit:3") if e.kit => Reply::ok("sha256:kit"),
             ("{{.Size}}", "sha256:nginx") => Reply::ok("187654321"),
             (_, image) => Reply::fail(1, &format!("Error: No such object: {image}")),
         };
     }
-    if has("config --format json") {
+    if has("config --format json kit") {
+        Reply::ok(KIT)
+    } else if has("config --format json") {
         Reply::ok(CONFIG)
     } else if has("compose version") {
         Reply::ok("2.29.7")
     } else if has(" pull ") {
         e.pulled = true;
         Reply::ok("")
+    } else if has(" up ") {
+        e.kit |= has(" kit");
+        e.built = true;
+        Reply::ok("")
     } else if has("image ls --quiet --no-trunc") {
-        Reply::ok(if e.pulled {
-            "sha256:redis\nsha256:nginx\nsha256:redis\n"
-        } else {
-            "sha256:redis\n"
-        })
+        let held = [
+            (true, "sha256:redis"),
+            (e.pulled, "sha256:nginx"),
+            (e.built, "sha256:app"),
+            (e.kit, "sha256:kit"),
+        ];
+        Reply::ok(&held.iter().filter(|(here, _)| *here).map(|(_, id)| [*id, "\n"].concat()).collect::<String>())
     } else if has(" ps ") {
         Reply::ok(r#"{"Service":"web","State":"running","Health":"","ExitCode":0,"Publishers":[],"Labels":""}"#)
     } else {
@@ -76,8 +91,17 @@ fn a_runner(fake: &Arc<FakeProcesses>, file: &str, text: &str) -> (tempfile::Tem
     (root, project, Runner::new(config).expect("a runner"))
 }
 
+/// The image `id` pulled or built as `reference`, through Docker context `orbstack`.
+fn in_orbstack(reference: &str, id: &str) -> DownloadItem {
+    DownloadItem::Image {
+        reference: reference.into(),
+        image_id: id.into(),
+        docker_context: Some("orbstack".into()),
+    }
+}
+
 #[tokio::test]
-async fn a_pull_records_the_image_it_fetched_and_not_one_the_engine_held() {
+async fn a_start_records_the_images_it_pulled_and_built_and_an_attach_the_one_it_pulled() {
     let (_engine, fake) = modelled::<Engine>(engine);
     let (_root, project, runner) = a_runner(&fake, "compose.yaml", "services:\n  web:\n    image: nginx:1.27\n");
     let run = runner.open(&project, None).expect("opened");
@@ -85,28 +109,24 @@ async fn a_pull_records_the_image_it_fetched_and_not_one_the_engine_held() {
     run.up(&opts, &Recorder::new()).await.expect("up");
 
     let listed = runner.downloads().await.expect("listed");
-    let [fetched] = listed.as_slice() else {
-        panic!("one image fetched: {listed:?}")
-    };
+    let fetched: Vec<&DownloadItem> = listed.iter().map(|d| &d.item).collect();
     assert_eq!(
-        fetched.item,
-        DownloadItem::Image {
-            reference: "nginx:1.27".into(),
-            image_id: "sha256:nginx".into(),
-            docker_context: Some("orbstack".into()),
-        }
+        fetched,
+        [&in_orbstack("app:dev", "sha256:app"), &in_orbstack("nginx:1.27", "sha256:nginx")],
+        "the built one and the pulled one"
     );
-    assert_eq!((fetched.run.as_str(), fetched.size_bytes), ("stack", Some(187_654_321)));
+    assert_eq!((listed[1].run.as_str(), listed[1].size_bytes), ("stack", Some(187_654_321)));
     let sized = fake.last("{{.Size}}").expect("its size read");
     assert_eq!(sized.flag("--context"), Some("orbstack"), "in the context it was pulled through");
-    assert!(
-        fake.made("docker --context orbstack image inspect").iter().all(|c| !c.has("app:dev")),
-        "a built image isn't looked at"
-    );
 
-    // A second start finds it held: nothing more is recorded.
+    // A second start finds them held: nothing more is recorded.
     run.update(&opts, &Recorder::new()).await.expect("update");
-    assert_eq!(runner.downloads().await.expect("listed").len(), 1);
+    assert_eq!(runner.downloads().await.expect("listed").len(), 2);
+
+    // A service under a profile, started on its own: its `up` pulls its image.
+    run.attach("kit", &opts, &Recorder::new()).await.expect("attached");
+    let with_kit = runner.downloads().await.expect("listed");
+    assert_eq!(with_kit.last().map(|d| &d.item), Some(&in_orbstack("toolkit:3", "sha256:kit")), "{with_kit:?}");
 }
 
 /// What a modelled Vagrant holds: whether `up` ran.

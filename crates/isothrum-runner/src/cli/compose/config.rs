@@ -1,5 +1,5 @@
 //! `docker compose config --format json`, read: the ports each service publishes, the service
-//! whose network namespace each joins and the images a pull fetches, parsed once at the boundary into typed fields (unknown
+//! whose network namespace each joins and the images a start pulls or builds, parsed once at the boundary into typed fields (unknown
 //! fields skipped), and the override that pins those Docker would give an ephemeral host port.
 
 use std::collections::BTreeMap;
@@ -106,23 +106,29 @@ pub(crate) async fn ports(call: &Call<'_>, project: &Project<'_>, services: &[St
     ports_of(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
 }
 
-/// The images `config` (what `config --format json` printed) has a pull fetch: each service's
-/// that isn't built (`pull --ignore-buildable` leaves a built one to its `up`), each once.
-pub(crate) fn images_of(config: &str) -> Result<Vec<String>, String> {
+/// The images `config` (what `config --format json` printed) has a start of project `project`
+/// pull or build: each service's image, a built one with no image named as Compose names it
+/// (`<project>-<service>`), each once.
+pub(crate) fn images_of(config: &str, project: &str) -> Result<Vec<String>, String> {
     let read: ComposeConfig = serde_json::from_str(config).map_err(|e| format!("not the config Compose prints: {e}"))?;
     let images: std::collections::BTreeSet<String> = read
         .services
-        .into_values()
-        .filter(|svc| svc.build.is_none())
-        .filter_map(|svc| svc.image.filter(|i| !i.is_empty()))
+        .into_iter()
+        .filter_map(|(service, svc)| match svc.image.filter(|i| !i.is_empty()) {
+            Some(image) => Some(image),
+            None => svc.build.is_some().then(|| format!("{project}-{service}")),
+        })
         .collect();
     Ok(images.into_iter().collect())
 }
 
-/// The images a pull of `project` fetches ([`images_of`]).
-pub(crate) async fn images(call: &Call<'_>, project: &Project<'_>) -> Result<Vec<String>, CliError<Failure>> {
-    let out = call.ok(TOOL, project.args(argv(["config", "--format", "json"])), Failure::of).await?;
-    images_of(&out.stdout.join("\n")).map_err(|what| CliError::Unexpected { tool: TOOL, what })
+/// The images a start of `project` pulls or builds ([`images_of`]): of the services it starts, or
+/// of `services` alone when given (a service under a profile is in it when named).
+pub(crate) async fn images(call: &Call<'_>, project: &Project<'_>, services: &[String]) -> Result<Vec<String>, CliError<Failure>> {
+    let mut args = argv(["config", "--format", "json"]);
+    args.extend(services.iter().cloned());
+    let out = call.ok(TOOL, project.args(args), Failure::of).await?;
+    images_of(&out.stdout.join("\n"), project.name).map_err(|what| CliError::Unexpected { tool: TOOL, what })
 }
 
 /// Each service that joins another's network namespace (`network_mode: service:<host>`), with
@@ -251,10 +257,13 @@ mod tests {
     }
 
     #[test]
-    fn a_pull_fetches_the_image_of_each_service_that_isnt_built_once() {
+    fn a_start_pulls_or_builds_the_image_of_each_service_once() {
         let config = r#"{"services": {"web": {"image": "nginx:1.27"}, "api": {"image": "app:dev", "build": {"context": "."}},
-            "worker": {"image": "nginx:1.27"}, "db": {"image": "postgres:17"}, "tools": {}}}"#;
-        assert_eq!(images_of(config).expect("read"), ["nginx:1.27", "postgres:17"]);
+            "worker": {"image": "nginx:1.27"}, "db": {"image": "postgres:17"}, "seed": {"build": {"context": "seed"}}, "tools": {}}}"#;
+        assert_eq!(
+            images_of(config, "stack").expect("read"),
+            ["app:dev", "nginx:1.27", "postgres:17", "stack-seed"]
+        );
     }
 
     /// A config that can't be read is an error, never a project with no port (which would let
