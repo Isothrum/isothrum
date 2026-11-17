@@ -51,6 +51,7 @@ impl Root {
             Step {
                 program,
                 args,
+                note: None,
                 private: None,
                 not_served: None,
             }

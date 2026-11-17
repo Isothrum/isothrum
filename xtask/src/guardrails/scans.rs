@@ -68,7 +68,17 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 9] = [
 
 /// The scripts a shell's or an ssh's `-c` may run besides the shell scripts' module's, by file
 /// and the expression passed.
-const SCRIPTS: [(&str, &str, &str); 4] = [
+const SCRIPTS: [(&str, &str, &str); 6] = [
+    (
+        "crates/isothrum-machine/src/install/macos.rs",
+        "script",
+        "a macOS install's own script: a cask fetched and opened, or Homebrew's update then QEMU, Homebrew's path single-quoted",
+    ),
+    (
+        "crates/isothrum-machine/src/install/vmware_utility.rs",
+        "&mac_script(&file",
+        "the VMware utility's macOS install: a pinned file name and digest, its root half an argument",
+    ),
     (
         "crates/isothrum-machine/src/install/linux.rs",
         "text",

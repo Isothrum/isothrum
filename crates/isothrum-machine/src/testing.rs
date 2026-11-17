@@ -67,6 +67,11 @@ pub(crate) fn run(program: &str, args: &[&str]) -> Option<Out> {
 }
 
 /// [`run`], with the variables `env` added.
+pub(crate) fn run_env(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
+    run_with(program, args, env)
+}
+
+/// [`run`], with the variables `env` added.
 fn run_with(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
     let mut spec = isothrum_runner::ProcessSpec::new(program, args.iter().copied());
     spec.env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();

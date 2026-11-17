@@ -1,7 +1,7 @@
 //! Running install and removal steps: one program each, through the [`Context`]'s runner, every
 //! line it prints handed on as it comes, and what its output says beyond its exit code read on the
 //! way: pkexec's own refusals told apart from the script's failures, `sudo -n` refusing to run
-//! without a password.
+//! without a password, a broken Homebrew.
 
 use std::sync::Mutex;
 
@@ -17,6 +17,8 @@ pub struct Step {
     pub program: String,
     /// Its arguments.
     pub args: Vec<String>,
+    /// What a UI shows before it instead of its command line, when it says one.
+    pub note: Option<Note>,
     /// A private folder of files the step reads (a root step's proxy settings), removed with
     /// the step.
     pub(crate) private: Option<tempfile::TempDir>,
@@ -53,9 +55,33 @@ pub fn step(program: impl Into<String>, args: &[&str]) -> Step {
     Step {
         program: program.into(),
         args: args.iter().map(ToString::to_string).collect(),
+        note: None,
         private: None,
         not_served: None,
     }
+}
+
+/// What a step is, said before it instead of its command line (a UI words it): an install that
+/// opens its vendor's own installer, a step that raises an administrator's prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Note {
+    /// Homebrew downloads the tool's installer, which then opens in its own window (macOS).
+    Downloading(super::Dependency),
+    /// QEMU's install, Homebrew updated first if it is out of date for this macOS.
+    QemuUpdatingHomebrewFirst,
+    /// The Azure CLI's Homebrew tap trusted (Homebrew 7 asks for it; older ones don't).
+    TrustingAzureTap,
+    /// The prebuilt Azure CLI cask installed (no long source build).
+    AzureCliCask,
+    /// HashiCorp's Vagrant VMware Utility downloaded, at this version.
+    DownloadingVmwareUtility {
+        /// Its version.
+        version: &'static str,
+    },
+    /// The tool removed by its vendor's own uninstaller or by a script, macOS asking for the
+    /// user's password when the step is an administrator's.
+    Removing(super::Dependency),
 }
 
 /// How a step shows in a log: `$ program args`, as typed. A root step's proxy is never on it
@@ -87,6 +113,9 @@ pub enum StepFailed {
     SudoRefused,
     /// The step's script stopped before changing anything: this system isn't one it serves.
     NotServed(NotServed),
+    /// Homebrew itself is broken (a root-owned lock, too old for this macOS, an Xcode too old): the
+    /// user's to repair, which an install can't mend.
+    Homebrew(super::brew::Trouble),
     /// The program ran and failed: its exit code, `None` when a signal ended it.
     Exited {
         /// The program.
@@ -106,6 +135,7 @@ impl std::fmt::Display for StepFailed {
             StepFailed::NoPolkitAgent => f.write_str("no password prompt could be shown: no polkit agent runs"),
             StepFailed::SudoRefused => f.write_str("sudo needs a password, and none can be asked for unattended"),
             StepFailed::NotServed(why) => write!(f, "this system isn't one the step serves: {why:?}"),
+            StepFailed::Homebrew(trouble) => write!(f, "Homebrew is broken: {trouble:?}"),
             StepFailed::Exited { program, code: Some(code) } => write!(f, "`{program}` exited with code {code}"),
             StepFailed::Exited { program, code: None } => write!(f, "`{program}` was ended by a signal"),
         }
@@ -114,15 +144,17 @@ impl std::fmt::Display for StepFailed {
 
 impl std::error::Error for StepFailed {}
 
-/// Runs `steps` in order, each announced as [`command_line`] first; the first that fails stops
-/// them.
+/// Runs `steps` in order, each without a [`Note`] announced as [`command_line`] first (a caller
+/// that shows notes says them itself); the first that fails stops them.
 ///
 /// # Errors
 ///
 /// The first step's failure.
 pub async fn run_steps(cx: &Context, steps: &[Step], on_line: &mut (dyn FnMut(&str) + Send)) -> Result<(), StepFailed> {
     for step in steps {
-        on_line(&command_line(step));
+        if step.note.is_none() {
+            on_line(&command_line(step));
+        }
         run_step(cx, step, on_line).await?;
     }
     Ok(())
@@ -169,6 +201,12 @@ enum Program {
     Other,
 }
 
+/// Whether `step` drives Homebrew (directly, or through a shell line that calls it), so its output
+/// is worth reading for a broken-Homebrew cause. apt, winget and pkexec never are.
+fn is_brew_step(step: &Step) -> bool {
+    step.program.contains("brew") || step.args.iter().any(|a| a.contains("brew"))
+}
+
 impl Program {
     /// The program `step` runs.
     fn of(step: &Step) -> Program {
@@ -187,6 +225,10 @@ struct Watch {
     program: Program,
     pkexec_refusal: Option<super::pkexec::Refusal>,
     sudo_refused: bool,
+    /// Whether the step drives Homebrew, and the first broken-Homebrew cause it said (an
+    /// update's lock error comes before the install error it leads to, so it wins).
+    brew: bool,
+    brew_trouble: Option<super::brew::Trouble>,
 }
 
 impl Watch {
@@ -195,6 +237,8 @@ impl Watch {
             program: Program::of(step),
             pkexec_refusal: None,
             sudo_refused: false,
+            brew: is_brew_step(step),
+            brew_trouble: None,
         }
     }
 
@@ -207,6 +251,9 @@ impl Watch {
         }
         if self.program == Program::UnattendedSudo && line.starts_with("sudo: ") && line.contains("password") {
             self.sudo_refused = true;
+        }
+        if self.brew && self.brew_trouble.is_none() {
+            self.brew_trouble = super::brew::Trouble::of_line(line);
         }
     }
 
@@ -229,6 +276,9 @@ impl Watch {
         }
         if let Some(why) = step.not_served.filter(|_| code == Some(NOT_SERVED)) {
             return Err(StepFailed::NotServed(why));
+        }
+        if let Some(trouble) = self.brew_trouble {
+            return Err(StepFailed::Homebrew(trouble));
         }
         Err(StepFailed::Exited {
             program: step.program.clone(),
