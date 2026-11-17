@@ -97,7 +97,7 @@ pub enum Endpoint {
 }
 
 /// Proxmox VE's VNC websocket for one VM, opened for one session: connect to `websocket` with
-/// the `authorization` header (TLS unverified when `insecure`), then speak VNC with `ticket` as
+/// the `authorization` header (its certificate pinned, not chain-verified, when `insecure`), then speak VNC with `ticket` as
 /// the password. Every secret is a [`SecretValue`]: never print or log one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -111,8 +111,9 @@ pub struct ProxmoxVnc {
     pub ticket: SecretValue,
     /// The header that signs the websocket in: its name (`Authorization`, `Cookie`) and value.
     pub authorization: (String, SecretValue),
-    /// The server's certificate isn't verified (a self-signed one: the provider's own `insecure`
-    /// setting).
+    /// The server's certificate is trusted by the SHA-256 fingerprint the run pins
+    /// (`PROXMOX_VE_TLS_FINGERPRINT`, a self-signed one), not by a trusted authority's chain: the
+    /// websocket's client checks it by the same pin.
     pub insecure: bool,
 }
 

@@ -40,7 +40,7 @@ const ADAPTERS: [(&str, &str); 4] = [
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 9] = [
+const NOT_TOOL_OUTPUT: [(&str, &str); 10] = [
     (
         "crates/isothrum-runner/src/formats/terraform/required.rs",
         "a Terraform module's own `*.tfvars.json` files, read for the names they set",
@@ -48,6 +48,10 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 9] = [
     (
         "crates/isothrum-runner/src/project/variables.rs",
         "a Terraform module's own `*.tf.json` files, which its author wrote",
+    ),
+    (
+        "crates/isothrum-runner/src/proxmox.rs",
+        "Proxmox VE's API answers, read by the runner's own HTTPS client: no tool's output",
     ),
     ("crates/isothrum-runner/src/store.rs", "the home's own files, which the runner wrote"),
     ("crates/isothrum-runner/src/store/db.rs", "the store's own rows, which the runner wrote"),

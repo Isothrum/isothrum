@@ -14,7 +14,6 @@ pub(crate) mod docker;
 mod installed;
 pub(crate) mod listener;
 pub(crate) mod prlctl;
-pub(crate) mod proxmox;
 pub(crate) mod qemu;
 pub(crate) mod terraform;
 pub(crate) mod utmctl;
@@ -118,14 +117,6 @@ impl Call<'_> {
     /// printed, whatever its exit (see [`Call::ok`]).
     pub(crate) async fn run<F: Display>(&self, tool: &'static str, args: Vec<String>) -> Result<Captured, CliError<F>> {
         self.run_spec(tool, self.spec(tool, args)).await
-    }
-
-    /// [`Call::run`], with the file at `input` piped into the tool's standard input (a request's
-    /// credentials, which never go on its command line).
-    pub(crate) async fn run_fed<F: Display>(&self, tool: &'static str, args: Vec<String>, input: &std::path::Path) -> Result<Captured, CliError<F>> {
-        let mut spec = self.spec(tool, args);
-        spec.stdin = Some(input.to_path_buf());
-        self.run_spec(tool, spec).await
     }
 
     /// Runs `spec` (of `tool`) to its end within the call's limit, each line to the sink.

@@ -29,6 +29,12 @@ rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Proxmox VE's API (`proxmox.rs`), over rustls with ring's crypto: the server's certificate
+# checked by the system's trust store or pinned by its SHA-256 (`tls.rs`).
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+sha2.workspace = true
 # Binding a port without listening, to tell it is held on all interfaces (`net.rs`).
 socket2.workspace = true
 thiserror.workspace = true
@@ -43,6 +49,8 @@ nix.workspace = true
 windows.workspace = true
 
 [dev-dependencies]
+# A test's HTTPS server, its certificate self-signed (`testing/https.rs`).
+tokio-rustls.workspace = true
 isothrum-test-support.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

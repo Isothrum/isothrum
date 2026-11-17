@@ -1,5 +1,8 @@
 //! What the crate's tests share: a runner configuration on fakes with a fixed clock, a test's
-//! model of an engine, what a test traces, and the checks every named enum takes.
+//! model of an engine, what a test traces, the checks every named enum takes, and an HTTPS server
+//! whose certificate is self-signed ([`https`]).
+
+pub(crate) mod https;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};

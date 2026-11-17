@@ -58,7 +58,10 @@
 //! runner is built ([`Runner::new`]), before any operation, and, only for a tool a killed
 //! operation left running, `ps` (Windows: PowerShell) to tell it is still that tool, and on
 //! Windows `taskkill` to end it. Whether the process holding a lease of the home's store still runs
-//! is the system's answer (Unix: signal 0; Windows: `OpenProcess`).
+//! is the system's answer (Unix: signal 0; Windows: `OpenProcess`). The runner's one network
+//! client is its own: Proxmox VE's API, for a VM's console and its state on the server, the
+//! server's certificate checked by the system's trust store or by the SHA-256 the run pins
+//! ([`tls`]).
 //!
 //! # Inputs
 //!
@@ -115,6 +118,7 @@ mod options;
 mod port;
 mod process;
 mod project;
+mod proxmox;
 mod reap;
 mod run;
 mod runner;
@@ -125,6 +129,7 @@ mod status;
 pub mod store;
 #[cfg(test)]
 mod testing;
+pub mod tls;
 mod tool_output;
 
 pub use adopt::Adoption;
