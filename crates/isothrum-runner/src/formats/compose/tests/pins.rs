@@ -14,7 +14,7 @@ use crate::project::platform::Protocol;
 const CONFIG_PORTS: &str = include_str!("../../../tool_output/fixtures/compose/5.6-config-ports.json");
 
 /// The `up` of a run with its override: the project's file, then the run's.
-const UP_PINNED: &str = "docker compose -p stack -f * -f * up --detach --wait --remove-orphans";
+const UP_PINNED: &str = "docker compose -p stack -f * -f * up --detach --wait --remove-orphans --build";
 /// The pull a start makes first, the pins written.
 const PULL_PINNED: &str = "docker compose -p stack -f * -f * pull --ignore-buildable";
 
@@ -136,7 +136,7 @@ async fn an_attached_services_ephemeral_port_is_pinned_kept_by_a_start_and_dropp
     let fake = FakeProcesses::script()
         .expect_times(CONFIG, 2, Reply::ok(NO_PORTS))
         .expect_times(&attached, 2, Reply::ok(toolbox))
-        .expect("docker compose -p stack -f * -f * up --detach --wait toolbox", Reply::ok(""))
+        .expect("docker compose -p stack -f * -f * up --detach --wait --build toolbox", Reply::ok(""))
         .expect(UP_PINNED, Reply::ok(""))
         .allow(PULL_PINNED, Reply::ok(""))
         .expect("docker compose -p stack -f * -f * rm --stop --force --volumes toolbox", Reply::ok(""))

@@ -196,6 +196,10 @@ pub(crate) struct Up<'a> {
     pub(crate) remove_orphans: bool,
     /// `--no-recreate`: start what exists as it is (a resume), never make it again.
     pub(crate) no_recreate: bool,
+    /// `--build`: build each service that has a `build` before starting it, so an image made
+    /// from an earlier copy of its files (kept under the same name) never runs in its place.
+    /// Compose's build cache makes it quick when nothing changed.
+    pub(crate) build: bool,
 }
 
 /// `up --detach`.
@@ -209,6 +213,9 @@ pub(crate) async fn up(call: &Call<'_>, project: &Project<'_>, how: &Up<'_>) -> 
     }
     if how.no_recreate {
         rest.push("--no-recreate".into());
+    }
+    if how.build {
+        rest.push("--build".into());
     }
     rest.extend(how.services.iter().cloned());
     call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
@@ -459,6 +466,17 @@ mod tests {
                 "--wait"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_build_up_asks_compose_to_build_before_it_starts() {
+        let fake = FakeProcesses::script().expect("docker compose -p stack", Reply::ok("")).build();
+        let files = [PathBuf::from("compose.yaml")];
+        up(&testing::call(&fake), &stack(&files, &[]), &Up { build: true, ..Up::default() })
+            .await
+            .expect("up");
+        let [call] = fake.made("docker compose").try_into().expect("one call");
+        assert_eq!(call.args.last().map(String::as_str), Some("--build"), "{:?}", call.args);
     }
 
     #[tokio::test]

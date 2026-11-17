@@ -4,16 +4,16 @@
 //!
 //! | Operation | Compose |
 //! |---|---|
-//! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0; an update then removes (`rm --stop --force --volumes`) the containers of services the files declare but no longer start (moved under a profile) and the run hasn't attached |
+//! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans --build` (each image built from the files as they are now, Compose's cache keeping it quick): ready once every service runs healthy and every one-shot service it waits on exited 0; an update then removes (`rm --stop --force --volumes`) the containers of services the files declare but no longer start (moved under a profile) and the run hasn't attached |
 //! | down | `down --volumes --remove-orphans`, then whatever still carries the project's label, by id |
 //! | park | `pause` (Pause), `stop` (Shutdown) |
 //! | resume | `unpause` of the paused services (then `ps` until none reads unhealthy, at most a minute: Docker reads a paused container unhealthy until its check runs again), `stop` of those left in the network namespace of one that stopped, then `up --detach --wait --no-recreate` |
-//! | attach, retire | `up --detach --wait <service>` (a service under a profile starts when named), `rm --stop --force --volumes <service>` |
+//! | attach, retire | `up --detach --wait --build <service>` (a service under a profile starts when named), `rm --stop --force --volumes <service>` |
 //! | exec, console | `exec -T`, or `run --rm` for a service with no container (a profile's one-off); a console is `exec` with a terminal |
 //! | observe | `ps --all --format json` |
 //! | found | the containers, networks and volumes labelled `com.docker.compose.project=<run>` |
 //! | usage | `ps`, then `docker stats --no-stream`: each running service's containers, summed |
-//! | reapply | `up --detach --wait --remove-orphans` on the files: Compose makes or remakes only what changed |
+//! | reapply | `up --detach --wait --remove-orphans --build` on the files: Compose makes or remakes only what changed |
 //!
 //! Recovery: an `up` refused because a name of the project is taken (a container or network an
 //! earlier start left) removes the project's labelled leftovers by id and starts once more. A
@@ -96,11 +96,13 @@ impl Compose {
         self.pull(cx).await
     }
 
-    /// `up`, which makes and starts the project's containers.
+    /// `up`, which builds the project's images from its files as they are now, then makes and
+    /// starts its containers.
     async fn launch(&self, cx: &ToolCx<'_>) -> Result<()> {
         let how = Up {
             wait: true,
             remove_orphans: true,
+            build: true,
             ..Up::default()
         };
         self.up_recovering(cx, "up", &how).await
@@ -374,6 +376,7 @@ impl FormatDriver for Compose {
         let how = Up {
             services: &services,
             wait: true,
+            build: true,
             ..Up::default()
         };
         pins::attach(cx, machine).await?;

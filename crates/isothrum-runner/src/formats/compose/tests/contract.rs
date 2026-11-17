@@ -49,7 +49,7 @@ impl Docker {
     /// `compose -p stack -f <file> <rest>`.
     fn compose(&self, rest: &[&str]) -> Reply {
         match rest {
-            ["up", "--detach", "--wait", "--remove-orphans"] => {
+            ["up", "--detach", "--wait", "--remove-orphans", "--build"] => {
                 let mut held = self.held.lock().expect("the world");
                 held.clear();
                 held.extend(CONTAINERS.iter().map(|id| ("container", (*id).to_owned())));

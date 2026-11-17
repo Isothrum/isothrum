@@ -72,7 +72,7 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 38] = [
         "attach",
         Witness {
             test: "attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it_with_its_volumes",
-            evidence: "up --detach --wait toolbox",
+            evidence: "up --detach --wait --build toolbox",
         },
     ),
     (
