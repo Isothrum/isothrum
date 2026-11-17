@@ -154,7 +154,10 @@ async fn every_query_gets_its_reply_and_a_refusal_its_typed_detail() {
     let (client, target, name) = (&stack.client, stack.target(), RunName::new("stack").unwrap());
     // hello, on the way in; a client of this release connects as it is, replacing nothing.
     assert_eq!((client.service().protocol, client.service().version.as_str()), (PROTOCOL, VERSION));
-    let exact = Client::connect_exact(stack.home.path(), None).await.expect("this release's own service");
+    // Of this test's build, the service's, which runs in it (an `isothrum` beside the test, as a
+    // test machine places it, is another build, which it replaces).
+    let own = std::env::current_exe().expect("this test's path");
+    let exact = Client::connect_exact(stack.home.path(), Some(&own)).await.expect("this release's own service");
     assert_eq!(exact.service().pid, client.service().pid, "the same service, not another started");
 
     let mut events = client.subscribe(Some(name.clone()), None).await.expect("subscribed");
