@@ -38,7 +38,6 @@ pub(crate) struct HostEnv {
 }
 
 /// An environment with nothing in it, for a context that hands nothing on.
-#[cfg(test)]
 pub(crate) static EMPTY: HostEnv = HostEnv {
     vars: Vec::new(),
     terraform_names: Vec::new(),

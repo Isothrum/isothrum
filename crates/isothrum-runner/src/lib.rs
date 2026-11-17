@@ -137,6 +137,7 @@ pub mod tls;
 mod tool_output;
 
 pub use adopt::Adoption;
+pub use cli::listener::port_holder;
 pub use clock::{rfc3339, rfc3339_seconds};
 pub use console::ShellCommand;
 pub use downloads::{Download, DownloadId, DownloadItem, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, RemovalOutcome};

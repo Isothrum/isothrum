@@ -1,5 +1,6 @@
 //! This computer's network, as a caller needs it before it acts: whether a host port is free
-//! ([`port_free`]), and its public IPv4 address, as the internet sees it ([`public_ipv4`]): what a
+//! ([`port_free`]) and, when it isn't, which process holds it ([`port_holder`]), and its public
+//! IPv4 address, as the internet sees it ([`public_ipv4`]): what a
 //! cloud firewall opens to when it lets this computer alone in. Independent services, run by different
 //! companies, are asked at once (`curl`, through the [`Context`]'s runner), and two must give the
 //! same address: one that is down or blocked fails nothing, and one that answers wrong (a captive
@@ -8,7 +9,7 @@
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
-use isothrum_runner::{ProcessSpec, Protocol};
+use isothrum_runner::{HostPort, PortHolder, ProcessSpec, Protocol};
 use tokio::task::JoinSet;
 
 use crate::context::Context;
@@ -16,6 +17,9 @@ use crate::exec;
 
 /// How long [`port_free`] waits for a listener on the loopback to answer: one there answers at once.
 const LISTENER_ANSWER: Duration = Duration::from_millis(250);
+
+/// How long each of the system's tools [`port_holder`] asks may take.
+pub const HOLDER_LOOKUP: Duration = Duration::from_secs(4);
 
 /// Whether nothing on this computer holds host `port` for `protocol` where a published port goes
 /// (the loopback): a socket bound there and let go at once, nothing kept. A TCP port is also
@@ -29,6 +33,15 @@ pub fn port_free(port: u16, protocol: Protocol) -> bool {
         Protocol::Tcp => TcpListener::bind(loopback).is_ok() && TcpStream::connect_timeout(&loopback, LISTENER_ANSWER).is_err(),
         Protocol::Udp => UdpSocket::bind(loopback).is_ok(),
     }
+}
+
+/// The process holding host `port` for `protocol` on this computer (its program's name and its
+/// pid), when the system's own tools name one: `lsof`, then `ss` (macOS, Linux), PowerShell
+/// (Windows), each run through the [`Context`]'s runner within [`HOLDER_LOOKUP`]. What a caller
+/// says beside a port [`port_free`] found taken, so the user knows what to stop. Best-effort: none
+/// when no tool answers or names a process (`ss` without root names none).
+pub async fn port_holder(cx: &Context, port: u16, protocol: Protocol) -> Option<PortHolder> {
+    isothrum_runner::port_holder(cx.runner.as_ref(), HostPort::new(port), protocol, HOLDER_LOOKUP).await
 }
 
 /// The services asked by default: each answers a plain-text address over HTTPS.
@@ -260,6 +273,25 @@ mod tests {
             assert!(!is_public_ipv4(special.parse().unwrap()), "{special}");
         }
         assert!(is_public_ipv4(Ipv4Addr::new(1, 2, 3, 4)) && is_public_ipv4(Ipv4Addr::new(100, 128, 0, 1)));
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn a_taken_port_names_the_process_the_systems_tools_say_holds_it() {
+        let cx = answered_by(
+            FakeProcesses::script()
+                .expect("lsof -nP -iTCP:8000 -sTCP:LISTEN -FpcL", Reply::ok("p4123\ncnginx\nLroot\n"))
+                .build(),
+        );
+        assert_eq!(port_holder(&cx, 8000, Protocol::Tcp).await, Some(PortHolder::new(4123, "nginx")));
+        // Neither tool names anyone (`ss` run without root shows no process): none.
+        let nobody = answered_by(
+            FakeProcesses::script()
+                .expect("lsof -nP -iUDP:53", Reply::ok(""))
+                .expect("ss -H -lunp", Reply::ok("UNCONN 0 0 0.0.0.0:53 0.0.0.0:*"))
+                .build(),
+        );
+        assert_eq!(port_holder(&nobody, 53, Protocol::Udp).await, None);
     }
 
     #[test]
