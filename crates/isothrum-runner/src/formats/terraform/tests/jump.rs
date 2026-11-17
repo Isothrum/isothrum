@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::*;
 
 /// The jump host's key, as `ssh-keyscan` prints it.
-const NODE_KEY: &str = "node.lab ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+const NODE_KEY: &str = "node.stack ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
 
 /// The loopback port of a proxy `ssh` call, from its `-D 127.0.0.1:<port>`.
 fn proxy_port(call: &Made) -> Option<u16> {
@@ -35,14 +35,14 @@ fn through_a_node(listening: Arc<Mutex<Vec<std::net::TcpListener>>>) -> FakeProc
 async fn an_apply_and_a_destroy_go_through_a_proxy_to_the_runs_jump_host_and_nothing_else_does() {
     let stack = stack().with_state();
     let fake = through_a_node(Arc::default());
-    let given = [("ssh_jump", "root@node.lab"), ("ssh_jump_key_file", "/keys/node")];
+    let given = [("ssh_jump", "root@node.stack"), ("ssh_jump_key_file", "/keys/node")];
     with_cx_given(&stack, &fake, &given, async |cx| Terraform.up(cx).await).await.expect("up");
     with_cx_given(&stack, &fake, &given, async |cx| Terraform.down(cx).await).await.expect("down");
     let calls = fake.calls();
     let proxies: Vec<&Made> = calls.iter().filter(|c| c.program == "ssh").collect();
     assert_eq!(proxies.len(), 2, "one proxy per step");
     for proxy in &proxies {
-        assert_eq!(proxy.args.last().map(String::as_str), Some("root@node.lab"));
+        assert_eq!(proxy.args.last().map(String::as_str), Some("root@node.stack"));
         assert!(
             proxy.args.windows(2).any(|w| w == ["-i", "/keys/node"]),
             "the run's key for it: {:?}",
@@ -82,15 +82,15 @@ async fn a_proxy_the_host_refuses_fails_the_step_in_ssh_s_words_before_it_runs()
     let stack = stack();
     let fake = FakeProcesses::model(|call| match call.program.as_str() {
         "ssh-keyscan" => Reply::ok(NODE_KEY),
-        "ssh" => Reply::fail(255, "root@node.lab: Permission denied (publickey)."),
+        "ssh" => Reply::fail(255, "root@node.stack: Permission denied (publickey)."),
         _ => Reply::ok(""),
     });
-    let e = with_cx_given(&stack, &fake, &[("ssh_jump", "root@node.lab")], async |cx| Terraform.up(cx).await)
+    let e = with_cx_given(&stack, &fake, &[("ssh_jump", "root@node.stack")], async |cx| Terraform.up(cx).await)
         .await
         .expect_err("refused");
     assert_eq!(e.code(), ErrorCode::ToolFailed);
     assert!(
-        e.to_string().contains("Permission denied (publickey)") && e.to_string().contains("root@node.lab"),
+        e.to_string().contains("Permission denied (publickey)") && e.to_string().contains("root@node.stack"),
         "{e}"
     );
     let proxy = fake.calls().into_iter().find(|c| c.program == "ssh").expect("the proxy");
@@ -109,7 +109,7 @@ async fn a_proxy_the_host_refuses_fails_the_step_in_ssh_s_words_before_it_runs()
 async fn a_jump_host_that_isnt_a_login_is_refused_before_anything_runs_through_it() {
     let stack = stack();
     let fake = FakeProcesses::model(|_| Reply::ok(""));
-    let e = with_cx_given(&stack, &fake, &[("ssh_jump", "node.lab")], async |cx| Terraform.up(cx).await)
+    let e = with_cx_given(&stack, &fake, &[("ssh_jump", "node.stack")], async |cx| Terraform.up(cx).await)
         .await
         .expect_err("refused");
     assert!(e.to_string().contains("isn't `user@host`"), "{e}");
