@@ -18,6 +18,7 @@ use self::api::{Iface, Node, NodeStatus, Storage, Ticket};
 use super::host_for_url;
 
 pub mod api;
+pub mod bootstrap;
 pub mod check;
 pub mod placement;
 
