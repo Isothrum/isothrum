@@ -106,10 +106,8 @@ async fn a_key_is_made_once_where_the_caller_keeps_it() {
 async fn a_real_server() {
     let host = std::env::var("ISOTHRUM_TEST_SSH_HOST").unwrap();
     let port = std::env::var("ISOTHRUM_TEST_SSH_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(22);
-    let ctx = crate::Context::here(Arc::new(isothrum_runner::SystemProcesses::default())).await;
     let dir = tempfile::tempdir().unwrap();
-    let (key, known) = (dir.path().join("id_ed25519"), dir.path().join("known_hosts"));
-    let public = ensure_key(&ctx, &key, "isothrum-test").await.unwrap();
+    let (ctx, key, known, public) = crate::testing::real_ssh(dir.path()).await;
     assert!(public.starts_with("ssh-ed25519 "), "{public}");
     let target = Target::new(host.clone(), "root", key, known.clone()).on_port(port);
     let limit = Duration::from_secs(30);

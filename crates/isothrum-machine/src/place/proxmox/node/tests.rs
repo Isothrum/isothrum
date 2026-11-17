@@ -37,13 +37,11 @@ async fn a_key_the_node_lets_in_signs_in() {
 #[tokio::test]
 #[ignore = "needs a real Proxmox VE node: ISOTHRUM_TEST_SSH_HOST and ISOTHRUM_TEST_SSH_PASSWORD"]
 async fn a_real_node_by_password() {
-    use crate::place::ssh::{ensure_key, known_hosts};
+    use crate::place::ssh::known_hosts;
     let host = std::env::var("ISOTHRUM_TEST_SSH_HOST").unwrap();
     let password = std::env::var("ISOTHRUM_TEST_SSH_PASSWORD").unwrap();
-    let ctx = crate::Context::here(Arc::new(isothrum_runner::SystemProcesses::default())).await;
     let dir = tempfile::tempdir().unwrap();
-    let (key, known) = (dir.path().join("id_ed25519"), dir.path().join("known_hosts"));
-    let public = ensure_key(&ctx, &key, "isothrum-test").await.unwrap();
+    let (ctx, key, known, public) = crate::testing::real_ssh(dir.path()).await;
     let offered = known_hosts::offered(&ctx, &host, 22, &known).await.unwrap();
     let shown: Vec<String> = offered.keys.iter().map(|k| k.fingerprint.clone()).collect();
     known_hosts::confirm(&ctx, &host, 22, &shown, std::slice::from_ref(&known)).await.unwrap();
