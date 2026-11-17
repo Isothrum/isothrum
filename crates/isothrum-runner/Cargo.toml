@@ -49,6 +49,8 @@ nix.workspace = true
 windows.workspace = true
 
 [dev-dependencies]
+# A test's HTTPS server, its certificate self-signed (`testing/https.rs`).
+tokio-rustls.workspace = true
 isothrum-test-support.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

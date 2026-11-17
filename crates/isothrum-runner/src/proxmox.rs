@@ -316,6 +316,8 @@ fn chain(e: &dyn std::error::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::https::{Server, fingerprint};
+    use crate::tls::Fingerprint;
 
     #[test]
     fn an_endpoint_is_an_https_server_with_or_without_its_path() {
@@ -358,6 +360,59 @@ mod tests {
         assert!(matches!(data::<VncProxy>(200, "<html>"), Err(Failure::Other(_))));
         let vms: Vec<ClusterVm> = data(200, r#"{"data":[{"vmid":101,"status":"running","extra":1},{"vmid":"102"}]}"#).unwrap();
         assert!(vms[0].is("101") && vms[1].is("102") && vms[1].status.is_none());
+    }
+
+    /// A password sign-in, then `vncproxy` with the ticket, against a server whose certificate
+    /// is pinned.
+    #[tokio::test]
+    async fn a_pinned_server_signs_a_password_in_and_opens_a_vnc_websocket() {
+        let server = Server::start(|r| match (r.method.as_str(), r.target.as_str()) {
+            ("POST", "/api2/json/access/ticket") => {
+                assert_eq!(r.body, "username=root%40pam&password=p%26ss", "the form, encoded");
+                (200, r#"{"data":{"ticket":"PVE:t","CSRFPreventionToken":"c"}}"#.to_owned())
+            }
+            ("POST", "/api2/json/nodes/pve/qemu/101/vncproxy") => {
+                assert_eq!((r.header("cookie"), r.header("csrfpreventiontoken")), (Some("PVEAuthCookie=PVE:t"), Some("c")));
+                assert_eq!(r.body, "websocket=1");
+                (200, r#"{"data":{"port":"5900","ticket":"PVEVNC:x"}}"#.to_owned())
+            }
+            _ => panic!("an unscripted request: {r:?}"),
+        })
+        .await;
+        let client = Api::at(&server.endpoint, Trust::Pinned(Some(fingerprint()))).unwrap().client().unwrap();
+        let password = Credentials::Password {
+            user: "root@pam".into(),
+            password: SecretValue::new("p&ss"),
+        };
+        let sign_in = client.sign_in(&password).await.unwrap();
+        let vnc = client.vncproxy(&sign_in, ("pve", "101")).await.unwrap();
+        assert_eq!((vnc.port, vnc.ticket.expose()), (5900, "PVEVNC:x"));
+    }
+
+    /// Another certificate than the pinned one, or a self-signed one the system's trust store
+    /// checks: refused before any request, the one offered told.
+    #[tokio::test]
+    async fn a_certificate_not_pinned_is_refused_before_anything_is_sent() {
+        let server = Server::start(|_| (200, r#"{"data":{"ticket":"t","CSRFPreventionToken":"c"}}"#.to_owned())).await;
+        let password = Credentials::Password {
+            user: "root@pam".into(),
+            password: SecretValue::new("pw"),
+        };
+        let other = Fingerprint::of(b"another certificate");
+        let refused = Api::at(&server.endpoint, Trust::Pinned(Some(other)))
+            .unwrap()
+            .client()
+            .unwrap()
+            .sign_in(&password)
+            .await;
+        let changed = Refusal::Changed {
+            pinned: other,
+            presented: fingerprint(),
+        };
+        assert_eq!(refused, Err(Failure::Untrusted(changed)));
+        let system = Api::at(&server.endpoint, Trust::System).unwrap().client().unwrap().sign_in(&password).await;
+        assert!(matches!(system, Err(Failure::Other(_))), "{system:?}");
+        assert_eq!(server.requests().len(), 0, "no request reached it");
     }
 
     #[tokio::test]
