@@ -40,6 +40,7 @@ impl HostKey {
 /// One key a server offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(rename = "SshHostKey"))]
 #[serde(rename_all = "camelCase")]
 pub struct Shown {
     /// Its type (`ssh-ed25519`).
@@ -51,6 +52,7 @@ pub struct Shown {
 /// Whether the keys a server offers are the ones confirmed for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(rename = "SshHostKeyState"))]
 #[serde(rename_all = "camelCase")]
 pub enum State {
     /// None was confirmed for it yet.
@@ -64,6 +66,7 @@ pub enum State {
 /// The keys a server offers and whether they are the confirmed ones.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(rename = "SshHostKeys"))]
 #[serde(rename_all = "camelCase")]
 pub struct Offered {
     /// The server's address and SSH port, as `known_hosts` names it (`pve.lan`, `[pve.lan]:2222`).
