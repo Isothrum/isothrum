@@ -295,22 +295,21 @@ mod tests {
     }
 
     #[test]
-    fn a_port_something_holds_is_not_free_and_a_released_one_is() {
+    fn a_port_something_holds_is_not_free_for_its_protocol_alone() {
+        // Each listener is held to the end: a port let go goes to whichever process asks next, so
+        // "free" is shown on a port number held for the other protocol, whose sockets are apart.
         // TCP: held on the loopback, then on every address (which answers on the loopback too).
         let held = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
         let port = held.local_addr().expect("its port").port();
         assert!(!port_free(port, Protocol::Tcp));
-        drop(held);
-        assert!(port_free(port, Protocol::Tcp), "released, it is free again");
+        assert!(port_free(port, Protocol::Udp), "a TCP listener holds no UDP port");
         let everywhere = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("a free port");
         let wide = everywhere.local_addr().expect("its port").port();
         assert!(!port_free(wide, Protocol::Tcp), "a listener on every address holds it");
-        drop(everywhere);
         // UDP: its own sockets, apart from TCP's.
         let udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a free port");
         let datagrams = udp.local_addr().expect("its port").port();
         assert!(!port_free(datagrams, Protocol::Udp));
-        drop(udp);
-        assert!(port_free(datagrams, Protocol::Udp));
+        assert!(port_free(datagrams, Protocol::Tcp), "a UDP socket holds no TCP port");
     }
 }
