@@ -20,6 +20,8 @@ use crate::providers::virtiofsd::{VAGRANT_QEMU_FALLBACKS, VHOST_USER_DIRS, vagra
 /// [`isothrum_runner::this_arch`]), written as the runner writes them (`macos`, `amd64`).
 pub use isothrum_runner::{Arch, HostOs};
 
+pub mod tool_path;
+
 /// Every OS.
 pub const ALL_OSES: [HostOs; 3] = [HostOs::Macos, HostOs::Windows, HostOs::Linux];
 
