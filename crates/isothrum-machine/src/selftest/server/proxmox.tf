@@ -126,10 +126,11 @@ provider "proxmox" {
 # depends on it, so it goes last.
 resource "proxmox_sdn_applier" "selftest_finalizer" {}
 
+# After the image: the test's steps end in their order (the image, then the network, then the VM).
 resource "proxmox_sdn_zone_simple" "selftest_zone" {
   id         = var.zone
   nodes      = [var.node]
-  depends_on = [proxmox_sdn_applier.selftest_finalizer]
+  depends_on = [proxmox_sdn_applier.selftest_finalizer, proxmox_download_file.selftest_image]
 }
 
 resource "proxmox_sdn_vnet" "selftest_vnet" {

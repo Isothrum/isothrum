@@ -367,5 +367,9 @@ mod tests {
             let (kind, name) = end.trim_start_matches('_').split_once('.').unwrap();
             assert!(MODULE.contains(&format!("\"proxmox_{kind}\" \"{name}\"")), "{end}");
         }
+        // Terraform makes what doesn't depend on another side by side: the network waits for the
+        // image (and the VM for the network), so a later step's line never ends an earlier one.
+        assert!(MODULE.contains("depends_on = [proxmox_sdn_applier.selftest_finalizer, proxmox_download_file.selftest_image]"));
+        assert!(MODULE.contains("depends_on = [proxmox_sdn_applier.selftest_net]"));
     }
 }
