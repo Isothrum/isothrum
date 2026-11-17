@@ -15,6 +15,13 @@ fn scan_of(pattern: &str, key: &str) -> String {
     format!("{pattern} ssh-ed25519 {key}\n")
 }
 
+/// The fake `script` builds, kept by the test to read its calls, and a context it answers.
+fn kept(script: isothrum_runner::fake::Script) -> (Arc<FakeProcesses>, crate::Context) {
+    let fake = Arc::new(script.build());
+    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
+    (fake, shared(runner))
+}
+
 fn key(blob: &str) -> HostKey {
     HostKey {
         algorithm: "ssh-ed25519".to_owned(),
@@ -63,16 +70,10 @@ fn the_offered_keys_are_new_confirmed_or_changed() {
 async fn a_new_server_is_shown_with_its_fingerprints_and_confirmed_into_every_file() {
     let dir = tempfile::tempdir().unwrap();
     let files = [dir.path().join("a").join("known_hosts"), dir.path().join("b").join("known_hosts")];
-    let fake = Arc::new(
-        FakeProcesses::script()
-            .expect(
-                "ssh-keyscan -T 10 -p 2222 -t ed25519,ecdsa,rsa pve.lan",
-                Reply::ok(&scan_of("[pve.lan]:2222", KEY_1)),
-            )
-            .build(),
-    );
-    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
-    let ctx = shared(runner);
+    let (_fake, ctx) = kept(FakeProcesses::script().expect(
+        "ssh-keyscan -T 10 -p 2222 -t ed25519,ecdsa,rsa pve.lan",
+        Reply::ok(&scan_of("[pve.lan]:2222", KEY_1)),
+    ));
     let offered = offered(&ctx, "pve.lan", 2222, &files[0]).await.unwrap();
     assert_eq!(offered.state, State::New);
     assert_eq!(
@@ -112,15 +113,12 @@ async fn a_server_whose_keys_changed_says_so_and_a_new_confirmation_replaces_the
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("known_hosts");
     std::fs::write(&file, format!("other ssh-ed25519 {KEY_2}\n{}", scan_of("pve", KEY_1))).unwrap();
-    let fake = Arc::new(
+    let (fake, ctx) = kept(
         FakeProcesses::script()
             .expect("ssh-keyscan", Reply::ok(&scan_of("pve", KEY_2)))
             .expect("ssh-keygen -F pve", Reply::ok(&scan_of("pve", KEY_1)))
-            .expect("ssh-keygen -R pve", Reply::ok(""))
-            .build(),
+            .expect("ssh-keygen -R pve", Reply::ok("")),
     );
-    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
-    let ctx = shared(runner);
     let offered = offered(&ctx, "pve", 22, &file).await.unwrap();
     assert_eq!((offered.state, offered.keys[0].fingerprint.as_str()), (State::Changed, FINGERPRINT_2));
     confirm(&ctx, "pve", 22, &[FINGERPRINT_2.to_owned()], std::slice::from_ref(&file))
