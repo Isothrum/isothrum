@@ -40,6 +40,13 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A machine added to a ready run's files fails no status read before the update that makes it.**
+  A status read between that change and the update read the new machine (a Compose service with
+  no container) as absent and the run as failed (`not_ready`), so the update was refused as
+  `not_running`. A read of a ready run whose machines are all as its last read saw them, but for
+  machines it never had (absent now, absent or unlisted then), leaves it ready. A machine removed
+  outside the run still fails it.
+
 - **A home on a long path serves.** A Unix socket's path is limited (103 bytes on macOS, 107 on
   Linux): a home deeper than that couldn't listen. Its socket is now in `isothrum-<uid>/` of the
   user's runtime or temporary folder (owner-only, refused when another account owns or may enter
