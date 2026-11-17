@@ -162,7 +162,9 @@ impl Service {
     }
 
     /// Serves until asked to stop, idle, or stopped by `options.stop`; then drops the queued
-    /// operations, cancels the running ones and stops their tools.
+    /// operations, cancels the running ones and stops their tools. It returns once none of its
+    /// tasks holds the home's store any more: one that embeds the service may open the home's
+    /// files again at once (Windows refuses to remove a file still open).
     ///
     /// # Errors
     ///
@@ -177,7 +179,7 @@ impl Service {
         } = options;
         let store = Arc::new(Store::open(self.paths.home())?);
         let owner = Owner::this_process();
-        let _lease = HomeLease::take(&self.paths, &store, &owner)?;
+        let lease = HomeLease::take(&self.paths, &store, &owner)?;
         cancel_orphaned(&store);
         let (listener, endpoint) = endpoint::listen(&self.paths)?;
         let feed = Arc::new(Feed::new(Arc::clone(&store)));
@@ -208,11 +210,13 @@ impl Service {
         let why = accept(&listener, &shared, &mut sessions, idle, stopped).await;
         if let Some(reaping) = reaping {
             reaping.abort();
+            drop(reaping.await);
         }
         tracing::info!(?why, "the runner service stops");
         drop(listener);
         stop_operations(&queue, tools.as_ref(), &mut stop).await;
         end_sessions(&shared, sessions).await;
+        lease.end().await;
         #[cfg(unix)]
         if let Err(e) = std::fs::remove_file(&info.endpoint) {
             tracing::debug!(error = %e, "the socket couldn't be removed");
@@ -230,7 +234,9 @@ async fn end_sessions(shared: &Shared, mut sessions: tokio::task::JoinSet<()>) {
     if ended.is_err() {
         tracing::debug!(open = sessions.len(), "connections still open as the service stops are cut");
     }
+    // Waited for once cut: a task let go of what it holds only once it is gone.
     sessions.abort_all();
+    while sessions.join_next().await.is_some() {}
 }
 
 /// Accepts clients, each served on a task of `sessions`, until a `shutdown`, `stopped`, or `idle`
@@ -376,6 +382,13 @@ impl HomeLease {
             owner: owner.clone(),
             renew,
         })
+    }
+
+    /// Ends the renewal, waiting until it is gone with its hold on the store, then releases the
+    /// lease (as it drops).
+    async fn end(mut self) {
+        self.renew.abort();
+        drop((&mut self.renew).await);
     }
 }
 

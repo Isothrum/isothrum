@@ -304,6 +304,20 @@ async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn once_serve_returned_nothing_of_the_service_holds_its_store() {
+    // One that embeds the service may open the home's files again at once. On Windows a file
+    // still open can't be moved: its lease's renewal and its connections' tasks, ended but not yet
+    // gone, held the store a moment longer. (Unix moves an open file: there it always passes.)
+    let s = start(None).await.unwrap();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    let _events = client.subscribe(None, None).await.unwrap();
+    client.shutdown().await.unwrap();
+    common::ended(s.task).await.unwrap();
+    let store = s.home.path().join("state.db");
+    std::fs::rename(&store, store.with_extension("moved")).expect("the store isn't open any more");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_idle_service_stops_but_not_while_a_client_is_connected() {
     let s = start(Some(Duration::from_millis(300))).await.unwrap();
     let client = Client::connect_running(s.home.path()).await.unwrap();
