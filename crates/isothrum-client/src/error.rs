@@ -45,6 +45,14 @@ pub enum ClientError {
 }
 
 impl ClientError {
+    /// Whether it says the connection is gone (the service was killed or restarted, the
+    /// connection broke, none answers), rather than an answer of the service's: a call worth one
+    /// more try on a new connection ([`Pool::call`](crate::Pool::call)).
+    #[must_use]
+    pub fn is_broken(&self) -> bool {
+        matches!(self, ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Unavailable(_))
+    }
+
     /// Its code, as an `error` event gives it.
     #[must_use]
     pub fn code(&self) -> ErrorCode {

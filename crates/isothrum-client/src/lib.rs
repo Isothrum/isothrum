@@ -68,6 +68,7 @@
 mod client;
 mod discovery;
 mod error;
+mod pool;
 pub mod proto;
 mod replace;
 mod spawn;
@@ -78,6 +79,7 @@ pub use client::{Accepted, Client, Followed, HeldConsole, Subscription};
 pub use discovery::{BUILD_ENV, ServiceInfo, ServicePaths, build_of};
 pub use error::ClientError;
 pub use isothrum_runner::InputVariable;
+pub use pool::Pool;
 
 /// This crate's release: the version [`Client::connect_exact`] wants of a service.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

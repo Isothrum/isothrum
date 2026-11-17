@@ -11,6 +11,14 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-client keeps one connection per home and makes it again once: `Pool`.**
+  `Pool::new(binary)` connects with `Client::connect_exact`; `Pool::call(home, ask)` asks on the
+  kept connection, and when it broke (`ClientError::is_broken`: the service killed or
+  restarted, a broken pipe, none answering) forgets it, connects again (the service started
+  again when none runs) and asks once more; a second break is the caller's, and forgotten.
+  `client`, `forget` and `retain` reach the kept connections; `Pool::with` takes a connector of
+  the caller's.
+
 - **isothrum-machine opens a command in this computer's terminal: `terminal::open`.** A
   `ShellCommand` runs in its folder with its variables, in a window titled as the caller says:
   Terminal through `osascript` on macOS (a refused Automation permission, `-1743`, is
