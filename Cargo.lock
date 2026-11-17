@@ -487,6 +487,7 @@ version = "3.0.0"
 dependencies = [
  "isothrum-runner",
  "isothrum-test-support",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

@@ -154,4 +154,4 @@ pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
 pub use status::{MachineState, MachineStatus, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};
-pub use tool_output::{vagrant_plugins, version_found};
+pub use tool_output::{azure_cli_version, vagrant_plugins, version_found};

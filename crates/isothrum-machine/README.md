@@ -1,6 +1,8 @@
 # isothrum-machine
 
-The machine-setup domain: this computer (`Host`: its OS, CPU, package manager and the files
+The machine-setup domain: what this computer has (`check::check`: its tools, its Docker-compatible
+engines and their CLI contexts, its package manager, its cloud CLIs and, on Windows, whether WSL 2
+is ready), and this computer (`Host`: its OS, CPU, package manager and the files
 detection reads), and which Vagrant providers (hypervisors) it can drive among those Vagrantfiles
 name (VirtualBox, VMware Desktop, Hyper-V, Parallels, libvirt, QEMU, UTM, VMware ESXi). For each
 one offered on this computer it says whether VMs can run on it here, what is still to install
@@ -46,11 +48,30 @@ async fn main() {
 }
 ```
 
+The whole machine check in one call:
+
+```rust,no_run
+use std::sync::Arc;
+
+use isothrum_machine::{Context, check, wsl};
+use isothrum_runner::SystemProcesses;
+
+#[tokio::main]
+async fn main() {
+    let cx = Context::here(Arc::new(SystemProcesses::default())).await;
+    let found = check::check(&cx, wsl::Marks::default()).await;
+    println!("Docker: {:?}, daemon running: {}", found.docker.version, found.daemon.running());
+    for engine in &found.engines {
+        println!("{} ({}): running {}", engine.engine.label(), engine.context, engine.running);
+    }
+}
+```
+
 ## Feature flags
 
 | Feature | What it adds |
 |---|---|
-| `ts-rs` | The TypeScript types (through [ts-rs](https://docs.rs/ts-rs)) of `ProviderStatus`, `Unavailable`, `Need`, `UtilityState` and `AccountLacks`, which follow their serde form, for a UI in TypeScript; with the runner's `VagrantProvider`. |
+| `ts-rs` | The TypeScript types (through [ts-rs](https://docs.rs/ts-rs)) of `ProviderStatus`, `Unavailable`, `Need`, `UtilityState`, `AccountLacks`, `Tool`, `CloudClis`, `PackageManager`, `Engine` (as `DockerEngine`), `EngineStatus` and `WslState`, which follow their serde form, for a UI in TypeScript; with the runner's `VagrantProvider`. |
 
 No feature is on by default.
 
