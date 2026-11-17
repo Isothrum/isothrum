@@ -234,7 +234,7 @@ pub(crate) struct SeenMachine {
     /// The address it is reached at, when its tool says one another computer reaches: Vagrant's
     /// `ssh-config` on a provider that gives the VM's own, a module's VM's as its state says.
     pub(crate) address: Option<String>,
-    /// Its tool says it runs Windows (a module's VM, as its state says: [`crate::cli::terraform::VmFacts::windows`]).
+    /// Its tool says it runs Windows (a module's VM, as its state says: `VmFacts::windows` in `cli::terraform`).
     /// What a driver offers Remote Desktop by.
     pub(crate) windows: bool,
 }

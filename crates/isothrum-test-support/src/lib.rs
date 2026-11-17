@@ -3,7 +3,7 @@
 //! lock); [`wait_until`] waits for a condition with a deadline, never a fixed sleep; [`TempHome`]
 //! is a home folder a spawned command is given instead of the real one; [`every`] and
 //! [`assert_every!`] fail on an empty collection, where `iter().all(..)` passes; a program a test
-//! runs is written by [`write_executable`] (Unix), never by the test's own process.
+//! runs is written by `write_executable` (Unix only), never by the test's own process.
 //!
 //! A test-only crate: it panics where a test should fail.
 

@@ -249,7 +249,7 @@ pub struct ProviderStatus {
     pub plugin_installed: bool,
     /// Where HashiCorp's Vagrant VMware Utility stands; `None` when the provider doesn't use it.
     pub utility: Option<UtilityState>,
-    /// What is still to install for Vagrant to drive it here ([`needs`]): empty when nothing is.
+    /// What is still to install for Vagrant to drive it here ([`needs()`]): empty when nothing is.
     pub needs: Vec<Need>,
     /// Why it can't run VMs yet, `None` when it can.
     pub reason: Option<Unavailable>,

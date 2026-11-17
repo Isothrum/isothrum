@@ -2,7 +2,7 @@
 //! the anonymous ones included), their removal by id, and the networks a container is on; the
 //! images the engine holds, what a reference stands for, an image's size, and the removal of a
 //! reference; the address blocks the engine's networks hold; and what the running containers use
-//! ([`stats`]).
+//! ([`stats()`]).
 
 mod stats;
 

@@ -3,7 +3,7 @@
 use super::{Account, Findings, Need, Part, Provider, ProviderRow, Unavailable, UtilityState};
 
 /// Why `provider` can't run VMs here (`None`: it can), from what is still to install for it
-/// (`needs`, which its status carries too, [`status_from`]) and what detection found: KVM holding the CPU's
+/// (`needs`, which its status carries too, [`status_from`](super::status_from)) and what detection found: KVM holding the CPU's
 /// virtualization first (nothing a setup installs mends it), then Vagrant, then the hypervisor
 /// and the account, the machine's virtualization, the versions, the plugin and the VMware
 /// utility, and VirtualBox's kernel driver last. It is `None` only when nothing is needed, so

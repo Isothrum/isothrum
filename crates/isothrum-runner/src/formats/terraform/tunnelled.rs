@@ -6,7 +6,7 @@
 //! - **Which machines.** The module's `consoles` output, when it has one, names them, each with
 //!   its protocol (`{ dc = "rdp" }`) or more (`{ dc = { protocol = "vnc", port = 5901, host =
 //!   "10.9.0.20", via = "203.0.113.7", user = "admin" } }`), and no other machine has one. Without
-//!   it, each VM the state says runs Windows ([`crate::cli::terraform::VmFacts::windows`]) has
+//!   it, each VM the state says runs Windows (`VmFacts::windows` in `cli::terraform`) has
 //!   Remote Desktop (3389) when the module gives its password (`windows_password`, sensitive): the
 //!   outputs a module gives (the repository's `docs/reference/terraform.md`).
 //! - **Through where.** The module's `ip` output (where a user stands: its access machine, its
@@ -16,7 +16,7 @@
 //!   (the module's variable, as the run's start was given it and every operation replays), else
 //!   the runner's own.
 //! - **To where.** The VM's address on the module's networks, as its state says
-//!   ([`crate::cli::terraform::VmFacts::private_address`], else its only one); a `consoles`
+//!   (`VmFacts::private_address` in `cli::terraform`, else its only one); a `consoles`
 //!   entry's `host` wins.
 //! - **Signing in.** Remote Desktop's user is the module's `windows_user` output, else
 //!   `Administrator`; its password the sensitive `windows_password` output, else the run's own

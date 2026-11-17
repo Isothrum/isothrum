@@ -63,7 +63,7 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -
     }
 }
 
-/// `value` as JSON at `path`, its folder made first ([`create_dir`], [`write`]).
+/// `value` as JSON at `path`, its folder made first ([`create_dir`], [`write()`]).
 pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(dir) = path.parent() {
         create_dir(dir)?;
@@ -237,7 +237,7 @@ impl Home {
         Ok(dir)
     }
 
-    /// Run `name`'s folder (not made: [`Store::run_dir`] makes it).
+    /// Run `name`'s folder (not made: [`Home::run_dir`] makes it).
     pub(crate) fn run_dir_path(&self, name: &RunName) -> PathBuf {
         self.runs.join(name.as_str())
     }
@@ -258,7 +258,7 @@ impl Home {
     }
 
     /// Records `record`'s fields; a new run's row starts in the record's state. An existing run's
-    /// state moves only by a transition ([`Home::apply`]).
+    /// state moves only by a transition ([`db::Tx::apply`]).
     pub(crate) fn save(&self, record: &RunRecord) -> Result<()> {
         self.run_dir(&record.name)?;
         self.db.write(|tx| tx.save_record(record, Desired::Running))

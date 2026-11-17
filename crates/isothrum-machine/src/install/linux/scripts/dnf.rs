@@ -25,7 +25,7 @@ struct RpmRepo {
 
 /// `rpm_served <base url>`: whether an rpm repository at that URL answers (its `repodata/repomd.xml`):
 /// a 2xx is yes and a 404 no; anything else stops the script (an unreachable server is never "no
-/// packages"), as [`RELEASE_SERVED`] does for apt.
+/// packages"), as [`RELEASE_SERVED`](super::RELEASE_SERVED) does for apt.
 const RPM_SERVED: &str = r#"rpm_served() { served=$(curl -s -o /dev/null -w '%{http_code}' "$1/repodata/repomd.xml" || true); case "$served" in 2??) return 0 ;; 404) return 1 ;; *) echo "Couldn't reach $1 (HTTP $served). Check this machine's internet access or proxy, then try again." >&2; exit 1 ;; esac; }"#;
 
 /// The script that sets `r` up for dnf, after [`fetch_prelude`] in a [`RootScript`]: the

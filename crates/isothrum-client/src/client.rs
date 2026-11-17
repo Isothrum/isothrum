@@ -277,7 +277,7 @@ impl Client {
     /// # Errors
     ///
     /// The service refused it (the run can't be opened, another operation of the run is queued
-    /// or running: [`ErrorCode::Locked`](isothrum_runner::ErrorCode::Locked), the service is
+    /// or running: [`ErrorCode::Locked`], the service is
     /// stopping), or `command` isn't an operation ([`ClientError::Protocol`]).
     pub async fn submit(&self, command: Command) -> Result<Accepted> {
         if command.op().is_none() {

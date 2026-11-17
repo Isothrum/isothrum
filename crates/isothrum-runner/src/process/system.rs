@@ -1,5 +1,5 @@
 //! Real processes: each tool in its own process group (unix, through `process-wrap`) or created
-//! inside a kill-on-close job object of its own (Windows, [`super::job`]), so a timeout, a
+//! inside a kill-on-close job object of its own (Windows, the `job` module), so a timeout, a
 //! cancellation or this process's death ends the whole tree it started (`vagrant` is a wrapper
 //! around `ruby`, `cmd /C az` around `python`), headless on Windows. A
 //! tool cut short is asked to stop first (see [`super::stopping`]). Each tool speaks in the C

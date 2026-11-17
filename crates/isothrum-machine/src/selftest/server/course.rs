@@ -1,5 +1,5 @@
 //! How the test drives its run: up step by step as the tool's lines end each ([`Course`],
-//! [`UpSteps`]), SSH waited for, the command inside, and always the teardown ([`test`]).
+//! [`UpSteps`]), SSH waited for, the command inside, and always the teardown ([`test()`]).
 
 use std::time::Duration;
 
