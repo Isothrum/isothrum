@@ -194,8 +194,22 @@ pub(crate) struct Up<'a> {
     pub(crate) wait: bool,
     /// `--remove-orphans`.
     pub(crate) remove_orphans: bool,
-    /// `--no-recreate`: start what exists as it is (a resume), never make it again.
-    pub(crate) no_recreate: bool,
+    /// What becomes of the containers that exist, and of the images they run.
+    pub(crate) existing: Existing,
+}
+
+/// What an `up` does with what an earlier one made.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Existing {
+    /// Compose's own: a container whose configuration changed is made again.
+    #[default]
+    Remade,
+    /// `--build`: as [`Existing::Remade`], each service that has a `build` built first, so an
+    /// image made from an earlier copy of its files (kept under the same name) never runs in
+    /// its place. Compose's build cache makes it quick when nothing changed.
+    Rebuilt,
+    /// `--no-recreate`: what exists is started as it is (a resume), never made again.
+    Kept,
 }
 
 /// `up --detach`.
@@ -207,8 +221,10 @@ pub(crate) async fn up(call: &Call<'_>, project: &Project<'_>, how: &Up<'_>) -> 
     if how.remove_orphans {
         rest.push("--remove-orphans".into());
     }
-    if how.no_recreate {
-        rest.push("--no-recreate".into());
+    match how.existing {
+        Existing::Remade => {}
+        Existing::Rebuilt => rest.push("--build".into()),
+        Existing::Kept => rest.push("--no-recreate".into()),
     }
     rest.extend(how.services.iter().cloned());
     call.ok(TOOL, project.args(rest), Failure::of).await.map(drop)
@@ -459,6 +475,24 @@ mod tests {
                 "--wait"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_build_up_asks_compose_to_build_before_it_starts() {
+        let fake = FakeProcesses::script().expect("docker compose -p stack", Reply::ok("")).build();
+        let files = [PathBuf::from("compose.yaml")];
+        up(
+            &testing::call(&fake),
+            &stack(&files, &[]),
+            &Up {
+                existing: Existing::Rebuilt,
+                ..Up::default()
+            },
+        )
+        .await
+        .expect("up");
+        let [call] = fake.made("docker compose").try_into().expect("one call");
+        assert_eq!(call.args.last().map(String::as_str), Some("--build"), "{:?}", call.args);
     }
 
     #[tokio::test]

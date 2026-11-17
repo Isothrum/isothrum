@@ -81,7 +81,7 @@ fn ps_line(service: &str, state: &str, health: &str, exit: i32, ports: Option<(u
     format!(r#"{{"Service":"{service}","State":"{state}","Health":"{health}","ExitCode":{exit},"Publishers":{publishers},"Labels":""}}"#)
 }
 
-const UP: &str = "docker compose -p stack -f * up --detach --wait --remove-orphans";
+const UP: &str = "docker compose -p stack -f * up --detach --wait --remove-orphans --build";
 /// The pull a start makes first.
 const PULL: &str = "docker compose -p stack -f * pull --ignore-buildable";
 /// The config a project of no published port prints: nothing to pin.
@@ -378,7 +378,7 @@ async fn attach_names_the_service_so_its_profile_starts_it_and_retire_removes_it
     let run = run();
     let state = tempfile::tempdir().expect("a state folder");
     let fake = toolbox_configs()
-        .expect("docker compose -p stack -f * up --detach --wait toolbox", Reply::ok(""))
+        .expect("docker compose -p stack -f * up --detach --wait --build toolbox", Reply::ok(""))
         .expect("docker compose -p stack -f * rm --stop --force --volumes toolbox", Reply::ok(""))
         .build();
     let cx = cx_in(&project, &run, &fake, state.path(), &crate::formats::NoPorts);
@@ -405,7 +405,7 @@ async fn an_update_removes_the_containers_of_services_moved_under_a_profile_the_
     .join("\n");
     let rm = "docker compose -p stack -f * rm --stop --force --volumes routes-user";
     let fake = toolbox_configs()
-        .expect("docker compose -p stack -f * up --detach --wait toolbox", Reply::ok(""))
+        .expect("docker compose -p stack -f * up --detach --wait --build toolbox", Reply::ok(""))
         .expect(UP, Reply::ok(""))
         .allow(PULL, Reply::ok(""))
         .expect("docker compose -p stack -f * config --services", Reply::ok("web\ninit-web-1\n"))

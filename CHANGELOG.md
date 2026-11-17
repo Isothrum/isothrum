@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A Compose `up`, `update` and `attach` build the project's images before they start it.**
+  `up --build`: an image Compose builds keeps its name across copies of the project's files, so an
+  updated project started over the image an earlier copy left, without its changes. Compose's
+  build cache makes the build quick when nothing changed; a `resume` still starts what exists as
+  it is.
+
 - **An operation says the steps its format goes through, as typed `step` events.** Compose:
   `images` (pulled and built), `create`, `start`, `health`; Vagrant: `boxes`, then each machine's
   `up` and `provision`; Terraform: `init`, `apply`, `ready` (`isothrum_runner::Phase`, whose `id` a
