@@ -15,11 +15,13 @@ publish = true
 
 [features]
 # The test doubles (scripted processes, scripted host ports), for embedders' tests.
-fake = []
+fake = ["dep:tokio-rustls"]
 # The TypeScript type of `Provider` (`VagrantProvider`), for an embedder whose UI is TypeScript.
 ts-rs = ["dep:ts-rs"]
 
 [dependencies]
+# The test HTTPS server of the test doubles (`fake_https.rs`).
+tokio-rustls = { workspace = true, optional = true }
 # The random token of an elevated session (`process/elevated.rs`).
 getrandom.workspace = true
 # A Terraform module's input variables, read from its HCL (`project/variables.rs`).

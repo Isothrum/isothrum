@@ -814,9 +814,11 @@ dependencies = [
  "isothrum-runner",
  "isothrum-test-support",
  "proptest",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "ts-rs",
 ]

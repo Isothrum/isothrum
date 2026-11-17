@@ -24,9 +24,12 @@ ts-rs = ["dep:ts-rs", "isothrum-runner/ts-rs"]
 
 [dependencies]
 isothrum-runner.workspace = true
+# A Proxmox VE server's API (`place/proxmox.rs`), its certificate trusted as the runner's `tls` says.
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 ts-rs = { workspace = true, optional = true }
 
