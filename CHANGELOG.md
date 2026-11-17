@@ -34,7 +34,12 @@ Terraform), usable on any project of those formats.
   `ErrorCode::CredentialsExpired`; a permission denied, not found, an API not enabled, a quota used
   up), each wording backed by a fixture. The runner's reading of an expired sign-in is public:
   `sign_in_expired`. `failure::ask` asks any tool a question within the probe time.
-
+- **What a run's machines use now.** `Running::usage` samples each running machine's CPU (percent
+  of one CPU) and memory (bytes) once, as its engine reports it (`MachineUsage`): a Compose
+  service's containers summed, from `docker stats --no-stream`; none for Vagrant and Terraform,
+  whose tools report no per-machine figure. On the wire: `usage` (`Reply::Usage`,
+  `Client::usage`), answered by the `Engine` port's `usage`, unsupported by default. An embedder
+  that read `docker stats` itself to show what each deployment takes asks the runner instead.
 - **The runner records what its own downloads fetched, and removes only that.** A Compose
   start's pull records each image whose reference, once pulled, stands for an id the engine didn't
   hold before it (its reference, id and Docker context); a Vagrant `up` records each box `vagrant

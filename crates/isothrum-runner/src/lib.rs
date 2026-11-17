@@ -155,6 +155,6 @@ pub use run::{ExecReport, Running, ServiceEndpoint};
 pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
-pub use status::{MachineState, MachineStatus, OutputValue, PublishedPort, Started, Status, status_schema};
+pub use status::{MachineState, MachineStatus, MachineUsage, OutputValue, PublishedPort, Started, Status, status_schema};
 pub use store::{LastOp, RunRecord};
 pub use tool_output::{azure_cli_version, sign_in_expired, vagrant_plugins, version_found, virtualbox_vms};
