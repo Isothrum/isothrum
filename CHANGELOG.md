@@ -19,6 +19,10 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **Whether a host port is free: `isothrum_machine::net::port_free(port, protocol)`.** A socket
+  bound on the loopback and let go at once (for TCP, nothing answering there either, so a listener
+  on every address counts on macOS too): a caller checks a port it is about to publish before it
+  acts. A check, not a reservation.
 - **A run's jump host checked against a `known_hosts` file the embedder gives:
   `ssh_jump_known_hosts_file`.** A Terraform run's value naming the file of the `ssh_jump` host's
   keys (ones its user confirmed): the SOCKS proxy around `apply` and `destroy`, the first hop of a
