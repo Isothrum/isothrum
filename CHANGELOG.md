@@ -11,6 +11,13 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine makes a Google Cloud project ready for deployments: `cloud::gcp`'s
+  projects.** `project_state` (`Active`, `Gone` only when Google says `NOT_FOUND` or that it is
+  being deleted, never for a refusal), `create_project` (under an organization when given),
+  `link_billing` (a billing account with no free project slot is `Refusal::QuotaExceeded`, read
+  from the whole refusal), `enable_service` and `delete_project`, each within
+  `PROJECT_TIMEOUT`.
+
 - **isothrum-machine asks the cloud accounts this computer's cloud CLIs are signed in to:
   `cloud`.** Whether a sign-in still reaches its provider (AWS's identity, an Azure token, Google
   Cloud's own and application-default tokens, Oracle Cloud's config file), and what an account
