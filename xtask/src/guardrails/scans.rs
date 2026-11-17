@@ -23,7 +23,7 @@ const CRATES: [&str; 5] = [
 
 /// Where a tool's answer is read, beside `tool_output` (the tool-output module's own list of the
 /// documents read beside their tool).
-const ADAPTERS: [(&str, &str); 4] = [
+const ADAPTERS: [(&str, &str); 5] = [
     (
         "crates/isothrum-runner/src/cli/",
         "one adapter per tool: its argv, its spawn and the parse of its answers into typed values",
@@ -32,6 +32,10 @@ const ADAPTERS: [(&str, &str); 4] = [
     (
         "crates/isothrum-machine/src/cloud",
         "one adapter per cloud CLI: its argv, its runs and the parse of its answers about an account",
+    ),
+    (
+        "crates/isothrum-machine/src/place/proxmox/bootstrap.rs",
+        "`pveum` on a Proxmox VE node over SSH: its command, its run and the parse of the token it made",
     ),
     (
         "crates/isothrum-runner/src/formats/terraform/tunnelled.rs",
