@@ -22,6 +22,9 @@ pub mod aws;
 pub mod azure;
 pub mod gcp;
 pub mod oci;
+pub mod token;
+
+pub use token::{TokenError, digitalocean, linode};
 
 pub use isothrum_runner::Cloud;
 
