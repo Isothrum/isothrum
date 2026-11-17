@@ -89,6 +89,30 @@ async fn a_script_exiting_126_or_127_is_its_own_failure_unless_pkexec_said_so() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_script_stopping_where_it_doesnt_serve_says_which_only_when_its_step_says_it_may() {
+    let docker = || step("pkexec", &["sh", "-c", "x"]).not_served(NotServed::DockerDistribution);
+    let tools = FakeProcesses::script().expect("pkexec", said(NOT_SERVED, "")).build();
+    assert_eq!(run(tools, &[docker()]).await.0, Err(StepFailed::NotServed(NotServed::DockerDistribution)));
+    // Another code from that step, or that code from another step: the script's failure.
+    let tools_2 = FakeProcesses::script().expect("pkexec", said(1, "")).build();
+    assert_eq!(
+        run(tools_2, &[docker()]).await.0,
+        Err(StepFailed::Exited {
+            program: "pkexec".into(),
+            code: Some(1)
+        })
+    );
+    let tools_3 = FakeProcesses::script().expect("pkexec", said(NOT_SERVED, "")).build();
+    assert_eq!(
+        run(tools_3, &[step("pkexec", &["sh", "-c", "x"])]).await.0,
+        Err(StepFailed::Exited {
+            program: "pkexec".into(),
+            code: Some(NOT_SERVED)
+        })
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn an_unattended_sudo_that_needs_a_password_changed_nothing() {
     let tools = FakeProcesses::script().expect("sudo -n", said(1, "sudo: a password is required")).build();
     assert_eq!(

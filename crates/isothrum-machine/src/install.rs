@@ -24,7 +24,7 @@ pub mod record;
 pub mod root;
 mod steps;
 
-pub use steps::{Step, StepFailed, command_line, run_step, run_steps, step};
+pub use steps::{NotServed, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]

@@ -73,7 +73,7 @@ fn no_vendor_install_script_runs_as_root() {
 
 #[cfg(unix)]
 #[test]
-fn docker_without_its_apt_repository_stops_and_says_where_to_get_it() {
+fn docker_without_its_apt_repository_stops_changing_nothing_with_its_code() {
     // Only the branch past the distro check: `dist` empty, nothing else run. Regression: the
     // slice began at the distro detection's own `[ -n "$dist" ]`, a syntax error that never ran
     // the refusal; bash echoes the failing line (URL included), so it passed on macOS only.
@@ -81,12 +81,14 @@ fn docker_without_its_apt_repository_stops_and_says_where_to_get_it() {
     let refuse = s.get(s.find("[ -n \"$dist\" ] ||").unwrap()..s.find("; if [ -n \"$own\" ]").unwrap()).unwrap();
     let out = crate::testing::sh(&format!("dist=''; {refuse}; echo installed"), &[]);
     let err = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code, Some(1), "the refusal's own exit, not a syntax error: {err}");
-    assert!(!String::from_utf8_lossy(&out.stdout).contains("installed"));
-    assert!(
-        err.starts_with("This setup installs Docker on Debian") && err.contains("https://docs.docker.com/engine/install/"),
-        "{err}"
+    assert_eq!(
+        out.status.code,
+        Some(crate::install::steps::NOT_SERVED),
+        "the refusal's own exit, not a syntax error: {err}"
     );
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("installed"));
+    // What to do instead is the UI's to say ([`crate::install::StepFailed::NotServed`]).
+    assert!(err.is_empty(), "{err}");
 }
 
 #[cfg(unix)]

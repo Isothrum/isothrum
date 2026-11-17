@@ -3,6 +3,7 @@
 //! fingerprint, pinned here, before apt or dnf trusts it; no vendor install script runs as root.
 
 use crate::install::root::{NEED_CURL, NEED_GPG, NEED_UNZIP, RootScript, check_keys};
+use crate::install::steps::NOT_SERVED;
 
 /// The distro's codename as the vendors' repos name it (`$codename`): an Ubuntu derivative like
 /// Mint uses its Ubuntu base's. For the Debian family (Debian itself, Kali, Devuan: `ID_LIKE`
@@ -200,13 +201,13 @@ const DOCKER: VendorRepo = VendorRepo {
 /// for the release (Kali's rolling one, Devuan's, a Debian or Ubuntu newer than Docker serves yet:
 /// its `Release` file answers 404), it installs the distribution's own Docker (`docker.io` and its Compose), signed by the
 /// distribution's own keys. When download.docker.com can't be reached, it stops and says so. Elsewhere
-/// it stops and says where to get Docker: Docker's convenience
+/// it stops, changing nothing, with a code read as [`StepFailed::NotServed`](crate::install::StepFailed::NotServed) (a UI says where to get Docker): Docker's convenience
 /// script (get.docker.com) can't be held to a key (it fetches the key and installs what it signed
 /// in one go), so it never runs as root from here.
 #[must_use]
 pub fn docker_script(user: Option<&str>) -> RootScript {
     let mut s = format!(
-        "{}; {DOCKER_DIST}; [ -n \"$dist\" ] || {{ echo 'This setup installs Docker on Debian, Ubuntu and the distributions built on them. Install Docker Engine from your distribution or https://docs.docker.com/engine/install/, then check again.' >&2; exit 1; }}; if [ -n \"$own\" ]; then {DISTRIBUTION_DOCKER}; else {}; apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; fi",
+        "{}; {DOCKER_DIST}; [ -n \"$dist\" ] || exit {NOT_SERVED}; if [ -n \"$own\" ]; then {DISTRIBUTION_DOCKER}; else {}; apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; fi",
         fetch_prelude(),
         apt_repo_setup(&DOCKER)
     );

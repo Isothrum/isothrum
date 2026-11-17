@@ -48,7 +48,12 @@ impl Root {
     pub fn step(&self, script: RootScript) -> Result<Step, Refusal> {
         let root = |text: String| {
             let (program, args) = self.elevation.as_root("env", &["sh".into(), "-c".into(), text]);
-            Step { program, args, private: None }
+            Step {
+                program,
+                args,
+                private: None,
+                not_served: None,
+            }
         };
         // A value over two lines can't be one line of the file; no proxy has one.
         let proxy: Vec<&str> = self.proxy.iter().map(String::as_str).filter(|a| !a.contains(['\n', '\r'])).collect();
@@ -141,7 +146,13 @@ pub fn install(dep: Dependency, packages: Option<Packages>, user: Option<&str>, 
         (Dependency::VmwareUtility, LinuxPackages::Apt) => vmware_utility_script(),
         (Dependency::Azurecli | Dependency::Gcloud | Dependency::VmwareUtility, LinuxPackages::Dnf) => return Err(Refusal::AptOnly { dependency: dep }),
     };
-    Ok(vec![root.step(script)?])
+    let step = root.step(script)?;
+    // Docker's install stops, changing nothing, outside the distributions it serves.
+    Ok(vec![if dep == Dependency::Docker {
+        step.not_served(super::steps::NotServed::DockerDistribution)
+    } else {
+        step
+    }])
 }
 
 /// The removal of `dep` on Linux, as root: what its install brought, through the package manager

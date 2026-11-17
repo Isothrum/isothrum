@@ -20,6 +20,31 @@ pub struct Step {
     /// A private folder of files the step reads (a root step's proxy settings), removed with
     /// the step.
     pub(crate) private: Option<tempfile::TempDir>,
+    /// What the step's script finds this system isn't, when it exits with [`NOT_SERVED`] before
+    /// changing anything.
+    pub(crate) not_served: Option<NotServed>,
+}
+
+/// The exit code of a step's script that stops before changing anything because this system isn't
+/// one it serves ([`Step`]'s `not_served` says which).
+pub(crate) const NOT_SERVED: i32 = 69;
+
+/// What a step found this system isn't, before it changed anything. A UI says each in its own
+/// words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NotServed {
+    /// Docker's install serves Debian, Ubuntu and the distributions built on them; elsewhere its
+    /// user installs Docker Engine from their distribution or Docker's documentation.
+    DockerDistribution,
+}
+
+impl Step {
+    /// This step, its script exiting with [`NOT_SERVED`] when this system isn't one it serves.
+    pub(crate) fn not_served(mut self, why: NotServed) -> Step {
+        self.not_served = Some(why);
+        self
+    }
 }
 
 /// A step that runs `program` with `args`.
@@ -29,6 +54,7 @@ pub fn step(program: impl Into<String>, args: &[&str]) -> Step {
         program: program.into(),
         args: args.iter().map(ToString::to_string).collect(),
         private: None,
+        not_served: None,
     }
 }
 
@@ -59,6 +85,8 @@ pub enum StepFailed {
     NoPolkitAgent,
     /// `sudo -n` (an unattended root step) needed a password: nothing was changed.
     SudoRefused,
+    /// The step's script stopped before changing anything: this system isn't one it serves.
+    NotServed(NotServed),
     /// The program ran and failed: its exit code, `None` when a signal ended it.
     Exited {
         /// The program.
@@ -77,6 +105,7 @@ impl std::fmt::Display for StepFailed {
             StepFailed::PromptRefused => f.write_str("the password prompt was dismissed or the password refused"),
             StepFailed::NoPolkitAgent => f.write_str("no password prompt could be shown: no polkit agent runs"),
             StepFailed::SudoRefused => f.write_str("sudo needs a password, and none can be asked for unattended"),
+            StepFailed::NotServed(why) => write!(f, "this system isn't one the step serves: {why:?}"),
             StepFailed::Exited { program, code: Some(code) } => write!(f, "`{program}` exited with code {code}"),
             StepFailed::Exited { program, code: None } => write!(f, "`{program}` was ended by a signal"),
         }
@@ -197,6 +226,9 @@ impl Watch {
         }
         if self.sudo_refused {
             return Err(StepFailed::SudoRefused);
+        }
+        if let Some(why) = step.not_served.filter(|_| code == Some(NOT_SERVED)) {
+            return Err(StepFailed::NotServed(why));
         }
         Err(StepFailed::Exited {
             program: step.program.clone(),
