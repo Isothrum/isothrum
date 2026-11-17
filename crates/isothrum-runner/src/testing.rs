@@ -2,7 +2,7 @@
 //! model of an engine, what a test traces, the checks every named enum takes, and an HTTPS server
 //! whose certificate is self-signed ([`https`]).
 
-pub(crate) mod https;
+pub(crate) use crate::fake_https as https;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};

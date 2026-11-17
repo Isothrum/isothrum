@@ -39,9 +39,6 @@ isothrum-runner = { workspace = true, features = ["fake", "ts-rs"] }
 ts-rs.workspace = true
 isothrum-test-support.workspace = true
 proptest.workspace = true
-# A test's HTTPS server, its certificate self-signed (`testing/https.rs`).
-rustls.workspace = true
-tokio-rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [package.metadata.docs.rs]

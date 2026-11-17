@@ -4,7 +4,7 @@ use serde_json::json;
 use super::api::{Iface, Node, NodeStatus, Storage};
 use super::check::{Content, Finding, Needs, bridge_finding, find_iface, storage_findings};
 use super::*;
-use crate::testing::https;
+use isothrum_runner::fake_https::{self as https, Request};
 
 /// `json`, a list of what a path answers, read.
 fn listed<T: serde::de::DeserializeOwned>(json: serde_json::Value) -> Vec<T> {
@@ -128,9 +128,9 @@ async fn an_unreachable_server_fails_to_sign_in() {
 }
 
 /// A Proxmox VE server's answers to a password sign-in and the reads after it.
-fn proxmox(method: &str, target: &str) -> (u16, String) {
+fn proxmox(request: &Request) -> (u16, String) {
     let data = |v: serde_json::Value| (200, json!({ "data": v }).to_string());
-    match (method, target) {
+    match (request.method.as_str(), request.target.as_str()) {
         ("POST", "/api2/json/access/ticket") => data(json!({"ticket": "PVE:root@pam:1::sig", "username": "root@pam"})),
         ("GET", "/api2/json/version") => data(json!({"version": "8.2.4"})),
         ("GET", "/api2/json/nodes") => data(json!([{"node": "pve", "status": "online"}])),
@@ -143,10 +143,15 @@ fn proxmox(method: &str, target: &str) -> (u16, String) {
     }
 }
 
+/// The loopback port `https` serves on.
+fn port(https: &https::Server) -> u16 {
+    https.endpoint.rsplit(':').next().unwrap().parse().unwrap()
+}
+
 #[tokio::test]
 async fn a_self_signed_server_gets_no_credential_until_its_certificate_is_pinned() {
     let https = https::Server::start(proxmox).await;
-    let server = Server::new("127.0.0.1", https.port);
+    let server = Server::new("127.0.0.1", port(&https));
     let password = Credentials::from_login("root@pam", "pw");
     match sign_in(&server, &password, Trust::Pinned(None)).await {
         Err(SignInError::Certificate(Refusal::Unconfirmed { presented })) => assert_eq!(presented, https::fingerprint()),
@@ -157,7 +162,7 @@ async fn a_self_signed_server_gets_no_credential_until_its_certificate_is_pinned
         Err(SignInError::Certificate(Refusal::Changed { pinned, presented })) => assert_eq!((pinned, presented), (other, https::fingerprint())),
         other => panic!("{other:?}"),
     }
-    assert_eq!(https.reached(), 0, "no credential left before the certificate was pinned");
+    assert_eq!(https.requests().len(), 0, "no credential left before the certificate was pinned");
 
     let pinned = Trust::Pinned(Some(https::fingerprint()));
     let session = sign_in(&server, &password, pinned).await.unwrap();
@@ -180,8 +185,8 @@ async fn a_self_signed_server_gets_no_credential_until_its_certificate_is_pinned
 
 #[tokio::test]
 async fn refused_credentials_are_rejected() {
-    let https = https::Server::start(|_: &str, _: &str| (401, "{}".into())).await;
-    let server = Server::new("127.0.0.1", https.port);
+    let https = https::Server::start(|_: &Request| (401, "{}".into())).await;
+    let server = Server::new("127.0.0.1", port(&https));
     let pinned = Trust::Pinned(Some(https::fingerprint()));
     for login in ["root@pam", "root@pam!t"] {
         assert_eq!(

@@ -107,6 +107,9 @@ mod downloads;
 mod encoding;
 mod error;
 mod events;
+#[cfg(any(test, feature = "fake"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
+pub mod fake_https;
 mod formats;
 mod future;
 mod graphical;

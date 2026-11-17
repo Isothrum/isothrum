@@ -2,8 +2,6 @@
 
 use std::time::Duration;
 
-pub(crate) mod https;
-
 use isothrum_runner::fake::FakeProcesses;
 use isothrum_runner::{BoxFuture, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec};
 

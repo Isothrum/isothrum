@@ -815,13 +815,11 @@ dependencies = [
  "isothrum-test-support",
  "proptest",
  "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
- "tokio-rustls",
  "ts-rs",
 ]
 

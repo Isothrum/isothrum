@@ -1,5 +1,5 @@
 //! A test's HTTPS server on the loopback, standing for a server whose certificate is self-signed
-//! (`https/server.crt.der`, made once with `openssl req -x509 -newkey ec`): each request answered
+//! (`fake_https/server.crt.der`, made once with `openssl req -x509 -newkey ec`): each request answered
 //! by the test, and every request that reached it kept, so a test tells a request refused before
 //! it was sent.
 
@@ -11,32 +11,34 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use crate::tls::Fingerprint;
 
 /// The server's certificate, DER.
-const CERT: &[u8] = include_bytes!("https/server.crt.der");
+const CERT: &[u8] = include_bytes!("fake_https/server.crt.der");
 
 /// Its key, PKCS #8 DER.
-const KEY: &[u8] = include_bytes!("https/server.key.der");
+const KEY: &[u8] = include_bytes!("fake_https/server.key.der");
 
 /// The server's certificate's fingerprint: what a client pins.
-pub(crate) fn fingerprint() -> Fingerprint {
+#[must_use]
+pub fn fingerprint() -> Fingerprint {
     Fingerprint::of(CERT)
 }
 
 /// One request the server was sent.
 #[derive(Debug, Clone)]
-pub(crate) struct Request {
+pub struct Request {
     /// `GET`, `POST`.
-    pub(crate) method: String,
+    pub method: String,
     /// Its path and query.
-    pub(crate) target: String,
+    pub target: String,
     /// Its headers, names in lower case.
-    pub(crate) headers: Vec<(String, String)>,
+    pub headers: Vec<(String, String)>,
     /// Its body, as text.
-    pub(crate) body: String,
+    pub body: String,
 }
 
 impl Request {
     /// Header `name`'s value (any case), when it was sent.
-    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
         let name = name.to_ascii_lowercase();
         self.headers.iter().find(|(n, _)| *n == name).map(|(_, v)| v.as_str())
     }
@@ -46,16 +48,21 @@ impl Request {
 type Answer = dyn Fn(&Request) -> (u16, String) + Send + Sync;
 
 /// The server, serving until it drops.
-pub(crate) struct Server {
+pub struct Server {
     /// `https://127.0.0.1:<port>`.
-    pub(crate) endpoint: String,
+    pub endpoint: String,
     requests: Arc<Mutex<Vec<Request>>>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Server {
     /// Serves on a free loopback port, each request answered by `answer`.
-    pub(crate) async fn start(answer: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static) -> Server {
+    ///
+    /// # Panics
+    ///
+    /// The loopback has no free port, or the test certificate isn't read: the test's failure.
+    #[expect(clippy::expect_used, reason = "a test server that can't start fails the test that started it")]
+    pub async fn start(answer: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static) -> Server {
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()));
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
@@ -84,7 +91,8 @@ impl Server {
     }
 
     /// The requests that reached it, in order.
-    pub(crate) fn requests(&self) -> Vec<Request> {
+    #[must_use]
+    pub fn requests(&self) -> Vec<Request> {
         self.requests.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }

@@ -266,12 +266,15 @@ pub async fn sign_in(server: &Server, credentials: &Credentials, trust: Trust) -
     }
 }
 
-/// An error and its causes, on one line.
+/// An error and its causes, on one line, each after a colon.
 fn chain(e: &dyn std::error::Error) -> String {
-    std::iter::successors(Some(e), |e| e.source())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(": ")
+    let mut line = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        line = format!("{line}: {c}");
+        cause = c.source();
+    }
+    line
 }
 
 /// A node's cores and memory, as it reports them.
