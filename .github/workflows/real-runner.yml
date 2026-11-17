@@ -82,6 +82,9 @@ jobs:
       TARGET: proxmox
       PROXMOX_VE_ENDPOINT: ${{ secrets.PROXMOX_VE_ENDPOINT }}
       PROXMOX_VE_API_TOKEN: ${{ secrets.PROXMOX_VE_API_TOKEN }}
+      # A self-signed cluster's certificate SHA-256: the runner's own API requests trust it alone
+      # (unset: the system's trust store checks the certificate).
+      PROXMOX_VE_TLS_FINGERPRINT: ${{ vars.PROXMOX_TLS_FINGERPRINT }}
     steps:
       - name: Check out Isothrum (the runner)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
