@@ -49,11 +49,10 @@ pub(crate) async fn serve(stream: Stream, shared: Arc<Shared>) {
     if let Some(subscription) = session.subscription.take() {
         // Once the service stopped, a subscription sends what is kept (its operations' last
         // events), then ends; a client that left has it stopped at once.
-        if *closed.borrow() {
-            drop(subscription.await);
-        } else {
+        if !*closed.borrow() {
             subscription.abort();
         }
+        drop(subscription.await);
     }
     drop(session);
     // What was queued for the client is written before the connection closes.
