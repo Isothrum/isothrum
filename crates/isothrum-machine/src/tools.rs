@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::context::Context;
 use crate::host::{Packages, usual_packages};
 
+pub mod ovftool;
+
 /// A command-line tool as the check found it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
