@@ -16,12 +16,12 @@ use super::ssh::{self, fresh_key};
 use crate::{here, setting, settings};
 
 /// How long the certificate's handshake may take.
-const HANDSHAKE: Duration = Duration::from_secs(10);
+pub(super) const HANDSHAKE: Duration = Duration::from_secs(10);
 /// How long a command on the node may take.
 const LIMIT: Duration = Duration::from_secs(60);
 
 /// The server the settings name, and its certificate's fingerprint as set.
-fn named() -> Result<(Server, Fingerprint), String> {
+pub(super) fn named() -> Result<(Server, Fingerprint), String> {
     let [host, pin] = settings(["ISOTHRUM_TEST_PROXMOX_HOST", "ISOTHRUM_TEST_PROXMOX_FINGERPRINT"])?;
     let port = setting("ISOTHRUM_TEST_PROXMOX_PORT").and_then(|p| p.parse().ok()).unwrap_or(8006);
     let pin = Fingerprint::parse(&pin).ok_or("ISOTHRUM_TEST_PROXMOX_FINGERPRINT isn't a SHA-256")?;
@@ -29,7 +29,7 @@ fn named() -> Result<(Server, Fingerprint), String> {
 }
 
 /// Where the settings say machines go, Proxmox VE's defaults for those not set.
-fn needs() -> Needs {
+pub(super) fn needs() -> Needs {
     let mut needs = Needs::default();
     if let Some(storage) = setting("ISOTHRUM_TEST_PROXMOX_STORAGE") {
         needs.image_storage.clone_from(&storage);
