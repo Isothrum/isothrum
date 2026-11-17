@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use super::*;
 use crate::RunName;
 use crate::process::fake::{CallView as _, FakeProcesses, Reply};
+use crate::project::platform::Protocol;
 use crate::project::{Format, Project as Folder};
 
 const VAGRANTFILE: &str = "Vagrant.configure('2') do |c|\n  c.vm.define ENV.fetch('PROJECT_KEY', 'x') + '-web'\nend\n";
@@ -334,6 +335,28 @@ async fn observe_reads_each_machine_and_the_ports_of_those_running_without_guess
     let db = seen.machines.iter().find(|m| m.name == "db").expect("db");
     assert_eq!((db.state.clone(), db.published.len()), (MachineState::Stopped, 0));
     assert_eq!(state, RunState::Ready, "one made and stopped among running ones reads stopped, the run ready");
+}
+
+/// `vagrant port` doesn't say a forward's protocol: the Vagrantfile's `forwarded_port` line does.
+#[tokio::test]
+async fn observe_takes_a_forwards_protocol_from_its_vagrantfile_line() {
+    let f = Fixture::new();
+    let vagrantfile = "Vagrant.configure('2') do |c|\n  c.vm.define 'dns' do |m|\n    m.vm.network 'forwarded_port', guest: 53, host: ENV.fetch('HOST_PORT_DNS_53_UDP', 10053).to_i, protocol: 'udp'\n    m.vm.network 'forwarded_port', guest: 80, host: 8080\n  end\nend\n";
+    std::fs::write(f.project.dir.join("Vagrantfile"), vagrantfile).expect("its Vagrantfile");
+    let fake = FakeProcesses::script()
+        .expect("vagrant status --machine-readable", Reply::ok("1,dns,state,running\n"))
+        .expect(
+            "vagrant port dns --machine-readable",
+            Reply::ok("1,dns,forwarded_port,22,2222\n1,dns,forwarded_port,53,10053\n1,dns,forwarded_port,80,8080\n"),
+        )
+        .build();
+    let (seen, _) = Vagrant.observe(&cx(&f, &fake, VBOX)).await.expect("observe");
+    let protocols: Vec<_> = seen.machines[0].published.iter().map(|p| (p.guest.get(), p.protocol)).collect();
+    assert_eq!(
+        protocols,
+        [(22, None), (53, Some(Protocol::Udp)), (80, Some(Protocol::Tcp))],
+        "Vagrant's own SSH forward isn't in the file: unknown"
+    );
 }
 
 #[tokio::test]

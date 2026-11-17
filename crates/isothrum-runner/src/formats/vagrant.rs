@@ -13,7 +13,7 @@
 //! | update, provision | `up --provider <p> --provision [machine]` |
 //! | attach, retire | `up --provider <p> <machine>`, `destroy -f <machine>` |
 //! | exec, console | `ssh <machine> -c <command>`; a console is `ssh <machine>` with a terminal |
-//! | observe | `status --machine-readable`, then `port <machine>` of each running one; a machine `not_created` whose VM the store records as made is gone ([`gone`]) |
+//! | observe | `status --machine-readable`, then `port <machine>` of each running one, each forward's protocol from the Vagrantfile's line ([`protocols`]); a machine `not_created` whose VM the store records as made is gone ([`gone`]) |
 //! | found | the dotfile's `machines/<machine>/<provider>/id` |
 //! | machines | the machines `status` lists, whether made or not |
 //! | reapply | `up <added>`, `destroy -f <removed>`, `provision <changed>` |
@@ -38,6 +38,7 @@ mod gone;
 mod lock;
 mod names;
 mod progress;
+mod protocols;
 mod providers;
 mod screen;
 mod utm;
@@ -48,6 +49,7 @@ use std::time::Duration;
 use self::dotfile::{Dotfile, Record};
 use self::failures::vagrant_error;
 use self::lock::{PATIENCE, Rerun, STATUS_PATIENCE, retrying};
+use self::protocols::Declared;
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
 use crate::Result;
 use crate::cli::vagrant::{self, Failure, Provision, Verb};
@@ -410,6 +412,7 @@ impl FormatDriver for Vagrant {
         };
         // A machine destroyed outside the run reads absent, as one never made, but fails the run.
         let gone = gone::gone(cx, &states)?;
+        let declared = cx.project.files.first().map(|f| Declared::of_file(f)).unwrap_or_default();
         for (name, label) in states {
             let state = crate::tool_output::vagrant::machine_state(&label);
             // The provider it was made on, as the dotfile records it (the one asked for, unless a
@@ -424,11 +427,12 @@ impl FormatDriver for Vagrant {
             let mut published = Vec::new();
             if state == MachineState::Running {
                 match retrying(cx.warn, "port", Rerun::Read, STATUS_PATIENCE, || vagrant::port(&read, &name)).await {
-                    // `port` doesn't say a forward's protocol: it is left unknown, never guessed.
+                    // `port` doesn't say a forward's protocol: the Vagrantfile's line does, else
+                    // it is left unknown, never guessed.
                     Ok(forwards) => published.extend(forwards.into_iter().map(|f| SeenPort {
+                        protocol: declared.protocol(&name, f.guest.get()),
                         guest: f.guest,
                         host: f.host,
-                        protocol: None,
                     })),
                     // vagrant-qemu can't list them: its QEMU says them. libvirt can't either, and
                     // ESXi forwards nothing: no port is proven.

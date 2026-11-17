@@ -246,7 +246,8 @@ pub(crate) struct SeenPort {
     pub(crate) guest: crate::port::GuestPort,
     /// The host port it answers at.
     pub(crate) host: crate::port::HostPort,
-    /// `tcp` or `udp`, when the tool says (Vagrant's `port` doesn't): never guessed.
+    /// `tcp` or `udp`, when the tool says, or the project's own file where it doesn't (Vagrant's
+    /// `port`, its `forwarded_port` line): never guessed.
     pub(crate) protocol: Option<crate::project::platform::Protocol>,
 }
 
