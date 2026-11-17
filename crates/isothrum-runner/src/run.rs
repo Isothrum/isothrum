@@ -159,13 +159,22 @@ pub struct Running<'r> {
     project: Project,
     name: RunName,
     driver: AnyFormat,
+    /// The elevated processes every operation of this handle shares, once
+    /// [`Running::sharing_elevation`] asked for it (none: one elevation per operation).
+    elevation: Option<std::sync::OnceLock<std::sync::Arc<dyn crate::process::ProcessRunner>>>,
 }
 
 impl<'r> Running<'r> {
     /// Run `name` of `project` on `runner`.
     pub(crate) fn new(runner: &'r Runner, project: Project, name: RunName) -> Running<'r> {
         let driver = AnyFormat::of(project.format);
-        Running { runner, project, name, driver }
+        Running {
+            runner,
+            project,
+            name,
+            driver,
+            elevation: None,
+        }
     }
 
     /// The run's name.

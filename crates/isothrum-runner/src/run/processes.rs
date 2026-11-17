@@ -9,22 +9,43 @@ use crate::Result;
 use crate::options::RunOptions;
 use crate::process::ProcessRunner;
 
-impl Running<'_> {
+impl<'r> Running<'r> {
+    /// The same run, every operation of this handle sharing one elevation where its hypervisor
+    /// needs one (Hyper-V on Windows): one administrator prompt for an `up` and the `exec` after
+    /// it, say, instead of one per operation. The elevated session ends when the handle drops.
+    #[must_use]
+    pub fn sharing_elevation(self) -> Running<'r> {
+        Running {
+            elevation: Some(std::sync::OnceLock::new()),
+            ..self
+        }
+    }
+
     /// The process runner of an operation: its tools recorded in the run's state folder while they
-    /// run, so a killed operation's are ended by the next ([`crate::process::ledger`]).
+    /// run, so a killed operation's are ended by the next ([`crate::process::ledger`]); elevated
+    /// where its hypervisor needs it, in a session of its own or in the one every operation of a
+    /// handle [sharing its elevation](Running::sharing_elevation) shares.
     pub(super) fn operation_processes(&self, opts: &RunOptions) -> Arc<dyn ProcessRunner> {
         let tools = self.state_dir().join(crate::process::ledger::DIR);
-        let recorded: Arc<dyn ProcessRunner> = Arc::new(crate::process::Recording::new(
-            Arc::clone(&self.runner.config.processes),
-            tools,
-            self.runner.operation_of(&self.name),
-        ));
+        let operation = self.runner.operation_of(&self.name);
+        let base = Arc::clone(&self.runner.config.processes);
         let windows = self.runner.config.host == crate::project::platform::HostOs::Windows;
-        if windows && self.driver.elevates(self.provider(opts)) {
-            let env = self.runner.config.host_env.for_elevation();
-            return Arc::new(crate::process::Elevated::new(recorded, self.state_dir().join("elevated"), env));
+        if !(windows && self.driver.elevates(self.provider(opts))) {
+            return Arc::new(crate::process::Recording::new(base, tools, operation));
         }
-        recorded
+        let elevated = |inner: Arc<dyn ProcessRunner>| -> Arc<dyn ProcessRunner> {
+            let env = self.runner.config.host_env.for_elevation();
+            Arc::new(crate::process::Elevated::new(inner, self.state_dir().join("elevated"), env))
+        };
+        match &self.elevation {
+            // The shared session under each operation's recording, which only adds its variables.
+            Some(shared) => Arc::new(crate::process::Recording::new(
+                Arc::clone(shared.get_or_init(|| elevated(base))),
+                tools,
+                operation,
+            )),
+            None => elevated(Arc::new(crate::process::Recording::new(base, tools, operation))),
+        }
     }
 
     /// The Docker context the run's `docker` calls go to: the one `opts` names, else the one its
@@ -62,5 +83,54 @@ impl Running<'_> {
             .filter(|r| r.scope == crate::store::Scope::Provider && r.native_id.is_some())
             .map(|r| r.key)
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::process::ProcessSpec;
+    use crate::process::fake::{FakeProcesses, Reply};
+    use crate::project::platform::{HostOs, Provider};
+    use crate::testing::{no_ports, processes, runner_config};
+    use crate::{RunName, RunOptions, Runner};
+
+    /// How many times an account's rights to manage Hyper-V were asked, after two operations'
+    /// `vagrant status` on a Hyper-V run of a Windows runner, the handle sharing its elevation or
+    /// not: each elevated session asks once.
+    async fn sessions(share: bool) -> usize {
+        let fake = Arc::new(
+            FakeProcesses::script()
+                .allow(
+                    "whoami /groups",
+                    Reply::ok("\"BUILTIN\\Hyper-V Administrators\",\"Alias\",\"S-1-5-32-578\",\"Enabled group\""),
+                )
+                .allow("vagrant status", Reply::ok(""))
+                .build(),
+        );
+        let root = tempfile::tempdir().expect("a folder");
+        let project = root.path().join("stack");
+        std::fs::create_dir(&project).expect("the project");
+        std::fs::write(project.join("Vagrantfile"), "Vagrant.configure(\"2\") do |config| end\n").expect("its file");
+        let config = runner_config(&root.path().join("home"), processes(&fake), no_ports(), HostOs::Windows);
+        let runner = Runner::new(config).expect("a runner");
+        let run = runner.open(&project, Some(RunName::new("vm").expect("a name"))).expect("opened");
+        let run = if share { run.sharing_elevation() } else { run };
+        let opts = RunOptions::new().with_provider(Provider::Hyperv);
+        for _ in 0..2 {
+            let ran = run
+                .operation_processes(&opts)
+                .run(&ProcessSpec::new("vagrant", ["status"]), &mut |_, _| {})
+                .await;
+            assert!(ran.expect("ran").success());
+        }
+        fake.lines().iter().filter(|l| l.starts_with("whoami")).count()
+    }
+
+    #[tokio::test]
+    async fn a_handle_sharing_its_elevation_opens_one_session_for_all_its_operations() {
+        assert_eq!(sessions(false).await, 2, "one session per operation");
+        assert_eq!(sessions(true).await, 1, "one for the handle");
     }
 }
