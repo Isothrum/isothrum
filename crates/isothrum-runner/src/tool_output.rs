@@ -31,6 +31,7 @@ pub(crate) mod virsh;
 
 pub use az::version as azure_cli_version;
 pub use vagrant::plugins as vagrant_plugins;
+pub use vboxmanage::vms as virtualbox_vms;
 
 /// The failure `program` printed as a record of its own among its standard output (`stdout`),
 /// for the tools that print one: Vagrant's `error-exit` (with `--machine-readable`, Vagrant prints

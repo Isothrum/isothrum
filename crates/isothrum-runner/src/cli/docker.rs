@@ -1,14 +1,9 @@
 //! The Docker adapter: the objects a project's label marks (its containers, networks and volumes,
 //! the anonymous ones included), their removal by id, and the networks a container is on; the
 //! images the engine holds, what a reference stands for, an image's size, and the removal of a
-//! reference; the address blocks the engine's networks hold; and what the running containers use
-//! ([`stats`]).
-
-mod stats;
+//! reference; the address blocks the engine's networks hold.
 
 use std::fmt;
-
-pub(crate) use stats::ContainerStats;
 
 use super::{Call, CliError, argv, said_any};
 use crate::process::Captured;
@@ -102,13 +97,6 @@ pub(crate) async fn remove(call: &Call<'_>, kind: Object, ids: &[String]) -> Res
         | Ok(_) => Ok(()),
         Err(e) => Err(e),
     }
-}
-
-/// What each running container of the engine uses now (`stats --no-stream`, one sample): every
-/// running one, so a container gone since it was listed fails nothing.
-pub(crate) async fn stats(call: &Call<'_>) -> Result<Vec<ContainerStats>, CliError<Failure>> {
-    let out = call.ok(TOOL, argv(["stats", "--no-stream", "--format", "{{json .}}"]), Failure::of).await?;
-    Ok(stats::parse(&out.stdout.join("\n")))
 }
 
 /// The id of every image the engine holds (`image ls --quiet --no-trunc`), each once.

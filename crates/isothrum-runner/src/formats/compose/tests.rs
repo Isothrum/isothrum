@@ -3,7 +3,6 @@ mod engine;
 mod namespaces;
 mod pins;
 mod pulls;
-mod usage;
 
 use std::path::Path;
 
