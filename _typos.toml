@@ -12,6 +12,8 @@ fpr = "fpr"
 Candidat = "Candidat"
 # A login name with an accented letter a test refuses (`caf\u{e9}`).
 caf = "caf"
+# Azure's VM size names (`Standard_D2als_v6`: AMD, low memory, local storage, premium storage).
+als = "als"
 
 [files]
 # A vendor's armoured signing key: base64, not words.

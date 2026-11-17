@@ -47,7 +47,8 @@ const PROVIDERS: [(&str, Cloud); 6] = [
 ];
 
 /// Whether `said`, what a cloud's tool printed, says its sign-in ran out or is missing.
-pub(crate) fn expired(said: &str) -> bool {
+#[must_use]
+pub fn expired(said: &str) -> bool {
     let lower = said.to_ascii_lowercase();
     EXPIRED.iter().any(|s| lower.contains(s))
 }

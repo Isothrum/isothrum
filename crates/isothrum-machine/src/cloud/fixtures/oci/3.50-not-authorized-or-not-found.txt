@@ -1,0 +1,10 @@
+ServiceError:
+{
+    "code": "NotAuthorizedOrNotFound",
+    "message": "Authorization failed or requested resource not found.",
+    "opc-request-id": "00000000000000000000000000000000/00000000000000000000000000000000/00000000000000000000000000000000",
+    "operation_name": "get_compartment",
+    "status": 404,
+    "target_service": "identity",
+    "timestamp": "2026-11-01T10:00:00.000000+00:00"
+}

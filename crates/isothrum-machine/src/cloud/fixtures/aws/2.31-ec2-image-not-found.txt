@@ -1,0 +1,2 @@
+
+An error occurred (InvalidAMIID.NotFound) when calling the RunInstances operation: The image id '[ami-12345678]' does not exist

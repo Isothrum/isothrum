@@ -1,0 +1,2 @@
+
+An error occurred (UnauthorizedOperation) when calling the RunInstances operation: You are not authorized to perform this operation. User: arn:aws:iam::123456789012:user/ada is not authorized to perform: ec2:RunInstances on resource: arn:aws:ec2:eu-west-3:123456789012:instance/* because no identity-based policy allows the ec2:RunInstances action.

@@ -1,0 +1,2 @@
+
+An error occurred (VPCIdNotSpecified) when calling the RunInstances operation: No default VPC for this user. GroupName is only supported for EC2-Classic and default VPC.
