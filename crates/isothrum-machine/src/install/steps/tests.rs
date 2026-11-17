@@ -103,7 +103,8 @@ async fn a_script_stopping_where_it_doesnt_serve_says_which_only_when_its_step_s
         run(tools_2, &[docker()]).await.0,
         Err(StepFailed::Exited {
             program: "pkexec".into(),
-            code: Some(1)
+            code: Some(1),
+            known: None
         })
     );
     let tools_3 = FakeProcesses::script().expect("pkexec", said(NOT_SERVED, "")).build();
@@ -111,7 +112,8 @@ async fn a_script_stopping_where_it_doesnt_serve_says_which_only_when_its_step_s
         run(tools_3, &[step("pkexec", &["sh", "-c", "x"])]).await.0,
         Err(StepFailed::Exited {
             program: "pkexec".into(),
-            code: Some(NOT_SERVED)
+            code: Some(NOT_SERVED),
+            known: None
         })
     );
 }

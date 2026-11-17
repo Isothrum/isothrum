@@ -39,6 +39,8 @@ pub enum NotServed {
     /// Docker's install serves Debian, Ubuntu and the distributions built on them; elsewhere its
     /// user installs Docker Engine from their distribution or Docker's documentation.
     DockerDistribution,
+    /// This edition of Windows (Home) has no Hyper-V to turn on.
+    HypervEdition,
 }
 
 impl Step {

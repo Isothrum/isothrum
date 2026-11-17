@@ -49,6 +49,8 @@ fn hyper_v_is_turned_on_by_dism_elevated_and_refused_on_windows_home() {
     // DISM's "done, restart to finish" (3010) is a success; Home has no Hyper-V to turn on.
     assert!(HYPERV_ON.contains("/FeatureName:Microsoft-Hyper-V") && HYPERV_ON.contains("/NoRestart") && HYPERV_ON.contains("-Verb RunAs"));
     assert!(HYPERV_ON.contains("-eq 3010) { exit 0 }") && HYPERV_ON.contains("EditionID -like 'Core*'"));
+    // Home's refusal is a code a UI words, said by no line of the script's own.
+    assert!(HYPERV_ON.contains(&format!("-like 'Core*') {{ exit {} }}", super::super::steps::NOT_SERVED)) && !HYPERV_ON.contains("Write-Output"));
     assert!(WSL_ON.contains("'--install','--no-distribution'") && WSL_ON.contains("catch { exit 1223 }"));
 }
 

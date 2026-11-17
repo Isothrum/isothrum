@@ -23,7 +23,8 @@ Terraform), usable on any project of those formats.
   and Authenticode signature checked again elevated). What winget's and an installer's codes mean
   is a code a UI words (`exit_codes::Known`: cancelled, no disk space, a policy…), and winget's
   "already installed" and "restart to finish" are done, not failures (`run_step` returns
-  `exit_codes::Done`). Windows on Arm is refused the hypervisors not built for it.
+  `exit_codes::Done`). Windows Home, which has no Hyper-V, stops Hyper-V's step before anything
+  runs (`StepFailed::NotServed`). Windows on Arm is refused the hypervisors not built for it.
 - **isothrum-machine installs and removes tools on macOS: `install::macos`.** Homebrew's formulae,
   the vendors' installers for the apps (Homebrew downloads them, then they open in their own
   window: `macos::fetch_and_open`), HashiCorp's signed and notarized package for VMware's utility

@@ -4,7 +4,7 @@
 //! ([`super::exit_codes::Known::Cancelled`]).
 
 use crate::host::{Arch, HostOs};
-use crate::install::steps::{Step, step};
+use crate::install::steps::{NotServed, Step, step};
 use crate::install::{Dependency, Refusal, vmware_utility};
 use crate::providers::{Provider, ProviderRow};
 
@@ -26,8 +26,9 @@ pub fn winget(verb: &str, id: &str, extra: &[&str]) -> Step {
 const WSL_ON: &str = "try { $p = Start-Process -FilePath wsl.exe -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { exit 1223 }";
 
 /// Turns Hyper-V on with Windows' own servicing tool (DISM), elevated: its "restart to finish"
-/// (3010) is a success. Refused before anything runs on Windows Home, which has no Hyper-V.
-const HYPERV_ON: &str = "if ((Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion').EditionID -like 'Core*') { Write-Output 'This edition of Windows (Home) has no Hyper-V.'; exit 1 }; try { $p = Start-Process -FilePath dism.exe -ArgumentList '/Online','/Enable-Feature','/FeatureName:Microsoft-Hyper-V','/All','/NoRestart','/Quiet' -Verb RunAs -Wait -PassThru; if ($p.ExitCode -eq 3010) { exit 0 }; exit $p.ExitCode } catch { exit 1223 }";
+/// (3010) is a success. On Windows Home, which has no Hyper-V, it stops before anything runs with
+/// [`NOT_SERVED`](super::steps::NOT_SERVED) (69), for a UI to word.
+const HYPERV_ON: &str = "if ((Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion').EditionID -like 'Core*') { exit 69 }; try { $p = Start-Process -FilePath dism.exe -ArgumentList '/Online','/Enable-Feature','/FeatureName:Microsoft-Hyper-V','/All','/NoRestart','/Quiet' -Verb RunAs -Wait -PassThru; if ($p.ExitCode -eq 3010) { exit 0 }; exit $p.ExitCode } catch { exit 1223 }";
 
 /// Why `dep` isn't installed on a CPU `arch`: on Windows on Arm, the hypervisor it is or serves
 /// (VMware's utility serves VMware Workstation) isn't built for it ([`ProviderRow::of`]).
@@ -60,7 +61,9 @@ pub fn install(dep: Dependency, arch: Arch) -> Result<Vec<Step>, Refusal> {
     }
     match dep {
         Dependency::Wsl => Ok(vec![step("powershell", &["-NoProfile", "-Command", WSL_ON])]),
-        Dependency::Hyperv => Ok(vec![step("powershell", &["-NoProfile", "-Command", HYPERV_ON])]),
+        Dependency::Hyperv => Ok(vec![
+            step("powershell", &["-NoProfile", "-Command", HYPERV_ON]).not_served(NotServed::HypervEdition),
+        ]),
         Dependency::VmwareUtility => Ok(vec![vmware_utility::windows_install()]),
         Dependency::Utm
         | Dependency::Libvirt
