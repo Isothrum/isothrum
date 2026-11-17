@@ -159,7 +159,7 @@ pub fn says_denied(said: &str) -> bool {
 }
 
 /// `docker [--context <context>] <args>`.
-fn docker(context: Option<&str>, args: &[&str]) -> ProcessSpec {
+pub(crate) fn docker(context: Option<&str>, args: &[&str]) -> ProcessSpec {
     let on = context.map(|c| ["--context", c]).into_iter().flatten();
     ProcessSpec::new("docker", on.chain(args.iter().copied()))
 }
