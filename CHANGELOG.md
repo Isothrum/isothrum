@@ -34,6 +34,16 @@ Terraform), usable on any project of those formats.
   (`NotReady::Emulator`). The hypervisor self-test asks UTM through it, so
   `selftest::hypervisor::Choices::probe` is gone: the caller no longer probes UTM.
 
+- **isothrum-machine finds and places VMware's OVF Tool: `tools::ovftool`.** `locate` finds the
+  one to use (a hypervisor's own copy, Fusion's or Workstation's, from `Devices::ovftool`; then
+  the caller's folder; then the first on the `PATH` the caller passes), `probe` asks it its
+  version and says whether it needs Rosetta (`Devices::rosetta_runtime`), and `usable` says why
+  it can't be used. `place` copies a downloaded OVF Tool into a folder the caller passes: refused
+  (`Outcome::Refused`) without the program or its libraries, when far too large, or on macOS
+  unless every program and library is signed by VMware's team (`codesign`), whose quarantine is
+  then lifted from the copy only (`xattr`); the copy is swapped in whole, an earlier one kept on a
+  refusal.
+
 - **isothrum-machine works out a guided setup from the machine check: `setup`.** `options`
   says what each choice takes on this computer (WSL 2, each Docker engine, each local hypervisor
   and what Vagrant needs to drive it) as `Action`s a UI renders; `plan` puts them in order for

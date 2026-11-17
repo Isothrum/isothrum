@@ -159,6 +159,14 @@ pub struct Devices {
     /// `virtiofsd` in each folder of `PATH`, then `/usr/libexec/virtiofsd`, then
     /// `/usr/lib/qemu/virtiofsd` (Linux).
     pub virtiofsd: Vec<PathBuf>,
+    /// Where VMware's hypervisors keep their own OVF Tool (`ovftool`), in the order to look:
+    /// Fusion's `Contents/Library/VMware OVF Tool` in `/Applications`, then in `~/Applications`
+    /// (macOS); Workstation's `OVFTool` folder under `%ProgramFiles(x86)%`, then `%ProgramFiles%`
+    /// (Windows). Workstation for Linux puts it in `/usr/bin`, on `PATH`.
+    pub ovftool: Vec<PathBuf>,
+    /// Rosetta 2's runtime (`/Library/Apple/usr/libexec/oah/libRosettaRuntime`), there once it is
+    /// installed (macOS on Apple silicon).
+    pub rosetta_runtime: PathBuf,
 }
 
 /// The port the Vagrant VMware Utility's service listens on.
@@ -182,6 +190,22 @@ fn utm_app(bases: &[PathBuf]) -> PathBuf {
     in_each.into_iter().find(|app| app.exists()).unwrap_or(first)
 }
 
+/// Fusion's OVF Tool in the app bundles under each of `bases` (`/`, then the user's home).
+fn fusion_ovftool(bases: &[PathBuf]) -> Vec<PathBuf> {
+    bases
+        .iter()
+        .map(|b| b.join("Applications/VMware Fusion.app/Contents/Library/VMware OVF Tool/ovftool"))
+        .collect()
+}
+
+/// Workstation's OVF Tool under each of the install folders `bases`.
+fn workstation_ovftool(bases: &[PathBuf]) -> Vec<PathBuf> {
+    bases.iter().map(|b| crate::tools::ovftool::workstation_dir(b).join("ovftool.exe")).collect()
+}
+
+/// Rosetta 2's runtime under `root`.
+const ROSETTA_RUNTIME: &str = "Library/Apple/usr/libexec/oah/libRosettaRuntime";
+
 /// Workstation's `vmrun.exe` under each of the install folders `bases`.
 fn workstation(bases: &[PathBuf]) -> Vec<PathBuf> {
     bases.iter().map(|b| b.join("VMware").join("VMware Workstation").join("vmrun.exe")).collect()
@@ -194,17 +218,20 @@ impl Devices {
         let windows_folder = |var: &str, default: &str| std::env::var_os(var).map_or_else(|| PathBuf::from(default), PathBuf::from);
         let mut mac_bases = vec![PathBuf::from("/")];
         mac_bases.extend(std::env::var_os("HOME").map(PathBuf::from));
+        let program_files: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .map(PathBuf::from)
+            .collect();
         let (vmrun, prlctl) = match os {
             HostOs::Macos => mac_apps(&mac_bases),
-            HostOs::Windows => {
-                let bases: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
-                    .iter()
-                    .filter_map(std::env::var_os)
-                    .map(PathBuf::from)
-                    .collect();
-                (workstation(&bases), Vec::new())
-            }
+            HostOs::Windows => (workstation(&program_files), Vec::new()),
             HostOs::Linux => (Vec::new(), Vec::new()),
+        };
+        let ovftool = match os {
+            HostOs::Macos => fusion_ovftool(&mac_bases),
+            HostOs::Windows => workstation_ovftool(&program_files),
+            HostOs::Linux => Vec::new(),
         };
         let vmware_utility = match os {
             HostOs::Windows => windows_folder("ProgramData", "C:\\ProgramData")
@@ -235,20 +262,26 @@ impl Devices {
             prlctl,
             vhost_user,
             virtiofsd,
+            ovftool,
+            rosetta_runtime: Path::new("/").join(ROSETTA_RUNTIME),
         }
     }
 
     /// Each one under the folder `root`, where a test makes the ones it is about (`root/dev/kvm`,
     /// `root/proc/modules`, `root/Applications/UTM.app`...), none of which exist until it does;
     /// the VMware Utility's service at port 0 of this machine, which nothing answers. The apps'
-    /// tools are under `root` and `root/home` (macOS's), and `root/Program Files (x86)` and
-    /// `root/Program Files` (Workstation's); libvirt's descriptor folders and vagrant-qemu's
+    /// tools (the hypervisors' OVF Tools too) are under `root` and `root/home` (macOS's), and
+    /// `root/Program Files (x86)` and `root/Program Files` (Workstation's); Rosetta's runtime
+    /// under `root`; libvirt's descriptor folders and vagrant-qemu's
     /// virtiofsd fallbacks under `root`, with no `PATH` folder before them.
     #[must_use]
     pub fn under(root: &Path) -> Devices {
         let (fusion, prlctl) = mac_apps(&[root.to_path_buf(), root.join("home")]);
         let mut vmrun = fusion;
-        vmrun.extend(workstation(&[root.join("Program Files (x86)"), root.join("Program Files")]));
+        let program_files = [root.join("Program Files (x86)"), root.join("Program Files")];
+        vmrun.extend(workstation(&program_files));
+        let mut ovftool = fusion_ovftool(&[root.to_path_buf(), root.join("home")]);
+        ovftool.extend(workstation_ovftool(&program_files));
         Devices {
             kvm: root.join("dev/kvm"),
             etc_group: root.join("etc/group"),
@@ -264,6 +297,8 @@ impl Devices {
             prlctl,
             vhost_user: VHOST_USER_DIRS.iter().map(|d| root.join(d.trim_start_matches('/'))).collect(),
             virtiofsd: VAGRANT_QEMU_FALLBACKS.iter().map(|f| root.join(f.trim_start_matches('/'))).collect(),
+            ovftool,
+            rosetta_runtime: root.join(ROSETTA_RUNTIME),
         }
     }
 }
