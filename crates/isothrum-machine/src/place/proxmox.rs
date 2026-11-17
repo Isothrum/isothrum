@@ -20,6 +20,7 @@ use super::host_for_url;
 pub mod api;
 pub mod bootstrap;
 pub mod check;
+pub mod node;
 pub mod placement;
 
 /// The port Proxmox VE's API listens on by default.

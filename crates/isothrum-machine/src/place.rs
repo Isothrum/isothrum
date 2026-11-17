@@ -7,6 +7,7 @@
 
 use std::time::{Duration, Instant};
 
+use isothrum_runner::tls::{Fingerprint, Refusal, Tls, Trust};
 use tokio::net::TcpStream;
 
 pub mod esxi;
@@ -71,6 +72,50 @@ pub async fn connect(host: &str, port: u16, limit: Duration) -> Result<(TcpStrea
 /// As [`connect`].
 pub async fn reach(host: &str, port: u16, limit: Duration) -> Result<Duration, Unreachable> {
     connect(host, port, limit).await.map(|(_, latency)| latency)
+}
+
+/// Why a server's certificate couldn't be read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum NoCertificate {
+    /// No TLS handshake got as far as the certificate (no connection, not TLS, timed out): why.
+    #[error("couldn't read the certificate of {host}:{port}: {why}")]
+    Unread {
+        /// The host asked.
+        host: String,
+        /// The port asked.
+        port: u16,
+        /// Why.
+        why: String,
+    },
+}
+
+/// The SHA-256 fingerprint of the certificate `host` offers on `port`, for a user to confirm
+/// before it is pinned ([`isothrum_runner::tls::Trust::Pinned`]): read from the handshake alone,
+/// which is refused before any request, so nothing is sent to the server.
+///
+/// # Errors
+///
+/// No handshake got as far as the certificate within `limit`.
+pub async fn certificate(host: &str, port: u16, limit: Duration) -> Result<Fingerprint, NoCertificate> {
+    let unread = |why: String| NoCertificate::Unread {
+        host: host.to_owned(),
+        port,
+        why,
+    };
+    let tls = Tls::new(Trust::Pinned(None)).map_err(|e| unread(e.to_string()))?;
+    let http = reqwest::Client::builder()
+        .tls_backend_preconfigured(tls.config().clone())
+        .connect_timeout(limit)
+        .timeout(limit)
+        .build()
+        .map_err(|e| unread(proxmox::chain(&e)))?;
+    let answer = http.get(format!("https://{}:{port}/", host_for_url(host))).send().await;
+    match (tls.refused(), answer) {
+        (Some(Refusal::Unconfirmed { presented } | Refusal::Changed { presented, .. }), _) => Ok(presented),
+        (None, Err(e)) => Err(unread(proxmox::chain(&e))),
+        (None, Ok(_)) => Err(unread("no certificate was offered".to_owned())),
+    }
 }
 
 #[cfg(test)]

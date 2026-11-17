@@ -99,6 +99,57 @@ pub struct Target {
     pub identity: PathBuf,
     /// The host keys confirmed for it ([`known_hosts`]): the only ones accepted.
     pub known_hosts: PathBuf,
+    /// A password to sign in with instead of the key, answered once to ssh's prompt
+    /// ([`Target::with_password`]); none to sign in with the key.
+    pub password: Option<Password>,
+}
+
+/// A password ssh is answered with, through its askpass hook: a script written into `askpass_dir`
+/// (the caller's own folder, never a shared temporary one) that prints the password ssh is given
+/// in its environment. Never shown by `Debug`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Password {
+    /// The password.
+    pub secret: String,
+    /// The folder the askpass script is written to.
+    pub askpass_dir: PathBuf,
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Password").field("askpass_dir", &self.askpass_dir).finish_non_exhaustive()
+    }
+}
+
+/// The variable the askpass script reads the password from.
+const PASSWORD_VAR: &str = "ISOTHRUM_SSH_PASSWORD";
+
+/// The askpass script's file name and contents for this computer's ssh: a `sh` script, or on
+/// Windows (whose OpenSSH can't run one) a `.cmd` printing the password after the line is parsed
+/// (delayed expansion), so `&`, `|` or `%` in it are printed, not run.
+fn askpass_script(windows: bool) -> (&'static str, &'static str) {
+    if windows {
+        (
+            "askpass.cmd",
+            "@echo off\r\nsetlocal EnableDelayedExpansion\r\necho(!ISOTHRUM_SSH_PASSWORD!\r\n",
+        )
+    } else {
+        ("askpass.sh", "#!/bin/sh\nprintf '%s\\n' \"$ISOTHRUM_SSH_PASSWORD\"\n")
+    }
+}
+
+/// Writes the askpass script into `dir`, runnable by its owner only (on unix), and returns its path.
+fn write_askpass(dir: &Path) -> std::io::Result<PathBuf> {
+    let (name, script) = askpass_script(cfg!(windows));
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(name);
+    std::fs::write(&path, script)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(path)
 }
 
 /// A user or host put on a command line: plain characters only, never an option.
@@ -160,6 +211,20 @@ impl Target {
             user: user.into(),
             identity,
             known_hosts,
+            password: None,
+        }
+    }
+
+    /// The same, signing in with `secret` rather than the key, ssh's prompt answered by a script
+    /// written into `askpass_dir`.
+    #[must_use]
+    pub fn with_password(self, secret: impl Into<String>, askpass_dir: PathBuf) -> Target {
+        Target {
+            password: Some(Password {
+                secret: secret.into(),
+                askpass_dir,
+            }),
+            ..self
         }
     }
 
@@ -181,16 +246,24 @@ impl Target {
         if !safe_token(&self.user) {
             return Err(SshError::Invalid("user"));
         }
-        let mut args = vec![
-            "-i".to_owned(),
-            self.identity.to_string_lossy().into_owned(),
-            "-p".to_owned(),
-            self.port.to_string(),
-        ];
-        for option in batch_options(&self.known_hosts) {
+        let mut args = vec!["-p".to_owned(), self.port.to_string()];
+        let options = if self.password.is_some() {
+            // A password is asked through askpass, which batch mode turns off: only the password
+            // is tried, once.
+            let mut options = vec![
+                "PreferredAuthentications=password,keyboard-interactive".to_owned(),
+                "NumberOfPasswordPrompts=1".to_owned(),
+            ];
+            options.extend(batch_options(&self.known_hosts).into_iter().filter(|o| o != "BatchMode=yes"));
+            options
+        } else {
+            args.splice(0..0, ["-i".to_owned(), self.identity.to_string_lossy().into_owned()]);
+            batch_options(&self.known_hosts)
+        };
+        for option in options {
             args.extend(["-o".to_owned(), option]);
         }
-        args.extend([format!("{}@{}", self.user, self.host), command.to_owned()]);
+        args.extend(["--".to_owned(), format!("{}@{}", self.user, self.host), command.to_owned()]);
         Ok(args)
     }
 
@@ -201,7 +274,16 @@ impl Target {
     /// [`SshError::HostKeyRefused`] when ssh refused the server's host key; else why it didn't
     /// answer or failed.
     pub async fn exec(&self, ctx: &Context, command: &str, limit: Duration) -> Result<String, SshError> {
-        let spec = ProcessSpec::new("ssh", self.exec_args(command)?);
+        let mut spec = ProcessSpec::new("ssh", self.exec_args(command)?);
+        if let Some(password) = &self.password {
+            let askpass = write_askpass(&password.askpass_dir)?;
+            spec.env.extend([
+                ("SSH_ASKPASS".to_owned(), askpass.to_string_lossy().into_owned()),
+                ("SSH_ASKPASS_REQUIRE".to_owned(), "force".to_owned()),
+                ("DISPLAY".to_owned(), ":0".to_owned()),
+                (PASSWORD_VAR.to_owned(), password.secret.clone()),
+            ]);
+        }
         let captured = ctx.probe_within(limit, &spec).await?;
         if !captured.success() && captured.stderr_tail.iter().any(|l| l.contains("Host key verification failed")) {
             return Err(SshError::HostKeyRefused { host: self.host.clone() });
