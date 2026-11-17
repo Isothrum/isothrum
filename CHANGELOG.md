@@ -144,11 +144,13 @@ Terraform), usable on any project of those formats.
   same machines ran together and Vagrant refused one. The reads of a run now take turns, and one
   asked while another runs, with the same target and options, takes the next one's answer.
 
-- **`provider_refused` with `need: permission` (`ProviderNeed::Permission`): the system refused
-  the hypervisor's app a permission**, recognized from what Vagrant's provider printed: UTM
-  answering `utmctl start` with `Error from event: … (OSStatus error -2700.) … Operation not
-  permitted`, or macOS refusing the Apple events (`-1743`, in any language). It was
-  `tool_failed`; no wait fixes it, so it is never tried again.
+- **`provider_refused` names what the system refused the hypervisor's app**, recognized from
+  what Vagrant's provider printed: `need: automation` (`ProviderNeed::Automation`) when macOS
+  refused the Apple events that drive it (`-1743`, `Not authorized to send Apple events`, in any
+  language); `need: app_approval` (`ProviderNeed::AppApproval`) when the system never approved
+  the app and refused to run its helper that launches machines (UTM answering `utmctl start`
+  with `Error from event: … (OSStatus error -2700.) … Operation not permitted`). It was
+  `tool_failed`; no wait fixes either, so neither is tried again.
 - **`Client::connect_exact` replaces a service of another build, not only of another release.**
   An app updated in place carries the same release of Isothrum, and the service its old program
   started kept serving the new one. A service now writes its build in `service.json`
