@@ -11,6 +11,15 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **An operation says the steps its format goes through, as typed `step` events.** Compose:
+  `images` (pulled and built), `create`, `start`, `health`; Vagrant: `boxes`, then each machine's
+  `up` and `provision`; Terraform: `init`, `apply`, `ready` (`isothrum_runner::Phase`, whose `id` a
+  step event's `step` is). A step is said when it starts, again as its `count` moves (`done` of
+  `total` images, containers, boxes or resources), and when it ends: `done`, `failed` (the
+  operation's failure is its), or `skipped` (cut short by another's). A machine's step carries the
+  machine as its `label`. Breaking: a step event's `note` is gone, and `StepState::Running` is now
+  `Started`.
+
 - **One operation per run: the service refuses a second instead of queueing it.** An operation
   asked while another of its run is queued or running is refused at once (`locked`, `changed`
   false, the message naming the operation that holds the run), never journaled; `operations` says

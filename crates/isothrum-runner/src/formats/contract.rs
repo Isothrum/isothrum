@@ -131,6 +131,7 @@ impl<M: Model> Bench<M> {
             ports: &crate::formats::NoPorts,
             sink: &quiet,
             warn: &unwarned,
+            steps: crate::steps::Steps::silent(),
             made: crate::formats::NOTHING_MADE,
             fetched: None,
         }

@@ -173,6 +173,12 @@ impl<'a> Emitter<'a> {
                 message: self.mask(&message),
             },
             EventKind::Error(report) => EventKind::Error(report.masked(|t| self.mask(t))),
+            EventKind::Step { step, state, label, count } => EventKind::Step {
+                step,
+                state,
+                label: label.map(|l| self.mask(&l)),
+                count,
+            },
             EventKind::Resource { key, kind, state, native_id } => EventKind::Resource {
                 key: self.mask(&key),
                 kind,
@@ -261,7 +267,8 @@ mod tests {
         e.emit(EventKind::Step {
             step: "down".into(),
             state: crate::events::StepState::Done,
-            note: None,
+            label: None,
+            count: None,
         });
         e.warning(WarningCode::StepTolerated, "a tolerated step failed");
         drop(e);

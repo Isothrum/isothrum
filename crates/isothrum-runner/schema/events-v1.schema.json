@@ -1319,12 +1319,36 @@
       ],
       "type": "object"
     },
+    "StepCount": {
+      "description": "How far a step is: `done` of its `total` items, when the total is known.",
+      "properties": {
+        "done": {
+          "description": "The items done so far.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "description": "How many there are, once the tool says.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "done"
+      ],
+      "type": "object"
+    },
     "StepState": {
       "description": "Where a step stands.",
       "oneOf": [
         {
-          "const": "running",
-          "description": "Started.",
+          "const": "started",
+          "description": "Started, or moved on (said again with its new `count`).",
           "type": "string"
         },
         {
@@ -1334,12 +1358,12 @@
         },
         {
           "const": "failed",
-          "description": "Finished and failed (an `error` follows unless the step's failure is tolerated).",
+          "description": "Finished and failed: the operation's failure is this step's.",
           "type": "string"
         },
         {
           "const": "skipped",
-          "description": "Not run: an earlier step failed.",
+          "description": "Cut short or not run: another step failed.",
           "type": "string"
         }
       ]
@@ -1555,14 +1579,25 @@
       "type": "object"
     },
     {
-      "description": "A step started, finished, failed or was skipped.",
+      "description": "A step started, moved on, finished, failed or was skipped: one of the format's own\n([`crate::Phase`], whose `id` the step is).",
       "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepCount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How far it is, when it counts what it does (images, containers, resources)."
+        },
         "event": {
           "const": "step",
           "type": "string"
         },
-        "note": {
-          "description": "What it does, said when it starts.",
+        "label": {
+          "description": "What it is about, when it is one of several of its kind: a machine.",
           "type": [
             "string",
             "null"
@@ -1573,7 +1608,7 @@
           "description": "Where it stands."
         },
         "step": {
-          "description": "The step's id.",
+          "description": "The step's id ([`crate::Phase::id`]).",
           "type": "string"
         }
       },

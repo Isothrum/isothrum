@@ -1,31 +1,46 @@
 //! What a person reads: an event as a line, and a run's status as a short table.
 
-use isothrum_runner::{EventKind, MachineState, Status, StepState};
+use isothrum_runner::{EventKind, MachineState, Status, StepCount, StepState};
 
 /// An event as a line of text; `None` for those a person needn't see.
 pub(crate) fn human(kind: &EventKind) -> Option<String> {
     Some(match kind {
         EventKind::Step {
             step,
-            state: StepState::Running,
-            note,
-        } => format!("==> {}", note.as_deref().unwrap_or(step)),
+            state: StepState::Started,
+            label,
+            count,
+        } => format!("==> {}", step_said(step, label.as_deref(), *count)),
         EventKind::Step {
             step,
             state: StepState::Failed,
+            label,
             ..
-        } => format!("==> {step}: failed"),
+        } => format!("==> {}: failed", step_said(step, label.as_deref(), None)),
         EventKind::Step {
             step,
             state: StepState::Skipped,
+            label,
             ..
-        } => format!("==> {step}: skipped"),
+        } => format!("==> {}: skipped", step_said(step, label.as_deref(), None)),
         EventKind::Log { line, .. } => format!("    {line}"),
         EventKind::Output { name, value: Some(value), .. } => format!("{name}: {value}"),
         EventKind::Warning { message, .. } => format!("warning: {message}"),
         EventKind::Error(report) => format!("error: {}", report.message),
         _ => return None,
     })
+}
+
+/// A step as a person reads it: its id, what it is about, how far it is (`up dc01`, `images 1/3`).
+fn step_said(step: &str, label: Option<&str>, count: Option<StepCount>) -> String {
+    let label = label.map(|l| format!(" {l}")).unwrap_or_default();
+    let count = count
+        .map(|c| match c.total {
+            Some(total) => format!(" {}/{total}", c.done),
+            None => format!(" {}", c.done),
+        })
+        .unwrap_or_default();
+    format!("{step}{label}{count}")
 }
 
 /// A run's status as text: its state, then a line per machine and its outputs. While an
@@ -72,18 +87,20 @@ mod tests {
 
     #[test]
     fn a_person_sees_steps_logs_outputs_warnings_and_errors_and_nothing_else() {
-        let step = |state: StepState, note: Option<&str>| EventKind::Step {
+        let step = |state: StepState, label: Option<&str>, count: Option<StepCount>| EventKind::Step {
             step: "up".into(),
             state,
-            note: note.map(Into::into),
+            label: label.map(Into::into),
+            count,
         };
         let event = |json: serde_json::Value| -> EventKind { serde_json::from_value(json).unwrap() };
         for (kind, line) in [
-            (step(StepState::Running, Some("Starting…")), Some("==> Starting…")),
-            (step(StepState::Running, None), Some("==> up")),
-            (step(StepState::Failed, None), Some("==> up: failed")),
-            (step(StepState::Skipped, None), Some("==> up: skipped")),
-            (step(StepState::Done, None), None),
+            (step(StepState::Started, Some("dc01"), None), Some("==> up dc01")),
+            (step(StepState::Started, None, Some(StepCount::new(1, Some(3)))), Some("==> up 1/3")),
+            (step(StepState::Started, None, Some(StepCount::new(2, None))), Some("==> up 2")),
+            (step(StepState::Failed, Some("dc01"), None), Some("==> up dc01: failed")),
+            (step(StepState::Skipped, None, None), Some("==> up: skipped")),
+            (step(StepState::Done, None, None), None),
             (
                 event(serde_json::json!({"event": "log", "step": "up", "stream": "stdout", "line": "pulled"})),
                 Some("    pulled"),

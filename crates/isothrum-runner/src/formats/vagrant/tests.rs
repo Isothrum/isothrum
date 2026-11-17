@@ -3,6 +3,7 @@ mod commands;
 mod contract;
 mod needs;
 mod resources;
+mod steps;
 mod utm;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -88,6 +89,7 @@ fn cx<'a>(f: &'a Fixture, fake: &'a FakeProcesses, provider: Option<Provider>) -
         ports: &crate::formats::NoPorts,
         sink: &quiet,
         warn: &*f.warn,
+        steps: crate::steps::Steps::silent(),
         made: crate::formats::NOTHING_MADE,
         fetched: None,
     }

@@ -3,6 +3,7 @@ mod engine;
 mod namespaces;
 mod pins;
 mod pulls;
+mod steps;
 mod unpaused;
 mod usage;
 
@@ -49,6 +50,7 @@ fn cx_warned<'a>(
     // No state folder, no port to pick, no provider: a Compose project's own.
     ToolCx {
         warn,
+        steps: crate::steps::Steps::silent(),
         sink: &quiet,
         made: crate::formats::NOTHING_MADE,
         fetched: None,

@@ -11,7 +11,7 @@ use crate::Result;
 use crate::cli::CliError;
 use crate::cli::compose::{self, Failure};
 use crate::error::{DownloadKind, Error};
-use crate::events::WarningCode;
+use crate::events::{Stream, WarningCode};
 
 /// How long a pull may print nothing before it is stopped: a layer's progress is a line, so a
 /// slow pull that moves runs on.
@@ -35,7 +35,15 @@ impl Compose {
     /// `download_stalled` when a pull printed nothing for [`PULL_STALL`]; `download_failed` when
     /// the registry refused an image, or the network cut every try short; any other tool error.
     pub(super) async fn pull(&self, cx: &ToolCx<'_>) -> Result<()> {
-        let call = cx.call(PULL_LIMIT);
+        // The images step begins here; the start's `up` ends it, its builds counted in.
+        let watch = super::progress::Watch::new(&cx.steps);
+        watch.pulling();
+        let sink = |stream: Stream, line: &str| {
+            watch.see(line);
+            (cx.sink)(stream, line);
+        };
+        let mut call = cx.call(PULL_LIMIT);
+        call.sink = &sink;
         let project = Self::project(cx);
         let mut waits = RETRY_AFTER.iter();
         loop {

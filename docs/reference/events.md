@@ -52,6 +52,18 @@ made before anything acted on it). A step stopped for no progress or at its ceil
 `boxes-<step>`: the boxes a `vagrant up` boots) has no ceiling: stopped for no progress, its code
 is `download_stalled`; failed, `download_failed`.
 
+A `step` is one of the format's own (`isothrum_runner::Phase`), said when it starts, again with
+its new `count` as it moves (`done` of `total`, the total once the tool says it), and once when it
+ends: `done`, `failed` (the operation's failure is its) or `skipped` (cut short or never run:
+another step failed). A step of one machine has the machine as its `label`. Several steps can run
+at once (two machines provisioned side by side).
+
+| Format | Steps, in order | Counted |
+|---|---|---|
+| Compose | `images` (pulled, then built by the `up`), `create` (networks, volumes, containers), `start`, `health` (waited on until healthy, or a one-shot service ended) | images; containers |
+| Vagrant | `boxes` (downloaded), then each machine's `up` and `provision` | boxes |
+| Terraform | `init`, `apply` (resources made, changed or removed), `ready` (the module's provisioners set its machines up) | resources the plan changes |
+
 The tables below are written from the schema. A field marked `?` may be absent or null.
 
 <!-- Written from the schema: don't edit down to the end marker. `ISOTHRUM_WRITE_REFERENCE=1 cargo test -p isothrum-cli reference` writes it. -->
@@ -72,7 +84,7 @@ The tables below are written from the schema. A field marked `?` may be absent o
 | `event` | Fields | Meaning |
 |---|---|---|
 | `state` | `from`, `to` | The run moved from one state to another. |
-| `step` | `note`?, `state`, `step` | A step started, finished, failed or was skipped. |
+| `step` | `count`?, `label`?, `state`, `step` | A step started, moved on, finished, failed or was skipped: one of the format's own (`crate::Phase`, whose `id` the step is). |
 | `log` | `line`, `step`, `stream` | A line a step's tool printed. |
 | `output` | `name`, `sensitive`, `value`? | An output's value, once the run is up. |
 | `warning` | `code`, `message` | Something the embedder may show, that didn't fail the operation. |

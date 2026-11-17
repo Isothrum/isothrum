@@ -27,6 +27,7 @@ mod failures;
 mod fetched;
 mod namespaces;
 mod pins;
+mod progress;
 mod pull;
 mod unpaused;
 mod usage;
@@ -42,6 +43,7 @@ use crate::cli::docker::{self, Object};
 use crate::console::ShellCommand;
 use crate::console::shells;
 use crate::error::Error;
+use crate::events::Stream;
 use crate::state::{Park, RunState};
 use crate::status::MachineState;
 use crate::store::{Lifetime, ResourceKind};
@@ -105,10 +107,24 @@ impl Compose {
     }
 
     /// `up` as `how`, with one recovery: a name the project's leftovers hold is cleared by id, then
-    /// the start is made once more. A taken host port is `port_in_use`.
+    /// the start is made once more. A taken host port is `port_in_use`. Its lines say its steps
+    /// ([`progress`]), done once it went through.
     async fn up_recovering(&self, cx: &ToolCx<'_>, step: &str, how: &Up<'_>) -> Result<()> {
-        let call = cx.call(UP_LIMIT);
-        let first = compose::up(&call, &Self::project(cx), how).await;
+        let watch = progress::Watch::new(&cx.steps);
+        let sink = |stream: Stream, line: &str| {
+            watch.see(line);
+            (cx.sink)(stream, line);
+        };
+        let mut call = cx.call(UP_LIMIT);
+        call.sink = &sink;
+        self.up_watched(cx, &call, step, how).await?;
+        cx.steps.end(true);
+        Ok(())
+    }
+
+    /// [`Compose::up_recovering`]'s calls, through `call`.
+    async fn up_watched(&self, cx: &ToolCx<'_>, call: &crate::cli::Call<'_>, step: &str, how: &Up<'_>) -> Result<()> {
+        let first = compose::up(call, &Self::project(cx), how).await;
         let retry = match first {
             Ok(()) => return Ok(()),
             Err(CliError::Failed {
@@ -121,7 +137,7 @@ impl Compose {
             tracing::info!(run = %cx.run, "a name of the project is taken by what an earlier start left: removing it, then starting again");
             self.remove_labelled(cx).await?;
         }
-        compose::up(&call, &Self::project(cx), how).await.map_err(|e| up_error(step, e))
+        compose::up(call, &Self::project(cx), how).await.map_err(|e| up_error(step, e))
     }
 
     /// Removes every object the project's label marks, containers first (a network or volume a
