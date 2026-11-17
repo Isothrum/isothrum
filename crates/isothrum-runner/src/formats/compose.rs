@@ -38,7 +38,7 @@ use self::failures::engine_error;
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
 use crate::Result;
 use crate::cli::CliError;
-use crate::cli::compose::{self, Exec, Failure, Project, Up, Verb};
+use crate::cli::compose::{self, Exec, Existing, Failure, Project, Up, Verb};
 use crate::cli::docker::{self, Object};
 use crate::console::ShellCommand;
 use crate::console::shells;
@@ -102,7 +102,7 @@ impl Compose {
         let how = Up {
             wait: true,
             remove_orphans: true,
-            build: true,
+            existing: Existing::Rebuilt,
             ..Up::default()
         };
         self.up_recovering(cx, "up", &how).await
@@ -331,7 +331,7 @@ impl FormatDriver for Compose {
         }
         let how = Up {
             wait: true,
-            no_recreate: true,
+            existing: Existing::Kept,
             ..Up::default()
         };
         self.up_recovering(cx, "resume", &how).await?;
@@ -376,7 +376,7 @@ impl FormatDriver for Compose {
         let how = Up {
             services: &services,
             wait: true,
-            build: true,
+            existing: Existing::Rebuilt,
             ..Up::default()
         };
         pins::attach(cx, machine).await?;
