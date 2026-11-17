@@ -85,8 +85,14 @@ pub(crate) fn run_env(program: &str, args: &[&str], env: &[(&str, &str)]) -> Opt
     run_with(program, args, env)
 }
 
-/// [`run`], with the variables `env` added.
+/// [`run`], with the variables `env` added. It runs on a thread of its own, with a runtime of its
+/// own, so an async test (already inside a runtime) can call it too.
 fn run_with(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
+    std::thread::scope(|scope| scope.spawn(|| run_here(program, args, env)).join().expect("the program's thread ends"))
+}
+
+/// [`run_with`], on this thread: one that isn't driving a runtime.
+fn run_here(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
     let mut spec = isothrum_runner::ProcessSpec::new(program, args.iter().copied());
     spec.env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
