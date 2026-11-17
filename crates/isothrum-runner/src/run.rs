@@ -11,7 +11,9 @@ mod ports;
 mod processes;
 pub(crate) mod recovery;
 pub use endpoints::ServiceEndpoint;
+pub use usage::MachineUsage;
 mod status;
+mod usage;
 use status::status_of;
 #[cfg(test)]
 mod tests;

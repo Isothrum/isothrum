@@ -13,7 +13,8 @@
 //! home's files: a run's record (`record`), forgetting it (`forget`), the runs past their lifetime
 //! (`expired`), the way into a machine (`console_command`), its screen (`graphical_console`, whose
 //! tunnel, when it has one, stays open as long as the connection that asked) or its hypervisor's
-//! app (`native_console`), where its published services are reached (`service_endpoints`), the
+//! app (`native_console`), where its published services are reached (`service_endpoints`), what its machines use
+//! (`usage`), the
 //! runner's SSH key (`public_key`), and what the runs' own downloads fetched (`downloads`) and their
 //! removal (`remove_downloads`).
 //!
@@ -36,8 +37,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use isothrum_runner::{
-    Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint,
-    ShellCommand, Status,
+    Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, Format, InputVariable, MachineUsage, NativeConsole, Op, Park, Provider, RunName,
+    ServiceEndpoint, ShellCommand, Status,
 };
 use serde::{Deserialize, Serialize};
 
@@ -254,6 +255,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
         options: OpOptions,
     },
+    /// What each running machine of a run uses now (CPU and memory), as its engine samples it
+    /// once; none for a format whose tool reports no per-machine figure (not queued: it reads).
+    Usage {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The values and secrets its tools are run with.
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
+    },
     /// The public half of the runner's SSH key, one line (the key is made when there is none):
     /// what the client authorizes where a run's SSH goes.
     PublicKey,
@@ -354,6 +367,7 @@ impl Command {
                 | Command::NativeConsole { .. }
                 | Command::PublicKey
                 | Command::ServiceEndpoints { .. }
+                | Command::Usage { .. }
                 | Command::Downloads
                 | Command::RemoveDownloads { .. }
                 | Command::AdoptDownloads { .. }
@@ -550,6 +564,13 @@ pub enum Reply {
         /// The endpoints, by name.
         endpoints: Vec<ServiceEndpoint>,
     },
+    /// To `usage`.
+    Usage {
+        /// The request's id.
+        id: u64,
+        /// Each running machine's use, by name.
+        machines: Vec<MachineUsage>,
+    },
     /// To `public_key`.
     PublicKey {
         /// The request's id.
@@ -637,6 +658,7 @@ impl Reply {
             | Reply::ConsoleClosed { id, .. }
             | Reply::Native { id, .. }
             | Reply::Endpoints { id, .. }
+            | Reply::Usage { id, .. }
             | Reply::PublicKey { id, .. }
             | Reply::Variables { id, .. }
             | Reply::Operations { id, .. }

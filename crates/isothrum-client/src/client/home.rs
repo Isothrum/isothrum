@@ -3,7 +3,7 @@
 //! services are reached, the runner's key, and what the runs' downloads fetched. The client never
 //! opens the home's files.
 
-use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, NativeConsole, RunName, ServiceEndpoint, ShellCommand};
+use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, MachineUsage, NativeConsole, RunName, ServiceEndpoint, ShellCommand};
 
 use super::console::{self, HeldConsole};
 use super::{Client, Reply, Request, Result, unexpected};
@@ -136,6 +136,25 @@ impl Client {
         };
         self.answer(command, |reply| match reply {
             Reply::Endpoints { endpoints, .. } => Ok(endpoints),
+            other => Err(Box::new(other)),
+        })
+        .await
+    }
+
+    /// What each running machine of run `run` uses now (CPU and memory), by name, as its engine
+    /// samples it once; none for a format whose tool reports no per-machine figure.
+    ///
+    /// # Errors
+    ///
+    /// The run's engine doesn't answer, or its answer can't be read; the connection ended.
+    pub async fn usage(&self, run: &RunName, target: Option<Target>, options: OpOptions) -> Result<Vec<MachineUsage>> {
+        let command = Command::Usage {
+            run: run.clone(),
+            target,
+            options,
+        };
+        self.answer(command, |reply| match reply {
+            Reply::Usage { machines, .. } => Ok(machines),
             other => Err(Box::new(other)),
         })
         .await

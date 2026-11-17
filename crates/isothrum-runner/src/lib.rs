@@ -151,7 +151,7 @@ pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFai
 pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
 pub use project::variables::{InputVariable, variables_of};
 pub use project::{Format, Project};
-pub use run::{ExecReport, Running, ServiceEndpoint};
+pub use run::{ExecReport, MachineUsage, Running, ServiceEndpoint};
 pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_host};
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};

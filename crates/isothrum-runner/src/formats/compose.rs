@@ -12,6 +12,7 @@
 //! | exec, console | `exec -T`, or `run --rm` for a service with no container (a profile's one-off); a console is `exec` with a terminal |
 //! | observe | `ps --all --format json` |
 //! | found | the containers, networks and volumes labelled `com.docker.compose.project=<run>` |
+//! | usage | `ps`, then `docker stats --no-stream`: each running service's containers, summed |
 //! | reapply | `up --detach --wait --remove-orphans` on the files: Compose makes or remakes only what changed |
 //!
 //! Recovery: an `up` refused because a name of the project is taken (a container or network an
@@ -181,6 +182,26 @@ impl Compose {
             .map_err(|e| engine_error("status", e))?;
         Ok(all.into_iter().filter(|c| !c.one_off()).collect())
     }
+}
+
+/// What each service's running `containers` use, from the engine's `stats`: a service's
+/// containers summed, a figure none when the engine has it for none of them.
+fn usage_by_service(containers: &[compose::Container], stats: &[docker::ContainerStats]) -> Vec<crate::MachineUsage> {
+    let mut by_service: std::collections::BTreeMap<&str, (Option<f64>, Option<u64>)> = std::collections::BTreeMap::new();
+    for c in containers {
+        let seen = stats.iter().find(|s| s.is(c.id()));
+        let (cpu, memory) = by_service.entry(c.service()).or_default();
+        if let Some(p) = seen.and_then(|s| s.cpu_percent) {
+            *cpu = Some(cpu.unwrap_or(0.0) + p);
+        }
+        if let Some(b) = seen.and_then(|s| s.memory_bytes) {
+            *memory = Some(memory.unwrap_or(0).saturating_add(b));
+        }
+    }
+    by_service
+        .into_iter()
+        .map(|(name, (cpu, memory))| crate::MachineUsage::new(name, cpu, memory))
+        .collect()
 }
 
 /// An `up`'s failure as the runner says it: a taken host port is `port_in_use`, with the port and
@@ -431,6 +452,15 @@ impl FormatDriver for Compose {
         }));
         let state = run_state(&machines);
         Ok((Seen { machines, ..Seen::default() }, state))
+    }
+
+    async fn usage(&self, cx: &ToolCx<'_>) -> Result<Vec<crate::MachineUsage>> {
+        let running: Vec<compose::Container> = self.containers(cx).await?.into_iter().filter(|c| c.runs()).collect();
+        if running.is_empty() {
+            return Ok(Vec::new());
+        }
+        let stats = docker::stats(&cx.read(READ_LIMIT)).await.map_err(|e| tool_error("usage", e))?;
+        Ok(usage_by_service(&running, &stats))
     }
 
     async fn found(&self, cx: &ToolCx<'_>) -> Result<Vec<Found>> {
