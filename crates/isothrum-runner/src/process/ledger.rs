@@ -113,6 +113,13 @@ impl Start {
 #[derive(Debug)]
 pub(crate) struct Recorded {
     path: PathBuf,
+    #[cfg_attr(
+        not(unix),
+        expect(
+            dead_code,
+            reason = "only Unix reads it, to note the members of the tool's process group; a Windows job object ends the tree"
+        )
+    )]
     pid: u32,
 }
 
