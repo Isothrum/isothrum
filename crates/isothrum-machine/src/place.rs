@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 
 pub mod esxi;
 pub mod proxmox;
+pub mod ssh;
 
 /// How long a server may take to accept a connection, or to answer once connected.
 pub const REACH_TIMEOUT: Duration = Duration::from_secs(6);

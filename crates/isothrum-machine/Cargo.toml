@@ -28,6 +28,8 @@ isothrum-runner.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The SHA-256 fingerprints of a server's SSH host keys (`place/ssh/known_hosts.rs`).
+sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
