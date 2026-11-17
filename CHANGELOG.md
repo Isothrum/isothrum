@@ -242,6 +242,11 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **`docker::start_engine` starts nothing when the engine runs already.** It brought Docker
+  Desktop or OrbStack up again (`open -a`, its window in front) and asked Docker Engine's service
+  to start as root (a password prompt, or a failure where `sudo` asks one); an engine whose own
+  context answers is now only pointed at, and reported ready.
+
 - **A machine added to a ready run's files fails no status read before the update that makes it.**
   A status read between that change and the update read the new machine (a Compose service with
   no container) as absent and the run as failed (`not_ready`), so the update was refused as

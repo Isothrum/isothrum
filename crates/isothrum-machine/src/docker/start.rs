@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use super::{Engine, NoAnswer, daemon_os, use_engine};
+use super::{Engine, NoAnswer, daemon_info, daemon_os, engine_context, use_engine};
 use crate::context::Context;
 use crate::host::HostOs;
 use crate::install::Elevation;
@@ -81,6 +81,7 @@ impl std::error::Error for StartFailed {}
 
 /// Starts `engine` ([`start_steps`], each line its steps print handed to `on_line`), points the
 /// Docker CLI at it once its context appears, and waits until its daemon answers this account.
+/// An engine that runs already (its own context answers) is only pointed at: no step runs.
 ///
 /// # Errors
 ///
@@ -90,6 +91,12 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
     // Running already, but not for this account: starting it again can't help.
     if let Err(NoAnswer::Denied(said)) = daemon_os(cx).await {
         return Err(StartFailed::Denied(said));
+    }
+    // Running already: nothing is started again (its app isn't brought up, its service isn't
+    // asked to start as root); the CLI is pointed at it, as after a start.
+    if answers(cx, engine).await {
+        drop(use_engine(cx, engine).await);
+        return Ok(());
     }
     run_steps(cx, &steps, on_line).await.map_err(StartFailed::Step)?;
     let mut last = String::new();
@@ -109,6 +116,14 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
         waited: START_POLL * START_TRIES,
         last,
     })
+}
+
+/// Whether `engine`'s own Docker context answers: it runs already.
+async fn answers(cx: &Context, engine: Engine) -> bool {
+    match engine_context(cx, engine).await {
+        Ok(context) => daemon_info(cx, "{{.OperatingSystem}}", Some(&context)).await.is_ok(),
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]
@@ -190,6 +205,23 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn an_engine_that_runs_already_is_used_and_not_started_again() {
+        // Docker Desktop answers on its own context, the CLI pointed at another: no `open`.
+        let fake = FakeProcesses::script()
+            .expect("docker info --format {{.OperatingSystem}}", Reply::ok("OrbStack"))
+            .expect("docker context ls", Reply::ok("orbstack\ttrue\ndesktop-linux\tfalse"))
+            .expect("docker --context desktop-linux info --format {{.OperatingSystem}}", Reply::ok("Docker Desktop"))
+            .expect("docker context use desktop-linux", Reply::ok("desktop-linux"))
+            .build();
+        let mut said = Vec::new();
+        let started = start_engine(&cx(HostOs::Macos, fake), Engine::DockerDesktop, Elevation::Prompt, &mut |l| {
+            said.push(l.to_owned());
+        })
+        .await;
+        assert_eq!((started, said), (Ok(()), Vec::<String>::new()));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_daemon_refusing_this_account_is_not_started_again() {
         let fake = FakeProcesses::script()
             .expect(
@@ -220,6 +252,11 @@ mod tests {
         let fake = FakeProcesses::script()
             .expect(
                 "docker info --format {{.OperatingSystem}}",
+                Reply::fail(1, "Cannot connect to the Docker daemon"),
+            )
+            .expect("docker context ls", Reply::ok("default\ttrue"))
+            .expect(
+                "docker --context default info --format {{.OperatingSystem}}",
                 Reply::fail(1, "Cannot connect to the Docker daemon"),
             )
             .expect("pkexec systemctl start docker", Reply::missing())
