@@ -4,6 +4,8 @@
 //! - `check`: every check a change must pass, one command (`--fast` for the short list);
 //! - `schema`: the JSON Schemas of the event stream and of a run's status, written to
 //!   `crates/isothrum-runner/schema/`;
+//! - `e2e`: isothrum-machine against this computer's real tools (`--tier machine`) or the test
+//!   servers its settings name (`--tier server`), a JSON line per test in `--results`;
 //! - `real-run`: an Isoloom example generated for Docker with the local Isoloom, then the ignored
 //!   real-run test against it (up, status, check, park, resume, down), the event stream kept
 //!   under `target/real-run/`;
@@ -32,6 +34,7 @@
 mod check;
 #[cfg(all(test, unix))]
 mod ci_scripts;
+mod e2e;
 #[cfg(test)]
 mod guardrails;
 mod hack;
@@ -67,6 +70,10 @@ enum Task {
     Check(check::Args),
     /// Writes the JSON Schemas of the event stream and of a run's status.
     Schema,
+    /// isothrum-machine against real tools (`--tier machine`) or real servers (`--tier server`),
+    /// each test recorded as a JSON line (`--results`); a test whose tool or server isn't there
+    /// skips, saying why.
+    E2e(e2e::Args),
     /// Runs an Isoloom example on this host's Docker through the `isothrum` command line.
     RealRun(real_run::Args),
     /// The ratchet: every clean-code count per crate against quality-baseline.json; fails when
@@ -98,6 +105,7 @@ fn run(cli: Cli) -> Res<ExitCode> {
     match cli.task {
         Task::Check(a) => Ok(check::run(&a)),
         Task::Schema => schema::write().map(|()| ExitCode::SUCCESS),
+        Task::E2e(a) => e2e::run(&a),
         Task::RealRun(a) => real_run::run(&a).map(|()| ExitCode::SUCCESS),
         Task::Quality(a) => quality::run(&a),
         Task::Test(a) => test::run(&a),

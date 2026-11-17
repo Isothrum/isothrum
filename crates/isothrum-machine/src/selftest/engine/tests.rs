@@ -144,14 +144,3 @@ async fn a_held_image_is_not_pulled_and_a_failed_step_ends_the_test_which_still_
         "taken down all the same"
     );
 }
-
-#[tokio::test]
-#[ignore = "needs a container engine"]
-async fn the_test_passes_on_this_computers_engine() {
-    let cx = Context::here(Arc::new(isothrum_runner::SystemProcesses::default())).await;
-    let dir = tempfile::tempdir().expect("a folder");
-    let said = Mutex::new(Vec::new());
-    let sink = |p: StepProgress| said.lock().unwrap_or_else(PoisonError::into_inner).push(p);
-    let ran = run(&cx, dir.path(), None, &sink).await;
-    assert_eq!((ran.passed, ran.cleaned_up), (Ok(()), Ok(())), "{said:?}");
-}
