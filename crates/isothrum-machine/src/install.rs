@@ -201,6 +201,16 @@ impl Dependency {
     }
 }
 
+/// The step that installs the Vagrant plugin `plugin` (for this account, no administrator), when
+/// `plugin` names one: only ever a `vagrant-*` / `vagrant_*` identifier, never an option or a path.
+#[must_use]
+pub fn vagrant_plugin(plugin: &str) -> Option<Step> {
+    let named = (plugin.starts_with("vagrant-") || plugin.starts_with("vagrant_"))
+        && plugin.len() <= 64
+        && plugin.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    named.then(|| step("vagrant", &["plugin", "install", plugin]))
+}
+
 /// How a step that needs an administrator is elevated (Linux). With someone there to answer,
 /// pkexec's password prompt; with nobody (a script, a machine set up unattended), no prompt may
 /// be raised: as is when the process is root already, else through `sudo -n`, refused at once
