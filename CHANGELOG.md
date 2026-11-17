@@ -28,6 +28,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **Who holds a taken host port: `isothrum_machine::net::port_holder(cx, port, protocol)`.** The
+  process listening on it (its program's name and pid, `PortHolder`), as the system's own tools
+  say (`lsof`, then `ss`; PowerShell on Windows), each within `HOLDER_LOOKUP`; none when no tool
+  names one. The lookup a run's `port_in_use` already names its holder with, now public
+  (`isothrum_runner::port_holder`), so a caller that found a port taken before it acts says who
+  holds it too.
 - **Whether a host port is free: `isothrum_machine::net::port_free(port, protocol)`.** A socket
   bound on the loopback and let go at once (for TCP, nothing answering there either, so a listener
   on every address counts on macOS too): a caller checks a port it is about to publish before it

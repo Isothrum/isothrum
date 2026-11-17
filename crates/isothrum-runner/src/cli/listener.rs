@@ -1,11 +1,31 @@
 //! Who listens on a host port: `lsof` (macOS, Linux), `ss` where `lsof` isn't (Linux), PowerShell's
-//! `Get-NetTCPConnection` / `Get-NetUDPEndpoint` (Windows). Asked only once a run failed for a
-//! taken port, best-effort: a lookup that fails or finds nothing names no one.
+//! `Get-NetTCPConnection` / `Get-NetUDPEndpoint` (Windows). Asked once a run failed for a taken
+//! port, or by an embedder about a port it found taken ([`port_holder`]), best-effort: a lookup
+//! that fails or finds nothing names no one.
+
+use std::time::Duration;
 
 use super::{Call, argv};
 use crate::error::PortHolder;
 use crate::port::HostPort;
+use crate::process::ProcessRunner;
 use crate::project::platform::Protocol;
+
+/// The process listening on this computer's host `port` (`protocol`), asked of the system's own
+/// tools through `processes`, each given `limit`: when one is found. Best-effort: none when no tool
+/// answers or names a process (`ss` run without root names none, nor does a listener of another
+/// user's on some systems).
+pub async fn port_holder(processes: &dyn ProcessRunner, port: HostPort, protocol: Protocol, limit: Duration) -> Option<PortHolder> {
+    let call = Call {
+        runner: processes,
+        cwd: None,
+        env: Vec::new(),
+        limit,
+        sink: &crate::formats::discard,
+        host_env: &crate::host_env::EMPTY,
+    };
+    holder(&call, port, protocol).await
+}
 
 /// The process listening on host `port` (`protocol`), when one is found.
 pub(crate) async fn holder(call: &Call<'_>, port: HostPort, protocol: Protocol) -> Option<PortHolder> {
@@ -122,5 +142,22 @@ mod tests {
             .build();
         let call = crate::cli::testing::call(&fake);
         assert_eq!(holder(&call, HostPort::new(8080), Protocol::Tcp).await, Some(PortHolder::new(77, "caddy")));
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn an_embedder_asks_who_holds_a_port_and_a_lookup_that_finds_none_names_no_one() {
+        use crate::process::fake::{FakeProcesses, Reply};
+        let limit = Duration::from_secs(4);
+        let fake = FakeProcesses::script().expect("lsof -nP -iUDP:53", Reply::ok("p91\ncdnsmasq\n")).build();
+        assert_eq!(
+            port_holder(&fake, HostPort::new(53), Protocol::Udp, limit).await,
+            Some(PortHolder::new(91, "dnsmasq"))
+        );
+        let none = FakeProcesses::script()
+            .expect("lsof -nP -iTCP:8080", Reply::missing())
+            .expect("ss -H -ltnp", Reply::ok("LISTEN 0 4096 *:8080 *:*"))
+            .build();
+        assert_eq!(port_holder(&none, HostPort::new(8080), Protocol::Tcp, limit).await, None);
     }
 }
