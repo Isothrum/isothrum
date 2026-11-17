@@ -27,7 +27,7 @@ fn machine(m: &Mutex<Machine>, call: &Call) -> Reply {
     match (call.program.as_str(), args.as_slice()) {
         ("vagrant", ["--version"]) => Reply::ok("Vagrant 2.4.9"),
         ("vagrant", ["plugin", "list", "--machine-readable"]) => {
-            Reply::ok("1,,plugin-name,vagrant-qemu\n1,vagrant-qemu,plugin-version,0.3.6%!(VAGRANT_COMMA) global")
+            Reply::ok("1,,plugin-name,vagrant-vmware-esxi\n1,vagrant-vmware-esxi,plugin-version,2.5.5%!(VAGRANT_COMMA) global")
         }
         ("vagrant", ["box", "list"]) => Reply::ok("generic/alpine319 (virtualbox, 4.3.12)\n"),
         ("vagrant", ["up", ..]) if m.boot_fails => Reply::fail(1, "VBoxManage: error: VT-x is not available (VERR_VMX_NO_VMX)"),
@@ -161,10 +161,11 @@ async fn a_boot_that_fails_ends_the_test_and_the_vm_still_goes() {
 
 #[tokio::test]
 async fn a_hypervisor_with_no_private_network_skips_the_ping() {
-    let (said, ran, _) = tested(Provider::Qemu, false).await;
+    // ESXi's plugin gives no private network, and runs on every system the test runs on.
+    let (said, ran, _) = tested(Provider::VmwareEsxi, false).await;
     assert_eq!(ran.passed, Ok(()), "{said:?}");
     assert!(
-        said.contains(&Progress::Skipped(Step::Network, Found::NoPrivateNetwork(Provider::Qemu))),
+        said.contains(&Progress::Skipped(Step::Network, Found::NoPrivateNetwork(Provider::VmwareEsxi))),
         "{said:?}"
     );
 }
