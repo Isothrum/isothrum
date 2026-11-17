@@ -203,7 +203,10 @@ runs are separate and opt-in:
   server, a Proxmox VE node, an ESXi host. Each test runs alone and leaves the machine and the
   server as it found them; one whose tool or server isn't there skips, saying why, and never
   fails. `--results <file>` appends a JSON line per test (`suite`, `tier`, `case`, `result`:
-  `pass`, `fail` or `skip`, `reason`, `seconds`, `log`), its log beside the file.
+  `pass`, `fail` or `skip`, `reason`, `seconds`, `log`), its log beside the file. On a machine
+  without Rust's toolchain (a test VM), `--exe <file>` runs the `real` tests' executable built
+  elsewhere (`cargo test --no-run`, cross-built for Windows) in place of `cargo test`, and the
+  xtask built for that machine runs them.
 - The manual *Cert — real runner* workflow (`real-runner.yml`) runs Proxmox and AWS from CI, when
   its runner and secrets are configured.
 

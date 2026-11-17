@@ -5,11 +5,14 @@
 //! to): `{"suite":"e2e","tier":…,"case":…,"result":"pass|fail|skip","reason":…,"seconds":…,"log":…}`.
 //! A test skips, saying why, when its tool or server isn't there (a line [`SKIP`] starts); a
 //! skip fails nothing. The task fails when a test fails.
+//!
+//! On a machine without Rust's toolchain (a test VM), `--exe` names the `real` tests' executable,
+//! built elsewhere (`cargo test --no-run`), which runs in place of `cargo test`.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::time::Instant;
 
 use crate::{Res, process, repo};
@@ -49,6 +52,10 @@ pub(crate) struct Args {
     /// (default: the build folder's `e2e/`, no results file).
     #[arg(long)]
     results: Option<PathBuf>,
+    /// The `real` tests' executable, built already: run instead of building them with `cargo
+    /// test` (a machine without Rust's toolchain).
+    #[arg(long)]
+    exe: Option<PathBuf>,
     /// Only the tests whose name holds this.
     filter: Option<String>,
 }
@@ -63,8 +70,10 @@ struct Outcome {
 /// Builds the tests, then runs each of the tier's, recording each; fails when one failed.
 pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
     let root = repo::root();
-    process::run(real_tests(&root).arg("--no-run"))?;
-    let listed = process::output(real_tests(&root).args(["--", "--ignored", "--list", "--format", "terse"]))?;
+    if a.exe.is_none() {
+        process::run(real_tests(&root).arg("--no-run"))?;
+    }
+    let listed = process::output(&mut harness(&root, a.exe.as_deref(), &["--ignored", "--list", "--format", "terse"]))?;
     let tests = tier_tests(&listed, a.tier, a.filter.as_deref());
     if tests.is_empty() {
         return Err(format!(
@@ -84,7 +93,7 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         let case = test.strip_prefix(&format!("{}::", a.tier.name())).unwrap_or(test);
         let log = logs.join(format!("isothrum-{}-{}.log", a.tier.name(), case.replace("::", ".")));
         let start = Instant::now();
-        let passed = run_one(&root, test, &log)?;
+        let passed = run_one(harness(&root, a.exe.as_deref(), &["--ignored", "--exact", "--nocapture", test]), &log)?;
         let outcome = outcome(passed, &std::fs::read_to_string(&log).unwrap_or_default());
         let ran = Ran {
             tier: a.tier,
@@ -109,21 +118,30 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
 }
 
 /// `cargo test` of the `real` tests.
-fn real_tests(root: &Path) -> std::process::Command {
+fn real_tests(root: &Path) -> Command {
     let mut cmd = process::cargo(root);
     cmd.args(["test", "-q", "-p", "isothrum-machine", "--test", "real"]);
     cmd
 }
 
-/// Runs `test` alone, its output in `log`: whether it passed.
-fn run_one(root: &Path, test: &str, log: &Path) -> Res<bool> {
+/// The `real` tests' harness with its own arguments `args`: `exe` when given, else `cargo test`.
+fn harness(root: &Path, exe: Option<&Path>, args: &[&str]) -> Command {
+    let mut cmd = if let Some(exe) = exe {
+        Command::new(exe)
+    } else {
+        let mut cmd = real_tests(root);
+        cmd.arg("--");
+        cmd
+    };
+    cmd.args(args);
+    cmd
+}
+
+/// Runs `cmd` (one test, alone), its output in `log`: whether it passed.
+fn run_one(mut cmd: Command, log: &Path) -> Res<bool> {
     let out = File::create(log).map_err(|e| format!("{}: {e}", log.display()))?;
     let err = out.try_clone()?;
-    let mut cmd = real_tests(root);
-    cmd.args(["--", "--ignored", "--exact", "--nocapture", test])
-        .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err);
+    cmd.stdin(Stdio::null()).stdout(out).stderr(err);
     process::passed(&mut cmd)
 }
 
