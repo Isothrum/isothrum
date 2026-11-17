@@ -25,9 +25,41 @@ fn a_start_reads_back_and_is_its_process_within_the_second_the_os_rounds_to() {
 fn an_entry_names_the_container_its_tool_runs_in() {
     let start = Start::At(1_794_415_415);
     let named = entry_text(4242, &start, Some("isothrum-tool-1"));
-    assert_eq!(parse_entry(&named), Some((4242, start.clone(), Some("isothrum-tool-1".to_owned()))));
-    assert_eq!(parse_entry(&entry_text(4242, &start, None)), Some((4242, start, None)));
+    let entry = |container: Option<&str>, members| Entry {
+        pid: 4242,
+        start: start.clone(),
+        container: container.map(str::to_owned),
+        members,
+    };
+    assert_eq!(parse_entry(&named), Some(entry(Some("isothrum-tool-1"), vec![])));
+    assert_eq!(parse_entry(&entry_text(4242, &start, None)), Some(entry(None, vec![])));
     assert_eq!(parse_entry("4242"), None);
+}
+
+#[test]
+fn an_entry_reads_back_the_members_of_its_tools_group_and_skips_a_line_cut_short() {
+    let start = Start::At(1_794_415_415);
+    let text = format!("{}4243 at:1794415416\n4244 boot:b:77\n4245 at:", entry_text(4242, &start, None));
+    let read = parse_entry(&text).unwrap();
+    assert_eq!(read.container, None, "a member's line is no container");
+    assert_eq!(
+        read.members,
+        [(4243, Start::At(1_794_415_416)), (4244, Start::Boot { boot: "b".into(), ticks: 77 })]
+    );
+}
+
+#[test]
+fn a_group_reads_from_proc_and_from_ps() {
+    let stat = "4243 (terraform-provider (x)) S 4242 4242 4200 0 -1 4194560 120 0 0 0 0 0 0 0 20 0 1 0 987654";
+    assert_eq!(stat_group(stat), Some(4242));
+    assert_eq!(stat_group("4243 (sh) S 1"), None);
+    // `TZ=UTC LC_ALL=C ps -A -o pid=,pgid=,lstart=`.
+    let ps = "    1     1 Wed Nov 11 16:00:00 2026\n 4242  4242 Wed Nov 11 16:43:35 2026\n 4243  4242 Wed Nov 11 16:43:36 2026\n 4244  4300 Wed Nov 11 16:43:37 2026\n 4245  4242 garbled\n";
+    assert_eq!(
+        ps_group(ps, 4242),
+        [(4243, Start::At(1_794_415_416))],
+        "its members only, the tool itself aside"
+    );
 }
 
 #[test]
@@ -98,6 +130,98 @@ async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
     drop(mine);
     drop(owned);
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "the ended tool's entry went with it");
+}
+
+/// A tool (`sh`) in a process group of its own that started a process of its group (`sleep`), as
+/// Terraform starts its provider plugin, guarded; with the id of what it started. A shell's
+/// background process ignores SIGINT: what it started takes it back, as a plugin does.
+#[cfg(unix)]
+fn tool_with_a_member(home: &Path, name: &str) -> (isothrum_test_support::ChildGuard, isothrum_test_support::PidGuard) {
+    let file = home.join(name);
+    let script = format!(
+        "perl -e '$SIG{{INT}} = \"DEFAULT\"; exec @ARGV' sleep 600 & echo $! > '{}'; wait",
+        file.display()
+    );
+    let tool = isothrum_test_support::ChildGuard::spawn(std::process::Command::new("sh").args(["-c", &script])).unwrap();
+    assert!(isothrum_test_support::wait_until(Duration::from_secs(10), || {
+        isothrum_test_support::read_pid(&file).is_some()
+    }));
+    let member = isothrum_test_support::PidGuard::from_file(&file).unwrap();
+    (tool, member)
+}
+
+/// Writes the entry `dead-<leader>.tool` of `dir`, recorded by a process that has died: the
+/// tool `leader` with its `start`, and the `members` of its group, each with its start.
+#[cfg(unix)]
+fn dead_entry(dir: &Path, leader: u32, start: &str, members: &[(u32, String)]) {
+    crate::store::private_dir(dir).unwrap();
+    std::fs::write(dir.join("dead.owner"), "").unwrap();
+    let lines = members.iter().map(|(pid, started)| format!("{pid} {started}\n")).collect::<Vec<_>>().concat();
+    std::fs::write(dir.join(format!("dead-{leader}.tool")), format!("{leader} {start}\n{lines}")).unwrap();
+}
+
+/// Regression: a process killed while Terraform applied left Terraform's provider plugin
+/// running: Terraform went with it, and a group whose leader was gone was left alone, so the
+/// next `terraform init` failed with "text file busy". What the tool started, recorded while it
+/// ran, is ended once the tool is gone.
+#[cfg(unix)]
+#[tokio::test]
+async fn what_a_dead_owners_tool_started_is_ended_once_the_tool_is_gone() {
+    use nix::sys::signal::{Signal, kill};
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(DIR);
+    let (mut tool, member) = tool_with_a_member(home.path(), "member.pid");
+    let leader = tool.id();
+    left_by_a_killed_process(&dir, leader).unwrap();
+    let entry = dir.join(format!("dead-{leader}.tool"));
+    let mut noted = Vec::new();
+    note_members(&entry, leader, &mut noted).await;
+    assert_eq!(noted.iter().map(|m| m.0).collect::<Vec<_>>(), [member.id()], "what the tool started, recorded");
+    note_members(&entry, leader, &mut noted).await;
+    assert_eq!(parse_entry(&std::fs::read_to_string(&entry).unwrap()).unwrap().members, noted, "recorded once");
+
+    // The tool killed outright, as the process that ran it was, and reaped.
+    kill(nix::unistd::Pid::from_raw(i32::try_from(leader).unwrap()), Signal::SIGKILL).unwrap();
+    assert!(isothrum_test_support::wait_until(Duration::from_secs(10), || tool
+        .try_wait()
+        .unwrap()
+        .is_some()));
+    assert!(isothrum_test_support::alive(member.id()), "what it started runs on");
+
+    let asked = std::time::Instant::now();
+    assert_eq!(end_orphans(&dir).await, [leader]);
+    assert!(asked.elapsed() < GRACE, "it stopped when asked, not killed after the grace");
+    assert!(
+        isothrum_test_support::wait_until(Duration::from_secs(10), || !isothrum_test_support::alive(member.id())),
+        "what the tool started was ended"
+    );
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "its entry and its owner's gone");
+}
+
+/// A group is ended only on a member's proof: a member recorded whose id now names another
+/// process (a reused id), and one that is the very process recorded but no longer in the group
+/// (a foreign group), leave the group and themselves alone.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_group_no_recorded_member_proves_is_left_alone() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(DIR);
+    // A group with a member, each recorded as started at the epoch: their ids reused since.
+    let (reused, reused_member) = tool_with_a_member(home.path(), "reused.pid");
+    dead_entry(&dir, reused.id(), "at:1", &[(reused_member.id(), "at:1".to_owned())]);
+    // A process recorded as it is, but as a member of a group it isn't in (this test's id, once
+    // another process's).
+    let foreign = tool();
+    let foreign_start = os_start(foreign.id()).await.unwrap().entry_text();
+    let me = std::process::id();
+    dead_entry(&dir, me, "at:1", &[(foreign.id(), foreign_start)]);
+
+    let none: [u32; 0] = [];
+    assert_eq!(end_orphans(&dir).await, none);
+    for pid in [reused.id(), reused_member.id(), foreign.id()] {
+        assert!(isothrum_test_support::alive(pid), "{pid} runs on");
+    }
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the entries are gone all the same");
 }
 
 #[tokio::test]

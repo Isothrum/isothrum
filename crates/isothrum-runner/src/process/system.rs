@@ -134,9 +134,14 @@ impl SystemProcesses {
             recorded,
             removal,
         };
-        let status = match tree.child.as_deref_mut() {
-            Some(started) => lines::forward_lines(started, on_line).await.map_err(io)?,
-            None => return Err(io(std::io::Error::other("the process went away"))),
+        let Some(started) = tree.child.as_deref_mut() else {
+            return Err(io(std::io::Error::other("the process went away")));
+        };
+        // While it runs, what it starts in its group is recorded beside it.
+        let status = tokio::select! {
+            biased;
+            status = lines::forward_lines(started, on_line) => status.map_err(io)?,
+            never = ledger::note_group(tree.recorded.as_ref()) => match never {},
         };
         // It exited on its own: what it left running is its business.
         tree.child = None;

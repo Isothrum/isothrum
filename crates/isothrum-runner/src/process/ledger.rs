@@ -13,6 +13,10 @@
 //!   boot and the boot's id; elsewhere: when it was started, read from this computer's clock the
 //!   moment it was, which the OS stored then too). The entry goes when the tool ends (cut short:
 //!   once it was ended).
+//! - While it runs, the processes of its group other than the tool itself (what it started: a
+//!   Terraform provider plugin) are added to its entry, each with its id and start, every few
+//!   seconds ([`note_group`]): the proof, once the tool itself is gone, that its group is the
+//!   very one recorded.
 //! - `<owner>` is the recording process's token: that process holds `<owner>.owner` locked for as
 //!   long as it lives, and the OS releases the lock when it dies, however it dies. An entry whose
 //!   owner's lock can be taken is a dead process's.
@@ -20,13 +24,18 @@
 //!   process left (its process group asked to stop, as a cut-short tool is, then killed; on
 //!   Windows its tree, `taskkill /T /F`), removes the container it ran in when its entry names
 //!   one (`docker rm -f`: ending the `docker` client leaves its container running), and removes
-//!   the entries. It ends only the very process
-//!   that was recorded: one whose id now names another process (a later start, another program)
-//!   is left alone, and so is a group whose leader is gone, which can't be told from another.
+//!   the entries. It ends only the very group that was recorded: when the tool is still the
+//!   process recorded, its group; when the tool is gone (Terraform killed with its embedder, its
+//!   provider plugin left running), its group still, if a member of it recorded is still there,
+//!   the very process recorded, and still in it: a group's id isn't another group's while a
+//!   process of it lives. A recorded id that now names another process (a later start, another
+//!   program), and a group none of whose recorded members is still in it, are left alone.
 //! - On Windows a tool's job object already ends its tree when this process dies (the
-//!   runner's `job` module): its entry is the backstop, for a tree the job didn't hold.
+//!   runner's `job` module), the tool itself there or not: nothing it started is left, and its
+//!   entry is the backstop for the tool alone.
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -55,6 +64,10 @@ const GRACE: Duration = super::stopping::GRACE;
 /// How often a tool left behind is checked for having stopped.
 #[cfg(unix)]
 const STOP_POLL: Duration = Duration::from_millis(100);
+
+/// How often a running tool's group is read for the processes it started ([`note_group`]).
+#[cfg(unix)]
+const GROUP_POLL: Duration = Duration::from_secs(2);
 
 /// A tool's start, as recorded and as the OS has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,9 +109,12 @@ impl Start {
     }
 }
 
-/// One tool recorded: its entry, removed when this drops.
+/// One tool recorded: its entry, removed when this drops, and its id.
 #[derive(Debug)]
-pub(crate) struct Recorded(PathBuf);
+pub(crate) struct Recorded {
+    path: PathBuf,
+    pid: u32,
+}
 
 impl Recorded {
     /// Records the tool `pid` just started in `dir`, with the `container` it runs in, if any. A
@@ -123,7 +139,7 @@ impl Recorded {
             Ok(path)
         });
         match written {
-            Ok(path) => Some(Recorded(path)),
+            Ok(path) => Some(Recorded { path, pid }),
             Err(e) => {
                 tracing::warn!(error = %e, dir = %dir.display(), "a tool couldn't be recorded: a killed operation would leave it running");
                 None
@@ -134,7 +150,48 @@ impl Recorded {
 
 impl Drop for Recorded {
     fn drop(&mut self) {
-        remove_entry(&self.0);
+        remove_entry(&self.path);
+    }
+}
+
+/// Adds to `recorded`'s entry, every [`GROUP_POLL`] for as long as it is polled (while its tool
+/// runs), each process of the tool's group it hasn't yet: what the tool started, ended with the
+/// group by [`end_orphans`] once the tool itself is gone. Never ready; nothing without an entry,
+/// and nothing on Windows, whose job object ends the tool's tree however this process dies.
+pub(crate) async fn note_group(recorded: Option<&Recorded>) -> Infallible {
+    #[cfg(unix)]
+    if let Some(recorded) = recorded {
+        let mut noted = Vec::new();
+        loop {
+            tokio::time::sleep(GROUP_POLL).await;
+            note_members(&recorded.path, recorded.pid, &mut noted).await;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = recorded;
+    std::future::pending().await
+}
+
+/// Adds to the entry `path` each process of `leader`'s group not in `noted` yet (and to `noted`).
+/// An entry that can't be added to is traced: those processes go unrecorded.
+#[cfg(unix)]
+async fn note_members(path: &Path, leader: u32, noted: &mut Vec<(u32, Start)>) {
+    use std::io::Write as _;
+    let new: Vec<(u32, Start)> = group_members(leader).await.into_iter().filter(|m| !noted.contains(m)).collect();
+    if new.is_empty() {
+        return;
+    }
+    let lines = new
+        .iter()
+        .map(|(pid, start)| format!("{pid} {}\n", start.entry_text()))
+        .collect::<Vec<_>>()
+        .concat();
+    let added = File::options().append(true).open(path).and_then(|mut f| f.write_all(lines.as_bytes()));
+    match added {
+        Ok(()) => noted.extend(new),
+        Err(e) => {
+            tracing::warn!(error = %e, path = %path.display(), "the processes a tool started couldn't be recorded: a killed operation would leave them running");
+        }
     }
 }
 
@@ -247,27 +304,66 @@ fn entry_text(pid: u32, start: &Start, container: Option<&str>) -> String {
     }
 }
 
-/// An entry's text read back ([`entry_text`]).
-fn parse_entry(text: &str) -> Option<(u32, Start, Option<String>)> {
-    let mut words = text.split_whitespace();
-    let pid = words.next()?.parse().ok()?;
-    let start = Start::from_entry_text(words.next()?)?;
-    Some((pid, start, words.next().map(str::to_owned)))
+/// A tool's entry, read back.
+#[derive(Debug, PartialEq, Eq)]
+struct Entry {
+    pid: u32,
+    start: Start,
+    /// The container it runs in, if any.
+    container: Option<String>,
+    /// The processes of its group it started, each with its start ([`note_group`]).
+    members: Vec<(u32, Start)>,
 }
 
-/// Ends the tool `path` records, when it is still the very process recorded (its id), then
+/// An entry's text read back: its first line ([`entry_text`]), then a line per member of the
+/// tool's group ([`note_members`]); a member's line that doesn't read (cut short by a kill) is
+/// skipped.
+fn parse_entry(text: &str) -> Option<Entry> {
+    let mut lines = text.lines();
+    let mut words = lines.next()?.split_whitespace();
+    let pid = words.next()?.parse().ok()?;
+    let start = Start::from_entry_text(words.next()?)?;
+    let container = words.next().map(str::to_owned);
+    let members = lines
+        .filter_map(|line| {
+            let (id, started) = line.split_once(' ')?;
+            Some((id.parse().ok()?, Start::from_entry_text(started.trim())?))
+        })
+        .collect();
+    Some(Entry {
+        pid,
+        start,
+        container,
+        members,
+    })
+}
+
+/// Ends the group of the tool `path` records, when the tool is still the very process recorded
+/// (its id and start), or else when a member of its group recorded is (and is still in it); then
 /// removes the container it ran in, which its name marks as this tool's whatever became of the
 /// process.
 async fn end_entry(path: &Path) -> Option<u32> {
     let text = std::fs::read_to_string(path).ok()?;
-    let (pid, start, container) = parse_entry(&text)?;
+    let Entry {
+        pid,
+        start,
+        container,
+        members,
+    } = parse_entry(&text)?;
     let now = os_start(pid).await;
     let ended = if now.as_ref().is_some_and(|now| start.same_process_as(now)) {
         tracing::warn!(pid, "ending a tool a killed operation left running");
         end_group(pid).await;
         true
+    } else if members_still_in_group(pid, &members).await {
+        tracing::warn!(pid, "ending what a tool a killed operation left running started, the tool itself gone");
+        end_group(pid).await;
+        true
     } else {
-        tracing::debug!(pid, "a tool a killed operation recorded is gone, or its id names another process: left alone");
+        tracing::debug!(
+            pid,
+            "a tool a killed operation recorded is gone, or its id names another process, and nothing it started is left in its group: left alone"
+        );
         false
     };
     if let Some(name) = container {
@@ -301,6 +397,108 @@ async fn remove_container(name: &str) {
             tracing::warn!(container = name, error = %e, "the container of a tool a killed operation recorded couldn't be removed: it may still run");
         }
     }
+}
+
+/// Whether a process of `members`, recorded in `leader`'s group, is still the very process
+/// recorded and still in that group: then the group is the one recorded, since a group's id isn't
+/// another group's while a process of it lives.
+#[cfg(unix)]
+async fn members_still_in_group(leader: u32, members: &[(u32, Start)]) -> bool {
+    if members.is_empty() {
+        return false;
+    }
+    let now = group_members(leader).await;
+    members
+        .iter()
+        .any(|(pid, start)| now.iter().any(|(id, now)| id == pid && start.same_process_as(now)))
+}
+
+/// On Windows the tool's job object ended its whole tree with the process that held it: nothing
+/// of the group is left to prove.
+#[cfg(windows)]
+#[expect(clippy::unused_async, reason = "the same call as on Unix")]
+async fn members_still_in_group(_leader: u32, _members: &[(u32, Start)]) -> bool {
+    false
+}
+
+/// The processes of process group `leader`, other than `leader` itself, each with its start.
+#[cfg(target_os = "linux")]
+async fn group_members(leader: u32) -> Vec<(u32, Start)> {
+    tokio::task::spawn_blocking(move || {
+        let Ok(boot) = std::fs::read_to_string("/proc/sys/kernel/random/boot_id") else {
+            return Vec::new();
+        };
+        let Ok(read) = std::fs::read_dir("/proc") else { return Vec::new() };
+        read.flatten()
+            .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+            .filter(|pid| *pid != leader)
+            .filter_map(|pid| {
+                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+                if stat_group(&stat)? != leader {
+                    return None;
+                }
+                let ticks = stat_ticks(&stat)?;
+                Some((
+                    pid,
+                    Start::Boot {
+                        boot: boot.trim().to_owned(),
+                        ticks,
+                    },
+                ))
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The processes of process group `leader`, other than `leader` itself, each with its start, as
+/// `ps` reads them (`lstart`, in UTC and the C locale's words).
+#[cfg(all(unix, not(target_os = "linux")))]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the process module's own reading of a tool's process group, under the runner it serves"
+)]
+async fn group_members(leader: u32) -> Vec<(u32, Start)> {
+    let out = tokio::process::Command::new("ps")
+        .args(["-A", "-o", "pid=,pgid=,lstart="])
+        .env("TZ", "UTC")
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await;
+    match out {
+        Ok(out) => ps_group(&String::from_utf8_lossy(&out.stdout), leader),
+        Err(e) => {
+            tracing::debug!(error = %e, "ps couldn't run to read a tool's process group");
+            Vec::new()
+        }
+    }
+}
+
+/// The members of `leader`'s group, other than itself, in `ps -A -o pid=,pgid=,lstart=`'s lines.
+#[cfg(any(all(unix, not(target_os = "linux")), test))]
+fn ps_group(text: &str, leader: u32) -> Vec<(u32, Start)> {
+    text.lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
+            let (group, started) = rest.trim_start().split_once(char::is_whitespace)?;
+            let (pid, group): (u32, u32) = (pid.parse().ok()?, group.parse().ok()?);
+            if group != leader || pid == leader {
+                return None;
+            }
+            Some((pid, Start::At(lstart(started)?)))
+        })
+        .collect()
+}
+
+/// The process group in a `/proc/<pid>/stat` line (field 5).
+#[cfg(any(target_os = "linux", test))]
+fn stat_group(stat: &str) -> Option<u32> {
+    /// `pgrp` is field 5 (from 1); the first field after the name is field 3.
+    const PGRP_AFTER_NAME: usize = 5 - 3;
+    stat.rsplit_once(')')?.1.split_whitespace().nth(PGRP_AFTER_NAME)?.parse().ok()
 }
 
 /// The start to record for the tool `pid` that was just started.
