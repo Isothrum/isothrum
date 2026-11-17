@@ -42,15 +42,24 @@ pub enum ClientError {
     /// Reading or writing the connection failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// The request was sent, but the connection ended before the service answered it: whether
+    /// the service acted on it is unknown (an operation may have been queued).
+    #[error("the runner service's connection ended before it answered")]
+    Unanswered,
 }
 
 impl ClientError {
     /// Whether it says the connection is gone (the service was killed or restarted, the
     /// connection broke, none answers), rather than an answer of the service's: a call worth one
-    /// more try on a new connection ([`Pool::call`](crate::Pool::call)).
+    /// more try on a new connection ([`Pool::call`](crate::Pool::call)). An operation sent but
+    /// unanswered ([`ClientError::Unanswered`]) may have been queued: it is followed again
+    /// ([`Pool::follow`](crate::Pool::follow)), not sent again.
     #[must_use]
     pub fn is_broken(&self) -> bool {
-        matches!(self, ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Unavailable(_))
+        matches!(
+            self,
+            ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Unavailable(_) | ClientError::Unanswered
+        )
     }
 
     /// Its code, as an `error` event gives it.
@@ -60,7 +69,7 @@ impl ClientError {
             ClientError::Refused(report) | ClientError::Operation(report) => report.code,
             ClientError::Busy { .. } => ErrorCode::Locked,
             ClientError::Version { .. } => ErrorCode::Unsupported,
-            ClientError::Unavailable(_) | ClientError::Protocol(_) | ClientError::Io(_) => ErrorCode::Io,
+            ClientError::Unavailable(_) | ClientError::Protocol(_) | ClientError::Io(_) | ClientError::Unanswered => ErrorCode::Io,
         }
     }
 
@@ -98,7 +107,12 @@ mod tests {
             service: "2.1.7".into(),
         };
         assert_eq!(version.code(), ErrorCode::Unsupported);
-        for io in [ClientError::Protocol("x".into()), ClientError::Unavailable("x".into()), ClientError::closed()] {
+        for io in [
+            ClientError::Protocol("x".into()),
+            ClientError::Unavailable("x".into()),
+            ClientError::closed(),
+            ClientError::Unanswered,
+        ] {
             assert_eq!(io.code(), ErrorCode::Io, "{io}");
         }
         assert!(matches!(ClientError::closed(), ClientError::Unavailable(m) if m == "the service closed the connection"));

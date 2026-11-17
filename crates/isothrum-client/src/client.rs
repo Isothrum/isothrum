@@ -33,6 +33,10 @@ const START_WAIT: Duration = Duration::from_secs(30);
 /// further (the service then sends what was missed as it can).
 const SUBSCRIPTION_BUFFER: usize = 1024;
 
+/// How many of a run's newest operations [`Client::follow_again`] reads: the one it may follow,
+/// and those still ahead of it.
+const OPERATIONS_LOOKED_AT: u32 = 16;
+
 /// What `Client::connect` returns.
 type Result<T, E = ClientError> = std::result::Result<T, E>;
 
@@ -250,7 +254,8 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// The service refused it, or the connection ended.
+    /// The service refused it, or the connection ended: before `command` was sent
+    /// ([`ClientError::Io`]), or after, unanswered ([`ClientError::Unanswered`]).
     pub async fn request(&self, command: Command) -> Result<Reply> {
         let id = self.shared.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
@@ -260,7 +265,8 @@ impl Client {
             self.shared.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             return Err(e.into());
         }
-        match rx.await.map_err(|_| ClientError::closed())? {
+        // Sent: an end of the connection now leaves unknown whether the service acted on it.
+        match rx.await.map_err(|_| ClientError::Unanswered)? {
             Reply::Error { report, .. } => Err(ClientError::Refused(Box::new(report))),
             reply => Ok(reply),
         }
@@ -516,6 +522,44 @@ impl Client {
         let accepted = self.submit(command).await?;
         let events = OperationEvents::new(accepted.operation, events);
         Ok(Followed { accepted, events })
+    }
+
+    /// Follows `command` once more, its first sending unanswered ([`ClientError::Unanswered`]):
+    /// the service may have queued it. When the run's newest operation is of `command`'s kind and
+    /// under way in this service (not ended, queued by this service's process), that one is
+    /// followed, from its `queued`: it is the first sending's, or another client's same operation,
+    /// which `command` would only have queued behind. Else `command` is queued anew
+    /// ([`Client::follow`]): a service that died with it took it along (one restarted since
+    /// recovers it as an operation of its own, under way, which is then the one followed). One
+    /// that already ended, and a target that doesn't name its run, are queued anew too: an
+    /// operation run twice brings the run to the same place.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::follow`], and the run's operations couldn't be read.
+    pub async fn follow_again(&self, command: Command) -> Result<Followed> {
+        let (Some(op), Some(run)) = (command.op(), command.target().and_then(|(target, _)| target.name.clone())) else {
+            return self.follow(command).await;
+        };
+        // Subscribed first, as `follow` is: no event of the operation found is missed.
+        let events = self.subscribe(Some(run.clone()), None).await?;
+        let rows = self.operations(&run, OPERATIONS_LOOKED_AT).await?;
+        let under_way = |r: &OperationRow| r.ended.is_none() && r.owner.pid == self.info.pid;
+        let Some(newest) = rows.first().filter(|r| r.op == op && under_way(r)) else {
+            drop(events);
+            return self.follow(command).await;
+        };
+        tracing::info!(operation = %newest.id, "the unanswered operation was queued: following it, not queuing it again");
+        let ahead = rows.iter().skip(1).filter(|r| under_way(r)).count();
+        let accepted = Accepted {
+            operation: newest.id,
+            run,
+            position: u32::try_from(ahead).unwrap_or(u32::MAX),
+        };
+        Ok(Followed {
+            events: OperationEvents::new(accepted.operation, events),
+            accepted,
+        })
     }
 
     /// Waits for operation `operation`'s last event: its `result`, or its `error` as
