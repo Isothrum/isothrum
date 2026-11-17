@@ -66,7 +66,8 @@ pub(crate) fn run(program: &str, args: &[&str]) -> Option<Out> {
     run_with(program, args, &[])
 }
 
-/// [`run`], with the variables `env` added.
+/// [`run`], with the variables `env` added (only the macOS installer tests need it).
+#[cfg(target_os = "macos")]
 pub(crate) fn run_env(program: &str, args: &[&str], env: &[(&str, &str)]) -> Option<Out> {
     run_with(program, args, env)
 }
