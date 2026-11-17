@@ -195,9 +195,9 @@ fn a_download_is_recorded_once_and_a_store_rebuilt_from_its_mirror_keeps_it() {
     {
         let store = Store::open(home.path()).unwrap();
         let run = name("web");
-        assert!(store.write(|tx| tx.record_download(&run, &image)).unwrap(), "new");
-        assert!(!store.write(|tx| tx.record_download(&run, &image)).unwrap(), "recorded once");
-        assert!(store.write(|tx| tx.record_download(&run, &held)).unwrap());
+        assert!(store.write(|tx| tx.record_download(Some(&run), &image)).unwrap(), "new");
+        assert!(!store.write(|tx| tx.record_download(Some(&run), &image)).unwrap(), "recorded once");
+        assert!(store.write(|tx| tx.record_download(Some(&run), &held)).unwrap());
     }
     remove_store(home.path());
     let rebuilt = Store::open(home.path()).expect("rebuilt from the mirror");
@@ -205,7 +205,11 @@ fn a_download_is_recorded_once_and_a_store_rebuilt_from_its_mirror_keeps_it() {
     let kept = rebuilt.read(recorded).unwrap();
     let items: Vec<&crate::DownloadItem> = kept.iter().map(|d| &d.item).collect();
     assert_eq!(items, [&image, &held]);
-    assert!(kept.iter().all(|d| d.run.as_str() == "web" && d.size_bytes.is_none()), "{kept:?}");
+    assert!(
+        kept.iter()
+            .all(|d| d.run.as_ref().is_some_and(|r| r.as_str() == "web") && d.size_bytes.is_none()),
+        "{kept:?}"
+    );
     rebuilt.write(|tx| tx.forget_download(kept[0].id)).unwrap();
     assert_eq!(rebuilt.read(recorded).unwrap().len(), 1, "forgotten");
 }

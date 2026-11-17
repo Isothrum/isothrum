@@ -3,7 +3,7 @@
 //! services are reached, the runner's key, and what the runs' downloads fetched. The client never
 //! opens the home's files.
 
-use isothrum_runner::{Download, DownloadRemoval, DownloadsToRemove, NativeConsole, RunName, ServiceEndpoint, ShellCommand};
+use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, NativeConsole, RunName, ServiceEndpoint, ShellCommand};
 
 use super::console::{self, HeldConsole};
 use super::{Client, Reply, Request, Result, unexpected};
@@ -164,6 +164,22 @@ impl Client {
     pub async fn remove_downloads(&self, which: DownloadsToRemove) -> Result<Vec<DownloadRemoval>> {
         self.answer(Command::RemoveDownloads { which }, |reply| match reply {
             Reply::DownloadsRemoved { removed, .. } => Ok(removed),
+            other => Err(Box::new(other)),
+        })
+        .await
+    }
+
+    /// Adopts `adopted`, downloads fetched outside the runs (by an earlier program's own record),
+    /// into the home's record, each one on this computer now as it was fetched: they are listed
+    /// and removed like the runs' own. The downloads recorded for them, new or not.
+    ///
+    /// # Errors
+    ///
+    /// The engine or Vagrant couldn't say what they hold (nothing was recorded), the store
+    /// couldn't be written, or the connection ended.
+    pub async fn adopt_downloads(&self, adopted: Vec<DownloadToAdopt>) -> Result<Vec<Download>> {
+        self.answer(Command::AdoptDownloads { adopted }, |reply| match reply {
+            Reply::DownloadsAdopted { adopted: recorded, .. } => Ok(recorded),
             other => Err(Box::new(other)),
         })
         .await

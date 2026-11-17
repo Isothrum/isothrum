@@ -97,6 +97,18 @@ impl Engine for Machines {
         })
     }
 
+    fn adopt_downloads<'a>(&'a self, adopted: &'a [isothrum_runner::DownloadToAdopt]) -> BoxFuture<'a, Result<Vec<isothrum_runner::Download>, Refusal>> {
+        Box::pin(async move {
+            let adopted = adopted.iter().enumerate().filter_map(|(i, a)| match a {
+                isothrum_runner::DownloadToAdopt::Image { reference, .. } => {
+                    Some(serde_json::json!({"id": i + 2, "kind": "image", "reference": reference, "image_id": "sha256:b", "fetched_at": "t"}))
+                }
+                _ => None,
+            });
+            serde_json::from_value(adopted.collect()).map_err(|e| Refusal::new(ErrorCode::Io, e.to_string()))
+        })
+    }
+
     fn remove_downloads<'a>(&'a self, which: &'a isothrum_runner::DownloadsToRemove) -> BoxFuture<'a, Result<Vec<isothrum_runner::DownloadRemoval>, Refusal>> {
         Box::pin(async move {
             let isothrum_runner::DownloadsToRemove::Only(ids) = which else {
@@ -200,7 +212,17 @@ async fn the_way_into_a_machine_its_screen_its_app_and_the_key_come_from_the_eng
     assert_eq!((app.app.as_str(), app.ways.len()), ("VirtualBox", 1));
     assert_eq!(client.public_key().await.expect("the key"), "ssh-ed25519 AAAA engine");
     let downloads = client.downloads().await.expect("the downloads");
-    assert_eq!(downloads.iter().map(|d| (d.id.0, d.run.as_str())).collect::<Vec<_>>(), [(1, "web")]);
+    assert_eq!(
+        downloads.iter().map(|d| (d.id.0, d.run.as_ref().map(RunName::as_str))).collect::<Vec<_>>(),
+        [(1, Some("web"))]
+    );
+    let image = serde_json::from_value(serde_json::json!({"kind": "image", "reference": "kit:3"})).expect("an image to adopt");
+    let adopted = client.adopt_downloads(vec![image]).await.expect("adopted");
+    assert_eq!(
+        adopted.iter().map(|d| (d.id.0, d.run.is_none())).collect::<Vec<_>>(),
+        [(2, true)],
+        "adopted with no run"
+    );
     let which = isothrum_runner::DownloadsToRemove::Only(vec![isothrum_runner::DownloadId(9)]);
     let removed = client.remove_downloads(which).await.expect("asked");
     assert_eq!(

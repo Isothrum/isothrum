@@ -36,7 +36,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use isothrum_runner::{
-    Download, DownloadRemoval, DownloadsToRemove, Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint, ShellCommand, Status,
+    Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint,
+    ShellCommand, Status,
 };
 use serde::{Deserialize, Serialize};
 
@@ -267,6 +268,13 @@ pub enum Command {
         /// All, or those of the given ids.
         which: DownloadsToRemove,
     },
+    /// Adopts downloads fetched outside the runs (by an earlier program's own record) into the
+    /// home's record, each one on this computer now as it was fetched: they are listed and
+    /// removed like the runs' own (not queued).
+    AdoptDownloads {
+        /// The downloads to adopt.
+        adopted: Vec<DownloadToAdopt>,
+    },
     /// The run's latest operations, newest first.
     Operations {
         /// The run.
@@ -338,6 +346,7 @@ impl Command {
                 | Command::ServiceEndpoints { .. }
                 | Command::Downloads
                 | Command::RemoveDownloads { .. }
+                | Command::AdoptDownloads { .. }
         )
     }
 
@@ -551,6 +560,13 @@ pub enum Reply {
         /// Each removal.
         removed: Vec<DownloadRemoval>,
     },
+    /// To `adopt_downloads`: the downloads recorded for those asked, new or not.
+    DownloadsAdopted {
+        /// The request's id.
+        id: u64,
+        /// The recorded downloads.
+        adopted: Vec<Download>,
+    },
     /// To `operations`.
     Operations {
         /// The request's id.
@@ -608,6 +624,7 @@ impl Reply {
             | Reply::Operations { id, .. }
             | Reply::Downloads { id, .. }
             | Reply::DownloadsRemoved { id, .. }
+            | Reply::DownloadsAdopted { id, .. }
             | Reply::Ok { id }
             | Reply::Busy { id, .. }
             | Reply::Error { id, .. } => Some(*id),

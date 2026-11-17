@@ -10,7 +10,7 @@ use isothrum_runner::{
     BoxFuture, Console, ErrorCode, Event, EventKind, Events, Format, InputVariable, NativeConsole, Project, RunName, RunOptions, Runner, Running, SecretValue,
     Secrets, ServiceEndpoint, ShellCommand, Status,
 };
-use isothrum_runner::{Download, DownloadRemoval, DownloadsToRemove};
+use isothrum_runner::{Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove};
 
 /// Why the engine refused a request: the runner's report of it (boxed: it is large, and rare). A
 /// refusal never changed a run.
@@ -124,6 +124,12 @@ pub trait Engine: Send + Sync + 'static {
     /// Removes the recorded downloads `which` names, each on its own; by default, none.
     fn remove_downloads<'a>(&'a self, which: &'a DownloadsToRemove) -> BoxFuture<'a, Result<Vec<DownloadRemoval>, Refusal>> {
         let _ = which;
+        Box::pin(async { Err(unsupported("recorded downloads")) })
+    }
+
+    /// Adopts `adopted` into the home's record of downloads; by default, none.
+    fn adopt_downloads<'a>(&'a self, adopted: &'a [DownloadToAdopt]) -> BoxFuture<'a, Result<Vec<Download>, Refusal>> {
+        let _ = adopted;
         Box::pin(async { Err(unsupported("recorded downloads")) })
     }
 }
@@ -294,5 +300,9 @@ impl Engine for RunnerEngine {
 
     fn remove_downloads<'a>(&'a self, which: &'a DownloadsToRemove) -> BoxFuture<'a, Result<Vec<DownloadRemoval>, Refusal>> {
         Box::pin(async move { Ok(self.runner.remove_downloads(which).await?) })
+    }
+
+    fn adopt_downloads<'a>(&'a self, adopted: &'a [DownloadToAdopt]) -> BoxFuture<'a, Result<Vec<Download>, Refusal>> {
+        Box::pin(async move { Ok(self.runner.adopt_downloads(adopted).await?) })
     }
 }

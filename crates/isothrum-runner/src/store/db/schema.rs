@@ -137,7 +137,7 @@ CREATE TABLE downloads (
   provider       TEXT,
   version        TEXT,
   architecture   TEXT,
-  run            TEXT NOT NULL,
+  run            TEXT,
   fetched_at     TEXT NOT NULL
 );
 CREATE UNIQUE INDEX downloads_once ON downloads(kind, name, IFNULL(image_id, ''), IFNULL(docker_context, ''),

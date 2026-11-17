@@ -39,13 +39,14 @@ None of these is queued; each is answered at once.
 | `{"cmd":"public_key"}` | `{"reply":"public_key","key":"ssh-ed25519 …"}`, the runner's key made when it has none | `Client::public_key` |
 | `{"cmd":"downloads"}` | `{"reply":"downloads","downloads":[{id,kind,…,run,fetched_at,size_bytes}]}`: what the runs' own downloads fetched, as the store records them (`kind` `image`: `reference`, `image_id`, `docker_context`; `kind` `box`: `name`, `provider`, `version`, `architecture`), each with its size when it can be read | `Client::downloads` |
 | `{"cmd":"remove_downloads","which":"all"}`, or `"which":{"only":[id,…]}` | `{"reply":"downloads_removed","removed":[{id,outcome,…,download}]}`: each one asked, `outcome` `removed`, `gone` (removed outside, record forgotten), `moved` (`now`: the image reference stands for another id; nothing removed, record forgotten), `failed` (`reason`: in use, or the tool failed; kept with its record) or `not_recorded` | `Client::remove_downloads` |
+| `{"cmd":"adopt_downloads","adopted":[{"kind":"image","reference",image_id?} or {"kind":"box","name","provider","version"},…]}` | `{"reply":"downloads_adopted","adopted":[{id,kind,…,fetched_at}]}`: downloads fetched outside the runs (an earlier program's own record) recorded with no `run`, each one on this computer now as it was fetched (an image while its reference stands for the `image_id` given, a box in each architecture Vagrant holds it); the downloads recorded for them | `Client::adopt_downloads` |
 
 A removal takes only what the store records, each on its own: an image by its reference
 (`docker image rm`, never forced, in the context it was pulled through) while the reference still
 stands for the recorded id, a box by name, provider, version and architecture (`vagrant box
 remove`, never `--force` nor `--all`). One a container or a machine uses is refused by its tool,
 said in its outcome, and the others go on. In Rust, without the service: `Runner::downloads`,
-`Runner::remove_downloads`.
+`Runner::remove_downloads`, `Runner::adopt_downloads`.
 
 `console_command`, `graphical_console`, `native_console` and `service_endpoints` take a `target`
 too, for a run opened from its folder rather than its record. A graphical console reached through
