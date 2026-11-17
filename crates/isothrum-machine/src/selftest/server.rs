@@ -50,6 +50,7 @@ const CONNECT_LIMIT: Duration = Duration::from_secs(4);
 /// The server the test runs on.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[expect(clippy::large_enum_variant, reason = "one per test, made once and moved once: a box would buy nothing")]
 pub enum Server {
     /// A Proxmox VE server, through its API (Terraform's `bpg/proxmox`).
     Proxmox(Proxmox),

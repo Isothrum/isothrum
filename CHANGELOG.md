@@ -17,7 +17,7 @@ Terraform), usable on any project of those formats.
   console or a command and a service endpoint's forward check that host there strictly, only
   reading the file, instead of pinning it in the run's own known hosts the first time. A key the
   file doesn't hold is refused; a file that isn't there fails the step (`tool_failed`, step
-  `host-key`).
+  `host-key`). The Proxmox server self-test passes it on: `Proxmox::jump_known_hosts`.
 - **isothrum-machine's server self-test: a throwaway VM on a server, through a runner of its
   own: `selftest::server`.** On a Proxmox VE server (`Proxmox`) the test writes a Terraform module
   of its own (the cloud image downloaded, an SDN network of the test's own made and applied, the
