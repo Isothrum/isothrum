@@ -24,9 +24,12 @@ fn web_gone() -> isothrum_runner::Error {
 }
 
 /// An engine for runs named after their folder: `refused` is refused before anything is queued;
-/// an operation on `gone` fails at its step `resume`, any other ends well after one line of log.
-/// Only `stack` has a status.
+/// an operation on `gone` fails at its step `resume`, one on `held` waits for [`HELD`], any other
+/// ends well after one line of log. Only `stack` has a status.
 struct Stack;
+
+/// What an operation on run `held` waits for before it goes on.
+static HELD: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 impl Engine for Stack {
     fn resolve(&self, target: &Target) -> Result<RunName, Refusal> {
@@ -44,6 +47,9 @@ impl Engine for Stack {
                 let error = EventKind::Error(e.report().with_step("resume"));
                 journal.keep(Event::new(1, run, op, error));
                 return false;
+            }
+            if run.as_deref() == Some("held") {
+                HELD.notified().await;
             }
             let line = EventKind::Log {
                 step: "work".to_owned(),
@@ -162,6 +168,36 @@ async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_out
         [accepted.operation],
         "the newest, as many as asked"
     );
+}
+
+/// An operation whose sending went unanswered (the connection ended before the service
+/// answered) may have been queued: following it again follows the one queued, from its `queued`,
+/// rather than queuing a second. Once that one ended, following again queues anew.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operation_followed_again_is_the_one_queued_not_a_second() {
+    let (_home, _serving, client) = started().await.expect("a service answering");
+    let run = RunName::new("held").expect("a name");
+    let named = || Command::Up {
+        target: Target::new(Path::new("/stacks/held"), Some(run.clone())),
+        options: OpOptions::default(),
+        lifetime_s: None,
+    };
+    let first = client.submit(named()).await.expect("queued");
+    let mut again = client.follow_again(named()).await.expect("followed again");
+    assert_eq!((again.accepted.operation, again.accepted.position), (first.operation, 0), "the one queued");
+    HELD.notify_one();
+    let mut words = Vec::new();
+    while let Some(event) = tokio::time::timeout(common::PATIENCE, again.next()).await.expect("in time") {
+        words.push(word(&event.expect("an event")));
+    }
+    assert_eq!(words, ["queued", "started", "log working", "result true", "ended"]);
+    let listed = client.operations(&run, 8).await.expect("its operations");
+    assert_eq!(listed.iter().map(|o| o.id).collect::<Vec<_>>(), [first.operation], "none queued twice");
+
+    HELD.notify_one();
+    let mut anew = client.follow_again(named()).await.expect("queued anew");
+    assert_ne!(anew.accepted.operation, first.operation, "the first ended: a new one");
+    assert_eq!(word(&anew.outcome().await.expect("it ends well")), "result true");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

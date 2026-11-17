@@ -83,3 +83,24 @@ async fn a_connection_that_cant_be_made_is_the_callers() {
     let err = pool.call(Path::new("/a"), |c| async move { Ok(c.0) }).await.unwrap_err();
     assert!(matches!(err, ClientError::Unavailable(_)), "{err:?}");
 }
+
+/// The second try is told why the first broke: an operation sent but unanswered is followed
+/// again, not sent again ([`Pool::follow`]).
+#[tokio::test]
+async fn the_second_try_is_told_why_the_first_broke() {
+    let (pool, _) = numbered();
+    let told = pool
+        .call_then(
+            Path::new("/a"),
+            |_| async { Err::<String, _>(ClientError::Unanswered) },
+            |c, why| async move { Ok(format!("{} after {why}", c.0)) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(told, "2 after the runner service's connection ended before it answered");
+    let first = pool
+        .call_then(Path::new("/a"), |c| async move { Ok(c.0) }, |_, _| async { Ok(0) })
+        .await
+        .unwrap();
+    assert_eq!(first, 2, "an answer on the first try asks no second");
+}
