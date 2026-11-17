@@ -11,6 +11,16 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine works out the folders a process searches for its tools:
+  `host::tool_path`.** `augmented` is the `PATH` an app opened from Finder (or a desktop's
+  launcher) needs: its own, then the tool folders that exist (Homebrew's, Docker's, Vagrant's,
+  the tools inside app bundles, Windows' hypervisors that never join `PATH`), the folders a
+  tool installed later lands in (`future_dirs`), then the caller's own tool folders, last.
+  `refreshed` merges back on Windows the `PATH` installers wrote to the registry since the
+  process started (`reg query`, machine then user, `%VAR%`s expanded with the caller's
+  variables). Both return the folders as a value from an `Env` the caller hands in; the crate
+  sets no variable.
+
 - **isothrum-machine finds this computer's public IPv4 address: `net::public_ipv4`.**
   Independent services (`RESOLVERS`, or the caller's own) are asked at once with `curl`, over
   HTTPS and IPv4 alone, each within `RESOLVER_TIMEOUT`; two must give the same public address
