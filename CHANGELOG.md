@@ -11,6 +11,15 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine works out a guided setup from the machine check: `setup`.** `options`
+  says what each choice takes on this computer (WSL 2, each Docker engine, each local hypervisor
+  and what Vagrant needs to drive it) as `Action`s a UI renders; `plan` puts them in order for
+  the kinds of project, engine and hypervisors `Wanted` (a restart or a new login last), with why
+  each other hypervisor is passed over (`PassedOver`); `walk` runs a plan step by step through
+  the caller's own runner of each step, checking the machine again after each. Why a step is
+  left to its user is `LeftAlone`. `install::vagrant_plugin` is the step that installs a Vagrant
+  plugin, by a plugin's name only.
+
 - **isothrum-machine makes a Google Cloud project ready for deployments: `cloud::gcp`'s
   projects.** `project_state` (`Active`, `Gone` only when Google says `NOT_FOUND` or that it is
   being deleted, never for a refusal), `create_project` (under an organization when given),

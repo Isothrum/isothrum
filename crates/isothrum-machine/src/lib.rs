@@ -1,8 +1,9 @@
 //! The machine-setup domain: this computer ([`Host`]: its OS, CPU, package manager and the files
 //! detection reads), which Vagrant providers (hypervisors) it can drive, and the machine check
 //! ([`check::check`]): its tools, Docker-compatible engines, package manager, cloud CLIs and, on
-//! Windows, WSL 2; installing and removing the tools it runs projects with ([`install`]); the
-//! self-tests that prove it runs deployments ([`selftest`]); and the cloud accounts its cloud CLIs
+//! Windows, WSL 2; a guided setup's options and plan from that check ([`setup`]); installing and
+//! removing the tools it runs projects with ([`install`]); the self-tests that prove it runs
+//! deployments ([`selftest`]); and the cloud accounts its cloud CLIs
 //! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers.
 //!
 //! Every tool runs through the Isothrum runner's no-unsafe [`isothrum_runner::ProcessRunner`], so
@@ -21,6 +22,7 @@ pub mod host;
 pub mod install;
 pub mod providers;
 pub mod selftest;
+pub mod setup;
 #[cfg(test)]
 mod testing;
 pub mod tools;
