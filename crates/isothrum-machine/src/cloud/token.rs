@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use isothrum_runner::tls::{Tls, Trust};
 
+use crate::place::proxmox::chain;
+
 /// How long the provider may take to answer.
 pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -74,14 +76,6 @@ async fn account(url: &str, token: &str, trust: Trust) -> Result<(), TokenError>
         401 => Err(TokenError::Rejected),
         other => Err(TokenError::Status(other)),
     }
-}
-
-/// An error with its causes, one line.
-fn chain(e: &(dyn std::error::Error + 'static)) -> String {
-    std::iter::successors(Some(e), |e| e.source())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(": ")
 }
 
 #[cfg(test)]

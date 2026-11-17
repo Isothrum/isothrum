@@ -268,7 +268,7 @@ pub async fn sign_in(server: &Server, credentials: &Credentials, trust: Trust) -
 }
 
 /// An error and its causes, on one line, each after a colon.
-fn chain(e: &dyn std::error::Error) -> String {
+pub(crate) fn chain(e: &dyn std::error::Error) -> String {
     let mut line = e.to_string();
     let mut cause = e.source();
     while let Some(c) = cause {
