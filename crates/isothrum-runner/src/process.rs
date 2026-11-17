@@ -12,7 +12,7 @@ pub mod fake;
 mod job;
 #[cfg(windows)]
 pub(crate) use job::process_runs;
-pub(crate) mod ledger;
+pub mod ledger;
 mod lines;
 mod locale;
 mod shim;
@@ -59,6 +59,11 @@ pub struct ProcessSpec {
     /// The folder the tool is recorded in while it runs (its process group; its process tree on
     /// Windows), so the next operation can end it if the process that started it is killed first
     /// (default: not recorded). An operation's tools are recorded in the run's state folder.
+    ///
+    /// A tool that isn't part of a run (one an embedder starts itself) is recorded in a folder of
+    /// the embedder's, one it keeps for its own tools: the embedder passes that folder to
+    /// [`ledger::end_orphans`] when it starts, which ends what a crashed or killed process of
+    /// its left running there.
     pub ledger_dir: Option<PathBuf>,
     /// The container the tool runs in, by name, when `program` is the Docker CLI running it
     /// (`docker run --name`): removed (`docker rm -f`) wherever the tool is ended before its end,

@@ -1,5 +1,7 @@
 //! The tools an operation runs, kept in the run's state folder while they run, so the next
-//! operation can end those a killed process left behind.
+//! operation can end those a killed process left behind. An embedder keeps the tools it starts
+//! itself the same way, in a folder of its own ([`ProcessSpec::ledger_dir`](super::ProcessSpec)),
+//! and ends what its previous process left there when it starts ([`end_orphans`]).
 //!
 //! Each tool runs in a process group of its own (a job object on Windows), so that this process's
 //! own stop reaches it gracefully; a process killed outright (SIGKILL, Task Manager, a crash)
@@ -183,7 +185,11 @@ fn lock_if_owner_gone(path: &Path) -> Option<File> {
 }
 
 /// Ends each tool a dead process recorded in `dir` and removes its entries; the ids it ended.
-pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
+///
+/// The runner calls it on a run's folder at the start of every operation. An embedder that records
+/// tools of its own in a folder of its own ([`ProcessSpec::ledger_dir`](super::ProcessSpec)) calls
+/// it on that folder when it starts, to end what a previous process of its left running.
+pub async fn end_orphans(dir: &Path) -> Vec<u32> {
     let mut ended = Vec::new();
     let read = match std::fs::read_dir(dir) {
         Ok(read) => read,
@@ -219,7 +225,7 @@ pub(crate) async fn end_orphans(dir: &Path) -> Vec<u32> {
 /// Ends every console tunnel recorded in `dir`, whichever process holds it (a `down` from
 /// another process than the viewer's), and removes their entries; the ids it ended. The holder's
 /// own end of it then finds it gone.
-pub(crate) async fn end_tunnels(dir: &Path) -> Vec<u32> {
+pub async fn end_tunnels(dir: &Path) -> Vec<u32> {
     let mut ended = Vec::new();
     let Ok(read) = std::fs::read_dir(dir) else { return ended };
     for entry in read.flatten() {
