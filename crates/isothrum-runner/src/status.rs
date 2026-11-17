@@ -223,9 +223,8 @@ impl Status {
 #[must_use]
 pub fn park_modes(format: Format, provider: Option<Provider>) -> Vec<Park> {
     match format {
-        Format::Compose => vec![Park::Pause, Park::Shutdown],
         Format::Vagrant if provider == Some(Provider::Qemu) => vec![Park::Shutdown],
-        Format::Vagrant => vec![Park::Pause, Park::Shutdown],
+        Format::Compose | Format::Vagrant => vec![Park::Pause, Park::Shutdown],
         Format::Terraform => Vec::new(),
     }
 }
@@ -319,7 +318,7 @@ mod tests {
         assert_eq!(park_modes(Format::Compose, None), [Park::Pause, Park::Shutdown]);
         assert_eq!(park_modes(Format::Vagrant, Some(Provider::Virtualbox)), [Park::Pause, Park::Shutdown]);
         assert_eq!(park_modes(Format::Vagrant, Some(Provider::Qemu)), [Park::Shutdown]);
-        assert!(park_modes(Format::Terraform, None).is_empty());
+        assert_eq!(park_modes(Format::Terraform, None), []);
     }
 
     #[test]
