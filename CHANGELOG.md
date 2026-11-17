@@ -242,6 +242,11 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **The hypervisor self-test asks VMware's `vmrun` (and Parallels' `prlctl`) where its app installs
+  it when it isn't on `PATH`.** Detection found it there and read the hypervisor ready, then the
+  test's hypervisor step failed (`vmrun` "isn't installed or isn't on PATH") for a caller whose
+  `PATH` doesn't hold VMware Fusion's folder.
+
 - **`docker::start_engine` starts nothing when the engine runs already.** It brought Docker
   Desktop or OrbStack up again (`open -a`, its window in front) and asked Docker Engine's service
   to start as root (a password prompt, or a failure where `sudo` asks one); an engine whose own

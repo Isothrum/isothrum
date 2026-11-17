@@ -47,6 +47,8 @@ fn machine(m: &Mutex<Machine>, call: &Call) -> Reply {
             m.up = false;
             Reply::ok("")
         }
+        // VMware's `vmrun` isn't on `PATH`: it is in its app only.
+        ("vmrun", _) => Reply::missing(),
         ("VBoxManage", ["list", "hostonlyifs"]) => Reply::ok(&m.ifs.iter().map(|i| ["Name: ", i, "\n"].concat()).collect::<String>()),
         // Every test address is free until the VM boots on the first.
         ("ping", [.., address]) if m.up && *address == ADDRESSES[0] => Reply::ok(&format!("64 bytes from {address}: icmp_seq=1 ttl=64 time=0.412 ms")),
@@ -242,4 +244,16 @@ async fn the_test_passes_on_this_computers_hypervisor() {
     let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
     assert_eq!((&ran.passed, &ran.cleaned_up), (&Ok(()), &Some(Ok(()))), "{:?}", ended(&said));
     eprintln!("{:#?}", ended(&said));
+}
+
+#[tokio::test]
+async fn a_hypervisor_tool_off_path_is_asked_where_its_app_installs_it() {
+    let dir = tempfile::tempdir().expect("a folder");
+    let app = dir.path().join("vmrun");
+    std::fs::write(&app, "").expect("the app's vmrun");
+    let mut host = linux_host(Path::new("/nonexistent/isothrum-machine-test"));
+    host.devices.vmrun = vec![app.clone()];
+    let (said, _, tools) = tested_on(host, Provider::VmwareDesktop, false).await;
+    assert!(ended(&said).contains(&(Step::Hypervisor, Found::Responds)), "{said:?}");
+    assert_eq!(tools.made(&format!("{} list", app.display())).len(), 1);
 }

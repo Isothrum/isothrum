@@ -249,6 +249,17 @@ fn responds(p: Provider) -> Option<(String, &'static [&'static str])> {
     program.map(|found| (found, args))
 }
 
+/// Whether `program` answers `args`: from `PATH`, else where its app installs it (VMware's
+/// `vmrun`, Parallels' `prlctl`), as detection finds it. What it said when neither answers.
+async fn answers(cx: &Context, program: &str, args: &[&str]) -> Result<(), String> {
+    let on_path = cx.read_ok(program, args).await;
+    let Err(said) = on_path else { return Ok(()) };
+    match cx.host.devices.app_tool(program).into_iter().find(|t| t.is_file()) {
+        Some(at) => cx.read_ok(&at.display().to_string(), args).await.map(drop),
+        None => Err(said),
+    }
+}
+
 /// One ping with a 3 s wait, in this OS's flags.
 fn ping_args(cx: &Context, address: &str) -> Vec<String> {
     let flags: &[&str] = match cx.host.os {
@@ -412,7 +423,7 @@ impl<'a> Test<'a> {
             let Some((program, args)) = responds(provider) else {
                 return Ok(Found::NothingToProbe);
             };
-            cx.read_ok(&program, args).await.map(|_| Found::Responds).map_err(Failure::Said)
+            answers(cx, &program, args).await.map(|()| Found::Responds).map_err(Failure::Said)
         })
         .await?;
         self.before = networks::Networks::here(cx, provider).await;
