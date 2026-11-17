@@ -1,10 +1,15 @@
 //! Google Cloud, through the Google Cloud CLI (`gcloud`): the account it is signed in as, whether
 //! its own sign-in and the application-default one (what Terraform's Google provider reads) still
-//! hold, and the billing accounts and organizations the account can see.
+//! hold, the billing accounts and organizations the account can see, and its projects: what state
+//! one is in, and making one ready for deployments (created, linked to a billing account, an API
+//! enabled) or deleting it.
 
+use std::time::Duration;
+
+use isothrum_runner::ProcessSpec;
 use serde_json::Value;
 
-use super::{ask, json_list, line, says};
+use super::{ask, json_list, line, run, says};
 use crate::context::Context;
 use crate::failure::{Failure, Refusal};
 
@@ -157,6 +162,96 @@ fn read_organizations(list: &[Value]) -> Vec<Organization> {
         })
         .filter(|o| !o.id.is_empty())
         .collect()
+}
+
+/// How long creating a project, linking it to billing, enabling an API on it or deleting it may
+/// take.
+pub const PROJECT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// What state a project is in, as Google has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProjectState {
+    /// It can be used.
+    Active,
+    /// It doesn't exist (`NOT_FOUND`), or is being deleted: it can't be used again.
+    Gone,
+    /// Another state Google names (`SUSPENDED`...).
+    Other(String),
+}
+
+/// Project `id`'s state (`gcloud projects describe`). Gone only when Google says so plainly: the
+/// project is being deleted, or `NOT_FOUND`. "No permission (or it may not exist)", what another
+/// signed-in account gets, is a [`Refusal::Denied`], never gone.
+///
+/// # Errors
+///
+/// [`Failure`]: the CLI isn't installed, Google refused (signed out, no permission), or no answer.
+pub async fn project_state(cx: &Context, id: &str) -> Result<ProjectState, Failure> {
+    match ask(cx, CLI, &["projects", "describe", id, "--format", "value(lifecycleState)"], refusal).await {
+        Ok(state) => Ok(match state.trim() {
+            "ACTIVE" => ProjectState::Active,
+            "DELETE_REQUESTED" | "DELETE_IN_PROGRESS" => ProjectState::Gone,
+            other => ProjectState::Other(other.to_owned()),
+        }),
+        Err(Failure::Refused {
+            refusal: Refusal::NotFound, ..
+        }) => Ok(ProjectState::Gone),
+        Err(other) => Err(other),
+    }
+}
+
+/// `gcloud args` within [`PROJECT_TIMEOUT`].
+async fn change(cx: &Context, args: &[&str]) -> Result<(), Failure> {
+    run(cx, PROJECT_TIMEOUT, &ProcessSpec::new(CLI, args.iter().copied()), refusal).await.map(drop)
+}
+
+/// The arguments of `gcloud projects create` for project `id` named `name`, under `organization`
+/// (its numeric id) when given.
+#[must_use]
+pub fn create_args(id: &str, name: &str, organization: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = ["projects", "create", id, "--name", name].map(str::to_owned).to_vec();
+    args.extend(organization.map(|o| format!("--organization={o}")));
+    args
+}
+
+/// Creates project `id` named `name`, under `organization` when given.
+///
+/// # Errors
+///
+/// [`Failure`]: the CLI isn't installed, or Google refused (the id taken, a quota of projects).
+pub async fn create_project(cx: &Context, id: &str, name: &str, organization: Option<&str>) -> Result<(), Failure> {
+    let args = create_args(id, name, organization);
+    change(cx, &args.iter().map(String::as_str).collect::<Vec<_>>()).await
+}
+
+/// Links project `id` to billing account `billing`, which then pays for it.
+///
+/// # Errors
+///
+/// [`Failure`]: the CLI isn't installed, or Google refused ([`Refusal::QuotaExceeded`]: the billing
+/// account has no free project slot).
+pub async fn link_billing(cx: &Context, id: &str, billing: &str) -> Result<(), Failure> {
+    change(cx, &["billing", "projects", "link", id, "--billing-account", billing]).await
+}
+
+/// Enables the API `service` (`compute.googleapis.com`) on project `id`.
+///
+/// # Errors
+///
+/// [`Failure`]: the CLI isn't installed, or Google refused.
+pub async fn enable_service(cx: &Context, id: &str, service: &str) -> Result<(), Failure> {
+    change(cx, &["services", "enable", service, "--project", id]).await
+}
+
+/// Deletes project `id` (Google keeps it 30 days, deleted, before it is gone for good), which frees
+/// its billing account's slot.
+///
+/// # Errors
+///
+/// [`Failure`]: the CLI isn't installed, or Google refused.
+pub async fn delete_project(cx: &Context, id: &str) -> Result<(), Failure> {
+    change(cx, &["projects", "delete", id, "--quiet"]).await
 }
 
 #[cfg(test)]

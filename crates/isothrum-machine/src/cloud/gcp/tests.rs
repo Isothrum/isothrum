@@ -116,3 +116,68 @@ async fn a_list_gcloud_refused_or_answered_in_words_is_a_failure_never_none() {
     assert_eq!(billing_accounts(&cx).await.unwrap_err().refusal(), Some(Refusal::NotEnabled));
     assert!(matches!(organizations(&cx).await, Err(Failure::Unreadable { .. })));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_project_is_gone_only_when_google_says_so_plainly() {
+    for (answer, state) in [
+        (Reply::ok("ACTIVE\n"), ProjectState::Active),
+        (Reply::ok("DELETE_REQUESTED\n"), ProjectState::Gone),
+        (Reply::ok("SUSPENDED\n"), ProjectState::Other("SUSPENDED".into())),
+        (
+            Reply::fail(1, include_str!("../fixtures/gcloud/502.0-project-not-found.txt")),
+            ProjectState::Gone,
+        ),
+    ] {
+        let cx = answered_by(
+            FakeProcesses::script()
+                .expect("gcloud projects describe example-1234 --format value(lifecycleState)", answer)
+                .build(),
+        );
+        assert_eq!(project_state(&cx, "example-1234").await, Ok(state));
+    }
+    // Another account's "no permission (or it may not exist)", an expired sign-in: never gone.
+    for said in [
+        include_str!("../fixtures/gcloud/502.0-project-no-permission.txt"),
+        include_str!("../fixtures/gcloud/502.0-refresh-failed.txt"),
+    ] {
+        let cx = answered_by(FakeProcesses::script().expect("gcloud projects describe", Reply::fail(1, said)).build());
+        assert!(project_state(&cx, "example-1234").await.is_err(), "{said}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_project_is_created_linked_enabled_and_deleted_with_gclouds_own_commands() {
+    let cx = answered_by(
+        FakeProcesses::script()
+            .expect("gcloud projects create example-1234 --name Example --organization=42", Reply::ok(""))
+            .expect(
+                "gcloud billing projects link example-1234 --billing-account 0X0X0X-0X0X0X-0X0X0X",
+                Reply::ok(""),
+            )
+            .expect("gcloud services enable compute.googleapis.com --project example-1234", Reply::ok(""))
+            .expect("gcloud projects delete example-1234 --quiet", Reply::ok(""))
+            .build(),
+    );
+    assert_eq!(create_project(&cx, "example-1234", "Example", Some("42")).await, Ok(()));
+    assert_eq!(link_billing(&cx, "example-1234", "0X0X0X-0X0X0X-0X0X0X").await, Ok(()));
+    assert_eq!(enable_service(&cx, "example-1234", "compute.googleapis.com").await, Ok(()));
+    assert_eq!(delete_project(&cx, "example-1234").await, Ok(()));
+    assert_eq!(
+        create_args("p", "Name with spaces", None),
+        ["projects", "create", "p", "--name", "Name with spaces"]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_billing_account_with_no_free_project_slot_is_a_quota_exceeded() {
+    let cx = answered_by(
+        FakeProcesses::script()
+            .expect(
+                "gcloud billing projects link",
+                Reply::fail(1, include_str!("../fixtures/gcloud/502.0-link-no-project-slot.txt")),
+            )
+            .build(),
+    );
+    let failure = link_billing(&cx, "example-1234", "0X0X0X-0X0X0X-0X0X0X").await.unwrap_err();
+    assert_eq!(failure.refusal(), Some(Refusal::QuotaExceeded));
+}
