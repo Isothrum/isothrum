@@ -182,6 +182,17 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **Proxmox VE's API is reached over a verified TLS connection, never `curl --insecure`.** A VM's
+  console (`vncproxy`) and its state on the server are asked through the runner's own HTTPS
+  client (rustls), which checks the server's certificate by the system's trust store, or, when
+  the run gives `PROXMOX_VE_TLS_FINGERPRINT`, by that SHA-256 fingerprint alone (a self-signed
+  server). A certificate refused ends the request before any credential is sent. The providers'
+  `PROXMOX_VE_INSECURE` and `PM_TLS_INSECURE` no longer turn the runner's checks off: a run on a
+  self-signed server gives its fingerprint. `curl` is no longer needed, and no request's
+  credentials are written to the run's state folder. `ProxmoxVnc::insecure` now says the
+  certificate is pinned. New: `isothrum_runner::tls` (`Fingerprint`, `Trust`, `Tls`,
+  `Refusal`), the pin verifier an embedder can use for its own connections.
+
 - **The service reads a run's status one at a time.** Two clients asking one run's status at
   once (a page's poll, another view of it) each asked the tools, so two `vagrant status` of the
   same machines ran together and Vagrant refused one. The reads of a run now take turns, and one

@@ -31,6 +31,13 @@ allow = [
   "Zlib",
   # BSD Zero Clause, OSI-approved, no conditions; needed by interprocess's doctest-file and recvmsg.
   "0BSD",
+  # The runner's TLS stack (rustls, `isothrum_runner::tls`): ring, rustls-webpki and untrusted are
+  # ISC; subtle (constant-time comparisons) is BSD-3-Clause; webpki-root-certs, the Mozilla roots
+  # rustls-platform-verifier uses where there is no system store (WebAssembly), is
+  # CDLA-Permissive-2.0. All permissive, compatible with Apache-2.0.
+  "ISC",
+  "BSD-3-Clause",
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 

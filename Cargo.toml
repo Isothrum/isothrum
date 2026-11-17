@@ -45,6 +45,12 @@ flate2 = "1"
 getrandom = "0.4"
 # A port checked on all interfaces bound without listening (`net.rs`), its address reuse set.
 socket2 = "0.6"
+# The runner's HTTPS client (Proxmox VE's API) and its certificate checks (`isothrum_runner::tls`):
+# rustls with ring's crypto, as the launcher links it, so one TLS stack serves both.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7"
+sha2 = "0.11"
 # The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
 # the same version, so one `libsqlite3-sys` serves both.
 rusqlite = { version = "0.41", features = ["bundled"] }

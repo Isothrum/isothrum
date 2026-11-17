@@ -51,17 +51,17 @@ The manifest declares *slots* (secrets, inputs, connection credentials). Their v
   variables and `TF_CLI_CONFIG_FILE` by name, the files they name mounted read-only.
 - **are masked.** Every sensitive value is replaced by `***` in events, log lines, error messages
   and results; a sensitive output shows as `***` in `status` too.
-- **are not stored**, with five exceptions, all owner-only files in the run's state folder: a
+- **are not stored**, with four exceptions, all owner-only files in the run's state folder: a
   `state_file` delivery (written at `up`, kept for the destroy, removed by a successful `down`),
   a `guest` delivery's input file (removed once delivered, or when the operation is cut short; a
   removal that fails fails the step), an elevated Hyper-V session's `env-<n>.json`, a
   request's variables (deleted by the broker before it starts the program; the session's folder
   goes when the session ends), `consoles.json`, the port and password the runner chose for each
   machine's VMware VNC console (made before the run's first Vagrant command, removed by a
-  successful `down`; VMware itself writes the password in the VM's `.vmx`), and
-  `proxmox-console-<random>.curl`, a Proxmox API request's credentials (a file per request),
-  which `curl` reads on its standard input and the runner removes once it ran, or when the request is cut short (a cancel,
-  Ctrl-C; a removal that fails fails the request). The tools themselves may keep values:
+  successful `down`; VMware itself writes the password in the VM's `.vmx`). A Proxmox VE API
+  request's credentials stay in the runner's memory: they are sent only once the server's
+  certificate is verified, by the system's trust store or by the SHA-256 fingerprint the run pins
+  (`PROXMOX_VE_TLS_FINGERPRINT`). The tools themselves may keep values:
   Terraform state can hold any value a resource received.
 
 Terraform doesn't inherit the shell's cloud settings: `AWS_*`, `ARM_*`, `AZURE_*`, `GOOGLE_*`,

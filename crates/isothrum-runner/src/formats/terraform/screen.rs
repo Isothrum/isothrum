@@ -9,23 +9,31 @@
 //! `PM_API_TOKEN_ID` and `PM_API_TOKEN_SECRET` (else `PM_USER` and `PM_PASS`) and
 //! `PM_TLS_INSECURE`. A module that takes its server as a variable instead says it in an output
 //! named `proxmox_endpoint`.
+//!
+//! The runner's own requests check the server's certificate by the system's trust store, or, when
+//! the run gives `PROXMOX_VE_TLS_FINGERPRINT` (a self-signed certificate's SHA-256, as Proxmox
+//! VE's web interface shows it), by that fingerprint alone. The providers' `insecure` settings
+//! are theirs: the runner never sends a credential to a server it hasn't verified.
 
 use std::time::Duration;
 
 use super::{Module, machines};
 use crate::Result;
-use crate::cli::CliError;
-use crate::cli::proxmox::{self, Api, Credentials};
 use crate::cli::terraform::{self as tf, StateAt};
 use crate::error::Error;
 use crate::events::Stream;
 use crate::formats::{Seen, SeenMachine, ToolCx};
 use crate::graphical::native::host_name;
 use crate::graphical::{Console, ConsoleOffer, ConsoleProtocol, Endpoint, NativeApp, NativeConsole, NativeNeed, NativeOpen, ProxmoxVnc, no_console};
+use crate::proxmox::{self, Api, Credentials};
 use crate::secrets::SecretValue;
 use crate::status::MachineState;
+use crate::tls::{Fingerprint, Trust};
 
-/// How long a read of the state, or a request to the API, may take.
+/// The run variable that pins the server's certificate: its SHA-256 fingerprint.
+const PIN_VAR: &str = "PROXMOX_VE_TLS_FINGERPRINT";
+
+/// How long a read of the state may take.
 const READ_LIMIT: Duration = Duration::from_secs(60);
 
 /// The resource types that are a Proxmox VE VM: bpg's and Telmate's.
@@ -82,17 +90,20 @@ async fn target(cx: &ToolCx<'_>, machine: &str) -> Result<(Api, String, String)>
             )
         })?,
     };
-    let api =
-        api_at(cx, &endpoint).ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
+    let api = Api::at(&endpoint, trust(cx).map_err(|e| no_console(machine, e))?)
+        .ok_or_else(|| no_console(machine, format!("its Proxmox VE address `{}` isn't an https server", endpoint.escape_debug())))?;
     Ok((api, node, id))
 }
 
-/// The API at `endpoint`, its certificate checked unless the run says the provider's insecure.
-fn api_at(cx: &ToolCx<'_>, endpoint: &str) -> Option<Api> {
-    let insecure = ["PROXMOX_VE_INSECURE", "PM_TLS_INSECURE"]
-        .iter()
-        .any(|v| cx.var(v).is_some_and(|v| matches!(v.trim(), "true" | "1")));
-    Api::at(endpoint, insecure)
+/// How the run says the server's certificate is trusted: by the fingerprint it pins, else the
+/// system's trust store. A pin that isn't one is said, never taken as none.
+fn trust(cx: &ToolCx<'_>) -> std::result::Result<Trust, String> {
+    match cx.var(PIN_VAR) {
+        None => Ok(Trust::System),
+        Some(pin) => Fingerprint::parse(&pin)
+            .map(|f| Trust::Pinned(Some(f)))
+            .ok_or_else(|| format!("`{PIN_VAR}` isn't a SHA-256 certificate fingerprint (64 hex digits, colons optional)")),
+    }
 }
 
 /// Each Proxmox VE VM among `machines` as its server says it stands: a VM removed in the
@@ -127,18 +138,20 @@ pub(super) async fn on_server(
         .var("PROXMOX_VE_ENDPOINT")
         .or_else(|| cx.var("PM_API_URL"))
         .or_else(|| outputs.get(ENDPOINT_OUTPUT).and_then(|o| o.value.as_str()).map(str::to_owned));
-    let Some(api) = endpoint.as_deref().and_then(|e| api_at(cx, e)) else {
+    let trust = match trust(cx) {
+        Ok(trust) => trust,
+        Err(e) => {
+            tracing::warn!(error = %e, "Proxmox VE couldn't be asked for its VMs' states: the module's state stands");
+            return Ok(());
+        }
+    };
+    let Some(api) = endpoint.as_deref().and_then(|e| Api::at(e, trust)) else {
         tracing::debug!("the run names no Proxmox VE server: its VMs' states on the server aren't asked");
         return Ok(());
     };
-    crate::store::create_dir(cx.state_dir)?;
-    let asked = server_states(cx, &api, &credentials, &vms);
-    let states = match asked.await {
+    let states = match server_states(&api, &credentials, &vms).await {
         Ok(states) => states,
-        Err(CliError::Failed {
-            failure: proxmox::Failure::Refused(status),
-            ..
-        }) => {
+        Err(proxmox::Failure::Refused(status)) => {
             return Err(Error::ServerAuthFailed {
                 step: "status".to_owned(),
                 server: Some(api.server().to_owned()),
@@ -162,22 +175,15 @@ pub(super) async fn on_server(
 
 /// The state on the server of each of `vms` (machine and id) the server tells: the cluster's
 /// listing, then, for a VM it leaves out, whether its id is free.
-async fn server_states(
-    cx: &ToolCx<'_>,
-    api: &Api,
-    credentials: &Credentials,
-    vms: &[(String, &str)],
-) -> std::result::Result<Vec<(String, MachineState)>, CliError<proxmox::Failure>> {
-    let quiet = |_: Stream, _: &str| {};
-    let module = Module::of(cx);
-    let call = module.call(READ_LIMIT, &quiet);
-    let sign_in = proxmox::sign_in(&call, api, credentials, cx.state_dir).await?;
-    let listed = proxmox::cluster_vms(&call, api, &sign_in, cx.state_dir).await?;
+async fn server_states(api: &Api, credentials: &Credentials, vms: &[(String, &str)]) -> std::result::Result<Vec<(String, MachineState)>, proxmox::Failure> {
+    let client = api.client()?;
+    let sign_in = client.sign_in(credentials).await?;
+    let listed = client.cluster_vms(&sign_in).await?;
     let mut states = Vec::new();
     for (name, id) in vms {
         let state = match listed.iter().find(|vm| vm.is(id)) {
             Some(vm) => vm.status.as_deref().map(reading),
-            None if proxmox::id_free(&call, api, &sign_in, id, cx.state_dir).await? => Some(MachineState::Absent),
+            None if client.id_free(&sign_in, id).await? => Some(MachineState::Absent),
             None => {
                 tracing::warn!(vm = %id, "Proxmox VE doesn't list a VM it still holds the id of (credentials without VM.Audit on it?): the module's state stands");
                 None
@@ -227,20 +233,13 @@ fn credentials(cx: &ToolCx<'_>) -> Option<Credentials> {
 }
 
 /// The runner's error for the API's `e`, on `machine`'s console at `api`: a refused sign-in as
-/// such, a missing `curl` as a missing tool, anything else as no console.
-fn api_error(machine: &str, api: &Api, e: CliError<proxmox::Failure>) -> Error {
+/// such, anything else (a certificate refused included) as no console.
+fn api_error(machine: &str, api: &Api, e: proxmox::Failure) -> Error {
     match e {
-        CliError::Failed {
-            failure: proxmox::Failure::Refused(status),
-            ..
-        } => Error::ServerAuthFailed {
+        proxmox::Failure::Refused(status) => Error::ServerAuthFailed {
             step: "console".to_owned(),
             server: Some(api.server().to_owned()),
             reason: format!("HTTP {status}"),
-        },
-        CliError::Missing { tool } => Error::ToolMissing {
-            step: "console".to_owned(),
-            tool: tool.to_owned(),
         },
         other => no_console(machine, format!("Proxmox VE's API didn't open it: {other}")),
     }
@@ -255,16 +254,13 @@ pub(super) async fn reach(cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
             "the run gives no Proxmox VE API token or password (`PROXMOX_VE_API_TOKEN`, `PM_API_TOKEN_ID` and `PM_API_TOKEN_SECRET`, or a user and password)",
         )
     })?;
-    crate::store::create_dir(cx.state_dir)?;
-    let quiet = |_: Stream, _: &str| {};
-    let module = Module::of(cx);
-    let call = module.call(READ_LIMIT, &quiet);
-    let sign_in = proxmox::sign_in(&call, &api, &credentials, cx.state_dir)
-        .await
-        .map_err(|e| api_error(machine, &api, e))?;
-    let vnc = proxmox::vncproxy(&call, &api, &sign_in, (&node, &id), cx.state_dir)
-        .await
-        .map_err(|e| api_error(machine, &api, e))?;
+    let opened = async {
+        let client = api.client()?;
+        let sign_in = client.sign_in(&credentials).await?;
+        let vnc = client.vncproxy(&sign_in, (&node, &id)).await?;
+        Ok::<_, proxmox::Failure>((sign_in, vnc))
+    };
+    let (sign_in, vnc) = opened.await.map_err(|e| api_error(machine, &api, e))?;
     let websocket = format!(
         "wss://{}{}/vncwebsocket?port={}&vncticket={}",
         api.server(),
@@ -277,7 +273,7 @@ pub(super) async fn reach(cx: &ToolCx<'_>, machine: &str) -> Result<Console> {
         port: vnc.port,
         ticket: vnc.ticket.clone(),
         authorization: sign_in.header(),
-        insecure: api.insecure,
+        insecure: matches!(api.trust, Trust::Pinned(_)),
     });
     let mut console = Console::new(machine, ConsoleProtocol::Vnc, endpoint);
     console.password = Some(vnc.ticket);
