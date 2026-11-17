@@ -11,6 +11,15 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine opens a command in this computer's terminal: `terminal::open`.** A
+  `ShellCommand` runs in its folder with its variables, in a window titled as the caller says:
+  Terminal through `osascript` on macOS (a refused Automation permission, `-1743`, is
+  `NotOpened::Automation`), the first terminal emulator that starts on Linux (in a session of
+  its own through `setsid`, the command run by `env -C`, no shell reading it), a console on
+  Windows (`cmd /c start` on a script the caller's folder holds, named by its plain file name,
+  so a profile folder with `&` or a space is never parsed by `cmd`). `posix_line` and
+  `windows_line` are the command as one line.
+
 - **isothrum-machine works out the folders a process searches for its tools:
   `host::tool_path`.** `augmented` is the `PATH` an app opened from Finder (or a desktop's
   launcher) needs: its own, then the tool folders that exist (Homebrew's, Docker's, Vagrant's,

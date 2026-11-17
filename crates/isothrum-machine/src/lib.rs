@@ -25,6 +25,7 @@ pub mod net;
 pub mod providers;
 pub mod selftest;
 pub mod setup;
+pub mod terminal;
 #[cfg(test)]
 mod testing;
 pub mod tools;
