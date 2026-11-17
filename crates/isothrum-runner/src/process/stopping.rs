@@ -10,7 +10,7 @@
 //! On Windows a tool runs headless, on a console of its own with no window, so the runner's own
 //! Ctrl-C never reaches it. It is asked to stop with a Ctrl-C on that console, which Terraform, Ruby
 //! (Vagrant) and Python take as SIGINT: the calls that send one are raw FFI, which this crate
-//! forbids, so a short PowerShell helper makes them ([`ctrl_c_script`]: it attaches to the tool's
+//! forbids, so a short PowerShell helper makes them (`ctrl_c_script`, Windows only: it attaches to the tool's
 //! console, ignores the event itself, and sends it to every process there). Its job object is
 //! terminated once it has exited or after the grace, as on Unix; a tool the helper can't reach
 //! (its console gone, PowerShell missing) is terminated at once.

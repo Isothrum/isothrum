@@ -15,7 +15,7 @@
 //!   once it was ended).
 //! - While it runs, the processes of its group other than the tool itself (what it started: a
 //!   Terraform provider plugin) are added to its entry, each with its id and start, every few
-//!   seconds ([`note_group`]): the proof, once the tool itself is gone, that its group is the
+//!   seconds (`note_group`): the proof, once the tool itself is gone, that its group is the
 //!   very one recorded.
 //! - `<owner>` is the recording process's token: that process holds `<owner>.owner` locked for as
 //!   long as it lives, and the OS releases the lock when it dies, however it dies. An entry whose
@@ -161,7 +161,7 @@ impl Drop for Recorded {
     }
 }
 
-/// Adds to `recorded`'s entry, every [`GROUP_POLL`] for as long as it is polled (while its tool
+/// Adds to `recorded`'s entry, every `GROUP_POLL` (Unix) for as long as it is polled (while its tool
 /// runs), each process of the tool's group it hasn't yet: what the tool started, ended with the
 /// group by [`end_orphans`] once the tool itself is gone. Never ready; nothing without an entry,
 /// and nothing on Windows, whose job object ends the tool's tree however this process dies.
@@ -323,7 +323,7 @@ struct Entry {
 }
 
 /// An entry's text read back: its first line ([`entry_text`]), then a line per member of the
-/// tool's group ([`note_members`]); a member's line that doesn't read (cut short by a kill) is
+/// tool's group (`note_members`, Unix); a member's line that doesn't read (cut short by a kill) is
 /// skipped.
 fn parse_entry(text: &str) -> Option<Entry> {
     let mut lines = text.lines();

@@ -5,7 +5,7 @@
 //!   setup offers takes here: a UI renders those actions and runs each, never working them out
 //!   itself;
 //! - [`plan()`] puts them in order for a whole setup, from what is [`Wanted`];
-//! - [`walk`] runs that plan step by step through the caller's own runner of each step, the
+//! - [`walk()`] runs that plan step by step through the caller's own runner of each step, the
 //!   machine checked again after each (an install changes what comes next);
 //! - on Windows, [`join_hyperv_admins`] and [`schedule_restart`] carry out what a setup asks
 //!   beyond installs, as [`crate::docker::start_engine`] starts an engine.
