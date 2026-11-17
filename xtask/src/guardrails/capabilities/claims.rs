@@ -3,7 +3,7 @@
 use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown.
-pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 58] = [
     (
         "compose",
         "probe",
