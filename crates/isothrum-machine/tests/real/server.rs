@@ -10,8 +10,12 @@
 //!   `_STORAGE`, `_BRIDGE`); its node over SSH is the SSH server's settings;
 //! - an ESXi host: `ISOTHRUM_TEST_ESXI_HOST` (`_PORT`, default 22).
 //!
+//! The server self-test (`selftest::server`) runs on the Proxmox VE server, reached through its
+//! node's SSH settings, with Terraform from this computer.
+//!
 //! A secret is never printed.
 
 mod esxi;
 mod proxmox;
+mod selftest;
 mod ssh;
