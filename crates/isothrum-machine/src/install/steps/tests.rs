@@ -35,7 +35,8 @@ async fn steps_stream_both_outputs_in_order_and_stop_at_the_first_failure() {
         ran,
         Err(StepFailed::Exited {
             program: "second".into(),
-            code: Some(3)
+            code: Some(3),
+            known: None
         })
     );
     assert_eq!(lines, ["$ first a", "out-1", "out-2", "warn-1", "$ second ", "broken"]);
@@ -62,6 +63,7 @@ async fn a_script_exiting_126_or_127_is_its_own_failure_unless_pkexec_said_so() 
     let failed = Err(StepFailed::Exited {
         program: "pkexec".into(),
         code: Some(127),
+        known: None,
     });
     assert_eq!(run(tools, &[step("pkexec", &["sh", "-c", "gpg"])]).await.0, failed);
     // pkexec's words, but from another program: never read.
@@ -72,7 +74,8 @@ async fn a_script_exiting_126_or_127_is_its_own_failure_unless_pkexec_said_so() 
         run(tools_2, &[step("sh", &["-c", "x"])]).await.0,
         Err(StepFailed::Exited {
             program: "sh".into(),
-            code: Some(126)
+            code: Some(126),
+            known: None
         })
     );
     // Its words with another code: the script's failure.
@@ -83,7 +86,8 @@ async fn a_script_exiting_126_or_127_is_its_own_failure_unless_pkexec_said_so() 
         run(tools_3, &[step("pkexec", &[])]).await.0,
         Err(StepFailed::Exited {
             program: "pkexec".into(),
-            code: Some(1)
+            code: Some(1),
+            known: None
         })
     );
 }
@@ -99,7 +103,8 @@ async fn a_script_stopping_where_it_doesnt_serve_says_which_only_when_its_step_s
         run(tools_2, &[docker()]).await.0,
         Err(StepFailed::Exited {
             program: "pkexec".into(),
-            code: Some(1)
+            code: Some(1),
+            known: None
         })
     );
     let tools_3 = FakeProcesses::script().expect("pkexec", said(NOT_SERVED, "")).build();
@@ -107,7 +112,8 @@ async fn a_script_stopping_where_it_doesnt_serve_says_which_only_when_its_step_s
         run(tools_3, &[step("pkexec", &["sh", "-c", "x"])]).await.0,
         Err(StepFailed::Exited {
             program: "pkexec".into(),
-            code: Some(NOT_SERVED)
+            code: Some(NOT_SERVED),
+            known: None
         })
     );
 }
@@ -125,7 +131,8 @@ async fn an_unattended_sudo_that_needs_a_password_changed_nothing() {
         run(tools_2, &[step("sudo", &["env"])]).await.0,
         Err(StepFailed::Exited {
             program: "sudo".into(),
-            code: Some(1)
+            code: Some(1),
+            known: None
         })
     );
 }
@@ -152,7 +159,8 @@ fn a_command_line_reads_as_typed() {
     assert_eq!(
         StepFailed::Exited {
             program: "pkexec".into(),
-            code: None
+            code: None,
+            known: None
         }
         .to_string(),
         "`pkexec` was ended by a signal"
@@ -178,7 +186,8 @@ async fn a_failing_brew_step_says_homebrews_own_trouble_not_its_exit_code() {
         run(tools_apt, &[step("apt-get", &[])]).await.0,
         Err(StepFailed::Exited {
             program: "apt-get".into(),
-            code: Some(1)
+            code: Some(1),
+            known: None
         })
     );
 }
@@ -189,4 +198,35 @@ async fn a_step_with_a_note_is_not_announced_by_its_command_line() {
     noted.note = Some(Note::QemuUpdatingHomebrewFirst);
     let tools = FakeProcesses::script().expect("sh", Reply::ok("done")).build();
     assert_eq!(run(tools, &[noted]).await.1, ["done"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn winget_and_an_installer_through_powershell_end_by_their_own_codes() {
+    use crate::install::exit_codes::{Done, Known};
+    let installer_failed = 0x8A15_0006_u32.cast_signed();
+    let mut cancelled = Reply::fail(installer_failed, "");
+    cancelled.stdout = vec!["Installer failed with exit code: 1602".to_owned()];
+    let tools = FakeProcesses::script().expect("winget", cancelled).build();
+    let failed = Err(StepFailed::Exited {
+        program: "winget".into(),
+        code: Some(installer_failed),
+        known: Some(Known::Cancelled),
+    });
+    assert_eq!(run(tools, &[step("winget", &["install"])]).await.0, failed);
+    let tools_done = FakeProcesses::script().expect("winget", Reply::fail(0x8A15_002B_u32.cast_signed(), "")).build();
+    let (cx, _tools) = on(tools_done);
+    assert_eq!(
+        run_step(&cx, &step("winget", &["install"]), &mut |_: &str| {}).await,
+        Ok(Some(Done::AlreadyInstalled))
+    );
+    let tools_ps = FakeProcesses::script().expect("powershell", Reply::fail(1223, "")).build();
+    let declined = run(tools_ps, &[step("powershell", &["-Command", "x"])]).await.0;
+    assert_eq!(
+        declined,
+        Err(StepFailed::Exited {
+            program: "powershell".into(),
+            code: Some(1223),
+            known: Some(Known::Cancelled)
+        })
+    );
 }

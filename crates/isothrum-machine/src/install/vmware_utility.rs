@@ -7,6 +7,10 @@
 //!   copied into a folder only root can write, its SHA-256 checked, its package checked as signed
 //!   by HashiCorp's Developer ID and accepted by Gatekeeper (notarized), and installed with
 //!   `installer`. The package's own script generates the certificates and starts the service.
+//! - Windows: the MSI downloaded and its SHA-256 checked as the user, then, through Windows' UAC
+//!   prompt, copied into a folder only administrators can write, checked again (SHA-256 and
+//!   Authenticode signature by HashiCorp) and installed with `msiexec`. An install that is there
+//!   already only has its service started again.
 //! - Linux: HashiCorp's apt repository, its key checked against its pinned fingerprint
 //!   ([`super::linux::scripts::vmware_utility_script`]), as root.
 //!
@@ -93,6 +97,92 @@ pub(crate) fn mac_install(arch: Arch) -> Step {
     let mut step = super::steps::step("sh", &["-c", &mac_script(&file, sha256), "sh", &mac_root_script(sha256)]);
     step.note = Some(Note::DownloadingVmwareUtility { version: VERSION });
     step
+}
+
+/// The Windows installer, with its SHA-256.
+const WINDOWS_MSI: (&str, &str) = (
+    "vagrant-vmware-utility_1.0.24_windows_amd64.msi",
+    "8ee7bea062d7552a484b7d9ade369744e5cd9ab1b55eed8b7bd35a1b006666d6",
+);
+
+/// That MSI's product code, which `msiexec /x` removes it by.
+const WINDOWS_PRODUCT_CODE: &str = "{DE47C4D6-3BD9-4286-A93D-1DCA1CBADDA7}";
+
+/// The elevated half of the Windows install, with the downloaded MSI's path in `$msi` (set by
+/// the user's half, before this): an install already there only has its service started
+/// again; otherwise the MSI is copied into a folder only administrators write, checked again
+/// (SHA-256, then Authenticode signature by HashiCorp) and installed. Exits 0 when done (3010,
+/// "restart to finish", is done), 2 on a checksum and 3 on a signature that doesn't match, else
+/// msiexec's own code.
+fn windows_elevated(sha256: &str) -> String {
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+if (Get-Service -Name 'vagrant-vmware-utility' -ErrorAction SilentlyContinue) {{ Restart-Service -Name 'vagrant-vmware-utility'; exit 0 }}
+$d = Join-Path $env:SystemRoot ('Temp\isothrum-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $d | Out-Null
+try {{
+  $copy = Join-Path $d 'vagrant-vmware-utility.msi'
+  Copy-Item -LiteralPath $msi -Destination $copy
+  if ((Get-FileHash -Algorithm SHA256 -LiteralPath $copy).Hash -ne '{sha256}') {{ exit 2 }}
+  $sig = Get-AuthenticodeSignature -LiteralPath $copy
+  if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.GetNameInfo('SimpleName', $false) -ne 'HashiCorp, Inc.') {{ exit 3 }}
+  $p = Start-Process -FilePath msiexec.exe -ArgumentList '/i', ('"' + $copy + '"'), '/qn', '/norestart' -Wait -PassThru
+  if ($p.ExitCode -eq 3010) {{ exit 0 }}
+  exit $p.ExitCode
+}} finally {{ Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }}"#
+    )
+}
+
+/// The user's half of the Windows install: the download into a private folder and its
+/// checksum, then the elevated half through the UAC prompt (`-Verb RunAs`), given the MSI's path
+/// inside its own script (an elevated process gets neither this one's pipes nor its
+/// environment). A declined prompt exits 1223 (`ERROR_CANCELLED`), which reads as cancelled.
+fn windows_script(file: &str, sha256: &str) -> String {
+    let url = url(file);
+    let elevated = ps_quote(&windows_elevated(sha256));
+    format!(
+        r"$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$d = Join-Path ([IO.Path]::GetTempPath()) ('isothrum-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $d | Out-Null
+try {{
+  $msi = Join-Path $d 'vagrant-vmware-utility.msi'
+  Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile $msi
+  if ((Get-FileHash -Algorithm SHA256 -LiteralPath $msi).Hash -ne '{sha256}') {{ [Console]::Error.WriteLine('The download isn''t HashiCorp''s Vagrant VMware Utility {VERSION} (its SHA-256 doesn''t match). Nothing was installed.'); exit 1 }}
+  Write-Output 'Downloaded and checked. Installing it: Windows asks for an administrator''s approval.'
+  $script = '$msi = ' + ([char]39) + $msi.Replace([string][char]39, [string][char]39 + [char]39) + ([char]39) + [Environment]::NewLine + {elevated}
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+  try {{ $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded -Verb RunAs -Wait -PassThru }} catch {{ exit 1223 }}
+  if ($p.ExitCode -eq 2) {{ [Console]::Error.WriteLine('The installer changed after it was checked. Nothing was installed.') }}
+  if ($p.ExitCode -eq 3) {{ [Console]::Error.WriteLine('The installer isn''t signed by HashiCorp. Nothing was installed.') }}
+  exit $p.ExitCode
+}} finally {{ Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }}"
+    )
+}
+
+/// The Windows install: one PowerShell step, raising the UAC prompt itself.
+#[must_use]
+pub(crate) fn windows_install() -> Step {
+    let (file, sha256) = WINDOWS_MSI;
+    let mut step = super::steps::step("powershell", &["-NoProfile", "-NonInteractive", "-Command", &windows_script(file, sha256)]);
+    step.note = Some(Note::DownloadingVmwareUtility { version: VERSION });
+    step
+}
+
+/// The Windows removal: the pinned release's MSI removed by its product code, through UAC.
+#[must_use]
+pub(crate) fn windows_uninstall() -> Step {
+    let removal = format!(
+        "try {{ $p = Start-Process -FilePath msiexec.exe -ArgumentList '/x', '{WINDOWS_PRODUCT_CODE}', '/qn', '/norestart' -Verb RunAs -Wait -PassThru; if ($p.ExitCode -eq 3010) {{ exit 0 }}; exit $p.ExitCode }} catch {{ exit 1223 }}"
+    );
+    let mut step = super::steps::step("powershell", &["-NoProfile", "-NonInteractive", "-Command", &removal]);
+    step.note = Some(Note::Removing(super::Dependency::VmwareUtility));
+    step
+}
+
+/// `s` as one single-quoted PowerShell string: every `'` doubled.
+fn ps_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
 }
 
 #[cfg(test)]
