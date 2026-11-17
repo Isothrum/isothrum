@@ -22,6 +22,7 @@ pub mod failure;
 pub mod host;
 pub mod install;
 pub mod net;
+pub mod place;
 pub mod providers;
 pub mod selftest;
 pub mod setup;
