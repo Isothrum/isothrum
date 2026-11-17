@@ -43,6 +43,7 @@ impl Running<'_> {
             .await?;
         let now = row.as_ref().map_or(recorded, |r| r.state);
         let derived = self.unless_kept_failed(derived, now, record.as_ref());
+        let derived = unless_only_added(derived, now, &seen.machines, row.as_ref());
         // A machine another process acts on (Vagrant's lock refused the read): the run as last read,
         // that machine busy, nothing reconciled.
         let busy: Vec<&str> = seen
@@ -153,6 +154,29 @@ impl Running<'_> {
             })
             .await?;
         Ok(status_of(&seen, RunState::Ready, true, None).outputs)
+    }
+}
+
+/// `derived`, unless the run, `now` ready, reads failed for machines alone that it never had: each
+/// absent now, and absent or unlisted at the last read (one its files declare since its last
+/// operation, the update that makes it still to come), every other machine as that read saw it.
+/// The run stays ready then, so that update isn't refused as `not_running`. A machine removed
+/// outside the run (seen there before, absent now), or any other change, fails it as before; a
+/// run never read (an operation's own read counts) is as `derived` says.
+fn unless_only_added(derived: RunState, now: RunState, machines: &[SeenMachine], row: Option<&crate::store::RunRow>) -> RunState {
+    let Some(last) = row.and_then(|r| r.observed.as_ref()) else {
+        return derived;
+    };
+    if derived != RunState::Failed || now != RunState::Ready {
+        return derived;
+    }
+    let was = |name: &str| last.machines.iter().find(|m| m.name == name).map(|m| &m.state);
+    let added = |m: &SeenMachine| m.state == MachineState::Absent && was(&m.name).is_none_or(|s| *s == MachineState::Absent);
+    let unchanged = |m: &SeenMachine| was(&m.name) == Some(&m.state);
+    if machines.iter().any(added) && machines.iter().all(|m| added(m) || unchanged(m)) {
+        RunState::Ready
+    } else {
+        derived
     }
 }
 

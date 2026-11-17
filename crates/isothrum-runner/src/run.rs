@@ -266,6 +266,15 @@ impl<'r> Running<'r> {
             .collect())
     }
 
+    /// Keeps `seen`, an operation's own read, as what the runner last saw of the run, its state
+    /// left to the operation: a status read after it compares with it.
+    fn keep_seen(&self, seen: &Seen) -> Result<()> {
+        let observed = LastObserved {
+            machines: status::machine_statuses(&seen.machines),
+        };
+        self.runner.store.db().write(|tx| tx.keep_observed(&self.name, &observed)).map(drop)
+    }
+
     /// Records what the tool now reports of the run's resources against the store's rows, and
     /// says each row that moved.
     async fn record_found(&self, cx: &ToolCx<'_>, emitter: &Emitter<'_>, by: OperationId) -> Result<()> {
@@ -352,6 +361,7 @@ impl<'r> Running<'r> {
                 self.act(cx, act).await?;
                 self.record_found(cx, emitter, by).await?;
                 let (seen, state) = self.driver.observe(cx).await?;
+                self.keep_seen(&seen)?;
                 operate::not_whole(op, &seen, state)?;
                 if matches!(op, Op::Up | Op::Resume | Op::Update) {
                     ports::keep(&self.state_dir(), &seen, cx.warn)?;
