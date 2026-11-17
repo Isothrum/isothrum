@@ -47,6 +47,8 @@ pub(crate) struct To {
     /// The private key that signs in to `via` (the run's `ssh_private_key_file`); none: the
     /// runner's own.
     pub(crate) key: Option<PathBuf>,
+    /// A `known_hosts` file of `via`'s keys, only read; none: pinned in the run's own.
+    pub(crate) known_hosts: Option<PathBuf>,
 }
 
 /// What a tunnel is for, which its errors name.
@@ -174,7 +176,7 @@ fn ssh_spec(purpose: Purpose<'_>, to: &To, key: &Path, state_dir: &Path, local: 
         return Err(purpose.refused(format!("its address `{}` isn't one a tunnel goes to", to.host.escape_debug())));
     }
     let forward = format!("{LOOPBACK}:{local}:{}:{}", bracketed(&to.host), to.port);
-    let mut args = crate::ssh::options(key, state_dir)?;
+    let mut args = crate::ssh::options(key, state_dir, crate::ssh::First::given(to.known_hosts.as_deref()))?;
     args.extend(["-N", "-o", "ExitOnForwardFailure=yes", "-L", &forward].map(String::from));
     args.push(to.via.target());
     let mut spec = ProcessSpec::new("ssh", args);
@@ -187,13 +189,19 @@ fn bracketed(host: &str) -> String {
     if host.contains(':') { format!("[{host}]") } else { host.to_owned() }
 }
 
-/// Opens a tunnel to `to` for run `run`'s `machine`'s console: `via`'s host key pinned the first
-/// time ([`crate::ssh::pin`]), a free loopback port no run holds, `ssh` started and recorded in
+/// Opens a tunnel to `to` for run `run`'s `machine`'s console: `via`'s host keys readied
+/// ([`crate::ssh::ready`]: pinned the first time, unless `to` gives them), a free loopback port no run holds, `ssh` started and recorded in
 /// the run's tool ledger, and the port answering within [`OPENING`]; when it doesn't, why, in
 /// `ssh`'s own words when it said any.
 pub(crate) async fn open(runner: &Runner, run: &RunName, state_dir: &Path, purpose: Purpose<'_>, to: &To) -> Result<Tunnel> {
     let config = &runner.config;
-    crate::ssh::pin(config.processes.as_ref(), state_dir, &to.via.host).await?;
+    crate::ssh::ready(
+        config.processes.as_ref(),
+        state_dir,
+        &to.via.host,
+        crate::ssh::First::given(to.known_hosts.as_deref()),
+    )
+    .await?;
     let key = to.key.clone().unwrap_or_else(|| crate::ssh::key_path(&config.home));
     let free = runner
         .pick_unreserved(run, Protocol::Tcp)
@@ -311,6 +319,7 @@ mod tests {
             host: host.to_owned(),
             port: 3389,
             key: None,
+            known_hosts: None,
         }
     }
 

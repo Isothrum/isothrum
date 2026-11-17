@@ -15,6 +15,10 @@
 //! it is met through it alone, so its key is pinned the first time a call meets it there
 //! (`accept-new`, never a changed key), which trusts what the hop before it reaches, as pinning it
 //! from that hop would.
+//!
+//! The first host's keys can be the caller's instead ([`First::Given`]: a run's jump host, whose
+//! keys the embedder had its user confirm): a `known_hosts` file of its own, which every call
+//! checks that host against strictly and only reads; nothing is pinned for it.
 
 use std::path::{Path, PathBuf};
 
@@ -188,31 +192,63 @@ impl Login {
     }
 }
 
+/// Where a call checks the keys of the first host on its way, the one this computer reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum First<'a> {
+    /// In the run's `known_hosts`, pinned the first time the run meets the host ([`ready`]).
+    Pinned,
+    /// In this `known_hosts` file, the caller's: only read, never pinned in or written.
+    Given(&'a Path),
+}
+
+impl<'a> First<'a> {
+    /// [`First::Given`] when the run gives a file, else [`First::Pinned`].
+    pub(crate) fn given(file: Option<&'a Path>) -> First<'a> {
+        file.map_or(First::Pinned, First::Given)
+    }
+}
+
 /// The `ssh` options of a call of the run whose state folder is `state_dir`, signing in with
-/// `key`: no user configuration, the run's `known_hosts` checked strictly, no prompt, and a host
-/// that stops answering given up in under a minute.
+/// `key`: no user configuration, the host's keys checked strictly where `first` says, no prompt,
+/// and a host that stops answering given up in under a minute.
 ///
 /// # Errors
 ///
-/// [`Error::Io`] when the run's folder is at a path no `-o` option can name.
-pub(crate) fn options(key: &Path, state_dir: &Path) -> Result<Vec<String>> {
-    checked_options(key, state_dir, HostKey::Pinned)
+/// [`Error::Io`] when the run's folder, or the given file, is at a path no `-o` option can name.
+pub(crate) fn options(key: &Path, state_dir: &Path, first: First<'_>) -> Result<Vec<String>> {
+    checked_options(key, state_dir, HostKey::first(first))
 }
 
-/// How a call checks its host's key against the run's `known_hosts`.
+/// How a call checks its host's key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HostKey {
-    /// Pinned before the call ([`pin`]): strictly.
+enum HostKey<'a> {
+    /// Pinned in the run's `known_hosts` before the call ([`pin`]): strictly.
     Pinned,
-    /// Met only through another host: pinned the first time a call meets it, then strictly.
+    /// Met only through another host: pinned in the run's `known_hosts` the first time a call
+    /// meets it, then strictly.
     FirstMet,
+    /// In a `known_hosts` file the caller gives: strictly, the file only read.
+    Given(&'a Path),
+}
+
+impl<'a> HostKey<'a> {
+    /// The check of the first host on a call's way.
+    fn first(first: First<'a>) -> HostKey<'a> {
+        match first {
+            First::Pinned => HostKey::Pinned,
+            First::Given(file) => HostKey::Given(file),
+        }
+    }
 }
 
 /// [`options`], the host's key checked as `checking` says.
-fn checked_options(key: &Path, state_dir: &Path, checking: HostKey) -> Result<Vec<String>> {
-    let known = state_dir.join(KNOWN_HOSTS);
+fn checked_options(key: &Path, state_dir: &Path, checking: HostKey<'_>) -> Result<Vec<String>> {
+    let (known, whose) = match checking {
+        HostKey::Given(file) => (file.to_path_buf(), "the host's known_hosts file"),
+        HostKey::Pinned | HostKey::FirstMet => (state_dir.join(KNOWN_HOSTS), "the run's folder"),
+    };
     let quoted = config_path(&known.to_string_lossy(), PathStyle::HERE).ok_or_else(|| {
-        let why = "the run's folder is at a path SSH's options can't name (it holds `\"`, `\\` outside Windows, `${` or a control character)";
+        let why = format!("{whose} is at a path SSH's options can't name (it holds `\"`, `\\` outside Windows, `${{` or a control character)");
         Error::io(&known, "named")(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
     })?;
     let mut args = vec!["-F".to_owned(), "none".to_owned(), "-i".to_owned(), key.display().to_string()];
@@ -221,7 +257,7 @@ fn checked_options(key: &Path, state_dir: &Path, checking: HostKey) -> Result<Ve
         format!("UserKnownHostsFile={quoted}"),
         "GlobalKnownHostsFile=none".to_owned(),
         match checking {
-            HostKey::Pinned => "StrictHostKeyChecking=yes".to_owned(),
+            HostKey::Pinned | HostKey::Given(_) => "StrictHostKeyChecking=yes".to_owned(),
             HostKey::FirstMet => "StrictHostKeyChecking=accept-new".to_owned(),
         },
         "BatchMode=yes".to_owned(),
@@ -232,23 +268,27 @@ fn checked_options(key: &Path, state_dir: &Path, checking: HostKey) -> Result<Ve
     ] {
         args.extend(["-o".to_owned(), option]);
     }
+    if matches!(checking, HostKey::Given(_)) {
+        // The caller's file: `ssh` never rewrites it with keys the host offers next.
+        args.extend(["-o".to_owned(), "UpdateHostKeys=no".to_owned()]);
+    }
     Ok(args)
 }
 
 /// The `ssh` options of a call to a host reached through `hops` (outermost first, the host the
 /// call signs in to last), each signed in to with `key`: [`options`], and a `ProxyCommand` that
 /// reaches the host through the last hop, itself reached through the one before. The first host
-/// on the way (the first hop, else the host itself) is the one to [`pin`] before the call; the
-/// others are pinned as the call first meets them. Every `ssh` of the way checks keys against the
-/// run's `known_hosts`, with no user configuration.
+/// on the way (the first hop, else the host itself) is checked where `first` says, [`ready`]
+/// before the call; the others are pinned in the run's `known_hosts` as the call first meets
+/// them. No `ssh` of the way reads the user's configuration.
 ///
 /// # Errors
 ///
 /// As [`options`].
-pub(crate) fn options_through(key: &Path, state_dir: &Path, hops: &[Login]) -> Result<Vec<String>> {
-    let checking = if hops.is_empty() { HostKey::Pinned } else { HostKey::FirstMet };
+pub(crate) fn options_through(key: &Path, state_dir: &Path, hops: &[Login], first: First<'_>) -> Result<Vec<String>> {
+    let checking = if hops.is_empty() { HostKey::first(first) } else { HostKey::FirstMet };
     let mut args = checked_options(key, state_dir, checking)?;
-    if let Some(proxy) = proxy_command(key, state_dir, hops, PathStyle::HERE)? {
+    if let Some(proxy) = proxy_command(key, state_dir, hops, first, PathStyle::HERE)? {
         args.extend(["-o".to_owned(), format!("ProxyCommand={proxy}")]);
     }
     Ok(args)
@@ -259,14 +299,14 @@ pub(crate) fn options_through(key: &Path, state_dir: &Path, hops: &[Login]) -> R
 /// line); none without a hop. The last hop's `ssh -W`, reaching it through the ones before in its
 /// own `ProxyCommand`. `ssh` expands `%` tokens in a `ProxyCommand` before it runs it, once per
 /// level: every `%` of a level is doubled, but its own `%h:%p`.
-fn proxy_command(key: &Path, state_dir: &Path, hops: &[Login], style: PathStyle) -> Result<Option<String>> {
+fn proxy_command(key: &Path, state_dir: &Path, hops: &[Login], first: First<'_>, style: PathStyle) -> Result<Option<String>> {
     let Some((last, before)) = hops.split_last() else {
         return Ok(None);
     };
-    let checking = if before.is_empty() { HostKey::Pinned } else { HostKey::FirstMet };
+    let checking = if before.is_empty() { HostKey::first(first) } else { HostKey::FirstMet };
     let mut words = vec!["ssh".to_owned()];
     words.extend(checked_options(key, state_dir, checking)?);
-    if let Some(inner) = proxy_command(key, state_dir, before, style)? {
+    if let Some(inner) = proxy_command(key, state_dir, before, first, style)? {
         words.extend(["-o".to_owned(), format!("ProxyCommand={inner}")]);
     }
     let line = words.iter().map(|w| command_word(w, style)).collect::<Vec<_>>().join(" ");
@@ -350,7 +390,7 @@ fn pins(known_hosts: &str, host: &str) -> bool {
 /// `tool_missing` without `ssh-keyscan`; `tool_failed` when it reads no key of `host` (it
 /// doesn't answer on SSH's port) or out of time; [`Error::Io`] when the file can't be read or
 /// written.
-pub(crate) async fn pin(processes: &dyn ProcessRunner, state_dir: &Path, host: &str) -> Result<()> {
+async fn pin(processes: &dyn ProcessRunner, state_dir: &Path, host: &str) -> Result<()> {
     let path = state_dir.join(KNOWN_HOSTS);
     let known = crate::store::if_there(std::fs::read_to_string(&path))
         .map_err(Error::io(&path, "read"))?
@@ -400,6 +440,24 @@ pub(crate) async fn pin(processes: &dyn ProcessRunner, state_dir: &Path, host: &
     crate::store::write(&path, text.as_bytes())?;
     tracing::info!(host, "pinned the SSH host keys of a machine of the run, first met");
     Ok(())
+}
+
+/// Readies the check of `host`'s keys, the first host on a call's way, where `first` says:
+/// pinned in the run's `known_hosts` the first time ([`pin`]); a given file must be there, and is only
+/// read, by `ssh` itself.
+///
+/// # Errors
+///
+/// As [`pin`]; `tool_failed` (step `host-key`) when the given file isn't a file.
+pub(crate) async fn ready(processes: &dyn ProcessRunner, state_dir: &Path, host: &str, first: First<'_>) -> Result<()> {
+    match first {
+        First::Pinned => pin(processes, state_dir, host).await,
+        First::Given(file) if file.is_file() => Ok(()),
+        First::Given(file) => Err(Error::ToolFailed {
+            step: PIN_STEP.into(),
+            reason: format!("the known_hosts file given for {host}, {}, isn't there", file.display()),
+        }),
+    }
 }
 
 /// Forgets the host keys the run pinned (its machines are gone).

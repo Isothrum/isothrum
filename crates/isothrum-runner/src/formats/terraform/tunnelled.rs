@@ -297,6 +297,7 @@ pub(super) async fn reach(module: &Module<'_, '_>, state: StateAt<'_>, vm: &tf::
         host,
         port: plan.port,
         key: cx.var(KEY_VAR).map(PathBuf::from),
+        known_hosts: None,
     };
     let mut console = Console::tunnelled(machine, plan.protocol, to).with_note(Some(&note));
     match plan.protocol {

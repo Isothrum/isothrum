@@ -121,3 +121,42 @@ async fn a_jump_host_that_isnt_a_login_is_refused_before_anything_runs_through_i
         fake.calls()
     );
 }
+
+#[tokio::test]
+async fn a_jump_host_whose_known_hosts_the_run_gives_is_checked_against_that_file_and_never_scanned() {
+    let stack = stack().with_state();
+    let fake = through_a_node(Arc::default());
+    let known = tempfile::tempdir().expect("a folder");
+    let file = known.path().join("nodes_known_hosts");
+    std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
+    let path = file.to_string_lossy().into_owned();
+    let given = [("ssh_jump", "root@node.stack"), ("ssh_jump_known_hosts_file", path.as_str())];
+    with_cx_given(&stack, &fake, &given, async |cx| Terraform.up(cx).await).await.expect("up");
+    let calls = fake.calls();
+    assert!(!calls.iter().any(|c| c.program == "ssh-keyscan"), "never scanned: {calls:?}");
+    let proxy = calls.iter().find(|c| c.program == "ssh").expect("the proxy");
+    assert!(proxy.args.contains(&format!("UserKnownHostsFile=\"{path}\"")), "{:?}", proxy.args);
+    assert!(proxy.args.iter().any(|a| a == "StrictHostKeyChecking=yes"), "{:?}", proxy.args);
+    assert!(!stack.state.path().join("known_hosts").exists(), "nothing pinned in the run's");
+    assert_eq!(std::fs::read_to_string(&file).expect("the file"), format!("{NODE_KEY}\n"));
+}
+
+#[tokio::test]
+async fn a_jump_hosts_known_hosts_file_not_there_is_refused_before_the_apply() {
+    let stack = stack();
+    let fake = through_a_node(Arc::default());
+    let given = [("ssh_jump", "root@node.stack"), ("ssh_jump_known_hosts_file", "/nowhere/known_hosts")];
+    let e = with_cx_given(&stack, &fake, &given, async |cx| Terraform.up(cx).await)
+        .await
+        .expect_err("refused");
+    assert_eq!(e.code(), ErrorCode::ToolFailed);
+    assert!(e.to_string().contains("/nowhere/known_hosts"), "{e}");
+    assert!(
+        !fake
+            .calls()
+            .iter()
+            .any(|c| c.program == "ssh" || c.args.first().map(String::as_str) == Some("apply")),
+        "{:?}",
+        fake.calls()
+    );
+}

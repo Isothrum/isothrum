@@ -127,7 +127,7 @@ fn a_host_behind_hops_is_reached_through_each_one_ssh_w_nested_its_percent_signs
     let state = Path::new("/runs/stack state");
     let key = Path::new("/home/me/key 1");
     let hops = [login("root@node.stack"), login("ops@192.0.2.10")];
-    let proxy = proxy_command(key, state, &hops, PathStyle::Unix).unwrap().unwrap();
+    let proxy = proxy_command(key, state, &hops, First::Pinned, PathStyle::Unix).unwrap().unwrap();
     // The last hop is reached through the first, a level down.
     assert!(proxy.starts_with("ssh -F none -i '/home/me/key 1' "), "{proxy}");
     assert!(proxy.ends_with(" -W %h:%p ops@192.0.2.10"), "{proxy}");
@@ -138,13 +138,19 @@ fn a_host_behind_hops_is_reached_through_each_one_ssh_w_nested_its_percent_signs
     assert!(proxy.contains("StrictHostKeyChecking=accept-new"), "{proxy}");
     assert!(proxy.contains("StrictHostKeyChecking=yes"), "{proxy}");
     // The run's known hosts, as the options name it, its `%` tokens never ours.
-    let odd = proxy_command(key, Path::new("/runs/100%"), &hops[..1], PathStyle::Unix).unwrap().unwrap();
+    let odd = proxy_command(key, Path::new("/runs/100%"), &hops[..1], First::Pinned, PathStyle::Unix)
+        .unwrap()
+        .unwrap();
     assert!(
         odd.contains("/runs/100%%%%/known_hosts"),
         "`%%` in the option, doubled again in the command: {odd}"
     );
-    assert_eq!(proxy_command(key, state, &[], PathStyle::Unix).unwrap(), None, "no hop: no ProxyCommand");
-    let straight = options_through(key, state, &[]).unwrap();
+    assert_eq!(
+        proxy_command(key, state, &[], First::Pinned, PathStyle::Unix).unwrap(),
+        None,
+        "no hop: no ProxyCommand"
+    );
+    let straight = options_through(key, state, &[], First::Pinned).unwrap();
     assert!(straight.contains(&"StrictHostKeyChecking=yes".to_owned()) && !straight.iter().any(|o| o.starts_with("ProxyCommand=")));
 }
 
@@ -154,6 +160,7 @@ fn a_windows_proxy_command_quotes_its_words_as_the_c_runtime_splits_them() {
         Path::new(r"C:\Users\a b\key"),
         Path::new("C:/runs/stack"),
         &[login("root@node.stack")],
+        First::Pinned,
         PathStyle::Windows,
     )
     .unwrap()
@@ -161,4 +168,47 @@ fn a_windows_proxy_command_quotes_its_words_as_the_c_runtime_splits_them() {
     assert!(proxy.starts_with(r#"ssh -F none -i "C:\Users\a b\key" "#), "{proxy}");
     assert_eq!(windows_quote(r#"a "b" c\"#), r#""a \"b\" c\\""#);
     assert_eq!(windows_quote(r"C:\x\"), r#""C:\x\\""#);
+}
+
+#[test]
+fn a_first_host_whose_keys_are_given_is_checked_against_that_file_alone_and_the_hosts_behind_it_against_the_runs() {
+    let state = Path::new("/runs/stack");
+    let key = Path::new("/keys/run");
+    let given = Path::new("/app/nodes_known_hosts");
+    let straight = options(key, state, First::Given(given)).unwrap();
+    let option = |args: &[String], name: &str| args.iter().filter(|a| a.starts_with(name)).cloned().collect::<Vec<_>>();
+    assert_eq!(option(&straight, "UserKnownHostsFile="), ["UserKnownHostsFile=\"/app/nodes_known_hosts\""]);
+    assert_eq!(option(&straight, "StrictHostKeyChecking="), ["StrictHostKeyChecking=yes"]);
+    assert_eq!(option(&straight, "UpdateHostKeys="), ["UpdateHostKeys=no"], "the file never written");
+    let pinned = options(key, state, First::Pinned).unwrap();
+    assert_eq!(option(&pinned, "UserKnownHostsFile="), ["UserKnownHostsFile=\"/runs/stack/known_hosts\""]);
+    assert!(!pinned.iter().any(|a| a.starts_with("UpdateHostKeys=")), "{pinned:?}");
+    // Through the jump host to a router: the jump checked against the file, the router (met only
+    // through it) pinned in the run's own.
+    let hops = [login("root@node.stack"), login("ops@192.0.2.10")];
+    let proxy = proxy_command(key, state, &hops, First::Given(given), PathStyle::Unix).unwrap().unwrap();
+    let (outer, inner) = proxy.split_once("ProxyCommand=").unwrap();
+    assert!(outer.contains("/runs/stack/known_hosts") && outer.contains("accept-new"), "{proxy}");
+    assert!(
+        inner.contains("/app/nodes_known_hosts") && inner.contains("StrictHostKeyChecking=yes"),
+        "{proxy}"
+    );
+    assert!(!inner.contains("/runs/stack/known_hosts"), "{proxy}");
+}
+
+#[tokio::test]
+async fn a_given_known_hosts_file_is_never_pinned_in_and_one_not_there_is_refused() {
+    use crate::process::fake::{FakeProcesses, Reply};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("nodes_known_hosts");
+    std::fs::write(&file, "node.stack ssh-ed25519 AAAA\n").unwrap();
+    let fake = FakeProcesses::model(|_| Reply::ok("node.stack ssh-ed25519 BBBB"));
+    ready(&fake, dir.path(), "node.stack", First::Given(&file)).await.unwrap();
+    assert!(fake.calls().is_empty(), "no ssh-keyscan: {:?}", fake.calls());
+    assert!(!dir.path().join(KNOWN_HOSTS).exists(), "nothing pinned in the run's");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "node.stack ssh-ed25519 AAAA\n");
+    let gone = dir.path().join("gone");
+    let e = ready(&fake, dir.path(), "node.stack", First::Given(&gone)).await.unwrap_err();
+    assert_eq!(e.code(), crate::ErrorCode::ToolFailed);
+    assert!(e.to_string().contains("isn't there"), "{e}");
 }
