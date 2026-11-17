@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine finds this computer's public IPv4 address: `net::public_ipv4`.**
+  Independent services (`RESOLVERS`, or the caller's own) are asked at once with `curl`, over
+  HTTPS and IPv4 alone, each within `RESOLVER_TIMEOUT`; two must give the same public address
+  and none another (`agreed`), else `PublicIpFailed::Disagree` or `Unconfirmed`. A page or a
+  private address is no answer (`is_public_ipv4`).
+
 - **isothrum-machine carries out a setup's start and Windows actions itself.**
   `docker::start_engine` starts an installed engine as its user would (`open -a` Docker
   Desktop or OrbStack, Docker Desktop's program on Windows, `colima start`, Docker Engine's

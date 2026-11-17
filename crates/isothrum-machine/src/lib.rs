@@ -4,7 +4,8 @@
 //! Windows, WSL 2; a guided setup's options and plan from that check ([`setup`]); installing and
 //! removing the tools it runs projects with ([`install`]); the self-tests that prove it runs
 //! deployments ([`selftest`]); and the cloud accounts its cloud CLIs
-//! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers.
+//! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers; and this
+//! computer's public address, as independent services agree on it ([`net`]).
 //!
 //! Every tool runs through the Isothrum runner's no-unsafe [`isothrum_runner::ProcessRunner`], so
 //! nothing here forks a shell or touches raw process APIs. A caller hands it a [`Context`]: the runner (the
@@ -20,6 +21,7 @@ mod exec;
 pub mod failure;
 pub mod host;
 pub mod install;
+pub mod net;
 pub mod providers;
 pub mod selftest;
 pub mod setup;
