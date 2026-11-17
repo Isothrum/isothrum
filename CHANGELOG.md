@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A run's status lists the ways it can be parked: `Status::parks`.** By its format and
+  provider (`park_modes`): Compose pauses and stops; Vagrant suspends and halts, but for QEMU's
+  provider, which has no suspend; a Terraform module, and a run never recorded, list none. An
+  embedder offers its park actions from it instead of its own rule. Left out of the JSON when
+  empty, and read as empty from a status written before it.
+
 - **isothrum-client keeps one connection per home and makes it again once: `Pool`.**
   `Pool::new(binary)` connects with `Client::connect_exact`; `Pool::call(home, ask)` asks on the
   kept connection, and when it broke (`ClientError::is_broken`: the service killed or
