@@ -6,9 +6,11 @@
 //!
 //! - [`engine`]: a two-container deployment on a container engine.
 //! - [`hypervisor`]: a VM on a hypervisor, through Vagrant.
+//! - [`server`]: a VM on a server (Proxmox VE through Terraform, ESXi through Vagrant).
 
 pub mod engine;
 pub mod hypervisor;
+pub mod server;
 
 use std::path::{Path, PathBuf};
 

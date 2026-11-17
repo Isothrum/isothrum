@@ -11,6 +11,17 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **isothrum-machine's server self-test: a throwaway VM on a server, through a runner of its
+  own: `selftest::server`.** On a Proxmox VE server (`Proxmox`) the test writes a Terraform module
+  of its own (the cloud image downloaded, an SDN network of the test's own made and applied, the
+  VM on the server's bridge with the guest agent reporting its DHCP address); on an ESXi host
+  (`Esxi`) a Vagrantfile of its own for `vmware_esxi`. It checks the server answers on its port,
+  takes down what an interrupted test left (the runner's record in the test's folder), brings the
+  VM up with each step ended by its tool's line, waits for SSH when `up` doesn't, runs `uname -sm`
+  inside, and always takes it down. Steps, findings and failures are typed (`Step`, `Found`,
+  `Failure`: no address, a missing bridge, the image's download, a VM name taken, the OVF Tool's
+  upload, the box, the power-on, SSH, the command), for a caller to word. The caller gives the key
+  the VM lets in and the jump host SSH goes through, else the test runner's own key and none.
 - **A run's status lists the ways it can be parked: `Status::parks`.** By its format and
   provider (`park_modes`): Compose pauses and stops; Vagrant suspends and halts, but for QEMU's
   provider, which has no suspend; a Terraform module, and a run never recorded, list none. An
