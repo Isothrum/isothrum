@@ -1,7 +1,8 @@
 //! The Vagrant providers (hypervisors) this computer can drive, and detecting which are usable.
 //! Vagrant abstracts the hypervisor; this detects what is installed here, what is still missing
 //! for Vagrant to drive it ([`Need`]), and when it can't run VMs yet, why ([`Unavailable`], a code
-//! a UI translates).
+//! a UI translates), and right before a start whether it is ready now ([`ready`]: UTM open and
+//! answering, QEMU's emulator for a foreign CPU).
 //!
 //! Each provider is one row ([`ProviderRow::of`]): where it runs, how its hypervisor is found, the
 //! versions it is held to. Every tool runs through the [`Context`]'s runner, within its probe time
@@ -22,6 +23,7 @@ pub use isothrum_runner::Provider;
 mod hyperv;
 mod kvm;
 mod needs;
+pub mod ready;
 mod reasons;
 mod unavailable;
 mod vbox;
