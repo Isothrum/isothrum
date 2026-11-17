@@ -38,6 +38,8 @@ async fn the_ovftool_installed_here_is_placed_into_a_folder_of_its_own() {
     let Some((_, file)) = ovftool::locate(&cx, None, path.as_deref()) else {
         skip!("{NOT_HERE}")
     };
+    // The folder its user would pick: the tool's own, not that of a link to it on `PATH`.
+    let file = std::fs::canonicalize(&file).unwrap_or(file);
     let picked = file.parent().expect("its folder");
     let dir = tempfile::tempdir().expect("a folder");
     let dest = dir.path().join("tools").join("ovftool");
