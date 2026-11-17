@@ -275,6 +275,16 @@ pub enum Command {
         /// The downloads to adopt.
         adopted: Vec<DownloadToAdopt>,
     },
+    /// The IPv4 address blocks the engine's networks hold, but those of a run's own networks:
+    /// what a deployment's networks must stay clear of (not queued).
+    AddressBlocksInUse {
+        /// The run whose own networks don't count.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        except: Option<RunName>,
+        /// The Docker context of the engine asked; the current one when none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        docker_context: Option<String>,
+    },
     /// The run's latest operations, newest first.
     Operations {
         /// The run.
@@ -347,6 +357,7 @@ impl Command {
                 | Command::Downloads
                 | Command::RemoveDownloads { .. }
                 | Command::AdoptDownloads { .. }
+                | Command::AddressBlocksInUse { .. }
         )
     }
 
@@ -567,6 +578,13 @@ pub enum Reply {
         /// The recorded downloads.
         adopted: Vec<Download>,
     },
+    /// To `address_blocks_in_use`: the blocks, in CIDR form.
+    AddressBlocks {
+        /// The request's id.
+        id: u64,
+        /// The blocks.
+        blocks: Vec<String>,
+    },
     /// To `operations`.
     Operations {
         /// The request's id.
@@ -625,6 +643,7 @@ impl Reply {
             | Reply::Downloads { id, .. }
             | Reply::DownloadsRemoved { id, .. }
             | Reply::DownloadsAdopted { id, .. }
+            | Reply::AddressBlocks { id, .. }
             | Reply::Ok { id }
             | Reply::Busy { id, .. }
             | Reply::Error { id, .. } => Some(*id),

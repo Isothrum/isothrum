@@ -376,6 +376,10 @@ async fn engine_answer(shared: &Shared, id: u64, command: Command) -> Result<Rep
             id,
             adopted: engine.adopt_downloads(&adopted).await?,
         },
+        Command::AddressBlocksInUse { except, docker_context } => Reply::AddressBlocks {
+            id,
+            blocks: engine.address_blocks_in_use(except.as_ref(), docker_context.as_deref()).await?,
+        },
         _ => return Err(Refusal::new(ErrorCode::Usage, "not a question the engine answers")),
     })
 }

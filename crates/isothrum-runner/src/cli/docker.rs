@@ -1,7 +1,7 @@
 //! The Docker adapter: the objects a project's label marks (its containers, networks and volumes,
 //! the anonymous ones included), their removal by id, and the networks a container is on; the
 //! images the engine holds, what a reference stands for, an image's size, and the removal of a
-//! reference.
+//! reference; the address blocks the engine's networks hold.
 
 use std::fmt;
 
@@ -139,6 +139,46 @@ pub(crate) async fn image_size(call: &Call<'_>, image: &str) -> Result<Option<u6
 /// refused); the image goes with its last reference.
 pub(crate) async fn remove_image(call: &Call<'_>, reference: &str) -> Result<(), CliError<Failure>> {
     call.ok(TOOL, vec!["image".into(), "rm".into(), reference.into()], Failure::of).await.map(drop)
+}
+
+/// The IPv4 address blocks (CIDR) the engine's networks hold, but those of the networks whose
+/// `label_key` label is `except` (a Compose project's own): `network ls`, then `network inspect`
+/// of the others. IPv6 blocks are left out.
+pub(crate) async fn network_blocks(call: &Call<'_>, label_key: &str, except: Option<&str>) -> Result<Vec<String>, CliError<Failure>> {
+    let listed = call
+        .ok(
+            TOOL,
+            vec![
+                "network".into(),
+                "ls".into(),
+                "--format".into(),
+                format!("{{{{.Name}}}}\t{{{{.Label \"{label_key}\"}}}}"),
+            ],
+            Failure::of,
+        )
+        .await?;
+    let others: Vec<String> = listed
+        .stdout
+        .iter()
+        .filter_map(|l| {
+            let (name, label) = l.split_once('\t').unwrap_or((l, ""));
+            let name = name.trim();
+            (!name.is_empty() && except != Some(label.trim())).then(|| name.to_owned())
+        })
+        .collect();
+    if others.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut args = argv(["network", "inspect", "--format", "{{range .IPAM.Config}}{{.Subnet}} {{end}}"]);
+    args.extend(others);
+    let out = call.ok(TOOL, args, Failure::of).await?;
+    Ok(out
+        .stdout
+        .iter()
+        .flat_map(|l| l.split_whitespace())
+        .filter(|block| !block.contains(':'))
+        .map(str::to_owned)
+        .collect())
 }
 
 #[cfg(test)]

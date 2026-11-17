@@ -44,7 +44,7 @@ use crate::status::MachineState;
 use crate::store::{Lifetime, ResourceKind};
 
 /// The label Compose puts on every object of a project, with the project's name.
-const PROJECT_LABEL: &str = "com.docker.compose.project";
+pub(crate) const PROJECT_LABEL: &str = "com.docker.compose.project";
 
 /// How long a start may take: images pulled, built and every service healthy.
 const UP_LIMIT: Duration = Duration::from_secs(1800);

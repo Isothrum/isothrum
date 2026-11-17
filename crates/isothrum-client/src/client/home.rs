@@ -185,6 +185,21 @@ impl Client {
         .await
     }
 
+    /// The IPv4 address blocks (CIDR) the networks of the engine Docker context `docker_context`
+    /// reaches hold (the current one when none is named), but those of run `except`'s own
+    /// networks: what a deployment's networks must stay clear of.
+    ///
+    /// # Errors
+    ///
+    /// Docker is missing or the engine can't say, or the connection ended.
+    pub async fn address_blocks_in_use(&self, except: Option<RunName>, docker_context: Option<String>) -> Result<Vec<String>> {
+        self.answer(Command::AddressBlocksInUse { except, docker_context }, |reply| match reply {
+            Reply::AddressBlocks { blocks, .. } => Ok(blocks),
+            other => Err(Box::new(other)),
+        })
+        .await
+    }
+
     /// The public half of the runner's SSH key, one line (made when it has none).
     ///
     /// # Errors
