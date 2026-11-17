@@ -11,6 +11,13 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A run's jump host checked against a `known_hosts` file the embedder gives:
+  `ssh_jump_known_hosts_file`.** A Terraform run's value naming the file of the `ssh_jump` host's
+  keys (ones its user confirmed): the SOCKS proxy around `apply` and `destroy`, the first hop of a
+  console or a command and a service endpoint's forward check that host there strictly, only
+  reading the file, instead of pinning it in the run's own known hosts the first time. A key the
+  file doesn't hold is refused; a file that isn't there fails the step (`tool_failed`, step
+  `host-key`). The Proxmox server self-test passes it on: `Proxmox::jump_known_hosts`.
 - **isothrum-machine's server self-test: a throwaway VM on a server, through a runner of its
   own: `selftest::server`.** On a Proxmox VE server (`Proxmox`) the test writes a Terraform module
   of its own (the cloud image downloaded, an SDN network of the test's own made and applied, the

@@ -4,8 +4,9 @@
 //!
 //! A forward is the console tunnels' ([`crate::graphical::tunnel`]): `ssh -N -L
 //! 127.0.0.1:<free port>:<host>:<port>` through the jump host, signed in with the run's key (its
-//! `ssh_private_key_file`, else the runner's), the jump host's key pinned the first time the run
-//! meets it, recorded in the run's tool ledger. This process keeps it while the run publishes the
+//! `ssh_private_key_file`, else the runner's), the jump host's keys checked against the run's
+//! `ssh_jump_known_hosts_file` value when it has one, else pinned the first time the run meets
+//! it, recorded in the run's tool ledger. This process keeps it while the run publishes the
 //! endpoint, so a caller asks again and again and gets the same address: one whose `ssh` ended is
 //! opened again at the next ask; one the run no longer publishes is ended. A `down` ends them from
 //! any process, through the ledger, and so does this process's exit (`kill_on_drop`).
@@ -27,6 +28,9 @@ const JUMP_VAR: &str = "ssh_jump";
 
 /// The run's value naming the private key that signs in there.
 const KEY_VAR: &str = "ssh_private_key_file";
+
+/// The run's value naming a `known_hosts` file of the jump host's keys.
+const KNOWN_HOSTS_VAR: &str = "ssh_jump_known_hosts_file";
 
 /// The forwards this process keeps, by run (its runner's home and its name), each by the
 /// `host:port` it goes to.
@@ -65,9 +69,9 @@ impl Running<'_> {
     /// `user@host`.
     pub async fn service_endpoints(&self, opts: &RunOptions) -> Result<Vec<ServiceEndpoint>> {
         let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
-        let (published, jump, key) = self
+        let (published, jump, key, known_hosts) = self
             .with_cx(opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
-                Ok((self.driver.published(cx).await?, cx.var(JUMP_VAR), cx.var(KEY_VAR)))
+                Ok((self.driver.published(cx).await?, cx.var(JUMP_VAR), cx.var(KEY_VAR), cx.var(KNOWN_HOSTS_VAR)))
             })
             .await?;
         let Some(jump) = jump else {
@@ -96,6 +100,7 @@ impl Running<'_> {
                     host: p.host.clone(),
                     port: p.port,
                     key: key.clone().map(Into::into),
+                    known_hosts: known_hosts.clone().map(Into::into),
                 };
                 match tunnel::open(self.runner, &self.name, &self.state_dir(), Purpose::Endpoint(&p.name), &target).await {
                     Ok(forward) => {

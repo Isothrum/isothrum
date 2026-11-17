@@ -9,7 +9,8 @@
 //!   whose address that is, else `ssh_user`; unless it is at that address itself.
 //! - **First through where.** The run's `ssh_jump` value (`user@host`), when it has one: a host
 //!   this computer reaches that reaches the rest (a host whose private network is internal to
-//!   it). Every console and command of the run goes through it first.
+//!   it). Every console and command of the run goes through it first, its keys checked against
+//!   the run's `ssh_jump_known_hosts_file` value when it has one, else pinned first met.
 //! - **As whom.** The user asked for, else `ssh_user_<machine>`, else the `ssh_user` of the machine
 //!   whose `address_<machine>` the address is, else `ssh_user`.
 //! - **With which key.** The run's `ssh_private_key_file` value, else the runner's own key, for
@@ -30,6 +31,10 @@ const VIA_OUTPUT: &str = "ip";
 /// The run's value naming the host every SSH of the run goes through first.
 pub(crate) const JUMP_VAR: &str = "ssh_jump";
 
+/// The run's value naming a `known_hosts` file of that host's keys, which every SSH of the run
+/// checks it against, strictly and only reading it, instead of pinning it first met.
+pub(crate) const JUMP_KNOWN_HOSTS_VAR: &str = "ssh_jump_known_hosts_file";
+
 /// How to reach a machine: the hosts on the way (outermost first), the login at the end, and the
 /// key that signs in to each.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +45,8 @@ pub(super) struct Route {
     pub(super) to: Login,
     /// The private key.
     pub(super) key: PathBuf,
+    /// A `known_hosts` file of the first hop's keys, the run's jump host's, when the run gives one.
+    pub(super) jump_known_hosts: Option<PathBuf>,
 }
 
 impl Route {
@@ -48,12 +55,13 @@ impl Route {
         self.hops.first().unwrap_or(&self.to)
     }
 
-    /// The `ssh` options of a call along the route, of `module`'s run, its first host pinned first
-    /// ([`crate::ssh::pin`]).
+    /// The `ssh` options of a call along the route, of `module`'s run, its first host's keys
+    /// readied first ([`crate::ssh::ready`]).
     pub(super) async fn options(&self, module: &Module<'_, '_>) -> Result<Vec<String>> {
         let cx = module.cx;
-        crate::ssh::pin(cx.processes, cx.state_dir, &self.first().host).await?;
-        crate::ssh::options_through(&self.key, cx.state_dir, &self.hops)
+        let first = crate::ssh::First::given(self.jump_known_hosts.as_deref());
+        crate::ssh::ready(cx.processes, cx.state_dir, &self.first().host, first).await?;
+        crate::ssh::options_through(&self.key, cx.state_dir, &self.hops, first)
     }
 }
 
@@ -73,10 +81,12 @@ pub(super) async fn to(module: &Module<'_, '_>, machine: &str, user: Option<&str
     }
     let out = tunnelled::outputs(module, state).await?;
     let jump = cx.var(JUMP_VAR);
+    let jump_known_hosts = jump.as_ref().and(cx.var(JUMP_KNOWN_HOSTS_VAR)).map(PathBuf::from);
     Ok(route(&out, vm.vm.address.as_deref(), machine, user, jump.as_deref()).map(|(hops, to)| Route {
         hops,
         to,
         key: cx.var(tunnelled::KEY_VAR).map_or_else(|| cx.ssh_key.to_path_buf(), PathBuf::from),
+        jump_known_hosts,
     }))
 }
 

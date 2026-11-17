@@ -189,6 +189,34 @@ async fn a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_
 }
 
 #[tokio::test]
+async fn a_command_through_a_jump_whose_known_hosts_the_run_gives_checks_it_there_and_scans_nothing() {
+    let stack = stack().with_state();
+    let known = tempfile::tempdir().expect("a folder");
+    let file = known.path().join("nodes_known_hosts");
+    std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
+    let path = file.to_string_lossy().into_owned();
+    let fake = FakeProcesses::script()
+        .expect("terraform show -json -no-color", Reply::ok(&web_behind_a_router()))
+        .expect("terraform output -json -no-color", Reply::ok(ROUTER_OUTPUTS))
+        .allow("ssh -F none", Reply::ok("web: ok"))
+        .build();
+    let mut given = THROUGH_THE_NODE.to_vec();
+    given.push(("ssh_jump_known_hosts_file", path.as_str()));
+    with_cx_given(&stack, &fake, &given, async |cx| Terraform.exec(cx, "web", &["true".to_owned()]).await)
+        .await
+        .expect("it ran");
+    let ssh = fake.last("ssh -F none").expect("an ssh");
+    let proxy = ssh.args.iter().find_map(|a| a.strip_prefix("ProxyCommand=")).expect("a ProxyCommand");
+    let (router, node) = proxy.split_once("ProxyCommand=").expect("the node a level down");
+    assert!(
+        node.contains(&path) && node.contains("StrictHostKeyChecking=yes"),
+        "the node against the file: {proxy}"
+    );
+    assert!(!router.contains(&path), "the router against the run's own: {proxy}");
+    assert!(!stack.state.path().join(crate::ssh::KNOWN_HOSTS).exists(), "nothing pinned for the node");
+}
+
+#[tokio::test]
 async fn a_command_that_fails_is_its_exit_status_and_one_ssh_couldnt_run_an_error() {
     let stack = stack().with_state();
     let failed = behind_a_router(Reply {

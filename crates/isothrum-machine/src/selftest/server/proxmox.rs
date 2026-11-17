@@ -90,6 +90,9 @@ pub struct Proxmox {
     /// `user@host` every SSH to the VM goes through first, when only that host reaches the
     /// bridge (its node, when the bridge is internal to it).
     pub jump: Option<String>,
+    /// A `known_hosts` file of the jump host's keys, which the run checks it against (only
+    /// reading it) instead of pinning it first met.
+    pub jump_known_hosts: Option<PathBuf>,
 }
 
 impl Proxmox {
@@ -111,6 +114,7 @@ impl Proxmox {
             node_address: None,
             key: None,
             jump: None,
+            jump_known_hosts: None,
         }
     }
 
@@ -157,6 +161,10 @@ impl Proxmox {
             // The run's own: what its commands sign in with, and go through first.
             ("ssh_private_key_file", self.key.as_ref().map(|k| k.private_file.to_string_lossy().into_owned())),
             ("ssh_jump", self.jump.clone()),
+            (
+                "ssh_jump_known_hosts_file",
+                self.jump_known_hosts.as_ref().map(|f| f.to_string_lossy().into_owned()),
+            ),
         ];
         for (name, value) in optional {
             if let Some(value) = value.filter(|v| !v.is_empty()) {
@@ -260,6 +268,7 @@ mod tests {
         p.bridge = "vmbr1".into();
         p.image_datastore = Some("isos".into());
         p.jump = Some("root@pve".into());
+        p.jump_known_hosts = Some("/app/nodes_known_hosts".into());
         p.key = Some(Key::new("/keys/id_ed25519", "ssh-ed25519 AAAA me\n"));
         let opts = p.options(&vm, "ssh-ed25519 AAAA me\n");
         let value = |k: &str| opts.env.get(k).map(String::as_str);
@@ -270,12 +279,16 @@ mod tests {
         assert_eq!(value("ssh_public_key"), Some("ssh-ed25519 AAAA me"));
         assert_eq!(value("ssh_private_key_file"), Some("/keys/id_ed25519"));
         assert_eq!(value("ssh_jump"), Some("root@pve"));
+        assert_eq!(value("ssh_jump_known_hosts_file"), Some("/app/nodes_known_hosts"));
         assert_eq!(opts.secrets.get("api_token").map(SecretValue::expose), Some("root@pam!t=s3cret"));
         assert!(opts.env.values().all(|v| !v.contains("s3cret")));
         // Every value is one of the module's variables, or one of the run's own.
         for name in opts.env.keys().map(String::as_str).chain(opts.secrets.iter().map(|(k, _)| k)) {
             let declared = MODULE.contains(&format!("variable \"{name}\""));
-            assert!(declared || ["ssh_private_key_file", "ssh_jump"].contains(&name), "{name} isn't a variable");
+            assert!(
+                declared || ["ssh_private_key_file", "ssh_jump", "ssh_jump_known_hosts_file"].contains(&name),
+                "{name} isn't a variable"
+            );
         }
         let password = Proxmox::new(
             "https://pve:8006/",

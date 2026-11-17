@@ -6,8 +6,9 @@
 //!
 //! - **Signing in.** With the run's `ssh_jump_key_file` value, else the key its other SSH signs in
 //!   with at every hop (its `ssh_private_key_file` value, else the runner's own key); the
-//!   host's key pinned in the run's `known_hosts` the first time the run meets it, then checked
-//!   strictly ([`crate::ssh::pin`]).
+//!   host's keys checked strictly against the run's `ssh_jump_known_hosts_file` value, a file
+//!   only read, when it has one, else pinned in the run's `known_hosts` the first time the run
+//!   meets it ([`crate::ssh::ready`]).
 //! - **For how long.** The step's: the proxy's `ssh` is a tool of the operation, ended with its
 //!   tree when the step ends, however it ends, and recorded in the run's tool ledger while it
 //!   runs, so the next operation ends it after a crash of the process that started it.
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::Module;
-use super::route::JUMP_VAR;
+use super::route::{JUMP_KNOWN_HOSTS_VAR, JUMP_VAR};
 use crate::Result;
 use crate::error::Error;
 use crate::events::Stream;
@@ -46,8 +47,9 @@ const POLL: Duration = Duration::from_millis(200);
 /// The step a proxy that doesn't open fails.
 const STEP: &str = "jump";
 
-/// The jump host the run names, and the key that signs in to it; none when it names none.
-fn jump(module: &Module<'_, '_>) -> Result<Option<(Login, PathBuf)>> {
+/// The jump host the run names, the key that signs in to it, and the `known_hosts` file of its
+/// keys the run gives; none when it names none.
+fn jump(module: &Module<'_, '_>) -> Result<Option<(Login, PathBuf, Option<PathBuf>)>> {
     let cx = module.cx;
     let Some(jump) = cx.var(JUMP_VAR) else { return Ok(None) };
     let refused = |why: String| Error::ToolFailed {
@@ -62,12 +64,13 @@ fn jump(module: &Module<'_, '_>) -> Result<Option<(Login, PathBuf)>> {
         .var(KEY_VAR)
         .or_else(|| cx.var(super::tunnelled::KEY_VAR))
         .map_or_else(|| cx.ssh_key.to_path_buf(), PathBuf::from);
-    Ok(Some((login, key)))
+    Ok(Some((login, key, cx.var(JUMP_KNOWN_HOSTS_VAR).map(PathBuf::from))))
 }
 
-/// `ssh`'s process for the proxy through `login` on loopback port `port`, signing in with `key`.
-fn proxy_spec(module: &Module<'_, '_>, login: &Login, key: &std::path::Path, port: u16) -> Result<ProcessSpec> {
-    let mut args = crate::ssh::options(key, module.cx.state_dir)?;
+/// `ssh`'s process for the proxy through `login` on loopback port `port`, signing in with `key`,
+/// its keys checked where `first` says.
+fn proxy_spec(module: &Module<'_, '_>, login: &Login, key: &std::path::Path, first: crate::ssh::First<'_>, port: u16) -> Result<ProcessSpec> {
+    let mut args = crate::ssh::options(key, module.cx.state_dir, first)?;
     args.extend([
         "-N".to_owned(),
         "-o".to_owned(),
@@ -94,13 +97,16 @@ fn free_port() -> Result<u16> {
 /// # Errors
 ///
 /// As `op`; `tool_failed` (step `jump`) when the run's jump host isn't a login or the proxy doesn't
-/// open or ends first; as pinning the host's key fails.
+/// open or ends first; as readying the check of the host's keys fails.
 pub(super) async fn through<T>(module: &Module<'_, '_>, op: impl AsyncFnOnce(&Module<'_, '_>) -> Result<T>) -> Result<T> {
-    let Some((login, key)) = jump(module)? else { return op(module).await };
+    let Some((login, key, known_hosts)) = jump(module)? else {
+        return op(module).await;
+    };
     let cx = module.cx;
-    crate::ssh::pin(cx.processes, cx.state_dir, &login.host).await?;
+    let first = crate::ssh::First::given(known_hosts.as_deref());
+    crate::ssh::ready(cx.processes, cx.state_dir, &login.host, first).await?;
     let port = free_port()?;
-    let spec = proxy_spec(module, &login, &key, port)?;
+    let spec = proxy_spec(module, &login, &key, first, port)?;
     let said = std::sync::Mutex::new(String::new());
     let mut keep = |stream: Stream, line: &str| {
         if stream == Stream::Stderr && !line.trim().is_empty() {
