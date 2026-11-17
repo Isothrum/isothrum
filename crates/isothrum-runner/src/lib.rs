@@ -151,6 +151,7 @@ pub use port::{GuestPort, HostPort};
 #[cfg(any(test, feature = "fake"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "fake")))]
 pub use process::fake;
+pub use process::ledger;
 pub use process::process_started_at;
 pub use process::{Captured, Exit, HyperVRights, OnLine, ProcessError, ProcessFailed, ProcessRunner, ProcessSpec, SystemProcesses, capture, may_manage_hyperv};
 pub use project::platform::{Arch, Cloud, HostOs, Protocol, Provider, Version};
