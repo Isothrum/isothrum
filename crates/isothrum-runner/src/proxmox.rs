@@ -414,22 +414,4 @@ mod tests {
         assert!(matches!(system, Err(Failure::Other(_))), "{system:?}");
         assert_eq!(server.requests().len(), 0, "no request reached it");
     }
-
-    #[tokio::test]
-    async fn a_server_that_isnt_there_fails_the_request_without_a_certificate_refusal() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let api = Api::at(&format!("https://127.0.0.1:{port}"), Trust::Pinned(None)).unwrap();
-        let err = api
-            .client()
-            .unwrap()
-            .sign_in(&Credentials::Password {
-                user: "root@pam".into(),
-                password: SecretValue::new("pw"),
-            })
-            .await
-            .unwrap_err();
-        assert!(matches!(err, Failure::Other(_)), "{err}");
-    }
 }

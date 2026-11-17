@@ -89,18 +89,6 @@ async fn a_proxmox_vm_hidden_from_the_listing_but_holding_its_id_keeps_its_state
     assert_eq!(states, [("web".to_owned(), MachineState::Running), ("db".to_owned(), MachineState::Running)]);
 }
 
-/// Without the run's token, nothing asks the server: the module's state stands.
-#[tokio::test]
-async fn a_proxmox_run_without_credentials_reads_its_state_only() {
-    let server = Server::start(api("{}", None)).await;
-    let states = proxmox_states(&terraform(), &run(&server, Some(pinned()), false)).await.expect("observed");
-    assert_eq!(
-        states.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
-        [MachineState::Running, MachineState::Running]
-    );
-    assert_eq!(server.requests().len(), 0);
-}
-
 /// A server that refuses the token is a refused sign-in, never a run read as it stood.
 #[tokio::test]
 async fn a_proxmox_server_refusing_the_token_is_server_auth_failed() {
@@ -109,29 +97,26 @@ async fn a_proxmox_server_refusing_the_token_is_server_auth_failed() {
     assert_eq!(e.code(), ErrorCode::ServerAuthFailed, "{e}");
 }
 
-/// A server whose certificate isn't the pinned one, or a self-signed one the run pins none for,
-/// is never sent the token: the module's state stands.
+/// Nothing is sent to the server, and the module's state stands, for a run without its token,
+/// a server offering another certificate than the pinned one, a self-signed one the run pins
+/// none for, or a pin that isn't a fingerprint (said).
 #[tokio::test]
-async fn a_server_offering_another_certificate_than_the_pinned_one_is_sent_nothing() {
+async fn a_run_without_its_token_or_the_servers_pin_sends_it_nothing() {
     let server = Server::start(api("{}", None)).await;
     let other = crate::tls::Fingerprint::of(b"another certificate").to_string();
-    for pin in [Some(other), None] {
-        let states = proxmox_states(&terraform(), &run(&server, pin, true)).await.expect("observed");
+    let runs = [
+        run(&server, Some(pinned()), false),
+        run(&server, Some(other), true),
+        run(&server, None, true),
+        run(&server, Some("not a pin".to_owned()), true),
+    ];
+    for given in runs {
+        let states = proxmox_states(&terraform(), &given).await.expect("observed");
         assert_eq!(
             states.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
-            [MachineState::Running, MachineState::Running]
+            [MachineState::Running, MachineState::Running],
+            "{given:?}"
         );
     }
     assert_eq!(server.requests().len(), 0, "no request reached it");
-}
-
-/// A pin that isn't a fingerprint is said, and nothing is asked.
-#[tokio::test]
-async fn a_pin_that_isnt_a_fingerprint_asks_nothing() {
-    let server = Server::start(api("{}", None)).await;
-    let states = proxmox_states(&terraform(), &run(&server, Some("not a pin".to_owned()), true))
-        .await
-        .expect("observed");
-    assert_eq!(states.len(), 2);
-    assert_eq!(server.requests().len(), 0);
 }
