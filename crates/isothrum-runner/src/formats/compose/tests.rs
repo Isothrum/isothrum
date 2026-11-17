@@ -3,6 +3,7 @@ mod engine;
 mod namespaces;
 mod pins;
 mod pulls;
+mod unpaused;
 mod usage;
 
 use std::path::Path;
@@ -234,8 +235,10 @@ async fn park_pauses_or_stops_and_resume_unpauses_what_was_paused_then_starts_wi
     let fake = FakeProcesses::script()
         .expect("docker compose -p stack -f * pause", Reply::ok(""))
         .expect("docker compose -p stack -f * stop", Reply::ok(""))
-        .expect(
+        // Read before the resume, and once more after its unpause (none reads unhealthy).
+        .expect_times(
             "docker compose -p stack -f * ps --all --format json",
+            2,
             Reply::ok(&[ps_line("web", "paused", "", 0, None), ps_line("db", "exited", "", 0, None)].join("\n")),
         )
         .expect("docker compose -p stack -f * config --services", Reply::ok("web\ndb\n"))

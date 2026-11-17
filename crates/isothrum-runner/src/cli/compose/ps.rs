@@ -75,6 +75,12 @@ impl Container {
         self.state == "paused"
     }
 
+    /// Whether its health check reads it unhealthy (as Docker reads a container it paused, until
+    /// the check runs again once unpaused).
+    pub(crate) fn is_unhealthy(&self) -> bool {
+        self.health == "unhealthy"
+    }
+
     /// Whether its process runs: running, or paused (a resume unpauses it).
     pub(crate) fn runs(&self) -> bool {
         matches!(self.state.as_str(), "running" | "paused")

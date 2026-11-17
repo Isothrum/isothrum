@@ -7,7 +7,7 @@
 //! | up, update | `pull --ignore-buildable` ([`pull`]: stopped as stalled, tried again when cut short), then `up --detach --wait --remove-orphans`: ready once every service runs healthy and every one-shot service it waits on exited 0; an update then removes (`rm --stop --force --volumes`) the containers of services the files declare but no longer start (moved under a profile) and the run hasn't attached |
 //! | down | `down --volumes --remove-orphans`, then whatever still carries the project's label, by id |
 //! | park | `pause` (Pause), `stop` (Shutdown) |
-//! | resume | `unpause` of the paused services, `stop` of those left in the network namespace of one that stopped, then `up --detach --wait --no-recreate` |
+//! | resume | `unpause` of the paused services (then `ps` until none reads unhealthy, at most a minute: Docker reads a paused container unhealthy until its check runs again), `stop` of those left in the network namespace of one that stopped, then `up --detach --wait --no-recreate` |
 //! | attach, retire | `up --detach --wait <service>` (a service under a profile starts when named), `rm --stop --force --volumes <service>` |
 //! | exec, console | `exec -T`, or `run --rm` for a service with no container (a profile's one-off); a console is `exec` with a terminal |
 //! | observe | `ps --all --format json` |
@@ -28,6 +28,7 @@ mod fetched;
 mod namespaces;
 mod pins;
 mod pull;
+mod unpaused;
 mod usage;
 
 use std::time::Duration;
@@ -301,6 +302,7 @@ impl FormatDriver for Compose {
             compose::act(&cx.call(CALL_LIMIT), &Self::project(cx), Verb::Unpause, &paused)
                 .await
                 .map_err(|e| engine_error("resume", e))?;
+            unpaused::health_back(cx, &Self::project(cx), &paused).await?;
         }
         let stranded = namespaces::stranded(cx, &Self::project(cx), &containers).await;
         if !stranded.is_empty() {
