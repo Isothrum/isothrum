@@ -116,7 +116,10 @@ async fn a_client_finds_no_service_then_the_one_running_by_each_way_in() {
     let (running, serving) = serve(home.path()).await.expect("a service answering");
     let info = running.service().clone();
     assert_eq!((info.protocol, info.version.as_str()), (PROTOCOL, VERSION));
-    let exact = Client::connect_exact(home.path(), None).await.expect("this release's own");
+    // The service runs in this test, so its build is the test's own: the binary given, as an
+    // `isothrum` beside the test (as a test machine places it) is another build, which it replaces.
+    let own = std::env::current_exe().expect("this test's path");
+    let exact = Client::connect_exact(home.path(), Some(&own)).await.expect("this release's own");
     let started = Client::connect(home.path(), Some(Path::new("/nowhere/isothrum")))
         .await
         .expect("the running one, nothing started");
