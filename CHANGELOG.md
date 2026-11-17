@@ -17,6 +17,21 @@ Terraform), usable on any project of those formats.
   none uses it. An embedder that picks an engine per run (OrbStack, Colima, Docker Desktop) no
   longer wraps the runner's process runner for it. A later operation that names a context records it too (a run started before its embedder passed one).
 
+- **isothrum-machine installs and removes tools on Linux: `install`.** Each tool a setup installs
+  (`install::Dependency`: Docker Engine, Vagrant, Terraform, VirtualBox, QEMU, libvirt, the cloud
+  CLIs, VMware's utility) has its row (where it runs, what proves it installed), and its install
+  and removal on Linux (`install::linux::install`, `uninstall`) are one root script each, through
+  apt and the vendors' apt repositories or dnf and the vendors' rpm repositories, every signing key
+  pinned by fingerprint. A root script (`install::root::RootScript`) always starts with `set -e`, a
+  private work directory and apt's wait for the dpkg lock; none chains with `&&` at its top level.
+  It runs through pkexec's prompt or, unattended, as root or through `sudo -n`
+  (`install::Elevation`), the proxy handed over in a private file, never on the command line.
+  `install::run_steps` runs the steps through the runner and tells pkexec's and sudo's refusals
+  from the script's failure (`StepFailed`), and a script that stops, changing nothing, where it
+  doesn't serve (Docker outside Debian, Ubuntu and their derivatives) as `StepFailed::NotServed`, for
+  its UI to word; a plan that can't be made says why (`Refusal`).
+  `install::record` keeps the rules of what an install leaves on record, so a clean-up removes only
+  what the setup installed.
 - **isothrum-machine checks the whole machine: `check::check`.** One report of what this computer
   has: the package manager (`tools::package_manager`), the Docker CLI and Compose, Vagrant,
   Terraform and the cloud CLIs (`tools::version`, `tools::cloud_clis`; a tool that fails its
