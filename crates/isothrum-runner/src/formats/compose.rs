@@ -455,7 +455,7 @@ impl FormatDriver for Compose {
     }
 
     async fn usage(&self, cx: &ToolCx<'_>) -> Result<Vec<crate::MachineUsage>> {
-        let running: Vec<compose::Container> = self.containers(cx).await?.into_iter().filter(|c| c.runs()).collect();
+        let running: Vec<compose::Container> = self.containers(cx).await?.into_iter().filter(compose::Container::runs).collect();
         if running.is_empty() {
             return Ok(Vec::new());
         }

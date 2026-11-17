@@ -452,7 +452,7 @@ async fn usage_is_each_running_services_containers_as_the_engine_samples_them() 
     const PS: &str = include_str!("../../tool_output/fixtures/compose/5.6-ps.jsonl");
     const STATS: &str = include_str!("../../tool_output/fixtures/compose/29.9-stats.jsonl");
     const LIST: &str = "docker compose -p stack -f * ps --all --format json";
-    const SAMPLE: &str = "docker stats --no-stream --format {{json .}}";
+    const SAMPLE: &str = "docker stats --no-stream --format '{{json .}}'";
     let (_dir, project) = folder();
     let run = run();
     let stopped = r#"{"ID":"0123456789ab","Service":"idle","State":"exited","ExitCode":0,"Labels":""}"#;
@@ -468,6 +468,6 @@ async fn usage_is_each_running_services_containers_as_the_engine_samples_them() 
             crate::MachineUsage::new("web", Some(1.78), Some(10_768_875)),
         ]
     );
-    let fake = FakeProcesses::script().expect(LIST, Reply::ok(stopped)).build();
-    assert_eq!(Compose.usage(&cx(&project, &run, &fake)).await.expect("read"), []);
+    let none_running = FakeProcesses::script().expect(LIST, Reply::ok(stopped)).build();
+    assert_eq!(Compose.usage(&cx(&project, &run, &none_running)).await.expect("read"), []);
 }

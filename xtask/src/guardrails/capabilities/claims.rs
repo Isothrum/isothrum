@@ -109,6 +109,14 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 57] = [
     ),
     (
         "compose",
+        "usage",
+        Witness {
+            test: "usage_is_each_running_services_containers_as_the_engine_samples_them",
+            evidence: "docker stats --no-stream",
+        },
+    ),
+    (
+        "compose",
         "destroy_by_id",
         Witness {
             test: "the_resources_are_what_the_project_label_marks_by_id",

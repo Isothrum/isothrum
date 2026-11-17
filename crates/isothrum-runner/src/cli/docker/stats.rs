@@ -66,7 +66,7 @@ fn size(s: &str) -> Option<u64> {
         return None;
     }
     // Past 20 digits a fraction adds nothing a byte count holds (and its product stays in range).
-    let fraction = &fraction[..fraction.len().min(20)];
+    let fraction = fraction.get(..fraction.len().min(20)).unwrap_or(fraction);
     let value = |p: &str| if p.is_empty() { Some(0) } else { p.parse::<u128>().ok() };
     let scale = 10u128.pow(u32::try_from(fraction.len()).ok()?);
     let bytes = value(whole)?.saturating_mul(unit).saturating_add(value(fraction)?.saturating_mul(unit) / scale);
