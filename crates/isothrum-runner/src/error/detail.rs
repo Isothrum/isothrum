@@ -50,11 +50,13 @@ pub enum ProviderNeed {
     /// by `vagrant_utm`) may not send them (`-1743`, `Not authorized to send Apple events`, macOS's
     /// Automation permission). Waiting doesn't fix it; the user's settings do.
     Automation,
-    /// The machine's files, which the hypervisor's app couldn't open: it answered the machine's
-    /// start, driven through Apple events, with the system's `Operation not permitted` (UTM's
-    /// `utmctl start`: `OSStatus error -2700`), its own process refused them though the events
-    /// reached it. Waiting doesn't fix it; the hypervisor's install or settings do.
-    MachineFiles,
+    /// The system's approval of the hypervisor's app: it answered the machine's start, driven
+    /// through Apple events, with the system's `Operation not permitted` (UTM's `utmctl start`:
+    /// `OSStatus error -2700`) though the events reached it. The system refused to run the app's
+    /// own helper that launches machines: an app downloaded and quarantined, never approved when
+    /// opened, whose sandboxed helper gets no prompt. Waiting doesn't fix it; opening the app once
+    /// from the system's file manager, or reinstalling it, does.
+    AppApproval,
 }
 
 /// The process that holds a host port: what a `port_in_use` names so the user knows what to stop.

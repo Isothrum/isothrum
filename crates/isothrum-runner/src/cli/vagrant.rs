@@ -131,18 +131,18 @@ impl fmt::Display for Failure {
 }
 
 /// What the system refused the provider in failed call `out`, if it did: the Apple events to its
-/// hypervisor's app (`-1743`, in any language: [`ProviderNeed::Automation`]), or the machine's files,
+/// hypervisor's app (`-1743`, in any language: [`ProviderNeed::Automation`]), or the app's approval,
 /// an event the app answered with the system's `Operation not permitted` (`utmctl`'s `Error from
-/// event: … (OSStatus error -2700.) … Operation not permitted`: [`ProviderNeed::MachineFiles`]).
+/// event: … (OSStatus error -2700.) … Operation not permitted`: [`ProviderNeed::AppApproval`]).
 ///
 /// [`ProviderNeed::Automation`]: crate::error::ProviderNeed::Automation
-/// [`ProviderNeed::MachineFiles`]: crate::error::ProviderNeed::MachineFiles
+/// [`ProviderNeed::AppApproval`]: crate::error::ProviderNeed::AppApproval
 fn refused_by_the_system(out: &Captured) -> Option<crate::error::ProviderNeed> {
     let event = AppleEvent::of(out.stdout.iter().chain(&out.stderr_tail));
     if event.is_some_and(|e| e.number() == NOT_AUTHORIZED) {
         Some(crate::error::ProviderNeed::Automation)
     } else if (event.is_some() || said_any(out, &["osstatus error", "error from event"])) && said_any(out, &["operation not permitted"]) {
-        Some(crate::error::ProviderNeed::MachineFiles)
+        Some(crate::error::ProviderNeed::AppApproval)
     } else {
         None
     }
@@ -454,8 +454,8 @@ mod tests {
     }
 
     #[test]
-    fn the_system_refusing_the_hypervisors_app_says_whether_the_automation_or_the_machines_files() {
-        use crate::error::ProviderNeed::{Automation, MachineFiles};
+    fn the_system_refusing_the_hypervisors_app_says_whether_the_automation_or_the_apps_approval() {
+        use crate::error::ProviderNeed::{AppApproval, Automation};
         // macOS refusing the Apple events (in any language, whatever else was said), or UTM
         // answering a VM's start with the system's EPERM.
         for (said, need) in [
@@ -467,7 +467,7 @@ mod tests {
             ),
             (
                 include_str!("../tool_output/fixtures/vagrant/vagrant_utm-0.2-start-not-permitted.txt"),
-                MachineFiles,
+                AppApproval,
             ),
         ] {
             match failed("", said) {

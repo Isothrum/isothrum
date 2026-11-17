@@ -1716,8 +1716,8 @@
           "type": "string"
         },
         {
-          "const": "machine_files",
-          "description": "The machine's files, which the hypervisor's app couldn't open: it answered the machine's\nstart, driven through Apple events, with the system's `Operation not permitted` (UTM's\n`utmctl start`: `OSStatus error -2700`), its own process refused them though the events\nreached it. Waiting doesn't fix it; the hypervisor's install or settings do.",
+          "const": "app_approval",
+          "description": "The system's approval of the hypervisor's app: it answered the machine's start, driven\nthrough Apple events, with the system's `Operation not permitted` (UTM's `utmctl start`:\n`OSStatus error -2700`) though the events reached it. The system refused to run the app's\nown helper that launches machines: an app downloaded and quarantined, never approved when\nopened, whose sandboxed helper gets no prompt. Waiting doesn't fix it; opening the app once\nfrom the system's file manager, or reinstalling it, does.",
           "type": "string"
         }
       ]

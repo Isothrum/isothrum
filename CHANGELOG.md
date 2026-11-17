@@ -147,10 +147,10 @@ Terraform), usable on any project of those formats.
 - **`provider_refused` names what the system refused the hypervisor's app**, recognized from
   what Vagrant's provider printed: `need: automation` (`ProviderNeed::Automation`) when macOS
   refused the Apple events that drive it (`-1743`, `Not authorized to send Apple events`, in any
-  language), `need: machine_files` (`ProviderNeed::MachineFiles`) when the app couldn't open the
-  machine's files (UTM answering `utmctl start` with `Error from event: … (OSStatus error -2700.)
-  … Operation not permitted`). It was `tool_failed`; no wait fixes either, so neither is tried
-  again.
+  language); `need: app_approval` (`ProviderNeed::AppApproval`) when the system never approved
+  the app and refused to run its helper that launches machines (UTM answering `utmctl start`
+  with `Error from event: … (OSStatus error -2700.) … Operation not permitted`). It was
+  `tool_failed`; no wait fixes either, so neither is tried again.
 - **`Client::connect_exact` replaces a service of another build, not only of another release.**
   An app updated in place carries the same release of Isothrum, and the service its old program
   started kept serving the new one. A service now writes its build in `service.json`
