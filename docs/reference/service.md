@@ -2,7 +2,17 @@
 
 `isothrum serve --home <home>` runs the home's **runner service**: one daemon per home that runs
 every operation of the home (one at a time per run, runs side by side) and streams their events
-to its clients. The command line starts it when it isn't running (unless `--no-service`); an app
+to its clients.
+
+## One operation per run
+
+The service alone says which operation a run has: a client keeps no lock of its own. An operation
+asked while another of its run is queued or running is refused at once,
+`{"reply":"error","code":"locked","changed":false,…}`, its message naming the operation that holds
+the run, and nothing is journaled. Which one runs, a client asks with `operations` (the row with
+`started_at` and no `ended`). The one exception: an operation asked once the run's running one
+was cancelled (`cancel`) is queued behind it (`position` 1) and begins when it ended, so a `down`
+can cut an `up` short. Nothing of this outlives the service: a service that died holds no run. The command line starts it when it isn't running (unless `--no-service`); an app
 links [`isothrum-client`](https://docs.rs/isothrum-client).
 
 ## Files

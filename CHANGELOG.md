@@ -9,6 +9,14 @@ Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
+### Changed
+
+- **One operation per run: the service refuses a second instead of queueing it.** An operation
+  asked while another of its run is queued or running is refused at once (`locked`, `changed`
+  false, the message naming the operation that holds the run), never journaled; `operations` says
+  which one runs. Only one asked once the run's running operation was cancelled waits behind it, so
+  a `down` still cuts an `up` short. A client needs no lock of its own around the run's operations.
+
 ### Added
 
 - **A run's jump host checked against a `known_hosts` file the embedder gives:
