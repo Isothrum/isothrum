@@ -285,7 +285,7 @@ fn the_journal_keeps_each_operations_steps_end_and_cancel() {
     let op = run_with_operation(&store, "r", Op::Up);
     store
         .write(|tx| {
-            tx.step(op.id, "up", StepState::Running)?;
+            tx.step(op.id, "up", StepState::Started)?;
             tx.step(op.id, "up", StepState::Done)?;
             assert!(tx.request_cancel(op.id)?);
             tx.end_operation(op.id, Outcome::Cancelled, Some(ErrorCode::Cancelled))?;
@@ -296,7 +296,7 @@ fn the_journal_keeps_each_operations_steps_end_and_cancel() {
         .unwrap();
     store
         .read(|tx| {
-            assert_eq!(tx.steps(op.id)?, [("up".to_owned(), StepState::Running), ("up".to_owned(), StepState::Done)]);
+            assert_eq!(tx.steps(op.id)?, [("up".to_owned(), StepState::Started), ("up".to_owned(), StepState::Done)]);
             let row = tx.operation(op.id)?.unwrap();
             assert!(row.cancel_requested);
             assert_eq!(row.ended.map(|e| e.outcome), Some(Outcome::Cancelled), "the first end stands");

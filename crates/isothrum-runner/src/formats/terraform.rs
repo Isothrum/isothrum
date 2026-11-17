@@ -56,6 +56,7 @@ use crate::console::ShellCommand;
 use crate::error::Error;
 use crate::events::{Stream, WarningCode};
 use crate::state::{Park, RunState};
+use crate::steps::{Phase, StepCount};
 use crate::store::{Lifetime, ResourceKind};
 use crate::tool_output::sign_in;
 
@@ -218,11 +219,27 @@ impl<'c, 'a> Module<'c, 'a> {
     }
 
     /// `change` on the state at `state` as step `step`. A lock left on a backend's state is
-    /// released once and the call made again.
+    /// released once and the call made again. An apply says how far it is: the `apply` step's
+    /// count of the resources its plan changes, the `ready` step once a provisioner begins.
     async fn apply(&self, step: &str, state: StateAt<'_>, change: tf::Change<'_>) -> std::result::Result<(), CliError<Failure>> {
         let say = |s: Stream, l: &str| self.say(s, l);
         let call = self.call(APPLY_LIMIT, &say);
-        match tf::apply(&call, state, change).await {
+        let count = std::sync::Mutex::new(StepCount::new(0, None));
+        let steps = &self.cx.steps;
+        let applying = |moved: tf::Applying| {
+            let mut count = count.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match moved {
+                tf::Applying::Planned(total) => count.total = Some(total),
+                tf::Applying::Applied => count.done += 1,
+                tf::Applying::Provisioning => {
+                    steps.start(Phase::Ready, None);
+                    return;
+                }
+            }
+            steps.count(Phase::Apply, None, *count);
+        };
+        let progress: &(dyn Fn(tf::Applying) + Send + Sync) = if change == tf::Change::Apply { &applying } else { &tf::unheard };
+        match tf::apply(&call, state, change, progress).await {
             Err(CliError::Failed {
                 failure: Failure::StateLocked { id: Some(id) },
                 ..
@@ -232,7 +249,7 @@ impl<'c, 'a> Module<'c, 'a> {
                     &format!("the state's lock `{id}` is held by no run of this one: released, then `{step}` again"),
                 );
                 tf::force_unlock(&self.call(READ_LIMIT, &say), &id).await?;
-                tf::apply(&call, state, change).await
+                tf::apply(&call, state, change, progress).await
             }
             done => done,
         }
@@ -360,11 +377,16 @@ impl FormatDriver for Terraform {
     async fn up(&self, cx: &ToolCx<'_>) -> Result<()> {
         required::refuse_unset(cx)?;
         let module = Module::of(cx);
+        cx.steps.start(Phase::Init, None);
         let state = module.init().await?;
+        cx.steps.done(Phase::Init, None);
+        cx.steps.start(Phase::Apply, None);
         jump::through(&module, async |m| {
             m.apply("apply", state, tf::Change::Apply).await.map_err(|e| m.error("apply", e))
         })
-        .await
+        .await?;
+        cx.steps.end(true);
+        Ok(())
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {

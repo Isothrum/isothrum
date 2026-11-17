@@ -129,6 +129,7 @@ mod secrets;
 mod ssh;
 mod state;
 mod status;
+mod steps;
 pub mod store;
 #[cfg(test)]
 mod testing;
@@ -165,5 +166,6 @@ pub use runner::{RUN_KEY_VAR, Runner, RunnerConfig, copy_key, this_arch, this_ho
 pub use secrets::{SecretValue, Secrets};
 pub use state::{Cause, Desired, IllegalTransition, Op, Park, RunState, Transition};
 pub use status::{MachineState, MachineStatus, MachineUsage, OutputValue, PublishedPort, Started, Status, park_modes, status_schema};
+pub use steps::{Phase, StepCount};
 pub use store::{LastOp, RunRecord};
 pub use tool_output::{azure_cli_version, sign_in_expired, vagrant_plugins, version_found, virtualbox_vms};

@@ -115,6 +115,7 @@ impl Quiet {
             ports: &crate::formats::NoPorts,
             sink: &crate::formats::discard,
             warn: &unwarned,
+            steps: crate::steps::Steps::silent(),
             made: crate::formats::NOTHING_MADE,
             fetched: None,
         }
@@ -222,8 +223,9 @@ impl<'r> Running<'r> {
             .or_else(|| self.runner.store.record(&self.name).ok().flatten().and_then(|r| r.provider))
     }
 
-    /// Runs `work` with a tool context for this run, whose tool lines and warnings go to
-    /// `emitter` (the lines as the operation's own step).
+    /// Runs `work` with a tool context for this run, whose tool lines, steps and warnings go to
+    /// `emitter` (the lines as the operation's own step). A step still open when `work` returns
+    /// ends as it ended ([`crate::steps::Steps::end`]).
     async fn with_cx<T>(
         &self,
         opts: &RunOptions,
@@ -237,6 +239,7 @@ impl<'r> Running<'r> {
         let step = emitter.operation_name();
         let sink = |stream: Stream, line: &str| emitter.log(step, stream, line);
         let warn = |code: WarningCode, message: &str| emitter.warning(code, message);
+        let say = |kind: crate::events::EventKind| emitter.emit(kind);
         let ports = RunPorts {
             runner: self.runner,
             run: &self.name,
@@ -261,10 +264,13 @@ impl<'r> Running<'r> {
             host_env: &self.runner.config.host_env,
             sink: &sink,
             warn: &warn,
+            steps: crate::steps::Steps::new(&say),
             made: &made,
             fetched: Some(&fetched),
         };
-        work(&cx).await
+        let done = work(&cx).await;
+        cx.steps.end(done.is_ok());
+        done
     }
 
     /// Keeps `seen`, an operation's own read, as what the runner last saw of the run, its state

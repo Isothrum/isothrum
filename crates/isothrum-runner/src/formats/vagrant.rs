@@ -37,6 +37,7 @@ mod forwards;
 mod gone;
 mod lock;
 mod names;
+mod progress;
 mod providers;
 mod screen;
 mod utm;
@@ -111,16 +112,29 @@ impl Vagrant {
     /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]); one
     /// a machine still booting failed is made again once it may answer ([`booting::until_it_answers`]).
     /// The boxes it added are recorded, however it ended ([`fetched`]).
+    /// Its lines say its steps ([`progress`]), done once it went through.
     async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
         let provider = cx.provider.map(Provider::id);
         let rerun = if provision == Provision::Yes { Rerun::Repeats } else { Rerun::Converges };
-        let call = &call(cx, UP_LIMIT);
+        let watch = progress::Watch::new(&cx.steps);
+        let sink = |stream: crate::events::Stream, line: &str| {
+            watch.see(line);
+            (cx.sink)(stream, line);
+        };
+        let call = &Call {
+            sink: &sink,
+            ..call(cx, UP_LIMIT)
+        };
         let up = booting::until_it_answers(cx, step, move || {
             utm::once_more(cx, step, move || {
                 retrying(cx.warn, step, rerun, PATIENCE, move || vagrant::up(call, provider, provision, machines))
             })
         });
-        fetched::recording(cx, up).await
+        let done = fetched::recording(cx, up).await;
+        if done.is_ok() {
+            cx.steps.end(true);
+        }
+        done
     }
 
     /// `verb` on `machines` (all when empty), made again as [`Rerun`] allows.

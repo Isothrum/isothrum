@@ -105,6 +105,9 @@ pub(crate) struct ToolCx<'a> {
     pub(crate) ports: &'a dyn PickPorts,
     /// Where each line the tool prints goes (the operation's step output events).
     pub(crate) sink: &'a (dyn Fn(Stream, &str) + Send + Sync),
+    /// Where a driver says the steps it goes through ([`crate::Phase`]): the operation's step
+    /// events.
+    pub(crate) steps: crate::steps::Steps<'a>,
     /// Where a driver says what it did that the operation's caller should know (a recovery, a
     /// state discarded, a retry): the operation's warning events.
     pub(crate) warn: &'a (dyn Fn(WarningCode, &str) + Send + Sync),

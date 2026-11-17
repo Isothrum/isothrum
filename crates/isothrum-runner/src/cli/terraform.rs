@@ -169,6 +169,30 @@ struct Event {
     diagnostic: Option<DiagnosticDoc>,
     #[serde(default)]
     change: Option<ChangeDoc>,
+    #[serde(default)]
+    changes: Option<ChangesDoc>,
+    #[serde(default)]
+    hook: Option<HookDoc>,
+}
+
+/// A `change_summary`'s counts.
+#[derive(Deserialize)]
+struct ChangesDoc {
+    #[serde(default)]
+    add: u32,
+    #[serde(default)]
+    change: u32,
+    #[serde(default)]
+    remove: u32,
+    #[serde(default)]
+    operation: String,
+}
+
+/// What an `apply_complete` (or any hook) did.
+#[derive(Deserialize)]
+struct HookDoc {
+    #[serde(default)]
+    action: String,
 }
 
 #[derive(Deserialize)]
@@ -214,11 +238,48 @@ fn shown_line(line: &str) -> Vec<String> {
     out
 }
 
+/// How far an apply is, as a line of its machine-readable UI says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Applying {
+    /// Its plan: this many resource instances are made, changed or removed.
+    Planned(u32),
+    /// One more of them was.
+    Applied,
+    /// A provisioner began setting a resource up.
+    Provisioning,
+}
+
+/// What `line`, a line of an apply's machine-readable UI, says of how far it is.
+fn applying(line: &str) -> Option<Applying> {
+    let event: Event = serde_json::from_str(line).ok()?;
+    match event.kind.as_str() {
+        "change_summary" => event
+            .changes
+            .filter(|c| c.operation == "plan")
+            .map(|c| Applying::Planned(c.add + c.change + c.remove)),
+        // A data source read is no change of the plan's.
+        "apply_complete" => event.hook.filter(|h| h.action != "read").map(|_| Applying::Applied),
+        "provision_start" => Some(Applying::Provisioning),
+        _ => None,
+    }
+}
+
+/// Hears nothing of an apply's progress.
+pub(crate) fn unheard(_: Applying) {}
+
 /// Runs `args` (a `-json` call) through `call`, its lines shown to `call`'s sink as a person
-/// reads them ([`shown_line`]), failing unless it exits 0 ([`Failure::of_events`]).
-async fn run_events(call: &Call<'_>, args: Vec<String>) -> Result<Captured, CliError<Failure>> {
+/// reads them ([`shown_line`]) and its progress told to `progress`, failing unless it exits 0
+/// ([`Failure::of_events`]).
+async fn run_events(call: &Call<'_>, args: Vec<String>, progress: &(dyn Fn(Applying) + Send + Sync)) -> Result<Captured, CliError<Failure>> {
     let sink = call.sink;
-    let say = move |stream: Stream, line: &str| shown_line(line).iter().for_each(|l| sink(stream, l));
+    let say = move |stream: Stream, line: &str| {
+        if let Some(moved) = applying(line) {
+            progress(moved);
+        }
+        for shown in shown_line(line) {
+            sink(stream, &shown);
+        }
+    };
     let shown = Call {
         runner: call.runner,
         cwd: call.cwd.clone(),
@@ -312,15 +373,21 @@ pub(crate) enum Change<'a> {
     DestroyOne(&'a str),
 }
 
-/// `apply` or `destroy`, as `change` says, without asking, on the state at `state`.
-pub(crate) async fn apply(call: &Call<'_>, state: StateAt<'_>, change: Change<'_>) -> Result<(), CliError<Failure>> {
+/// `apply` or `destroy`, as `change` says, without asking, on the state at `state`, how far it
+/// is told to `progress`.
+pub(crate) async fn apply(
+    call: &Call<'_>,
+    state: StateAt<'_>,
+    change: Change<'_>,
+    progress: &(dyn Fn(Applying) + Send + Sync),
+) -> Result<(), CliError<Failure>> {
     let verb = if change == Change::Apply { "apply" } else { "destroy" };
     let mut args = argv([verb, "-auto-approve", "-input=false", "-json"]);
     args.extend(state.option());
     if let Change::DestroyOne(address) = change {
         args.push(format!("-target={address}"));
     }
-    run_events(call, args).await.map(drop)
+    run_events(call, args, progress).await.map(drop)
 }
 
 /// What a plan would do to one resource instance.
@@ -381,7 +448,7 @@ fn planned(lines: &[String]) -> Vec<Planned> {
 pub(crate) async fn plan(call: &Call<'_>, state: StateAt<'_>) -> Result<Vec<Planned>, CliError<Failure>> {
     let mut args = argv(["plan", "-input=false", "-json"]);
     args.extend(state.option());
-    let out = run_events(call, args).await?;
+    let out = run_events(call, args, &unheard).await?;
     Ok(planned(&out.stdout))
 }
 
@@ -460,6 +527,20 @@ pub(crate) async fn version(call: &Call<'_>) -> Result<Option<crate::project::pl
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_apply_says_its_plan_each_change_made_and_each_provisioner_begun() {
+        let said: Vec<super::Applying> = include_str!("../tool_output/fixtures/terraform/1.16-apply.jsonl")
+            .lines()
+            .filter_map(super::applying)
+            .collect();
+        let mut expected = vec![super::Applying::Planned(6)];
+        expected.extend([super::Applying::Applied; 6]);
+        assert_eq!(said, expected, "the plan's 6, each of the 6 made; the data source read isn't one");
+        let provisioner = r#"{"@level":"info","@message":"null_resource.setup: Provisioning with 'remote-exec'...","hook":{"resource":{"addr":"null_resource.setup"},"provisioner":"remote-exec"},"type":"provision_start"}"#;
+        assert_eq!(super::applying(provisioner), Some(super::Applying::Provisioning));
+        assert_eq!(super::applying("not an event"), None);
+    }
+
     use super::state::VmFacts;
     use super::*;
     use crate::process::Exit;
@@ -689,9 +770,9 @@ mod tests {
             ..crate::cli::testing::call(&fake)
         };
         let state = StateAt::File(Path::new("/s/terraform.tfstate"));
-        apply(&call, state, Change::Apply).await.unwrap();
-        apply(&call, state, Change::DestroyOne("terraform_data.web")).await.unwrap();
-        apply(&call, StateAt::Backend, Change::Destroy).await.unwrap();
+        apply(&call, state, Change::Apply, &unheard).await.unwrap();
+        apply(&call, state, Change::DestroyOne("terraform_data.web"), &unheard).await.unwrap();
+        apply(&call, StateAt::Backend, Change::Destroy, &unheard).await.unwrap();
         let lines = lines.into_inner().unwrap();
         assert!(
             lines.iter().any(|l| l == "Apply complete! Resources: 6 added, 0 changed, 0 destroyed."),

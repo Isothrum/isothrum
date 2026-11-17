@@ -26,13 +26,13 @@ pub(crate) const EVENTS_VERSION: u32 = 1;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum StepState {
-    /// Started.
-    Running,
+    /// Started, or moved on (said again with its new `count`).
+    Started,
     /// Finished and succeeded.
     Done,
-    /// Finished and failed (an `error` follows unless the step's failure is tolerated).
+    /// Finished and failed: the operation's failure is this step's.
     Failed,
-    /// Not run: an earlier step failed.
+    /// Cut short or not run: another step failed.
     Skipped,
 }
 
@@ -72,15 +72,19 @@ pub enum EventKind {
         /// After.
         to: RunState,
     },
-    /// A step started, finished, failed or was skipped.
+    /// A step started, moved on, finished, failed or was skipped: one of the format's own
+    /// ([`crate::Phase`], whose `id` the step is).
     Step {
-        /// The step's id.
+        /// The step's id ([`crate::Phase::id`]).
         step: String,
         /// Where it stands.
         state: StepState,
-        /// What it does, said when it starts.
+        /// What it is about, when it is one of several of its kind: a machine.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        note: Option<String>,
+        label: Option<String>,
+        /// How far it is, when it counts what it does (images, containers, resources).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<crate::StepCount>,
     },
     /// A line a step's tool printed.
     Log {
@@ -348,11 +352,21 @@ mod tests {
         let cases = [
             (
                 EventKind::Step {
-                    step: "up".into(),
-                    state: StepState::Running,
-                    note: Some("Starting…".into()),
+                    step: "images".into(),
+                    state: StepState::Started,
+                    label: None,
+                    count: Some(crate::StepCount::new(1, Some(3))),
                 },
-                serde_json::json!({"event": "step", "step": "up", "state": "running", "note": "Starting…"}),
+                serde_json::json!({"event": "step", "step": "images", "state": "started", "count": {"done": 1, "total": 3}}),
+            ),
+            (
+                EventKind::Step {
+                    step: "provision".into(),
+                    state: StepState::Failed,
+                    label: Some("dc01".into()),
+                    count: None,
+                },
+                serde_json::json!({"event": "step", "step": "provision", "state": "failed", "label": "dc01"}),
             ),
             (
                 EventKind::Error(crate::ErrorReport {

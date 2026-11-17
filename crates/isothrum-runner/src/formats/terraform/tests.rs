@@ -37,6 +37,7 @@ struct Stack {
     run: RunName,
     lines: Mutex<Vec<String>>,
     warnings: Mutex<Vec<(WarningCode, String)>>,
+    steps: crate::steps::said::Said,
 }
 
 fn stack() -> Stack {
@@ -50,6 +51,7 @@ fn stack() -> Stack {
         run: RunName::new("stack").expect("a name"),
         lines: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
+        steps: crate::steps::said::Said::default(),
     }
 }
 
@@ -96,6 +98,7 @@ async fn with_cx<T>(stack: &Stack, fake: &FakeProcesses, f: impl AsyncFnOnce(&To
 async fn with_cx_given<T>(stack: &Stack, fake: &FakeProcesses, extra: &[(&str, &str)], f: impl AsyncFnOnce(&ToolCx<'_>) -> T) -> T {
     let sink = |_: Stream, l: &str| stack.lines.lock().expect("lines").push(l.to_owned());
     let warn = |c: WarningCode, m: &str| stack.warnings.lock().expect("warnings").push((c, m.to_owned()));
+    let say = |kind: crate::events::EventKind| stack.steps.keep(kind);
     let cx = ToolCx {
         project: &stack.project,
         run: &stack.run,
@@ -118,6 +121,7 @@ async fn with_cx_given<T>(stack: &Stack, fake: &FakeProcesses, extra: &[(&str, &
         ports: &crate::formats::NoPorts,
         sink: &sink,
         warn: &warn,
+        steps: crate::steps::Steps::new(&say),
         made: crate::formats::NOTHING_MADE,
         fetched: None,
     };
@@ -194,6 +198,75 @@ async fn up_inits_then_applies_on_the_runs_own_state_with_inputs_in_the_environm
     );
     assert!(stack.lines().iter().any(|l| l == "Apply complete! Resources: 6 added, 0 changed, 0 destroyed."));
     assert_eq!(stack.warnings(), Vec::<WarningCode>::new());
+    assert_eq!(
+        stack.steps.lines(),
+        [
+            "init started",
+            "init done",
+            "apply started",
+            "apply started 0/6",
+            "apply started 1/6",
+            "apply started 2/6",
+            "apply started 3/6",
+            "apply started 4/6",
+            "apply started 5/6",
+            "apply started 6/6",
+            "apply done 6/6",
+        ],
+        "init, then the plan's resources made one by one"
+    );
+}
+
+#[tokio::test]
+async fn an_apply_whose_provisioners_set_machines_up_says_the_ready_step() {
+    let stack = stack();
+    let provisioned = [
+        r#"{"type":"change_summary","@message":"Plan: 1 to add","changes":{"add":1,"change":0,"remove":0,"operation":"plan"}}"#,
+        r#"{"type":"provision_start","@message":"null_resource.setup: Provisioning with 'remote-exec'...","hook":{"provisioner":"remote-exec"}}"#,
+        r#"{"type":"apply_complete","@message":"null_resource.setup: Creation complete","hook":{"action":"create"}}"#,
+    ]
+    .join("\n");
+    let fake = FakeProcesses::script()
+        .allow("terraform init", Reply::ok(""))
+        .expect("terraform apply", Reply::ok(&provisioned))
+        .build();
+    with_cx(&stack, &fake, async |cx| Terraform.up(cx).await).await.expect("up");
+    assert_eq!(
+        stack.steps.lines(),
+        [
+            "init started",
+            "init done",
+            "apply started",
+            "apply started 0/1",
+            "ready started",
+            "apply started 1/1",
+            "apply done 1/1",
+            "ready done"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_apply_fails_its_step() {
+    let stack = stack();
+    let fake = FakeProcesses::script()
+        .allow("terraform init", Reply::ok(""))
+        .expect(
+            "terraform apply",
+            failing(r#"{"type":"change_summary","@message":"Plan: 2 to add","changes":{"add":2,"operation":"plan"}}"#),
+        )
+        .build();
+    with_cx(&stack, &fake, async |cx| {
+        let failed = Terraform.up(cx).await;
+        cx.steps.end(failed.is_ok());
+        failed
+    })
+    .await
+    .expect_err("the apply failed");
+    assert_eq!(
+        stack.steps.lines(),
+        ["init started", "init done", "apply started", "apply started 0/2", "apply failed 0/2"]
+    );
 }
 
 /// Answers `apply` from `applies` in turn, everything else by `other`.
