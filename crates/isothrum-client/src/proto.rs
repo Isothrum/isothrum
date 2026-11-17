@@ -13,7 +13,8 @@
 //! home's files: a run's record (`record`), forgetting it (`forget`), the runs past their lifetime
 //! (`expired`), the way into a machine (`console_command`), its screen (`graphical_console`, whose
 //! tunnel, when it has one, stays open as long as the connection that asked) or its hypervisor's
-//! app (`native_console`), where its published services are reached (`service_endpoints`), the
+//! app (`native_console`), where its published services are reached (`service_endpoints`), what its machines use
+//! (`usage`), the
 //! runner's SSH key (`public_key`), and what the runs' own downloads fetched (`downloads`) and their
 //! removal (`remove_downloads`).
 //!
@@ -31,12 +32,8 @@
 //!   and takes no operation meanwhile) or `{"reply":"busy","id":N,"operations":[…]}` (it has
 //!   operations queued or running, and goes on).
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::path::PathBuf;
-
 use isothrum_runner::{
-    Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, Format, InputVariable, NativeConsole, Op, Park, Provider, RunName, ServiceEndpoint,
+    Download, DownloadRemoval, DownloadToAdopt, DownloadsToRemove, InputVariable, MachineUsage, NativeConsole, Op, Park, RunName, ServiceEndpoint,
     ShellCommand, Status,
 };
 use serde::{Deserialize, Serialize};
@@ -44,7 +41,9 @@ use serde::{Deserialize, Serialize};
 use crate::v1::{Event, EventCursor, OperationId, OperationRow, RunRow};
 
 mod console;
+mod target;
 pub use console::{ConsoleEndpoint, ReachedConsole};
+pub use target::{OpOptions, Target};
 
 /// The protocol's version: a service refuses a `hello` with another.
 pub const PROTOCOL: u32 = 1;
@@ -254,6 +253,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
         options: OpOptions,
     },
+    /// What each running machine of a run uses now (CPU and memory), as its engine samples it
+    /// once; none for a format whose tool reports no per-machine figure (not queued: it reads).
+    Usage {
+        /// The run.
+        run: RunName,
+        /// Where it is opened from (default: where its record says).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        /// The values and secrets its tools are run with.
+        #[serde(default, skip_serializing_if = "OpOptions::is_empty")]
+        options: OpOptions,
+    },
     /// The public half of the runner's SSH key, one line (the key is made when there is none):
     /// what the client authorizes where a run's SSH goes.
     PublicKey,
@@ -354,6 +365,7 @@ impl Command {
                 | Command::NativeConsole { .. }
                 | Command::PublicKey
                 | Command::ServiceEndpoints { .. }
+                | Command::Usage { .. }
                 | Command::Downloads
                 | Command::RemoveDownloads { .. }
                 | Command::AdoptDownloads { .. }
@@ -376,87 +388,6 @@ impl Command {
             | Command::Exec { target, options, .. } => Some((target, options)),
             _ => None,
         }
-    }
-}
-
-/// Which run: its project's folder, absolute (the service doesn't share the client's working
-/// folder), the name to run it under (default: the folder's), and its format when the folder
-/// holds several (default: the one the runner recognizes there).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Target {
-    /// The project's folder (a file in it means the folder).
-    pub path: PathBuf,
-    /// The run's name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<RunName>,
-    /// The project's format, for a folder that holds several.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub format: Option<Format>,
-}
-
-impl Target {
-    /// The project at `path`, under `name`, its format recognized.
-    #[must_use]
-    pub fn new(path: impl Into<PathBuf>, name: Option<RunName>) -> Target {
-        Target {
-            path: path.into(),
-            name,
-            format: None,
-        }
-    }
-
-    /// The same, as a project of `format`.
-    #[must_use]
-    pub fn with_format(mut self, format: Format) -> Target {
-        self.format = Some(format);
-        self
-    }
-}
-
-/// The runner's options of an operation, on the wire. Secret values travel only over the owner-only endpoint and are
-/// never stored or logged.
-#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpOptions {
-    /// The Vagrant provider, for a Vagrant project (a run keeps the one it started with).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<Provider>,
-    /// Values every tool of the operation gets, by name, as its format reads them.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// Sensitive values, by name: as `env`, but masked in every event and never stored.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub secrets: BTreeMap<String, String>,
-    /// What to call the place the run is on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_label: Option<String>,
-    /// The Docker context the run's `docker` calls go to: given at `up`, recorded with the run,
-    /// used by every later operation that gives none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docker_context: Option<String>,
-    /// A status read only: each sensitive output's own value instead of `***`. The service gives
-    /// it only over its owner-only endpoint; it is never in an event, never stored. Off by default.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub reveal: bool,
-}
-
-impl OpOptions {
-    /// Whether it gives nothing.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        *self == OpOptions::default()
-    }
-}
-
-impl fmt::Debug for OpOptions {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OpOptions")
-            .field("provider", &self.provider)
-            .field("env", &self.env)
-            .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
-            .field("host_label", &self.host_label)
-            .field("docker_context", &self.docker_context)
-            .field("reveal", &self.reveal)
-            .finish()
     }
 }
 
@@ -550,6 +481,13 @@ pub enum Reply {
         /// The endpoints, by name.
         endpoints: Vec<ServiceEndpoint>,
     },
+    /// To `usage`.
+    Usage {
+        /// The request's id.
+        id: u64,
+        /// Each running machine's use, by name.
+        machines: Vec<MachineUsage>,
+    },
     /// To `public_key`.
     PublicKey {
         /// The request's id.
@@ -637,6 +575,7 @@ impl Reply {
             | Reply::ConsoleClosed { id, .. }
             | Reply::Native { id, .. }
             | Reply::Endpoints { id, .. }
+            | Reply::Usage { id, .. }
             | Reply::PublicKey { id, .. }
             | Reply::Variables { id, .. }
             | Reply::Operations { id, .. }
@@ -656,9 +595,10 @@ impl Reply {
 mod tests {
     use super::*;
 
+    use std::fmt;
     use std::net::SocketAddr;
 
-    use isothrum_runner::ConsoleProtocol;
+    use isothrum_runner::{ConsoleProtocol, Format};
     use serde_json::json;
 
     /// `value` written as one line, read back as itself: the line, as JSON.

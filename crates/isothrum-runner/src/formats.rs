@@ -384,6 +384,12 @@ pub(crate) trait FormatDriver {
     async fn published(&self, _cx: &ToolCx<'_>) -> Result<Vec<Published>> {
         Ok(Vec::new())
     }
+
+    /// What each running machine uses now, as its tool samples it once; none by default (a tool
+    /// that reports no per-machine figure).
+    async fn usage(&self, _cx: &ToolCx<'_>) -> Result<Vec<crate::MachineUsage>> {
+        Ok(Vec::new())
+    }
 }
 
 /// A service endpoint a deployment publishes: its name (`<machine>/<service>`) and its address

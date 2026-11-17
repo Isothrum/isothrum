@@ -1,4 +1,5 @@
-//! A run's status: what its tool reports now, reconciled with its record.
+//! A run's status: what its tool reports now, reconciled with its record; and what its machines
+//! use now, as their engine samples it ([`Running::usage`]).
 
 use super::{Emitter, LastObserved, OutputValue, Result, RunOptions, RunState, Running, Seen, Status, ToolCx};
 use crate::formats::SeenMachine;
@@ -154,6 +155,22 @@ impl Running<'_> {
             })
             .await?;
         Ok(status_of(&seen, RunState::Ready, true, None).outputs)
+    }
+
+    /// What each running machine of the run uses now, by name, as its engine samples it once:
+    /// a Compose project's containers (`docker stats`); none for a format whose tool reports no
+    /// per-machine figure (Vagrant, Terraform). A machine not running has none. `opts` gives
+    /// what the tools get. Emits nothing and never locks the run.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails: its engine doesn't answer, or its answer can't be read.
+    pub async fn usage(&self, opts: &RunOptions) -> Result<Vec<crate::MachineUsage>> {
+        let emitter = Emitter::silent(self.name.as_str(), self.runner.config.clock.as_ref());
+        self.with_cx(opts, &emitter, self.runner.config.processes.as_ref(), async |cx: &ToolCx<'_>| {
+            self.driver.usage(cx).await
+        })
+        .await
     }
 }
 

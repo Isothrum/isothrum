@@ -130,6 +130,10 @@ impl AnyFormat {
         dispatch!(self, d => d.published(cx).await)
     }
 
+    pub(crate) async fn usage(&self, cx: &ToolCx<'_>) -> Result<Vec<crate::MachineUsage>> {
+        dispatch!(self, d => d.usage(cx).await)
+    }
+
     pub(crate) async fn native_console(&self, cx: &ToolCx<'_>, machine: &str) -> Result<NativeConsole> {
         dispatch!(self, d => d.native_console(cx, machine).await)
     }

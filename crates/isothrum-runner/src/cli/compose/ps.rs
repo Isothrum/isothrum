@@ -14,6 +14,9 @@ const ONE_OFF_LABEL: &str = "com.docker.compose.oneoff=True";
 /// One container of the project, as `ps` prints it.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Container {
+    /// Its id, whole or shortened as the Compose version prints it.
+    #[serde(rename = "ID", default)]
+    id: String,
     #[serde(rename = "Service")]
     service: String,
     #[serde(rename = "State", default)]
@@ -57,6 +60,11 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) ->
 }
 
 impl Container {
+    /// Its id.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
     /// Its service.
     pub(crate) fn service(&self) -> &str {
         &self.service

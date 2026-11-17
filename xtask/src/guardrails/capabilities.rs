@@ -10,7 +10,7 @@
 mod claims;
 mod owed;
 use super::source;
-use claims::CLAIMS;
+use claims::{CLAIMS, TERRAFORM};
 use owed::OWED;
 
 /// How a claim is shown.
@@ -82,16 +82,17 @@ fn unproven(drivers: &[(&str, Vec<String>)], tests: &[source::File]) -> Vec<Stri
     let mut found = Vec::new();
     for (driver, claims) in drivers {
         for claim in claims {
-            let listed = CLAIMS.iter().any(|(d, c, _)| d == driver && c == claim) || OWED.iter().any(|(d, c, _)| d == driver && c == claim);
+            let listed = CLAIMS.iter().chain(&TERRAFORM).any(|(d, c, _)| d == driver && c == claim) || OWED.iter().any(|(d, c, _)| d == driver && c == claim);
             if !listed {
                 found.push(format!(
-                    "{driver} claims `{claim}` with no test showing it reach its tool: add the claim and its witness to CLAIMS (xtask/src/guardrails/capabilities.rs)"
+                    "{driver} claims `{claim}` with no test showing it reach its tool: add the claim and its witness to CLAIMS (xtask/src/guardrails/capabilities/claims.rs)"
                 ));
             }
         }
     }
     for (driver, claim, proof) in CLAIMS
         .iter()
+        .chain(&TERRAFORM)
         .map(|(d, c, p)| (*d, *c, Some(*p)))
         .chain(OWED.iter().map(|(d, c, _)| (*d, *c, None)))
     {
