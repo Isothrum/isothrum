@@ -37,6 +37,7 @@
 
 mod adopt;
 mod console;
+mod jump;
 mod machines;
 mod required;
 mod route;
@@ -109,6 +110,8 @@ struct Module<'c, 'a> {
     data_dir: PathBuf,
     state_file: PathBuf,
     masks: Vec<String>,
+    /// Variables every call gets beside the run's (the jump host's proxy, [`jump`]).
+    extra: Vec<(String, String)>,
 }
 
 impl<'c, 'a> Module<'c, 'a> {
@@ -127,6 +130,20 @@ impl<'c, 'a> Module<'c, 'a> {
             data_dir: cx.state_dir.join(DATA_DIR),
             state_file: cx.state_dir.join(STATE_FILE),
             masks,
+            extra: Vec::new(),
+        }
+    }
+
+    /// The same module, every call of it also given `vars`.
+    fn with_env(&self, vars: &[(&str, String)]) -> Module<'c, 'a> {
+        let mut extra = self.extra.clone();
+        extra.extend(vars.iter().map(|(k, v)| ((*k).to_owned(), v.clone())));
+        Module {
+            cx: self.cx,
+            data_dir: self.data_dir.clone(),
+            state_file: self.state_file.clone(),
+            masks: self.masks.clone(),
+            extra,
         }
     }
 
@@ -146,6 +163,7 @@ impl<'c, 'a> Module<'c, 'a> {
         let mut call = self.cx.call(limit);
         call.env.push((DATA_DIR_VAR.to_owned(), self.data_dir.display().to_string()));
         call.env.push((AUTOMATION_VAR.to_owned(), "1".to_owned()));
+        call.env.extend(self.extra.iter().cloned());
         call.sink = sink;
         call
     }
@@ -343,13 +361,16 @@ impl FormatDriver for Terraform {
         required::refuse_unset(cx)?;
         let module = Module::of(cx);
         let state = module.init().await?;
-        module.apply("apply", state, tf::Change::Apply).await.map_err(|e| module.error("apply", e))
+        jump::through(&module, async |m| {
+            m.apply("apply", state, tf::Change::Apply).await.map_err(|e| m.error("apply", e))
+        })
+        .await
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {
         let module = Module::of(cx);
         let state = module.init().await?;
-        module.destroy(state).await?;
+        jump::through(&module, async |m| m.destroy(state).await).await?;
         module.forget(state)
     }
 
@@ -400,7 +421,10 @@ impl FormatDriver for Terraform {
         let state = module.init().await?;
         let say = |s: Stream, l: &str| module.say(s, l);
         tf::plan(&module.call(APPLY_LIMIT, &say), state).await.map_err(|e| module.error("plan", e))?;
-        module.apply("apply", state, tf::Change::Apply).await.map_err(|e| module.error("apply", e))
+        jump::through(&module, async |m| {
+            m.apply("apply", state, tf::Change::Apply).await.map_err(|e| m.error("apply", e))
+        })
+        .await
     }
 
     fn provision(&self, _cx: &ToolCx<'_>, _machine: Option<&str>, _with: Option<&str>) -> impl Future<Output = Result<()>> {

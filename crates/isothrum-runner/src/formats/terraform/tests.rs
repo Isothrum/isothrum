@@ -2,6 +2,7 @@ mod by_id;
 mod changes;
 mod console;
 pub(crate) mod contract;
+mod jump;
 mod proxmox;
 mod refusals;
 use std::path::PathBuf;
