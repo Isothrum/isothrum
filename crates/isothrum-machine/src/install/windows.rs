@@ -6,7 +6,7 @@
 use crate::host::{Arch, HostOs};
 use crate::install::steps::{NotServed, Step, step};
 use crate::install::{Dependency, Refusal, vmware_utility};
-use crate::providers::{Provider, ProviderRow};
+use crate::providers::ProviderRow;
 
 /// `winget <verb> <id>`, from the `winget` source alone. Without `--source`, winget asks every
 /// source it has, the Microsoft Store's (`msstore`) too, and one that fails stops the command: on a
@@ -33,10 +33,7 @@ const HYPERV_ON: &str = "if ((Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Wind
 /// Why `dep` isn't installed on a CPU `arch`: on Windows on Arm, the hypervisor it is or serves
 /// (VMware's utility serves VMware Workstation) isn't built for it ([`ProviderRow::of`]).
 fn not_on_arm(dep: Dependency, arch: Arch) -> Option<Refusal> {
-    let provider = match dep {
-        Dependency::VmwareUtility => Provider::VmwareDesktop,
-        other => other.hypervisor()?,
-    };
+    let provider = dep.serves().or_else(|| dep.hypervisor())?;
     (arch == Arch::Arm64 && !ProviderRow::of(provider).windows_on_arm).then_some(Refusal::NotOnWindowsOnArm { dependency: dep, provider })
 }
 

@@ -271,6 +271,12 @@ pub enum Plan {
     },
     /// No plan here, for this reason.
     Refused(Refusal),
+    /// Brought once `requirement` is met, by its own plan then: a tool that serves a hypervisor
+    /// its user gets first ([`Dependency::serves`]: VMware's utility, before VMware).
+    After {
+        /// What comes first.
+        requirement: Requirement,
+    },
 }
 
 impl Plan {
@@ -359,7 +365,17 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
             Requirement::VagrantPlugin { provider } => status(cx, &mut statuses, provider).await.map(|s| s.plugin_installed),
             Requirement::Ovftool => Some(crate::tools::ovftool::locate(cx, asking.ovftool_dir, asking.path).is_some()),
         };
-        let plan = (present != Some(true)).then(|| plan(cx, requirement, asking));
+        let first = match requirement {
+            Requirement::Tool { dependency } => match dependency.serves() {
+                Some(p) if status(cx, &mut statuses, p).await.and_then(|s| s.hypervisor) != Some(true) => Some(Requirement::Hypervisor { provider: p }),
+                _ => None,
+            },
+            _ => None,
+        };
+        let plan = (present != Some(true)).then(|| match first {
+            Some(hypervisor) => Plan::After { requirement: hypervisor },
+            None => plan(cx, requirement, asking),
+        });
         let unavailable = match requirement {
             Requirement::Hypervisor { provider } => status(cx, &mut statuses, provider).await.and_then(|s| s.reason.clone()),
             _ => None,

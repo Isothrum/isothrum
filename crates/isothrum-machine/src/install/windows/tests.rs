@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::Provider;
 
 #[test]
 fn windows_installs_through_winget_and_the_features_through_their_own_installers() {

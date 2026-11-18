@@ -91,13 +91,10 @@ async fn plan(cx: &Context, dep: Dependency) -> Result<Vec<install::Step>, insta
     }
 }
 
-/// The hypervisor `dep` is for: its own, or VMware's for VMware's utility (a setup installs it
-/// where it offers VMware).
+/// The hypervisor `dep` is for: its own, or the one it serves ([`Dependency::serves`]: VMware's
+/// for VMware's utility).
 fn serves(dep: Dependency) -> Option<providers::Provider> {
-    if dep == Dependency::VmwareUtility {
-        return Some(providers::Provider::VmwareDesktop);
-    }
-    dep.hypervisor()
+    dep.serves().or_else(|| dep.hypervisor())
 }
 
 /// Why `dep`'s install isn't tested here, when it isn't: it doesn't run here, it is installed
@@ -106,11 +103,17 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     if !dep.runs_on(cx.host.os) {
         return Some(format!("{dep:?} doesn't run on {}", os_name(cx.host.os)));
     }
-    // VMware's utility serves VMware, and its Windows installer refuses to run without
-    // Workstation (1603: "requires a valid installation of VMware Workstation"): a setup installs
-    // it for VMware once VMware is installed, never before.
-    if dep == Dependency::VmwareUtility && providers::status(cx, Provider::VmwareDesktop).await.and_then(|s| s.hypervisor) != Some(true) {
-        return Some("VmwareUtility serves VMware, which isn't installed here (its vendor's download): a setup installs it once VMware is".into());
+    // A tool that serves a hypervisor (VMware's utility serves VMware: its Windows installer
+    // refuses to run without Workstation, its Linux service doesn't answer) is installed once
+    // that hypervisor is, never before: a setup plans it after it.
+    if let Some(p) = dep.serves()
+        && providers::status(cx, p).await.and_then(|s| s.hypervisor) != Some(true)
+    {
+        return Some(format!(
+            "{dep:?} serves {}, which isn't installed here (its vendor's download): a setup installs it once {} is",
+            p.id(),
+            p.id()
+        ));
     }
     match install::present(cx, dep).await {
         Some(true) => Some(format!("{dep:?} is installed here already: an install is tested on a machine without it")),
