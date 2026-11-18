@@ -152,12 +152,25 @@ fn a_mac_is_offered_the_hypervisor_made_for_its_cpu_and_keeps_one_installed() {
     assert!(offered(Provider::Virtualbox, &intel, false));
     assert!(!offered(Provider::Utm, &intel, false));
     assert!(offered(Provider::Virtualbox, &apple, true), "installed: the user chose it");
-    assert!(offered(Provider::Virtualbox, &host(HostOs::Linux, Arch::Arm64, root), false));
     assert!(
         !offered(Provider::Utm, &host(HostOs::Linux, Arch::Arm64, root), true),
         "never where it doesn't apply"
     );
     assert!(!offered(Provider::Hyperv, &apple, true));
+}
+
+#[test]
+fn linux_is_offered_virtualbox_where_oracle_ships_it() {
+    let root = Path::new("unused");
+    let (arm, x86) = (host(HostOs::Linux, Arch::Arm64, root), host(HostOs::Linux, Arch::Amd64, root));
+    for (host, installed, expected, case) in [
+        (&x86, false, true, "x86-64: Oracle's packages are for it"),
+        (&arm, false, false, "arm64: Oracle ships no package a setup could install"),
+        (&arm, true, true, "arm64, installed by hand: the user chose it"),
+    ] {
+        assert_eq!(offered(Provider::Virtualbox, host, installed), expected, "{case}");
+    }
+    assert!(offered(Provider::Qemu, &arm, false), "QEMU is offered on every Linux CPU");
 }
 
 #[test]

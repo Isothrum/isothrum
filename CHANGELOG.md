@@ -242,6 +242,10 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **VirtualBox isn't offered on Linux arm64.** Oracle's Linux packages are for x86-64 only, so a
+  setup offered an install that could only fail ("No VirtualBox package found in Oracle's repo").
+  One installed by hand is still offered (`ProviderRow::linux_cpu`).
+
 - **A Vagrant start after one that didn't end well provisions the machines it takes over.** Vagrant
   marks a machine provisioned before its provisioners run, so a start killed while it booted or
   provisioned a VM, or one whose machine was still booting when its set-up began, left the next
