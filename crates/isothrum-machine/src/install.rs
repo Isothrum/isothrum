@@ -23,6 +23,7 @@ pub mod added;
 pub mod brew;
 pub mod exit_codes;
 pub mod linux;
+pub(crate) mod mac_image;
 pub mod macos;
 mod pkexec;
 pub mod record;
@@ -32,7 +33,7 @@ mod vmware_utility;
 pub mod windows;
 
 pub use added::{Before, Installed, Item, before, items, there};
-pub use steps::{NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
+pub use steps::{Licence, NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -93,7 +94,8 @@ pub struct ToolRow {
     /// hypervisor has none here: its provider's ([`crate::providers::hypervisor_probe`]) is the one
     /// a setup and the provider's detection both read, so they never disagree.
     pub probe: Option<Probe>,
-    /// The app bundle that proves it installed on macOS, also before its CLI is on `PATH`.
+    /// The app bundle that proves it installed on macOS, also before its CLI is on `PATH`, once
+    /// whole ([`present`]). Looked for in [`crate::host::Devices::applications`], by its name.
     pub mac_app: Option<&'static str>,
     /// Its winget package, when winget installs and removes it on Windows.
     pub winget: Option<&'static str>,
@@ -271,13 +273,13 @@ pub fn vagrant_plugin(plugin: &str) -> Option<Step> {
     named.then(|| step("vagrant", &["plugin", "install", plugin]))
 }
 
-/// How a step that needs an administrator is elevated (Linux). With someone there to answer,
-/// pkexec's password prompt; with nobody (a script, a machine set up unattended), no prompt may
-/// be raised: as is when the process is root already, else through `sudo -n`, refused at once
-/// rather than waiting on a password.
+/// How a step that needs an administrator is elevated. With someone there to answer, the OS's
+/// password prompt (pkexec's on Linux, macOS's own); with nobody (a script, a machine set up
+/// unattended), no prompt may be raised: as is when the process is root already, else through
+/// `sudo -n`, refused at once rather than waiting on a password.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Elevation {
-    /// pkexec's password prompt.
+    /// The OS's password prompt: pkexec's (Linux), macOS's administrator prompt.
     Prompt,
     /// Unattended, `root` when the process is root already.
     Unattended {
@@ -387,10 +389,11 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// The install of `dep` on `host`, whatever its OS: macOS's Homebrew formulae and vendors'
-/// installers, Windows' winget packages and elevated installers, or Linux's root script for the
-/// user `user` (joined to the groups a tool's devices need), its root steps run `elevation`'s way
-/// with this process's proxy ([`linux::proxy_assignments`]). The one call a caller plans an
+/// The install of `dep` on `host`, whatever its OS: macOS's Homebrew formulae and vendors' disk
+/// images and packages (installed as an administrator `elevation`'s way), Windows' winget packages
+/// and elevated installers, or Linux's root script for the user `user` (joined to the groups a
+/// tool's devices need), its root steps run `elevation`'s way with this process's proxy
+/// ([`linux::proxy_assignments`]). The one call a caller plans an
 /// install with: which OS's plan applies is the host's, never the OS the crate is built for.
 ///
 /// # Errors
@@ -402,7 +405,7 @@ pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, eleva
         return Err(Refusal::NotHere { dependency: dep, os: host.os });
     }
     match host.os {
-        HostOs::Macos => macos::install(dep, host.packages, host.arch),
+        HostOs::Macos => macos::install(dep, host.packages, host.arch, elevation),
         HostOs::Windows => windows::install(dep, host.arch),
         HostOs::Linux => {
             let root = linux::Root {
@@ -456,7 +459,8 @@ pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
 }
 
 /// Whether `dep` itself is on the context's host, its helpers aside; `None` when that can't be
-/// told (WSL, Hyper-V). Its macOS app bundle, else its version probe ([`ToolRow::probe`]; a
+/// told (WSL, Hyper-V). Its macOS app bundle, once whole (no copy under way, its signature
+/// verifying: one that isn't is installed again), else its version probe ([`ToolRow::probe`]; a
 /// hypervisor's, its provider's); VMware's utility, a service, as
 /// [`crate::providers::vmware_utility`] finds it.
 pub(crate) async fn tool_found(cx: &Context, dep: Dependency) -> Option<bool> {
@@ -465,8 +469,12 @@ pub(crate) async fn tool_found(cx: &Context, dep: Dependency) -> Option<bool> {
     }
     let row = dep.row();
     let mac_app = row.mac_app.filter(|_| cx.host.os == HostOs::Macos);
-    if mac_app.is_some_and(|a| std::path::Path::new(a).exists()) {
-        return Some(true);
+    if let Some(app) = mac_app
+        .and_then(|a| std::path::Path::new(a).file_name())
+        .map(|a| cx.host.devices.applications.join(a))
+        && app.exists()
+    {
+        return Some(mac_image::complete(cx, &app).await);
     }
     let probe = dep
         .hypervisor()

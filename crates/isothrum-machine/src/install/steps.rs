@@ -69,8 +69,17 @@ pub fn step(program: impl Into<String>, args: &[&str]) -> Step {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Note {
-    /// Homebrew downloads the tool's installer, which then opens in its own window (macOS).
-    Downloading(super::Dependency),
+    /// The tool installed from its vendor's disk image or package, which Homebrew downloads, as
+    /// an administrator (macOS asks for the user's password): its app copied into Applications or
+    /// its package installed, each checked as signed by its vendor. No window is left to finish.
+    InstallingFromVendor {
+        /// The tool.
+        dependency: super::Dependency,
+        /// The licence the install accepts on the user's behalf, when it does (Docker Desktop's
+        /// unattended install accepts Docker's): a UI shows it, and asks their consent, before
+        /// the step runs.
+        accepts: Option<Licence>,
+    },
     /// QEMU's install, Homebrew updated first if it is out of date for this macOS.
     QemuUpdatingHomebrewFirst,
     /// The Azure CLI's Homebrew tap trusted (Homebrew 7 asks for it; older ones don't).
@@ -85,6 +94,16 @@ pub enum Note {
     /// The tool removed by its vendor's own uninstaller or by a script, macOS asking for the
     /// user's password when the step is an administrator's.
     Removing(super::Dependency),
+}
+
+/// A vendor's licence an install accepts on its user's behalf ([`Note::InstallingFromVendor`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Licence {
+    /// Its name, as its vendor writes it.
+    pub name: &'static str,
+    /// Where its vendor publishes it.
+    pub url: &'static str,
 }
 
 /// How a step shows in a log: `$ program args`, as typed. A root step's proxy is never on it

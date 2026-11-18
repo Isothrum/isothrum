@@ -118,7 +118,7 @@ fn a_plan_is_the_hosts_os_one_whatever_the_os_built_for() {
     let programs = |steps: Vec<Step>| steps.into_iter().map(|s| s.program).collect::<Vec<_>>();
     assert_eq!(
         programs(plan(Dependency::Terraform, &mac, None, Elevation::Prompt).unwrap()),
-        programs(macos::install(Dependency::Terraform, mac.packages, mac.arch).unwrap())
+        programs(macos::install(Dependency::Terraform, mac.packages, mac.arch, Elevation::Prompt).unwrap())
     );
     let windows = host_on(HostOs::Windows, Some(Packages::Winget), root.path());
     assert_eq!(programs(plan(Dependency::Vagrant, &windows, None, Elevation::Prompt).unwrap()), ["winget"]);
@@ -126,6 +126,39 @@ fn a_plan_is_the_hosts_os_one_whatever_the_os_built_for() {
     assert_eq!(programs(plan(Dependency::Docker, &linux, Some("ada"), Elevation::Prompt).unwrap()), ["pkexec"]);
     let unattended = plan(Dependency::Docker, &linux, Some("ada"), Elevation::Unattended { root: false }).unwrap();
     assert_eq!(programs(unattended), ["sudo"], "unattended, nobody answers a prompt");
+}
+
+#[test]
+fn a_macs_vendor_install_is_elevated_as_the_plan_is_asked() {
+    use crate::host::Packages;
+    let root = tempfile::tempdir().unwrap();
+    let mac = host_on(HostOs::Macos, Some(Packages::Homebrew("/opt/homebrew/bin/brew")), root.path());
+    let users_half = |elevation| plan(Dependency::Docker, &mac, None, elevation).unwrap().remove(0).args.remove(1);
+    assert!(users_half(Elevation::Prompt).contains("with administrator privileges"));
+    assert!(users_half(Elevation::Unattended { root: false }).contains("sudo -n /bin/sh -c"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_macs_app_is_present_once_whole_not_while_copied_only_in_part() {
+    use isothrum_runner::fake::{FakeProcesses, Reply};
+    let root = tempfile::tempdir().unwrap();
+    let mac = host_on(HostOs::Macos, Some(crate::host::Packages::Homebrew("/opt/homebrew/bin/brew")), root.path());
+    let app = mac.devices.applications.join("Docker.app");
+    std::fs::create_dir_all(&app).unwrap();
+    // Finder's copy cut short: its marks, and no `docker --version` asked (the app says it all).
+    let tools = FakeProcesses::script()
+        .expect(
+            &format!("xattr {}", app.display()),
+            Reply::ok("com.apple.metadata:kMDItemResumableCopy\ncom.apple.finder.copy.source.inode#N"),
+        )
+        .build();
+    let cx = Context::new(std::sync::Arc::new(tools), mac.clone());
+    assert_eq!(present(&cx, Dependency::Docker).await, Some(false));
+    let whole = FakeProcesses::script()
+        .expect(&format!("xattr {}", app.display()), Reply::ok("com.apple.quarantine"))
+        .expect(&format!("codesign --verify --strict {}", app.display()), Reply::ok(""))
+        .build();
+    assert_eq!(present(&Context::new(std::sync::Arc::new(whole), mac), Dependency::Docker).await, Some(true));
 }
 
 #[test]

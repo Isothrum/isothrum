@@ -355,7 +355,8 @@ struct Found {
 }
 
 /// Whether `provider`'s hypervisor is installed on the context's host: its tool starts (or ran
-/// out of the probe's time: there, and slow), its app bundle or Windows feature is there.
+/// out of the probe's time: there, and slow), its app bundle whole (a copy under way or damaged
+/// isn't: [`crate::install::mac_image::complete`]) or its Windows feature there.
 async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
     let devices = &cx.host.devices;
     let installed = |installed| Found {
@@ -363,7 +364,7 @@ async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
         said: String::new(),
     };
     match ProviderRow::of(provider).check {
-        Check::UtmApp => installed(devices.utm_app.exists()),
+        Check::UtmApp => installed(crate::install::mac_image::complete(cx, &devices.utm_app).await),
         Check::HypervFeature => installed(devices.hyperv_service.is_file()),
         Check::Remote => Found {
             installed: None,

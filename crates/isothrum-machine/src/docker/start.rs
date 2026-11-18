@@ -2,7 +2,10 @@
 //! way its user would: its app opened (`open -a`, Docker Desktop's program on Windows), its CLI
 //! run (`colima start`), or Docker Engine's service started as root (`systemctl start docker`,
 //! through pkexec's prompt or unattended). Then the CLI is pointed at it and its daemon asked
-//! until it answers: Docker Desktop and OrbStack take a while on a first start.
+//! until it answers: Docker Desktop and OrbStack take a while on a first start. Docker Desktop
+//! whose backend never comes up waits for its user in its own window (its terms to accept, its
+//! first start's setup to finish): that is said as soon as it is clear
+//! ([`StartFailed::WaitingForUser`]), not after the whole wait.
 
 use std::time::Duration;
 
@@ -18,6 +21,10 @@ pub const START_TRIES: u32 = 90;
 
 /// How long between two of those asks.
 pub const START_POLL: Duration = Duration::from_secs(2);
+
+/// How long Docker Desktop, opened, is given to start its backend (its socket listening:
+/// [`crate::host::Devices::docker_desktop_socket`]) before it is taken to wait for its user.
+pub const DESKTOP_BACKEND_GRACE: Duration = Duration::from_secs(40);
 
 /// Docker Desktop's program on Windows, under Program Files, opened by PowerShell's
 /// `Start-Process` (the shell's own launch): the app inherits none of the runner's pipes, so the
@@ -53,6 +60,10 @@ pub enum StartFailed {
     Denied(String),
     /// A start step failed.
     Step(StepFailed),
+    /// Docker Desktop, opened, waits for its user in its own window: its terms to accept, or its
+    /// first start's setup to finish (its backend never started within
+    /// [`DESKTOP_BACKEND_GRACE`]). It answers once they have.
+    WaitingForUser(Engine),
     /// Started, it gave no answer within [`START_TRIES`] asks: why the last one failed.
     NoAnswer {
         /// The engine.
@@ -70,6 +81,7 @@ impl std::fmt::Display for StartFailed {
             StartFailed::NotHere(engine) => write!(f, "{} isn't started by a setup here; start it yourself", engine.label()),
             StartFailed::Denied(said) => write!(f, "the Docker daemon refuses this account: {said}"),
             StartFailed::Step(failed) => failed.fmt(f),
+            StartFailed::WaitingForUser(engine) => write!(f, "{} waits for you in its window: accept its terms or finish its setup there", engine.label()),
             StartFailed::NoAnswer { engine, waited, last } => {
                 write!(f, "{} gave no answer within {} s of its start: {last}", engine.label(), waited.as_secs())
             }
@@ -100,7 +112,7 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
     }
     run_steps(cx, &steps, on_line).await.map_err(StartFailed::Step)?;
     let mut last = String::new();
-    for _ in 0..START_TRIES {
+    for tried in 1..=START_TRIES {
         // Its context appears once it is up: Docker is pointed at it, then its daemon asked.
         // Not up yet, it has no context to use: its daemon's answer below says how it is.
         drop(use_engine(cx, engine).await);
@@ -109,6 +121,9 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
             Err(NoAnswer::Denied(said)) => return Err(StartFailed::Denied(said)),
             Err(why) => last = why.to_string(),
         }
+        if waits_for_user(cx, engine, START_POLL * tried) {
+            return Err(StartFailed::WaitingForUser(engine));
+        }
         tokio::time::sleep(START_POLL).await;
     }
     Err(StartFailed::NoAnswer {
@@ -116,6 +131,25 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
         waited: START_POLL * START_TRIES,
         last,
     })
+}
+
+/// Whether `engine`, opened `waited` ago, waits for its user: Docker Desktop on macOS whose
+/// backend hasn't started within [`DESKTOP_BACKEND_GRACE`] (its socket doesn't listen: it waits
+/// in its window for its terms to be accepted, or its first start's setup to be finished).
+fn waits_for_user(cx: &Context, engine: Engine, waited: Duration) -> bool {
+    engine == Engine::DockerDesktop && cx.host.os == HostOs::Macos && waited >= DESKTOP_BACKEND_GRACE && !listens(&cx.host.devices.docker_desktop_socket)
+}
+
+/// Whether something listens on the unix socket `socket` (a file left behind refuses).
+#[cfg(unix)]
+fn listens(socket: &std::path::Path) -> bool {
+    std::os::unix::net::UnixStream::connect(socket).is_ok()
+}
+
+/// Docker Desktop's socket is a unix one, on macOS only.
+#[cfg(not(unix))]
+fn listens(_socket: &std::path::Path) -> bool {
+    true
 }
 
 /// Whether `engine`'s own Docker context answers: it runs already.
@@ -263,6 +297,51 @@ mod tests {
             .build();
         let err = start_engine(&cx(HostOs::Linux, fake), Engine::Native, Elevation::Prompt, &mut |_| {}).await;
         assert_eq!(err, Err(StartFailed::Step(StepFailed::NoPkexec)));
+    }
+
+    /// Docker Desktop on a Mac whose devices are under `root`, its CLI never answering.
+    fn desktop_never_answering(root: &std::path::Path) -> (Context, Arc<FakeProcesses>) {
+        let fake = Arc::new(FakeProcesses::model(|call| match call.line().as_str() {
+            "open -a Docker" => Reply::ok(""),
+            line if line.starts_with("docker context ls") => Reply::ok("default\ttrue"),
+            _ => Reply::fail(1, "Cannot connect to the Docker daemon at unix:///Users/ada/.docker/run/docker.sock"),
+        }));
+        let mut host = linux_host(root);
+        host.os = HostOs::Macos;
+        let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
+        (Context::new(runner, host), fake)
+    }
+
+    /// Regression (a Mac installed from scratch): Docker Desktop, opened for the first time, waited
+    /// in its window for its terms to be accepted, and its start gave up 180 s later with "no
+    /// answer". Its backend never listening says it waits for its user, once its grace is over.
+    #[tokio::test(start_paused = true)]
+    async fn docker_desktop_waiting_for_its_user_says_so_instead_of_timing_out() {
+        let root = tempfile::tempdir().unwrap();
+        let (cx, fake) = desktop_never_answering(root.path());
+        let started = tokio::time::Instant::now();
+        let err = start_engine(&cx, Engine::DockerDesktop, Elevation::Prompt, &mut |_| {}).await;
+        assert_eq!(err, Err(StartFailed::WaitingForUser(Engine::DockerDesktop)));
+        assert!(started.elapsed() < DESKTOP_BACKEND_GRACE + START_POLL, "{:?}", started.elapsed());
+        assert_eq!(fake.made("open -a Docker").len(), 1);
+        assert!(err.unwrap_err().to_string().contains("accept its terms"));
+    }
+
+    /// Docker Desktop whose backend listens is starting, not waiting: it is given its whole time.
+    #[cfg(unix)]
+    #[tokio::test(start_paused = true)]
+    async fn docker_desktop_whose_backend_listens_is_waited_for_in_full() {
+        // A short path: a unix socket's is limited to about a hundred bytes.
+        let root = tempfile::Builder::new().prefix("dd").tempdir_in("/tmp").unwrap();
+        let (cx, _) = desktop_never_answering(root.path());
+        let socket = &cx.host.devices.docker_desktop_socket;
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        let _backend = std::os::unix::net::UnixListener::bind(socket).unwrap();
+        let err = start_engine(&cx, Engine::DockerDesktop, Elevation::Prompt, &mut |_| {}).await;
+        assert!(
+            matches!(err, Err(StartFailed::NoAnswer { waited, .. }) if waited == Duration::from_secs(180)),
+            "{err:?}"
+        );
     }
 
     #[tokio::test(start_paused = true)]

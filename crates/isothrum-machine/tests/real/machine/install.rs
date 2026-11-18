@@ -39,7 +39,8 @@ use isothrum_machine::{Context, HostOs, check, wsl};
 
 use crate::{RELOGIN, answer, as_started, here, reread, resumed, setting};
 
-/// How long an installer its user finishes in its own window (macOS's casks) may take.
+/// How long an install may take to be found once its steps are done (a Windows installer that
+/// hands on to another process).
 const FINISH: Duration = Duration::from_secs(30 * 60);
 /// How often the tool is looked for meanwhile.
 const LOOK_EVERY: Duration = Duration::from_secs(10);
@@ -74,13 +75,15 @@ fn asked_by(name: &str) -> Asked {
     }
 }
 
-/// How a root step is elevated here: through pkexec, as a setup on a desktop does, where a desktop
-/// session answers its prompt or `ISOTHRUM_E2E_ELEVATION=pkexec` says polkit lets this user
-/// through without one (a test VM's rule, never a person's computer); else unattended (`sudo -n`,
-/// or as is when root).
+/// How a root step is elevated here: through the OS's prompt, as a setup on a desktop does, where
+/// a Linux desktop session answers pkexec's prompt or `ISOTHRUM_E2E_ELEVATION=pkexec` says polkit
+/// lets this user through without one (a test VM's rule, never a person's computer); else
+/// unattended (`sudo -n`, or as is when root). A Mac's run, over ssh, has no session that could
+/// show macOS's administrator prompt: unattended too, `ISOTHRUM_E2E_ELEVATION=prompt` asking for
+/// the prompt where its owner answers it at the Mac.
 async fn elevation(cx: &Context) -> Elevation {
     let desktop = setting("DISPLAY").is_some() || setting("WAYLAND_DISPLAY").is_some();
-    if desktop || setting("ISOTHRUM_E2E_ELEVATION").as_deref() == Some("pkexec") {
+    if desktop || matches!(setting("ISOTHRUM_E2E_ELEVATION").as_deref(), Some("pkexec" | "prompt")) {
         return Elevation::Prompt;
     }
     let root = answer(cx, "id", &["-u"]).await.is_some_and(|uid| uid.trim() == "0");
@@ -90,7 +93,7 @@ async fn elevation(cx: &Context) -> Elevation {
 /// The install of `dep` on this computer, as its setup plans it.
 async fn plan(cx: &Context, dep: Dependency) -> Result<Vec<install::Step>, install::Refusal> {
     match cx.host.os {
-        HostOs::Macos => install::macos::install(dep, cx.host.packages, cx.host.arch),
+        HostOs::Macos => install::macos::install(dep, cx.host.packages, cx.host.arch, elevation(cx).await),
         HostOs::Windows => install::windows::install(dep, cx.host.arch),
         HostOs::Linux => {
             let root = linux::Root {
@@ -192,8 +195,9 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     }
 }
 
-/// Runs `dep`'s install, then waits until it is found installed (an installer its user finishes
-/// in its own window takes as long as they do, up to [`FINISH`]), the `PATH` read again each time.
+/// Runs `dep`'s install, then waits until it is found installed (up to [`FINISH`]), the `PATH` read
+/// again each time. A Mac's app installed from its vendor's disk image is whole and signed then
+/// ([`app_verifies`]): nothing is left for anyone to drag or finish.
 /// Then what it added ([`install::Before::installed`]) is only what was missing before it
 /// ([`added_only_what_was_missing`]).
 async fn install(cx: &Context, dep: Dependency) {
@@ -207,6 +211,7 @@ async fn install(cx: &Context, dep: Dependency) {
     install::run_steps(cx, &steps, &mut |line| println!("{line}"))
         .await
         .unwrap_or_else(|failed| panic!("{dep:?}'s install failed: {failed:?}"));
+    app_verifies(cx, dep).await;
     let start = Instant::now();
     while found(&reread(cx).await, dep).await != Some(true) {
         assert!(
@@ -262,6 +267,23 @@ fn added_only_what_was_missing(
         );
         println!("{} was there before: its install added only {:?}", provider.id(), installed.added);
     }
+}
+
+/// A Mac's app installed from its vendor's disk image or package, right after its install: there,
+/// whole and signed (`codesign --verify --deep --strict`), accepted by Gatekeeper (`spctl`), and
+/// without Finder's marks of a copy under way.
+async fn app_verifies(cx: &Context, dep: Dependency) {
+    let Some(app) = dep.row().mac_app.filter(|_| cx.host.os == HostOs::Macos) else {
+        return;
+    };
+    works(cx, "codesign", &["--verify", "--deep", "--strict", "--verbose=2", app]).await;
+    works(cx, "spctl", &["--assess", "--type", "execute", "--verbose", app]).await;
+    let attributes = works(cx, "xattr", &[app]).await;
+    assert!(
+        !attributes.contains("ResumableCopy") && !attributes.contains("com.apple.finder.copy"),
+        "{app} carries a copy's marks: {attributes}"
+    );
+    println!("{app} is whole and signed");
 }
 
 /// `program` with `args`, which must succeed: what it printed.

@@ -140,6 +140,13 @@ pub struct Devices {
     /// The folder of the options modprobe gives a module as it loads it (`/etc/modprobe.d`, its
     /// `*.conf` files).
     pub modprobe_d: PathBuf,
+    /// The Applications folder macOS apps install into (`/Applications`): a tool's app bundle
+    /// ([`crate::install::ToolRow::mac_app`]) is looked for there, and Docker Desktop's own
+    /// `docker` CLI inside its bundle.
+    pub applications: PathBuf,
+    /// Docker Desktop's socket (`~/.docker/run/docker.sock`, macOS), which listens once its
+    /// backend runs: never, while Docker Desktop waits for its user in its own window.
+    pub docker_desktop_socket: PathBuf,
     /// UTM's app bundle (macOS): in `/Applications`, else in the user's own `~/Applications` (an
     /// install without an administrator's password); `/Applications/UTM.app` when in neither.
     pub utm_app: PathBuf,
@@ -264,6 +271,10 @@ impl Devices {
             kvm_virt_at_load: PathBuf::from("/sys/module/kvm/parameters/enable_virt_at_load"),
             sys_module: PathBuf::from("/sys/module"),
             modprobe_d: PathBuf::from("/etc/modprobe.d"),
+            applications: PathBuf::from("/Applications"),
+            docker_desktop_socket: std::env::var_os("HOME")
+                .map_or_else(|| PathBuf::from("/nonexistent"), PathBuf::from)
+                .join(".docker/run/docker.sock"),
             utm_app: utm_app(&mac_bases),
             hyperv_service: windows_folder("SystemRoot", "C:\\Windows").join("System32").join("vmms.exe"),
             vmware_utility,
@@ -301,6 +312,8 @@ impl Devices {
             kvm_virt_at_load: root.join("sys/module/kvm/parameters/enable_virt_at_load"),
             sys_module: root.join("sys/module"),
             modprobe_d: root.join("etc/modprobe.d"),
+            applications: root.join("Applications"),
+            docker_desktop_socket: root.join("home/.docker/run/docker.sock"),
             utm_app: root.join("Applications/UTM.app"),
             hyperv_service: root.join("Windows/System32/vmms.exe"),
             vmware_utility: root.join("opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),

@@ -18,7 +18,7 @@ use crate::host::HostOs;
 
 mod start;
 
-pub use start::{START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
+pub use start::{DESKTOP_BACKEND_GRACE, START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
 
 /// A Docker-compatible engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -166,9 +166,27 @@ pub(crate) fn docker(context: Option<&str>, args: &[&str]) -> ProcessSpec {
     ProcessSpec::new("docker", on.chain(args.iter().copied()))
 }
 
-/// What `docker args` printed when it exited 0, else why the daemon gave no answer.
+/// Docker Desktop's own `docker` CLI, inside its app bundle (macOS), when it is there: the one a
+/// call falls back on while `PATH` has none. Docker Desktop links it onto `PATH` only once its
+/// first start's setup is done, and until then its engine, started, is asked through this one.
+fn bundled_cli(cx: &Context) -> Option<String> {
+    let cli = cx.host.devices.applications.join("Docker.app/Contents/Resources/bin/docker");
+    (cx.host.os == HostOs::Macos && cli.is_file()).then(|| cli.display().to_string())
+}
+
+/// What `docker args` printed when it exited 0, else why the daemon gave no answer. With no
+/// `docker` on `PATH`, Docker Desktop's own CLI is asked, where it is ([`bundled_cli`]).
 async fn ask(cx: &Context, limit: Duration, spec: &ProcessSpec) -> Result<String, NoAnswer> {
-    match cx.probe_within(limit, spec).await {
+    let missing = |answer: &Result<Captured, Unanswered>| matches!(answer, Err(Unanswered::NotStarted(isothrum_runner::ProcessError::Missing { .. })));
+    let mut answer = cx.probe_within(limit, spec).await;
+    if missing(&answer)
+        && let Some(cli) = bundled_cli(cx)
+    {
+        let mut bundled = spec.clone();
+        bundled.program = cli;
+        answer = cx.probe_within(limit, &bundled).await;
+    }
+    match answer {
         Ok(captured) => captured.output().map_err(|failed| failure(&captured, failed.reason)),
         Err(Unanswered::NotStarted(isothrum_runner::ProcessError::Missing { .. })) => Err(NoAnswer::NoCli),
         Err(e) => Err(NoAnswer::Down(e.to_string())),
@@ -222,7 +240,7 @@ pub async fn daemon_os(cx: &Context) -> Result<String, NoAnswer> {
 /// The engine running, from its daemon's operating system line (`daemon_os`) and the CLI's
 /// current context.
 pub async fn engine_in_use(cx: &Context, daemon_os: &str) -> Engine {
-    let context = cx.read_ok("docker", &["context", "show"]).await.unwrap_or_default();
+    let context = ask(cx, cx.probe_timeout, &docker(None, &["context", "show"])).await.unwrap_or_default();
     engine_named(daemon_os.trim(), &context)
 }
 

@@ -11,6 +11,29 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A Mac's apps install from their vendor's disk image with nothing left to drag or finish.**
+  Docker Desktop, Vagrant, VirtualBox and UTM go one way (`install::mac_image`): Homebrew
+  downloads the vendor's file, then, as an administrator (macOS's prompt, or `sudo -n` when
+  `Elevation::Unattended`), it is mounted read-only out of Finder's sight, checked as signed by the
+  vendor's Developer ID team and accepted by Gatekeeper, installed (an app copied with `ditto` and
+  moved into place once whole, a package through `installer`, Docker Desktop through its own
+  `install --accept-license --user`, which sets up its helper and CLI links), checked again and
+  detached. `macos::fetch_and_open`, which opened the image for the user to drag the app, is gone;
+  `macos::install` takes an `Elevation`. Its step's note is `Note::InstallingFromVendor`, which
+  names the licence the install accepts for its user (Docker's), for a UI to ask their consent:
+  `Note::Downloading` is gone.
+
+- **A Mac's app counts as installed only once whole.** `install::present` and UTM's detection read
+  a bundle with Finder's resumable-copy marks, or whose signature doesn't verify (`codesign
+  --verify --strict`), as not installed: a half-finished copy was taken for an install, and macOS
+  then said "damaged". (`Devices::applications` is where the bundles are looked for.)
+
+- **Docker Desktop's start says when it waits for its user.** Its own CLI (inside `Docker.app`)
+  answers while `PATH` has no `docker` (before its first start's setup links one), and its start
+  ends with `StartFailed::WaitingForUser` once its backend hasn't come up within
+  `DESKTOP_BACKEND_GRACE` (its terms to accept, its setup to finish in its window), instead of
+  "no answer" after 180 s.
+
 - **`provider_refused` names a missing Vagrant plugin as its need:** `need: plugin`
   (`ProviderNeed::Plugin`), the plugin the provider's own (`Provider::plugin`). It was `need`
   unset, the plugin's name and its install command in words only, so a caller couldn't offer the
