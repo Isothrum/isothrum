@@ -5,6 +5,7 @@
 //! installed VirtualBox runs VMs only once `vboxdrv` is loaded. The module list says whether it
 //! is, and whether a restart mends it: the driver is built when the computer starts a kernel whose
 //! headers are installed (VirtualBox's `vboxdrv.sh start`, DKMS when the kernel is installed).
+//! While that boot service is still building it, right after the restart, it is waited for.
 //! Where the module list can't be read, `VBoxManage`'s own warning says it.
 
 use std::path::Path;
@@ -22,13 +23,44 @@ pub(super) async fn driver_problem(cx: &Context, said: &str) -> Option<Unavailab
     if cx.host.os == HostOs::Linux
         && let (Ok(modules), Ok(running)) = (std::fs::read_to_string(&devices.proc_modules), std::fs::read_to_string(&devices.kernel_release))
     {
-        return from_modules(&modules, running.trim(), &devices.lib_modules);
+        let problem = from_modules(&modules, running.trim(), &devices.lib_modules);
+        if problem.is_none() || !boot_build_waited(cx).await {
+            return problem;
+        }
+        let loaded_since = std::fs::read_to_string(&devices.proc_modules).unwrap_or_default();
+        return from_modules(&loaded_since, running.trim(), &devices.lib_modules);
     }
     if !driver_missing(said) {
         return None;
     }
     let kernel = cx.read_ok("uname", &["-r"]).await.map(|k| k.trim().to_owned()).unwrap_or_default();
     Some(Unavailable::VirtualboxDriver { kernel })
+}
+
+/// How long VirtualBox's boot service gets to build and load its driver (seen: 15 s in a 6-vCPU
+/// VM), and how often it is looked at meanwhile.
+const BOOT_BUILD_WAIT: Duration = Duration::from_secs(300);
+const BOOT_BUILD_LOOK: Duration = Duration::from_secs(2);
+
+/// Whether VirtualBox's boot service (`vboxdrv.service`: `vboxdrv.sh start`, which builds the
+/// driver for the running kernel when it has none, then loads it) was starting, waited for until
+/// it no longer is, for at most [`BOOT_BUILD_WAIT`]. Right after the restart into a newer kernel
+/// it is still building, and the driver not loaded yet is no problem to build or sign.
+async fn boot_build_waited(cx: &Context) -> bool {
+    let start = tokio::time::Instant::now();
+    let mut waited = false;
+    while start.elapsed() < BOOT_BUILD_WAIT && starting(cx).await {
+        waited = true;
+        tokio::time::sleep(BOOT_BUILD_LOOK).await;
+    }
+    waited
+}
+
+/// Whether systemd says VirtualBox's boot service is starting (`activating`); not where there is
+/// no systemd, or no such service.
+async fn starting(cx: &Context) -> bool {
+    let said = cx.probe("systemctl", &["is-active", "vboxdrv"]).await;
+    said.is_ok_and(|captured| captured.stdout.first().is_some_and(|line| line.trim() == "activating"))
 }
 
 /// [`driver_problem`], from the text of `/proc/modules` (the modules loaded), the running kernel

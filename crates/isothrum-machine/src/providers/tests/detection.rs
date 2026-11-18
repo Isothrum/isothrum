@@ -231,6 +231,54 @@ async fn a_virtualbox_driver_waiting_for_the_newer_kernel_asks_for_a_restart() {
     );
 }
 
+/// Regression (a fresh Debian 13, restarted into the kernel VirtualBox's install brought): its boot
+/// service builds the driver for that kernel for about 15 s after the restart, and a look then
+/// read "build or sign the driver". The service is waited for, then the modules read again.
+#[tokio::test(start_paused = true)]
+async fn a_virtualbox_driver_its_boot_service_is_building_is_waited_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = linux(dir.path());
+    write(&host.devices.proc_modules, "kvm 1404928 0 - Live 0x0\n");
+    write(&host.devices.kernel_release, "6.12.117+deb13-amd64\n");
+    std::fs::create_dir_all(host.devices.lib_modules.join("6.12.117+deb13-amd64/build")).unwrap();
+    let modules = host.devices.proc_modules.clone();
+    let looks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = Arc::clone(&looks);
+    let tools = FakeProcesses::model(move |call| {
+        assert_eq!(
+            (call.program.as_str(), call.args.as_slice()),
+            ("systemctl", ["is-active", "vboxdrv"].map(String::from).as_slice())
+        );
+        if seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+            return service_is("activating");
+        }
+        write(&modules, "vboxdrv 696320 0 - Live 0x0\nkvm 1404928 0 - Live 0x0\n");
+        Reply::ok("active")
+    });
+    let (cx, _) = context(tools, host);
+    assert_eq!(super::super::vbox::driver_problem(&cx, "7.2.22r175245").await, None);
+    assert_eq!(looks.load(std::sync::atomic::Ordering::SeqCst), 3, "looked until it stopped starting");
+}
+
+/// A boot service that never ends its start is waited for a while only, then the driver is said
+/// not loaded.
+#[tokio::test(start_paused = true)]
+async fn a_virtualbox_boot_service_that_never_ends_its_start_is_waited_for_a_while() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = linux(dir.path());
+    write(&host.devices.proc_modules, "kvm 1404928 0 - Live 0x0\n");
+    write(&host.devices.kernel_release, "6.12.117+deb13-amd64\n");
+    std::fs::create_dir_all(host.devices.lib_modules.join("6.12.117+deb13-amd64/build")).unwrap();
+    let tools = FakeProcesses::model(|_| service_is("activating"));
+    let (cx, _) = context(tools, host);
+    assert_eq!(
+        super::super::vbox::driver_problem(&cx, "7.2.22r175245").await,
+        Some(Unavailable::VirtualboxDriver {
+            kernel: "6.12.117+deb13-amd64".into()
+        })
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn kvm_holding_the_cpus_virtualization_is_said_for_virtualbox_installed_or_not() {
     let dir = tempfile::tempdir().unwrap();
