@@ -64,7 +64,9 @@ async fn vagrant_example_on(provider: Provider) {
     if !status.available {
         skip!("{} isn't ready here: {:?} (needs {:?})", provider.id(), status.reason, status.needs)
     }
-    let (vm_box, _) = box_for(&cx, provider).await;
+    let Some((vm_box, _)) = box_for(&cx, provider).await else {
+        skip!("no test box exists for {} on this computer's CPU ({:?})", provider.id(), cx.host.arch)
+    };
     println!("the box: {vm_box}");
     up_ready_down(example("vagrant-one-vm"), RunOptions::new().with_provider(provider).with_env("BOX", vm_box)).await;
 }

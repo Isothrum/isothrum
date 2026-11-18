@@ -18,7 +18,7 @@ mod vboxmanage;
 use std::path::Path;
 use std::time::Duration;
 
-use isothrum_runner::{BoxFuture, DownloadToAdopt, Provider, RunOptions, Runner};
+use isothrum_runner::{Arch, BoxFuture, DownloadToAdopt, Provider, RunOptions, Runner};
 
 pub use boxes::{add_box, box_for, box_provider, candidate_boxes};
 pub use leftover::hyperv_leftover_script;
@@ -137,6 +137,14 @@ pub enum Failure {
         /// The hypervisor.
         hypervisor: &'static str,
     },
+    /// No box exists for `hypervisor` on this computer's CPU (`arch`): the test has nothing to
+    /// boot. Hyper-V on Arm, until a box of ours is published.
+    NoTestBox {
+        /// The hypervisor.
+        hypervisor: &'static str,
+        /// The computer's CPU.
+        arch: Arch,
+    },
     /// The VM never answered a ping at `address`; the last answer.
     NoReply {
         /// Its address.
@@ -152,6 +160,11 @@ impl std::fmt::Display for Failure {
             Failure::Said(said) => f.write_str(said),
             Failure::Runner(e) => e.fmt(f),
             Failure::Foreign { hypervisor } => write!(f, "{hypervisor} has a VM of the test's name that isn't the test's"),
+            Failure::NoTestBox { hypervisor, arch } => write!(
+                f,
+                "no test VM exists yet for {hypervisor} on {} computers, so the test has nothing to boot here",
+                boxes::arch_name(*arch)
+            ),
             Failure::NoReply { address, last } => write!(f, "{address} did not answer ping: {last}"),
         }
     }
@@ -442,11 +455,17 @@ impl<'a> Test<'a> {
         })
         .await?;
         self.before = networks::Networks::here(cx, provider).await;
-        let (name, _) = box_for(cx, provider).await;
+        let chosen = box_for(cx, provider).await;
         let box_line = |l: String| progress(Progress::Passed(Step::Box, Found::Line(l)));
+        let mut name = "";
         step.run(Step::Box, async {
-            let held = choices.fetch_box(provider, name, &box_line).await.map_err(Failure::Said)?;
-            Ok(Found::Box { name, held })
+            let (chosen, _) = chosen.ok_or(Failure::NoTestBox {
+                hypervisor: provider.id(),
+                arch: cx.host.arch,
+            })?;
+            let held = choices.fetch_box(provider, chosen, &box_line).await.map_err(Failure::Said)?;
+            name = chosen;
+            Ok(Found::Box { name: chosen, held })
         })
         .await?;
         // An address for the ping that nothing answers on before the VM exists.

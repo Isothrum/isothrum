@@ -162,6 +162,32 @@ async fn a_boot_that_fails_ends_the_test_and_the_vm_still_goes() {
     );
 }
 
+/// Hyper-V on Arm has no box to boot: the test says so at its box step, before Vagrant fetches
+/// anything or starts a VM.
+#[tokio::test]
+async fn hyperv_on_arm_ends_at_the_box_step_saying_no_test_vm_exists_yet() {
+    let mut arm = linux_host(Path::new("/nonexistent/isothrum-machine-test"));
+    arm.os = isothrum_runner::HostOs::Windows;
+    arm.arch = isothrum_runner::Arch::Arm64;
+    let (said, ran, tools) = tested_on(arm, Provider::Hyperv, false).await;
+    let no_box = Failure::NoTestBox {
+        hypervisor: "hyperv",
+        arch: isothrum_runner::Arch::Arm64,
+    };
+    assert_eq!(ran.passed, Err(no_box.clone()), "{said:?}");
+    assert!(said.contains(&Progress::Failed(Step::Box, no_box.clone())), "{said:?}");
+    assert_eq!(
+        no_box.to_string(),
+        "no test VM exists yet for hyperv on arm64 computers, so the test has nothing to boot here"
+    );
+    assert_eq!(ran.cleaned_up, None, "no VM was started");
+    let calls: Vec<String> = tools.calls().iter().map(|c| format!("{} {}", c.program, c.args.join(" "))).collect();
+    assert!(
+        !calls.iter().any(|c| c.starts_with("vagrant box add") || c.starts_with("vagrant up")),
+        "{calls:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_hypervisor_with_no_private_network_skips_the_ping() {
     // ESXi's plugin gives no private network, and runs on every system the test runs on.
