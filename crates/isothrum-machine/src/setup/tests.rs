@@ -287,3 +287,25 @@ fn a_vagrant_plugin_is_installed_only_by_a_plugins_name() {
         assert!(crate::install::vagrant_plugin(not_a_name).is_none(), "{not_a_name}");
     }
 }
+
+/// QEMU on Linux uses `/dev/kvm`, whose group an install joins the account to: a setup does
+/// what it can now (Vagrant, the plugin) and asks for the new login last, also where the
+/// hypervisor can't run yet for want of it (no `/dev/kvm` access in this session).
+#[test]
+fn qemus_kvm_group_joined_since_logging_in_asks_for_a_new_login_after_the_rest() {
+    let mut qemu = status(Provider::Qemu, true, Some(Unavailable::NoKvm));
+    qemu.plugin = Some("vagrant-qemu".into());
+    qemu.plugin_installed = false;
+    qemu.needs = vec![Need::Vagrant, Need::Plugin];
+    let mut m = bare(HostOs::Linux, vec![qemu]);
+    m.groups_pending = vec!["kvm".into()];
+    let o = options(&m, false);
+    assert_eq!(o.hypervisors[0].get, [Action::Relogin]);
+    let p = plan(&m, &o, &wanted(&[SetupPath::Vm], &[Provider::Qemu]));
+    assert_eq!(
+        steps(&p),
+        named(&[("vagrant", "install"), ("plugin:vagrant-qemu", "plugin"), ("qemu", "relogin")])
+    );
+    m.groups_pending = vec!["docker".into()];
+    assert_ne!(options(&m, false).hypervisors[0].get, [Action::Relogin], "another tool's group");
+}

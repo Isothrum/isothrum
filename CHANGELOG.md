@@ -260,6 +260,12 @@ Terraform), usable on any project of those formats.
   which the CLI needs, so winget's install exited 2. Tool rows now say where their vendor ships no
   build (`ToolRow::no_build`), refused with its reason (`Refusal::NoBuild`).
 
+- **The install e2e checks that a setup asks for the new login its groups need (Linux), and the
+  tests after it run in one.** An install that joined the account to `docker`, `libvirt` or
+  `kvm` checks that a setup for it ends with `Action::Relogin`; `xtask e2e` then stops before
+  the tests that use those groups and exits 76, and the same command run in a new session carries
+  on, so the engine and hypervisor self-tests no longer skip after the installs.
+
 - **QEMU reads as installed only when its emulator is.** A setup read QEMU installed from
   `qemu-img` (qemu-utils, which many images carry) while the provider's detection looked for
   `qemu-system-<arch>`: QEMU was then neither installed by the setup nor usable. A hypervisor's
