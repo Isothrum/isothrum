@@ -105,6 +105,7 @@ fn run(cli: Cli) -> Res<ExitCode> {
     match cli.task {
         Task::Check(a) => Ok(check::run(&a)),
         Task::Schema => schema::write().map(|()| ExitCode::SUCCESS),
+        Task::E2e(a) if a.list => e2e::list(&a),
         Task::E2e(a) => e2e::run(&a),
         Task::RealRun(a) => real_run::run(&a).map(|()| ExitCode::SUCCESS),
         Task::Quality(a) => quality::run(&a),
