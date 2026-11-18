@@ -3,6 +3,7 @@
 mod cloud;
 mod docker;
 mod install;
+mod needs;
 mod net;
 mod ovftool;
 mod providers;
