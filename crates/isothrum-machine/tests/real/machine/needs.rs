@@ -126,16 +126,40 @@ async fn asking_what_runs_need_installs_nothing() {
         requirements::needs(&cx, &uses.requirements(), &Asking::default()).await;
     }
     let ran = recorded.lines();
-    let changes = |line: &String| {
-        let words: Vec<&str> = line.trim_start_matches("$ ").split_whitespace().collect();
-        let program = words.first().copied().unwrap_or_default();
-        ["pkexec", "sudo", "winget", "msiexec", "dism", "apt-get", "dnf", "open", "softwareupdate"].contains(&program)
-            || words.windows(2).any(|w| matches!(w, ["plugin" | "--cask", "install"] | [_, "start"]))
-            || words.contains(&"install")
-    };
-    let changing: Vec<&String> = ran.iter().filter(|l| changes(l)).collect();
+    let changing: Vec<&String> = ran.iter().filter(|l| changes_the_machine(l)).collect();
     assert!(changing.is_empty(), "asking ran what changes the machine: {changing:#?}");
     assert_eq!(tools_present(&cx).await, before, "every tool is as it was");
+}
+
+/// Whether a recorded command line can change the machine: an installer, an elevation, a
+/// package manager, an install or a start. A program asked only its version (`apt-get
+/// --version`, how [`Context::here`] finds the package manager) reads.
+fn changes_the_machine(line: &str) -> bool {
+    let words: Vec<&str> = line.trim_start_matches("$ ").split_whitespace().collect();
+    if let [_, "--version"] = words.as_slice() {
+        return false;
+    }
+    let program = words.first().copied().unwrap_or_default();
+    ["pkexec", "sudo", "winget", "msiexec", "dism", "apt-get", "dnf", "open", "softwareupdate"].contains(&program)
+        || words.windows(2).any(|w| matches!(w, ["plugin" | "--cask", "install"] | [_, "start"]))
+        || words.contains(&"install")
+}
+
+#[test]
+fn a_version_probe_reads_and_an_install_changes_the_machine() {
+    for read in ["apt-get --version", "$ dnf --version", "vagrant plugin list", "VBoxManage --version"] {
+        assert!(!changes_the_machine(read), "{read}");
+    }
+    for change in [
+        "apt-get install -y qemu-system",
+        "$ dnf --version install x",
+        "pkexec apt-get --version",
+        "vagrant plugin install vagrant-libvirt",
+        "systemctl start libvirtd",
+        "brew install --cask utm",
+    ] {
+        assert!(changes_the_machine(change), "{change}");
+    }
 }
 
 /// Whether each tool a setup installs is here, in [`Dependency::ALL`]'s order.
