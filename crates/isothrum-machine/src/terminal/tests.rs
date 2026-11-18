@@ -53,6 +53,24 @@ fn the_windows_line_quotes_words_cmd_would_read_as_its_own() {
     );
 }
 
+/// Regression (a Windows 11 VM): a quote in an argument was doubled (`""`), which PowerShell
+/// doesn't read back, so `powershell -Command "... ""a"" ..."` never ran in the window.
+#[test]
+fn a_quote_in_an_argument_reaches_the_program_and_cmd_specials_stay_escaped() {
+    let ps = cmd("powershell", &["-Command", "\"$env:X\" | Out-File 'C:\\a b\\said'"], "C:\\run");
+    assert_eq!(
+        windows_line(&ps),
+        "cd /d C:\\run && powershell -Command \"\\\"$env:X\\\" | Out-File 'C:\\a b\\said'\""
+    );
+    // cmd.exe reads `x|y` outside its quotes here (each `\"` toggles them): the `|` is escaped.
+    assert_eq!(
+        windows_line(&cmd("sh", &["-c", "echo \"x|y\""], "C:\\run")),
+        "cd /d C:\\run && sh -c \"echo \\\"x^|y\\\"\""
+    );
+    // A backslash before a quote is doubled, as the C runtime reads it back.
+    assert_eq!(windows_line(&cmd("p", &["a\\\"b", "c\\"], "C:\\run")), "cd /d C:\\run && p \"a\\\\\\\"b\" c\\");
+}
+
 #[test]
 fn the_terminal_script_escapes_the_line_and_the_title() {
     let script = terminal_script("Shell \"one\"", &cmd("echo", &["a\\b"], "/tmp"));
