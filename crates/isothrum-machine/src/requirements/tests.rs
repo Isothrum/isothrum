@@ -226,6 +226,8 @@ async fn a_vagrant_runs_needs_read_its_providers_status_once() {
     };
     assert_eq!(vagrant.present, Some(true));
     assert!(hypervisor.missing(), "{hypervisor:?}");
+    assert!(hypervisor.unavailable.is_some(), "its detection says why: {hypervisor:?}");
+    assert!(vagrant.unavailable.is_none() && plugin.unavailable.is_none(), "a hypervisor's only");
     assert!(matches!(&hypervisor.plan, Some(Plan::Install(_))), "libvirt's own install: {hypervisor:?}");
     assert!(plugin.missing(), "{plugin:?}");
     let Some(Plan::Install(steps)) = &plugin.plan else { panic!("{plugin:?}") };
