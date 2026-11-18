@@ -3,8 +3,10 @@
 //! each step run through the OS's own trusted flows, then the tool found installed and doing its
 //! job ([`usable`]): a hypervisor read installed by its provider's detection, Docker's daemon
 //! answering, Vagrant loading its plugins, Terraform validating a configuration, a cloud CLI
-//! reading its configuration, VMware's utility answering. Each tool a setup installs has its test
-//! here: one per cell of the workspace's install matrix.
+//! reading its configuration, VMware's utility answering. What the install reports it added is only
+//! what was missing before it: a QEMU or libvirt installed by hand, run again for the programs its
+//! VMs need, added those programs' packages alone. Each tool a setup installs has its test here:
+//! one per cell of the workspace's install matrix.
 //!
 //! KVM is set to share the CPU's virtualization with VirtualBox the same way, where it holds it
 //! (`share-virtualization` in `ISOTHRUM_E2E_INSTALL`), then VirtualBox's self-test boots a VM.
@@ -142,8 +144,13 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
 
 /// Runs `dep`'s install, then waits until it is found installed (an installer its user finishes
 /// in its own window takes as long as they do, up to [`FINISH`]), the `PATH` read again each time.
+/// Then what it added ([`install::Before::installed`]) is only what was missing before it
+/// ([`added_only_what_was_missing`]).
 async fn install(cx: &Context, dep: Dependency) {
     let steps = plan(cx, dep).await.unwrap_or_else(|refused| panic!("no install of {dep:?} here: {refused}"));
+    let there = install::there(cx, dep).await;
+    let itself = hypervisor_itself_there(cx, dep).await;
+    let before = install::before(cx, dep).await;
     for s in &steps {
         println!("$ {}", install::command_line(s));
     }
@@ -159,6 +166,51 @@ async fn install(cx: &Context, dep: Dependency) {
         );
         println!("waiting for {dep:?}'s installer to finish…");
         tokio::time::sleep(LOOK_EVERY).await;
+    }
+    let installed = before.installed(&reread(cx).await).await;
+    println!("what {dep:?}'s install added: {installed:#?}");
+    added_only_what_was_missing(cx, dep, there, itself, &installed);
+}
+
+/// Whether `dep` is a hypervisor whose program answers here (its helpers aside): one installed by
+/// hand, say, whose install a setup runs again for the programs its VMs need beside it.
+async fn hypervisor_itself_there(cx: &Context, dep: Dependency) -> bool {
+    let probe = dep.hypervisor().and_then(|p| providers::hypervisor_probe(p, cx.host.arch));
+    match probe {
+        Some((program, args)) => answer(cx, program, args).await.is_some(),
+        None => false,
+    }
+}
+
+/// What `dep`'s install added (`installed`) is only what was missing before it: none of the items
+/// `there` before, and, where its hypervisor `itself` was there already (installed by hand, its
+/// helpers missing), only its helpers' packages ([`providers::helpers`]), never the hypervisor's:
+/// a clean-up removes what an install added, and must never remove what was there before.
+fn added_only_what_was_missing(
+    cx: &Context,
+    dep: Dependency,
+    there: Option<std::collections::BTreeSet<install::Item>>,
+    itself: bool,
+    installed: &install::Installed,
+) {
+    let there = there.unwrap_or_else(|| panic!("what of {dep:?}'s install is here can't be told"));
+    let before: Vec<&install::Item> = installed.added.iter().filter(|item| there.contains(*item)).collect();
+    assert!(before.is_empty(), "{dep:?}'s install claims {before:?}, which were there before it");
+    assert!(!installed.added.is_empty(), "{dep:?}'s install added nothing, though it was missing");
+    if itself {
+        let manager = cx.host.packages.and_then(isothrum_machine::Packages::linux).expect("a Linux package manager");
+        let provider = dep.hypervisor().expect("a hypervisor");
+        let helpers: Vec<install::Item> = providers::helpers(provider, cx.host.os)
+            .iter()
+            .map(|h| install::Item::Package(h.package(manager).to_owned()))
+            .collect();
+        let more: Vec<&install::Item> = installed.added.iter().filter(|item| !helpers.contains(item)).collect();
+        assert!(
+            more.is_empty(),
+            "{} was there before: its install added only its helpers, not {more:?}",
+            provider.id()
+        );
+        println!("{} was there before: its install added only {:?}", provider.id(), installed.added);
     }
 }
 

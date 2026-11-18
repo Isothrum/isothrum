@@ -6,7 +6,7 @@
 //! quoted string or an awk program, `&&` is not the script's chain and is left alone.
 //!
 //! Every root script the setup makes is checked: each `RootScript` the install scripts return
-//! (for a user and for none), and the removal scripts' literals.
+//! (for a user and for none), and the removal scripts.
 
 use crate::install::linux::scripts::{
     awscli_script, azurecli_script, docker_dnf_script, docker_script, gcloud_script, libvirt_dnf_script, libvirt_script, qemu_dnf_script, qemu_script,
@@ -122,12 +122,16 @@ fn source(path: &str) -> String {
     std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(path)).unwrap()
 }
 
-/// The removal scripts: the string literals of the Linux removal plan (plain literals there).
+/// The removal scripts, through each package manager, and the AWS CLI's.
 fn removal_scripts() -> Vec<(String, String)> {
-    let src = source("install/linux.rs");
-    let start = src.find("pub fn uninstall(").expect("the Linux removal plan");
-    let body = src.get(start..).and_then(|rest| rest.get(..rest.find("\n}\n")?)).expect("its end");
-    body.split('"').skip(1).step_by(2).map(|lit| ("removal".to_owned(), lit.to_owned())).collect()
+    use crate::host::LinuxPackages;
+    use crate::install::linux::{AWS_CLI_REMOVAL, removal_script};
+    let names = ["qemu-system-x86", "virtiofsd"];
+    vec![
+        ("apt removal".to_owned(), removal_script(LinuxPackages::Apt, &names).into_string()),
+        ("dnf removal".to_owned(), removal_script(LinuxPackages::Dnf, &names).into_string()),
+        ("aws removal".to_owned(), AWS_CLI_REMOVAL.to_owned()),
+    ]
 }
 
 #[test]
