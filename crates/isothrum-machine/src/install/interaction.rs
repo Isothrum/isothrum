@@ -1,7 +1,11 @@
-//! What an install asks of the person at the computer: a password prompt the OS raises, a licence
-//! it accepts on their behalf, a setting they allow, a restart, a long wait. A UI says these
-//! before the install starts (and asks consent to a licence), and again while the step that
-//! raises them runs; nothing here is worded, each is a code a UI says in its own words.
+//! What an install asks of the person at the computer: a password prompt the OS raises, a vendor's
+//! agreement they accept in the vendor's own window, a setting they allow, a restart, a long wait.
+//! A UI says these before the install starts, and again while the step that raises them runs;
+//! nothing here is worded, each is a code a UI says in its own words.
+//!
+//! No install accepts anything on its user's behalf: no licence, agreement or terms. Where a
+//! vendor asks for one, its own window shows it and the user accepts it there
+//! ([`Interaction::VendorAgreement`]).
 //!
 //! The one table of them is [`interactions`]: per OS and tool, from what the planner knows (the
 //! elevation decides whether a password prompt appears at all: an unattended step never raises
@@ -12,8 +16,8 @@ use serde::Serialize;
 use super::{Dependency, Elevation};
 use crate::host::{Arch, Host, HostOs, Packages};
 
-/// One thing an install asks of the person at the computer, or does on their behalf. None at all
-/// (an empty list) means it installs on its own.
+/// One thing an install asks of the person at the computer. None at all (an empty list) means it
+/// installs on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -24,9 +28,12 @@ pub enum Interaction {
         /// Which prompt.
         via: Prompt,
     },
-    /// The install accepts this licence on the user's behalf: a UI asks their consent first.
-    Licence {
-        /// Its name, as its vendor writes it.
+    /// The vendor's app shows its agreement (at its first start), and the user accepts it there,
+    /// in the vendor's own window: nothing accepts it for them. The tool works once they have.
+    VendorAgreement {
+        /// The app that shows it, as its vendor names it.
+        app: &'static str,
+        /// The agreement's name, as its vendor writes it.
         name: &'static str,
         /// Where its vendor publishes it.
         url: &'static str,
@@ -124,11 +131,14 @@ pub enum Prompt {
     Pkexec,
 }
 
-/// Docker's Subscription Service Agreement, which Docker Desktop's installs accept (macOS's
-/// `install --accept-license`, winget's `--accept-license` from Docker's manifest).
-const DOCKER_LICENCE: Interaction = Interaction::Licence {
-    name: super::mac_image::DOCKER_LICENCE.name,
-    url: super::mac_image::DOCKER_LICENCE.url,
+/// Docker's Subscription Service Agreement, which Docker Desktop shows at its first start, on
+/// macOS and Windows alike: no install accepts it (macOS's `install` runs without
+/// `--accept-license`, winget's Docker install overrides the switches of Docker's manifest, which
+/// add it).
+pub(crate) const DOCKER_AGREEMENT: Interaction = Interaction::VendorAgreement {
+    app: super::mac_image::DOCKER.name,
+    name: super::mac_image::DOCKER_AGREEMENT.name,
+    url: super::mac_image::DOCKER_AGREEMENT.url,
 };
 
 /// About how long Homebrew takes to build QEMU and its libraries from source on an Intel Mac: a
@@ -160,7 +170,7 @@ pub fn interactions(dep: Dependency, host: &Host, elevation: Elevation, user: Op
 /// install as an administrator (`admin`); Homebrew's formulae and casks as the user.
 fn macos(dep: Dependency, arch: Arch, admin: Option<Interaction>) -> Vec<Option<Interaction>> {
     match dep {
-        Dependency::Docker => vec![admin, Some(DOCKER_LICENCE)],
+        Dependency::Docker => vec![admin, Some(DOCKER_AGREEMENT)],
         Dependency::Vagrant | Dependency::Utm | Dependency::VmwareUtility | Dependency::Awscli => vec![admin],
         // On an Intel Mac VirtualBox's drivers are kernel extensions, which macOS blocks until
         // allowed and loads at the next restart; on Apple silicon it needs none.
@@ -190,8 +200,9 @@ fn macos(dep: Dependency, arch: Arch, admin: Option<Interaction>) -> Vec<Option<
 fn windows(dep: Dependency) -> Vec<Option<Interaction>> {
     let uac = Some(Interaction::AdminPassword { via: Prompt::Uac });
     match dep {
-        // winget runs Docker's installer with `--accept-license` (Docker's manifest).
-        Dependency::Docker => vec![uac, Some(DOCKER_LICENCE)],
+        // Docker Desktop shows its agreement at its first start (winget's install of it passes
+        // no `--accept-license`: [`super::windows::DOCKER_SWITCHES`]).
+        Dependency::Docker => vec![uac, Some(DOCKER_AGREEMENT)],
         // HashiCorp's MSI asks for a restart to finish (its manifest's 3010); the Windows features
         // start at the next one.
         Dependency::Vagrant | Dependency::Wsl | Dependency::Hyperv => vec![uac, Some(Interaction::Restart)],

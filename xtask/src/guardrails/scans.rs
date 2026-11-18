@@ -44,7 +44,7 @@ const ADAPTERS: [(&str, &str); 5] = [
 ];
 
 /// Files that parse JSON that is no tool's output.
-const NOT_TOOL_OUTPUT: [(&str, &str); 11] = [
+const NOT_TOOL_OUTPUT: [(&str, &str); 12] = [
     (
         "crates/isothrum-runner/src/formats/terraform/required.rs",
         "a Terraform module's own `*.tfvars.json` files, read for the names they set",
@@ -76,6 +76,10 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 11] = [
         "the service's discovery file, which the service wrote",
     ),
     ("crates/isothrum-client/src/wire.rs", "the service protocol's frames, Isothrum's own"),
+    (
+        "crates/isothrum-machine/src/docker/agreement.rs",
+        "Docker Desktop's settings file, the user's settings, read for whether they accepted its agreement",
+    ),
     (
         "crates/isothrum-machine/src/providers/virtiofsd.rs",
         "QEMU's vhost-user descriptors, the files libvirt reads to start a virtiofsd",
@@ -125,7 +129,7 @@ const SCRIPT_TAKERS: [&str; 3] = ["\"sh\"", "\"bash\"", "\"ssh\""];
 const SHELLS: &str = "crates/isothrum-runner/src/console/shells.rs";
 
 /// Each crate's files that aren't a test's, as code without their test modules.
-fn code_files() -> Vec<source::File> {
+pub(super) fn code_files() -> Vec<source::File> {
     CRATES
         .iter()
         .flat_map(|dir| source::files(dir))

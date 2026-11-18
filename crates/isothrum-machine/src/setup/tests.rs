@@ -402,7 +402,8 @@ fn each_action_carries_what_it_asks_of_the_person_at_the_computer() {
     assert_eq!(o.wsl[0].interactions(), [uac, Interaction::Restart], "WSL's install, then its restart");
     assert_eq!(
         o.engines[0].actions[0].interactions()[1],
-        Interaction::Licence {
+        Interaction::VendorAgreement {
+            app: "Docker Desktop",
             name: "Docker Subscription Service Agreement",
             url: "https://www.docker.com/legal/docker-subscription-service-agreement/",
         }

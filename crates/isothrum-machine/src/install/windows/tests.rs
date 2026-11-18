@@ -19,7 +19,11 @@ fn windows_installs_through_winget_and_the_features_through_their_own_installers
             _ => {
                 let steps = plan.unwrap();
                 assert_eq!(steps[0].program, "winget");
-                assert!(steps[0].args.contains(&"--accept-package-agreements".to_owned()));
+                // Nothing is accepted for the user: no agreement flag, and Docker's installer
+                // switches given in full without its manifest's `--accept-license`.
+                assert!(steps[0].args.iter().all(|a| !a.contains("accept")), "{dep:?}: {:?}", steps[0].args);
+                let overridden = steps[0].args.windows(2).any(|w| w == ["--override", DOCKER_SWITCHES]);
+                assert_eq!(overridden, dep == Dependency::Docker, "{dep:?}: {:?}", steps[0].args);
                 assert!(steps[0].args.windows(2).any(|w| w == ["--source", "winget"]), "{dep:?}: {:?}", steps[0].args);
             }
         }

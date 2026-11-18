@@ -12,6 +12,8 @@
 //! - `vocabulary`: no file under `crates/` names Isoloom or uses an application's words (lab,
 //!   CTF, player, attack box), a test's data included; and no document names Isoloom but the
 //!   README's one line;
+//! - `consent`: nothing accepts a licence, an agreement or terms on the user's behalf (no
+//!   `--accept-license`, no winget `--accept-*-agreements`, no EULA switch) in the crates' code;
 //! - `flakes`: no test waits on the clock (a `sleep` there is counted, each with why it is no
 //!   wait), none lets a free port go before it uses it, and a stand-in written by each test
 //!   is counted.
@@ -21,6 +23,7 @@
 
 mod boundary;
 mod capabilities;
+mod consent;
 mod flakes;
 mod layout;
 mod scans;

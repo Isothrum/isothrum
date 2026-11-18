@@ -29,6 +29,15 @@ fn an_installer_error_reads_as_failed() {
 }
 
 #[test]
+fn an_agreement_winget_asks_for_is_its_users_to_accept_not_a_failure_of_the_installer() {
+    // No setup's winget install says `--accept-*-agreements`: a package's or a source's agreement
+    // stops it, for its user to accept running winget themselves.
+    assert_eq!(winget_failure(code(0x8A15_0041), None), Some(Known::AgreementToAccept));
+    assert_eq!(winget_failure(code(0x8A15_0046), None), Some(Known::AgreementToAccept));
+    assert_eq!(winget_done(code(0x8A15_0041)), None);
+}
+
+#[test]
 fn an_up_to_date_package_or_a_pending_restart_is_done_not_failed() {
     // `winget install` of a package already there exits 0x8A15002B, and Docker Desktop's or
     // WSL's install 0x8A150109 (restart to finish): both read as failed, so the step never

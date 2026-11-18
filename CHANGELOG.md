@@ -11,6 +11,31 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **No install accepts a licence, an agreement or terms on its user's behalf.** Docker Desktop's
+  macOS install ran its installer with `--accept-license`, and winget's installs said
+  `--accept-package-agreements --accept-source-agreements` (Docker's winget manifest adds
+  `--accept-license` too). Docker's installer now runs as `install --user <user>`; winget's
+  installs pass no agreement flag, and Docker Desktop's gives its installer's switches in full
+  without `--accept-license` (`windows::DOCKER_SWITCHES`). Docker Desktop shows Docker's
+  Subscription Service Agreement at its first start, and its user accepts it there.
+  - `Interaction::Licence { name, url }` is `Interaction::VendorAgreement { app, name, url }`
+    (`kind: "vendorAgreement"`): the vendor's app shows its agreement, and the user accepts it in
+    the vendor's window. `install::Licence` is `install::Agreement`, and
+    `Note::InstallingFromVendor`'s `accepts` is `agreement`.
+  - A winget package or source that asks for its agreement stops the install with
+    `exit_codes::Known::AgreementToAccept` (winget's `0x8A150041`, `0x8A150046`): its user runs
+    winget themselves and accepts it there.
+  - Docker Desktop's start says `StartFailed::AgreementNotAccepted` once its window has had
+    `docker::AGREEMENT_GRACE` (10 s) to show, on macOS and Windows, when its settings say the
+    agreement isn't accepted (`docker::agreement_accepted`, `Devices::docker_desktop_settings`);
+    not a start that timed out. On Windows, a Docker Desktop that wrote no settings within its
+    backend's grace is `WaitingForUser`, as on macOS.
+  - `cargo xtask e2e` records a test that waits for a person (a line
+    `isothrum-e2e: waiting: …`) as `waiting`, which fails nothing: Docker Desktop's engine test
+    waits until a person has accepted its agreement once on that computer.
+  - A guardrail (`consent`) fails the build on any accept-for-the-user switch in the crates' code,
+    and a test reads every install's and removal's command line on every OS for one.
+
 - **macOS's password prompt says what installs and why.** It read only "osascript wants to make
   changes"; an install from a vendor's package, VMware's utility and a removal through macOS's
   administrator prompt now pass it a message (`with prompt`): `Install Docker Desktop: macOS

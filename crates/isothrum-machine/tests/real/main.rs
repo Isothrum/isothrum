@@ -27,6 +27,11 @@ const SKIP: &str = "isothrum-e2e: skip: ";
 /// then it stops and asks for the same command again in a new session.
 const RELOGIN: &str = "isothrum-e2e: relogin: ";
 
+/// What a test prints to say it waits for a person at the computer, who alone can take its next
+/// step (accept a vendor's agreement in its own window: nothing accepts it for them), then for
+/// what. `cargo xtask e2e` records it as waiting, which fails nothing.
+const WAITING: &str = "isothrum-e2e: waiting: ";
+
 /// What a test prints to say the computer must restart before it goes on; the rest of the line
 /// says why. `cargo xtask e2e` stops there and, run again once the computer has restarted, runs
 /// the test again first, [`resumed`].
@@ -37,6 +42,15 @@ const RESTART: &str = "isothrum-e2e: restart: ";
 macro_rules! restart {
     ($($why:tt)*) => {{
         println!("{}{}", $crate::RESTART, format!($($why)*));
+        return;
+    }};
+}
+
+/// Says the test waits for a person at the computer, and for what (`format!`'s arguments), then
+/// returns from it.
+macro_rules! waiting {
+    ($($why:tt)*) => {{
+        println!("{}{}", $crate::WAITING, format!($($why)*));
         return;
     }};
 }

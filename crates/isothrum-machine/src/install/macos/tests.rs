@@ -29,14 +29,14 @@ fn macos_installs_through_homebrew_and_the_vendors_installers() {
         }
     }
     // The apps and Vagrant: one step each, from their vendor's file, as an administrator; Docker
-    // Desktop's says it accepts Docker's licence.
+    // Desktop's names the agreement Docker Desktop shows at its first start.
     for dep in [Dependency::Docker, Dependency::Vagrant, Dependency::Virtualbox, Dependency::Utm] {
         let plan = install(dep, HOMEBREW, Arch::Arm64, PROMPT).unwrap();
-        let Some(Note::InstallingFromVendor { dependency, accepts }) = plan[0].note else {
+        let Some(Note::InstallingFromVendor { dependency, agreement }) = plan[0].note else {
             panic!("{dep:?}: {:?}", plan[0].note)
         };
         assert_eq!((programs(&plan), dependency), (vec!["sh"], dep));
-        assert_eq!(accepts.is_some(), dep == Dependency::Docker, "{dep:?}");
+        assert_eq!(agreement.is_some(), dep == Dependency::Docker, "{dep:?}");
     }
     let azure = install(Dependency::Azurecli, HOMEBREW, Arch::Arm64, PROMPT).unwrap();
     assert_eq!(
@@ -135,7 +135,7 @@ fn each_cpu_gets_a_vendors_build_where_there_is_one_and_an_intel_mac_is_told_wha
             aws[0].note,
             Some(Note::InstallingFromVendor {
                 dependency: Dependency::Awscli,
-                accepts: None
+                agreement: None
             }),
             "{arch:?}"
         );

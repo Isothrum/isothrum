@@ -348,6 +348,13 @@ async fn docker_answers(cx: &Context) {
             let os = answer(cx, "sg", &["docker", "-c", "docker version --format '{{.Server.Os}}'"]).await;
             assert_eq!(os.as_deref().map(str::trim), Some("linux"), "its daemon answers the next login");
         }
+        // Docker Desktop shows Docker's agreement at its first start, which no install accepts for
+        // its user: installed and checked, the install passed; its engine waits for a person to
+        // accept it there, which `docker_desktop_answers_once_its_user_has_accepted_its_agreement`
+        // reports.
+        Err(waits @ (StartFailed::AgreementNotAccepted(_) | StartFailed::WaitingForUser(_))) => {
+            println!("installed; its engine waits for a person in Docker Desktop's window: {waits}");
+        }
         Err(failed) => panic!("the engine installed starts: {failed:?}"),
     }
 }

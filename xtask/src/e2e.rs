@@ -2,9 +2,13 @@
 //! its public API), one tier at a time: `machine`, this computer's own tools, or `server`, the
 //! test servers the `ISOTHRUM_TEST_*` variables name. Each test runs in a process of its own, its
 //! output in a log of its own, and is recorded as one JSON line in the `--results` file (appended
-//! to): `{"suite":"e2e","tier":…,"case":…,"result":"pass|fail|skip","reason":…,"seconds":…,"log":…}`.
+//! to): `{"suite":"e2e","tier":…,"case":…,"result":"pass|fail|skip|waiting|restart","reason":…,"seconds":…,"log":…}`.
 //! A test skips, saying why, when its tool or server isn't there (a line [`SKIP`] starts); a
-//! skip fails nothing. The task fails when a test fails.
+//! skip fails nothing. A test waits, saying for what, when only a person at the computer can take
+//! its next step and none has yet (a line [`WAITING`] starts): Docker Desktop's agreement, which
+//! its user accepts in Docker's own window, once on that computer, and nothing accepts for them.
+//! A wait fails nothing either: the test runs on once a person has done it. The task fails when a
+//! test fails.
 //!
 //! On a machine without Rust's toolchain (a test VM), `--exe` names the `real` tests' executable,
 //! built elsewhere (`cargo test --no-run`), which runs in place of `cargo test`.
@@ -39,6 +43,10 @@ use crate::{Res, process, repo};
 
 /// What a test prints to say it skipped, then why (the tests' own `SKIP`).
 const SKIP: &str = "isothrum-e2e: skip: ";
+
+/// What a test prints to say it waits for a person at the computer, then for what (the tests' own
+/// `WAITING`).
+const WAITING: &str = "isothrum-e2e: waiting: ";
 
 /// What a test prints to say the computer must restart before it can go on, then why (the tests'
 /// own `RESTART`).
@@ -414,8 +422,8 @@ fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>, written: &[String]
     tests
 }
 
-/// How a test ended, from whether it `passed` and its `log`: a skip or a restart when it said one,
-/// else a pass; a failure's reason its panic's message.
+/// How a test ended, from whether it `passed` and its `log`: a skip, a restart or a wait for a
+/// person when it said one, else a pass; a failure's reason its panic's message.
 fn outcome(passed: bool, log: &str) -> Outcome {
     if !passed {
         return Outcome {
@@ -423,13 +431,18 @@ fn outcome(passed: bool, log: &str) -> Outcome {
             reason: panic_message(log).unwrap_or_else(|| "it failed without a panic (see its log)".into()),
         };
     }
-    match (said(log, SKIP), said(log, RESTART)) {
-        (Some(reason), _) => Outcome { result: "skip", reason },
-        (None, Some(reason)) => Outcome { result: "restart", reason },
-        (None, None) => Outcome {
-            result: "pass",
-            reason: String::new(),
-        },
+    if let Some(reason) = said(log, SKIP) {
+        return Outcome { result: "skip", reason };
+    }
+    if let Some(reason) = said(log, RESTART) {
+        return Outcome { result: "restart", reason };
+    }
+    if let Some(reason) = said(log, WAITING) {
+        return Outcome { result: "waiting", reason };
+    }
+    Outcome {
+        result: "pass",
+        reason: String::new(),
     }
 }
 
@@ -577,6 +590,21 @@ mod tests {
             }
         );
         assert_eq!(outcome(false, &said).result, "fail");
+    }
+
+    #[test]
+    fn a_test_waiting_for_a_person_says_for_what_and_fails_nothing() {
+        let said = format!("running 1 test\n{WAITING}Docker Desktop waits for its agreement to be accepted in its window\ntest x ... ok\n");
+        assert_eq!(
+            outcome(true, &said),
+            Outcome {
+                result: "waiting",
+                reason: "Docker Desktop waits for its agreement to be accepted in its window".into()
+            }
+        );
+        assert_eq!(outcome(false, &said).result, "fail");
+        // A skip says more: the tool isn't there at all.
+        assert_eq!(outcome(true, &format!("{SKIP}no Docker Desktop\n{said}")).result, "skip");
     }
 
     #[test]

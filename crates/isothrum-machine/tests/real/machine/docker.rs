@@ -83,6 +83,51 @@ async fn starting_an_engine_that_runs_already_starts_nothing_and_reports_it_read
     assert!(docker::running_of(&docker::engines(&cx).await).contains(&engine), "{engine:?} still runs");
 }
 
+/// What a test says while Docker Desktop's agreement waits for a person.
+const AGREEMENT_WAITS: &str =
+    "Docker Desktop waits for a person to accept Docker's Subscription Service Agreement in its own window, once on this computer: nothing accepts it for them";
+
+/// Whether Docker Desktop is installed here: its app (macOS), its program (Windows).
+fn docker_desktop_installed(cx: &isothrum_machine::Context) -> bool {
+    match cx.host.os {
+        isothrum_machine::HostOs::Macos => cx.host.devices.applications.join("Docker.app").is_dir(),
+        isothrum_machine::HostOs::Windows => {
+            std::env::var_os("ProgramFiles").is_some_and(|p| std::path::Path::new(&p).join("Docker").join("Docker").join("Docker Desktop.exe").is_file())
+        }
+        isothrum_machine::HostOs::Linux => false,
+    }
+}
+
+/// Docker Desktop installed here answers once its user has accepted Docker's agreement in its
+/// window, which no install accepts for them: until a person has, once on this computer, the test
+/// waits (a state of its own, not a failure); accepted, its engine answers when it runs. It
+/// starts nothing: a Docker Desktop not running is left as it is.
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn docker_desktop_answers_once_its_user_has_accepted_its_agreement() {
+    let cx = here().await;
+    if !docker_desktop_installed(&cx) {
+        skip!("Docker Desktop isn't installed here")
+    }
+    let accepted = docker::agreement_accepted(&cx);
+    println!(
+        "Docker Desktop's agreement accepted: {accepted:?} (its settings: {:?})",
+        cx.host.devices.docker_desktop_settings
+    );
+    if accepted != Some(true) {
+        waiting!("{AGREEMENT_WAITS}")
+    }
+    let engines = docker::engines(&cx).await;
+    let Some(desktop) = engines.iter().find(|s| s.engine == docker::Engine::DockerDesktop) else {
+        skip!("Docker Desktop has no context here yet: {engines:?}")
+    };
+    if !desktop.running {
+        skip!("Docker Desktop isn't running here (a test starts nothing it didn't start)")
+    }
+    let os = docker::daemon_info(&cx, "{{.OperatingSystem}}", Some(&desktop.context)).await;
+    assert!(os.is_ok(), "Docker Desktop's engine answers: {os:?}");
+}
+
 /// A start as an unattended setup runs it: as root through `sudo -n` when not root already.
 fn unattended() -> Elevation {
     Elevation::Unattended { root: false }
