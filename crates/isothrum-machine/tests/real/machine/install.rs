@@ -415,7 +415,7 @@ fn groups_of(cx: &Context, dep: Dependency) -> Vec<String> {
 /// hypervisor and what Vagrant needs for it.
 async fn setup_for(cx: &Context, dep: Dependency) -> setup::Plan {
     let found = check::check(cx, wsl::Marks::default()).await;
-    let machine = Machine::of(&found, cx.host.clone());
+    let machine = Machine::of(&found, cx.host.clone(), elevation(cx).await, None);
     let options = setup::options(&machine, false);
     let wanted = match dep.hypervisor() {
         Some(p) => Wanted {

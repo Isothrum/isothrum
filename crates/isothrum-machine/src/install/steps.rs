@@ -20,6 +20,10 @@ pub struct Step {
     pub args: Vec<String>,
     /// What a UI shows before it instead of its command line, when it says one.
     pub note: Option<Note>,
+    /// What it asks of the person at the computer while it runs (a password prompt, a licence it
+    /// accepts for them, a restart after it), in order: a UI says them before the install and
+    /// again as the step starts ([`super::interaction`]). Empty when it asks nothing.
+    pub interactions: Vec<super::Interaction>,
     /// A private folder of files the step reads (a root step's proxy settings), removed with
     /// the step.
     pub(crate) private: Option<tempfile::TempDir>,
@@ -59,6 +63,7 @@ pub fn step(program: impl Into<String>, args: &[&str]) -> Step {
         program: program.into(),
         args: args.iter().map(ToString::to_string).collect(),
         note: None,
+        interactions: Vec::new(),
         private: None,
         not_served: None,
     }

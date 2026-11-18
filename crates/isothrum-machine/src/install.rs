@@ -22,6 +22,7 @@ use crate::providers::{Provider, ProviderRow};
 pub mod added;
 pub mod brew;
 pub mod exit_codes;
+pub mod interaction;
 pub mod linux;
 pub(crate) mod mac_image;
 pub mod macos;
@@ -33,6 +34,7 @@ mod vmware_utility;
 pub mod windows;
 
 pub use added::{Before, Installed, Item, before, items, there};
+pub use interaction::{Interaction, Prompt, interactions};
 pub use steps::{Licence, NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
@@ -453,7 +455,19 @@ impl std::error::Error for Refusal {}
 ///
 /// [`Refusal`]: why it can't be installed there ([`Refusal::NotHere`] first, before the package
 /// manager is looked at).
+///
+/// What it asks of its user ([`interactions`]) is the plan's last step's, the one that installs
+/// the tool (one before it only prepares: a Homebrew tap trusted).
 pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
+    let mut steps = os_plan(dep, host, user, elevation)?;
+    if let Some(last) = steps.last_mut() {
+        last.interactions = interactions(dep, host, elevation, user);
+    }
+    Ok(steps)
+}
+
+/// [`plan`]'s steps, as the host's OS makes them.
+fn os_plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
     if !dep.runs_on(host.os) {
         return Err(Refusal::NotHere { dependency: dep, os: host.os });
     }
