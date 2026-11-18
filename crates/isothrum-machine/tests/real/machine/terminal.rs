@@ -16,12 +16,14 @@ const START: Duration = Duration::from_secs(60);
 
 /// Why no desktop session shows a window here; none when one does.
 async fn no_desktop(cx: &Context) -> Option<String> {
-    let over_ssh = setting("SSH_CONNECTION").is_some();
     match cx.host.os {
         HostOs::Linux if setting("DISPLAY").is_none() && setting("WAYLAND_DISPLAY").is_none() => {
             Some("no desktop session here (neither DISPLAY nor WAYLAND_DISPLAY is set)".into())
         }
-        HostOs::Windows if over_ssh => Some("an SSH session on Windows has no desktop to show a console on".into()),
+        // Session 0 is the services': SSH's and WinRM's sessions run there, with no desktop.
+        HostOs::Windows if windows_session(cx).await.as_deref() == Some("0") => {
+            Some("this runs in Windows' session 0 (a service's, as over SSH or WinRM): no desktop to show a console on".into())
+        }
         HostOs::Macos => {
             let uid = answer(cx, "id", &["-u"]).await.unwrap_or_default();
             let gui = answer(cx, "launchctl", &["print", &format!("gui/{}", uid.trim())]).await;
@@ -29,6 +31,17 @@ async fn no_desktop(cx: &Context) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The Windows session this process runs in, as PowerShell (a child, in the same session) says.
+async fn windows_session(cx: &Context) -> Option<String> {
+    let said = answer(
+        cx,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Id $PID).SessionId"],
+    )
+    .await?;
+    Some(said.trim().to_owned())
 }
 
 /// The command run in the window: a shell that writes its process id and the variable it was
