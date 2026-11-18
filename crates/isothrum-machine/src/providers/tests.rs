@@ -160,7 +160,7 @@ fn a_mac_is_offered_the_hypervisor_made_for_its_cpu_and_keeps_one_installed() {
 }
 
 #[test]
-fn linux_is_offered_virtualbox_where_oracle_ships_it() {
+fn linux_is_offered_a_hypervisor_where_its_vendor_ships_it() {
     let root = Path::new("unused");
     let (arm, x86) = (host(HostOs::Linux, Arch::Arm64, root), host(HostOs::Linux, Arch::Amd64, root));
     for (host, installed, expected, case) in [
@@ -170,6 +170,8 @@ fn linux_is_offered_virtualbox_where_oracle_ships_it() {
     ] {
         assert_eq!(offered(Provider::Virtualbox, host, installed), expected, "{case}");
     }
+    assert!(!offered(Provider::VmwareDesktop, &arm, false), "VMware Workstation is x86-64 only");
+    assert!(offered(Provider::VmwareDesktop, &x86, false));
     assert!(offered(Provider::Qemu, &arm, false), "QEMU is offered on every Linux CPU");
 }
 
