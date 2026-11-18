@@ -134,12 +134,14 @@ async fn a_dead_owners_tools_are_ended_and_nothing_it_didnt_start() {
 
 /// A tool (`sh`) in a process group of its own that started a process of its group (`sleep`), as
 /// Terraform starts its provider plugin, guarded; with the id of what it started. A shell's
-/// background process ignores SIGINT: what it started takes it back, as a plugin does.
+/// background process ignores SIGINT: what it started takes it back, as a plugin does, and only
+/// then writes its id, so a SIGINT never finds it still ignoring one (on a loaded machine `perl`
+/// starts slowly, and an id written by the shell came back before it had).
 #[cfg(unix)]
 fn tool_with_a_member(home: &Path, name: &str) -> (isothrum_test_support::ChildGuard, isothrum_test_support::PidGuard) {
     let file = home.join(name);
     let script = format!(
-        "perl -e '$SIG{{INT}} = \"DEFAULT\"; exec @ARGV' sleep 600 & echo $! > '{}'; wait",
+        "perl -e '$SIG{{INT}} = \"DEFAULT\"; my $f = shift; open(my $o, \">\", \"$f.new\") or die; print $o $$; close($o) or die; rename(\"$f.new\", $f) or die; exec @ARGV' '{}' sleep 600 & wait",
         file.display()
     );
     let tool = isothrum_test_support::ChildGuard::spawn(std::process::Command::new("sh").args(["-c", &script])).unwrap();
