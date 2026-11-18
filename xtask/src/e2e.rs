@@ -113,7 +113,7 @@ pub(crate) fn list(a: &Args) -> Res<std::process::ExitCode> {
 /// missed would be a test a matrix of what is tested can't see.
 fn same_as_sources(root: &Path, tier: Tier, listed: &str) -> Res<()> {
     let prefix = format!("{}::", tier.name());
-    let mut harnessed: Vec<String> = tier_tests(listed, tier, None)
+    let mut harnessed: Vec<String> = tier_tests(listed, tier, None, &[])
         .iter()
         .map(|t| t.strip_prefix(&prefix).unwrap_or(t).to_owned())
         .collect();
@@ -146,7 +146,8 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         process::run(real_tests(&root).arg("--no-run"))?;
     }
     let listed = process::output(&mut harness(&root, a.exe.as_deref(), &["--ignored", "--list", "--format", "terse"]))?;
-    let tests = tier_tests(&listed, tier, a.filter.as_deref());
+    let written = source_cases(&root.join(REAL), tier).unwrap_or_default();
+    let tests = tier_tests(&listed, tier, a.filter.as_deref(), &written);
     if a.exe.is_none() {
         same_as_sources(&root, tier, &listed)?;
     }
@@ -337,16 +338,14 @@ fn run_one(mut cmd: Command, log: &Path) -> Res<bool> {
     process::passed(&mut cmd)
 }
 
-/// The install tests that run after the other installs, in this order: libvirt's brings in
-/// another's (QEMU), which would leave that one's install untested on a fresh machine ("installed
-/// here already"); then the Vagrant plugins, which need Vagrant and their hypervisor installed
-/// (vagrant-libvirt builds against libvirt's headers).
-const INSTALLED_LAST: [&str; 2] = ["install::libvirt_", "install::plugin_"];
-
 /// The tier's tests in `cargo test --list --format terse`'s `listed` (`<name>: test` lines), those
-/// whose name holds `filter` when there is one: its installs first ([`INSTALLED_LAST`]'s last of
-/// them), then the others, each in the order listed.
-fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>) -> Vec<String> {
+/// whose name holds `filter` when there is one: its installs first, then the others, each in the
+/// order its sources are written (`written`, [`source_cases`]: a test they don't hold, or all when
+/// they can't be read, after them, as listed). The install tests are written in a setup's order:
+/// one whose install brings in another's (Docker Desktop's turns WSL 2 on, libvirt's brings QEMU)
+/// after that one, which would else be left untested on a fresh machine ("installed here
+/// already"); the Vagrant plugins after Vagrant and their hypervisors.
+fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>, written: &[String]) -> Vec<String> {
     let prefix = format!("{}::", tier.name());
     let mut tests: Vec<String> = listed
         .lines()
@@ -356,10 +355,7 @@ fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>) -> Vec<String> {
         .collect();
     tests.sort_by_key(|name| {
         let case = name.strip_prefix(&prefix).unwrap_or(name);
-        (
-            !case.starts_with(INSTALLS),
-            INSTALLED_LAST.iter().position(|last| case.starts_with(last)).map_or(0, |at| at + 1),
-        )
+        (!case.starts_with(INSTALLS), written.iter().position(|w| w == case).unwrap_or(usize::MAX))
     });
     tests
 }
@@ -466,34 +462,33 @@ mod tests {
     #[test]
     fn a_tiers_tests_are_those_of_its_module_filtered_by_name() {
         let listed = "machine::net::a_port: test\nmachine::docker::start: test\nserver::ssh::keys: test\n\n2 tests, 0 benchmarks\n";
-        assert_eq!(tier_tests(listed, Tier::Machine, None), ["machine::net::a_port", "machine::docker::start"]);
-        assert_eq!(tier_tests(listed, Tier::Machine, Some("docker")), ["machine::docker::start"]);
-        assert_eq!(tier_tests(listed, Tier::Server, None), ["server::ssh::keys"]);
+        assert_eq!(tier_tests(listed, Tier::Machine, None, &[]), ["machine::net::a_port", "machine::docker::start"]);
+        assert_eq!(tier_tests(listed, Tier::Machine, Some("docker"), &[]), ["machine::docker::start"]);
+        assert_eq!(tier_tests(listed, Tier::Server, None, &[]), ["server::ssh::keys"]);
     }
 
     #[test]
-    fn libvirts_install_runs_after_qemus_which_it_brings() {
-        let listed = "machine::net::a: test\nmachine::install::docker_x: test\nmachine::install::libvirt_x: test\nmachine::install::qemu_x: test\n";
+    fn the_tests_run_in_the_order_written_the_installs_first() {
+        let listed = "machine::net::a: test\nmachine::install::docker_x: test\nmachine::install::libvirt_x: test\nmachine::install::qemu_x: test\nmachine::install::wsl_x: test\n";
+        let written = ["install::wsl_x", "install::docker_x", "install::qemu_x", "install::libvirt_x", "net::a"].map(String::from);
         assert_eq!(
-            tier_tests(listed, Tier::Machine, None),
+            tier_tests(listed, Tier::Machine, None, &written),
             [
+                "machine::install::wsl_x",
                 "machine::install::docker_x",
                 "machine::install::qemu_x",
                 "machine::install::libvirt_x",
                 "machine::net::a"
             ]
         );
-    }
-
-    #[test]
-    fn the_vagrant_plugins_install_last_after_libvirt() {
-        let listed = "machine::install::plugin_vagrant_libvirt_x: test\nmachine::install::libvirt_x: test\nmachine::net::a: test\nmachine::install::vagrant_is_x: test\n";
+        // Sources that can't be read: as listed, the installs first.
         assert_eq!(
-            tier_tests(listed, Tier::Machine, None),
+            tier_tests(listed, Tier::Machine, None, &[]),
             [
-                "machine::install::vagrant_is_x",
+                "machine::install::docker_x",
                 "machine::install::libvirt_x",
-                "machine::install::plugin_vagrant_libvirt_x",
+                "machine::install::qemu_x",
+                "machine::install::wsl_x",
                 "machine::net::a"
             ]
         );
@@ -503,7 +498,7 @@ mod tests {
     fn the_installs_run_first_the_rest_in_the_order_listed() {
         let listed = "machine::cloud::token: test\nmachine::install::wsl: test\nmachine::docker::start: test\nmachine::install::docker: test\n";
         assert_eq!(
-            tier_tests(listed, Tier::Machine, None),
+            tier_tests(listed, Tier::Machine, None, &[]),
             [
                 "machine::install::wsl",
                 "machine::install::docker",
