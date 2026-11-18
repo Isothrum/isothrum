@@ -368,9 +368,23 @@ async fn works_as_a_run_needs(cx: &Context, dep: Dependency) {
             let valid = works(cx, "terraform", &[&at, "validate", "-json"]).await;
             assert!(valid.contains("\"valid\": true"), "terraform validates a configuration: {valid}");
         }
-        // Each cloud CLI runs and reads its (empty) configuration: no account needed.
+        // Each cloud CLI runs and reads its (empty) configuration: no account needed. The AWS CLI
+        // is given empty files of its own: a sign-in left in this account's `~/.aws` that has
+        // expired fails `configure list` ("Your session has expired"), whatever the install.
         Dependency::Awscli => {
-            println!("{}", works(cx, "aws", &["configure", "list"]).await);
+            let dir = tempfile::tempdir().expect("a folder");
+            let empty = |name: &str| {
+                let at = dir.path().join(name);
+                std::fs::write(&at, "").expect("an empty file");
+                at.display().to_string()
+            };
+            let mut spec = isothrum_runner::ProcessSpec::new("aws", ["configure", "list"]);
+            spec.env = vec![
+                ("AWS_CONFIG_FILE".to_owned(), empty("config")),
+                ("AWS_SHARED_CREDENTIALS_FILE".to_owned(), empty("credentials")),
+            ];
+            let ran = isothrum_runner::capture(cx.runner.as_ref(), &spec).await.ok().and_then(|ran| ran.output().ok());
+            println!("{}", ran.expect("`aws configure list` fails once installed"));
         }
         Dependency::Azurecli => {
             let version = works(cx, "az", &["version", "--output", "json"]).await;

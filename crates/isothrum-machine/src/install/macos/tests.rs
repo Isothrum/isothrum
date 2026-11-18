@@ -56,7 +56,13 @@ fn macos_installs_through_homebrew_and_the_vendors_installers() {
 #[test]
 fn every_macos_tool_has_a_way_out_and_only_homebrews_need_it() {
     assert_eq!(uninstall(Dependency::Terraform, None, None).unwrap_err(), Refusal::HomebrewNeeded);
-    for dep in [Dependency::VmwareUtility, Dependency::Vagrant, Dependency::Docker, Dependency::Utm] {
+    for dep in [
+        Dependency::VmwareUtility,
+        Dependency::Vagrant,
+        Dependency::Docker,
+        Dependency::Utm,
+        Dependency::Awscli,
+    ] {
         assert!(uninstall(dep, None, None).is_ok(), "{dep:?}");
     }
     for dep in Dependency::ALL
@@ -111,4 +117,69 @@ async fn the_image_is_fetched_again_then_read_from_homebrews_cache() {
     std::fs::write(&image, "").unwrap();
     assert_eq!(virtualbox_image(&cx, "/b/brew", &mut |_: &str| {}).await, Ok(image.display().to_string()));
     assert_eq!(lines, ["$ /b/brew fetch --cask virtualbox", "==> Downloading"]);
+}
+
+#[test]
+fn each_cpu_gets_a_vendors_build_where_there_is_one_and_an_intel_mac_is_told_what_it_builds() {
+    for arch in [Arch::Amd64, Arch::Arm64] {
+        // The AWS CLI: Amazon's package on both CPUs, never Homebrew's formula (which an Intel Mac
+        // builds from source, and failed to).
+        let aws = install(Dependency::Awscli, HOMEBREW, arch, PROMPT).unwrap();
+        let script = aws[0].args.join(" ");
+        assert_eq!(
+            aws[0].note,
+            Some(Note::InstallingFromVendor {
+                dependency: Dependency::Awscli,
+                accepts: None
+            }),
+            "{arch:?}"
+        );
+        assert!(
+            script.contains("https://awscli.amazonaws.com/AWSCLIV2.pkg") && !script.contains(BREW),
+            "{arch:?}: {script}"
+        );
+        // Terraform: HashiCorp's tap, whose formula installs HashiCorp's own build on either CPU.
+        let terraform = install(Dependency::Terraform, HOMEBREW, arch, PROMPT).unwrap();
+        assert_eq!(terraform[0].args, ["install", "hashicorp/tap/terraform"], "{arch:?}");
+        // QEMU: no vendor's build, Homebrew's formula; built from source on Intel, which it says.
+        let qemu = install(Dependency::Qemu, HOMEBREW, arch, PROMPT).unwrap();
+        let said = match arch {
+            Arch::Amd64 => Note::BuildsFromSource(Dependency::Qemu),
+            Arch::Arm64 => Note::QemuUpdatingHomebrewFirst,
+        };
+        assert_eq!(qemu[0].note, Some(said), "{arch:?}");
+    }
+}
+
+#[test]
+fn the_aws_cli_is_removed_as_amazons_package_installed_it_and_nothing_else() {
+    let steps = uninstall(Dependency::Awscli, None, None).unwrap();
+    assert_eq!((programs(&steps), steps[0].note), (vec!["osascript"], Some(Note::Removing(Dependency::Awscli))));
+    // Its folder and receipt; a link in /usr/local/bin only where it points into that folder
+    // (Homebrew's own `aws`, there on an Intel Mac, stays).
+    let script = AWS_CLI_REMOVAL;
+    assert!(crate::testing::sh_parses(script), "{script}");
+    assert!(
+        script.contains("rm -rf /usr/local/aws-cli") && script.contains("pkgutil --forget com.amazon.aws.cli2"),
+        "{script}"
+    );
+    assert!(script.contains("/usr/local/aws-cli/*) rm -f"), "{script}");
+    assert!(!script.contains("brew"), "{script}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_aws_cli_removal_leaves_a_link_it_didnt_make() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    std::os::unix::fs::symlink("/usr/local/aws-cli/aws", bin.join("aws")).unwrap();
+    std::os::unix::fs::symlink("../Cellar/awscli/2.0/bin/aws_completer", bin.join("aws_completer")).unwrap();
+    let script = AWS_CLI_REMOVAL
+        .replace("/usr/local/bin", &bin.display().to_string())
+        .replace("rm -rf /usr/local/aws-cli && (pkgutil --forget com.amazon.aws.cli2 || true)", "true");
+    let out = crate::testing::sh(&script, &[]);
+    assert!(out.status.success());
+    assert!(bin.join("aws").symlink_metadata().is_err(), "Amazon's link removed");
+    assert!(bin.join("aws_completer").symlink_metadata().is_ok(), "Homebrew's link kept");
 }

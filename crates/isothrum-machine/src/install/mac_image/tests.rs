@@ -18,13 +18,20 @@ fn every_vendor_install_is_one_step_whose_halves_parse_and_says_what_it_accepts(
         (Dependency::Vagrant, VAGRANT),
         (Dependency::Virtualbox, VIRTUALBOX),
         (Dependency::Utm, UTM),
+        (Dependency::Awscli, AWS_CLI),
     ] {
         for elevation in [Elevation::Prompt, Elevation::Unattended { root: false }, Elevation::Unattended { root: true }] {
-            let step = install(BREW, dep, &vendor, elevation);
+            let step = install(Some(BREW), dep, &vendor, elevation).unwrap();
             let (user, root) = halves(&step);
             assert!(crate::testing::sh_parses(user), "not valid sh: {user}");
             assert!(crate::testing::sh_parses(root), "not valid sh: {root}");
-            assert!(user.contains(&format!("fetch --cask {}", vendor.cask)), "{user}");
+            match vendor.source {
+                Source::Cask(cask) => assert!(user.contains(&format!("fetch --cask {cask}")), "{user}"),
+                Source::Url(url) => assert!(
+                    user.contains(&format!("curl -fsSL --proto '=https' --tlsv1.2 '{url}'")) && !user.contains(BREW),
+                    "{user}"
+                ),
+            }
             assert!(root.contains(&format!("({})", vendor.team)), "{root}");
             let opens = |script: &str| script.lines().any(|l| l.trim_start().starts_with("open "));
             assert!(!opens(user) && !opens(root), "no window is opened for its user to finish");
@@ -39,8 +46,8 @@ fn every_vendor_install_is_one_step_whose_halves_parse_and_says_what_it_accepts(
     }
     // Only Docker Desktop's install accepts a licence on its user's behalf, and says so.
     assert_eq!(DOCKER.accepts, Some(DOCKER_LICENCE));
-    assert!([VAGRANT, VIRTUALBOX, UTM].iter().all(|v| v.accepts.is_none()));
-    let docker = install(BREW, Dependency::Docker, &DOCKER, Elevation::Prompt);
+    assert!([VAGRANT, VIRTUALBOX, UTM, AWS_CLI].iter().all(|v| v.accepts.is_none()));
+    let docker = install(Some(BREW), Dependency::Docker, &DOCKER, Elevation::Prompt).unwrap();
     let (user, _) = halves(&docker);
     assert!(user.contains("accepts the Docker Subscription Service Agreement"), "{user}");
 }
@@ -48,7 +55,7 @@ fn every_vendor_install_is_one_step_whose_halves_parse_and_says_what_it_accepts(
 #[test]
 fn each_elevation_runs_the_root_half_its_way_the_file_handed_over_as_an_argument() {
     let user = |elevation| {
-        let step = install(BREW, Dependency::Utm, &UTM, elevation);
+        let step = install(Some(BREW), Dependency::Utm, &UTM, elevation).unwrap();
         halves(&step).0.to_owned()
     };
     let prompt = user(Elevation::Prompt);
@@ -62,6 +69,21 @@ fn each_elevation_runs_the_root_half_its_way_the_file_handed_over_as_an_argument
     assert!(root.contains(r#"/bin/sh -c "$1" sh "$f""#) && !root.contains("sudo") && !root.contains("osascript"));
 }
 
+#[test]
+fn a_cask_needs_homebrew_and_the_aws_clis_package_from_amazon_does_not() {
+    assert_eq!(
+        install(None, Dependency::Vagrant, &VAGRANT, Elevation::Prompt).unwrap_err(),
+        super::super::Refusal::NoHomebrew
+    );
+    let aws = install(None, Dependency::Awscli, &AWS_CLI, Elevation::Prompt).unwrap();
+    let (user, root) = halves(&aws);
+    assert!(
+        user.contains("https://awscli.amazonaws.com/AWSCLIV2.pkg") && user.contains(r#"f="$w/AWSCLIV2.pkg""#),
+        "{user}"
+    );
+    assert!(root.contains("Developer ID Installer: .*(94KV3E626L)"), "Amazon's team, pinned: {root}");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_failed_cask_fetch_updates_homebrew_and_retries_once() {
@@ -70,7 +92,7 @@ fn a_failed_cask_fetch_updates_homebrew_and_retries_once() {
     let log = dir.path().join("calls");
     let brew = dir.path().join("brew");
     crate::testing::write_executable(&brew, format!("#!/bin/sh\necho \"$1\" >> '{}'\n[ \"$1\" = update ]\n", log.display()));
-    let step = install(brew.to_str().unwrap(), Dependency::Vagrant, &VAGRANT, Elevation::Prompt);
+    let step = install(brew.to_str(), Dependency::Vagrant, &VAGRANT, Elevation::Prompt).unwrap();
     let out = crate::testing::sh(&step.args[1], &[]);
     assert!(!out.status.success());
     assert_eq!(std::fs::read_to_string(&log).unwrap(), "fetch\nupdate\nfetch\n");
@@ -82,9 +104,9 @@ fn a_failed_cask_fetch_updates_homebrew_and_retries_once() {
 /// `$LOG` and fails when `$REFUSE` names it. `hdiutil attach` mounts a copy of `$FIXTURE` in the
 /// folder `-mountrandom` names, `pkgutil` names `$TEAM`'s Developer ID, `installer` puts
 /// `VirtualBox.app` in `$APPS`, `ditto` copies; `install` is Docker's installer, which puts
-/// `Docker.app` in `$APPS`.
+/// `Docker.app` in `$APPS`; `aws` answers its version.
 #[cfg(unix)]
-const STAND_INS: [(&str, &str); 8] = [
+const STAND_INS: [(&str, &str); 9] = [
     (
         "hdiutil",
         r#"[ "$1" = attach ] || exit 0
@@ -98,6 +120,7 @@ mkdir "$r/mnt" && cp -R "$FIXTURE/." "$r/mnt/" && printf '/dev/disk9s1\tApple_HF
     ("installer", r#"mkdir -p "$APPS/VirtualBox.app""#),
     ("ditto", r#"cp -R "$1" "$2""#),
     ("install", r#"mkdir -p "$APPS/Docker.app""#),
+    ("aws", "echo aws-cli/2.41.0"),
 ];
 
 /// Where a stand-in named `name` is installed.
@@ -252,6 +275,28 @@ fn a_package_downloaded_as_is_is_installed_without_a_disk_image_and_one_signed_b
     assert_eq!(refused, Some(1));
     assert!(said.contains("isn't signed by Hashicorp, Inc. (D38WU7D763)"), "{said}");
     assert_eq!(stranger.calls(), ["pkgutil --check-signature"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_aws_clis_package_is_checked_installed_then_must_answer() {
+    // The stand-in `aws`, where the package would put it.
+    let answering = |refuse| {
+        let rig = Rig::new(refuse, AWS_CLI.team);
+        let vendor = Vendor {
+            answers: Some("aws --version"),
+            ..AWS_CLI
+        };
+        let (code, err) = rig.root_half(&vendor, "AWSCLIV2.pkg");
+        (code, err, rig.calls())
+    };
+    let (code, err, calls) = answering("");
+    assert_eq!(code, Some(0), "{err}");
+    assert_eq!(calls, ["pkgutil --check-signature", "spctl --assess", "installer -pkg", "aws --version"]);
+    let (refused, said, _) = answering("aws");
+    assert_eq!(refused, Some(1));
+    assert!(said.contains("AWS CLI was installed, but `aws --version` doesn't answer."), "{said}");
+    assert_eq!(AWS_CLI.answers, Some("/usr/local/aws-cli/aws --version"));
 }
 
 #[cfg(unix)]

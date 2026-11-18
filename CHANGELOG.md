@@ -11,6 +11,16 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A Mac installs the AWS CLI from Amazon's own package, on both CPUs.** Homebrew has no bottles
+  for an Intel Mac, so its `awscli` formula built its C libraries from source there, and failed
+  (`aws-c-s3`). `macos::install` now downloads `AWSCLIV2.pkg` from Amazon over HTTPS (no Homebrew
+  needed), checks it as signed by Amazon's Developer ID team (94KV3E626L) and accepted by
+  Gatekeeper, installs it with `installer`, then has `aws --version` answer; its removal takes away
+  Amazon's folder, its links (only those pointing into it) and its receipt. A vendor's file comes
+  from a cask or from its vendor's address (`mac_image::Source`), and `mac_image::install` takes
+  Homebrew as an `Option`. QEMU, which no vendor builds for macOS, stays Homebrew's formula; on an
+  Intel Mac its step's note is the new `Note::BuildsFromSource`, as Homebrew builds it there.
+
 - **A Mac's apps install from their vendor's disk image with nothing left to drag or finish.**
   Docker Desktop, Vagrant, VirtualBox and UTM go one way (`install::mac_image`): Homebrew
   downloads the vendor's file, then, as an administrator (macOS's prompt, or `sudo -n` when

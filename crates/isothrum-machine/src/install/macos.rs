@@ -1,8 +1,24 @@
-//! Installs and removals on macOS: Homebrew's formulae, the vendors' own disk images and packages
-//! for the apps (Homebrew downloads them, then they are checked and installed as an administrator,
-//! with nothing left for the user to finish: [`super::mac_image`]), or HashiCorp's signed package
-//! for VMware's utility, which needs no Homebrew. A removal of what came from a vendor's package
-//! runs as its uninstaller does, through macOS's administrator prompt.
+//! Installs and removals on macOS: the vendors' own disk images and packages for the apps and the
+//! AWS CLI (Homebrew downloads the apps', the AWS CLI's comes from Amazon; then they are checked
+//! and installed as an administrator, with nothing left for the user to finish:
+//! [`super::mac_image`]), HashiCorp's signed package for VMware's utility, or Homebrew's formulae.
+//! A removal of what came from a vendor's package runs as its uninstaller does, through macOS's
+//! administrator prompt.
+//!
+//! A tool whose vendor ships a signed build installs from it rather than from a formula Homebrew
+//! may build here: on an Intel Mac Homebrew has no bottles any more (its Tier 3), so every formula
+//! builds from source there, which takes long and can fail (the AWS CLI's `aws-c-s3` did).
+//! Per tool:
+//!
+//! - Docker Desktop, Vagrant, VirtualBox, UTM: their vendor's disk image or package.
+//! - The AWS CLI: Amazon's package ([`mac_image::AWS_CLI`]), on both CPUs.
+//! - VMware's utility: HashiCorp's package.
+//! - Terraform: HashiCorp's tap, whose formula installs HashiCorp's own build (its checksum
+//!   pinned): nothing is built on either CPU.
+//! - QEMU: Homebrew's formula, as no vendor ships a macOS build. An Intel Mac builds it from
+//!   source, which its step says ([`Note::BuildsFromSource`]); a failed build fails the install.
+//! - The Azure CLI, the Google Cloud CLI: Homebrew's casks of their vendor's builds (their only
+//!   macOS ones). Their Python is a formula, built from source on an Intel Mac that lacks it.
 
 use crate::context::Context;
 use crate::host::{Arch, HostOs, Packages};
@@ -39,37 +55,42 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, elevatio
             os: HostOs::Macos,
         });
     }
-    // HashiCorp's own package, not Homebrew's: needs no Homebrew.
-    if dep == Dependency::VmwareUtility {
-        return Ok(vec![vmware_utility::mac_install(arch, elevation)]);
+    // The vendors' own packages, downloaded from them: need no Homebrew.
+    match dep {
+        Dependency::VmwareUtility => return Ok(vec![vmware_utility::mac_install(arch, elevation)]),
+        Dependency::Awscli => return Ok(vec![mac_image::install(None, dep, &mac_image::AWS_CLI, elevation)?]),
+        _ => {}
     }
     let brew = homebrew(packages, Refusal::NoHomebrew)?;
-    let vendor = |vendor: &mac_image::Vendor| vec![mac_image::install(brew, dep, vendor, elevation)];
+    let vendor = |vendor: &mac_image::Vendor| mac_image::install(Some(brew), dep, vendor, elevation).map(|step| vec![step]);
     Ok(match dep {
         // The apps and Vagrant: their vendor's disk image or package, as an administrator (Docker
         // Desktop's brings the docker CLI and Compose).
-        Dependency::Docker => vendor(&mac_image::DOCKER),
-        Dependency::Vagrant => vendor(&mac_image::VAGRANT),
-        Dependency::Virtualbox => vendor(&mac_image::VIRTUALBOX),
-        Dependency::Utm => vendor(&mac_image::UTM),
+        Dependency::Docker => vendor(&mac_image::DOCKER)?,
+        Dependency::Vagrant => vendor(&mac_image::VAGRANT)?,
+        Dependency::Virtualbox => vendor(&mac_image::VIRTUALBOX)?,
+        Dependency::Utm => vendor(&mac_image::UTM)?,
         // A formula (no administrator); its tap's full name since core dropped it.
         Dependency::Terraform => vec![step(brew, &["install", "hashicorp/tap/terraform"])],
         // A formula. Homebrew is updated first so an outdated one learns this macOS (it otherwise
         // refuses every install with "unknown or unsupported macOS version: :dunno"), but that
         // update never blocks the install: it runs best-effort, then the install with auto-update
         // off. A real problem (an outdated Homebrew or Xcode, a root-owned lock) surfaces from the
-        // install as `StepFailed::Homebrew`.
+        // install as `StepFailed::Homebrew`. On an Intel Mac, which Homebrew has no bottles for,
+        // it builds from source: its note says so.
         Dependency::Qemu => vec![sh(
             &format!("'{brew}' update || echo 'Homebrew was not updated; continuing with the install.'\nHOMEBREW_NO_AUTO_UPDATE=1 '{brew}' install qemu"),
-            Note::QemuUpdatingHomebrewFirst,
+            match arch {
+                Arch::Amd64 => Note::BuildsFromSource(dep),
+                Arch::Arm64 => Note::QemuUpdatingHomebrewFirst,
+            },
         )],
-        Dependency::Libvirt | Dependency::Wsl | Dependency::Hyperv | Dependency::VmwareUtility => {
+        Dependency::Libvirt | Dependency::Wsl | Dependency::Hyperv | Dependency::VmwareUtility | Dependency::Awscli => {
             return Err(Refusal::NotHere {
                 dependency: dep,
                 os: HostOs::Macos,
             });
         }
-        Dependency::Awscli => vec![step(brew, &["install", "awscli"])],
         // Microsoft's prebuilt cask instead of the `azure-cli` formula: on recent macOS the
         // formula has no bottle and builds its whole tree (llvm, rust) from source, which takes
         // about an hour. The cask is a signed download; its third-party tap needs trusting.
@@ -112,6 +133,11 @@ fn virtualbox_uninstall(image: &str) -> String {
 /// the service, then its folder.
 const VMWARE_UTILITY_REMOVAL: &str = "/opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility service uninstall; rm -rf /opt/vagrant-vmware-desktop && (pkgutil --forget com.vagrant.vagrant-vmware-utility || true)";
 
+/// The macOS removal of the AWS CLI Amazon's package installed, as Amazon's guide has it: its
+/// folder, and its links in `/usr/local/bin` only where they point into it (never another `aws`),
+/// then the package's receipt.
+const AWS_CLI_REMOVAL: &str = "for l in /usr/local/bin/aws /usr/local/bin/aws_completer; do case \"$(readlink \"$l\")\" in /usr/local/aws-cli/*) rm -f \"$l\" ;; esac; done; rm -rf /usr/local/aws-cli && (pkgutil --forget com.amazon.aws.cli2 || true)";
+
 /// The removal of `dep` on macOS: Homebrew's own packages, or the vendor's uninstaller. Only
 /// Homebrew's packages (and VirtualBox's installer image, which Homebrew keeps:
 /// [`virtualbox_image`]) need Homebrew: a tool installed from its vendor's package is removed
@@ -126,7 +152,7 @@ pub fn uninstall(dep: Dependency, packages: Option<Packages>, virtualbox: Option
     Ok(match dep {
         Dependency::Terraform => vec![step(brew()?, &["uninstall", "hashicorp/tap/terraform"])],
         Dependency::Qemu => vec![step(brew()?, &["uninstall", "qemu"])],
-        Dependency::Awscli => vec![step(brew()?, &["uninstall", "awscli"])],
+        Dependency::Awscli => vec![admin(AWS_CLI_REMOVAL, dep)],
         Dependency::Gcloud => vec![step(brew()?, &["uninstall", "--cask", "google-cloud-sdk"])],
         Dependency::Azurecli => vec![step(brew()?, &["uninstall", "--cask", "azure-cli-preview"])],
         // Installed from the vendors' own packages: removed the way their uninstallers do.
