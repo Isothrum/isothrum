@@ -230,3 +230,43 @@ async fn winget_and_an_installer_through_powershell_end_by_their_own_codes() {
         })
     );
 }
+
+/// Regression: on Windows a step ran with the `PATH` this process started with, so Vagrant's
+/// plugin step right after Vagrant's install (in one setup, or a process started before it)
+/// failed with `vagrant` missing: the installer had written its folder to the registry only.
+#[tokio::test(start_paused = true)]
+async fn on_windows_a_step_runs_with_the_path_installers_wrote_since_this_process_started() {
+    use crate::host::tool_path::Env;
+    let vagrant = tempfile::tempdir().unwrap();
+    let installed = vagrant.path().to_string_lossy().into_owned();
+    let registry = format!("HKEY_LOCAL_MACHINE\\...\n    Path    REG_SZ    {installed}\n");
+    let tools = FakeProcesses::model(move |call| match (call.program.as_str(), call.args.get(1).map(String::as_str)) {
+        ("reg", Some(key)) if key.starts_with("HKLM") => Reply::ok(&registry),
+        ("reg", _) => Reply::fail(1, "ERROR: The system was unable to find the specified registry key or value."),
+        _ => Reply::ok(""),
+    });
+    let tools = Arc::new(tools);
+    let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&tools);
+    let mut host = linux_host(std::path::Path::new("/nonexistent"));
+    host.os = crate::host::HostOs::Windows;
+    let cx = Context::new(runner, host);
+    let started = Env {
+        path: vec![std::path::PathBuf::from(r"C:\Windows\system32")],
+        ..Env::default()
+    };
+    let plugin = crate::install::vagrant_plugin("vagrant-qemu").unwrap();
+    run_step_on(&cx, &plugin, &started, &mut |_: &str| {}).await.unwrap();
+    let call = tools.made("vagrant plugin install").pop().unwrap();
+    assert_eq!(call.env("PATH"), Some(format!(r"C:\Windows\system32;{installed}").as_str()));
+}
+
+/// Elsewhere a step runs with this process's own `PATH`: no installer there changes it behind a
+/// running process, and nothing more is asked.
+#[tokio::test(start_paused = true)]
+async fn elsewhere_a_step_runs_with_this_processs_own_path() {
+    let tools = FakeProcesses::script().expect("vagrant plugin install vagrant-libvirt", Reply::ok("")).build();
+    let (cx, tools) = on(tools);
+    let plugin = crate::install::vagrant_plugin("vagrant-libvirt").unwrap();
+    run_step(&cx, &plugin, &mut |_: &str| {}).await.unwrap();
+    assert_eq!(tools.made("vagrant").pop().unwrap().env("PATH"), None);
+}

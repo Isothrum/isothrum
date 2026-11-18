@@ -247,6 +247,11 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **An install step finds a tool installed since the process started (Windows).** Each step runs
+  with the `PATH` installers have since written to the registry merged in
+  (`tool_path::refreshed_value`): Vagrant's plugin step right after Vagrant's install failed with
+  `vagrant` missing.
+
 - **QEMU reads as installed only when its emulator is.** A setup read QEMU installed from
   `qemu-img` (qemu-utils, which many images carry) while the provider's detection looked for
   `qemu-system-<arch>`: QEMU was then neither installed by the setup nor usable. A hypervisor's

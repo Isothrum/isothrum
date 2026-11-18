@@ -26,7 +26,7 @@ use isothrum_machine::install::{self, Dependency, Elevation, linux};
 use isothrum_machine::providers::{self, Provider};
 use isothrum_machine::{Context, HostOs};
 
-use crate::{answer, here, reread, setting};
+use crate::{answer, as_started, here, reread, setting};
 
 /// How long an installer its user finishes in its own window (macOS's casks) may take.
 const FINISH: Duration = Duration::from_secs(30 * 60);
@@ -326,7 +326,10 @@ async fn plugin_installs(provider: Provider) {
     }
     let step = install::vagrant_plugin(&plugin).unwrap_or_else(|| panic!("no install step for {plugin}"));
     println!("$ {}", install::command_line(&step));
-    install::run_steps(&cx, &[step], &mut |line| println!("{line}"))
+    // Run as a setup in a process started before Vagrant's install runs it: the step finds the
+    // Vagrant installed since by itself (on Windows, the PATH its installer wrote to the
+    // registry), not through this test's re-read PATH.
+    install::run_steps(&as_started().await, &[step], &mut |line| println!("{line}"))
         .await
         .unwrap_or_else(|failed| panic!("{plugin}'s install failed: {failed:?}"));
     let after = providers::status(&cx, provider).await.expect("offered here");

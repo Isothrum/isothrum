@@ -209,6 +209,20 @@ pub(crate) async fn refreshed_where(cx: &Context, env: &Env, is_dir: impl Fn(&Pa
     appended(HostOs::Windows, &env.path, dirs)
 }
 
+/// [`refreshed`] as a `PATH` value a Windows program is started with (`;` between its folders,
+/// whatever this crate was built for): what a step runs with ([`crate::install::run_step`]), so
+/// it finds a tool installed since this process started. None when nothing is added, and on
+/// every other OS.
+pub async fn refreshed_value(cx: &Context, env: &Env) -> Option<String> {
+    refreshed_value_where(cx, env, Path::is_dir).await
+}
+
+/// [`refreshed_value`], `is_dir` saying which folders exist.
+pub(crate) async fn refreshed_value_where(cx: &Context, env: &Env, is_dir: impl Fn(&Path) -> bool) -> Option<String> {
+    let dirs = refreshed_where(cx, env, is_dir).await?;
+    Some(dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join(";"))
+}
+
 /// The value `reg query <key> /v Path` printed: the text after its type (`REG_EXPAND_SZ` or
 /// `REG_SZ`) on the value's line, which may hold spaces.
 fn registry_value(out: &str) -> Option<String> {

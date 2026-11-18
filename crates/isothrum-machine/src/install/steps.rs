@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use isothrum_runner::{ProcessError, ProcessSpec, Stream};
 
 use crate::context::Context;
+use crate::host::tool_path::{self, Env};
 
 /// One command of an install or removal.
 #[derive(Debug)]
@@ -176,7 +177,24 @@ pub async fn run_steps(cx: &Context, steps: &[Step], on_line: &mut (dyn FnMut(&s
 ///
 /// [`StepFailed`]: why it failed.
 pub async fn run_step(cx: &Context, step: &Step, on_line: &mut (dyn FnMut(&str) + Send)) -> Result<Option<super::exit_codes::Done>, StepFailed> {
-    let spec = ProcessSpec::new(&step.program, step.args.iter().map(String::as_str));
+    run_step_on(cx, step, &Env::here(), on_line).await
+}
+
+/// [`run_step`], this process's variables read from `env`. On Windows the step runs with the
+/// `PATH` installers have written to the registry since this process started merged in
+/// ([`tool_path::refreshed_value`]): a running process never reads it again, so a step after
+/// an install (Vagrant's plugin after Vagrant, in one setup or a process started before it)
+/// would not find the tool just installed.
+pub(crate) async fn run_step_on(
+    cx: &Context,
+    step: &Step,
+    env: &Env,
+    on_line: &mut (dyn FnMut(&str) + Send),
+) -> Result<Option<super::exit_codes::Done>, StepFailed> {
+    let mut spec = ProcessSpec::new(&step.program, step.args.iter().map(String::as_str));
+    if let Some(path) = tool_path::refreshed_value(cx, env).await {
+        spec.env.push(("PATH".to_owned(), path));
+    }
     let watch = Mutex::new(Watch::new(step));
     let exit = {
         let mut each = |stream: Stream, line: &str| {
