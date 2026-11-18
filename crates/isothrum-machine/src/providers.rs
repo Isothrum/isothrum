@@ -123,8 +123,10 @@ impl ProviderRow {
                 linux_cpu: Some(Arch::Amd64),
                 ..found_by(Check::Tool("VBoxManage", &["--version"]))
             },
+            // VMware Workstation for Linux is built for x86-64 only.
             Provider::VmwareDesktop => ProviderRow {
                 windows_on_arm: false,
+                linux_cpu: Some(Arch::Amd64),
                 vendor: Some("https://www.vmware.com/products/desktop-hypervisor/workstation-and-fusion"),
                 ..found_by(Check::Tool("vmrun", &[]))
             },
@@ -185,7 +187,7 @@ pub fn applicable(provider: Provider, host: &Host) -> bool {
 
 /// Whether `provider` is offered on `host` for VMs: applicable there, and built for its CPU: on a
 /// Mac, the hypervisor made for its CPU (UTM on Apple silicon, VirtualBox on an Intel Mac); on
-/// Linux, one its vendor ships for that CPU (VirtualBox on x86-64 only). One already `installed` is
+/// Linux, one its vendor ships for that CPU (VirtualBox and VMware Workstation on x86-64 only). One already `installed` is
 /// offered wherever it applies: the user chose it.
 #[must_use]
 pub fn offered(provider: Provider, host: &Host, installed: bool) -> bool {

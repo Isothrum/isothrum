@@ -242,6 +242,9 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **VMware Workstation isn't offered on Linux arm64.** VMware builds it for x86-64 only, and
+  HashiCorp's VMware utility, which its Vagrant plugin needs, has no arm64 Linux package either.
+
 - **VirtualBox isn't offered on Linux arm64.** Oracle's Linux packages are for x86-64 only, so a
   setup offered an install that could only fail ("No VirtualBox package found in Oracle's repo").
   One installed by hand is still offered (`ProviderRow::linux_cpu`).
