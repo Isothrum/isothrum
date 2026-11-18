@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::install::{self, Dependency, Elevation, Refusal, Step};
-use crate::providers::{self, Provider, ProviderRow, ProviderStatus};
+use crate::providers::{self, Provider, ProviderRow, ProviderStatus, Unavailable};
 use crate::tools::{self, probes};
 
 #[cfg(test)]
@@ -290,6 +290,11 @@ pub struct Need {
     pub present: Option<bool>,
     /// What brings it, when it isn't known to be met.
     pub plan: Option<Plan>,
+    /// For a hypervisor, why its provider can't run VMs here yet, as its detection says
+    /// ([`ProviderStatus::reason`]), whatever else it lacks: a hypervisor installed can still be
+    /// stopped, or this account lack the right to use it. None when it can, or for another
+    /// requirement.
+    pub unavailable: Option<Unavailable>,
 }
 
 impl Need {
@@ -297,7 +302,12 @@ impl Need {
     /// (an embedder's test).
     #[must_use]
     pub fn new(requirement: Requirement, present: Option<bool>, plan: Option<Plan>) -> Need {
-        Need { requirement, present, plan }
+        Need {
+            requirement,
+            present,
+            plan,
+            unavailable: None,
+        }
     }
 
     /// Whether it is known to be missing.
@@ -350,7 +360,16 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
             Requirement::Ovftool => Some(crate::tools::ovftool::locate(cx, asking.ovftool_dir, asking.path).is_some()),
         };
         let plan = (present != Some(true)).then(|| plan(cx, requirement, asking));
-        found.push(Need { requirement, present, plan });
+        let unavailable = match requirement {
+            Requirement::Hypervisor { provider } => status(cx, &mut statuses, provider).await.and_then(|s| s.reason.clone()),
+            _ => None,
+        };
+        found.push(Need {
+            requirement,
+            present,
+            plan,
+            unavailable,
+        });
     }
     found
 }
