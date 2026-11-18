@@ -6,9 +6,14 @@
 //! reading its configuration, VMware's utility answering. Each tool a setup installs has its test
 //! here: one per cell of the workspace's install matrix.
 //!
+//! A provider's Vagrant plugin is installed the same way, as a setup's step does it
+//! ([`install::vagrant_plugin`]: for this account, no administrator), then read installed by the
+//! provider's detection.
+//!
 //! An install changes the computer for good, so it only runs where it is asked for:
-//! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`, or `all`: those a setup
-//! offers here, a Mac's hypervisor the one made for its CPU), on a clean
+//! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`; a plugin by its name,
+//! `vagrant-qemu`; or `all`: those a setup offers here, a Mac's hypervisor the one made for its
+//! CPU), on a clean
 //! machine with its owner there for the administrator prompts and the installers' windows. A
 //! tool already installed skips, and so does one missing that isn't asked for. What is installed
 //! stays: the tests after these run on it.
@@ -20,7 +25,7 @@ use isothrum_machine::docker::{self, Engine, StartFailed};
 use isothrum_machine::host::os_name;
 use isothrum_machine::host::tool_path::{self, Env};
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
-use isothrum_machine::providers;
+use isothrum_machine::providers::{self, Provider};
 use isothrum_machine::{Context, HostOs};
 use isothrum_runner::{BoxFuture, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses};
 
@@ -45,10 +50,14 @@ enum Asked {
 
 /// How `ISOTHRUM_E2E_INSTALL` asks for `dep`'s install.
 fn asked(dep: Dependency) -> Asked {
-    let name = serde_json::to_value(dep).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+    asked_by(&serde_json::to_value(dep).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default())
+}
+
+/// How `ISOTHRUM_E2E_INSTALL` asks for the install of what it calls `name`.
+fn asked_by(name: &str) -> Asked {
     let list = setting("ISOTHRUM_E2E_INSTALL").unwrap_or_default();
     let named: Vec<&str> = list.split(',').map(str::trim).collect();
-    if named.contains(&name.as_str()) {
+    if named.contains(&name) {
         Asked::ByName
     } else if named.contains(&"all") {
         Asked::AmongAll
@@ -322,4 +331,68 @@ async fn gcloud_is_installed_where_it_is_missing() {
 #[ignore = "real machine: cargo xtask e2e --tier machine"]
 async fn vmware_utility_is_installed_where_it_is_missing() {
     installs(Dependency::VmwareUtility).await;
+}
+
+/// Installs `provider`'s Vagrant plugin for real, as a setup's step does (for this account, no
+/// administrator), when it is missing here and asked for, then reads it installed by the
+/// provider's detection; skips, saying why, else.
+async fn plugin_installs(provider: Provider) {
+    let cx = here().await;
+    let Some(before) = providers::status(&cx, provider).await else {
+        skip!("{} isn't offered on {}", provider.id(), os_name(cx.host.os))
+    };
+    let plugin = before.plugin.clone().expect("a provider of a plugin");
+    if before.plugin_installed {
+        skip!("{plugin} is installed here already: an install is tested on a machine without it")
+    }
+    if install::present(&cx, Dependency::Vagrant).await != Some(true) {
+        skip!("{plugin} is missing here, and so is Vagrant, which installs it")
+    }
+    if asked_by(&plugin) == Asked::No {
+        skip!("{plugin} is missing here; ISOTHRUM_E2E_INSTALL doesn't ask for its install (it changes this computer for good)")
+    }
+    let step = install::vagrant_plugin(&plugin).unwrap_or_else(|| panic!("no install step for {plugin}"));
+    println!("$ {}", install::command_line(&step));
+    install::run_steps(&cx, &[step], &mut |line| println!("{line}"))
+        .await
+        .unwrap_or_else(|failed| panic!("{plugin}'s install failed: {failed:?}"));
+    let after = providers::status(&cx, provider).await.expect("offered here");
+    println!("{after:#?}");
+    assert!(after.plugin_installed, "{} reads {plugin} installed", provider.id());
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_vmware_desktop_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::VmwareDesktop).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_parallels_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::Parallels).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_libvirt_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::Libvirt).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_qemu_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::Qemu).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_utm_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::Utm).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn plugin_vagrant_vmware_esxi_is_installed_where_it_is_missing() {
+    plugin_installs(Provider::VmwareEsxi).await;
 }

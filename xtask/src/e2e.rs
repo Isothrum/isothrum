@@ -337,10 +337,11 @@ fn run_one(mut cmd: Command, log: &Path) -> Res<bool> {
     process::passed(&mut cmd)
 }
 
-/// The install tests that run after the other installs: each installs a tool that brings in
-/// another's (libvirt's install brings QEMU), which would leave that one's install untested on a
-/// fresh machine ("installed here already").
-const INSTALLED_LAST: [&str; 1] = ["install::libvirt_"];
+/// The install tests that run after the other installs, in this order: libvirt's brings in
+/// another's (QEMU), which would leave that one's install untested on a fresh machine ("installed
+/// here already"); then the Vagrant plugins, which need Vagrant and their hypervisor installed
+/// (vagrant-libvirt builds against libvirt's headers).
+const INSTALLED_LAST: [&str; 2] = ["install::libvirt_", "install::plugin_"];
 
 /// The tier's tests in `cargo test --list --format terse`'s `listed` (`<name>: test` lines), those
 /// whose name holds `filter` when there is one: its installs first ([`INSTALLED_LAST`]'s last of
@@ -355,7 +356,10 @@ fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>) -> Vec<String> {
         .collect();
     tests.sort_by_key(|name| {
         let case = name.strip_prefix(&prefix).unwrap_or(name);
-        (!case.starts_with(INSTALLS), INSTALLED_LAST.iter().any(|last| case.starts_with(last)))
+        (
+            !case.starts_with(INSTALLS),
+            INSTALLED_LAST.iter().position(|last| case.starts_with(last)).map_or(0, |at| at + 1),
+        )
     });
     tests
 }
@@ -476,6 +480,20 @@ mod tests {
                 "machine::install::docker_x",
                 "machine::install::qemu_x",
                 "machine::install::libvirt_x",
+                "machine::net::a"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_vagrant_plugins_install_last_after_libvirt() {
+        let listed = "machine::install::plugin_vagrant_libvirt_x: test\nmachine::install::libvirt_x: test\nmachine::net::a: test\nmachine::install::vagrant_is_x: test\n";
+        assert_eq!(
+            tier_tests(listed, Tier::Machine, None),
+            [
+                "machine::install::vagrant_is_x",
+                "machine::install::libvirt_x",
+                "machine::install::plugin_vagrant_libvirt_x",
                 "machine::net::a"
             ]
         );

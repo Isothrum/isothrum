@@ -197,7 +197,8 @@ runs are separate and opt-in:
   and readiness, the engine and hypervisor self-tests, a start of the running engine, the tool
   path, the network, the OVF Tool, the terminal; and, on a clean machine with its owner there for
   the administrator prompts, each missing tool `ISOTHRUM_E2E_INSTALL` names (`docker,vagrant`,
-  or `all`, the tools a setup offers there) installed for real, as a setup installs it.
+  or `all`, the tools a setup offers there; a Vagrant plugin by its name, `vagrant-qemu`) installed
+  for real, as a setup installs it, the plugins last.
   Without a desktop session, `ISOTHRUM_E2E_ELEVATION=pkexec` still elevates through pkexec,
   as a setup does, where a polkit rule lets the test user through without a prompt (a test VM's).
   `--tier server` runs them against the test
