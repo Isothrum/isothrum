@@ -189,6 +189,9 @@ pub fn has_private_network(p: Provider) -> bool {
     matches!(p, Provider::Virtualbox | Provider::VmwareDesktop | Provider::Parallels | Provider::Libvirt)
 }
 
+/// The Hyper-V switch the test VM joins: Windows' own NAT switch (Windows 10 and 11).
+pub const HYPERV_SWITCH: &str = "Default Switch";
+
 /// The test's Vagrantfile: `vm` booted from `name` on `p`, at `address` on a private network when
 /// it gets one. The VM boots as any deployment's VMs do: on QEMU with the hypervisor's
 /// acceleration (vagrant-qemu's default), never software emulation, which boots where no
@@ -205,6 +208,12 @@ pub fn vagrantfile(vm: &TestVm<'_>, p: Provider, name: &str, address: Option<&st
     ];
     if let Some(address) = address.filter(|_| has_private_network(p)) {
         v.push(format!("  config.vm.network \"private_network\", ip: \"{address}\""));
+    }
+    // Hyper-V connects a VM to one virtual switch, and Vagrant asks which on its standard input
+    // when there are several (WSL 2 adds its own beside the Default Switch): a run has no one to
+    // answer, so `vagrant up` waited for ever. The test names Windows' Default Switch.
+    if p == Provider::Hyperv {
+        v.push(format!("  config.vm.network \"public_network\", bridge: \"{HYPERV_SWITCH}\""));
     }
     let named = vm.name;
     let settings = match p {
