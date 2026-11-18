@@ -11,6 +11,11 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **`provider_refused` names a missing Vagrant plugin as its need:** `need: plugin`
+  (`ProviderNeed::Plugin`), the plugin the provider's own (`Provider::plugin`). It was `need`
+  unset, the plugin's name and its install command in words only, so a caller couldn't offer the
+  install it makes itself.
+
 - **A Compose `up`, `update` and `attach` build the project's images before they start it.**
   `up --build`: an image Compose builds keeps its name across copies of the project's files, so an
   updated project started over the image an earlier copy left, without its changes. Compose's

@@ -1732,6 +1732,11 @@
       "description": "What a computer lacks for a Vagrant provider to run a run.",
       "oneOf": [
         {
+          "const": "plugin",
+          "description": "The Vagrant plugin the provider runs through (`Provider::plugin`: vagrant-qemu,\nvagrant-libvirt, ...) isn't installed. A caller installs it for this account\n(`vagrant plugin install <plugin>`, no administrator), then starts again.",
+          "type": "string"
+        },
+        {
           "const": "virtiofsd",
           "description": "virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs\n(Linux): none is installed where they look.",
           "type": "string"

@@ -55,7 +55,7 @@ use crate::Result;
 use crate::cli::vagrant::{self, Failure, Provision, Verb};
 use crate::cli::{Call, CliError, vboxmanage};
 use crate::console::ShellCommand;
-use crate::error::Error;
+use crate::error::{Error, ProviderNeed};
 use crate::events::WarningCode;
 use crate::project::platform::Provider;
 use crate::state::{Park, RunState};
@@ -250,11 +250,12 @@ impl FormatDriver for Vagrant {
     async fn probe(&self, cx: &ToolCx<'_>) -> Result<()> {
         let provider = asked(cx)?;
         let host = providers::this_host();
-        let refuse = |reason: String| Error::Provider {
-            need: None,
+        let refuse_for = |need: Option<ProviderNeed>, reason: String| Error::Provider {
+            need,
             provider: provider.id().to_owned(),
             reason,
         };
+        let refuse = |reason: String| refuse_for(None, reason);
         if !providers::hosts(provider).contains(&host) {
             return Err(refuse(format!(
                 "doesn't run on this computer's system; these do: {}",
@@ -267,7 +268,10 @@ impl FormatDriver for Vagrant {
         if let Some(plugin) = provider.plugin() {
             let installed = vagrant::plugins(&read).await.map_err(|e| vagrant_error(cx, "tools", e))?;
             if !installed.iter().any(|(name, _)| name == plugin) {
-                return Err(refuse(format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`")));
+                return Err(refuse_for(
+                    Some(ProviderNeed::Plugin),
+                    format!("needs the Vagrant plugin `{plugin}`: `vagrant plugin install {plugin}`"),
+                ));
             }
         }
         Ok(())
