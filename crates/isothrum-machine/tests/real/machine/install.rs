@@ -51,10 +51,13 @@ fn asked(dep: Dependency) -> Asked {
     }
 }
 
-/// How a root step is elevated here: pkexec's prompt where a desktop session answers it, else
-/// unattended (`sudo -n`, or as is when root).
+/// How a root step is elevated here: through pkexec, as a setup on a desktop does, where a desktop
+/// session answers its prompt or `ISOTHRUM_E2E_ELEVATION=pkexec` says polkit lets this user
+/// through without one (a test VM's rule, never a person's computer); else unattended (`sudo -n`,
+/// or as is when root).
 async fn elevation(cx: &Context) -> Elevation {
-    if setting("DISPLAY").is_some() || setting("WAYLAND_DISPLAY").is_some() {
+    let desktop = setting("DISPLAY").is_some() || setting("WAYLAND_DISPLAY").is_some();
+    if desktop || setting("ISOTHRUM_E2E_ELEVATION").as_deref() == Some("pkexec") {
         return Elevation::Prompt;
     }
     let root = answer(cx, "id", &["-u"]).await.is_some_and(|uid| uid.trim() == "0");
