@@ -15,6 +15,10 @@
 //! ([`install::vagrant_plugin`]: for this account, no administrator), then read installed by the
 //! provider's detection.
 //!
+//! A Windows feature starts at the restart after it is turned on (WSL 2, Hyper-V; Docker Desktop
+//! runs on WSL 2, which its installer turns on): its test then asks for the restart
+//! ([`restart!`]), and once resumed after it ([`resumed`]) checks what its install turned on.
+//!
 //! An install changes the computer for good, so it only runs where it is asked for:
 //! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`; a plugin by its name,
 //! `vagrant-qemu`; or `all`: those a setup offers here, a Mac's hypervisor the one made for its
@@ -30,9 +34,10 @@ use isothrum_machine::host::os_name;
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
 use isothrum_machine::providers::{self, Provider, Unavailable};
 use isothrum_machine::setup::{self, Action, Machine, SetupPath, Wanted};
+use isothrum_machine::wsl::{Marks, WslState};
 use isothrum_machine::{Context, HostOs, check, wsl};
 
-use crate::{RELOGIN, answer, as_started, here, reread, setting};
+use crate::{RELOGIN, answer, as_started, here, reread, resumed, setting};
 
 /// How long an installer its user finishes in its own window (macOS's casks) may take.
 const FINISH: Duration = Duration::from_secs(30 * 60);
@@ -103,6 +108,51 @@ fn serves(dep: Dependency) -> Option<providers::Provider> {
     dep.serves().or_else(|| dep.hypervisor())
 }
 
+/// Hyper-V's Windows feature's install state (1: on), read without an administrator.
+const HYPERV_FEATURE: &str = "(Get-CimInstance Win32_OptionalFeature | Where-Object Name -eq 'Microsoft-Hyper-V').InstallState";
+
+/// Whether `dep` is installed here: a Windows feature, which no version probe tells, once it is
+/// turned on (also before the restart that starts it), as WSL's check and Windows' own feature
+/// list read it; any other tool as a setup reads it ([`install::present`]). `None`: it can't be
+/// told.
+async fn found(cx: &Context, dep: Dependency) -> Option<bool> {
+    match dep {
+        Dependency::Wsl => match wsl::check(cx, Marks::default()).await?.state {
+            WslState::Ready | WslState::NeedsReboot => Some(true),
+            WslState::Missing => Some(false),
+            WslState::Unknown => None,
+        },
+        Dependency::Hyperv => answer(cx, "powershell", &["-NoProfile", "-NonInteractive", "-Command", HYPERV_FEATURE])
+            .await
+            .map(|state| state.trim() == "1"),
+        _ => install::present(cx, dep).await,
+    }
+}
+
+/// Why the computer must restart before `dep`, just installed here, can be used, when it must:
+/// WSL 2 turned on starts at the next restart, and with it Docker Desktop, which runs on it; so
+/// does Hyper-V, until then not read as installed by its provider's detection.
+async fn waits_for_restart(cx: &Context, dep: Dependency) -> Option<String> {
+    if cx.host.os != HostOs::Windows {
+        return None;
+    }
+    match dep {
+        Dependency::Wsl | Dependency::Docker => {
+            let just_installed = Marks {
+                installed_this_boot: true,
+                restarted_for_wsl: false,
+            };
+            let state = wsl::check(cx, just_installed).await.map(|w| w.state);
+            (state == Some(WslState::NeedsReboot)).then(|| format!("{dep:?} runs once WSL 2, turned on, starts at the next restart"))
+        }
+        Dependency::Hyperv => {
+            let read = providers::status(cx, Provider::Hyperv).await.and_then(|s| s.hypervisor);
+            (read != Some(true)).then(|| "Hyper-V, turned on, starts at the next restart".to_owned())
+        }
+        _ => None,
+    }
+}
+
 /// Why `dep`'s install isn't tested here, when it isn't: it doesn't run here, it is installed
 /// already (or that can't be told), or it isn't asked for.
 async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
@@ -124,7 +174,7 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
             p.id()
         ));
     }
-    match install::present(cx, dep).await {
+    match found(cx, dep).await {
         Some(true) => Some(format!("{dep:?} is installed here already: an install is tested on a machine without it")),
         None => Some(format!("whether {dep:?} is installed can't be told here")),
         Some(false) => match asked(dep) {
@@ -158,7 +208,7 @@ async fn install(cx: &Context, dep: Dependency) {
         .await
         .unwrap_or_else(|failed| panic!("{dep:?}'s install failed: {failed:?}"));
     let start = Instant::now();
-    while install::present(&reread(cx).await, dep).await != Some(true) {
+    while found(&reread(cx).await, dep).await != Some(true) {
         assert!(
             start.elapsed() < FINISH,
             "{dep:?} isn't found installed {} min after its install",
@@ -227,6 +277,15 @@ async fn works(cx: &Context, program: &str, args: &[&str]) -> String {
 /// ([`works_as_a_run_needs`]), so a tool that is there but broken fails its cell.
 async fn usable(cx: &Context, dep: Dependency) {
     works_as_a_run_needs(cx, dep).await;
+    if dep == Dependency::Wsl {
+        let restarted = Marks {
+            installed_this_boot: false,
+            restarted_for_wsl: true,
+        };
+        let check = wsl::check(cx, restarted).await.expect("WSL is Windows'");
+        println!("{check:#?}");
+        assert_eq!(check.state, WslState::Ready, "WSL 2 reads ready");
+    }
     if let Some(provider) = dep.hypervisor() {
         for &helper in providers::helpers(provider, cx.host.os) {
             assert!(
@@ -353,13 +412,32 @@ async fn next_login(cx: &Context, dep: Dependency) {
 /// Installs `dep` for real when it is missing here and asked for; skips, saying why, else.
 async fn installs(dep: Dependency) {
     let cx = here().await;
-    if let Some(why) = not_tested(&cx, dep).await {
-        skip!("{why}")
+    if !resumed() {
+        if let Some(why) = not_tested(&cx, dep).await {
+            skip!("{why}")
+        }
+        install(&cx, dep).await;
+        if let Some(why) = waits_for_restart(&reread(&cx).await, dep).await {
+            restart!("{why}")
+        }
     }
-    install(&cx, dep).await;
     let cx = reread(&cx).await;
     usable(&cx, dep).await;
     next_login(&cx, dep).await;
+}
+
+// WSL 2 and Hyper-V first: Docker Desktop runs on WSL 2, and its installer turns both on (Hyper-V
+// for its other backend), which would leave their own installs untested on a fresh machine.
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn wsl_is_installed_where_it_is_missing() {
+    installs(Dependency::Wsl).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn hyperv_is_installed_where_it_is_missing() {
+    installs(Dependency::Hyperv).await;
 }
 
 #[tokio::test]
