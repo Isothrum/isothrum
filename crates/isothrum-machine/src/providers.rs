@@ -81,7 +81,7 @@ pub struct ProviderRow {
     pub linux_cpu: Option<Arch>,
     /// Where its vendor offers it, when a setup doesn't install it (behind a login, a licence, or
     /// a Windows feature the user turns on by hand).
-    pub vendor: Option<&'static str>,
+    pub vendor: Option<crate::install::VendorPage>,
     /// The OSes where its VMs share a folder of this computer two-way.
     pub shares_folders: &'static [HostOs],
     /// The oldest version of its plugin that works: `vagrant_utm` before 0.2.0 reads a VM's
@@ -93,6 +93,18 @@ pub struct ProviderRow {
     /// How its hypervisor is found.
     check: Check,
 }
+
+/// Microsoft's guide to turning Hyper-V on by hand (a setup turns it on itself).
+const HYPERV_PAGE: crate::install::VendorPage = crate::install::VendorPage {
+    name: "Microsoft",
+    url: "https://learn.microsoft.com/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v",
+};
+
+/// Parallels Desktop's page, which sells and downloads it.
+const PARALLELS_PAGE: crate::install::VendorPage = crate::install::VendorPage {
+    name: "Parallels",
+    url: "https://www.parallels.com/products/desktop/",
+};
 
 impl ProviderRow {
     /// `provider`'s row: a provider added to the type is a compile error here until its row says
@@ -129,19 +141,19 @@ impl ProviderRow {
             Provider::VmwareDesktop => ProviderRow {
                 windows_on_arm: false,
                 linux_cpu: Some(Arch::Amd64),
-                vendor: Some("https://www.vmware.com/products/desktop-hypervisor/workstation-and-fusion"),
+                vendor: Some(crate::install::BROADCOM_DOWNLOADS),
                 ..found_by(Check::Tool("vmrun", &[]))
             },
             // Hyper-V's SMB folders ask for a password at every start.
             Provider::Hyperv => ProviderRow {
                 oses: &[HostOs::Windows],
-                vendor: Some("https://learn.microsoft.com/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"),
+                vendor: Some(HYPERV_PAGE),
                 shares_folders: &[],
                 ..found_by(Check::HypervFeature)
             },
             Provider::Parallels => ProviderRow {
                 oses: &[HostOs::Macos],
-                vendor: Some("https://www.parallels.com/products/desktop/"),
+                vendor: Some(PARALLELS_PAGE),
                 ..found_by(Check::Tool("prlctl", &["--version"]))
             },
             // UTM is the hypervisor made for Apple silicon.
@@ -176,6 +188,18 @@ impl ProviderRow {
     #[must_use]
     pub fn remote(&self) -> bool {
         self.check == Check::Remote
+    }
+}
+
+/// Where `provider`'s user downloads it themselves on `os`, when a setup doesn't install it: its
+/// row's vendor page, VMware's own product's on each OS (Fusion Pro on macOS, Workstation Pro
+/// elsewhere).
+#[must_use]
+pub fn download_page(provider: Provider, os: HostOs) -> Option<crate::install::VendorPage> {
+    match (provider, os) {
+        (Provider::VmwareDesktop, HostOs::Macos) => Some(crate::install::VMWARE_FUSION_PAGE),
+        (Provider::VmwareDesktop, _) => Some(crate::install::VMWARE_WORKSTATION_PAGE),
+        _ => ProviderRow::of(provider).vendor,
     }
 }
 

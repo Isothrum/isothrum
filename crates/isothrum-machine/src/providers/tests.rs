@@ -186,7 +186,7 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
     );
     assert_eq!(ProviderRow::of(Provider::Qemu).shares_folders, [HostOs::Linux]);
     for p in [Provider::VmwareDesktop, Provider::Hyperv, Provider::Parallels] {
-        assert!(ProviderRow::of(p).vendor.is_some_and(|url| url.starts_with("https://")), "{p:?}");
+        assert!(ProviderRow::of(p).vendor.is_some_and(|page| page.url.starts_with("https://")), "{p:?}");
     }
     assert_eq!(ProviderRow::of(Provider::Utm).plugin_minimum, Some("0.2.0"));
     assert_eq!(ProviderRow::of(Provider::Utm).hypervisor_minimum, Some(("UTM", "4.6.5")));

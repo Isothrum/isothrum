@@ -11,6 +11,18 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **A tool only its vendor offers is a download by hand, with its vendor and official page.**
+  VMware Workstation Pro (Windows, Linux) and Fusion Pro (macOS) come from their free pages on
+  Broadcom's download portal (`install::VMWARE_WORKSTATION_PAGE`, `install::VMWARE_FUSION_PAGE`,
+  behind a free Broadcom account; `providers::download_page` says which on each OS), the OVF Tool
+  from Broadcom's developer portal (`install::OVFTOOL_PAGE`). `Interaction::DownloadByHand {
+  vendor, url }` says it; `install::VendorPage` is a vendor's name and page, which
+  `ProviderRow::vendor` now is (it was a URL), and `requirements::Plan::ByHand` carries (`page`,
+  was `url`). `setup::Action::Manual`
+  carries its `interactions`: a vendor's hypervisor or an engine a setup doesn't install is a
+  download by hand from its page. Once installed, the tool's detection reads it as present.
+  `isothrum check --json` gives a by-hand plan's `vendor` and `interactions`.
+
 - **An install says what it asks of the person at the computer, as data.** `install::Interaction`
   lists it: a password prompt (`AdminPassword { via: Mac | Uac | Pkexec }`, only where the step
   raises one: never unattended), a licence the install accepts for them (`Licence`, Docker's on

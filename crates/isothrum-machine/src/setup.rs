@@ -30,7 +30,7 @@ use crate::check::Check;
 use crate::docker::{self, Engine};
 use crate::host::{Host, HostOs};
 use crate::install::{Dependency, Elevation, Interaction};
-use crate::providers::{self, Need, Provider, ProviderRow, ProviderStatus, Unavailable};
+use crate::providers::{self, Need, Provider, ProviderStatus, Unavailable};
 use crate::wsl::WslState;
 
 /// One thing a setup does, or leaves to its user, on this computer.
@@ -81,6 +81,9 @@ pub enum Action {
     /// Not something a setup does here: its user gets it (`dependency`, when it is one a setup
     /// installs elsewhere; from `url`, when there is one), then checks the machine again.
     Manual {
+        /// What it asks of them: a vendor's download by hand ([`Interaction::DownloadByHand`]),
+        /// for a UI to link to.
+        interactions: Vec<Interaction>,
         /// Why it is the user's to get.
         reason: ManualReason,
         /// The tool, when it is one a setup installs elsewhere.
@@ -134,10 +137,10 @@ impl Action {
     #[must_use]
     pub fn interactions(&self) -> Vec<Interaction> {
         match self {
-            Action::Install { interactions, .. } | Action::ShareVirtualization { interactions } => interactions.clone(),
+            Action::Install { interactions, .. } | Action::ShareVirtualization { interactions } | Action::Manual { interactions, .. } => interactions.clone(),
             Action::Restart { .. } => vec![Interaction::Restart],
             Action::Relogin => vec![Interaction::Relogin],
-            Action::Plugin { .. } | Action::StartEngine { .. } | Action::UseEngine { .. } | Action::Manual { .. } | Action::Blocked { .. } => Vec::new(),
+            Action::Plugin { .. } | Action::StartEngine { .. } | Action::UseEngine { .. } | Action::Blocked { .. } => Vec::new(),
         }
     }
 }
@@ -338,6 +341,7 @@ pub fn cant_run(p: &ProviderStatus) -> bool {
 fn install(m: &Machine, dependency: Dependency) -> Action {
     if m.host.os == HostOs::Linux && !m.packages_installed {
         return Action::Manual {
+            interactions: Vec::new(),
             reason: ManualReason::Distribution,
             dependency: Some(dependency),
             url: dependency.row().own_url.map(str::to_owned),
@@ -379,11 +383,10 @@ fn engine_actions(m: &Machine, engine: Engine) -> Vec<Action> {
     } else if engine == recommended_engine(m.host.os) && !m.docker.installed {
         install(m, Dependency::Docker)
     } else {
-        Action::Manual {
-            reason: ManualReason::Vendor,
-            dependency: None,
-            url: Some(engine.url().to_owned()),
-        }
+        by_hand(crate::install::VendorPage {
+            name: engine.label(),
+            url: engine.url(),
+        })
     };
     vec![action]
 }
@@ -437,11 +440,26 @@ fn share_virtualization_action(m: &Machine) -> Action {
 fn get_hypervisor(m: &Machine, p: &ProviderStatus) -> Action {
     match installable(p.provider, m.host.os) {
         Some(dependency) => install(m, dependency),
-        None => Action::Manual {
-            reason: ManualReason::Vendor,
-            dependency: None,
-            url: ProviderRow::of(p.provider).vendor.map(str::to_owned),
+        None => match providers::download_page(p.provider, m.host.os) {
+            Some(page) => by_hand(page),
+            None => Action::Manual {
+                interactions: Vec::new(),
+                reason: ManualReason::Vendor,
+                dependency: None,
+                url: None,
+            },
         },
+    }
+}
+
+/// Getting it from its vendor's own download page, `page`: its user downloads and installs it
+/// there, then checks again.
+fn by_hand(page: crate::install::VendorPage) -> Action {
+    Action::Manual {
+        interactions: vec![page.download()],
+        reason: ManualReason::Vendor,
+        dependency: None,
+        url: Some(page.url.to_owned()),
     }
 }
 

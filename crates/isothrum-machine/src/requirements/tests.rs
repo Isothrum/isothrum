@@ -281,7 +281,50 @@ async fn a_hypervisor_no_setup_installs_is_its_vendors_to_get() {
     };
     let (cx, _fake) = on(host, |_| Reply::missing());
     let plan = plan(&cx, Requirement::Hypervisor { provider: Provider::Parallels }, &Asking::default());
-    assert!(matches!(plan, Plan::ByHand { url: Some(u) } if u.contains("parallels")), "{plan:?}");
+    assert!(
+        matches!(plan, Plan::ByHand { page: Some(p) } if p.url.contains("parallels") && p.name == "Parallels"),
+        "{plan:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn vmware_and_the_ovf_tool_are_downloads_by_hand_from_broadcom_on_each_os_they_run_on() {
+    use crate::install::{BROADCOM_DOWNLOADS, Interaction, OVFTOOL_PAGE, VMWARE_FUSION_PAGE, VMWARE_WORKSTATION_PAGE};
+    let root = tempfile::tempdir().unwrap();
+    for os in crate::host::ALL_OSES {
+        let host = Host {
+            os,
+            ..crate::testing::linux_host(root.path())
+        };
+        let (cx, _fake) = on(host, |_| Reply::missing());
+        // VMware Workstation Pro (Windows, Linux), VMware Fusion Pro (macOS): Broadcom's portal.
+        let vmware = plan(
+            &cx,
+            Requirement::Hypervisor {
+                provider: Provider::VmwareDesktop,
+            },
+            &Asking::default(),
+        );
+        let page = if os == HostOs::Macos { VMWARE_FUSION_PAGE } else { VMWARE_WORKSTATION_PAGE };
+        assert!(matches!(vmware, Plan::ByHand { page: Some(p) } if p == page), "{os:?}: {vmware:?}");
+        let ovftool = plan(&cx, Requirement::Ovftool, &Asking::default());
+        assert!(matches!(ovftool, Plan::ByHand { page: Some(OVFTOOL_PAGE) }), "{os:?}: {ovftool:?}");
+    }
+    assert_eq!(BROADCOM_DOWNLOADS.name, "Broadcom");
+    assert!(
+        [BROADCOM_DOWNLOADS, VMWARE_FUSION_PAGE, VMWARE_WORKSTATION_PAGE]
+            .iter()
+            .all(|p| p.url.starts_with("https://support.broadcom.com/group/ecx/"))
+    );
+    assert!(VMWARE_FUSION_PAGE.url.contains("VMware%20Fusion") && VMWARE_WORKSTATION_PAGE.url.contains("VMware%20Workstation%20Pro"));
+    assert_eq!(OVFTOOL_PAGE.url, OVFTOOL_URL);
+    assert_eq!(
+        OVFTOOL_PAGE.download(),
+        Interaction::DownloadByHand {
+            vendor: "Broadcom",
+            url: OVFTOOL_URL
+        }
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -290,7 +333,10 @@ async fn the_ovf_tool_is_found_on_the_path_given_else_fetched_by_hand() {
     let (cx, _fake) = on(apt_host(root.path()), |_| Reply::missing());
     let missing = needs(&cx, &[Requirement::Ovftool], &Asking::default()).await;
     assert!(missing[0].missing());
-    assert!(matches!(missing[0].plan, Some(Plan::ByHand { url: Some(OVFTOOL_URL) })), "{missing:?}");
+    assert!(
+        matches!(missing[0].plan, Some(Plan::ByHand { page: Some(p) }) if p.url == OVFTOOL_URL),
+        "{missing:?}"
+    );
 
     let bin = root.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();

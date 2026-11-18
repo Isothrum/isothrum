@@ -93,6 +93,7 @@ fn a_linux_without_a_package_manager_leaves_each_install_to_its_user() {
     assert_eq!(
         docker,
         &Action::Manual {
+            interactions: Vec::new(),
             reason: ManualReason::Distribution,
             dependency: Some(Dependency::Docker),
             url: Some("https://docs.docker.com/engine/install/".into()),
@@ -242,7 +243,7 @@ fn hyper_v_turned_on_waits_for_a_restart_and_vmware_links_out_with_what_vagrant_
         [(
             Provider::VmwareDesktop,
             PassedOver::LinksOut {
-                url: ProviderRow::of(Provider::VmwareDesktop).vendor.map(str::to_owned)
+                url: Some(crate::install::VMWARE_WORKSTATION_PAGE.url.to_owned())
             }
         )]
     );
@@ -427,5 +428,30 @@ fn each_action_carries_what_it_asks_of_the_person_at_the_computer() {
         unattended.engines[1].actions[0].interactions(),
         [Interaction::Relogin],
         "Docker Engine joins ada to docker"
+    );
+}
+
+#[test]
+fn a_hypervisor_or_engine_only_its_vendor_offers_is_a_download_by_hand_with_its_page() {
+    use crate::install::{VMWARE_FUSION_PAGE, VMWARE_WORKSTATION_PAGE};
+    for os in [HostOs::Windows, HostOs::Linux, HostOs::Macos] {
+        let m = bare(os, vec![status(Provider::VmwareDesktop, false, None)]);
+        let o = options(&m, false);
+        let get = &o.hypervisors[0].get;
+        assert_eq!(get.len(), 1, "{os:?}");
+        assert_eq!(get[0].kind(), "manual", "{os:?}: never left out");
+        let page = if os == HostOs::Macos { VMWARE_FUSION_PAGE } else { VMWARE_WORKSTATION_PAGE };
+        assert_eq!(get[0].interactions(), [page.download()], "{os:?}");
+        assert!(matches!(&get[0], Action::Manual { url: Some(u), .. } if u == page.url), "{os:?}");
+    }
+    // An engine a setup doesn't install: its own page.
+    let m = bare(HostOs::Macos, Vec::new());
+    let orbstack = options(&m, false).engines.into_iter().find(|e| e.engine == Engine::Orbstack).unwrap();
+    assert_eq!(
+        orbstack.actions[0].interactions(),
+        [Interaction::DownloadByHand {
+            vendor: "OrbStack",
+            url: "https://orbstack.dev/"
+        }]
     );
 }

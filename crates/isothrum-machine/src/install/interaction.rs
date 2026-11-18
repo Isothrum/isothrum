@@ -51,7 +51,64 @@ pub enum Interaction {
         /// About how many minutes it takes, on a common computer.
         minutes: u16,
     },
+    /// Nothing installs it unattended: its vendor offers it only from its own page (behind an
+    /// account or a licence). The user downloads and installs it there, then checks again: the
+    /// tool's detection reads it as present once it is installed.
+    DownloadByHand {
+        /// The vendor, as it names itself.
+        vendor: &'static str,
+        /// Its official download page.
+        url: &'static str,
+    },
 }
+
+/// Where a tool's vendor offers it for its user to download themselves: its name, and its
+/// official download page (never a mirror).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
+pub struct VendorPage {
+    /// The vendor, as it names itself.
+    pub name: &'static str,
+    /// The official download page.
+    pub url: &'static str,
+}
+
+impl VendorPage {
+    /// What it asks of the user: to download the tool there themselves.
+    #[must_use]
+    pub fn download(self) -> Interaction {
+        Interaction::DownloadByHand {
+            vendor: self.name,
+            url: self.url,
+        }
+    }
+}
+
+/// Broadcom's download portal, where VMware's desktop hypervisors are offered (behind a free
+/// Broadcom account): their own pages there are [`VMWARE_FUSION_PAGE`] and
+/// [`VMWARE_WORKSTATION_PAGE`].
+pub const BROADCOM_DOWNLOADS: VendorPage = VendorPage {
+    name: "Broadcom",
+    url: "https://support.broadcom.com/group/ecx/downloads",
+};
+
+/// VMware Fusion Pro (macOS), free, on Broadcom's download portal.
+pub const VMWARE_FUSION_PAGE: VendorPage = VendorPage {
+    name: "Broadcom",
+    url: "https://support.broadcom.com/group/ecx/productdownloads?subfamily=VMware%20Fusion&freeDownloads=true",
+};
+
+/// VMware Workstation Pro (Windows, Linux), free, on Broadcom's download portal.
+pub const VMWARE_WORKSTATION_PAGE: VendorPage = VendorPage {
+    name: "Broadcom",
+    url: "https://support.broadcom.com/group/ecx/productdownloads?subfamily=VMware%20Workstation%20Pro&freeDownloads=true",
+};
+
+/// VMware's OVF Tool, on Broadcom's developer portal.
+pub const OVFTOOL_PAGE: VendorPage = VendorPage {
+    name: "Broadcom",
+    url: "https://developer.broadcom.com/tools/open-virtualization-format-ovf-tool/latest",
+};
 
 /// The password prompt an administrator's step raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
