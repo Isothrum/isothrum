@@ -117,6 +117,22 @@ async fn every_engine_is_listed_with_its_own_state_and_the_current_one_marked() 
     assert_eq!(tools.made("docker --context * info").len(), 4, "every context probed once");
 }
 
+/// Regression (a Windows 11 VM): Docker Desktop, woken from its Resource Saver, answered its
+/// context's probe in 13 s, past the engine list's own 4 s: the engine the CLI used read stopped
+/// while `docker info` answered. The list gives each probe as long as any other.
+#[tokio::test(start_paused = true)]
+async fn an_engine_slow_to_answer_reads_running_as_the_cli_finds_it() {
+    let tools = FakeProcesses::script()
+        .expect("docker context ls", Reply::ok("desktop-linux\ttrue\n"))
+        .expect(
+            "docker --context desktop-linux info",
+            Reply::ok("Docker Desktop\n").after(Duration::from_secs(13)),
+        )
+        .build();
+    let (cx, _tools) = on(HostOs::Windows, tools);
+    assert_eq!(brief(&engines(&cx).await), [(Engine::DockerDesktop, "desktop-linux", true, true)]);
+}
+
 /// A context that says nothing by its name (`default` on a Mac) is known by the daemon it
 /// reaches; two contexts to one engine count once.
 #[tokio::test(start_paused = true)]
