@@ -86,8 +86,14 @@ async fn probe_refuses_a_provider_this_host_doesnt_run_a_missing_plugin_and_an_o
         .build();
     let plugin = Vagrant.probe(&cx(&f, &no_plugin, LIBVIRT)).await.expect_err("no vagrant-libvirt");
     assert!(
-        matches!(&plugin, Error::Provider { .. }) && plugin.to_string().contains("vagrant plugin install vagrant-libvirt"),
-        "the refusal says how to install it: {plugin}"
+        matches!(
+            &plugin,
+            Error::Provider {
+                need: Some(crate::error::ProviderNeed::Plugin),
+                ..
+            }
+        ) && plugin.to_string().contains("vagrant plugin install vagrant-libvirt"),
+        "the refusal names the plugin as the need, and says how to install it: {plugin}"
     );
     let fine = FakeProcesses::script()
         .expect("vagrant --version", Reply::ok("Vagrant 2.4.9"))

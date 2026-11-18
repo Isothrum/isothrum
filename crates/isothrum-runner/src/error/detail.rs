@@ -43,6 +43,10 @@ pub enum DownloadKind {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ProviderNeed {
+    /// The Vagrant plugin the provider runs through (`Provider::plugin`: vagrant-qemu,
+    /// vagrant-libvirt, ...) isn't installed. A caller installs it for this account
+    /// (`vagrant plugin install <plugin>`, no administrator), then starts again.
+    Plugin,
     /// virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs
     /// (Linux): none is installed where they look.
     Virtiofsd,
