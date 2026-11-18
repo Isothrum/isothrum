@@ -290,6 +290,13 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A VMware VM's first private network on a Mac comes up.** On a Mac whose Fusion runs on macOS's
+  own networking, the Vagrant VMware Utility reports every new host-only network as "Failed to
+  enable device" (Fusion's `vmnet-cli --start` exits 1 whatever happens), though it made the
+  network: `vagrant up` failed the first time a subnet was used, and passed the next. Such an `up`
+  is now made once more, said as a `retrying` warning, as UTM's passing Apple-event failures are
+  (both in the Vagrant driver's `passing`).
+
 - **The Hyper-V self-test, and the Vagrant example on Hyper-V, boot to the end.** Vagrant sets a
   hostname by renewing the guest's DHCP lease (`ifdown -a; ifup -a` on Alpine), and on Hyper-V's
   Default Switch the address the VM then gets isn't the one its SSH session is on: `up` failed at

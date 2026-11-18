@@ -37,11 +37,11 @@ mod forwards;
 mod gone;
 mod lock;
 mod names;
+mod passing;
 mod progress;
 mod protocols;
 mod providers;
 mod screen;
-mod utm;
 use names::{checked_user, key_of, of_key, one, ours, own_address, verb_word};
 
 use std::time::Duration;
@@ -119,8 +119,9 @@ fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
 impl Vagrant {
     /// `up` of `machines` (all when empty) on the provider asked for, made again while another
     /// process's lock refuses it and a second run is safe.
-    /// On UTM, one an Apple event cut short in passing is made once more ([`utm::once_more`]); one
-    /// a machine still booting failed is made again once it may answer ([`booting::until_it_answers`]).
+    /// One a passing failure cut short is made once more ([`passing::once_more`]: an Apple event
+    /// on UTM, a host-only network VMware made but said it couldn't enable); one a machine still
+    /// booting failed is made again once it may answer ([`booting::until_it_answers`]).
     /// The boxes it added are recorded, however it ended ([`fetched`]).
     /// Its lines say its steps ([`progress`]), done once it went through.
     async fn up_call(&self, cx: &ToolCx<'_>, step: &str, provision: Provision, machines: &[String]) -> std::result::Result<(), CliError<Failure>> {
@@ -136,7 +137,7 @@ impl Vagrant {
             ..call(cx, UP_LIMIT)
         };
         let up = booting::until_it_answers(cx, step, move || {
-            utm::once_more(cx, step, move || {
+            passing::once_more(cx, step, move || {
                 retrying(cx.warn, step, rerun, PATIENCE, move || vagrant::up(call, provider, provision, machines))
             })
         });

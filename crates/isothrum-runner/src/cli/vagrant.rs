@@ -50,6 +50,14 @@ pub(crate) enum Failure {
         /// What the call printed.
         reason: String,
     },
+    /// VMware desktop made a host-only network for a private network but said it couldn't enable
+    /// it (`Vagrant failed to create a new VMware networking device` … `Failed to enable device`):
+    /// on a Mac whose Fusion runs on macOS's own networking, it is there all the same, and the next
+    /// `up` uses it.
+    VmnetNotEnabled {
+        /// What the call printed.
+        reason: String,
+    },
     /// A machine's SSH server didn't answer yet (net-ssh's `timeout during server version
     /// negotiating`): the VM runs and still boots, which `up` doesn't wait for on a machine that
     /// already runs (one a start cut off had booted) before it provisions. It answers a moment later.
@@ -100,6 +108,8 @@ impl Failure {
             }
         } else if let Some(need) = refused_by_the_system(out) {
             Failure::Lacks { need, reason: out.reason() }
+        } else if said_any(out, &["failed to create a new vmware networking device"]) && said_any(out, &["failed to enable device"]) {
+            Failure::VmnetNotEnabled { reason: out.reason() }
         } else if said_any(out, &["timeout during server version negotiating"]) {
             Failure::Booting { reason: out.reason() }
         } else if said_any(out, &["unable to find a satisfying virtiofsd", "virtiofsd was not found or is not executable"]) {
@@ -123,9 +133,11 @@ impl fmt::Display for Failure {
             Failure::OtherProvider => f.write_str("the machine is recorded on another provider"),
             Failure::AlreadyOff => f.write_str("the VM is already off"),
             Failure::SignInRefused { .. } => f.write_str("the ESXi host refused the run's credentials"),
-            Failure::ScriptingPassing { reason, .. } | Failure::Booting { reason } | Failure::Lacks { reason, .. } | Failure::Other(reason) => {
-                f.write_str(reason)
-            }
+            Failure::ScriptingPassing { reason, .. }
+            | Failure::VmnetNotEnabled { reason }
+            | Failure::Booting { reason }
+            | Failure::Lacks { reason, .. }
+            | Failure::Other(reason) => f.write_str(reason),
         }
     }
 }
