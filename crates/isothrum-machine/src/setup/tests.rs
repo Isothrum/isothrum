@@ -148,7 +148,7 @@ fn a_hypervisor_joined_since_logging_in_asks_for_a_new_login_and_one_that_cant_r
 }
 
 #[test]
-fn virtualbox_is_never_installed_while_kvm_holds_the_cpus_virtualization_and_gives_way() {
+fn virtualbox_while_kvm_holds_the_cpus_virtualization_gives_way_unless_wanted_then_kvm_shares_it() {
     let m = bare(
         HostOs::Linux,
         vec![
@@ -157,10 +157,51 @@ fn virtualbox_is_never_installed_while_kvm_holds_the_cpus_virtualization_and_giv
         ],
     );
     let o = options(&m, false);
-    assert_eq!(o.hypervisor, Some(Provider::Qemu));
-    let p = plan(&m, &o, &wanted(&[SetupPath::Vm], &[]));
-    assert_eq!(p.hypervisor, Some(Provider::Qemu));
-    assert_eq!(steps(&p), named(&[("qemu", "install")]));
+    assert_eq!(
+        o.hypervisors[0].get,
+        [
+            Action::Install {
+                dependency: Dependency::Virtualbox
+            },
+            Action::ShareVirtualization
+        ]
+    );
+    assert_eq!(o.hypervisor, Some(Provider::Qemu), "one that just installs comes first");
+    let default = plan(&m, &o, &wanted(&[SetupPath::Vm], &[]));
+    assert_eq!(default.hypervisor, Some(Provider::Qemu));
+    assert_eq!(steps(&default), named(&[("qemu", "install")]));
+    let named_vbox = plan(&m, &o, &wanted(&[SetupPath::Vm], &[Provider::Virtualbox]));
+    assert_eq!(named_vbox.hypervisor, Some(Provider::Virtualbox));
+    assert_eq!(steps(&named_vbox), named(&[("virtualbox", "install"), ("virtualbox", "share")]));
+    assert!(
+        left_alone(&Action::ShareVirtualization).is_none() && !Action::ShareVirtualization.ends_pass(),
+        "a setup runs it"
+    );
+}
+
+#[test]
+fn virtualbox_installed_while_kvm_holds_it_is_the_one_kvm_shares_with_or_a_restart_away() {
+    let mut m = bare(
+        HostOs::Linux,
+        vec![
+            status(Provider::Virtualbox, true, Some(Unavailable::KvmHoldsVirtualization)),
+            status(Provider::Qemu, false, None),
+        ],
+    );
+    let p = plan_of(&m, &wanted(&[SetupPath::Vm], &[]));
+    assert_eq!(p.hypervisor, Some(Provider::Virtualbox), "installed: the one its user set up");
+    assert_eq!(steps(&p), named(&[("virtualbox", "share")]));
+    assert_eq!(
+        serde_json::to_value(Action::ShareVirtualization).unwrap(),
+        serde_json::json!({ "kind": "shareVirtualization" })
+    );
+
+    // KVM was in use: the option applies from the next restart, which ends the pass.
+    m.providers[0] = status(Provider::Virtualbox, true, Some(Unavailable::KvmSharesAfterRestart));
+    let restart = plan_of(&m, &wanted(&[SetupPath::Vm], &[]));
+    assert_eq!(restart.hypervisor, Some(Provider::Virtualbox));
+    assert_eq!(steps(&restart), named(&[("virtualbox", "blocked")]));
+    assert!(restart.steps[0].action.ends_pass());
 }
 
 #[test]

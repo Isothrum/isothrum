@@ -198,7 +198,9 @@ runs are separate and opt-in:
   path, the network, the OVF Tool, the terminal; and, on a clean machine with its owner there for
   the administrator prompts, each missing tool `ISOTHRUM_E2E_INSTALL` names (`docker,vagrant`,
   or `all`, the tools a setup offers there; a Vagrant plugin by its name, `vagrant-qemu`) installed
-  for real, as a setup installs it, the plugins last.
+  for real, as a setup installs it, the plugins last; and where KVM holds the CPU's virtualization
+  (Linux 6.12 and later), `share-virtualization` (or `all`) lets VirtualBox share it, as a setup
+  does, then boots VirtualBox's self-test VM.
   Without a desktop session, `ISOTHRUM_E2E_ELEVATION=pkexec` still elevates through pkexec,
   as a setup does, where a polkit rule lets the test user through without a prompt (a test VM's).
   `--tier server` runs them against the test

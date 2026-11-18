@@ -39,6 +39,19 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **A setup lets VirtualBox share the CPU's virtualization with KVM (Linux).** Since Linux 6.12,
+  KVM's module holds VT-x or AMD-V as soon as it loads, so VirtualBox couldn't start a VM and a
+  setup offered nothing (`kvmHoldsVirtualization`). A new setup action,
+  `setup::Action::ShareVirtualization` (`kind: "shareVirtualization"`), run by
+  `setup::share_virtualization`, writes `options kvm enable_virt_at_load=0` to
+  `/etc/modprobe.d/isothrum-kvm.conf` as root (pkexec, `sudo -n` or root, as installs do): KVM then
+  takes it only while one of its own VMs runs. KVM's modules are loaded again at once when nothing
+  uses KVM (`/sys/module`'s counts); else the setting applies from the next restart, a new reason
+  `kvmSharesAfterRestart` that ends a setup pass as a restart does. VirtualBox's setup plan has the
+  action (after its install, when it is missing), and `requirements::needs` plans it
+  (`Plan::ShareVirtualization`, `shareVirtualization` in `isothrum check --json`); `host::Devices` reads `sys_module` and `modprobe_d`. Breaking: a
+  match on `setup::Action` has a new case.
+
 - **Who holds a taken host port: `isothrum_machine::net::port_holder(cx, port, protocol)`.** The
   process listening on it (its program's name and pid, `PortHolder`), as the system's own tools
   say (`lsof`, then `ss`; PowerShell on Windows), each within `HOLDER_LOOKUP`; none when no tool

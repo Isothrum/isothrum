@@ -8,15 +8,18 @@
 //! - [`walk()`] runs that plan step by step through the caller's own runner of each step, the
 //!   machine checked again after each (an install changes what comes next);
 //! - on Windows, [`join_hyperv_admins`] and [`schedule_restart`] carry out what a setup asks
-//!   beyond installs, as [`crate::docker::start_engine`] starts an engine.
+//!   beyond installs, as [`crate::docker::start_engine`] starts an engine; on Linux,
+//!   [`share_virtualization`] lets VirtualBox share the CPU's virtualization with KVM.
 //!
 //! Why something is passed over or left alone is a code ([`PassedOver`], [`LeftAlone`]) a UI says
 //! in its own words.
 
+mod kvm;
 mod plan;
 mod walk;
 mod windows;
 
+pub use kvm::{OPTION, OPTION_FILE, ShareFailed, Shared, share_script, share_step, share_virtualization, sharing};
 pub use plan::{LeftAlone, PassedOver, Plan, SetupPath, Step, Wanted, left_alone, plan};
 pub use walk::{Event, OnFailure, Steps, Walked, walk};
 pub use windows::{RESTART_NOTE_MAX, Restart, RestartFailed, join_hyperv_admins, join_hyperv_admins_step, schedule_restart};
@@ -61,6 +64,11 @@ pub enum Action {
         /// The feature the restart starts.
         feature: WindowsFeature,
     },
+    /// Lets VirtualBox share the CPU's virtualization with KVM (Linux), which holds it as soon as
+    /// its module loads ([`Unavailable::KvmHoldsVirtualization`]): KVM set to take it only while
+    /// one of its own VMs runs ([`share_virtualization`]), as root. It applies at once when
+    /// nothing uses KVM, else from the next restart ([`Unavailable::KvmSharesAfterRestart`]).
+    ShareVirtualization,
     /// Signs out and back in: a group the account was added to (Linux's `docker`, `libvirt` and
     /// `kvm`, the libvirt and QEMU installs' too) applies from the next login.
     Relogin,
@@ -84,7 +92,8 @@ pub enum Action {
 impl Action {
     /// Whether it ends a setup pass: what follows waits for the restart or the new login. A
     /// hypervisor blocked until the computer restarts (VirtualBox's driver, built for the newer
-    /// kernel its install brought) ends it too, as a restart.
+    /// kernel its install brought; KVM set to share the CPU's virtualization from its next load)
+    /// ends it too, as a restart.
     #[must_use]
     pub fn ends_pass(&self) -> bool {
         matches!(
@@ -92,7 +101,7 @@ impl Action {
             Action::Restart { .. }
                 | Action::Relogin
                 | Action::Blocked {
-                    reason: Unavailable::KernelRestart { .. }
+                    reason: Unavailable::KernelRestart { .. } | Unavailable::KvmSharesAfterRestart
                 }
         )
     }
@@ -105,6 +114,7 @@ impl Action {
             Action::Plugin { .. } => "plugin",
             Action::StartEngine { .. } => "start",
             Action::UseEngine { .. } => "use",
+            Action::ShareVirtualization => "share",
             Action::Restart { .. } => "restart",
             Action::Relogin => "relogin",
             Action::Manual { .. } => "manual",
@@ -352,12 +362,16 @@ fn engine_actions(m: &Machine, engine: Engine) -> Vec<Action> {
 /// What gets hypervisor `p` here: nothing once it is installed (a new login when the account
 /// joined its groups since logging in, libvirt's or `/dev/kvm`'s; else why it still can't run);
 /// the restart Hyper-V waits for once a setup turned it on (`hyperv_restart`); its install; else
-/// its vendor's site.
+/// its vendor's site. VirtualBox while KVM holds the CPU's virtualization: its install when it
+/// is missing, then KVM set to share it (or the restart that applies that).
 fn hypervisor_get(m: &Machine, p: &ProviderStatus, hyperv_restart: bool) -> Vec<Action> {
-    // Nothing installed mends it (KVM holding the CPU's virtualization, for VirtualBox): never
-    // installed, nor readied, for nothing.
-    if let Some(reason @ Unavailable::KvmHoldsVirtualization) = &p.reason {
-        return vec![Action::Blocked { reason: reason.clone() }];
+    if let Some(reason @ (Unavailable::KvmHoldsVirtualization | Unavailable::KvmSharesAfterRestart)) = &p.reason {
+        let mut get: Vec<Action> = (p.hypervisor != Some(true)).then(|| get_hypervisor(m, p)).into_iter().collect();
+        get.push(match reason {
+            Unavailable::KvmHoldsVirtualization => Action::ShareVirtualization,
+            _ => Action::Blocked { reason: reason.clone() },
+        });
+        return get;
     }
     if p.hypervisor == Some(true) {
         // The groups its install added the account to (libvirt's, /dev/kvm's) apply from the
@@ -376,14 +390,19 @@ fn hypervisor_get(m: &Machine, p: &ProviderStatus, hyperv_restart: bool) -> Vec<
             feature: WindowsFeature::Hyperv,
         }];
     }
-    vec![match installable(p.provider, m.host.os) {
+    vec![get_hypervisor(m, p)]
+}
+
+/// What brings hypervisor `p` here: its install, else its vendor's site.
+fn get_hypervisor(m: &Machine, p: &ProviderStatus) -> Action {
+    match installable(p.provider, m.host.os) {
         Some(dependency) => install(m, dependency),
         None => Action::Manual {
             reason: ManualReason::Vendor,
             dependency: None,
             url: ProviderRow::of(p.provider).vendor.map(str::to_owned),
         },
-    }]
+    }
 }
 
 /// What Vagrant needs to drive `p` ([`ProviderStatus::needs`]), each with the item it is about:
@@ -424,11 +443,16 @@ pub fn options(m: &Machine, hyperv_restart: bool) -> Options {
         })
         .collect();
     let installed = |o: &&HypervisorOption| m.local().any(|p| p.provider == o.provider && p.hypervisor == Some(true));
+    // One a setup installs only to then share KVM's virtualization with it (VirtualBox) comes
+    // after one that just installs.
+    let installs = |o: &&HypervisorOption| matches!(o.get.first(), Some(Action::Install { .. }));
+    let shares = |o: &&HypervisorOption| o.get.contains(&Action::ShareVirtualization);
     let hypervisor = hypervisors
         .iter()
         .find(|o| installed(o) && o.get.is_empty())
         .or_else(|| hypervisors.iter().find(installed))
-        .or_else(|| hypervisors.iter().find(|o| matches!(o.get.first(), Some(Action::Install { .. }))))
+        .or_else(|| hypervisors.iter().find(|o| installs(o) && !shares(o)))
+        .or_else(|| hypervisors.iter().find(installs))
         .or_else(|| hypervisors.first())
         .map(|o| o.provider);
     Options {

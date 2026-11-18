@@ -236,6 +236,42 @@ async fn a_vagrant_runs_needs_read_its_providers_status_once() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn virtualbox_installed_while_kvm_holds_the_cpus_virtualization_is_planned_as_kvm_sharing_it() {
+    let root = tempfile::tempdir().unwrap();
+    let host = apt_host(root.path());
+    for (path, text) in [
+        (&host.devices.proc_modules, "kvm_intel 1 0 - Live 0x0\nkvm 2 1 kvm_intel, Live 0x0\n"),
+        (&host.devices.kvm_virt_at_load, "Y\n"),
+    ] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let modprobe_d = host.devices.modprobe_d.clone();
+    let (cx, _fake) = on(host, |call| match call.line().as_str() {
+        "VBoxManage --version" => Reply::ok("7.2.4r170995"),
+        "vagrant --version" => Reply::ok("Vagrant 2.4.9"),
+        _ => Reply::missing(),
+    });
+    let wanted = [Requirement::Hypervisor {
+        provider: Provider::Virtualbox,
+    }];
+    let [vbox] = &needs(&cx, &wanted, &Asking::default()).await[..] else {
+        panic!()
+    };
+    assert_eq!(vbox.present, Some(true));
+    assert_eq!(vbox.unavailable, Some(Unavailable::KvmHoldsVirtualization));
+    assert!(matches!(vbox.plan, Some(Plan::ShareVirtualization)), "{vbox:?}");
+
+    std::fs::create_dir_all(&modprobe_d).unwrap();
+    std::fs::write(modprobe_d.join("isothrum-kvm.conf"), "options kvm enable_virt_at_load=0\n").unwrap();
+    let [restart] = &needs(&cx, &wanted, &Asking::default()).await[..] else {
+        panic!()
+    };
+    assert_eq!(restart.unavailable, Some(Unavailable::KvmSharesAfterRestart));
+    assert!(restart.plan.is_none(), "a restart: nothing a setup runs: {restart:?}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_hypervisor_no_setup_installs_is_its_vendors_to_get() {
     let root = tempfile::tempdir().unwrap();
     let host = Host {

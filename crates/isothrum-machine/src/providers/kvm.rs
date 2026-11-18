@@ -25,7 +25,7 @@ pub(super) fn kvm_problem(host: &Host) -> Option<Unavailable> {
 /// Whether KVM holds the CPU's virtualization extensions on `host`, so VirtualBox can't start VMs
 /// there whatever is installed. Not off Linux, when it doesn't, or when it can't be told
 /// (`/proc/modules` unreadable).
-pub(super) fn holds_virtualization(host: &Host) -> bool {
+pub(crate) fn holds_virtualization(host: &Host) -> bool {
     if host.os != HostOs::Linux {
         return false;
     }
@@ -42,6 +42,61 @@ pub(super) fn holds_virtualization(host: &Host) -> bool {
 fn holds(modules: &str, enable_virt_at_load: Option<&str>) -> bool {
     let loaded = modules.lines().any(|l| matches!(l.split_whitespace().next(), Some("kvm_intel" | "kvm_amd")));
     loaded && enable_virt_at_load.is_some_and(|v| matches!(v.trim(), "Y" | "y" | "1"))
+}
+
+/// KVM's CPU module loaded on `host` (`kvm_intel`, `kvm_amd`), as `/proc/modules` lists it.
+#[must_use]
+pub(crate) fn cpu_module(host: &Host) -> Option<&'static str> {
+    let modules = std::fs::read_to_string(&host.devices.proc_modules).ok()?;
+    modules.lines().find_map(|l| match l.split_whitespace().next() {
+        Some("kvm_intel") => Some("kvm_intel"),
+        Some("kvm_amd") => Some("kvm_amd"),
+        _ => None,
+    })
+}
+
+/// Whether KVM is a module Linux can unload and load again with new options (`kvm`'s `refcnt`
+/// in `/sys/module`), not built into the kernel, where only the kernel's command line sets them.
+#[must_use]
+pub(crate) fn loadable(host: &Host) -> bool {
+    host.devices.sys_module.join("kvm/refcnt").is_file()
+}
+
+/// Whether anything but the modules built on it uses KVM now: a VM running (each holds KVM's CPU
+/// module), a program holding `/dev/kvm` open. Read for `kvm` and its CPU module from
+/// `/sys/module`: more holding one (`refcnt`) than the modules that do (`holders`). Unreadable
+/// counts as in use: nothing is unloaded on a guess.
+#[must_use]
+pub(crate) fn in_use(host: &Host) -> bool {
+    let module = |name: &str| host.devices.sys_module.join(name);
+    std::iter::once("kvm").chain(cpu_module(host)).any(|name| {
+        let held = std::fs::read_to_string(module(name).join("refcnt"))
+            .ok()
+            .and_then(|r| r.trim().parse::<usize>().ok());
+        let by_modules = std::fs::read_dir(module(name).join("holders")).map_or(0, Iterator::count);
+        held.is_none_or(|held| held > by_modules)
+    })
+}
+
+/// Whether modprobe gives KVM `enable_virt_at_load=0` the next time it loads it (a `*.conf` file
+/// of `/etc/modprobe.d` says so): KVM then takes the CPU's virtualization only while one of its
+/// VMs runs.
+#[must_use]
+pub(crate) fn shares_from_next_load(host: &Host) -> bool {
+    let Ok(entries) = std::fs::read_dir(&host.devices.modprobe_d) else {
+        return false;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "conf"))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .any(|text| text.lines().any(shares_on_load))
+}
+
+/// Whether one line of a modprobe configuration gives KVM `enable_virt_at_load` off.
+fn shares_on_load(line: &str) -> bool {
+    let mut words = line.split_whitespace();
+    words.next() == Some("options") && words.next() == Some("kvm") && words.any(|w| matches!(w.split_once('='), Some(("enable_virt_at_load", "0" | "N" | "n"))))
 }
 
 /// The group a user joins to open `host`'s `/dev/kvm`: the one it belongs to (`kvm` wherever a

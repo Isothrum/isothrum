@@ -21,7 +21,7 @@ use crate::host::{Arch, Host, HostOs};
 pub use isothrum_runner::Provider;
 
 mod hyperv;
-mod kvm;
+pub(crate) mod kvm;
 mod needs;
 pub mod ready;
 mod reasons;
@@ -478,7 +478,13 @@ async fn findings(cx: &Context, provider: Provider, found: Found, asked: &mut As
     let listed = plugin.and_then(|p| asked.plugin(p));
     let plugin_version = listed.and_then(|(_, version)| version.clone());
     Findings {
-        held: (virtualbox && kvm::holds_virtualization(host)).then_some(Unavailable::KvmHoldsVirtualization),
+        held: (virtualbox && kvm::holds_virtualization(host)).then(|| {
+            if kvm::shares_from_next_load(host) {
+                Unavailable::KvmSharesAfterRestart
+            } else {
+                Unavailable::KvmHoldsVirtualization
+            }
+        }),
         unresponsive: asked.vagrant_installed && virtualbox && ready && vbox::wedged(cx).await,
         hypervisor,
         part_missing,

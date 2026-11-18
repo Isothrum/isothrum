@@ -140,6 +140,7 @@ pub(crate) fn plan_text(plan: &Plan) -> String {
         Plan::ByHand { url: None } => "install it yourself".to_owned(),
         Plan::Refused(why) => format!("no install here: {why}"),
         Plan::After { requirement } => format!("install it once {} is there", name(*requirement)),
+        Plan::ShareVirtualization => "let KVM share the CPU's virtualization with it".to_owned(),
         _ => "no plan known".to_owned(),
     }
 }
@@ -167,6 +168,7 @@ fn need_json(need: &Need) -> serde_json::Value {
         Plan::ByHand { url } => serde_json::json!({ "kind": "byHand", "url": url }),
         Plan::Refused(why) => serde_json::json!({ "kind": "refused", "reason": why.to_string() }),
         Plan::After { requirement } => serde_json::json!({ "kind": "after", "requirement": requirement, "name": name(*requirement) }),
+        Plan::ShareVirtualization => serde_json::json!({ "kind": "shareVirtualization" }),
         _ => serde_json::json!({ "kind": "unknown" }),
     });
     serde_json::json!({

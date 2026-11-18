@@ -67,7 +67,7 @@ impl Choices for Here<'_> {
 
 /// The hypervisor test boots the smallest box on `provider` and takes its VM down; the box goes
 /// again when the test added it. Skips where the provider can't run VMs here, saying why.
-async fn boots_on(provider: Provider) {
+pub(super) async fn boots_on(provider: Provider) {
     let cx = here().await;
     let Some(status) = providers::status(&cx, provider).await else {
         skip!("{} isn't offered here", provider.id())
