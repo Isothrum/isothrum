@@ -16,7 +16,8 @@
 use std::sync::Arc;
 
 use isothrum_machine::Context;
-use isothrum_runner::{ProcessSpec, SystemProcesses, capture};
+use isothrum_machine::host::tool_path::{self, Env};
+use isothrum_runner::{BoxFuture, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses, capture};
 
 /// What a test prints to say it skipped; the rest of the line says why. `cargo xtask e2e` reads it.
 const SKIP: &str = "isothrum-e2e: skip: ";
@@ -35,9 +36,41 @@ mod machine;
 #[cfg(test)]
 mod server;
 
-/// The crate on this computer, every tool real.
+/// The crate on this computer, every tool real, found where the launcher finds it ([`reread`]).
 async fn here() -> Context {
-    Context::here(Arc::new(SystemProcesses::default())).await
+    reread(&Context::here(Arc::new(SystemProcesses::default())).await).await
+}
+
+/// This computer's tools, each started with `path` as its `PATH`.
+struct OnPath {
+    system: SystemProcesses,
+    path: String,
+}
+
+impl ProcessRunner for OnPath {
+    fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
+        let mut spec = spec.clone();
+        spec.env.push(("PATH".to_owned(), self.path.clone()));
+        Box::pin(async move { self.system.run(&spec, on_line).await })
+    }
+}
+
+/// `cx` as the launcher reads this computer before each check: on Windows, its tools found on the
+/// `PATH` the installers have written to the registry, read again now and merged into this
+/// process's ([`tool_path::refreshed`]). A running process never reads it again by itself, and a
+/// test's is its runner's, stale once an earlier test (or anything since the runner started)
+/// installed a tool. Elsewhere, `cx`'s own tools.
+async fn reread(cx: &Context) -> Context {
+    let refreshed = tool_path::refreshed(cx, &Env::here()).await;
+    let path = refreshed.and_then(|dirs| std::env::join_paths(dirs).ok()).and_then(|p| p.into_string().ok());
+    let runner: Arc<dyn ProcessRunner> = match path {
+        Some(path) => Arc::new(OnPath {
+            system: SystemProcesses::default(),
+            path,
+        }),
+        None => Arc::clone(&cx.runner),
+    };
+    Context::new(runner, cx.host.clone())
 }
 
 /// Setting `name`'s value: none when it is unset or empty.
