@@ -260,6 +260,13 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A running engine slow to answer reads as running (`docker::engines`).** Each context's probe
+  had 4 s (`ENGINE_PROBE_TIMEOUT`, removed), every other probe of the daemon 25 s
+  (`Context::probe_timeout`): Docker Desktop woken from its Resource Saver answered in 13 s on
+  Windows, so the engine `docker info` reached read stopped in the machine check. The engine list
+  now gives each probe as long as any other. The `fake` feature's `Reply::after` is public, for a
+  tool slow to answer.
+
 - **An install step finds a tool installed since the process started (Windows).** Each step runs
   with the `PATH` installers have since written to the registry merged in
   (`tool_path::refreshed_value`): Vagrant's plugin step right after Vagrant's install failed with

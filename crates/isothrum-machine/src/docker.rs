@@ -20,9 +20,6 @@ mod start;
 
 pub use start::{START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
 
-/// How long each engine's context may take to answer before it counts as stopped.
-pub const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
-
 /// A Docker-compatible engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS), ts(rename = "DockerEngine"))]
@@ -294,8 +291,9 @@ fn contexts_from(listing: &str) -> Vec<(String, bool)> {
 }
 
 /// Every engine this computer has, one per context that names one or answers: probed one by one
-/// with `docker --context <c> info` (a stopped engine fails fast; [`ENGINE_PROBE_TIMEOUT`] covers
-/// one that hangs). A context that answers names its engine from the daemon's operating system
+/// with `docker --context <c> info`, given as long as any probe ([`Context::probe_timeout`], as
+/// [`daemon_os`]): a stopped engine fails fast, and one waking up (Docker Desktop's Resource
+/// Saver, a cold CLI on Windows) answers within it. A context that answers names its engine from the daemon's operating system
 /// too, so `default` on a Mac reads as the desktop app behind it; one that doesn't is known by its
 /// name alone. Two contexts to one engine keep the first (the current one first of all). None
 /// when the contexts can't be listed (no Docker CLI).
@@ -305,7 +303,7 @@ pub async fn engines(cx: &Context) -> Vec<EngineStatus> {
     let mut found: Vec<EngineStatus> = Vec::new();
     for (name, current) in listed {
         let info = docker(Some(&name), &["info", "--format", "{{.OperatingSystem}}"]);
-        let answer = ask(cx, ENGINE_PROBE_TIMEOUT, &info).await.ok().and_then(|os| answered(&os).map(str::to_owned));
+        let answer = ask(cx, cx.probe_timeout, &info).await.ok().and_then(|os| answered(&os).map(str::to_owned));
         let engine = match &answer {
             Some(daemon_os) => engine_named(daemon_os, &name),
             None => match context_engine(&name, cx.host.os) {

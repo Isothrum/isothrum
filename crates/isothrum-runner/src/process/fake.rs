@@ -59,10 +59,9 @@ impl Reply {
         }
     }
 
-    /// The same answer, after running for `delay`.
-    #[cfg(test)]
+    /// The same answer, after running for `delay` (a tool slow to answer).
     #[must_use]
-    pub(crate) fn after(mut self, delay: Duration) -> Reply {
+    pub fn after(mut self, delay: Duration) -> Reply {
         self.delay = delay;
         self
     }
