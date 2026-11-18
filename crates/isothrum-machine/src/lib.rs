@@ -3,7 +3,8 @@
 //! ([`check::check`]): its tools, Docker-compatible engines, package manager, cloud CLIs and, on
 //! Windows, WSL 2; a guided setup's options and plan from that check ([`setup`]); installing and
 //! removing the tools it runs projects with ([`install`]); the self-tests that prove it runs
-//! deployments ([`selftest`]); and the cloud accounts its cloud CLIs
+//! deployments ([`selftest`]); what a run needs here and what of it is missing, with the plan that
+//! brings it ([`requirements`]); and the cloud accounts its cloud CLIs
 //! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers; and this
 //! computer's public address, as independent services agree on it ([`net`]).
 //!
@@ -24,6 +25,7 @@ pub mod install;
 pub mod net;
 pub mod place;
 pub mod providers;
+pub mod requirements;
 pub mod selftest;
 pub mod setup;
 pub mod terminal;
