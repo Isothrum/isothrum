@@ -181,3 +181,47 @@ fn a_plan_is_refused_where_the_tool_doesnt_run_before_its_package_manager_is_rea
     let mac = host_on(HostOs::Macos, None, root.path());
     assert_eq!(plan(Dependency::Vagrant, &mac, None, Elevation::Prompt).unwrap_err(), Refusal::NoHomebrew);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_root_step_goes_through_sudo_only_where_it_asks_no_password_else_the_prompt_where_one_shows() {
+    use isothrum_runner::fake::{FakeProcesses, Reply};
+    let dir = tempfile::tempdir().unwrap();
+    let on = |os, script: FakeProcesses| {
+        let mut host = crate::testing::linux_host(dir.path());
+        host.os = os;
+        Context::new(std::sync::Arc::new(script), host)
+    };
+    let user = || Reply::ok("501");
+    let sudo_asks = || Reply::fail(1, "sudo: a password is required");
+    // Root: as is.
+    let root = FakeProcesses::script().expect("id -u", Reply::ok("0")).build();
+    assert_eq!(Elevation::here(&on(HostOs::Macos, root), false).await, Ok(Elevation::Unattended { root: true }));
+    // Passwordless sudo (a test Mac): sudo -n, prompt or not.
+    let sudo = FakeProcesses::script().expect("id -u", user()).expect("sudo -n true", Reply::ok("")).build();
+    assert_eq!(
+        Elevation::here(&on(HostOs::Macos, sudo), false).await,
+        Ok(Elevation::Unattended { root: false })
+    );
+    // sudo asks for a password, at the Mac's screen: macOS's administrator prompt (studio's run,
+    // where `sudo -n` was refused).
+    let at_the_mac = FakeProcesses::script()
+        .expect("id -u", user())
+        .expect("sudo -n true", sudo_asks())
+        .expect("launchctl managername", Reply::ok("Aqua\n"))
+        .build();
+    assert_eq!(Elevation::here(&on(HostOs::Macos, at_the_mac), false).await, Ok(Elevation::Prompt));
+    // Over ssh: neither.
+    let over_ssh = FakeProcesses::script()
+        .expect("id -u", user())
+        .expect("sudo -n true", sudo_asks())
+        .expect("launchctl managername", Reply::ok("Background\n"))
+        .build();
+    assert_eq!(Elevation::here(&on(HostOs::Macos, over_ssh), false).await, Err(NoElevation::NoPromptNorSudo));
+    // Linux: pkexec's prompt on a desktop only.
+    let linux = || FakeProcesses::script().expect("id -u", user()).expect("sudo -n true", sudo_asks()).build();
+    assert_eq!(Elevation::here(&on(HostOs::Linux, linux()), true).await, Ok(Elevation::Prompt));
+    assert_eq!(Elevation::here(&on(HostOs::Linux, linux()), false).await, Err(NoElevation::NoPromptNorSudo));
+    // Windows: UAC, always.
+    let windows = FakeProcesses::script().build();
+    assert_eq!(Elevation::here(&on(HostOs::Windows, windows), false).await, Ok(Elevation::Prompt));
+}

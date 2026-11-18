@@ -62,6 +62,13 @@ Terraform), usable on any project of those formats.
 
 ### Added
 
+- **`install::Elevation::here` chooses how a root step is elevated where nobody chose.** As is
+  when root; `sudo -n` only where `sudo -n true` runs without a password; else the OS's password
+  prompt where a login session shows it (macOS's at the Mac's screen, read from `launchctl
+  managername`; pkexec's on a Linux desktop); else `NoElevation`, which says why. The machine
+  tests elevate through it: on a Mac without passwordless sudo they used `sudo -n`, which refused
+  ("a password is required"), where the owner at the screen could have answered the prompt.
+
 - **A setup lets VirtualBox share the CPU's virtualization with KVM (Linux).** Since Linux 6.12,
   KVM's module holds VT-x or AMD-V as soon as it loads, so VirtualBox couldn't start a VM and a
   setup offered nothing (`kvmHoldsVirtualization`). A new setup action,

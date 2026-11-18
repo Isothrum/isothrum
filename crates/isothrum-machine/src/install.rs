@@ -288,7 +288,60 @@ pub enum Elevation {
     },
 }
 
+/// Why no administrator's step can run here: nobody can be asked, and nothing runs one without
+/// asking ([`Elevation::here`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NoElevation {
+    /// Not root, `sudo` asks for a password, and no login session can show the OS's password
+    /// prompt (an ssh session, a Linux machine without a desktop).
+    NoPromptNorSudo,
+}
+
+impl std::fmt::Display for NoElevation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NoElevation::NoPromptNorSudo => f.write_str(
+                "no administrator's step can run: sudo asks for a password, and no login session here can show the password prompt (an ssh session can't)",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for NoElevation {}
+
+/// What macOS's `launchctl managername` says in a login session at the Mac's screen, where its
+/// administrator prompt shows; an ssh session's is `Background`.
+const MAC_LOGIN_SESSION: &str = "Aqua";
+
 impl Elevation {
+    /// How a root step is elevated on the context's host when nobody chose: as is when root;
+    /// through `sudo -n` only when it runs a command without a password (`sudo -n true`); else
+    /// through the OS's password prompt where a login session can show it (macOS's administrator
+    /// prompt at the Mac's screen, `launchctl managername` saying `Aqua`; pkexec's on a Linux
+    /// desktop, `desktop` saying one is there); else refused. Windows always asks through UAC.
+    /// An app with someone at it asks through the prompt without this ([`Elevation::Prompt`]).
+    ///
+    /// # Errors
+    ///
+    /// [`NoElevation`]: why no root step can run here.
+    pub async fn here(cx: &Context, desktop: bool) -> Result<Elevation, NoElevation> {
+        if cx.host.os == HostOs::Windows {
+            return Ok(Elevation::Prompt);
+        }
+        if cx.read_ok("id", &["-u"]).await.is_ok_and(|uid| uid.trim() == "0") {
+            return Ok(Elevation::Unattended { root: true });
+        }
+        if cx.read_ok("sudo", &["-n", "true"]).await.is_ok() {
+            return Ok(Elevation::Unattended { root: false });
+        }
+        let session = match cx.host.os {
+            HostOs::Macos => cx.read_ok("launchctl", &["managername"]).await.is_ok_and(|m| m.trim() == MAC_LOGIN_SESSION),
+            _ => desktop,
+        };
+        if session { Ok(Elevation::Prompt) } else { Err(NoElevation::NoPromptNorSudo) }
+    }
+
     /// `program` with `args`, run as root this way.
     #[must_use]
     pub fn as_root(self, program: &str, args: &[String]) -> (String, Vec<String>) {
