@@ -11,6 +11,10 @@ use crate::Context;
 /// A box is hundreds of MB: past this the download is stalled, not just on a slow link.
 const ADD_LIMIT: Duration = Duration::from_secs(1800);
 
+/// The most error lines of a failed `vagrant box add` its failure says: Vagrant's error is a
+/// paragraph, ending with what failed (curl's error, the lock another download holds).
+const SAID_LINES: usize = 10;
+
 /// Small public boxes that exist for `p` and `arch`, smallest first.
 #[must_use]
 pub fn candidate_boxes(p: Provider, arch: Arch) -> &'static [&'static str] {
@@ -100,15 +104,28 @@ pub async fn box_for(cx: &Context, p: Provider) -> (&'static str, bool) {
 ///
 /// # Errors
 ///
-/// What Vagrant said, or that it stalled.
+/// What Vagrant said (its last error lines), or that it stalled.
 pub async fn add_box(cx: &Context, p: Provider, name: &str, line: &mut (dyn FnMut(&str) + Send)) -> Result<Option<DownloadToAdopt>, String> {
     let spec = ProcessSpec::new("vagrant", ["box", "add", name, "--provider", box_provider(p), "--force"]);
-    let mut on_line = |_: isothrum_runner::Stream, l: &str| line(l);
+    let mut said: Vec<String> = Vec::new();
+    let mut on_line = |stream: isothrum_runner::Stream, l: &str| {
+        if stream == isothrum_runner::Stream::Stderr && !l.trim().is_empty() {
+            if said.len() == SAID_LINES {
+                said.remove(0);
+            }
+            said.push(l.trim().to_owned());
+        }
+        line(l);
+    };
     let added = tokio::time::timeout(ADD_LIMIT, cx.runner.run(&spec, &mut on_line)).await;
     let exit = added.map_err(|_| format!("vagrant box add stalled: nothing for {} minutes", ADD_LIMIT.as_secs() / 60))?;
     let exit = exit.map_err(|e| e.to_string())?;
     if !exit.success() {
-        return Err(format!("vagrant box add {name} failed ({exit})"));
+        return Err(if said.is_empty() {
+            format!("vagrant box add {name} failed ({exit})")
+        } else {
+            format!("vagrant box add {name} failed: {} ({exit})", said.join("\n"))
+        });
     }
     let list = cx.read_ok("vagrant", &["box", "list"]).await.unwrap_or_default();
     Ok(held(&list, name, p, cx.host.arch).map(|version| super::adopted(name, p, version)))
@@ -132,6 +149,27 @@ mod tests {
             "QEMU boots libvirt boxes, any CPU listed"
         );
         assert_eq!(held(list, "generic/alpine319", Provider::Virtualbox, Arch::Amd64), None);
+    }
+
+    /// Regression: a failed `vagrant box add` said only its exit code, so a download another
+    /// process held (two self-tests at once) read as a network failure.
+    #[tokio::test]
+    async fn a_failed_add_says_what_vagrant_said() {
+        use isothrum_runner::fake::{FakeProcesses, Reply};
+        let lock = "Download to global Vagrant location already in progress. This\nmay be caused by other Vagrant processes attempting to download\na file to the same location.\n\nDownload path: /home/u/.vagrant.d/tmp/boxd9\nLock file path: /home/u/.vagrant.d/tmp/boxd9.lock";
+        for (reply, expected) in [
+            (
+                Reply::fail(1, lock),
+                "vagrant box add bento/debian-12 failed: Download to global Vagrant location already in progress. This\nmay be caused by other Vagrant processes attempting to download\na file to the same location.\nDownload path: /home/u/.vagrant.d/tmp/boxd9\nLock file path: /home/u/.vagrant.d/tmp/boxd9.lock (exited with code 1)",
+            ),
+            (Reply::fail(1, ""), "vagrant box add bento/debian-12 failed (exited with code 1)"),
+        ] {
+            let fake = FakeProcesses::script().expect("vagrant box add bento/debian-12", reply).build();
+            let cx = crate::testing::answered_by(fake);
+            let mut lines = Vec::new();
+            let failed = add_box(&cx, Provider::Virtualbox, "bento/debian-12", &mut |l| lines.push(l.to_owned())).await;
+            assert_eq!(failed.err().as_deref(), Some(expected), "{expected}");
+        }
     }
 
     #[test]
