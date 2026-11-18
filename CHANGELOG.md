@@ -256,6 +256,10 @@ Terraform), usable on any project of those formats.
   install on a computer without VMware, where its Windows installer exits 1603 and its Linux
   service never answers; it now reads `Plan::After` VMware (`Dependency::serves`).
 
+- **Vagrant isn't offered on Linux arm64.** HashiCorp ships no Linux arm64 build, so apt installed
+  the distribution's own (Debian 13: 2.3.7), which a run refuses (2.4.0 or later) and which adds a
+  box's x86_64 build on an arm64 computer. Breaking: `install::linux::install` takes the CPU.
+
 - **Google Cloud CLI isn't offered on Windows on Arm.** Google's installer brings no Python there,
   which the CLI needs, so winget's install exited 2. Tool rows now say where their vendor ships no
   build (`ToolRow::no_build`), refused with its reason (`Refusal::NoBuild`).

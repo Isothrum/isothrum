@@ -2,7 +2,7 @@
 //! [`Elevation`] says, through apt and the vendors' apt repositories or dnf and the vendors' rpm
 //! repositories ([`scripts`]).
 
-use crate::host::{HostOs, LinuxPackages, Packages};
+use crate::host::{Arch, HostOs, LinuxPackages, Packages};
 use crate::install::root::RootScript;
 use crate::install::steps::{Step, step};
 use crate::install::{Dependency, Elevation, Refusal};
@@ -101,17 +101,27 @@ fn linux(dependency: Dependency, packages: Option<Packages>) -> Result<LinuxPack
     packages.and_then(Packages::linux).ok_or(Refusal::WithoutPackages { dependency })
 }
 
-/// The install of `dep` on Linux, as root, for the user `user` (joined to the groups a tool's
-/// devices need): apt and the vendors' apt repositories, or dnf and the vendors' rpm repositories.
+/// The install of `dep` on Linux on a CPU `arch`, as root, for the user `user` (joined to the
+/// groups a tool's devices need): apt and the vendors' apt repositories, or dnf and the vendors'
+/// rpm repositories. A tool its vendor ships no build of for `arch` is refused
+/// ([`Dependency::no_build`]), before the package manager is looked at.
 ///
 /// # Errors
 ///
 /// [`Refusal`]: why it can't be installed here.
-pub fn install(dep: Dependency, packages: Option<Packages>, user: Option<&str>, root: &Root) -> Result<Vec<Step>, Refusal> {
+pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, user: Option<&str>, root: &Root) -> Result<Vec<Step>, Refusal> {
     if !dep.runs_on(HostOs::Linux) {
         return Err(Refusal::NotHere {
             dependency: dep,
             os: HostOs::Linux,
+        });
+    }
+    if let Some(why) = dep.no_build(HostOs::Linux, arch) {
+        return Err(Refusal::NoBuild {
+            dependency: dep,
+            os: HostOs::Linux,
+            arch,
+            why,
         });
     }
     let packages = linux(dep, packages)?;
