@@ -75,19 +75,18 @@ fn asked_by(name: &str) -> Asked {
     }
 }
 
-/// How a root step is elevated here: through the OS's prompt, as a setup on a desktop does, where
-/// a Linux desktop session answers pkexec's prompt or `ISOTHRUM_E2E_ELEVATION=pkexec` says polkit
-/// lets this user through without one (a test VM's rule, never a person's computer); else
-/// unattended (`sudo -n`, or as is when root). A Mac's run, over ssh, has no session that could
-/// show macOS's administrator prompt: unattended too, `ISOTHRUM_E2E_ELEVATION=prompt` asking for
-/// the prompt where its owner answers it at the Mac.
+/// How a root step is elevated here, as [`Elevation::here`] chooses: as is when root, `sudo -n`
+/// only where sudo asks no password (a test machine's rule), else the OS's password prompt where a
+/// login session shows it (macOS's at the Mac's screen, pkexec's on a Linux desktop); a run that
+/// can do neither fails saying so. `ISOTHRUM_E2E_ELEVATION=pkexec` (or `prompt`) asks for the
+/// prompt whatever: polkit letting this user through without one (a test VM's rule, never a
+/// person's computer), or the owner answering it at the Mac.
 async fn elevation(cx: &Context) -> Elevation {
-    let desktop = setting("DISPLAY").is_some() || setting("WAYLAND_DISPLAY").is_some();
-    if desktop || matches!(setting("ISOTHRUM_E2E_ELEVATION").as_deref(), Some("pkexec" | "prompt")) {
+    if matches!(setting("ISOTHRUM_E2E_ELEVATION").as_deref(), Some("pkexec" | "prompt")) {
         return Elevation::Prompt;
     }
-    let root = answer(cx, "id", &["-u"]).await.is_some_and(|uid| uid.trim() == "0");
-    Elevation::Unattended { root }
+    let desktop = setting("DISPLAY").is_some() || setting("WAYLAND_DISPLAY").is_some();
+    Elevation::here(cx, desktop).await.unwrap_or_else(|why| panic!("{why}"))
 }
 
 /// The install of `dep` on this computer, as its setup plans it.
