@@ -56,7 +56,7 @@ impl Choices for Here<'_> {
 
     fn fetch_box<'a>(&'a self, p: Provider, name: &'static str, line: &'a (dyn Fn(String) + Send + Sync)) -> BoxFuture<'a, Result<bool, String>> {
         Box::pin(async move {
-            if box_for(self.cx, p).await == (name, true) {
+            if box_for(self.cx, p).await == Some((name, true)) {
                 return Ok(true);
             }
             *self.added.lock().unwrap_or_else(PoisonError::into_inner) = Some(name);
@@ -102,6 +102,10 @@ pub(super) async fn boots_on(provider: Provider) {
     }
     let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
     println!("{said:#?}");
+    if let Err(failed @ hypervisor::Failure::NoTestBox { .. }) = &ran.passed {
+        assert_eq!(ran.cleaned_up, None, "no VM was started");
+        skip!("{failed} (the self-test says so, checked)")
+    }
     if let Err(failed) = &ran.passed {
         panic!("{failed}")
     }

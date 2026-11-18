@@ -15,10 +15,13 @@ const ADD_LIMIT: Duration = Duration::from_secs(1800);
 /// paragraph, ending with what failed (curl's error, the lock another download holds).
 const SAID_LINES: usize = 10;
 
-/// Small public boxes that exist for `p` and `arch`, smallest first.
+/// Small public boxes that exist for `p` and `arch`, smallest first; none where no public box
+/// does. Hyper-V on Arm runs only arm64 generation 2 VMs, and no public Vagrant box is built so
+/// (bento's and generic's Hyper-V boxes are amd64 and generation 1).
 #[must_use]
 pub fn candidate_boxes(p: Provider, arch: Arch) -> &'static [&'static str] {
     match (p, arch) {
+        (Provider::Hyperv, Arch::Arm64) => &[],
         (Provider::Virtualbox | Provider::VmwareDesktop | Provider::Parallels, Arch::Amd64) => &["generic/alpine319", "bento/debian-12"],
         (Provider::Virtualbox | Provider::VmwareDesktop | Provider::Parallels, Arch::Arm64) => &["bento/debian-12"],
         (Provider::Utm, _) => &["utm/bookworm"],
@@ -70,7 +73,7 @@ fn listed(out: &str) -> Vec<Listed> {
 }
 
 /// The CPU's name in a box listing.
-fn arch_name(arch: Arch) -> &'static str {
+pub(super) fn arch_name(arch: Arch) -> &'static str {
     match arch {
         Arch::Amd64 => "amd64",
         Arch::Arm64 => "arm64",
@@ -87,15 +90,16 @@ fn held(list: &str, name: &str, p: Provider, arch: Arch) -> Option<String> {
 }
 
 /// The test box for `p` on this computer: a candidate Vagrant holds already, else the first
-/// candidate; whether it is held.
-pub async fn box_for(cx: &Context, p: Provider) -> (&'static str, bool) {
+/// candidate; whether it is held. None: no box exists for `p` on this computer's CPU.
+pub async fn box_for(cx: &Context, p: Provider) -> Option<(&'static str, bool)> {
     let arch = cx.host.arch;
     let candidates = candidate_boxes(p, arch);
+    let first = *candidates.first()?;
     let list = cx.read_ok("vagrant", &["box", "list"]).await.unwrap_or_default();
-    match candidates.iter().find(|c| held(&list, c, p, arch).is_some()) {
+    Some(match candidates.iter().find(|c| held(&list, c, p, arch).is_some()) {
         Some(c) => (c, true),
-        None => (candidates.first().copied().unwrap_or_default(), false),
-    }
+        None => (first, false),
+    })
 }
 
 /// Adds box `name` for `p` (`vagrant box add --force`), each line Vagrant prints said to `line`;
@@ -173,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn each_provider_and_cpu_has_a_box() {
+    fn each_provider_and_cpu_has_a_box_but_hyperv_on_arm() {
         for p in [
             Provider::Virtualbox,
             Provider::Libvirt,
@@ -183,7 +187,8 @@ mod tests {
             Provider::Hyperv,
         ] {
             for arch in [Arch::Amd64, Arch::Arm64] {
-                assert_ne!(candidate_boxes(p, arch).len(), 0);
+                let none = (p, arch) == (Provider::Hyperv, Arch::Arm64);
+                assert_eq!(candidate_boxes(p, arch).is_empty(), none, "{p:?} on {arch:?}");
             }
         }
         assert_eq!(candidate_boxes(Provider::Virtualbox, Arch::Arm64), ["bento/debian-12"]);
