@@ -211,14 +211,14 @@ fn only_qemu_on_linux_needs_mkisofs_and_only_vmware_desktop_the_utility() {
 
 #[test]
 fn a_hypervisors_probe_is_its_tool_and_qemus_is_for_the_cpu() {
-    assert_eq!(probe_of(Provider::Virtualbox, Arch::Amd64).unwrap().0, "VBoxManage");
-    assert_eq!(probe_of(Provider::VmwareDesktop, Arch::Amd64).unwrap().0, "vmrun");
-    assert_eq!(probe_of(Provider::Parallels, Arch::Arm64).unwrap().0, "prlctl");
-    assert_eq!(probe_of(Provider::Libvirt, Arch::Amd64).unwrap().0, "virsh");
-    assert_eq!(probe_of(Provider::Qemu, Arch::Arm64).unwrap().0, "qemu-system-aarch64");
-    assert_eq!(probe_of(Provider::Qemu, Arch::Amd64).unwrap().0, "qemu-system-x86_64");
+    assert_eq!(hypervisor_probe(Provider::Virtualbox, Arch::Amd64).unwrap().0, "VBoxManage");
+    assert_eq!(hypervisor_probe(Provider::VmwareDesktop, Arch::Amd64).unwrap().0, "vmrun");
+    assert_eq!(hypervisor_probe(Provider::Parallels, Arch::Arm64).unwrap().0, "prlctl");
+    assert_eq!(hypervisor_probe(Provider::Libvirt, Arch::Amd64).unwrap().0, "virsh");
+    assert_eq!(hypervisor_probe(Provider::Qemu, Arch::Arm64).unwrap().0, "qemu-system-aarch64");
+    assert_eq!(hypervisor_probe(Provider::Qemu, Arch::Amd64).unwrap().0, "qemu-system-x86_64");
     for none in [Provider::Hyperv, Provider::Utm, Provider::VmwareEsxi] {
-        assert!(probe_of(none, Arch::Amd64).is_none(), "{none:?}");
+        assert!(hypervisor_probe(none, Arch::Amd64).is_none(), "{none:?}");
     }
 }
 

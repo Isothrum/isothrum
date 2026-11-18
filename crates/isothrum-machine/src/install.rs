@@ -86,7 +86,9 @@ pub struct ToolRow {
     /// Where it exists.
     pub runs: Runs,
     /// The command that proves it installed, when there is one worth trusting (`wsl.exe` ships
-    /// with Windows whether WSL is set up or not; UTM is an app; VMware's utility a service).
+    /// with Windows whether WSL is set up or not; UTM is an app; VMware's utility a service). A
+    /// hypervisor has none here: its provider's ([`crate::providers::hypervisor_probe`]) is the one
+    /// a setup and the provider's detection both read, so they never disagree.
     pub probe: Option<Probe>,
     /// The app bundle that proves it installed on macOS, also before its CLI is on `PATH`.
     pub mac_app: Option<&'static str>,
@@ -150,22 +152,17 @@ impl Dependency {
                 mac_app: Some("/Applications/VirtualBox.app"),
                 ..row(
                     Runs::As(Provider::Virtualbox),
-                    Some(("VBoxManage", &["--version"])),
+                    None,
                     Some("Oracle.VirtualBox"),
                     Some("https://www.virtualbox.org/wiki/Linux_Downloads"),
                 )
             },
-            Dependency::Qemu => row(
-                Runs::As(Provider::Qemu),
-                Some(("qemu-img", &["--version"])),
-                None,
-                Some("https://www.qemu.org/download/"),
-            ),
+            Dependency::Qemu => row(Runs::As(Provider::Qemu), None, None, Some("https://www.qemu.org/download/")),
             Dependency::Utm => ToolRow {
                 mac_app: Some("/Applications/UTM.app"),
                 ..row(Runs::As(Provider::Utm), None, None, None)
             },
-            Dependency::Libvirt => row(Runs::As(Provider::Libvirt), Some(("virsh", &["--version"])), None, Some("https://libvirt.org/")),
+            Dependency::Libvirt => row(Runs::As(Provider::Libvirt), None, None, Some("https://libvirt.org/")),
             Dependency::Awscli => row(ANY, Some(("aws", &["--version"])), Some("Amazon.AWSCLI"), None),
             Dependency::Azurecli => row(ANY, Some(("az", &["version"])), Some("Microsoft.AzureCLI"), None),
             Dependency::Gcloud => row(ANY, Some(("gcloud", &["--version"])), Some("Google.CloudSDK"), None),
@@ -320,7 +317,10 @@ pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
     if mac_app.is_some_and(|a| std::path::Path::new(a).exists()) {
         return Some(true);
     }
-    match row.probe {
+    let probe = dep
+        .hypervisor()
+        .map_or(row.probe, |provider| crate::providers::hypervisor_probe(provider, cx.host.arch));
+    match probe {
         Some((program, args)) => Some(cx.read_ok(program, args).await.is_ok()),
         None if mac_app.is_some() => Some(false),
         None => None,
