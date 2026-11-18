@@ -324,6 +324,12 @@ fn docker_desktop_is_installed_by_its_own_unattended_installer_for_the_user() {
             "hdiutil attach",
             "codesign --verify",
             "spctl --assess",
+            // Checked, then copied where only root writes, its quarantine mark cleared, checked
+            // again, and only then its installer run (from the image, it raised Gatekeeper's
+            // "'(null)' is an app downloaded from the Internet").
+            "ditto",
+            "xattr -dr",
+            "codesign --verify",
             "install --accept-license",
             "codesign --verify",
             "spctl --assess",
@@ -331,6 +337,17 @@ fn docker_desktop_is_installed_by_its_own_unattended_installer_for_the_user() {
             "hdiutil detach"
         ]
     );
+    assert!(log.contains("xattr -dr com.apple.quarantine"), "{log}");
+}
+
+#[cfg(unix)]
+#[test]
+fn docker_desktop_not_signed_by_docker_never_has_its_quarantine_cleared_nor_its_installer_run() {
+    let rig = Rig::new("spctl", DOCKER.team);
+    std::fs::create_dir_all(rig.path("fixture/Docker.app/Contents/MacOS")).unwrap();
+    let (code, err) = rig.root_half(&DOCKER, "abc--Docker.dmg");
+    assert_eq!(code, Some(1), "{err}");
+    assert_eq!(rig.calls(), ["hdiutil attach", "codesign --verify", "spctl --assess", "hdiutil detach"]);
 }
 
 #[cfg(unix)]
