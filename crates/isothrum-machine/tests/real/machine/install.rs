@@ -1,7 +1,10 @@
 //! A tool's install for real, as a setup runs it: the plan this computer's OS and package manager
 //! make ([`install::macos::install`], [`install::linux::install`], [`install::windows::install`]),
-//! each step run through the OS's own trusted flows, then the tool found installed, and a
-//! hypervisor read installed by its provider's detection.
+//! each step run through the OS's own trusted flows, then the tool found installed and doing its
+//! job ([`usable`]): a hypervisor read installed by its provider's detection, Docker's daemon
+//! answering, Vagrant loading its plugins, Terraform validating a configuration, a cloud CLI
+//! reading its configuration, VMware's utility answering. Each tool a setup installs has its test
+//! here: one per cell of the workspace's install matrix.
 //!
 //! An install changes the computer for good, so it only runs where it is asked for:
 //! `ISOTHRUM_E2E_INSTALL` names the tools to install (`docker,vagrant`, or `all`: those a setup
@@ -82,6 +85,15 @@ async fn plan(cx: &Context, dep: Dependency) -> Result<Vec<install::Step>, insta
     }
 }
 
+/// The hypervisor `dep` is for: its own, or VMware's for VMware's utility (a setup installs it
+/// where it offers VMware).
+fn serves(dep: Dependency) -> Option<providers::Provider> {
+    if dep == Dependency::VmwareUtility {
+        return Some(providers::Provider::VmwareDesktop);
+    }
+    dep.hypervisor()
+}
+
 /// Why `dep`'s install isn't tested here, when it isn't: it doesn't run here, it is installed
 /// already (or that can't be told), or it isn't asked for.
 async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
@@ -97,7 +109,7 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
             )),
             // A setup offers a Mac the hypervisor made for its CPU only (UTM on Apple silicon,
             // VirtualBox on Intel): `all` installs what it offers, a name installs that tool.
-            Asked::AmongAll if dep.hypervisor().is_some_and(|p| !providers::offered(p, &cx.host, false)) => Some(format!(
+            Asked::AmongAll if serves(dep).is_some_and(|p| !providers::offered(p, &cx.host, false)) => Some(format!(
                 "{dep:?} isn't offered on this computer's CPU ({:?}); ISOTHRUM_E2E_INSTALL names it to install it anyway",
                 cx.host.arch
             )),
@@ -158,30 +170,81 @@ async fn install(cx: &Context, dep: Dependency) {
     }
 }
 
+/// `program` with `args`, which must succeed: what it printed.
+async fn works(cx: &Context, program: &str, args: &[&str]) -> String {
+    let said = answer(cx, program, args).await;
+    said.unwrap_or_else(|| panic!("`{program} {}` fails once installed", args.join(" ")))
+}
+
 /// What uses `dep` once installed reads it so: a hypervisor its provider's detection, Docker its
-/// engine, started (the only engine a test starts: this one installed it).
+/// engine, started (the only engine a test starts: this one installed it); each other tool doing
+/// what a run asks of it first ([`works_as_a_run_needs`]), so a tool that is there but broken
+/// fails its cell.
 async fn usable(cx: &Context, dep: Dependency) {
+    works_as_a_run_needs(cx, dep).await;
     if let Some(provider) = dep.hypervisor() {
         let status = providers::status(cx, provider).await.expect("offered here");
         println!("{status:#?}");
         assert_eq!(status.hypervisor, Some(true), "{} reads it installed", provider.id());
     }
     if dep == Dependency::Docker {
-        let engine = if cx.host.os == HostOs::Linux { Engine::Native } else { Engine::DockerDesktop };
-        match docker::start_engine(cx, engine, elevation(cx).await, &mut |line| println!("{line}")).await {
-            Ok(()) => {
-                docker::daemon_os(cx).await.expect("its daemon answers");
-            }
-            // Linux: the install added this account to the docker group, which applies from its
-            // next login, as the install said; until then the daemon refuses this session. It
-            // answers that next login: a shell with the group, as one would have.
-            Err(StartFailed::Denied(said)) if providers::groups_pending(cx).await.iter().any(|g| g == "docker") => {
-                println!("the daemon refuses this session until its next login ({said}): asked as that login");
-                let os = answer(cx, "sg", &["docker", "-c", "docker version --format '{{.Server.Os}}'"]).await;
-                assert_eq!(os.as_deref().map(str::trim), Some("linux"), "its daemon answers the next login");
-            }
-            Err(failed) => panic!("the engine installed starts: {failed:?}"),
+        docker_answers(cx).await;
+    }
+}
+
+/// Docker's engine started, its daemon answering this account, or, on Linux right after the
+/// install added the account to the docker group, its next login.
+async fn docker_answers(cx: &Context) {
+    let engine = if cx.host.os == HostOs::Linux { Engine::Native } else { Engine::DockerDesktop };
+    match docker::start_engine(cx, engine, elevation(cx).await, &mut |line| println!("{line}")).await {
+        Ok(()) => {
+            docker::daemon_os(cx).await.expect("its daemon answers");
         }
+        // Linux: the install added this account to the docker group, which applies from its
+        // next login, as the install said; until then the daemon refuses this session. It
+        // answers that next login: a shell with the group, as one would have.
+        Err(StartFailed::Denied(said)) if providers::groups_pending(cx).await.iter().any(|g| g == "docker") => {
+            println!("the daemon refuses this session until its next login ({said}): asked as that login");
+            let os = answer(cx, "sg", &["docker", "-c", "docker version --format '{{.Server.Os}}'"]).await;
+            assert_eq!(os.as_deref().map(str::trim), Some("linux"), "its daemon answers the next login");
+        }
+        Err(failed) => panic!("the engine installed starts: {failed:?}"),
+    }
+}
+
+/// A tool other than a hypervisor or Docker doing what a run asks of it first.
+async fn works_as_a_run_needs(cx: &Context, dep: Dependency) {
+    match dep {
+        // Its Ruby and gems load: what every `vagrant up` needs first.
+        Dependency::Vagrant => {
+            println!("{}", works(cx, "vagrant", &["plugin", "list"]).await);
+        }
+        // It reads and validates a configuration, as a run's `init` and `plan` do first.
+        Dependency::Terraform => {
+            let dir = tempfile::tempdir().expect("a folder");
+            std::fs::write(dir.path().join("main.tf"), "output \"ok\" {\n  value = \"yes\"\n}\n").expect("a configuration");
+            let at = format!("-chdir={}", dir.path().display());
+            works(cx, "terraform", &[&at, "init", "-input=false", "-no-color"]).await;
+            let valid = works(cx, "terraform", &[&at, "validate", "-json"]).await;
+            assert!(valid.contains("\"valid\": true"), "terraform validates a configuration: {valid}");
+        }
+        // Each cloud CLI runs and reads its (empty) configuration: no account needed.
+        Dependency::Awscli => {
+            println!("{}", works(cx, "aws", &["configure", "list"]).await);
+        }
+        Dependency::Azurecli => {
+            let version = works(cx, "az", &["version", "--output", "json"]).await;
+            assert!(version.contains("\"azure-cli\""), "az says its version: {version}");
+        }
+        Dependency::Gcloud => {
+            println!("{}", works(cx, "gcloud", &["config", "list", "--format=json"]).await);
+        }
+        // Its service answers, as VMware's Vagrant plugin needs.
+        Dependency::VmwareUtility => {
+            let state = providers::vmware_utility(&cx.host).await;
+            assert_eq!(state, providers::UtilityState::Running, "the VMware utility's service answers");
+        }
+        _ => {}
     }
 }
 
@@ -235,4 +298,28 @@ async fn utm_is_installed_where_it_is_missing() {
 #[ignore = "real machine: cargo xtask e2e --tier machine"]
 async fn libvirt_is_installed_where_it_is_missing() {
     installs(Dependency::Libvirt).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn awscli_is_installed_where_it_is_missing() {
+    installs(Dependency::Awscli).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn azurecli_is_installed_where_it_is_missing() {
+    installs(Dependency::Azurecli).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn gcloud_is_installed_where_it_is_missing() {
+    installs(Dependency::Gcloud).await;
+}
+
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn vmware_utility_is_installed_where_it_is_missing() {
+    installs(Dependency::VmwareUtility).await;
 }
