@@ -116,6 +116,17 @@ pub struct NoBuild {
 /// Google Cloud CLI on Windows on Arm: Google's Windows installer (the one winget runs) puts no
 /// Python on an Arm64 computer, and the CLI needs one, so its install stops ("you must have
 /// Python installed", the installer's exit code 2). Google lists no Windows Arm64 build.
+/// Vagrant on Linux arm64: HashiCorp ships no Linux arm64 build (its apt repository serves amd64
+/// only), so apt installs the distribution's own (Debian 13: 2.3.7), older than the 2.4.0 a run
+/// needs. Before 2.4.0 Vagrant reads no box's architecture: on an arm64 computer it adds a box's
+/// `x86_64` build (checked: Debian's 2.3.7 on arm64 fetched `cloud-image/debian-13`'s
+/// `libvirt/amd64` box), so every project's VM is of the wrong CPU, and Isothrum refuses it.
+const VAGRANT_NO_BUILD: &[NoBuild] = &[NoBuild {
+    os: HostOs::Linux,
+    arch: Arch::Arm64,
+    why: "HashiCorp ships no Linux arm64 build, and the distribution's Vagrant is older than the 2.4.0 a run needs (an older one adds a box's x86_64 build on an arm64 computer)",
+}];
+
 const GCLOUD_NO_BUILD: &[NoBuild] = &[NoBuild {
     os: HostOs::Windows,
     arch: Arch::Arm64,
@@ -165,12 +176,15 @@ impl Dependency {
                     Some("https://docs.docker.com/engine/install/"),
                 )
             },
-            Dependency::Vagrant => row(
-                ANY,
-                Some(("vagrant", &["--version"])),
-                Some("Hashicorp.Vagrant"),
-                Some("https://developer.hashicorp.com/vagrant/install"),
-            ),
+            Dependency::Vagrant => ToolRow {
+                no_build: VAGRANT_NO_BUILD,
+                ..row(
+                    ANY,
+                    Some(("vagrant", &["--version"])),
+                    Some("Hashicorp.Vagrant"),
+                    Some("https://developer.hashicorp.com/vagrant/install"),
+                )
+            },
             Dependency::Terraform => row(ANY, Some(("terraform", &["version"])), Some("Hashicorp.Terraform"), None),
             Dependency::Virtualbox => ToolRow {
                 mac_app: Some("/Applications/VirtualBox.app"),
@@ -385,7 +399,7 @@ pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, eleva
                 elevation,
                 proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
             };
-            linux::install(dep, host.packages, user, &root)
+            linux::install(dep, host.packages, host.arch, user, &root)
         }
     }
 }

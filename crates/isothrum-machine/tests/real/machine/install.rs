@@ -87,7 +87,7 @@ async fn plan(cx: &Context, dep: Dependency) -> Result<Vec<install::Step>, insta
                 elevation: elevation(cx).await,
                 proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
             };
-            install::linux::install(dep, cx.host.packages, setting("USER").as_deref(), &root)
+            install::linux::install(dep, cx.host.packages, cx.host.arch, setting("USER").as_deref(), &root)
         }
     }
 }
