@@ -86,6 +86,8 @@ const UP: &str = "docker compose -p stack -f * up --detach --wait --remove-orpha
 const PULL: &str = "docker compose -p stack -f * pull --ignore-buildable";
 /// The config a project of no published port prints: nothing to pin.
 const CONFIG: &str = "docker compose -p stack -f * config --format json";
+/// The engine asked once a call failed in words that leave its state open.
+const ENGINE_ASKED: &str = "docker version --format {{.Server.Version}}";
 const NO_PORTS: &str = r#"{"services": {"web": {}}}"#;
 const LABEL: &str = "label=com.docker.compose.project=stack";
 

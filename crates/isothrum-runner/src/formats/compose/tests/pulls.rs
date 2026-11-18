@@ -88,6 +88,7 @@ async fn a_pull_the_network_cut_short_is_tried_again_and_one_refused_never() {
     let always = FakeProcesses::script()
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .expect_times(PULL, 3, Reply::fail(1, reset))
+        .expect_times(ENGINE_ASKED, 3, Reply::ok("29.9.3"))
         .build();
     let (cut, _) = start(&always).await;
     assert_eq!(cut.expect_err("cut short every time").code(), crate::ErrorCode::DownloadFailed);
@@ -104,4 +105,21 @@ async fn a_pull_the_network_cut_short_is_tried_again_and_one_refused_never() {
         "{refusal:?}"
     );
     assert!(said.is_empty(), "never tried again: {said:?}");
+}
+
+/// A pull cut short while the engine doesn't answer (Docker Desktop quitting) isn't tried again:
+/// no wait brings a stopped engine back. The step is `tool_unanswered`, and nothing waited.
+#[tokio::test(start_paused = true)]
+async fn a_pull_cut_short_by_a_silent_engine_is_said_unanswered_and_not_tried_again() {
+    let cut = "request returned 502 Bad Gateway for API route and version http://%2Fvar%2Frun%2Fdocker.sock/v1.56/images/create";
+    let quitting = FakeProcesses::script()
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+        .expect(PULL, Reply::fail(1, cut))
+        .expect(ENGINE_ASKED, Reply::fail(1, "failed to connect to the docker API"))
+        .build();
+    let started = tokio::time::Instant::now();
+    let (down, warned) = start(&quitting).await;
+    assert_eq!(down.expect_err("engine down").code(), crate::ErrorCode::ToolUnanswered);
+    assert!(warned.is_empty(), "no retry was announced: {warned:?}");
+    assert!(started.elapsed() < RETRY_AFTER[0], "it didn't wait for a retry");
 }

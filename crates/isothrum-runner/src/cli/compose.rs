@@ -298,6 +298,15 @@ pub(crate) async fn services(call: &Call<'_>, project: &Project<'_>) -> Result<V
     Ok(out.stdout.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect())
 }
 
+/// Whether the engine answers this account now: `docker version`'s server part. Asked after a
+/// call failed in words that leave the engine's state open, since a stopped engine is said
+/// differently by each Docker (`Cannot connect to the Docker daemon` up to 28, `failed to connect
+/// to the docker API` since 29) and at each moment of its quitting (Docker Desktop's socket
+/// answering `502 Bad Gateway` for the engine's API while it shuts down).
+pub(crate) async fn engine_answers(call: &Call<'_>) -> bool {
+    call.ok(TOOL, argv(["version", "--format", "{{.Server.Version}}"]), Failure::of).await.is_ok()
+}
+
 /// The oldest Compose the adapter drives (`ps --format json` one object per line from 2.21 is
 /// read too, `--wait` and profiles need 2.17).
 pub(crate) const MIN_VERSION: &str = "2.17.0";

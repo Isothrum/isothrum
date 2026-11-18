@@ -1,6 +1,37 @@
 //! Compose's failures the runner names by their code: the engine's own.
 
-use super::{CliError, Error, Failure, tool_error};
+use std::time::Duration;
+
+use super::{CliError, Error, Failure, ToolCx, tool_error};
+use crate::cli::compose;
+
+/// How long the engine is given to answer once a call failed in words that leave its state open.
+pub(super) const ASK_ENGINE: Duration = Duration::from_secs(10);
+
+/// `result`'s failure as `to` says it, the engine asked first where Docker's words leave its
+/// state open (a failure read as no other, or a pull read as cut short): one that doesn't answer
+/// makes it [`Failure::EngineDown`], whatever the words. A failure that names what the engine
+/// refused (a taken port, a pool overlap) came from an engine that answered: it isn't asked.
+pub(super) async fn checked<T>(cx: &ToolCx<'_>, result: Result<T, CliError<Failure>>, to: impl FnOnce(CliError<Failure>) -> Error) -> crate::Result<T> {
+    let e = match result {
+        Ok(v) => return Ok(v),
+        Err(e) => e,
+    };
+    let open = match &e {
+        CliError::Failed {
+            failure: Failure::Other(reason) | Failure::PullTransient(reason),
+            ..
+        } => Some(reason.clone()),
+        _ => None,
+    };
+    match open {
+        Some(reason) if !compose::engine_answers(&cx.read(ASK_ENGINE)).await => Err(to(CliError::Failed {
+            tool: "docker",
+            failure: Failure::EngineDown(reason),
+        })),
+        _ => Err(to(e)),
+    }
+}
 
 /// A Compose call's failure as the runner says it: the engine not answering (stopped, or quit
 /// while the step ran) `tool_unanswered`, refusing this account `tool_denied`, a network's address
