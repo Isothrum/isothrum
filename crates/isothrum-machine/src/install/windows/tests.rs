@@ -33,9 +33,21 @@ fn windows_on_arm_is_refused_the_hypervisors_not_built_for_it() {
             Dependency::VmwareUtility => Some(Provider::VmwareDesktop),
             other => other.hypervisor(),
         };
-        let refused = served.is_some_and(|p| !ProviderRow::of(p).windows_on_arm);
+        let refused = served.is_some_and(|p| !ProviderRow::of(p).windows_on_arm) || dep.no_build(HostOs::Windows, Arch::Arm64).is_some();
         assert_eq!(install(dep, Arch::Arm64).is_err(), refused, "{dep:?}");
     }
+    // Regression: winget's Google Cloud CLI installer exited 2 on Windows 11 Arm64, its install
+    // stopping for want of a Python it doesn't bring there.
+    assert!(matches!(
+        install(Dependency::Gcloud, Arch::Arm64).unwrap_err(),
+        Refusal::NoBuild {
+            dependency: Dependency::Gcloud,
+            os: HostOs::Windows,
+            arch: Arch::Arm64,
+            ..
+        }
+    ));
+    assert_eq!(install(Dependency::Gcloud, Arch::Amd64).unwrap()[0].program, "winget");
     assert_eq!(
         install(Dependency::Virtualbox, Arch::Arm64).unwrap_err(),
         Refusal::NotOnWindowsOnArm {

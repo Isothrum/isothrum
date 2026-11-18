@@ -256,6 +256,10 @@ Terraform), usable on any project of those formats.
   install on a computer without VMware, where its Windows installer exits 1603 and its Linux
   service never answers; it now reads `Plan::After` VMware (`Dependency::serves`).
 
+- **Google Cloud CLI isn't offered on Windows on Arm.** Google's installer brings no Python there,
+  which the CLI needs, so winget's install exited 2. Tool rows now say where their vendor ships no
+  build (`ToolRow::no_build`), refused with its reason (`Refusal::NoBuild`).
+
 - **QEMU reads as installed only when its emulator is.** A setup read QEMU installed from
   `qemu-img` (qemu-utils, which many images carry) while the provider's detection looked for
   `qemu-system-<arch>`: QEMU was then neither installed by the setup nor usable. A hypervisor's

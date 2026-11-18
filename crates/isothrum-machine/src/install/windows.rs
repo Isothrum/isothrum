@@ -30,9 +30,18 @@ const WSL_ON: &str = "try { $p = Start-Process -FilePath wsl.exe -ArgumentList '
 /// [`NOT_SERVED`](super::steps::NOT_SERVED) (69), for a UI to word.
 const HYPERV_ON: &str = "if ((Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion').EditionID -like 'Core*') { exit 69 }; try { $p = Start-Process -FilePath dism.exe -ArgumentList '/Online','/Enable-Feature','/FeatureName:Microsoft-Hyper-V','/All','/NoRestart','/Quiet' -Verb RunAs -Wait -PassThru; if ($p.ExitCode -eq 3010) { exit 0 }; exit $p.ExitCode } catch { exit 1223 }";
 
-/// Why `dep` isn't installed on a CPU `arch`: on Windows on Arm, the hypervisor it is or serves
-/// (VMware's utility serves VMware Workstation) isn't built for it ([`ProviderRow::of`]).
+/// Why `dep` isn't installed on a CPU `arch`: its vendor ships no build for Windows on it
+/// ([`Dependency::no_build`]); on Windows on Arm, the hypervisor it is or serves (VMware's utility
+/// serves VMware Workstation) isn't built for it ([`ProviderRow::of`]).
 fn not_on_arm(dep: Dependency, arch: Arch) -> Option<Refusal> {
+    if let Some(why) = dep.no_build(HostOs::Windows, arch) {
+        return Some(Refusal::NoBuild {
+            dependency: dep,
+            os: HostOs::Windows,
+            arch,
+            why,
+        });
+    }
     let provider = dep.serves().or_else(|| dep.hypervisor())?;
     (arch == Arch::Arm64 && !ProviderRow::of(provider).windows_on_arm).then_some(Refusal::NotOnWindowsOnArm { dependency: dep, provider })
 }
