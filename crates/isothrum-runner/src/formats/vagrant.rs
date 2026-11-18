@@ -101,6 +101,14 @@ fn dot(cx: &ToolCx<'_>) -> Dotfile {
     Dotfile::in_state(cx.state_dir)
 }
 
+/// How a start's `up` provisions: as Vagrant does by default on a run with no VM yet, and
+/// always (`--provision`) once one is recorded, made by a start that didn't end well (killed,
+/// its machine still booting, a provisioner failed). Vagrant marks a machine provisioned before
+/// its provisioners run, so its default would skip the set-up that start never finished.
+fn up_provision(cx: &ToolCx<'_>) -> Result<Provision> {
+    Ok(if dot(cx).recorded()?.is_empty() { Provision::Default } else { Provision::Yes })
+}
+
 /// The provider asked for, refused when there is none.
 fn asked(cx: &ToolCx<'_>) -> Result<Provider> {
     cx.provider.ok_or_else(|| Error::NoProvider {
@@ -269,7 +277,7 @@ impl FormatDriver for Vagrant {
         let provider = asked(cx)?;
         crate::store::create_dir(cx.state_dir)?;
         self.preamble(cx, provider).await?;
-        self.up_recovering(cx, "up", Provision::Default, &[]).await
+        self.up_recovering(cx, "up", up_provision(cx)?, &[]).await
     }
 
     async fn down(&self, cx: &ToolCx<'_>) -> Result<()> {

@@ -242,6 +242,12 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A Vagrant start after one that didn't end well provisions the machines it takes over.** Vagrant
+  marks a machine provisioned before its provisioners run, so a start killed while it booted or
+  provisioned a VM, or one whose machine was still booting when its set-up began, left the next
+  `up` skipping that machine's set-up: the run came up without it. Once a VM of the run is
+  recorded, a start runs `up --provision`; a fresh run's start provisions as Vagrant does.
+
 - **The hypervisor self-test asks VMware's `vmrun` (and Parallels' `prlctl`) where its app installs
   it when it isn't on `PATH`.** Detection found it there and read the hypervisor ready, then the
   test's hypervisor step failed (`vmrun` "isn't installed or isn't on PATH") for a caller whose
