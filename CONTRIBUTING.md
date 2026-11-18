@@ -208,7 +208,10 @@ runs are separate and opt-in:
   `pass`, `fail` or `skip`, `reason`, `seconds`, `log`), its log beside the file. On a machine
   without Rust's toolchain (a test VM), `--exe <file>` runs the `real` tests' executable built
   elsewhere (`cargo test --no-run`, cross-built for Windows) in place of `cargo test`, and the
-  xtask built for that machine runs them.
+  xtask built for that machine runs them. `cargo xtask e2e --list` (`--tier` for one tier) prints
+  each test a tier has, a JSON line each (`suite`, `tier`, `case`), read from their sources without
+  building anything: what a matrix of what is tested reads. A run fails when that list and the
+  harness's disagree.
 - The manual *Cert — real runner* workflow (`real-runner.yml`) runs Proxmox and AWS from CI, when
   its runner and secrets are configured.
 

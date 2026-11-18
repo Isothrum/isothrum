@@ -9,6 +9,12 @@
 //! On a machine without Rust's toolchain (a test VM), `--exe` names the `real` tests' executable,
 //! built elsewhere (`cargo test --no-run`), which runs in place of `cargo test`.
 //!
+//! `--list` prints each test a tier has, a JSON line each (`{"suite":"e2e","tier":…,"case":…}`, as
+//! its record names it), without building or running anything: read from the tests' sources (a
+//! `#[ignore = "real …"]` test of `tests/real/<tier>/<module>.rs`), so a matrix of what is tested
+//! knows each test on any computer. A run checks that list against the harness's own, so the two
+//! can't drift.
+//!
 //! The installs run first (`<tier>::install::`): what they install stays, and the tests after them
 //! run on it. An install a restart finishes (Hyper-V, WSL 2) says so (a line [`RESTART`] starts):
 //! the run stops there, keeps where it is in a file beside the logs ([`Resume`]) and exits
@@ -66,9 +72,12 @@ impl Tier {
 /// The arguments of `e2e`.
 #[derive(Debug, clap::Args)]
 pub(crate) struct Args {
-    /// The tier to run.
-    #[arg(long, value_enum)]
-    tier: Tier,
+    /// The tier to run (with `--list`, the tier listed; both without it).
+    #[arg(long, value_enum, required_unless_present = "list")]
+    tier: Option<Tier>,
+    /// Print each test of the tier, a JSON line each, without building or running anything.
+    #[arg(long)]
+    pub(crate) list: bool,
     /// The file each test's result is appended to, a JSON line each; its logs go beside it
     /// (default: the build folder's `e2e/`, no results file).
     #[arg(long)]
@@ -79,6 +88,46 @@ pub(crate) struct Args {
     exe: Option<PathBuf>,
     /// Only the tests whose name holds this.
     filter: Option<String>,
+}
+
+impl Args {
+    /// The tier a run runs: clap asks for one unless the tests are only listed.
+    fn tier(&self) -> Tier {
+        self.tier.unwrap_or(Tier::Machine)
+    }
+}
+
+/// `--list`: each test of `a`'s tier (of both without one), a JSON line each, read from the
+/// sources; nothing built or run.
+pub(crate) fn list(a: &Args) -> Res<std::process::ExitCode> {
+    let real = repo::root().join(REAL);
+    for one in a.tier.map_or(vec![Tier::Machine, Tier::Server], |t| vec![t]) {
+        for case in source_cases(&real, one)? {
+            println!("{}", serde_json::json!({"suite": "e2e", "tier": one.name(), "case": case}));
+        }
+    }
+    Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// Fails unless the sources' list of `tier` (`--list`) is the harness's (`listed`): a test it
+/// missed would be a test a matrix of what is tested can't see.
+fn same_as_sources(root: &Path, tier: Tier, listed: &str) -> Res<()> {
+    let prefix = format!("{}::", tier.name());
+    let mut harnessed: Vec<String> = tier_tests(listed, tier, None)
+        .iter()
+        .map(|t| t.strip_prefix(&prefix).unwrap_or(t).to_owned())
+        .collect();
+    let mut read = source_cases(&root.join(REAL), tier)?;
+    harnessed.sort();
+    read.sort();
+    if harnessed == read {
+        return Ok(());
+    }
+    Err(format!(
+        "`--list` reads other {} tests than the harness lists: {read:?} against {harnessed:?}",
+        tier.name()
+    )
+    .into())
 }
 
 /// How a test ended.
@@ -92,15 +141,19 @@ struct Outcome {
 /// test that asks for a restart ([`RESTART_EXIT`]), and carries on from it at the next run.
 pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
     let root = repo::root();
+    let tier = a.tier();
     if a.exe.is_none() {
         process::run(real_tests(&root).arg("--no-run"))?;
     }
     let listed = process::output(&mut harness(&root, a.exe.as_deref(), &["--ignored", "--list", "--format", "terse"]))?;
-    let tests = tier_tests(&listed, a.tier, a.filter.as_deref());
+    let tests = tier_tests(&listed, tier, a.filter.as_deref());
+    if a.exe.is_none() {
+        same_as_sources(&root, tier, &listed)?;
+    }
     if tests.is_empty() {
         return Err(format!(
             "no {} test{}",
-            a.tier.name(),
+            tier.name(),
             a.filter.as_ref().map(|f| format!(" matches {f}")).unwrap_or_default()
         )
         .into());
@@ -110,14 +163,14 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         None => repo::target_dir(&root).join("e2e"),
     };
     std::fs::create_dir_all(&logs).map_err(|e| format!("{}: {e}", logs.display()))?;
-    let state = logs.join(format!("isothrum-e2e-{}.resume.json", a.tier.name()));
+    let state = logs.join(format!("isothrum-e2e-{}.resume.json", tier.name()));
     let mut resume = Resume::read(&state)?;
     if let Some(case) = &resume.resume {
         println!("carrying on after a restart, from {case}");
     }
     let mut failed = 0;
     for test in resume.order(&tests) {
-        let case = test.strip_prefix(&format!("{}::", a.tier.name())).unwrap_or(&test);
+        let case = test.strip_prefix(&format!("{}::", tier.name())).unwrap_or(&test);
         let ran = run_test(a, &root, &logs, case, resume.resume.as_deref() == Some(case))?;
         if ran.outcome.result == "restart" {
             println!("RESTART {case}: {}", ran.outcome.reason);
@@ -143,16 +196,17 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(format!("{}: {e}", state.display()).into()),
         _ => {}
     }
-    println!("{} tier: {} run, {failed} failed", a.tier.name(), tests.len());
+    println!("{} tier: {} run, {failed} failed", tier.name(), tests.len());
     Ok(process::exit_code(failed == 0))
 }
 
 /// Runs test `case` of the tier alone, its output in a log of its own in `logs`; `resumed`: it asked
 /// for the restart the computer has since made. A resumed test asking for one again fails.
 fn run_test<'a>(a: &Args, root: &Path, logs: &Path, case: &'a str, resumed: bool) -> Res<Ran<'a>> {
-    let log = logs.join(format!("isothrum-{}-{}.log", a.tier.name(), case.replace("::", ".")));
+    let tier = a.tier();
+    let log = logs.join(format!("isothrum-{}-{}.log", tier.name(), case.replace("::", ".")));
     let start = Instant::now();
-    let test = format!("{}::{case}", a.tier.name());
+    let test = format!("{}::{case}", tier.name());
     let mut cmd = harness(root, a.exe.as_deref(), &["--ignored", "--exact", "--nocapture", &test]);
     if resumed {
         cmd.env(RESUMED, "1");
@@ -166,7 +220,7 @@ fn run_test<'a>(a: &Args, root: &Path, logs: &Path, case: &'a str, resumed: bool
         };
     }
     Ok(Ran {
-        tier: a.tier,
+        tier,
         case,
         outcome,
         seconds: start.elapsed().as_secs(),
@@ -221,6 +275,45 @@ fn real_tests(root: &Path) -> Command {
     let mut cmd = process::cargo(root);
     cmd.args(["test", "-q", "-p", "isothrum-machine", "--test", "real"]);
     cmd
+}
+
+/// Where the `real` tests' sources are, from the workspace's root.
+const REAL: &str = "crates/isothrum-machine/tests/real";
+
+/// The tier's tests, as `<module>::<test>`, read from their sources in `real`: each function
+/// after an `#[ignore = "real …"]` in `<tier>/<module>.rs`, by module in name order, each in the
+/// order written.
+fn source_cases(real: &Path, tier: Tier) -> Res<Vec<String>> {
+    let dir = real.join(tier.name());
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+        .collect();
+    files.sort();
+    let mut cases = Vec::new();
+    for file in files {
+        let module = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_owned();
+        let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        cases.extend(ignored_tests(&text).into_iter().map(|name| format!("{module}::{name}")));
+    }
+    Ok(cases)
+}
+
+/// The functions of `source` that follow an `#[ignore = "real …"]`, in order.
+fn ignored_tests(source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut ignored = false;
+    for line in source.lines().map(str::trim) {
+        if line.starts_with("#[ignore = \"real ") {
+            ignored = true;
+        } else if ignored && let Some((_, after)) = line.split_once("fn ") {
+            let name: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            names.push(name);
+            ignored = false;
+        }
+    }
+    names
 }
 
 /// The `real` tests' harness with its own arguments `args`: `exe` when given, else `cargo test`.
@@ -339,6 +432,32 @@ fn append(file: &Path, ran: &Ran<'_>) -> Res<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_list_is_each_function_after_a_real_ignore_by_module() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("server")).unwrap();
+        let ssh = "/// Keys.\n#[tokio::test]\n#[ignore = \"real server: cargo xtask e2e --tier server\"]\nasync fn keys_are_confirmed() {}\n\nfn helper() {}\n#[test]\n#[ignore = \"real server\"]\nfn a_password() {}\n";
+        std::fs::write(dir.path().join("server/ssh.rs"), ssh).unwrap();
+        std::fs::write(
+            dir.path().join("server/esxi.rs"),
+            "#[ignore = \"slow\"]\nfn not_real() {}\n#[ignore = \"real server\"]\nasync fn a_vm() {}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("server/notes.txt"), "#[ignore = \"real server\"]\nfn no() {}\n").unwrap();
+        assert_eq!(
+            source_cases(dir.path(), Tier::Server).unwrap(),
+            ["esxi::a_vm", "ssh::keys_are_confirmed", "ssh::a_password"]
+        );
+    }
+
+    #[test]
+    fn the_workspaces_real_tests_are_listed() {
+        let real = repo::root().join(REAL);
+        let machine = source_cases(&real, Tier::Machine).unwrap();
+        assert!(machine.iter().any(|c| c == "install::docker_is_installed_where_it_is_missing"), "{machine:?}");
+        assert!(source_cases(&real, Tier::Server).unwrap().iter().any(|c| c.starts_with("ssh::")));
+    }
 
     #[test]
     fn a_tiers_tests_are_those_of_its_module_filtered_by_name() {
