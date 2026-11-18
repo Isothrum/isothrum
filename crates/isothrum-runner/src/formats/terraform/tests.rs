@@ -155,6 +155,11 @@ fn failing(stdout: &str) -> Reply {
     Reply { code: 1, ..Reply::ok(stdout) }
 }
 
+/// `file` as the run's `ssh` options name it: with `/` (Windows' OpenSSH reads it as `\`).
+fn ssh_named(file: &std::path::Path) -> String {
+    file.to_string_lossy().replace('\\', "/")
+}
+
 /// The calls made, as `program arg…` lines with the run's state folder written `<state>` and the
 /// paths under it with `/` (Windows joins them with `\\`).
 fn made(fake: &FakeProcesses, stack: &Stack) -> Vec<String> {

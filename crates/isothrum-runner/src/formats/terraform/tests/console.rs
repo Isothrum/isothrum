@@ -195,6 +195,7 @@ async fn a_command_through_a_jump_whose_known_hosts_the_run_gives_checks_it_ther
     let file = known.path().join("nodes_known_hosts");
     std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
     let path = file.to_string_lossy().into_owned();
+    let named = ssh_named(&file);
     let fake = FakeProcesses::script()
         .expect("terraform show -json -no-color", Reply::ok(&web_behind_a_router()))
         .expect("terraform output -json -no-color", Reply::ok(ROUTER_OUTPUTS))
@@ -209,10 +210,10 @@ async fn a_command_through_a_jump_whose_known_hosts_the_run_gives_checks_it_ther
     let proxy = ssh.args.iter().find_map(|a| a.strip_prefix("ProxyCommand=")).expect("a ProxyCommand");
     let (router, node) = proxy.split_once("ProxyCommand=").expect("the node a level down");
     assert!(
-        node.contains(&path) && node.contains("StrictHostKeyChecking=yes"),
+        node.contains(&named) && node.contains("StrictHostKeyChecking=yes"),
         "the node against the file: {proxy}"
     );
-    assert!(!router.contains(&path), "the router against the run's own: {proxy}");
+    assert!(!router.contains(&named), "the router against the run's own: {proxy}");
     assert!(!stack.state.path().join(crate::ssh::KNOWN_HOSTS).exists(), "nothing pinned for the node");
 }
 
