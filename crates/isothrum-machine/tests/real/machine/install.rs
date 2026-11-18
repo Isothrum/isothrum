@@ -106,6 +106,12 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     if !dep.runs_on(cx.host.os) {
         return Some(format!("{dep:?} doesn't run on {}", os_name(cx.host.os)));
     }
+    // VMware's utility serves VMware, and its Windows installer refuses to run without
+    // Workstation (1603: "requires a valid installation of VMware Workstation"): a setup installs
+    // it for VMware once VMware is installed, never before.
+    if dep == Dependency::VmwareUtility && providers::status(cx, Provider::VmwareDesktop).await.and_then(|s| s.hypervisor) != Some(true) {
+        return Some("VmwareUtility serves VMware, which isn't installed here (its vendor's download): a setup installs it once VMware is".into());
+    }
     match install::present(cx, dep).await {
         Some(true) => Some(format!("{dep:?} is installed here already: an install is tested on a machine without it")),
         None => Some(format!("whether {dep:?} is installed can't be told here")),
