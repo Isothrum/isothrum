@@ -103,6 +103,9 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     if !dep.runs_on(cx.host.os) {
         return Some(format!("{dep:?} doesn't run on {}", os_name(cx.host.os)));
     }
+    if let Some(why) = dep.no_build(cx.host.os, cx.host.arch) {
+        return Some(format!("{dep:?} isn't offered on {} {:?}: {why}", os_name(cx.host.os), cx.host.arch));
+    }
     // A tool that serves a hypervisor (VMware's utility serves VMware: its Windows installer
     // refuses to run without Workstation, its Linux service doesn't answer) is installed once
     // that hypervisor is, never before: a setup plans it after it.

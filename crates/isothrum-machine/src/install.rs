@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::context::Context;
-use crate::host::{ALL_OSES, HostOs};
+use crate::host::{ALL_OSES, Arch, HostOs};
 use crate::providers::{Provider, ProviderRow};
 
 pub mod brew;
@@ -97,7 +97,30 @@ pub struct ToolRow {
     /// Where its user installs it themselves when the setup can't (a Linux distribution without
     /// apt or dnf).
     pub own_url: Option<&'static str>,
+    /// Where it runs, the CPUs its vendor ships no build for that a setup installs, each with the
+    /// vendor's reason: refused there ([`Refusal::NoBuild`]), never offered.
+    pub no_build: &'static [NoBuild],
 }
+
+/// An OS and CPU a tool's vendor ships no build for that a setup installs, and why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoBuild {
+    /// The OS.
+    pub os: HostOs,
+    /// The CPU.
+    pub arch: Arch,
+    /// Why, as its vendor has it.
+    pub why: &'static str,
+}
+
+/// Google Cloud CLI on Windows on Arm: Google's Windows installer (the one winget runs) puts no
+/// Python on an Arm64 computer, and the CLI needs one, so its install stops ("you must have
+/// Python installed", the installer's exit code 2). Google lists no Windows Arm64 build.
+const GCLOUD_NO_BUILD: &[NoBuild] = &[NoBuild {
+    os: HostOs::Windows,
+    arch: Arch::Arm64,
+    why: "Google ships no Windows on Arm build: its installer brings no Python there, which the CLI needs",
+}];
 
 impl Dependency {
     /// Every tool, in the setup's order.
@@ -129,6 +152,7 @@ impl Dependency {
                 mac_app: None,
                 winget,
                 own_url,
+                no_build: &[],
             }
         }
         match self {
@@ -165,7 +189,10 @@ impl Dependency {
             Dependency::Libvirt => row(Runs::As(Provider::Libvirt), None, None, Some("https://libvirt.org/")),
             Dependency::Awscli => row(ANY, Some(("aws", &["--version"])), Some("Amazon.AWSCLI"), None),
             Dependency::Azurecli => row(ANY, Some(("az", &["version"])), Some("Microsoft.AzureCLI"), None),
-            Dependency::Gcloud => row(ANY, Some(("gcloud", &["--version"])), Some("Google.CloudSDK"), None),
+            Dependency::Gcloud => ToolRow {
+                no_build: GCLOUD_NO_BUILD,
+                ..row(ANY, Some(("gcloud", &["--version"])), Some("Google.CloudSDK"), None)
+            },
             Dependency::Wsl => row(Runs::On(&[HostOs::Windows]), None, None, None),
             Dependency::VmwareUtility => row(ANY, None, None, Some("https://developer.hashicorp.com/vagrant/install/vmware")),
             Dependency::Hyperv => row(Runs::As(Provider::Hyperv), None, None, None),
@@ -197,6 +224,13 @@ impl Dependency {
             Runs::As(provider) => Some(provider),
             Runs::On(_) => None,
         }
+    }
+
+    /// Why its vendor ships no build of it for `os` on `arch` that a setup installs, when it
+    /// doesn't ([`ToolRow::no_build`]).
+    #[must_use]
+    pub fn no_build(self, os: HostOs, arch: Arch) -> Option<&'static str> {
+        self.row().no_build.iter().find(|n| n.os == os && n.arch == arch).map(|n| n.why)
     }
 
     /// Whether it exists on `os`: a hypervisor where its provider's row says, the rest by its own
@@ -295,6 +329,17 @@ pub enum Refusal {
         /// The hypervisor.
         provider: Provider,
     },
+    /// Its vendor ships no build for this OS and CPU that a setup installs ([`ToolRow::no_build`]).
+    NoBuild {
+        /// The tool.
+        dependency: Dependency,
+        /// The OS.
+        os: HostOs,
+        /// The CPU.
+        arch: Arch,
+        /// Why, as its vendor has it.
+        why: &'static str,
+    },
     /// The private file a root step's proxy settings go through couldn't be written: what the OS
     /// said.
     PrivateFile(String),
@@ -309,6 +354,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NoHomebrew | Refusal::HomebrewNeeded => f.write_str("Homebrew isn't installed"),
             Refusal::WindowsFeature { dependency } => write!(f, "{dependency:?} is turned off in Windows Features"),
             Refusal::NotOnWindowsOnArm { dependency, .. } => write!(f, "{dependency:?} doesn't run on Windows on Arm"),
+            Refusal::NoBuild { dependency, os, arch, why } => write!(f, "{dependency:?} isn't offered on {} {arch:?}: {why}", crate::host::os_name(*os)),
             Refusal::NoVirtualboxImage => f.write_str("VirtualBox's installer image is needed to run its uninstaller"),
             Refusal::PrivateFile(why) => write!(f, "a root step's private file couldn't be written: {why}"),
         }
