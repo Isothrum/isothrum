@@ -252,6 +252,10 @@ Terraform), usable on any project of those formats.
   (`tool_path::refreshed_value`): Vagrant's plugin step right after Vagrant's install failed with
   `vagrant` missing.
 
+- **VMware's utility is planned after VMware, never before.** `requirements::needs` planned its
+  install on a computer without VMware, where its Windows installer exits 1603 and its Linux
+  service never answers; it now reads `Plan::After` VMware (`Dependency::serves`).
+
 - **QEMU reads as installed only when its emulator is.** A setup read QEMU installed from
   `qemu-img` (qemu-utils, which many images carry) while the provider's detection looked for
   `qemu-system-<arch>`: QEMU was then neither installed by the setup nor usable. A hypervisor's

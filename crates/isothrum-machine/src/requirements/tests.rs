@@ -268,3 +268,43 @@ async fn the_ovf_tool_is_found_on_the_path_given_else_fetched_by_hand() {
     assert_eq!(found[0].present, Some(true), "{found:?}");
     assert!(found[0].plan.is_none());
 }
+
+/// Regression: VMware's utility was planned as an install on a computer without VMware, so a run
+/// that installs what it needs ran it first: its Windows installer exits 1603 ("requires a valid
+/// installation of VMware Workstation"), and on Linux its service never answers. It comes after
+/// VMware, which its user gets from its vendor.
+#[tokio::test(start_paused = true)]
+async fn vmwares_utility_comes_after_vmware_which_its_user_gets_first() {
+    let root = tempfile::tempdir().unwrap();
+    let (cx, _fake) = on(apt_host(root.path()), |call| match call.line().as_str() {
+        "vagrant --version" => Reply::ok("Vagrant 2.4.9"),
+        "vagrant plugin list --machine-readable" => Reply::ok(""),
+        _ => Reply::missing(),
+    });
+    let found = needs(&cx, &Uses::vagrant(Provider::VmwareDesktop).requirements(), &Asking::default()).await;
+    let utility = found.iter().find(|n| n.requirement == tool(Dependency::VmwareUtility)).unwrap();
+    assert!(utility.missing(), "{utility:?}");
+    assert!(
+        matches!(
+            utility.plan,
+            Some(Plan::After {
+                requirement: Requirement::Hypervisor {
+                    provider: Provider::VmwareDesktop
+                }
+            })
+        ),
+        "{utility:?}"
+    );
+    let vmware = found
+        .iter()
+        .find(|n| {
+            n.requirement
+                == Requirement::Hypervisor {
+                    provider: Provider::VmwareDesktop,
+                }
+        })
+        .unwrap();
+    assert!(matches!(vmware.plan, Some(Plan::ByHand { .. })), "VMware from its vendor first: {vmware:?}");
+    assert_eq!(Dependency::VmwareUtility.serves(), Some(Provider::VmwareDesktop));
+    assert!(Dependency::ALL.iter().all(|d| *d == Dependency::VmwareUtility || d.serves().is_none()));
+}

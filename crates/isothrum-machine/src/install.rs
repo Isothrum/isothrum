@@ -178,6 +178,18 @@ impl Dependency {
         Dependency::ALL.into_iter().find(|d| d.hypervisor() == Some(provider))
     }
 
+    /// The hypervisor it serves without being it, when it does: VMware's utility serves VMware
+    /// Workstation (or Fusion), whose installer it needs first (Windows' MSI refuses to run
+    /// without it, exiting 1603; on Linux its service doesn't answer). A setup installs it once
+    /// that hypervisor is installed, never before ([`crate::requirements::Plan::After`]).
+    #[must_use]
+    pub fn serves(self) -> Option<Provider> {
+        match self {
+            Dependency::VmwareUtility => Some(Provider::VmwareDesktop),
+            _ => None,
+        }
+    }
+
     /// The hypervisor it is, when it is one.
     #[must_use]
     pub fn hypervisor(self) -> Option<Provider> {
