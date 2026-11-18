@@ -13,6 +13,11 @@
 //! here never piles up in the developer's temp folder. The folder goes at the end, unless
 //! `ISOTHRUM_KEEP_TEMP` is set: then it stays, and its path is printed, to look into what a test
 //! left.
+//!
+//! That folder is the tests' alone, never the compiler wrapper's: the tests are built first with
+//! the caller's own environment, then run with the folder and no wrapper. A wrapper can outlive
+//! the run (sccache's server, which the first compile starts, keeps the temp folder it started
+//! with), and one started with this folder would fail every later build once the folder is gone.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -37,13 +42,17 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
     let root = repo::root();
     process::require_cargo_tool(&root, "nextest")?;
     let temp = TempRoot::new()?;
-    let tests = process::passed(temp.apply(process::cargo(&root).args(["nextest", "run", "--workspace"]).args(&a.nextest)))?;
+    let built = process::passed(process::cargo(&root).args(["nextest", "run", "--workspace", "--no-run"]).args(&a.nextest))?;
+    let tests = built && process::passed(temp.apply(process::cargo(&root).args(["nextest", "run", "--workspace"]).args(&a.nextest)))?;
     let needs_cargo =
         !a.nextest.is_empty() || process::passed(temp.apply(process::cargo(&root).args(["nextest", "run", "-p", "xtask", "--run-ignored", "only"])))?;
     let doctests = !a.nextest.is_empty() || process::passed(temp.apply(process::cargo(&root).args(["test", "--workspace", "--doc"])))?;
     let clean = temp.finish(std::env::var_os(KEEP).is_some_and(|v| !v.is_empty()))?;
     Ok(process::exit_code(tests && needs_cargo && doctests && clean))
 }
+
+/// The variables that name the temp folder, on one platform or another.
+const TEMP_VARS: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];
 
 /// The temp folder the tests run with, fresh for the run.
 struct TempRoot(tempfile::TempDir);
@@ -61,12 +70,15 @@ impl TempRoot {
         Ok(TempRoot(dir))
     }
 
-    /// `cmd` with its temp folder this one, whichever variable its platform reads.
+    /// `cmd` with its temp folder this one, whichever variable its platform reads, and no compiler
+    /// wrapper (an empty `RUSTC_WRAPPER` says none, over cargo's configuration too), which would
+    /// keep the folder past the run. Only the wrapper of every crate, the one a compiler cache is:
+    /// an empty `RUSTC_WORKSPACE_WRAPPER` would build the workspace's crates over again.
     fn apply<'c>(&self, cmd: &'c mut Command) -> &'c mut Command {
-        for var in ["TMPDIR", "TMP", "TEMP"] {
+        for var in TEMP_VARS {
             cmd.env(var, self.0.path());
         }
-        cmd
+        cmd.env("RUSTC_WRAPPER", "")
     }
 
     /// Says what the tests left, then removes the folder (or keeps it, when `keep`); whether
@@ -117,14 +129,15 @@ mod tests {
         let path = temp.0.path().to_path_buf();
         assert!(path.starts_with(if cfg!(unix) { PathBuf::from("/tmp") } else { std::env::temp_dir() }));
         let mut cmd = Command::new("true");
-        let vars: Vec<_> = temp
+        cmd.env("RUSTC_WRAPPER", "sccache");
+        let vars: std::collections::BTreeMap<_, _> = temp
             .apply(&mut cmd)
             .get_envs()
-            .map(|(k, v)| (k.to_owned(), v.map(Path::new).map(Path::to_path_buf)))
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(Path::new).map(Path::to_path_buf)))
             .collect();
-        assert_eq!(vars.len(), 3);
-        isothrum_test_support::assert_every!(vars.iter(), |(_, v): &&(std::ffi::OsString, Option<PathBuf>)| v.as_deref()
-            == Some(path.as_path()));
+        assert_eq!(vars.len(), TEMP_VARS.len() + 1);
+        isothrum_test_support::assert_every!(TEMP_VARS.iter(), |var: &&str| vars[*var].as_deref() == Some(path.as_path()));
+        assert_eq!(vars["RUSTC_WRAPPER"].as_deref(), Some(Path::new("")), "no compiler wrapper");
         assert!(temp.finish(true).unwrap(), "nothing left");
         assert!(path.exists(), "kept");
         std::fs::remove_dir(&path).unwrap();
