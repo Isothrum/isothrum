@@ -134,6 +134,12 @@ pub struct Devices {
     /// KVM's `enable_virt_at_load` parameter (`/sys/module/kvm/parameters/enable_virt_at_load`,
     /// Linux 6.12 and later).
     pub kvm_virt_at_load: PathBuf,
+    /// The loaded modules' folders (`/sys/module`): each loadable module's `refcnt` (how many
+    /// hold it) and `holders` (the modules among them).
+    pub sys_module: PathBuf,
+    /// The folder of the options modprobe gives a module as it loads it (`/etc/modprobe.d`, its
+    /// `*.conf` files).
+    pub modprobe_d: PathBuf,
     /// UTM's app bundle (macOS): in `/Applications`, else in the user's own `~/Applications` (an
     /// install without an administrator's password); `/Applications/UTM.app` when in neither.
     pub utm_app: PathBuf,
@@ -256,6 +262,8 @@ impl Devices {
             kernel_release: PathBuf::from("/proc/sys/kernel/osrelease"),
             lib_modules: PathBuf::from("/lib/modules"),
             kvm_virt_at_load: PathBuf::from("/sys/module/kvm/parameters/enable_virt_at_load"),
+            sys_module: PathBuf::from("/sys/module"),
+            modprobe_d: PathBuf::from("/etc/modprobe.d"),
             utm_app: utm_app(&mac_bases),
             hyperv_service: windows_folder("SystemRoot", "C:\\Windows").join("System32").join("vmms.exe"),
             vmware_utility,
@@ -291,6 +299,8 @@ impl Devices {
             kernel_release: root.join("proc/sys/kernel/osrelease"),
             lib_modules: root.join("lib/modules"),
             kvm_virt_at_load: root.join("sys/module/kvm/parameters/enable_virt_at_load"),
+            sys_module: root.join("sys/module"),
+            modprobe_d: root.join("etc/modprobe.d"),
             utm_app: root.join("Applications/UTM.app"),
             hyperv_service: root.join("Windows/System32/vmms.exe"),
             vmware_utility: root.join("opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),

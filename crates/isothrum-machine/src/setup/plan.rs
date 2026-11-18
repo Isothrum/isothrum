@@ -149,8 +149,8 @@ fn not_settable(option: &HypervisorOption) -> Option<PassedOver> {
 
 /// The hypervisor a setup sets up of `wanted`, and why each other one wanted isn't. None given:
 /// the setup's own, else the first other one offered here that can be set up, in the check's
-/// order (VirtualBox while KVM holds the CPU's virtualization, or with a driver that won't load,
-/// gives way to libvirt or QEMU), those before it that can't passed over.
+/// order (VirtualBox with a driver that won't load gives way to libvirt or QEMU), those before it
+/// that can't passed over.
 fn pick_hypervisor(o: &Options, wanted: &[Provider]) -> (Option<Provider>, Vec<(Provider, PassedOver)>) {
     let mut passed_over = Vec::new();
     if wanted.is_empty() {

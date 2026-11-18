@@ -6,6 +6,9 @@
 //! reading its configuration, VMware's utility answering. Each tool a setup installs has its test
 //! here: one per cell of the workspace's install matrix.
 //!
+//! KVM is set to share the CPU's virtualization with VirtualBox the same way, where it holds it
+//! (`share-virtualization` in `ISOTHRUM_E2E_INSTALL`), then VirtualBox's self-test boots a VM.
+//!
 //! A provider's Vagrant plugin is installed the same way, as a setup's step does it
 //! ([`install::vagrant_plugin`]: for this account, no administrator), then read installed by the
 //! provider's detection.
@@ -23,7 +26,7 @@ use std::time::{Duration, Instant};
 use isothrum_machine::docker::{self, Engine, StartFailed};
 use isothrum_machine::host::os_name;
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
-use isothrum_machine::providers::{self, Provider};
+use isothrum_machine::providers::{self, Provider, Unavailable};
 use isothrum_machine::setup::{self, Action, Machine, SetupPath, Wanted};
 use isothrum_machine::{Context, HostOs, check, wsl};
 
@@ -361,6 +364,45 @@ async fn gcloud_is_installed_where_it_is_missing() {
 #[ignore = "real machine: cargo xtask e2e --tier machine"]
 async fn vmware_utility_is_installed_where_it_is_missing() {
     installs(Dependency::VmwareUtility).await;
+}
+
+/// Lets VirtualBox share the CPU's virtualization with KVM for real, as a setup's step does
+/// ([`setup::share_virtualization`]), where KVM holds it (Linux 6.12 and later) and
+/// `ISOTHRUM_E2E_INSTALL` names `share-virtualization` (or `all`): KVM set to take it only while
+/// one of its own VMs runs, which stays. Then VirtualBox reads usable and its self-test boots a VM.
+/// Skips where KVM was in use (a VM of its own running): the setting then applies from the next
+/// restart, after which this test runs again.
+#[tokio::test]
+#[ignore = "real machine: cargo xtask e2e --tier machine"]
+async fn virtualbox_shares_the_cpus_virtualization_with_kvm_where_kvm_holds_it() {
+    let cx = here().await;
+    if cx.host.os != HostOs::Linux {
+        skip!("KVM is Linux's")
+    }
+    let Some(before) = providers::status(&cx, Provider::Virtualbox).await else {
+        skip!("VirtualBox isn't offered here")
+    };
+    if before.reason != Some(Unavailable::KvmHoldsVirtualization) {
+        skip!("KVM doesn't hold the CPU's virtualization here: {:?}", before.reason)
+    }
+    if before.hypervisor != Some(true) {
+        skip!("VirtualBox isn't installed here, which KVM would share the CPU's virtualization with")
+    }
+    if asked_by("share-virtualization") == Asked::No {
+        skip!("KVM holds the CPU's virtualization; ISOTHRUM_E2E_INSTALL doesn't ask to let it share (it changes this computer for good)")
+    }
+    let shared = setup::share_virtualization(&cx, elevation(&cx).await, &mut |line| println!("{line}"))
+        .await
+        .unwrap_or_else(|failed| panic!("KVM wasn't set to share the CPU's virtualization: {failed:?}"));
+    if shared == setup::Shared::AfterRestart {
+        skip!("KVM is set to share the CPU's virtualization from the next restart (it was in use): restart, then run this again")
+    }
+    let param = std::fs::read_to_string(&cx.host.devices.kvm_virt_at_load).unwrap_or_default();
+    assert_eq!(param.trim(), "N", "KVM loaded again with enable_virt_at_load off");
+    let after = providers::status(&reread(&cx).await, Provider::Virtualbox).await.expect("offered here");
+    println!("{after:#?}");
+    assert_eq!(after.reason, None, "VirtualBox can run VMs");
+    super::selftest::boots_on(Provider::Virtualbox).await;
 }
 
 /// Installs `provider`'s Vagrant plugin for real, as a setup's step does (for this account, no

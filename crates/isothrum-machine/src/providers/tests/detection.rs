@@ -243,6 +243,12 @@ async fn kvm_holding_the_cpus_virtualization_is_said_for_virtualbox_installed_or
     assert_eq!(status_of(&statuses, Provider::Virtualbox).reason, Some(Unavailable::KvmHoldsVirtualization));
     // libvirt runs on KVM: it is not held from it.
     assert_eq!(status_of(&statuses, Provider::Libvirt).reason, Some(Unavailable::VagrantMissing));
+    // Set to share it from KVM's next load: a restart away.
+    write(&cx.host.devices.modprobe_d.join("isothrum-kvm.conf"), "options kvm enable_virt_at_load=0\n");
+    let again = on_linux(FakeProcesses::script()).expect("VBoxManage --version", Reply::missing()).build();
+    let (cx, _) = context(again, cx.host.clone());
+    let shared = detect(&cx, false).await;
+    assert_eq!(status_of(&shared, Provider::Virtualbox).reason, Some(Unavailable::KvmSharesAfterRestart));
 }
 
 #[tokio::test(start_paused = true)]

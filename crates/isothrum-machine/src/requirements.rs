@@ -264,6 +264,9 @@ pub enum Plan {
     Install(Vec<Step>),
     /// Started, not installed: the container engine ([`crate::docker::start_engine`]).
     Start,
+    /// Installed, but KVM holds the CPU's virtualization ([`Unavailable::KvmHoldsVirtualization`],
+    /// VirtualBox's): KVM set to share it ([`crate::setup::share_virtualization`]).
+    ShareVirtualization,
     /// Its user gets it from its vendor (behind a sign-in or a licence): from `url`, when known.
     ByHand {
         /// Where.
@@ -294,7 +297,8 @@ pub struct Need {
     pub requirement: Requirement,
     /// Whether it is met here; `None` when that can't be told (a Windows feature).
     pub present: Option<bool>,
-    /// What brings it, when it isn't known to be met.
+    /// What brings it, when it isn't known to be met; for a hypervisor installed that KVM keeps
+    /// from running ([`Unavailable::KvmHoldsVirtualization`]), what lets it run.
     pub plan: Option<Plan>,
     /// For a hypervisor, why its provider can't run VMs here yet, as its detection says
     /// ([`ProviderStatus::reason`]), whatever else it lacks: a hypervisor installed can still be
@@ -351,8 +355,9 @@ impl Default for Asking<'_> {
 
 /// Each of `requirements` asked of the context's host: present or not, and, unless it is known
 /// to be, the plan that brings it ([`install::plan`] for a tool, the hypervisor's own install or
-/// its vendor's page, the plugin's `vagrant plugin install`, the engine's start). Asking only
-/// reads: nothing is installed, started or changed.
+/// its vendor's page, the plugin's `vagrant plugin install`, the engine's start); a hypervisor
+/// installed that KVM keeps from running, KVM set to share ([`Plan::ShareVirtualization`]).
+/// Asking only reads: nothing is installed, started or changed.
 pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'_>) -> Vec<Need> {
     let mut statuses: HashMap<Provider, Option<ProviderStatus>> = HashMap::new();
     let mut found = Vec::new();
@@ -365,20 +370,18 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
             Requirement::VagrantPlugin { provider } => status(cx, &mut statuses, provider).await.map(|s| s.plugin_installed),
             Requirement::Ovftool => Some(crate::tools::ovftool::locate(cx, asking.ovftool_dir, asking.path).is_some()),
         };
-        let first = match requirement {
-            Requirement::Tool { dependency } => match dependency.serves() {
-                Some(p) if status(cx, &mut statuses, p).await.and_then(|s| s.hypervisor) != Some(true) => Some(Requirement::Hypervisor { provider: p }),
-                _ => None,
-            },
-            _ => None,
-        };
-        let plan = (present != Some(true)).then(|| match first {
-            Some(hypervisor) => Plan::After { requirement: hypervisor },
-            None => plan(cx, requirement, asking),
-        });
+        let first = hypervisor_first(cx, &mut statuses, requirement).await;
         let unavailable = match requirement {
             Requirement::Hypervisor { provider } => status(cx, &mut statuses, provider).await.and_then(|s| s.reason.clone()),
             _ => None,
+        };
+        let plan = if present == Some(true) {
+            (unavailable == Some(Unavailable::KvmHoldsVirtualization)).then_some(Plan::ShareVirtualization)
+        } else {
+            Some(match first {
+                Some(hypervisor) => Plan::After { requirement: hypervisor },
+                None => plan(cx, requirement, asking),
+            })
         };
         found.push(Need {
             requirement,
@@ -388,6 +391,16 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
         });
     }
     found
+}
+
+/// The hypervisor `requirement` waits for, when it is a tool that serves one not installed yet
+/// (VMware's utility before VMware).
+async fn hypervisor_first(cx: &Context, statuses: &mut HashMap<Provider, Option<ProviderStatus>>, requirement: Requirement) -> Option<Requirement> {
+    let Requirement::Tool { dependency } = requirement else {
+        return None;
+    };
+    let provider = dependency.serves()?;
+    (status(cx, statuses, provider).await.and_then(|s| s.hypervisor) != Some(true)).then_some(Requirement::Hypervisor { provider })
 }
 
 /// `provider`'s status, asked once.
