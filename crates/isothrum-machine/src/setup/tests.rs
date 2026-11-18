@@ -229,7 +229,8 @@ fn hyper_v_turned_on_waits_for_a_restart_and_vmware_links_out_with_what_vagrant_
     assert_eq!(o.hypervisors[0].get[0].kind(), "restart");
     assert_eq!(
         o.hypervisors[1].vagrant.iter().map(Action::kind).collect::<Vec<_>>(),
-        ["install", "plugin", "install"]
+        ["install"],
+        "Vagrant only: VMware's utility and plugin wait for VMware"
     );
     let p = plan(&m, &o, &wanted(&[SetupPath::Vm], &[Provider::VmwareDesktop]));
     assert_eq!(
@@ -240,6 +241,41 @@ fn hyper_v_turned_on_waits_for_a_restart_and_vmware_links_out_with_what_vagrant_
                 url: ProviderRow::of(Provider::VmwareDesktop).vendor.map(str::to_owned)
             }
         )]
+    );
+}
+
+/// Regression: VMware's plugin installed without its utility breaks Vagrant for every provider
+/// (studio's QEMU run). It is planned only after the utility's install, in the same plan, or not at
+/// all where the utility is its user's to install.
+#[test]
+fn vmwares_plugin_is_planned_only_after_its_utilitys_install() {
+    let vmware = |installed_by_setup: bool| {
+        let mut vmware = status(Provider::VmwareDesktop, true, None);
+        vmware.plugin = Some("vagrant-vmware-desktop".into());
+        vmware.utility = Some(crate::providers::UtilityState::Missing);
+        vmware.needs = needs(true, false, vmware.utility);
+        let mut m = bare(HostOs::Linux, vec![vmware]);
+        m.packages_installed = installed_by_setup;
+        m
+    };
+    let m = vmware(true);
+    let o = options(&m, false);
+    assert_eq!(
+        o.hypervisors[0].vagrant,
+        [
+            Action::Install {
+                dependency: Dependency::VmwareUtility
+            },
+            Action::Plugin {
+                plugin: "vagrant-vmware-desktop".into()
+            }
+        ]
+    );
+    let by_hand = options(&vmware(false), false);
+    assert_eq!(
+        by_hand.hypervisors[0].vagrant.iter().map(Action::kind).collect::<Vec<_>>(),
+        ["manual"],
+        "the utility is its user's to install: no plugin before it"
     );
 }
 

@@ -406,18 +406,33 @@ fn get_hypervisor(m: &Machine, p: &ProviderStatus) -> Action {
 }
 
 /// What Vagrant needs to drive `p` ([`ProviderStatus::needs`]), each with the item it is about:
-/// `vagrant`, `plugin:<name>`, `vmware-utility`.
+/// `vagrant`, `vmware-utility`, `plugin:<name>`. A provider driven through VMware's utility gets
+/// neither the utility nor its plugin before its hypervisor is installed, and its plugin only in
+/// the same plan as the utility's install (or once the utility is there): the plugin without the
+/// utility breaks Vagrant for every provider ([`Unavailable::VmwarePluginWithoutUtility`]).
 fn vagrant_steps(m: &Machine, p: &ProviderStatus) -> Vec<(String, Action)> {
+    let through_utility = providers::needs_vmware_utility(p.provider);
+    if through_utility && p.hypervisor != Some(true) {
+        return p
+            .needs
+            .contains(&Need::Vagrant)
+            .then(|| ("vagrant".to_owned(), install(m, Dependency::Vagrant)))
+            .into_iter()
+            .collect();
+    }
+    let utility = install(m, Dependency::VmwareUtility);
+    let utility_installs = !p.needs.contains(&Need::VmwareUtility) || matches!(utility, Action::Install { .. });
     p.needs
         .iter()
         .filter_map(|need| {
             Some(match need {
                 Need::Vagrant => ("vagrant".to_owned(), install(m, Dependency::Vagrant)),
+                Need::VmwareUtility => ("vmware-utility".to_owned(), utility.clone()),
+                Need::Plugin if through_utility && !utility_installs => return None,
                 Need::Plugin => {
                     let plugin = p.plugin.clone()?;
                     (format!("plugin:{plugin}"), Action::Plugin { plugin })
                 }
-                Need::VmwareUtility => ("vmware-utility".to_owned(), install(m, Dependency::VmwareUtility)),
             })
         })
         .collect()

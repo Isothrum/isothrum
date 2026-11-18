@@ -384,7 +384,11 @@ async fn a_vmware_machine_without_the_plugin_or_the_utility_needs_both_and_is_re
     let (before, _) = context(vmware_machine(&[("vagrant-qemu", "0.8.0"), ("vagrant_utm", "0.2.0")]), host.clone());
     let before = status(&before, Provider::VmwareDesktop).await.unwrap();
     assert_eq!(before.hypervisor, Some(true));
-    assert_eq!(before.needs, [Need::Plugin, Need::VmwareUtility]);
+    assert_eq!(
+        before.needs,
+        [Need::VmwareUtility, Need::Plugin],
+        "the utility first: the plugin breaks Vagrant without it"
+    );
     assert_eq!(before.utility, Some(UtilityState::Missing));
     assert!(!before.available);
 

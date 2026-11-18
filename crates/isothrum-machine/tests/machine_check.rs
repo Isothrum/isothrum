@@ -88,7 +88,7 @@ async fn a_fresh_linux_machine_offers_its_providers_each_needing_vagrant_in_the_
 async fn the_setup_plan_is_what_is_missing_in_install_order_and_a_status_carries_it() {
     assert_eq!(
         providers::needs(false, false, Some(UtilityState::Missing)),
-        [Need::Vagrant, Need::Plugin, Need::VmwareUtility]
+        [Need::Vagrant, Need::VmwareUtility, Need::Plugin]
     );
     assert_eq!(providers::needs(true, true, Some(UtilityState::Running)), []);
     assert_eq!(providers::needs(true, false, None), [Need::Plugin]);

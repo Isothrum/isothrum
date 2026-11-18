@@ -63,10 +63,10 @@ fn a_vagrant_run_needs_vagrant_its_hypervisor_and_what_vagrant_drives_it_through
             Requirement::Hypervisor {
                 provider: Provider::VmwareDesktop
             },
+            tool(Dependency::VmwareUtility),
             Requirement::VagrantPlugin {
                 provider: Provider::VmwareDesktop
-            },
-            tool(Dependency::VmwareUtility)
+            }
         ]
     );
     assert_eq!(
@@ -341,6 +341,59 @@ async fn vmwares_utility_comes_after_vmware_which_its_user_gets_first() {
         })
         .unwrap();
     assert!(matches!(vmware.plan, Some(Plan::ByHand { .. })), "VMware from its vendor first: {vmware:?}");
+    // Its plugin too: without VMware's utility it breaks Vagrant for every provider.
+    let plugin = found.iter().find(|n| matches!(n.requirement, Requirement::VagrantPlugin { .. })).unwrap();
+    assert!(
+        matches!(
+            plugin.plan,
+            Some(Plan::After {
+                requirement: Requirement::Hypervisor {
+                    provider: Provider::VmwareDesktop
+                }
+            })
+        ),
+        "{plugin:?}"
+    );
     assert_eq!(Dependency::VmwareUtility.serves(), Some(Provider::VmwareDesktop));
     assert!(Dependency::ALL.iter().all(|d| *d == Dependency::VmwareUtility || d.serves().is_none()));
+}
+
+/// Regression: VMware's plugin, installed without its utility (studio, which has no VMware), broke
+/// every Vagrant command, QEMU's `vagrant status` too. With VMware here it waits for the utility;
+/// another provider's plugin waits for nothing.
+#[tokio::test(start_paused = true)]
+async fn vmwares_plugin_comes_after_its_utility_and_no_other_plugin_waits() {
+    let root = tempfile::tempdir().unwrap();
+    let (cx, _fake) = on(apt_host(root.path()), |call| {
+        let line = call.line();
+        if line == "vagrant --version" {
+            Reply::ok("Vagrant 2.4.9")
+        } else if line == "vagrant plugin list --machine-readable" {
+            Reply::ok("")
+        } else if line.starts_with("vmrun") {
+            Reply::ok("vmrun version 1.17.0 build-24995812")
+        } else {
+            Reply::missing()
+        }
+    });
+    let found = needs(&cx, &Uses::vagrant(Provider::VmwareDesktop).requirements(), &Asking::default()).await;
+    let plugin = found.iter().find(|n| matches!(n.requirement, Requirement::VagrantPlugin { .. })).unwrap();
+    assert!(
+        matches!(
+            plugin.plan,
+            Some(Plan::After {
+                requirement: Requirement::Tool {
+                    dependency: Dependency::VmwareUtility
+                }
+            })
+        ),
+        "{plugin:?}"
+    );
+    let utility = found.iter().find(|n| n.requirement == tool(Dependency::VmwareUtility)).unwrap();
+    assert!(
+        matches!(utility.plan, Some(Plan::Install(_))),
+        "VMware is here: its utility installs: {utility:?}"
+    );
+    let libvirt = needs(&cx, &[Requirement::VagrantPlugin { provider: Provider::Libvirt }], &Asking::default()).await;
+    assert!(matches!(libvirt[0].plan, Some(Plan::Install(_))), "{libvirt:?}");
 }

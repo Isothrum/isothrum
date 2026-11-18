@@ -4,7 +4,9 @@ use super::{Account, Findings, Helper, Need, Provider, ProviderRow, Unavailable,
 
 /// Why `provider` can't run VMs here (`None`: it can), from what is still to install for it
 /// (`needs`, which its status carries too, [`status_from`](super::status_from)) and what detection found: KVM holding the CPU's
-/// virtualization first (nothing a setup installs mends it), then Vagrant, then the hypervisor
+/// virtualization first (nothing a setup installs mends it), then Vagrant, then VMware's plugin
+/// installed without its utility (which breaks Vagrant for every provider; VMware's own status
+/// says its utility is missing, which its setup installs), then the hypervisor
 /// and the account, the machine's virtualization, the versions, the plugin and the VMware
 /// utility, and VirtualBox's kernel driver last. It is `None` only when nothing is needed, so
 /// readiness and a setup's steps can't disagree.
@@ -12,6 +14,7 @@ pub(super) fn unavailable_reason(provider: Provider, needs: &[Need], f: &Finding
     f.held
         .clone()
         .or_else(|| needs.contains(&Need::Vagrant).then_some(Unavailable::VagrantMissing))
+        .or_else(|| (f.vmware_plugin_alone && provider != Provider::VmwareDesktop).then_some(Unavailable::VmwarePluginWithoutUtility))
         .or_else(|| hypervisor_reason(provider, f))
         .or_else(|| f.platform.clone())
         .or_else(|| version_reason(provider, f))

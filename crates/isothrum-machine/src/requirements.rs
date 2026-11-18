@@ -103,8 +103,9 @@ impl Uses {
     /// what runs on it):
     ///
     /// - Compose: the container engine, its Compose plugin, the engine answering;
-    /// - Vagrant on hypervisor P: Vagrant, P itself (unless it runs on a server), P's plugin, the
-    ///   VMware Utility where P drives VMware through it, and VMware's OVF Tool for ESXi;
+    /// - Vagrant on hypervisor P: Vagrant, P itself (unless it runs on a server), the VMware
+    ///   Utility where P drives VMware through it (before the plugin, which breaks Vagrant for
+    ///   every provider without it), P's plugin, and VMware's OVF Tool for ESXi;
     /// - Terraform: Terraform, and its target's: a cloud's CLI where it signs in with one, the
     ///   OVF Tool for ESXi.
     ///
@@ -130,13 +131,13 @@ impl Uses {
                     if !provider.is_remote() {
                         needed.push(Requirement::Hypervisor { provider });
                     }
-                    if provider.plugin().is_some() {
-                        needed.push(Requirement::VagrantPlugin { provider });
-                    }
                     if providers::needs_vmware_utility(provider) {
                         needed.push(Requirement::Tool {
                             dependency: Dependency::VmwareUtility,
                         });
+                    }
+                    if provider.plugin().is_some() {
+                        needed.push(Requirement::VagrantPlugin { provider });
                     }
                     if provider == Provider::VmwareEsxi {
                         needed.push(Requirement::Ovftool);
@@ -275,7 +276,9 @@ pub enum Plan {
     /// No plan here, for this reason.
     Refused(Refusal),
     /// Brought once `requirement` is met, by its own plan then: a tool that serves a hypervisor
-    /// its user gets first ([`Dependency::serves`]: VMware's utility, before VMware).
+    /// its user gets first ([`Dependency::serves`]: VMware's utility, before VMware); VMware's
+    /// plugin, after VMware and its utility (without the utility it breaks Vagrant for every
+    /// provider).
     After {
         /// What comes first.
         requirement: Requirement,
@@ -370,7 +373,7 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
             Requirement::VagrantPlugin { provider } => status(cx, &mut statuses, provider).await.map(|s| s.plugin_installed),
             Requirement::Ovftool => Some(crate::tools::ovftool::locate(cx, asking.ovftool_dir, asking.path).is_some()),
         };
-        let first = hypervisor_first(cx, &mut statuses, requirement).await;
+        let first = comes_first(cx, &mut statuses, requirement).await;
         let unavailable = match requirement {
             Requirement::Hypervisor { provider } => status(cx, &mut statuses, provider).await.and_then(|s| s.reason.clone()),
             _ => None,
@@ -393,14 +396,22 @@ pub async fn needs(cx: &Context, requirements: &[Requirement], asking: &Asking<'
     found
 }
 
-/// The hypervisor `requirement` waits for, when it is a tool that serves one not installed yet
-/// (VMware's utility before VMware).
-async fn hypervisor_first(cx: &Context, statuses: &mut HashMap<Provider, Option<ProviderStatus>>, requirement: Requirement) -> Option<Requirement> {
-    let Requirement::Tool { dependency } = requirement else {
-        return None;
+/// What `requirement` waits for, when it waits: a tool that serves a hypervisor not installed yet
+/// waits for it (VMware's utility, for VMware); VMware's plugin waits for VMware, then for its
+/// utility, so it is never installed without it.
+async fn comes_first(cx: &Context, statuses: &mut HashMap<Provider, Option<ProviderStatus>>, requirement: Requirement) -> Option<Requirement> {
+    let (provider, utility) = match requirement {
+        Requirement::Tool { dependency } => (dependency.serves()?, false),
+        Requirement::VagrantPlugin { provider } if providers::needs_vmware_utility(provider) => (provider, true),
+        _ => return None,
     };
-    let provider = dependency.serves()?;
-    (status(cx, statuses, provider).await.and_then(|s| s.hypervisor) != Some(true)).then_some(Requirement::Hypervisor { provider })
+    let status = status(cx, statuses, provider).await;
+    if status.and_then(|s| s.hypervisor) != Some(true) {
+        return Some(Requirement::Hypervisor { provider });
+    }
+    (utility && status.and_then(|s| s.utility) != Some(crate::providers::UtilityState::Running)).then_some(Requirement::Tool {
+        dependency: Dependency::VmwareUtility,
+    })
 }
 
 /// `provider`'s status, asked once.

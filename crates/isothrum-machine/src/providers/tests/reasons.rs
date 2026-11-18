@@ -251,9 +251,14 @@ fn vmware_needs_the_utility_running_as_well_as_its_plugin() {
         reason_of(Provider::VmwareDesktop, true, &vmware(true, Some(UtilityState::Stopped))),
         Some(Unavailable::VmwareUtilityStopped)
     );
-    // The plugin first: it is what a setup installs first.
+    // The utility first: it is what a setup installs first (the plugin without it breaks
+    // Vagrant for every provider); the plugin once the utility runs.
     assert_eq!(
         reason_of(Provider::VmwareDesktop, true, &vmware(false, Some(UtilityState::Missing))),
+        Some(Unavailable::VmwareUtilityMissing)
+    );
+    assert_eq!(
+        reason_of(Provider::VmwareDesktop, true, &vmware(false, Some(UtilityState::Running))),
         Some(Unavailable::PluginMissing {
             plugin: "vagrant-vmware-desktop".into()
         })
