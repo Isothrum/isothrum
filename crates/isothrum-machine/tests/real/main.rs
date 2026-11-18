@@ -27,6 +27,20 @@ const SKIP: &str = "isothrum-e2e: skip: ";
 /// then it stops and asks for the same command again in a new session.
 const RELOGIN: &str = "isothrum-e2e: relogin: ";
 
+/// What a test prints to say the computer must restart before it goes on; the rest of the line
+/// says why. `cargo xtask e2e` stops there and, run again once the computer has restarted, runs
+/// the test again first, [`resumed`].
+const RESTART: &str = "isothrum-e2e: restart: ";
+
+/// Says the computer must restart before the test goes on, and why (`format!`'s arguments), then
+/// returns from it.
+macro_rules! restart {
+    ($($why:tt)*) => {{
+        println!("{}{}", $crate::RESTART, format!($($why)*));
+        return;
+    }};
+}
+
 /// Says the test skipped, and why (`format!`'s arguments), then returns from it.
 macro_rules! skip {
     ($($why:tt)*) => {{
@@ -83,6 +97,11 @@ async fn reread(cx: &Context) -> Context {
         None => Arc::clone(&cx.runner),
     };
     Context::new(runner, cx.host.clone())
+}
+
+/// Whether the test runs again after the restart it asked for ([`restart!`]).
+fn resumed() -> bool {
+    setting("ISOTHRUM_E2E_RESUMED").is_some()
 }
 
 /// Setting `name`'s value: none when it is unset or empty.
