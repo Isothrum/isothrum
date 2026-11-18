@@ -12,7 +12,7 @@
 
 use std::time::{Duration, Instant};
 
-use isothrum_machine::docker::{self, Engine};
+use isothrum_machine::docker::{self, Engine, StartFailed};
 use isothrum_machine::host::os_name;
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
 use isothrum_machine::providers;
@@ -135,10 +135,20 @@ async fn usable(cx: &Context, dep: Dependency) {
     }
     if dep == Dependency::Docker {
         let engine = if cx.host.os == HostOs::Linux { Engine::Native } else { Engine::DockerDesktop };
-        docker::start_engine(cx, engine, elevation(cx).await, &mut |line| println!("{line}"))
-            .await
-            .expect("the engine installed starts");
-        docker::daemon_os(cx).await.expect("its daemon answers");
+        match docker::start_engine(cx, engine, elevation(cx).await, &mut |line| println!("{line}")).await {
+            Ok(()) => {
+                docker::daemon_os(cx).await.expect("its daemon answers");
+            }
+            // Linux: the install added this account to the docker group, which applies from its
+            // next login, as the install said; until then the daemon refuses this session. It
+            // answers that next login: a shell with the group, as one would have.
+            Err(StartFailed::Denied(said)) if providers::groups_pending(cx).await.iter().any(|g| g == "docker") => {
+                println!("the daemon refuses this session until its next login ({said}): asked as that login");
+                let os = answer(cx, "sg", &["docker", "-c", "docker version --format '{{.Server.Os}}'"]).await;
+                assert_eq!(os.as_deref().map(str::trim), Some("linux"), "its daemon answers the next login");
+            }
+            Err(failed) => panic!("the engine installed starts: {failed:?}"),
+        }
     }
 }
 
