@@ -52,6 +52,7 @@ async fn a_start_that_fails_making_its_containers_fails_that_step() {
         .allow(PULL, Reply::ok(""))
         .expect(UP, Reply::fail(1, refused))
         .expect(CONFIG, Reply::ok(NO_PORTS))
+        .expect(ENGINE_ASKED, Reply::ok("29.9.3"))
         .build();
     let said = Said::default();
     let say = |kind: EventKind| said.keep(kind);

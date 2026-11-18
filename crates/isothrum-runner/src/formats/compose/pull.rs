@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use super::failures::{ASK_ENGINE, checked};
 use super::{Compose, ToolCx, engine_error};
 use crate::Result;
 use crate::cli::CliError;
@@ -49,6 +50,15 @@ impl Compose {
         loop {
             match compose::pull(&call, &project, PULL_STALL).await {
                 Ok(()) => return Ok(()),
+                Err(
+                    e @ CliError::Failed {
+                        failure: Failure::PullTransient(_),
+                        ..
+                    },
+                ) if !compose::engine_answers(&cx.read(ASK_ENGINE)).await => {
+                    // Cut short by the engine quitting, not the network: no retry brings it back.
+                    return checked(cx, Err(e), |e| engine_error(STEP, e)).await;
+                }
                 Err(CliError::Failed {
                     failure: Failure::PullTransient(reason),
                     ..
