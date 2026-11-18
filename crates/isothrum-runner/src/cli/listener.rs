@@ -1,7 +1,7 @@
-//! Who listens on a host port: `lsof` (macOS, Linux), `ss` where `lsof` isn't (Linux), PowerShell's
-//! `Get-NetTCPConnection` / `Get-NetUDPEndpoint` (Windows). Asked once a run failed for a taken
-//! port, or by an embedder about a port it found taken ([`port_holder`]), best-effort: a lookup
-//! that fails or finds nothing names no one.
+//! Who listens on a host port: `lsof` (macOS, Linux), `ss` where `lsof` isn't (Linux), `netstat`
+//! then `tasklist` (Windows). Asked once a run failed for a taken port, or by an embedder about a
+//! port it found taken ([`port_holder`]), best-effort: a lookup that fails or finds nothing names
+//! no one.
 
 use std::time::Duration;
 
@@ -59,22 +59,41 @@ async fn unix(call: &Call<'_>, port: HostPort, protocol: Protocol) -> Option<Por
     from_ss(&out.stdout)
 }
 
-/// PowerShell: the owning process of the listener, then its name.
+/// `netstat -ano`'s listener's process id, then its name from `tasklist`. Not PowerShell's
+/// `Get-NetTCPConnection`: PowerShell's start and its network module take five seconds on a fresh
+/// Windows 11, more than a lookup is given; `netstat` answers in a tenth of one.
 #[cfg(windows)]
 async fn windows(call: &Call<'_>, port: HostPort, protocol: Protocol) -> Option<PortHolder> {
-    let listener = match protocol {
-        Protocol::Udp => format!("Get-NetUDPEndpoint -LocalPort {port}"),
-        Protocol::Tcp => format!("Get-NetTCPConnection -LocalPort {port} -State Listen"),
-    };
-    let script = format!(
-        "$ErrorActionPreference='SilentlyContinue'; $c = {listener} | Select-Object -First 1; \
-         if ($c) {{ $p = Get-Process -Id $c.OwningProcess; if ($p) {{ Write-Output \"$($p.Id) $($p.ProcessName)\" }} }}"
-    );
-    let out = call
-        .run::<String>("powershell", argv(["-NoProfile", "-NonInteractive", "-Command", &script]))
-        .await
-        .ok()?;
-    from_powershell(&out.stdout)
+    let listed = call.run::<String>("netstat", argv(["-ano"])).await.ok()?;
+    let pid = from_netstat(&listed.stdout, port, protocol)?;
+    let filter = format!("PID eq {pid}");
+    let tasks = call.run::<String>("tasklist", argv(["/FI", &filter, "/FO", "CSV", "/NH"])).await.ok()?;
+    Some(PortHolder::new(pid, from_tasklist(&tasks.stdout).unwrap_or_default()))
+}
+
+/// The process id of the first listener on `port` in `netstat -ano`'s lines (IPv4 and IPv6):
+/// `TCP <local> <foreign> <state> <pid>`, a listener's foreign address `0.0.0.0:0` or `[::]:0`
+/// (its state's word is in the system's language); `UDP <local> *:* <pid>`.
+#[cfg(any(windows, test))]
+fn from_netstat(lines: &[String], port: HostPort, protocol: Protocol) -> Option<u32> {
+    let local = format!(":{port}");
+    lines.iter().find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let listens = match (protocol, fields.as_slice()) {
+            (Protocol::Tcp, ["TCP", at, foreign, _, _]) => at.ends_with(&local) && matches!(*foreign, "0.0.0.0:0" | "[::]:0"),
+            (Protocol::Udp, ["UDP", at, "*:*", _]) => at.ends_with(&local),
+            _ => false,
+        };
+        listens.then(|| fields.last()?.parse().ok()).flatten()
+    })
+}
+
+/// The program's name in `tasklist /FO CSV /NH`'s line (`"nginx.exe","4123",...`), without
+/// `.exe`.
+#[cfg(any(windows, test))]
+fn from_tasklist(lines: &[String]) -> Option<String> {
+    let image = lines.iter().find(|l| l.starts_with('"'))?.split('"').nth(1)?;
+    Some(image.strip_suffix(".exe").unwrap_or(image).to_owned())
 }
 
 /// The first process of `lsof -FpcL`: its records are field lines, `p<pid>` then `c<command>`.
@@ -101,13 +120,6 @@ fn from_ss(lines: &[String]) -> Option<PortHolder> {
     Some(PortHolder::new(pid, program))
 }
 
-/// The script's line: `<pid> <name>`.
-#[cfg(any(windows, test))]
-fn from_powershell(lines: &[String]) -> Option<PortHolder> {
-    let (pid, program) = lines.iter().map(|l| l.trim()).find(|l| !l.is_empty())?.split_once(' ')?;
-    Some(PortHolder::new(pid.parse().ok()?, program.trim()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,8 +140,32 @@ mod tests {
             holder(1234, "nginx")
         );
         assert_eq!(from_ss(&lines("LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:*")), None);
-        assert_eq!(from_powershell(&lines("\n4123 nginx\n")), holder(4123, "nginx"));
-        assert_eq!(from_powershell(&lines("")), None);
+    }
+
+    /// `netstat -ano` and `tasklist` as a fresh Windows 11 answers.
+    #[test]
+    fn the_listener_is_read_from_netstat_and_its_name_from_tasklist() {
+        let netstat = lines(
+            "\nActive Connections\n\n  Proto  Local Address          Foreign Address        State           PID\n\
+             \x20 TCP    0.0.0.0:22             0.0.0.0:0              LISTENING       8884\n\
+             \x20 TCP    127.0.0.1:5985         127.0.0.1:64235        ESTABLISHED     4\n\
+             \x20 TCP    10.0.0.5:64235         10.0.0.9:5985          ESTABLISHED     3272\n\
+             \x20 TCP    127.0.0.1:64235        0.0.0.0:0              ABH\u{d6}REN         3272\n\
+             \x20 TCP    [::]:64263             [::]:0                 LISTENING       4272\n\
+             \x20 UDP    0.0.0.0:60638          *:*                                    4272\n",
+        );
+        let at = |port| HostPort::new(port);
+        assert_eq!(from_netstat(&netstat, at(64235), Protocol::Tcp), Some(3272));
+        assert_eq!(from_netstat(&netstat, at(64263), Protocol::Tcp), Some(4272));
+        assert_eq!(from_netstat(&netstat, at(60638), Protocol::Udp), Some(4272));
+        assert_eq!(from_netstat(&netstat, at(5985), Protocol::Tcp), None, "a connection isn't a listener");
+        assert_eq!(from_netstat(&netstat, at(2), Protocol::Tcp), None, ":22 isn't :2");
+        assert_eq!(from_netstat(&netstat, at(60638), Protocol::Tcp), None);
+        assert_eq!(
+            from_tasklist(&lines(r#""powershell.exe","4272","Services","0","73,588 K""#)).as_deref(),
+            Some("powershell")
+        );
+        assert_eq!(from_tasklist(&lines("INFO: No tasks are running which match the specified criteria.")), None);
     }
 
     #[cfg(not(windows))]

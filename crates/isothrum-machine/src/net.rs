@@ -36,10 +36,10 @@ pub fn port_free(port: u16, protocol: Protocol) -> bool {
 }
 
 /// The process holding host `port` for `protocol` on this computer (its program's name and its
-/// pid), when the system's own tools name one: `lsof`, then `ss` (macOS, Linux), PowerShell
-/// (Windows), each run through the [`Context`]'s runner within [`HOLDER_LOOKUP`]. What a caller
-/// says beside a port [`port_free`] found taken, so the user knows what to stop. Best-effort: none
-/// when no tool answers or names a process (`ss` without root names none).
+/// pid), when the system's own tools name one: `lsof`, then `ss` (macOS, Linux), `netstat` then
+/// `tasklist` (Windows), each run through the [`Context`]'s runner within [`HOLDER_LOOKUP`]. What
+/// a caller says beside a port [`port_free`] found taken, so the user knows what to stop.
+/// Best-effort: none when no tool answers or names a process (`ss` without root names none).
 pub async fn port_holder(cx: &Context, port: u16, protocol: Protocol) -> Option<PortHolder> {
     isothrum_runner::port_holder(cx.runner.as_ref(), HostPort::new(port), protocol, HOLDER_LOOKUP).await
 }
