@@ -111,9 +111,16 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, elevatio
 }
 
 /// A shell script run with macOS's administrator prompt (the same dialog an installer shows).
-fn admin(script: &str, dep: Dependency) -> Step {
-    let escaped = script.replace('\\', "\\\\").replace('"', "\\\"");
-    let mut step = step("osascript", &["-e", &format!("do shell script \"{escaped}\" with administrator privileges")]);
+fn admin(script: &str, dep: Dependency, name: &str) -> Step {
+    let quoted = |text: &str| text.replace('\\', "\\\\").replace('"', "\\\"");
+    let prompt = quoted(&mac_image::admin_prompt(&format!("remove {name}"), "remove it"));
+    let mut step = step(
+        "osascript",
+        &[
+            "-e",
+            &format!("do shell script \"{}\" with prompt \"{prompt}\" with administrator privileges", quoted(script)),
+        ],
+    );
     step.note = Some(Note::Removing(dep));
     step
 }
@@ -152,18 +159,19 @@ pub fn uninstall(dep: Dependency, packages: Option<Packages>, virtualbox: Option
     Ok(match dep {
         Dependency::Terraform => vec![step(brew()?, &["uninstall", "hashicorp/tap/terraform"])],
         Dependency::Qemu => vec![step(brew()?, &["uninstall", "qemu"])],
-        Dependency::Awscli => vec![admin(AWS_CLI_REMOVAL, dep)],
+        Dependency::Awscli => vec![admin(AWS_CLI_REMOVAL, dep, "the AWS CLI")],
         Dependency::Gcloud => vec![step(brew()?, &["uninstall", "--cask", "google-cloud-sdk"])],
         Dependency::Azurecli => vec![step(brew()?, &["uninstall", "--cask", "azure-cli-preview"])],
         // Installed from the vendors' own packages: removed the way their uninstallers do.
         Dependency::Vagrant => vec![admin(
             "rm -rf /opt/vagrant /usr/local/bin/vagrant && pkgutil --forget com.vagrant.vagrant || true",
             dep,
+            "Vagrant",
         )],
         Dependency::Virtualbox => {
             brew()?;
             let image = virtualbox.ok_or(Refusal::NoVirtualboxImage)?;
-            vec![admin(&virtualbox_uninstall(image), dep)]
+            vec![admin(&virtualbox_uninstall(image), dep, "VirtualBox")]
         }
         Dependency::Docker => {
             let mut uninstaller = step("/Applications/Docker.app/Contents/MacOS/uninstall", &[]);
@@ -174,7 +182,7 @@ pub fn uninstall(dep: Dependency, packages: Option<Packages>, virtualbox: Option
             "osascript",
             &["-e", "tell application \"Finder\" to delete POSIX file \"/Applications/UTM.app\""],
         )],
-        Dependency::VmwareUtility => vec![admin(VMWARE_UTILITY_REMOVAL, dep)],
+        Dependency::VmwareUtility => vec![admin(VMWARE_UTILITY_REMOVAL, dep, "the Vagrant VMware Utility")],
         Dependency::Libvirt | Dependency::Wsl | Dependency::Hyperv => {
             return Err(Refusal::NotHere {
                 dependency: dep,

@@ -83,7 +83,8 @@ echo "The Vagrant VMware Utility's service answers.""#,
 /// handed over as an argument (never spliced into the script).
 fn mac_script(file: &str, sha256: &str, elevation: Elevation) -> String {
     let url = url(file);
-    let elevated = super::mac_image::as_administrator(elevation, "Downloaded and checked. Installing it", &[r#""$d/utility.dmg""#]);
+    let prompt = super::mac_image::admin_prompt("install the Vagrant VMware Utility", "install its service");
+    let elevated = super::mac_image::as_administrator(elevation, "Downloaded and checked. Installing it", &prompt, &[r#""$d/utility.dmg""#]);
     format!(
         r#"set -e
 d="$(mktemp -d)"

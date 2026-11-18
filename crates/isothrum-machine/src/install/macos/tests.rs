@@ -78,6 +78,11 @@ fn every_macos_tool_has_a_way_out_and_only_homebrews_need_it() {
         (vec!["osascript"], Some(Note::Removing(Dependency::Vagrant)))
     );
     assert!(vagrant[0].args[1].ends_with("with administrator privileges"), "{:?}", vagrant[0].args);
+    assert!(
+        vagrant[0].args[1].contains("with prompt \"Remove Vagrant: macOS needs your password to remove it.\""),
+        "{:?}",
+        vagrant[0].args
+    );
 }
 
 #[test]

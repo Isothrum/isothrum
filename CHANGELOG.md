@@ -11,6 +11,12 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **macOS's password prompt says what installs and why.** It read only "osascript wants to make
+  changes"; an install from a vendor's package, VMware's utility and a removal through macOS's
+  administrator prompt now pass it a message (`with prompt`): `Install Docker Desktop: macOS
+  needs your password to copy it into Applications.`, or, once the app that runs them is named
+  (`install::set_app_name`), `Example App wants to install Docker Desktop: …`.
+
 - **A tool only its vendor offers is a download by hand, with its vendor and official page.**
   VMware Workstation Pro (Windows, Linux) and Fusion Pro (macOS) come from their free pages on
   Broadcom's download portal (`install::VMWARE_WORKSTATION_PAGE`, `install::VMWARE_FUSION_PAGE`,

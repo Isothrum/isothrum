@@ -64,6 +64,12 @@ fn each_elevation_runs_the_root_half_its_way_the_file_handed_over_as_an_argument
         "{prompt}"
     );
     assert!(prompt.contains(r#""$1" "$f" "$(id -un)""#), "{prompt}");
+    // macOS's prompt says what installs and why, not "osascript wants to make changes".
+    assert!(prompt.contains("with prompt (item 5 of argv) with administrator privileges"), "{prompt}");
+    assert!(
+        prompt.contains(&format!("/Applications '{}'", admin_prompt("install UTM", "copy it into Applications"))),
+        "{prompt}"
+    );
     assert!(user(Elevation::Unattended { root: false }).contains(r#"sudo -n /bin/sh -c "$1" sh "$f" "$(id -un)" /Applications"#));
     let root = user(Elevation::Unattended { root: true });
     assert!(root.contains(r#"/bin/sh -c "$1" sh "$f""#) && !root.contains("sudo") && !root.contains("osascript"));
@@ -369,4 +375,26 @@ async fn a_copy_under_way_or_damaged_is_not_an_installed_app() {
         .expect(&format!("codesign --verify --strict {at}"), Reply::ok(""))
         .build();
     assert!(complete(&cx(whole), &app).await);
+}
+
+#[test]
+fn macos_prompt_names_what_installs_why_and_the_app_that_asks() {
+    assert_eq!(
+        prompt_of(None, "install Docker Desktop", "copy it into Applications"),
+        "Install Docker Desktop: macOS needs your password to copy it into Applications."
+    );
+    assert_eq!(
+        prompt_of(Some("Example App"), "install Docker Desktop", "copy it into Applications"),
+        "Example App wants to install Docker Desktop: macOS needs your password to copy it into Applications."
+    );
+    // A package's install, and a quote in the app's name, reach the prompt whole as one argument.
+    let vagrant = install(Some(BREW), Dependency::Vagrant, &VAGRANT, Elevation::Prompt).unwrap();
+    let user = halves(&vagrant).0.to_owned();
+    assert!(user.contains("macOS needs your password to install it."), "{user}");
+    assert!(crate::testing::sh_parses(&as_administrator(
+        Elevation::Prompt,
+        "x",
+        "Bob's app wants to: ok.",
+        &["\"$f\""]
+    )));
 }
