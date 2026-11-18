@@ -26,6 +26,10 @@ pub enum Known {
     RestartFirst,
     /// A policy on this computer blocks it.
     Policy,
+    /// winget asks its user to accept the package's agreement, or its source's, which nothing
+    /// accepts for them: they run the same `winget install` themselves, read it and accept it
+    /// there, then check again. Nothing was installed.
+    AgreementToAccept,
     /// The installer reported an error: the details are in its output.
     InstallerError,
 }
@@ -50,6 +54,8 @@ fn winget_summary(code: u32) -> Option<Known> {
         0x8A15_0107 => Known::NoInternet,
         0x8A15_010A => Known::RestartFirst,
         0x8A15_010F => Known::Policy,
+        // APPINSTALLER_CLI_ERROR_PACKAGE_AGREEMENTS_NOT_ACCEPTED, …_SOURCE_AGREEMENTS_NOT_ACCEPTED.
+        0x8A15_0041 | 0x8A15_0046 => Known::AgreementToAccept,
         WINGET_INSTALLER_FAILED => Known::InstallerError,
         _ => return None,
     })

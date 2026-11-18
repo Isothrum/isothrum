@@ -2,6 +2,13 @@
 //! feature (DISM), each elevated through Windows' own UAC prompt, and HashiCorp's signed MSI for
 //! VMware's utility. A declined prompt exits `ERROR_CANCELLED` (1223), which reads as cancelled
 //! ([`super::exit_codes::Known::Cancelled`]).
+//!
+//! winget is never told to accept anything for its user: no `--accept-package-agreements`, no
+//! `--accept-source-agreements`. No package a setup installs, nor the `winget` source, has an
+//! agreement today; one that asks for it stops the install, and its user accepts it running
+//! winget themselves ([`super::exit_codes::Known::AgreementToAccept`]). Docker's manifest adds
+//! `--accept-license` to its installer's switches, so Docker's are given in full instead
+//! ([`DOCKER_SWITCHES`]): Docker Desktop shows its agreement at its first start.
 
 use crate::host::{Arch, HostOs};
 use crate::install::steps::{NotServed, Step, step};
@@ -19,6 +26,11 @@ pub fn winget(verb: &str, id: &str, extra: &[&str]) -> Step {
     args.extend_from_slice(extra);
     step("winget", &args)
 }
+
+/// Docker Desktop's installer switches, in place of its winget manifest's (`install --quiet`, and
+/// `--accept-license --backend=wsl-2 --no-windows-containers` as its custom ones): the same but
+/// `--accept-license`, which would accept Docker's Subscription Service Agreement for its user.
+pub const DOCKER_SWITCHES: &str = "install --quiet --backend=wsl-2 --no-windows-containers";
 
 /// Turns WSL's and the Virtual Machine Platform's features on and installs the WSL 2 kernel,
 /// through Windows' UAC prompt; the features take effect at the next restart. `-PassThru` surfaces
@@ -63,7 +75,8 @@ pub fn install(dep: Dependency, arch: Arch) -> Result<Vec<Step>, Refusal> {
         return Err(refusal);
     }
     if let Some(id) = dep.row().winget {
-        return Ok(vec![winget("install", id, &["--accept-source-agreements", "--accept-package-agreements"])]);
+        let switches: &[&str] = if dep == Dependency::Docker { &["--override", DOCKER_SWITCHES] } else { &[] };
+        return Ok(vec![winget("install", id, switches)]);
     }
     match dep {
         Dependency::Wsl => Ok(vec![step("powershell", &["-NoProfile", "-Command", WSL_ON])]),

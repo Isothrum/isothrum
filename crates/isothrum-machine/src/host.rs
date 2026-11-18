@@ -147,6 +147,12 @@ pub struct Devices {
     /// Docker Desktop's socket (`~/.docker/run/docker.sock`, macOS), which listens once its
     /// backend runs: never, while Docker Desktop waits for its user in its own window.
     pub docker_desktop_socket: PathBuf,
+    /// Docker Desktop's settings files, the first there read: `settings-store.json`, then the
+    /// `settings.json` of a Docker Desktop before 4.34 (`~/Library/Group Containers/
+    /// group.com.docker` on macOS, `%APPDATA%\Docker` on Windows, `~/.docker/desktop` on Linux).
+    /// They record the version of the agreement its user accepted in its window
+    /// ([`crate::docker::agreement_accepted`]).
+    pub docker_desktop_settings: Vec<PathBuf>,
     /// UTM's app bundle (macOS): in `/Applications`, else in the user's own `~/Applications` (an
     /// install without an administrator's password); `/Applications/UTM.app` when in neither.
     pub utm_app: PathBuf,
@@ -222,6 +228,23 @@ fn workstation_ovftool(bases: &[PathBuf]) -> Vec<PathBuf> {
 const ROSETTA_RUNTIME: &str = "Library/Apple/usr/libexec/oah/libRosettaRuntime";
 
 /// Workstation's `vmrun.exe` under each of the install folders `bases`.
+/// Docker Desktop's settings folder on `os`, for this account.
+fn docker_desktop_folder(os: HostOs) -> PathBuf {
+    let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/nonexistent"), PathBuf::from);
+    match os {
+        HostOs::Macos => home.join("Library/Group Containers/group.com.docker"),
+        HostOs::Windows => std::env::var_os("APPDATA")
+            .map_or_else(|| home.join("AppData").join("Roaming"), PathBuf::from)
+            .join("Docker"),
+        HostOs::Linux => home.join(".docker/desktop"),
+    }
+}
+
+/// Docker Desktop's settings files in its folder `dir`: today's, then the one before 4.34.
+fn docker_desktop_settings(dir: &Path) -> Vec<PathBuf> {
+    vec![dir.join("settings-store.json"), dir.join("settings.json")]
+}
+
 fn workstation(bases: &[PathBuf]) -> Vec<PathBuf> {
     bases.iter().map(|b| b.join("VMware").join("VMware Workstation").join("vmrun.exe")).collect()
 }
@@ -275,6 +298,7 @@ impl Devices {
             docker_desktop_socket: std::env::var_os("HOME")
                 .map_or_else(|| PathBuf::from("/nonexistent"), PathBuf::from)
                 .join(".docker/run/docker.sock"),
+            docker_desktop_settings: docker_desktop_settings(&docker_desktop_folder(os)),
             utm_app: utm_app(&mac_bases),
             hyperv_service: windows_folder("SystemRoot", "C:\\Windows").join("System32").join("vmms.exe"),
             vmware_utility,
@@ -314,6 +338,7 @@ impl Devices {
             modprobe_d: root.join("etc/modprobe.d"),
             applications: root.join("Applications"),
             docker_desktop_socket: root.join("home/.docker/run/docker.sock"),
+            docker_desktop_settings: docker_desktop_settings(&root.join("home/Library/Group Containers/group.com.docker")),
             utm_app: root.join("Applications/UTM.app"),
             hyperv_service: root.join("Windows/System32/vmms.exe"),
             vmware_utility: root.join("opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility"),

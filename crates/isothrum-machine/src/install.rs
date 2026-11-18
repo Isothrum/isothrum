@@ -36,7 +36,7 @@ pub mod windows;
 pub use added::{Before, Installed, Item, before, items, there};
 pub use interaction::{BROADCOM_DOWNLOADS, Interaction, OVFTOOL_PAGE, Prompt, VMWARE_FUSION_PAGE, VMWARE_WORKSTATION_PAGE, VendorPage, interactions};
 pub use mac_image::set_app_name;
-pub use steps::{Licence, NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
+pub use steps::{Agreement, NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

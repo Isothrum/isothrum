@@ -13,9 +13,9 @@
 //! -nobrowse -readonly`), checks what it installs as signed by the vendor's Developer ID team
 //! (`codesign`, `pkgutil --check-signature`) and accepted by Gatekeeper (`spctl`), then installs
 //! it: an app copied into Applications with `ditto` under a hidden name and moved into place once
-//! whole, a package through `installer`, Docker Desktop through its own unattended installer, run
-//! from a checked copy whose download quarantine mark is cleared (so macOS asks nothing of it). The
-//! image is detached whatever happens. Last, the installed app is checked again (`codesign --verify
+//! whole, a package through `installer`, Docker Desktop through its own installer (never told to
+//! accept Docker's agreement for its user), run from a checked copy whose download quarantine mark
+//! is cleared (so macOS asks nothing of it). The image is detached whatever happens. Last, the installed app is checked again (`codesign --verify
 //! --deep --strict`, `spctl`), or a package without an app answers as its vendor's program
 //! ([`Vendor::answers`]): the step fails unless it is whole and signed.
 //!
@@ -25,7 +25,7 @@
 
 use std::path::Path;
 
-use super::steps::{Licence, Note, Step};
+use super::steps::{Agreement, Note, Step};
 use super::{Dependency, Elevation};
 use crate::context::Context;
 
@@ -37,10 +37,11 @@ pub(crate) enum Payload {
     /// An installer package, in the disk image or the download itself, installed by `installer`;
     /// the app it puts in Applications, when it puts one there.
     Pkg(Option<&'static str>),
-    /// Docker Desktop: `Docker.app` in the disk image, installed by its own unattended installer
-    /// (`Contents/MacOS/install --accept-license --user <user>`), which copies it into
-    /// Applications, sets up its privileged helper and links the `docker` CLI, so its first start
-    /// asks its user nothing. It accepts Docker's licence on their behalf.
+    /// Docker Desktop: `Docker.app` in the disk image, installed by its own installer
+    /// (`Contents/MacOS/install --user <user>`), which copies it into Applications, sets up its
+    /// privileged helper and links the `docker` CLI, so its first start asks for no password. It
+    /// is never passed `--accept-license`: Docker Desktop shows its Subscription Service
+    /// Agreement at its first start, and its user accepts it there.
     DockerDesktop,
 }
 
@@ -78,15 +79,17 @@ pub(crate) struct Vendor {
     pub team: &'static str,
     /// What the file holds.
     pub payload: Payload,
-    /// The licence its install accepts on its user's behalf, when it does.
-    pub accepts: Option<Licence>,
+    /// The agreement its app shows at its first start, for its user to accept there, when it has
+    /// one. No install accepts it for them.
+    pub agreement: Option<Agreement>,
     /// The command its install must answer, once done, where it puts no app in Applications to
     /// check (`/usr/local/aws-cli/aws --version`): the install fails unless it does.
     pub answers: Option<&'static str>,
 }
 
-/// Docker's Subscription Service Agreement, which Docker Desktop's unattended install accepts.
-pub(crate) const DOCKER_LICENCE: Licence = Licence {
+/// Docker's Subscription Service Agreement, which Docker Desktop shows at its first start: its user
+/// accepts it there, and Docker Desktop's engine starts once they have.
+pub(crate) const DOCKER_AGREEMENT: Agreement = Agreement {
     name: "Docker Subscription Service Agreement",
     url: "https://www.docker.com/legal/docker-subscription-service-agreement/",
 };
@@ -98,7 +101,7 @@ pub(crate) const DOCKER: Vendor = Vendor {
     signer: "Docker Inc",
     team: "9BNSXJN65R",
     payload: Payload::DockerDesktop,
-    accepts: Some(DOCKER_LICENCE),
+    agreement: Some(DOCKER_AGREEMENT),
     answers: None,
 };
 
@@ -109,7 +112,7 @@ pub(crate) const VAGRANT: Vendor = Vendor {
     signer: "Hashicorp, Inc.",
     team: "D38WU7D763",
     payload: Payload::Pkg(None),
-    accepts: None,
+    agreement: None,
     answers: None,
 };
 
@@ -120,7 +123,7 @@ pub(crate) const VIRTUALBOX: Vendor = Vendor {
     signer: "Oracle America, Inc.",
     team: "VB5E2TV963",
     payload: Payload::Pkg(Some("VirtualBox.app")),
-    accepts: None,
+    agreement: None,
     answers: None,
 };
 
@@ -131,7 +134,7 @@ pub(crate) const UTM: Vendor = Vendor {
     signer: "Turing Software, LLC",
     team: "WDNLXAD4W8",
     payload: Payload::App("UTM.app"),
-    accepts: None,
+    agreement: None,
     answers: None,
 };
 
@@ -144,7 +147,7 @@ pub(crate) const AWS_CLI: Vendor = Vendor {
     signer: "AMZN Mobile LLC",
     team: "94KV3E626L",
     payload: Payload::Pkg(None),
-    accepts: None,
+    agreement: None,
     answers: Some("/usr/local/aws-cli/aws --version"),
 };
 
@@ -164,7 +167,7 @@ pub(crate) fn install(brew: Option<&str>, dep: Dependency, vendor: &Vendor, elev
     let mut step = super::steps::step("sh", &["-c", &users, "sh", &root_half(vendor)]);
     step.note = Some(Note::InstallingFromVendor {
         dependency: dep,
-        accepts: vendor.accepts,
+        agreement: vendor.agreement,
     });
     Ok(step)
 }
@@ -174,9 +177,14 @@ pub(crate) fn install(brew: Option<&str>, dep: Dependency, vendor: &Vendor, elev
 /// and the Applications folder as arguments (never spliced into it).
 fn users_half(download: &str, vendor: &Vendor, elevation: Elevation) -> String {
     let name = vendor.name;
-    let licence = vendor
-        .accepts
-        .map(|l| format!("echo \"Installing {name} accepts the {} ({}) for you.\"\n", l.name, l.url))
+    let agreement = vendor
+        .agreement
+        .map(|a| {
+            format!(
+                "echo \"{name} shows the {} ({}) when it first starts: accept it there to use it.\"\n",
+                a.name, a.url
+            )
+        })
         .unwrap_or_default();
     let why = match vendor.payload {
         Payload::App(_) | Payload::DockerDesktop => "copy it into Applications",
@@ -189,7 +197,7 @@ fn users_half(download: &str, vendor: &Vendor, elevation: Elevation) -> String {
         &prompt,
         &[r#""$f""#, r#""$(id -un)""#, "/Applications"],
     );
-    format!("set -e\n{download}\n{licence}{elevated}")
+    format!("set -e\n{download}\n{elevated}\n{agreement}")
 }
 
 /// The vendor's file from its own address `url`, into a private folder removed when the user's
@@ -339,7 +347,7 @@ ditto "$a" "$c"
 xattr -dr com.apple.quarantine "$c" 2>/dev/null || true
 codesign --verify --deep --strict '{signed}' "$c" || fail "The copy of Docker.app in {name}'s disk image isn't signed by {signer} ({team})."
 rm -rf "$3/Docker.app"
-"$c/Contents/MacOS/install" --accept-license --user="$2""#,
+"$c/Contents/MacOS/install" --user="$2""#,
             check = image_app("Docker.app")
         ),
     }

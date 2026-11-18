@@ -12,7 +12,7 @@ fn halves(step: &Step) -> (&str, &str) {
 }
 
 #[test]
-fn every_vendor_install_is_one_step_whose_halves_parse_and_says_what_it_accepts() {
+fn every_vendor_install_is_one_step_whose_halves_parse_and_names_the_agreement_its_app_shows() {
     for (dep, vendor) in [
         (Dependency::Docker, DOCKER),
         (Dependency::Vagrant, VAGRANT),
@@ -39,17 +39,22 @@ fn every_vendor_install_is_one_step_whose_halves_parse_and_says_what_it_accepts(
                 step.note,
                 Some(Note::InstallingFromVendor {
                     dependency: dep,
-                    accepts: vendor.accepts
+                    agreement: vendor.agreement
                 })
             );
         }
     }
-    // Only Docker Desktop's install accepts a licence on its user's behalf, and says so.
-    assert_eq!(DOCKER.accepts, Some(DOCKER_LICENCE));
-    assert!([VAGRANT, VIRTUALBOX, UTM, AWS_CLI].iter().all(|v| v.accepts.is_none()));
+    // Only Docker Desktop has an agreement, which it shows at its first start for its user to
+    // accept there: its install says so, and accepts nothing.
+    assert_eq!(DOCKER.agreement, Some(DOCKER_AGREEMENT));
+    assert!([VAGRANT, VIRTUALBOX, UTM, AWS_CLI].iter().all(|v| v.agreement.is_none()));
     let docker = install(Some(BREW), Dependency::Docker, &DOCKER, Elevation::Prompt).unwrap();
-    let (user, _) = halves(&docker);
-    assert!(user.contains("accepts the Docker Subscription Service Agreement"), "{user}");
+    let (user, root) = halves(&docker);
+    assert!(
+        user.contains("Docker Desktop shows the Docker Subscription Service Agreement (https://www.docker.com/legal/docker-subscription-service-agreement/) when it first starts: accept it there to use it."),
+        "{user}"
+    );
+    assert!(!user.contains("--accept") && !root.contains("--accept"), "{user}\n{root}");
 }
 
 #[test]
@@ -307,7 +312,7 @@ fn the_aws_clis_package_is_checked_installed_then_must_answer() {
 
 #[cfg(unix)]
 #[test]
-fn docker_desktop_is_installed_by_its_own_unattended_installer_for_the_user() {
+fn docker_desktop_is_installed_by_its_own_installer_for_the_user_accepting_nothing() {
     let rig = Rig::new("", DOCKER.team);
     let installer = rig.path("fixture/Docker.app/Contents/MacOS/install");
     std::fs::create_dir_all(installer.parent().unwrap()).unwrap();
@@ -317,7 +322,9 @@ fn docker_desktop_is_installed_by_its_own_unattended_installer_for_the_user() {
     let (code, err) = rig.root_half(&DOCKER, "abc--Docker.dmg");
     assert_eq!(code, Some(0), "{err}");
     let log = std::fs::read_to_string(rig.path("calls")).unwrap();
-    assert!(log.contains("install --accept-license --user=ada\n"), "{log}");
+    // Regression: `--accept-license` accepted Docker's agreement for its user. Docker Desktop
+    // shows it at its first start instead.
+    assert!(log.contains("install --user=ada\n") && !log.contains("accept"), "{log}");
     assert_eq!(
         rig.calls(),
         [
@@ -330,7 +337,7 @@ fn docker_desktop_is_installed_by_its_own_unattended_installer_for_the_user() {
             "ditto",
             "xattr -dr",
             "codesign --verify",
-            "install --accept-license",
+            "install --user=ada",
             "codesign --verify",
             "spctl --assess",
             "xattr -dr",

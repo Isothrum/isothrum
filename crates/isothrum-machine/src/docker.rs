@@ -16,9 +16,11 @@ use crate::context::Context;
 use crate::exec::Unanswered;
 use crate::host::HostOs;
 
+mod agreement;
 mod start;
 
-pub use start::{DESKTOP_BACKEND_GRACE, START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
+pub use agreement::agreement_accepted;
+pub use start::{AGREEMENT_GRACE, DESKTOP_BACKEND_GRACE, START_POLL, START_TRIES, StartFailed, start_engine, start_steps};
 
 /// A Docker-compatible engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -153,7 +153,7 @@ fn interaction_text(interaction: &Interaction) -> String {
         Interaction::AdminPassword { via: Prompt::Mac } => "macOS asks for your password".to_owned(),
         Interaction::AdminPassword { via: Prompt::Uac } => "Windows asks for an administrator's approval".to_owned(),
         Interaction::AdminPassword { via: Prompt::Pkexec } => "asks for your password".to_owned(),
-        Interaction::Licence { name, url } => format!("accepts the {name} for you: {url}"),
+        Interaction::VendorAgreement { app, name, url } => format!("{app} shows the {name} when it first starts; accept it there: {url}"),
         Interaction::VendorWindow { app } => format!("{app} opens a window to finish in"),
         Interaction::AllowSystemExtension { vendor } => format!("allow {vendor}'s system extension in System Settings"),
         Interaction::Restart => "a restart follows".to_owned(),
@@ -230,7 +230,7 @@ mod tests {
         docker.interactions = install::interactions(Dependency::Docker, &windows(), Elevation::Prompt, None);
         assert_eq!(
             plan_text(&Plan::Install(vec![docker])),
-            "install with `winget install Docker.DockerDesktop` (Windows asks for an administrator's approval; accepts the Docker Subscription Service Agreement for you: https://www.docker.com/legal/docker-subscription-service-agreement/)"
+            "install with `winget install Docker.DockerDesktop` (Windows asks for an administrator's approval; Docker Desktop shows the Docker Subscription Service Agreement when it first starts; accept it there: https://www.docker.com/legal/docker-subscription-service-agreement/)"
         );
         let refused = plan_text(&Plan::Refused(Refusal::NoHomebrew));
         assert_eq!(refused, "no install here: Homebrew isn't installed");

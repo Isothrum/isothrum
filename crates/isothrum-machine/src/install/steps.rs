@@ -20,9 +20,10 @@ pub struct Step {
     pub args: Vec<String>,
     /// What a UI shows before it instead of its command line, when it says one.
     pub note: Option<Note>,
-    /// What it asks of the person at the computer while it runs (a password prompt, a licence it
-    /// accepts for them, a restart after it), in order: a UI says them before the install and
-    /// again as the step starts ([`super::interaction`]). Empty when it asks nothing.
+    /// What it asks of the person at the computer while it runs or after it (a password prompt, a
+    /// vendor's agreement they accept in its app, a restart after it), in order: a UI says them
+    /// before the install and again as the step starts ([`super::interaction`]). Empty when it
+    /// asks nothing.
     pub interactions: Vec<super::Interaction>,
     /// A private folder of files the step reads (a root step's proxy settings), removed with
     /// the step.
@@ -81,10 +82,9 @@ pub enum Note {
     InstallingFromVendor {
         /// The tool.
         dependency: super::Dependency,
-        /// The licence the install accepts on the user's behalf, when it does (Docker Desktop's
-        /// unattended install accepts Docker's): a UI shows it, and asks their consent, before
-        /// the step runs.
-        accepts: Option<Licence>,
+        /// The agreement the tool's app shows its user at its first start, for them to accept
+        /// there, when it has one (Docker Desktop's): no install accepts it for them.
+        agreement: Option<Agreement>,
     },
     /// QEMU's install, Homebrew updated first if it is out of date for this macOS.
     QemuUpdatingHomebrewFirst,
@@ -105,10 +105,11 @@ pub enum Note {
     Removing(super::Dependency),
 }
 
-/// A vendor's licence an install accepts on its user's behalf ([`Note::InstallingFromVendor`]).
+/// A vendor's agreement its app shows its user, who accepts it there themselves
+/// ([`Note::InstallingFromVendor`]): nothing here ever accepts it for them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct Licence {
+pub struct Agreement {
     /// Its name, as its vendor writes it.
     pub name: &'static str,
     /// Where its vendor publishes it.

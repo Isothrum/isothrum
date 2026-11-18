@@ -31,9 +31,9 @@ const UAC: Interaction = Interaction::AdminPassword { via: Prompt::Uac };
 const PKEXEC: Interaction = Interaction::AdminPassword { via: Prompt::Pkexec };
 
 #[test]
-fn a_mac_asks_for_the_password_of_a_vendors_package_and_names_dockers_licence() {
+fn a_mac_asks_for_the_password_of_a_vendors_package_and_names_the_agreement_docker_desktop_shows() {
     let on = |dep, arch| interactions(dep, &mac(arch), PROMPT, None);
-    assert_eq!(on(Dependency::Docker, Arch::Arm64), [MAC, DOCKER_LICENCE]);
+    assert_eq!(on(Dependency::Docker, Arch::Arm64), [MAC, DOCKER_AGREEMENT]);
     for dep in [Dependency::Vagrant, Dependency::Utm, Dependency::VmwareUtility, Dependency::Awscli] {
         assert_eq!(on(dep, Arch::Arm64), [MAC], "{dep:?}");
         assert_eq!(on(dep, Arch::Amd64), [MAC], "{dep:?}: a vendor's build, nothing built here");
@@ -41,8 +41,10 @@ fn a_mac_asks_for_the_password_of_a_vendors_package_and_names_dockers_licence() 
     for dep in [Dependency::Terraform, Dependency::Azurecli, Dependency::Gcloud] {
         assert_eq!(on(dep, Arch::Arm64), [], "{dep:?}: Homebrew installs it as the user");
     }
-    let Interaction::Licence { name, url } = DOCKER_LICENCE else { unreachable!() };
-    assert_eq!(name, "Docker Subscription Service Agreement");
+    let Interaction::VendorAgreement { app, name, url } = DOCKER_AGREEMENT else {
+        unreachable!()
+    };
+    assert_eq!((app, name), ("Docker Desktop", "Docker Subscription Service Agreement"));
     assert!(url.starts_with("https://www.docker.com/legal/"));
 }
 
@@ -80,7 +82,7 @@ fn an_intel_mac_builds_qemu_from_source() {
 #[test]
 fn an_unattended_install_raises_no_password_prompt() {
     for elevation in [SUDO_N, Elevation::Unattended { root: true }] {
-        assert_eq!(interactions(Dependency::Docker, &mac(Arch::Arm64), elevation, None), [DOCKER_LICENCE]);
+        assert_eq!(interactions(Dependency::Docker, &mac(Arch::Arm64), elevation, None), [DOCKER_AGREEMENT]);
         assert_eq!(interactions(Dependency::Vagrant, &mac(Arch::Arm64), elevation, None), []);
         assert_eq!(interactions(Dependency::Vagrant, &linux_host(LinuxPackages::Apt), elevation, None), []);
         assert_eq!(
@@ -94,7 +96,7 @@ fn an_unattended_install_raises_no_password_prompt() {
 #[test]
 fn windows_asks_through_uac_but_for_terraforms_portable_zip() {
     let on = |dep| interactions(dep, &windows_host(), PROMPT, None);
-    assert_eq!(on(Dependency::Docker), [UAC, DOCKER_LICENCE]);
+    assert_eq!(on(Dependency::Docker), [UAC, DOCKER_AGREEMENT]);
     assert_eq!(on(Dependency::Terraform), []);
     for dep in [Dependency::Wsl, Dependency::Hyperv, Dependency::Vagrant] {
         assert_eq!(on(dep), [UAC, Interaction::Restart], "{dep:?}");
@@ -176,11 +178,12 @@ fn every_plan_hands_its_interactions_to_the_step_that_raises_them() {
                     _ => None,
                 });
                 assert_eq!(said, raises_prompt(last), "{dep:?} on {:?} {:?} {elevation:?}", host.os, host.arch);
-                // A licence is said exactly where the step accepts one.
-                let licence = want.iter().any(|i| matches!(i, Interaction::Licence { .. }));
-                let accepts = matches!(last.note, Some(Note::InstallingFromVendor { accepts: Some(_), .. }))
+                // A vendor's agreement is said exactly where the step installs the app that shows
+                // it: Docker Desktop, from Docker's disk image or through winget.
+                let agreement = want.iter().any(|i| matches!(i, Interaction::VendorAgreement { .. }));
+                let shows = matches!(last.note, Some(Note::InstallingFromVendor { agreement: Some(_), .. }))
                     || last.args.iter().any(|a| a.contains("Docker.DockerDesktop"));
-                assert_eq!(licence, accepts, "{dep:?} on {:?}", host.os);
+                assert_eq!(agreement, shows, "{dep:?} on {:?}", host.os);
             }
         }
     }
@@ -188,12 +191,12 @@ fn every_plan_hands_its_interactions_to_the_step_that_raises_them() {
 
 #[test]
 fn interactions_read_as_their_kind_and_fields() {
-    let json = serde_json::to_value([MAC, DOCKER_LICENCE, Interaction::LongBuild { minutes: 30 }, Interaction::Relogin]).unwrap();
+    let json = serde_json::to_value([MAC, DOCKER_AGREEMENT, Interaction::LongBuild { minutes: 30 }, Interaction::Relogin]).unwrap();
     assert_eq!(
         json,
         serde_json::json!([
             {"kind": "adminPassword", "via": "mac"},
-            {"kind": "licence", "name": "Docker Subscription Service Agreement", "url": "https://www.docker.com/legal/docker-subscription-service-agreement/"},
+            {"kind": "vendorAgreement", "app": "Docker Desktop", "name": "Docker Subscription Service Agreement", "url": "https://www.docker.com/legal/docker-subscription-service-agreement/"},
             {"kind": "longBuild", "minutes": 30},
             {"kind": "relogin"},
         ])
@@ -202,4 +205,75 @@ fn interactions_read_as_their_kind_and_fields() {
         vendor: "Oracle America, Inc.",
     };
     assert_eq!(serde_json::to_value(extension).unwrap()["kind"], "allowSystemExtension");
+}
+
+/// What, on a command line, accepts a licence, an agreement or terms on its user's behalf: Docker's
+/// and VirtualBox's Extension Pack's `--accept-license`, winget's `--accept-*-agreements`, Xcode's
+/// `-license accept`, a debconf answer that a licence was accepted, an EULA switch.
+const ACCEPTS_FOR_THE_USER: [&str; 10] = [
+    "--accept-license",
+    "--accept-licence",
+    "--accept-package-agreements",
+    "--accept-source-agreements",
+    "--accept-eula",
+    "--accept-terms",
+    "-license accept",
+    "accepted-license",
+    "accept_eula",
+    "/eula",
+];
+
+/// The accept-for-the-user flags `line` holds, case aside.
+fn accepting(line: &str) -> Vec<&'static str> {
+    let line = line.to_lowercase();
+    ACCEPTS_FOR_THE_USER.into_iter().filter(|flag| line.contains(flag)).collect()
+}
+
+#[test]
+fn the_accept_scan_finds_each_flag_wherever_it_is() {
+    assert_eq!(accepting("install --accept-license --user=ada"), ["--accept-license"]);
+    assert_eq!(accepting("winget install -e --id X --accept-source-agreements"), ["--accept-source-agreements"]);
+    assert_eq!(accepting("sudo xcodebuild -license accept"), ["-license accept"]);
+    assert_eq!(
+        accepting("echo 'virtualbox-ext-pack virtualbox-ext-pack/license select true' | debconf-set-selections; echo x shared/accepted-license-x"),
+        ["accepted-license"]
+    );
+    assert_eq!(accepting("ACCEPT_EULA=Y apt-get install -y msodbcsql18"), ["accept_eula"]);
+    assert_eq!(accepting("apt-get install -y --no-install-recommends virtualbox"), Vec::<&str>::new());
+}
+
+/// Regression: Docker Desktop's install on macOS ran `install --accept-license`, and winget's
+/// installs `--accept-package-agreements --accept-source-agreements`, accepting for the user what
+/// only they may accept. No step of any install or removal, on any host, as any elevation, accepts
+/// anything for them: its vendor's own window shows it, and they accept it there.
+#[test]
+fn no_install_or_removal_accepts_anything_on_its_users_behalf() {
+    let mut read = 0;
+    for host in hosts() {
+        for elevation in [PROMPT, SUDO_N, Elevation::Unattended { root: true }] {
+            for dep in Dependency::ALL {
+                let added = crate::install::items(dep, &host);
+                let mut steps = plan(dep, &host, Some("ada"), elevation).unwrap_or_default();
+                steps.extend(crate::install::removal(dep, &host, &added, elevation, Some("/tmp/VirtualBox.dmg")).unwrap_or_default());
+                for step in steps {
+                    let line = crate::install::command_line(&step);
+                    assert_eq!(
+                        accepting(&line),
+                        Vec::<&str>::new(),
+                        "{dep:?} on {:?} {elevation:?} accepts for its user: {line}",
+                        host.os
+                    );
+                    read += 1;
+                }
+            }
+        }
+    }
+    // The providers' Vagrant plugins, installed by `vagrant plugin install`.
+    for plugin in ["vagrant-vmware-desktop", "vagrant-libvirt", "vagrant-qemu", "vagrant-parallels"] {
+        let line = crate::install::vagrant_plugin(plugin)
+            .map(|s| crate::install::command_line(&s))
+            .unwrap_or_default();
+        assert_eq!(accepting(&line), Vec::<&str>::new(), "{line}");
+    }
+    assert!(read > 50, "only {read} steps read");
 }

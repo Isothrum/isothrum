@@ -2,10 +2,15 @@
 //! way its user would: its app opened (`open -a`, Docker Desktop's program on Windows), its CLI
 //! run (`colima start`), or Docker Engine's service started as root (`systemctl start docker`,
 //! through pkexec's prompt or unattended). Then the CLI is pointed at it and its daemon asked
-//! until it answers: Docker Desktop and OrbStack take a while on a first start. Docker Desktop
-//! whose backend never comes up waits for its user in its own window (its terms to accept, its
-//! first start's setup to finish): that is said as soon as it is clear
-//! ([`StartFailed::WaitingForUser`]), not after the whole wait.
+//! until it answers: Docker Desktop and OrbStack take a while on a first start.
+//!
+//! Docker Desktop shows Docker's Subscription Service Agreement at its first start, and its engine
+//! starts only once its user has accepted it there: nothing accepts it for them. Its settings
+//! saying it isn't accepted is said as soon as its window has had time to show
+//! ([`StartFailed::AgreementNotAccepted`], after [`AGREEMENT_GRACE`]); a Docker Desktop whose
+//! backend never comes up otherwise waits for its user in its window too (its first start's setup
+//! to finish: [`StartFailed::WaitingForUser`]). Either is said as soon as it is clear, not after
+//! the whole wait.
 
 use std::time::Duration;
 
@@ -21,6 +26,10 @@ pub const START_TRIES: u32 = 90;
 
 /// How long between two of those asks.
 pub const START_POLL: Duration = Duration::from_secs(2);
+
+/// How long Docker Desktop, opened, is given to show its window before its agreement, not
+/// accepted yet, is said to wait for its user ([`StartFailed::AgreementNotAccepted`]).
+pub const AGREEMENT_GRACE: Duration = Duration::from_secs(10);
 
 /// How long Docker Desktop, opened, is given to start its backend (its socket listening:
 /// [`crate::host::Devices::docker_desktop_socket`]) before it is taken to wait for its user.
@@ -60,9 +69,14 @@ pub enum StartFailed {
     Denied(String),
     /// A start step failed.
     Step(StepFailed),
-    /// Docker Desktop, opened, waits for its user in its own window: its terms to accept, or its
-    /// first start's setup to finish (its backend never started within
-    /// [`DESKTOP_BACKEND_GRACE`]). It answers once they have.
+    /// Docker Desktop, opened, shows Docker's Subscription Service Agreement in its own window,
+    /// which its user hasn't accepted (its settings say so, [`super::agreement_accepted`]): they
+    /// accept it there themselves, and its engine answers once they have. Nothing accepts it for
+    /// them.
+    AgreementNotAccepted(Engine),
+    /// Docker Desktop, opened, waits for its user in its own window: its first start's setup to
+    /// finish (its backend never started within [`DESKTOP_BACKEND_GRACE`], or, on Windows, it
+    /// wrote no settings by then). It answers once they have.
     WaitingForUser(Engine),
     /// Started, it gave no answer within [`START_TRIES`] asks: why the last one failed.
     NoAnswer {
@@ -81,7 +95,16 @@ impl std::fmt::Display for StartFailed {
             StartFailed::NotHere(engine) => write!(f, "{} isn't started by a setup here; start it yourself", engine.label()),
             StartFailed::Denied(said) => write!(f, "the Docker daemon refuses this account: {said}"),
             StartFailed::Step(failed) => failed.fmt(f),
-            StartFailed::WaitingForUser(engine) => write!(f, "{} waits for you in its window: accept its terms or finish its setup there", engine.label()),
+            StartFailed::AgreementNotAccepted(engine) => write!(
+                f,
+                "{} waits for you to accept the Docker Subscription Service Agreement in its window; nothing accepts it for you",
+                engine.label()
+            ),
+            StartFailed::WaitingForUser(engine) => write!(
+                f,
+                "{} waits for you in its window: accept its agreement or finish its setup there",
+                engine.label()
+            ),
             StartFailed::NoAnswer { engine, waited, last } => {
                 write!(f, "{} gave no answer within {} s of its start: {last}", engine.label(), waited.as_secs())
             }
@@ -121,8 +144,8 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
             Err(NoAnswer::Denied(said)) => return Err(StartFailed::Denied(said)),
             Err(why) => last = why.to_string(),
         }
-        if waits_for_user(cx, engine, START_POLL * tried) {
-            return Err(StartFailed::WaitingForUser(engine));
+        if let Some(waiting) = waits_for_user(cx, engine, START_POLL * tried) {
+            return Err(waiting);
         }
         tokio::time::sleep(START_POLL).await;
     }
@@ -133,11 +156,24 @@ pub async fn start_engine(cx: &Context, engine: Engine, elevation: Elevation, on
     })
 }
 
-/// Whether `engine`, opened `waited` ago, waits for its user: Docker Desktop on macOS whose
-/// backend hasn't started within [`DESKTOP_BACKEND_GRACE`] (its socket doesn't listen: it waits
-/// in its window for its terms to be accepted, or its first start's setup to be finished).
-fn waits_for_user(cx: &Context, engine: Engine, waited: Duration) -> bool {
-    engine == Engine::DockerDesktop && cx.host.os == HostOs::Macos && waited >= DESKTOP_BACKEND_GRACE && !listens(&cx.host.devices.docker_desktop_socket)
+/// How `engine`, opened `waited` ago, waits for its user, when it does: Docker Desktop (macOS,
+/// Windows) whose settings say its agreement isn't accepted, once [`AGREEMENT_GRACE`] is over;
+/// else, once [`DESKTOP_BACKEND_GRACE`] is, Docker Desktop on macOS whose backend hasn't started
+/// (its socket doesn't listen), or on Windows that has written no settings (its first start's
+/// window, which nothing reads on Windows).
+fn waits_for_user(cx: &Context, engine: Engine, waited: Duration) -> Option<StartFailed> {
+    if engine != Engine::DockerDesktop || cx.host.os == HostOs::Linux {
+        return None;
+    }
+    let accepted = super::agreement_accepted(cx);
+    if waited >= AGREEMENT_GRACE && accepted == Some(false) {
+        return Some(StartFailed::AgreementNotAccepted(engine));
+    }
+    let first_start = match cx.host.os {
+        HostOs::Macos => !listens(&cx.host.devices.docker_desktop_socket),
+        _ => accepted.is_none(),
+    };
+    (waited >= DESKTOP_BACKEND_GRACE && first_start).then_some(StartFailed::WaitingForUser(engine))
 }
 
 /// Whether something listens on the unix socket `socket` (a file left behind refuses).
@@ -301,13 +337,19 @@ mod tests {
 
     /// Docker Desktop on a Mac whose devices are under `root`, its CLI never answering.
     fn desktop_never_answering(root: &std::path::Path) -> (Context, Arc<FakeProcesses>) {
+        desktop_never_answering_on(root, HostOs::Macos)
+    }
+
+    /// Docker Desktop on `os` whose devices are under `root`, opened, its CLI never answering.
+    fn desktop_never_answering_on(root: &std::path::Path, os: HostOs) -> (Context, Arc<FakeProcesses>) {
         let fake = Arc::new(FakeProcesses::model(|call| match call.line().as_str() {
             "open -a Docker" => Reply::ok(""),
+            line if line.starts_with("powershell") => Reply::ok(""),
             line if line.starts_with("docker context ls") => Reply::ok("default\ttrue"),
             _ => Reply::fail(1, "Cannot connect to the Docker daemon at unix:///Users/ada/.docker/run/docker.sock"),
         }));
         let mut host = linux_host(root);
-        host.os = HostOs::Macos;
+        host.os = os;
         let runner: Arc<dyn isothrum_runner::ProcessRunner> = Arc::<FakeProcesses>::clone(&fake);
         (Context::new(runner, host), fake)
     }
@@ -324,7 +366,45 @@ mod tests {
         assert_eq!(err, Err(StartFailed::WaitingForUser(Engine::DockerDesktop)));
         assert!(started.elapsed() < DESKTOP_BACKEND_GRACE + START_POLL, "{:?}", started.elapsed());
         assert_eq!(fake.made("open -a Docker").len(), 1);
-        assert!(err.unwrap_err().to_string().contains("accept its terms"));
+        assert!(err.unwrap_err().to_string().contains("accept its agreement"));
+    }
+
+    /// Docker Desktop installed without `--accept-license` shows Docker's agreement at its first
+    /// start: its settings say it isn't accepted, which is said once its window has had time to
+    /// show, on macOS and Windows alike, not as a start that timed out. Accepted, it is waited for.
+    #[tokio::test(start_paused = true)]
+    async fn docker_desktop_whose_agreement_isnt_accepted_waits_for_its_user_to_accept_it() {
+        for os in [HostOs::Macos, HostOs::Windows] {
+            let root = tempfile::tempdir().unwrap();
+            let (cx, _) = desktop_never_answering_on(root.path(), os);
+            let settings = &cx.host.devices.docker_desktop_settings[0];
+            std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+            std::fs::write(settings, r#"{"AutoStart": false}"#).unwrap();
+            let started = tokio::time::Instant::now();
+            let err = start_engine(&cx, Engine::DockerDesktop, Elevation::Prompt, &mut |_| {}).await;
+            assert_eq!(err, Err(StartFailed::AgreementNotAccepted(Engine::DockerDesktop)), "{os:?}");
+            assert!(started.elapsed() < AGREEMENT_GRACE + START_POLL, "{os:?}: {:?}", started.elapsed());
+            let said = err.unwrap_err().to_string();
+            assert!(said.contains("accept the Docker Subscription Service Agreement in its window"), "{said}");
+            // Accepted in Docker's window: no longer said; on Windows, nothing else to read, it is
+            // waited for in full.
+            std::fs::write(settings, r#"{"AutoStart": false, "LicenseTermsVersion": 2}"#).unwrap();
+            let after = start_engine(&cx, Engine::DockerDesktop, Elevation::Prompt, &mut |_| {}).await;
+            assert!(!matches!(after, Err(StartFailed::AgreementNotAccepted(_))), "{os:?}: {after:?}");
+            if os == HostOs::Windows {
+                assert!(matches!(after, Err(StartFailed::NoAnswer { .. })), "{after:?}");
+            }
+        }
+    }
+
+    /// Docker Desktop on Windows that wrote no settings within its backend's grace waits in its
+    /// first start's window.
+    #[tokio::test(start_paused = true)]
+    async fn docker_desktop_on_windows_without_settings_waits_for_its_user() {
+        let root = tempfile::tempdir().unwrap();
+        let (cx, _) = desktop_never_answering_on(root.path(), HostOs::Windows);
+        let err = start_engine(&cx, Engine::DockerDesktop, Elevation::Prompt, &mut |_| {}).await;
+        assert_eq!(err, Err(StartFailed::WaitingForUser(Engine::DockerDesktop)));
     }
 
     /// Docker Desktop whose backend listens is starting, not waiting: it is given its whole time.
