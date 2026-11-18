@@ -248,6 +248,12 @@ fn added_only_what_was_missing(
     itself: bool,
     installed: &install::Installed,
 ) {
+    // A Windows feature (WSL 2, Hyper-V) is turned off by its user in Windows Features, never
+    // removed by a setup (`Refusal::WindowsFeature`): its install leaves no record to hold.
+    if matches!(install::windows::uninstall(dep), Err(install::Refusal::WindowsFeature { .. })) {
+        println!("{dep:?} is a Windows feature, which a setup never removes: its install records nothing");
+        return;
+    }
     let there = there.unwrap_or_else(|| panic!("what of {dep:?}'s install is here can't be told"));
     let before: Vec<&install::Item> = installed.added.iter().filter(|item| there.contains(*item)).collect();
     assert!(before.is_empty(), "{dep:?}'s install claims {before:?}, which were there before it");
