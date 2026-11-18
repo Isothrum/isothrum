@@ -138,8 +138,8 @@ pub(crate) fn plan_text(plan: &Plan) -> String {
             format!("install with {}{asks}", lines.join(", then "))
         }
         Plan::Start => "start it".to_owned(),
-        Plan::ByHand { url: Some(url) } => format!("get it from {url}"),
-        Plan::ByHand { url: None } => "install it yourself".to_owned(),
+        Plan::ByHand { page: Some(page) } => format!("download it from {} ({}), install it, then check again", page.name, page.url),
+        Plan::ByHand { page: None } => "install it yourself".to_owned(),
         Plan::Refused(why) => format!("no install here: {why}"),
         Plan::After { requirement } => format!("install it once {} is there", name(*requirement)),
         Plan::ShareVirtualization => "let KVM share the CPU's virtualization with it".to_owned(),
@@ -159,6 +159,7 @@ fn interaction_text(interaction: &Interaction) -> String {
         Interaction::Restart => "a restart follows".to_owned(),
         Interaction::Relogin => "sign out and back in after".to_owned(),
         Interaction::LongBuild { minutes } => format!("builds from source: about {minutes} minutes"),
+        Interaction::DownloadByHand { vendor, url } => format!("download it from {vendor}: {url}"),
         _ => format!("{interaction:?}"),
     }
 }
@@ -184,7 +185,12 @@ fn need_json(need: &Need) -> serde_json::Value {
             "interactions": steps.iter().flat_map(|s| s.interactions.iter()).collect::<Vec<_>>(),
         }),
         Plan::Start => serde_json::json!({ "kind": "start" }),
-        Plan::ByHand { url } => serde_json::json!({ "kind": "byHand", "url": url }),
+        Plan::ByHand { page } => serde_json::json!({
+            "kind": "byHand",
+            "url": page.map(|p| p.url),
+            "vendor": page.map(|p| p.name),
+            "interactions": page.map(|p| vec![p.download()]).unwrap_or_default(),
+        }),
         Plan::Refused(why) => serde_json::json!({ "kind": "refused", "reason": why.to_string() }),
         Plan::After { requirement } => serde_json::json!({ "kind": "after", "requirement": requirement, "name": name(*requirement) }),
         Plan::ShareVirtualization => serde_json::json!({ "kind": "shareVirtualization" }),
@@ -210,9 +216,9 @@ mod tests {
         assert_eq!(plan_text(&Plan::Start), "start it");
         assert_eq!(
             plan_text(&Plan::ByHand {
-                url: Some(requirements::OVFTOOL_URL)
+                page: Some(install::OVFTOOL_PAGE)
             }),
-            format!("get it from {}", requirements::OVFTOOL_URL)
+            format!("download it from Broadcom ({}), install it, then check again", requirements::OVFTOOL_URL)
         );
         let plugin = install::vagrant_plugin("vagrant-libvirt").unwrap();
         assert_eq!(plan_text(&Plan::Install(vec![plugin])), "install with `vagrant plugin install vagrant-libvirt`");
@@ -241,9 +247,23 @@ mod tests {
             provider: Provider::VmwareEsxi,
         };
         assert_eq!(name(plugin), "the Vagrant plugin vagrant-vmware-esxi");
-        let json = need_json(&need(Requirement::Ovftool, Some(false), Some(Plan::ByHand { url: None })));
+        let json = need_json(&need(Requirement::Ovftool, Some(false), Some(Plan::ByHand { page: None })));
         assert_eq!(json["requirement"], serde_json::json!({"kind": "ovftool"}));
-        assert_eq!(json["plan"], serde_json::json!({"kind": "byHand", "url": null}));
+        assert_eq!(
+            json["plan"],
+            serde_json::json!({"kind": "byHand", "url": null, "vendor": null, "interactions": []})
+        );
+        let ovftool = need_json(&need(
+            Requirement::Ovftool,
+            Some(false),
+            Some(Plan::ByHand {
+                page: Some(install::OVFTOOL_PAGE),
+            }),
+        ));
+        assert_eq!(
+            ovftool["plan"]["interactions"],
+            serde_json::json!([{"kind": "downloadByHand", "vendor": "Broadcom", "url": requirements::OVFTOOL_URL}])
+        );
         assert_eq!(json["present"], false);
         let mut wsl = install::step("powershell", &[]);
         wsl.interactions = install::interactions(Dependency::Wsl, &windows(), Elevation::Prompt, None);

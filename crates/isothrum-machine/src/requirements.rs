@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::install::{self, Dependency, Elevation, Refusal, Step};
-use crate::providers::{self, Provider, ProviderRow, ProviderStatus, Unavailable};
+use crate::providers::{self, Provider, ProviderStatus, Unavailable};
 use crate::tools::{self, probes};
 
 #[cfg(test)]
@@ -29,7 +29,7 @@ mod tests;
 
 /// Where VMware's OVF Tool is downloaded: Broadcom's site, behind a sign-in, so its user fetches
 /// it.
-pub const OVFTOOL_URL: &str = "https://developer.broadcom.com/tools/open-virtualization-format-ovf-tool/latest";
+pub const OVFTOOL_URL: &str = crate::install::OVFTOOL_PAGE.url;
 
 /// The platform a Terraform module makes its machines on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -268,10 +268,11 @@ pub enum Plan {
     /// Installed, but KVM holds the CPU's virtualization ([`Unavailable::KvmHoldsVirtualization`],
     /// VirtualBox's): KVM set to share it ([`crate::setup::share_virtualization`]).
     ShareVirtualization,
-    /// Its user gets it from its vendor (behind a sign-in or a licence): from `url`, when known.
+    /// Its user gets it from its vendor (behind a sign-in or a licence): from `page`, its vendor's
+    /// official download page, when known ([`crate::install::VendorPage::download`] says it).
     ByHand {
         /// Where.
-        url: Option<&'static str>,
+        page: Option<crate::install::VendorPage>,
     },
     /// No plan here, for this reason.
     Refused(Refusal),
@@ -435,13 +436,15 @@ pub fn plan(cx: &Context, requirement: Requirement, asking: &Asking<'_>) -> Plan
         Requirement::Hypervisor { provider } => match Dependency::of_hypervisor(provider) {
             Some(dep) => install(dep),
             None => Plan::ByHand {
-                url: ProviderRow::of(provider).vendor,
+                page: providers::download_page(provider, cx.host.os),
             },
         },
         Requirement::VagrantPlugin { provider } => {
             let step = provider.plugin().and_then(install::vagrant_plugin);
-            step.map_or(Plan::ByHand { url: None }, |s| Plan::Install(vec![s]))
+            step.map_or(Plan::ByHand { page: None }, |s| Plan::Install(vec![s]))
         }
-        Requirement::Ovftool => Plan::ByHand { url: Some(OVFTOOL_URL) },
+        Requirement::Ovftool => Plan::ByHand {
+            page: Some(crate::install::OVFTOOL_PAGE),
+        },
     }
 }
