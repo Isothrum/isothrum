@@ -81,8 +81,17 @@ fn taken_port(out: &Captured) -> Option<(u16, crate::project::platform::Protocol
     })
 }
 
-/// What Docker's CLI says when its engine doesn't answer, as [`said_any`] reads it (lowercase).
-const ENGINE_DOWN: &[&str] = &["cannot connect to the docker daemon", "is the docker daemon running", "error during connect"];
+/// What Docker's CLI says when its engine doesn't answer, as [`said_any`] reads it (lowercase):
+/// "Cannot connect to the Docker daemon … Is the docker daemon running?" up to 28, "failed to
+/// connect to the docker API at … if the daemon is running" since 29 (Docker Desktop stopped
+/// during an `up`). Its socket's refusal says "permission denied" with it: [`engine_denied`],
+/// read first.
+const ENGINE_DOWN: &[&str] = &[
+    "cannot connect to the docker daemon",
+    "is the docker daemon running",
+    "error during connect",
+    "failed to connect to the docker api",
+];
 
 /// Whether `out` says the engine refused this account: its socket's `permission denied` (`… the
 /// docker API at unix:///var/run/docker.sock`, `… the Docker daemon socket`), or its named pipe's
@@ -389,6 +398,7 @@ mod tests {
         for (said, expected) in [
             (include_str!("../tool_output/fixtures/compose/27.1-engine-down.txt"), "down"),
             (include_str!("../tool_output/fixtures/compose/27.1-windows-engine-gone.txt"), "down"),
+            (include_str!("../tool_output/fixtures/compose/29.9-engine-stopped-during-up.txt"), "down"),
             (include_str!("../tool_output/fixtures/compose/28.0-socket-denied.txt"), "denied"),
             (include_str!("../tool_output/fixtures/compose/24.0-socket-denied.txt"), "denied"),
             (include_str!("../tool_output/fixtures/compose/27.1-windows-pipe-denied.txt"), "denied"),
