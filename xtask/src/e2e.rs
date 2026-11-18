@@ -21,6 +21,13 @@
 //! [`RESTART_EXIT`]. Once the computer has restarted, the same command carries on: that test runs
 //! again first, told it resumes (`ISOTHRUM_E2E_RESUMED=1`, so it checks what its install turned
 //! on), then the tests not run yet. A test asking for a restart again on its resumption fails.
+//!
+//! An install that joined this account to groups (Linux's `docker`, `libvirt`, `kvm`), which
+//! apply from its next login, says so once it passed (a line [`RELOGIN`] starts): the other
+//! installs run, then the run stops before the tests that use those groups, keeps where it is
+//! ([`Resume`]) and exits [`RELOGIN_EXIT`]. The same command run again in a new login session
+//! (a new SSH connection, a desktop logged into again) carries on with the tests not run yet,
+//! as a setup carries on after the new login it asks its user for.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
@@ -36,6 +43,14 @@ const SKIP: &str = "isothrum-e2e: skip: ";
 /// What a test prints to say the computer must restart before it can go on, then why (the tests'
 /// own `RESTART`).
 const RESTART: &str = "isothrum-e2e: restart: ";
+
+/// What a test prints, once it passed, to say the tests after it need a new login, then why (the
+/// tests' own `RELOGIN`).
+const RELOGIN: &str = "isothrum-e2e: relogin: ";
+
+/// The exit code that asks for the same command run again in a new login session (`EX_PROTOCOL`:
+/// any code a test run doesn't otherwise exit with).
+pub(crate) const RELOGIN_EXIT: u8 = 76;
 
 /// The variable a resumed test is run with.
 const RESUMED: &str = "ISOTHRUM_E2E_RESUMED";
@@ -142,23 +157,7 @@ struct Outcome {
 pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
     let root = repo::root();
     let tier = a.tier();
-    if a.exe.is_none() {
-        process::run(real_tests(&root).arg("--no-run"))?;
-    }
-    let listed = process::output(&mut harness(&root, a.exe.as_deref(), &["--ignored", "--list", "--format", "terse"]))?;
-    let written = source_cases(&root.join(REAL), tier).unwrap_or_default();
-    let tests = tier_tests(&listed, tier, a.filter.as_deref(), &written);
-    if a.exe.is_none() {
-        same_as_sources(&root, tier, &listed)?;
-    }
-    if tests.is_empty() {
-        return Err(format!(
-            "no {} test{}",
-            tier.name(),
-            a.filter.as_ref().map(|f| format!(" matches {f}")).unwrap_or_default()
-        )
-        .into());
-    }
+    let tests = built_tests(a, &root)?;
     let logs = match &a.results {
         Some(file) => file.parent().map(Path::to_path_buf).unwrap_or_default(),
         None => repo::target_dir(&root).join("e2e"),
@@ -170,8 +169,15 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         println!("carrying on after a restart, from {case}");
     }
     let mut failed = 0;
+    let mut login = NewLogin::default();
     for test in resume.order(&tests) {
         let case = test.strip_prefix(&format!("{}::", tier.name())).unwrap_or(&test);
+        if let Some(why) = login.stops_before(case) {
+            println!("RELOGIN {why}");
+            println!("log in again (a new session, which has those groups), then run the same command again: it carries on from {case}");
+            resume.write(&state)?;
+            return Ok(std::process::ExitCode::from(RELOGIN_EXIT));
+        }
         let ran = run_test(a, &root, &logs, case, resume.resume.as_deref() == Some(case))?;
         if ran.outcome.result == "restart" {
             println!("RESTART {case}: {}", ran.outcome.reason);
@@ -190,6 +196,7 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
         if let Some(file) = &a.results {
             append(file, &ran)?;
         }
+        login.heard(&ran.outcome, &std::fs::read_to_string(&ran.log).unwrap_or_default());
         resume.done(case);
         resume.write(&state)?;
     }
@@ -199,6 +206,30 @@ pub(crate) fn run(a: &Args) -> Res<std::process::ExitCode> {
     }
     println!("{} tier: {} run, {failed} failed", tier.name(), tests.len());
     Ok(process::exit_code(failed == 0))
+}
+
+/// The tier's tests to run, in order ([`tier_tests`]), built first unless `--exe` names them;
+/// none is an error.
+fn built_tests(a: &Args, root: &Path) -> Res<Vec<String>> {
+    let tier = a.tier();
+    if a.exe.is_none() {
+        process::run(real_tests(root).arg("--no-run"))?;
+    }
+    let listed = process::output(&mut harness(root, a.exe.as_deref(), &["--ignored", "--list", "--format", "terse"]))?;
+    let written = source_cases(&root.join(REAL), tier).unwrap_or_default();
+    let tests = tier_tests(&listed, tier, a.filter.as_deref(), &written);
+    if a.exe.is_none() {
+        same_as_sources(root, tier, &listed)?;
+    }
+    if tests.is_empty() {
+        return Err(format!(
+            "no {} test{}",
+            tier.name(),
+            a.filter.as_ref().map(|f| format!(" matches {f}")).unwrap_or_default()
+        )
+        .into());
+    }
+    Ok(tests)
 }
 
 /// Runs test `case` of the tier alone, its output in a log of its own in `logs`; `resumed`: it asked
@@ -227,6 +258,29 @@ fn run_test<'a>(a: &Args, root: &Path, logs: &Path, case: &'a str, resumed: bool
         seconds: start.elapsed().as_secs(),
         log,
     })
+}
+
+/// Whether the tests after the installs wait for a new login: an install that passed said its
+/// groups apply from the next one ([`RELOGIN`]).
+#[derive(Debug, Default)]
+struct NewLogin {
+    /// Why, as the first install that asked said.
+    asked: Option<String>,
+}
+
+impl NewLogin {
+    /// A test ended with `outcome`, its `log` read: a pass that asks for a new login is heard.
+    fn heard(&mut self, outcome: &Outcome, log: &str) {
+        if outcome.result == "pass" && self.asked.is_none() {
+            self.asked = said(log, RELOGIN);
+        }
+    }
+
+    /// Why the run stops before `case` for a new login, when it does: one was asked for, and the
+    /// installs are over.
+    fn stops_before(&self, case: &str) -> Option<&str> {
+        self.asked.as_deref().filter(|_| !case.starts_with(INSTALLS))
+    }
 }
 
 /// Where a run that stopped for a restart is: the cases it ran (recorded already) and the one it
@@ -369,8 +423,7 @@ fn outcome(passed: bool, log: &str) -> Outcome {
             reason: panic_message(log).unwrap_or_else(|| "it failed without a panic (see its log)".into()),
         };
     }
-    let said = |prefix: &str| log.lines().find_map(|l| l.strip_prefix(prefix)).map(|why| why.trim().to_owned());
-    match (said(SKIP), said(RESTART)) {
+    match (said(log, SKIP), said(log, RESTART)) {
         (Some(reason), _) => Outcome { result: "skip", reason },
         (None, Some(reason)) => Outcome { result: "restart", reason },
         (None, None) => Outcome {
@@ -378,6 +431,11 @@ fn outcome(passed: bool, log: &str) -> Outcome {
             reason: String::new(),
         },
     }
+}
+
+/// What the first line of `log` that starts with `prefix` says after it.
+fn said(log: &str, prefix: &str) -> Option<String> {
+    log.lines().find_map(|l| l.strip_prefix(prefix)).map(|why| why.trim().to_owned())
 }
 
 /// The message of the first panic in `log`: the lines after `panicked at …:` up to the backtrace
@@ -519,6 +577,32 @@ mod tests {
             }
         );
         assert_eq!(outcome(false, &said).result, "fail");
+    }
+
+    #[test]
+    fn the_installs_end_then_the_run_stops_for_the_new_login_one_asked_for() {
+        let passed = Outcome {
+            result: "pass",
+            reason: String::new(),
+        };
+        let mut login = NewLogin::default();
+        login.heard(&passed, "running 1 test\ntest x ... ok\n");
+        assert_eq!(login.stops_before("selftest::engine"), None, "nothing asked");
+        let asked = format!("$ pkexec sh -c ...\n{RELOGIN}Docker joined this account to docker (from its next login)\ntest x ... ok\n");
+        let failed = Outcome {
+            result: "fail",
+            reason: "boom".into(),
+        };
+        login.heard(&failed, &asked);
+        assert_eq!(login.stops_before("selftest::engine"), None, "a failed install asks for nothing");
+        login.heard(&passed, &asked);
+        login.heard(&passed, &format!("{RELOGIN}Libvirt joined this account to libvirt\n"));
+        assert_eq!(login.stops_before("install::libvirt"), None, "the installs go on");
+        assert_eq!(
+            login.stops_before("selftest::engine"),
+            Some("Docker joined this account to docker (from its next login)"),
+            "then the run stops, saying the first reason"
+        );
     }
 
     #[test]

@@ -24,9 +24,10 @@ use isothrum_machine::docker::{self, Engine, StartFailed};
 use isothrum_machine::host::os_name;
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
 use isothrum_machine::providers::{self, Provider};
-use isothrum_machine::{Context, HostOs};
+use isothrum_machine::setup::{self, Action, Machine, SetupPath, Wanted};
+use isothrum_machine::{Context, HostOs, check, wsl};
 
-use crate::{answer, as_started, here, reread, setting};
+use crate::{RELOGIN, answer, as_started, here, reread, setting};
 
 /// How long an installer its user finishes in its own window (macOS's casks) may take.
 const FINISH: Duration = Duration::from_secs(30 * 60);
@@ -236,6 +237,54 @@ async fn works_as_a_run_needs(cx: &Context, dep: Dependency) {
     }
 }
 
+/// The groups using `dep` takes on this computer (Linux): Docker's `docker`, a hypervisor's own
+/// ([`providers::login_groups`]: libvirt's, `/dev/kvm`'s).
+fn groups_of(cx: &Context, dep: Dependency) -> Vec<String> {
+    match dep {
+        Dependency::Docker => vec!["docker".to_owned()],
+        _ => dep.hypervisor().map(|p| providers::login_groups(p, &cx.host)).unwrap_or_default(),
+    }
+}
+
+/// What a setup for `dep` plans on this computer as it is now: Docker's engine, or `dep`'s
+/// hypervisor and what Vagrant needs for it.
+async fn setup_for(cx: &Context, dep: Dependency) -> setup::Plan {
+    let found = check::check(cx, wsl::Marks::default()).await;
+    let machine = Machine::of(&found, cx.host.clone());
+    let options = setup::options(&machine, false);
+    let wanted = match dep.hypervisor() {
+        Some(p) => Wanted {
+            paths: vec![SetupPath::Vm],
+            hypervisors: vec![p],
+            ..Wanted::default()
+        },
+        None => Wanted {
+            paths: vec![SetupPath::Docker],
+            ..Wanted::default()
+        },
+    };
+    setup::plan(&machine, &options, &wanted)
+}
+
+/// On Linux, the groups `dep`'s install joined this account to apply from its next login: a
+/// setup asks its user for that login ([`Action::Relogin`], last), and this run, as that user
+/// does, asks for it before the tests that use them ([`RELOGIN`]).
+async fn next_login(cx: &Context, dep: Dependency) {
+    let wanted = groups_of(cx, dep);
+    let pending: Vec<String> = providers::groups_pending(cx).await.into_iter().filter(|g| wanted.contains(g)).collect();
+    if pending.is_empty() {
+        return;
+    }
+    let plan = setup_for(cx, dep).await;
+    println!("{plan:#?}");
+    assert_eq!(
+        plan.steps.last().map(|s| &s.action),
+        Some(&Action::Relogin),
+        "a setup for {dep:?} ends with a new login while {pending:?} apply from it"
+    );
+    println!("{RELOGIN}{dep:?} joined this account to {} (from its next login)", pending.join(", "));
+}
+
 /// Installs `dep` for real when it is missing here and asked for; skips, saying why, else.
 async fn installs(dep: Dependency) {
     let cx = here().await;
@@ -243,7 +292,9 @@ async fn installs(dep: Dependency) {
         skip!("{why}")
     }
     install(&cx, dep).await;
-    usable(&reread(&cx).await, dep).await;
+    let cx = reread(&cx).await;
+    usable(&cx, dep).await;
+    next_login(&cx, dep).await;
 }
 
 #[tokio::test]

@@ -22,6 +22,11 @@ use isothrum_runner::{BoxFuture, Exit, OnLine, ProcessError, ProcessRunner, Proc
 /// What a test prints to say it skipped; the rest of the line says why. `cargo xtask e2e` reads it.
 const SKIP: &str = "isothrum-e2e: skip: ";
 
+/// What a test prints, once it passed, to say the tests after it need a new login (groups it
+/// joined this account to apply from it), then why. `cargo xtask e2e` reads it: the installs end,
+/// then it stops and asks for the same command again in a new session.
+const RELOGIN: &str = "isothrum-e2e: relogin: ";
+
 /// Says the test skipped, and why (`format!`'s arguments), then returns from it.
 macro_rules! skip {
     ($($why:tt)*) => {{
