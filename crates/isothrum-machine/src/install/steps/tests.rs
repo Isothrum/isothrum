@@ -263,7 +263,7 @@ async fn on_windows_a_step_runs_with_the_path_installers_wrote_since_this_proces
 /// Elsewhere a step runs with this process's own `PATH`: no installer there changes it behind a
 /// running process, and nothing more is asked.
 #[tokio::test(start_paused = true)]
-async fn elsewhere_a_step_runs_with_this_processs_own_path() {
+async fn elsewhere_a_step_runs_with_the_process_own_path() {
     let tools = FakeProcesses::script().expect("vagrant plugin install vagrant-libvirt", Reply::ok("")).build();
     let (cx, tools) = on(tools);
     let plugin = crate::install::vagrant_plugin("vagrant-libvirt").unwrap();
