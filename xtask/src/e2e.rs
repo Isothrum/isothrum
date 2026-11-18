@@ -244,9 +244,14 @@ fn run_one(mut cmd: Command, log: &Path) -> Res<bool> {
     process::passed(&mut cmd)
 }
 
+/// The install tests that run after the other installs: each installs a tool that brings in
+/// another's (libvirt's install brings QEMU), which would leave that one's install untested on a
+/// fresh machine ("installed here already").
+const INSTALLED_LAST: [&str; 1] = ["install::libvirt_"];
+
 /// The tier's tests in `cargo test --list --format terse`'s `listed` (`<name>: test` lines), those
-/// whose name holds `filter` when there is one: its installs first, then the others, each in the
-/// order listed.
+/// whose name holds `filter` when there is one: its installs first ([`INSTALLED_LAST`]'s last of
+/// them), then the others, each in the order listed.
 fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>) -> Vec<String> {
     let prefix = format!("{}::", tier.name());
     let mut tests: Vec<String> = listed
@@ -255,7 +260,10 @@ fn tier_tests(listed: &str, tier: Tier, filter: Option<&str>) -> Vec<String> {
         .filter(|name| name.starts_with(&prefix) && filter.is_none_or(|f| name.contains(f)))
         .map(str::to_owned)
         .collect();
-    tests.sort_by_key(|name| !name.strip_prefix(&prefix).is_some_and(|case| case.starts_with(INSTALLS)));
+    tests.sort_by_key(|name| {
+        let case = name.strip_prefix(&prefix).unwrap_or(name);
+        (!case.starts_with(INSTALLS), INSTALLED_LAST.iter().any(|last| case.starts_with(last)))
+    });
     tests
 }
 
@@ -338,6 +346,20 @@ mod tests {
         assert_eq!(tier_tests(listed, Tier::Machine, None), ["machine::net::a_port", "machine::docker::start"]);
         assert_eq!(tier_tests(listed, Tier::Machine, Some("docker")), ["machine::docker::start"]);
         assert_eq!(tier_tests(listed, Tier::Server, None), ["server::ssh::keys"]);
+    }
+
+    #[test]
+    fn libvirts_install_runs_after_qemus_which_it_brings() {
+        let listed = "machine::net::a: test\nmachine::install::docker_x: test\nmachine::install::libvirt_x: test\nmachine::install::qemu_x: test\n";
+        assert_eq!(
+            tier_tests(listed, Tier::Machine, None),
+            [
+                "machine::install::docker_x",
+                "machine::install::qemu_x",
+                "machine::install::libvirt_x",
+                "machine::net::a"
+            ]
+        );
     }
 
     #[test]
