@@ -11,6 +11,17 @@ Terraform), usable on any project of those formats.
 
 ### Changed
 
+- **An install says what it asks of the person at the computer, as data.** `install::Interaction`
+  lists it: a password prompt (`AdminPassword { via: Mac | Uac | Pkexec }`, only where the step
+  raises one: never unattended), a licence the install accepts for them (`Licence`, Docker's on
+  macOS and Windows), a vendor's window, a system extension to allow (VirtualBox on an Intel Mac),
+  a restart or a new login after it, a long build from source (`LongBuild`, Homebrew's QEMU on an
+  Intel Mac). `install::interactions` is the one table, per OS and tool; `install::plan` hands
+  it to the step that raises it (`Step::interactions`). `setup::Action::Install` and
+  `setup::Action::ShareVirtualization` carry theirs (`interactions`; `Action::interactions` also
+  says a restart's and a new login's), so `Machine` takes the `elevation` and `user` a setup runs
+  with. `isothrum check --json` gives an install plan's `interactions`, and its text says them.
+
 - **A Mac installs the AWS CLI from Amazon's own package, on both CPUs.** Homebrew has no bottles
   for an Intel Mac, so its `awscli` formula built its C libraries from source there, and failed
   (`aws-c-s3`). `macos::install` now downloads `AWSCLIV2.pkg` from Amazon over HTTPS (no Homebrew

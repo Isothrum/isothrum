@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use isothrum_machine::Context;
-use isothrum_machine::install::{self, Dependency, Elevation};
+use isothrum_machine::install::{self, Dependency, Elevation, Interaction, Prompt};
 use isothrum_machine::requirements::{self, Asking, Need, Plan, Requirement, Uses};
 use isothrum_runner::{Project, SystemProcesses};
 
@@ -133,7 +133,9 @@ pub(crate) fn plan_text(plan: &Plan) -> String {
     match plan {
         Plan::Install(steps) => {
             let lines: Vec<String> = steps.iter().map(|s| shortened(&install::command_line(s))).collect();
-            format!("install with {}", lines.join(", then "))
+            let asks: Vec<String> = steps.iter().flat_map(|s| s.interactions.iter()).map(interaction_text).collect();
+            let asks = if asks.is_empty() { String::new() } else { format!(" ({})", asks.join("; ")) };
+            format!("install with {}{asks}", lines.join(", then "))
         }
         Plan::Start => "start it".to_owned(),
         Plan::ByHand { url: Some(url) } => format!("get it from {url}"),
@@ -142,6 +144,22 @@ pub(crate) fn plan_text(plan: &Plan) -> String {
         Plan::After { requirement } => format!("install it once {} is there", name(*requirement)),
         Plan::ShareVirtualization => "let KVM share the CPU's virtualization with it".to_owned(),
         _ => "no plan known".to_owned(),
+    }
+}
+
+/// What an install asks of the person at the computer, in a few words.
+fn interaction_text(interaction: &Interaction) -> String {
+    match interaction {
+        Interaction::AdminPassword { via: Prompt::Mac } => "macOS asks for your password".to_owned(),
+        Interaction::AdminPassword { via: Prompt::Uac } => "Windows asks for an administrator's approval".to_owned(),
+        Interaction::AdminPassword { via: Prompt::Pkexec } => "asks for your password".to_owned(),
+        Interaction::Licence { name, url } => format!("accepts the {name} for you: {url}"),
+        Interaction::VendorWindow { app } => format!("{app} opens a window to finish in"),
+        Interaction::AllowSystemExtension { vendor } => format!("allow {vendor}'s system extension in System Settings"),
+        Interaction::Restart => "a restart follows".to_owned(),
+        Interaction::Relogin => "sign out and back in after".to_owned(),
+        Interaction::LongBuild { minutes } => format!("builds from source: about {minutes} minutes"),
+        _ => format!("{interaction:?}"),
     }
 }
 
@@ -163,6 +181,7 @@ fn need_json(need: &Need) -> serde_json::Value {
         Plan::Install(steps) => serde_json::json!({
             "kind": "install",
             "steps": steps.iter().map(|s| install::command_line(s).trim_start_matches("$ ").to_owned()).collect::<Vec<_>>(),
+            "interactions": steps.iter().flat_map(|s| s.interactions.iter()).collect::<Vec<_>>(),
         }),
         Plan::Start => serde_json::json!({ "kind": "start" }),
         Plan::ByHand { url } => serde_json::json!({ "kind": "byHand", "url": url }),
@@ -201,6 +220,12 @@ mod tests {
         let said = plan_text(&Plan::Install(vec![long]));
         assert!(said.ends_with("…`") && said.chars().count() < 130, "{said}");
         assert!(!said.contains('\n') && !said.contains("  "), "one line: {said}");
+        let mut docker = install::step("winget", &["install", "Docker.DockerDesktop"]);
+        docker.interactions = install::interactions(Dependency::Docker, &windows(), Elevation::Prompt, None);
+        assert_eq!(
+            plan_text(&Plan::Install(vec![docker])),
+            "install with `winget install Docker.DockerDesktop` (Windows asks for an administrator's approval; accepts the Docker Subscription Service Agreement for you: https://www.docker.com/legal/docker-subscription-service-agreement/)"
+        );
         let refused = plan_text(&Plan::Refused(Refusal::NoHomebrew));
         assert_eq!(refused, "no install here: Homebrew isn't installed");
     }
@@ -220,5 +245,26 @@ mod tests {
         assert_eq!(json["requirement"], serde_json::json!({"kind": "ovftool"}));
         assert_eq!(json["plan"], serde_json::json!({"kind": "byHand", "url": null}));
         assert_eq!(json["present"], false);
+        let mut wsl = install::step("powershell", &[]);
+        wsl.interactions = install::interactions(Dependency::Wsl, &windows(), Elevation::Prompt, None);
+        let installs = need_json(&need(
+            Requirement::Tool { dependency: Dependency::Wsl },
+            Some(false),
+            Some(Plan::Install(vec![wsl])),
+        ));
+        assert_eq!(
+            installs["plan"]["interactions"],
+            serde_json::json!([{"kind": "adminPassword", "via": "uac"}, {"kind": "restart"}])
+        );
+    }
+
+    /// A Windows computer on x86-64.
+    fn windows() -> isothrum_machine::Host {
+        isothrum_machine::Host {
+            os: isothrum_machine::HostOs::Windows,
+            arch: isothrum_machine::Arch::Amd64,
+            packages: None,
+            devices: isothrum_machine::host::Devices::under(std::path::Path::new("/nonexistent")),
+        }
     }
 }

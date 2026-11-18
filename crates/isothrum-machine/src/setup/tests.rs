@@ -1,5 +1,8 @@
 use super::*;
+use crate::install::{Interaction, Prompt};
 use crate::providers::needs;
+
+const PKEXEC: Interaction = Interaction::AdminPassword { via: Prompt::Pkexec };
 
 /// `provider`'s status: installed or not (`installed`), with Vagrant and its plugin in, so that
 /// nothing but the hypervisor is missing; `reason` when it can't run although installed.
@@ -31,6 +34,8 @@ fn bare(os: HostOs, providers: Vec<ProviderStatus>) -> Machine {
         wsl: (os == HostOs::Windows).then_some(WslState::Missing),
         providers,
         groups_pending: Vec::new(),
+        elevation: crate::install::Elevation::Prompt,
+        user: Some("ada".to_owned()),
     }
 }
 
@@ -161,9 +166,10 @@ fn virtualbox_while_kvm_holds_the_cpus_virtualization_gives_way_unless_wanted_th
         o.hypervisors[0].get,
         [
             Action::Install {
-                dependency: Dependency::Virtualbox
+                dependency: Dependency::Virtualbox,
+                interactions: vec![PKEXEC],
             },
-            Action::ShareVirtualization
+            Action::ShareVirtualization { interactions: vec![PKEXEC] }
         ]
     );
     assert_eq!(o.hypervisor, Some(Provider::Qemu), "one that just installs comes first");
@@ -173,10 +179,8 @@ fn virtualbox_while_kvm_holds_the_cpus_virtualization_gives_way_unless_wanted_th
     let named_vbox = plan(&m, &o, &wanted(&[SetupPath::Vm], &[Provider::Virtualbox]));
     assert_eq!(named_vbox.hypervisor, Some(Provider::Virtualbox));
     assert_eq!(steps(&named_vbox), named(&[("virtualbox", "install"), ("virtualbox", "share")]));
-    assert!(
-        left_alone(&Action::ShareVirtualization).is_none() && !Action::ShareVirtualization.ends_pass(),
-        "a setup runs it"
-    );
+    let share = Action::ShareVirtualization { interactions: vec![PKEXEC] };
+    assert!(left_alone(&share).is_none() && !share.ends_pass(), "a setup runs it");
 }
 
 #[test]
@@ -192,8 +196,8 @@ fn virtualbox_installed_while_kvm_holds_it_is_the_one_kvm_shares_with_or_a_resta
     assert_eq!(p.hypervisor, Some(Provider::Virtualbox), "installed: the one its user set up");
     assert_eq!(steps(&p), named(&[("virtualbox", "share")]));
     assert_eq!(
-        serde_json::to_value(Action::ShareVirtualization).unwrap(),
-        serde_json::json!({ "kind": "shareVirtualization" })
+        serde_json::to_value(&p.steps[0].action).unwrap(),
+        serde_json::json!({ "kind": "shareVirtualization", "interactions": [{ "kind": "adminPassword", "via": "pkexec" }] })
     );
 
     // KVM was in use: the option applies from the next restart, which ends the pass.
@@ -264,7 +268,8 @@ fn vmwares_plugin_is_planned_only_after_its_utilitys_install() {
         o.hypervisors[0].vagrant,
         [
             Action::Install {
-                dependency: Dependency::VmwareUtility
+                dependency: Dependency::VmwareUtility,
+                interactions: vec![PKEXEC],
             },
             Action::Plugin {
                 plugin: "vagrant-vmware-desktop".into()
@@ -283,9 +288,10 @@ fn vmwares_plugin_is_planned_only_after_its_utilitys_install() {
 fn actions_are_tagged_by_kind() {
     let json = serde_json::to_value(Action::Install {
         dependency: Dependency::Docker,
+        interactions: Vec::new(),
     })
     .unwrap();
-    assert_eq!(json, serde_json::json!({ "kind": "install", "dependency": "docker" }));
+    assert_eq!(json, serde_json::json!({ "kind": "install", "dependency": "docker", "interactions": [] }));
     assert_eq!(Options::empty().hypervisors, []);
 }
 
@@ -385,4 +391,41 @@ fn qemus_kvm_group_joined_since_logging_in_asks_for_a_new_login_after_the_rest()
     );
     m.groups_pending = vec!["docker".into()];
     assert_ne!(options(&m, false).hypervisors[0].get, [Action::Relogin], "another tool's group");
+}
+
+#[test]
+fn each_action_carries_what_it_asks_of_the_person_at_the_computer() {
+    let mut m = bare(HostOs::Windows, vec![status(Provider::Virtualbox, false, None)]);
+    let o = options(&m, false);
+    let uac = Interaction::AdminPassword { via: Prompt::Uac };
+    assert_eq!(o.wsl[0].interactions(), [uac, Interaction::Restart], "WSL's install, then its restart");
+    assert_eq!(
+        o.engines[0].actions[0].interactions()[1],
+        Interaction::Licence {
+            name: "Docker Subscription Service Agreement",
+            url: "https://www.docker.com/legal/docker-subscription-service-agreement/",
+        }
+    );
+    assert_eq!(Action::Relogin.interactions(), [Interaction::Relogin]);
+    assert_eq!(
+        Action::Restart {
+            feature: WindowsFeature::Hyperv
+        }
+        .interactions(),
+        [Interaction::Restart]
+    );
+
+    // Unattended on Linux: no password prompt, for an install or KVM's sharing.
+    m = bare(
+        HostOs::Linux,
+        vec![status(Provider::Virtualbox, true, Some(Unavailable::KvmHoldsVirtualization))],
+    );
+    m.elevation = crate::install::Elevation::Unattended { root: false };
+    let unattended = options(&m, false);
+    assert_eq!(unattended.hypervisors[0].get, [Action::ShareVirtualization { interactions: Vec::new() }]);
+    assert_eq!(
+        unattended.engines[1].actions[0].interactions(),
+        [Interaction::Relogin],
+        "Docker Engine joins ada to docker"
+    );
 }

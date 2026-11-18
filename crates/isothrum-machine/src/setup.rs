@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::check::Check;
 use crate::docker::{self, Engine};
 use crate::host::{Host, HostOs};
-use crate::install::Dependency;
+use crate::install::{Dependency, Elevation, Interaction};
 use crate::providers::{self, Need, Provider, ProviderRow, ProviderStatus, Unavailable};
 use crate::wsl::WslState;
 
@@ -43,6 +43,9 @@ pub enum Action {
     Install {
         /// The tool to install.
         dependency: Dependency,
+        /// What its install asks of the person at the computer ([`crate::install::interactions`]),
+        /// for a UI to say before it runs.
+        interactions: Vec<Interaction>,
     },
     /// Installs the Vagrant plugin `plugin` ([`crate::install::vagrant_plugin`]).
     Plugin {
@@ -68,7 +71,10 @@ pub enum Action {
     /// its module loads ([`Unavailable::KvmHoldsVirtualization`]): KVM set to take it only while
     /// one of its own VMs runs ([`share_virtualization`]), as root. It applies at once when
     /// nothing uses KVM, else from the next restart ([`Unavailable::KvmSharesAfterRestart`]).
-    ShareVirtualization,
+    ShareVirtualization {
+        /// What it asks of the person at the computer: the password prompt of its root step.
+        interactions: Vec<Interaction>,
+    },
     /// Signs out and back in: a group the account was added to (Linux's `docker`, `libvirt` and
     /// `kvm`, the libvirt and QEMU installs' too) applies from the next login.
     Relogin,
@@ -114,11 +120,24 @@ impl Action {
             Action::Plugin { .. } => "plugin",
             Action::StartEngine { .. } => "start",
             Action::UseEngine { .. } => "use",
-            Action::ShareVirtualization => "share",
+            Action::ShareVirtualization { .. } => "share",
             Action::Restart { .. } => "restart",
             Action::Relogin => "relogin",
             Action::Manual { .. } => "manual",
             Action::Blocked { .. } => "blocked",
+        }
+    }
+
+    /// What it asks of the person at the computer, in order: an install's or KVM's sharing's (a
+    /// password prompt, a licence, a setting to allow), a restart's or a new login's itself.
+    /// Empty when it asks nothing.
+    #[must_use]
+    pub fn interactions(&self) -> Vec<Interaction> {
+        match self {
+            Action::Install { interactions, .. } | Action::ShareVirtualization { interactions } => interactions.clone(),
+            Action::Restart { .. } => vec![Interaction::Restart],
+            Action::Relogin => vec![Interaction::Relogin],
+            Action::Plugin { .. } | Action::StartEngine { .. } | Action::UseEngine { .. } | Action::Manual { .. } | Action::Blocked { .. } => Vec::new(),
         }
     }
 }
@@ -223,6 +242,10 @@ pub struct Machine {
     pub providers: Vec<ProviderStatus>,
     /// The groups this account joined since logging in (Linux).
     pub groups_pending: Vec<String>,
+    /// How a setup's administrator steps are elevated here: whether they raise a password prompt.
+    pub elevation: Elevation,
+    /// The account a setup installs for (Linux joins it to a tool's groups).
+    pub user: Option<String>,
 }
 
 /// Docker and its engines, as the machine check found them.
@@ -249,9 +272,10 @@ impl DockerFound {
 }
 
 impl Machine {
-    /// What `check` found on `host`.
+    /// What `check` found on `host`, a setup's administrator steps elevated `elevation`'s way
+    /// for the account `user`.
     #[must_use]
-    pub fn of(check: &Check, host: Host) -> Machine {
+    pub fn of(check: &Check, host: Host, elevation: Elevation, user: Option<String>) -> Machine {
         Machine {
             host,
             packages_installed: check.packages.installed,
@@ -265,6 +289,8 @@ impl Machine {
             wsl: check.wsl.as_ref().map(|w| w.state),
             providers: check.providers.clone(),
             groups_pending: check.groups_pending.clone(),
+            elevation,
+            user,
         }
     }
 
@@ -317,7 +343,10 @@ fn install(m: &Machine, dependency: Dependency) -> Action {
             url: dependency.row().own_url.map(str::to_owned),
         };
     }
-    Action::Install { dependency }
+    Action::Install {
+        dependency,
+        interactions: crate::install::interactions(dependency, &m.host, m.elevation, m.user.as_deref()),
+    }
 }
 
 /// What turns WSL 2 on: nothing off Windows, once it is ready, or once a Docker engine runs (proof
@@ -368,7 +397,7 @@ fn hypervisor_get(m: &Machine, p: &ProviderStatus, hyperv_restart: bool) -> Vec<
     if let Some(reason @ (Unavailable::KvmHoldsVirtualization | Unavailable::KvmSharesAfterRestart)) = &p.reason {
         let mut get: Vec<Action> = (p.hypervisor != Some(true)).then(|| get_hypervisor(m, p)).into_iter().collect();
         get.push(match reason {
-            Unavailable::KvmHoldsVirtualization => Action::ShareVirtualization,
+            Unavailable::KvmHoldsVirtualization => share_virtualization_action(m),
             _ => Action::Blocked { reason: reason.clone() },
         });
         return get;
@@ -391,6 +420,17 @@ fn hypervisor_get(m: &Machine, p: &ProviderStatus, hyperv_restart: bool) -> Vec<
         }];
     }
     vec![get_hypervisor(m, p)]
+}
+
+/// Letting VirtualBox share the CPU's virtualization with KVM: its root step raises pkexec's
+/// prompt unless it runs unattended.
+fn share_virtualization_action(m: &Machine) -> Action {
+    let prompt = Interaction::AdminPassword {
+        via: crate::install::Prompt::Pkexec,
+    };
+    Action::ShareVirtualization {
+        interactions: (m.elevation == Elevation::Prompt).then_some(prompt).into_iter().collect(),
+    }
 }
 
 /// What brings hypervisor `p` here: its install, else its vendor's site.
@@ -461,7 +501,7 @@ pub fn options(m: &Machine, hyperv_restart: bool) -> Options {
     // One a setup installs only to then share KVM's virtualization with it (VirtualBox) comes
     // after one that just installs.
     let installs = |o: &&HypervisorOption| matches!(o.get.first(), Some(Action::Install { .. }));
-    let shares = |o: &&HypervisorOption| o.get.contains(&Action::ShareVirtualization);
+    let shares = |o: &&HypervisorOption| o.get.iter().any(|a| matches!(a, Action::ShareVirtualization { .. }));
     let hypervisor = hypervisors
         .iter()
         .find(|o| installed(o) && o.get.is_empty())

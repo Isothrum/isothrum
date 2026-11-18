@@ -403,7 +403,7 @@ fn join_kvm_group(u: &str, dev: &str) -> String {
 }
 
 /// A login name safe to put in a shell script unquoted.
-fn valid_user(u: &str) -> bool {
+pub(crate) fn valid_user(u: &str) -> bool {
     !u.is_empty()
         && u.len() <= 32
         && u.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')

@@ -52,6 +52,7 @@ impl Root {
                 program,
                 args,
                 note: None,
+                interactions: Vec::new(),
                 private: None,
                 not_served: None,
             }
