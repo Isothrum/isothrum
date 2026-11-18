@@ -17,6 +17,7 @@ mod error;
 mod exit;
 mod locate;
 mod log;
+mod needs;
 #[cfg(test)]
 mod reference;
 mod remote;
@@ -66,6 +67,9 @@ async fn main() -> ExitCode {
     } else {
         in_process(&cli, &term, &trail, &var).await
     };
+    if matches!(outcome, Ok(Verdict::Fail)) && !cli.json {
+        needs::after_failed_up(&cli, &trail, &term).await;
+    }
     let outcome = outcome.and_then(|verdict| term.finish().map(|()| verdict));
     if let Err(e) = &outcome {
         report(e, &cli, &term, &trail);
