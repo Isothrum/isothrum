@@ -233,13 +233,52 @@ pub fn windows_line(command: &ShellCommand) -> String {
     };
     let mut run = std::iter::once(&command.program)
         .chain(&command.args)
-        .map(|w| quote(w))
+        .map(|w| windows_word(w))
         .collect::<Vec<_>>()
         .join(" ");
     for (name, value) in command.env.iter().rev() {
         run = format!("set \"{name}={value}\" && {run}");
     }
     format!("cd /d {} && {run}", quote(&command.cwd.display().to_string()))
+}
+
+/// `w` as one argument of the program a `cmd.exe` line starts: double-quoted when it holds a
+/// space, a quote or a character `cmd.exe` reads as its own, as the C runtime (and PowerShell,
+/// Rust's std) read an argument back: a `"` as `\"`, the backslashes before it doubled. `cmd.exe`
+/// toggles its own quoting at every `"`, `\"` too, so each of its characters it would then read
+/// outside quotes is escaped with `^`. Doubling a quote (`""`) kept `cmd.exe`'s quoting whole but
+/// isn't how PowerShell reads one: `powershell -Command "... ""a"" ..."` failed with "The string
+/// is missing the terminator", and no command holding a quote opened.
+fn windows_word(w: &str) -> String {
+    if !(w.is_empty() || w.contains([' ', '\t', '"']) || w.contains(CMD_SPECIAL)) {
+        return w.to_owned();
+    }
+    let mut argv = String::from('"');
+    let mut backslashes = 0;
+    for c in w.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                argv.extend(std::iter::repeat_n('\\', backslashes + 1));
+                backslashes = 0;
+            }
+            _ => backslashes = 0,
+        }
+        argv.push(c);
+    }
+    argv.extend(std::iter::repeat_n('\\', backslashes));
+    argv.push('"');
+    let mut line = String::with_capacity(argv.len());
+    let mut quoted = false;
+    for c in argv.chars() {
+        if c == '"' {
+            quoted = !quoted;
+        } else if !quoted && CMD_SPECIAL.contains(&c) {
+            line.push('^');
+        }
+        line.push(c);
+    }
+    line
 }
 
 /// The console's script: UTF-8 read as such (`chcp 65001`, or `C:\Users\José` arrives garbled),

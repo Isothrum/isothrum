@@ -260,6 +260,13 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A command holding a quote opens in Windows' console.** Its arguments were quoted for the
+  console's `cmd.exe` line with a doubled quote (`""`), which PowerShell doesn't read back:
+  `powershell -Command "... ""a"" ..."` stopped at "The string is missing the terminator" and the
+  window showed nothing of the command. An argument is now quoted as the C runtime, PowerShell and
+  Rust's std read it (`\"`, the backslashes before it doubled), and each character `cmd.exe` would
+  read outside its quotes escaped with `^`.
+
 - **A QEMU or libvirt without the programs its VMs need is installed again (Linux).** A setup
   read QEMU and libvirt installed by their emulator and `virsh` alone (`install::present`), while
   their detection read them not installed without `mkisofs` (QEMU) or a virtiofsd (both), so a
