@@ -28,11 +28,11 @@ pub(crate) const VHOST_USER_DIRS: [&str; 2] = ["/usr/share/qemu/vhost-user", "/e
 pub(crate) const VAGRANT_QEMU_FALLBACKS: [&str; 2] = ["/usr/libexec/virtiofsd", "/usr/lib/qemu/virtiofsd"];
 
 /// Whether `provider`'s VMs need a virtiofsd on `os` for the folders this computer shares with
-/// them: libvirt's and QEMU's, on Linux (QEMU on macOS shares none,
-/// [`ProviderRow::shares_folders`](super::ProviderRow::shares_folders)).
+/// them, as its [`helpers`](super::helpers()) say: libvirt's and QEMU's, on Linux (QEMU on macOS
+/// shares none, [`ProviderRow::shares_folders`](super::ProviderRow::shares_folders)).
 #[must_use]
 pub fn needs_virtiofsd(provider: Provider, os: HostOs) -> bool {
-    matches!(provider, Provider::Libvirt | Provider::Qemu) && os == HostOs::Linux
+    super::helpers(provider, os).contains(&super::Helper::Virtiofsd)
 }
 
 /// The virtiofsd `provider` would start, where it looks: libvirt the one its descriptors name

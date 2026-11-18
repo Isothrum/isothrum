@@ -3,7 +3,8 @@
 
 #[cfg(test)]
 use super::{NEED_CURL, NEED_UNZIP};
-use super::{NEED_GPG, RootScript, check_keys, fetch_prelude, then_kvm_group, then_libvirt_groups, valid_user};
+use super::{NEED_GPG, RootScript, check_keys, dnf_install_with_helpers, fetch_prelude, then_kvm_group, then_libvirt_groups, valid_user};
+use crate::providers::Provider;
 
 /// A vendor's rpm repository, set up the same way for every vendor ([`rpm_repo_setup`]): its
 /// signing key downloaded and checked against the pinned fingerprint, kept under
@@ -112,22 +113,23 @@ pub fn virtualbox_dnf_script(user: Option<&str>) -> RootScript {
 }
 
 /// libvirt on Fedora with what vagrant-libvirt builds against (libvirt's headers, a C compiler,
-/// pkg-config, Ruby's headers) and virtiofsd for the shared folders, its service on, then the
-/// user into the `libvirt` group (and the KVM device's).
+/// pkg-config, Ruby's headers) and the programs its VMs need beside it (virtiofsd, for the shared
+/// folders), its service on, then the user into the `libvirt` group (and the KVM device's).
 #[must_use]
 pub fn libvirt_dnf_script(user: Option<&str>) -> RootScript {
-    then_libvirt_groups(
-        "dnf install -y libvirt libvirt-daemon-kvm qemu-kvm virt-install virt-manager libvirt-devel gcc make pkgconf-pkg-config ruby-devel virtiofsd; systemctl enable --now libvirtd",
-        user,
-    )
+    let install = dnf_install_with_helpers(
+        Provider::Libvirt,
+        "libvirt libvirt-daemon-kvm qemu-kvm virt-install virt-manager libvirt-devel gcc make pkgconf-pkg-config ruby-devel",
+    );
+    then_libvirt_groups(&format!("{install}; systemctl enable --now libvirtd"), user)
 }
 
-/// QEMU and its disk tools on Fedora, with `genisoimage` for vagrant-qemu's cloud-init seeds and
-/// `virtiofsd` for its shared folders (its own package from Fedora 36 on), then the user into
-/// the KVM device's group.
+/// QEMU and its disk tools on Fedora, with the programs its VMs need beside it (`genisoimage` for
+/// vagrant-qemu's cloud-init seeds, `virtiofsd` for its shared folders), then the user into the
+/// KVM device's group.
 #[must_use]
 pub fn qemu_dnf_script(user: Option<&str>) -> RootScript {
-    then_kvm_group("dnf install -y qemu-kvm qemu-img genisoimage virtiofsd", user)
+    then_kvm_group(&dnf_install_with_helpers(Provider::Qemu, "qemu-kvm qemu-img"), user)
 }
 
 #[cfg(test)]
