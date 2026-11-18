@@ -329,6 +329,12 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **Docker Desktop's install on a Mac asks nothing after the password.** Its unattended installer
+  ran from the downloaded disk image, which carries the download's quarantine mark, so macOS asked
+  "'(null)' is an app downloaded from the Internet. Are you sure you want to open it?". Once
+  `Docker.app` is checked as Docker's (Developer ID team, Gatekeeper), it is copied into the
+  root-only folder, its quarantine mark cleared, checked again, and its installer run from there.
+
 - **VMware's Vagrant plugin is never installed without its utility.** `vagrant-vmware-desktop`
   loads the Vagrant VMware Utility's key file at every Vagrant command, so installed without the
   utility it broke Vagrant for every provider (`vagrant status` on QEMU failed). VMware's

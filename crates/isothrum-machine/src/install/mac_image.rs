@@ -13,7 +13,8 @@
 //! -nobrowse -readonly`), checks what it installs as signed by the vendor's Developer ID team
 //! (`codesign`, `pkgutil --check-signature`) and accepted by Gatekeeper (`spctl`), then installs
 //! it: an app copied into Applications with `ditto` under a hidden name and moved into place once
-//! whole, a package through `installer`, Docker Desktop through its own unattended installer. The
+//! whole, a package through `installer`, Docker Desktop through its own unattended installer, run
+//! from a checked copy whose download quarantine mark is cleared (so macOS asks nothing of it). The
 //! image is detached whatever happens. Last, the installed app is checked again (`codesign --verify
 //! --deep --strict`, `spctl`), or a package without an app answers as its vendor's program
 //! ([`Vendor::answers`]): the step fails unless it is whole and signed.
@@ -327,10 +328,18 @@ pkgutil --check-signature "$p" | grep -q 'Developer ID Installer: .*({team})' ||
 spctl --assess --type install "$p" || fail "macOS doesn't accept {name}'s package (not notarized)."
 installer -pkg "$p" -target /"#
         ),
+        // Its installer runs from a copy in the root-only folder, the download's quarantine mark
+        // cleared once the app is checked: run from the image, which carries the mark, macOS
+        // asked "'(null)' is an app downloaded from the Internet. Are you sure you want to open
+        // it?" right after the password. The copy is checked again before anything of it runs.
         Payload::DockerDesktop => format!(
             r#"{check}
+c="$d/Docker.app"
+ditto "$a" "$c"
+xattr -dr com.apple.quarantine "$c" 2>/dev/null || true
+codesign --verify --deep --strict '{signed}' "$c" || fail "The copy of Docker.app in {name}'s disk image isn't signed by {signer} ({team})."
 rm -rf "$3/Docker.app"
-"$a/Contents/MacOS/install" --accept-license --user="$2""#,
+"$c/Contents/MacOS/install" --accept-license --user="$2""#,
             check = image_app("Docker.app")
         ),
     }
