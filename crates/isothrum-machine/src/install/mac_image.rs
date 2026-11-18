@@ -177,7 +177,17 @@ fn users_half(download: &str, vendor: &Vendor, elevation: Elevation) -> String {
         .accepts
         .map(|l| format!("echo \"Installing {name} accepts the {} ({}) for you.\"\n", l.name, l.url))
         .unwrap_or_default();
-    let elevated = as_administrator(elevation, &format!("Installing {name}"), &[r#""$f""#, r#""$(id -un)""#, "/Applications"]);
+    let why = match vendor.payload {
+        Payload::App(_) | Payload::DockerDesktop => "copy it into Applications",
+        Payload::Pkg(_) => "install it",
+    };
+    let prompt = admin_prompt(&format!("install {name}"), why);
+    let elevated = as_administrator(
+        elevation,
+        &format!("Installing {name}"),
+        &prompt,
+        &[r#""$f""#, r#""$(id -un)""#, "/Applications"],
+    );
     format!("set -e\n{download}\n{licence}{elevated}")
 }
 
@@ -212,13 +222,43 @@ f="$('{brew}' --cache --cask {cask})"
     )
 }
 
+/// The app that installs, which macOS's administrator prompt names ([`set_app_name`]).
+static APP_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Names the app that runs installs and removals (`Example App`): macOS's administrator prompt then
+/// says it wants to (`Example App wants to install Docker Desktop: macOS needs your password to copy
+/// it into Applications.`), instead of `osascript wants to make changes`. Set once, at the app's
+/// start; a later call changes nothing.
+pub fn set_app_name(name: &'static str) {
+    // Named already: the first name stays.
+    APP_NAME.set(name).ok();
+}
+
+/// What macOS's administrator prompt says before a step that does `doing` (`install Docker
+/// Desktop`) as an administrator, `why` (`copy it into Applications`), naming the app set by
+/// [`set_app_name`] when one is.
+pub(crate) fn admin_prompt(doing: &str, why: &str) -> String {
+    prompt_of(APP_NAME.get().copied(), doing, why)
+}
+
+/// [`admin_prompt`], for the app `app`.
+fn prompt_of(app: Option<&str>, doing: &str, why: &str) -> String {
+    if let Some(app) = app {
+        return format!("{app} wants to {doing}: macOS needs your password to {why}.");
+    }
+    let mut chars = doing.chars();
+    let first = chars.next().map(|c| c.to_uppercase().chain(chars).collect::<String>()).unwrap_or_default();
+    format!("{first}: macOS needs your password to {why}.")
+}
+
 /// The lines of a user's script that run its root half (`$1`) as an administrator `elevation`'s
 /// way, handed `args` (shell words, each one argument: never spliced into the root half), after
-/// saying `doing` (`Installing UTM`). With someone there, macOS's administrator prompt (its own
+/// saying `doing` (`Installing UTM`); macOS's prompt says `prompt` ([`admin_prompt`]), handed over
+/// as an argument too. With someone there, macOS's administrator prompt (its own
 /// dialog; cancelled, it says so); else `sudo -n`, which refuses at once rather than waits for a
 /// password, or as is when root. An ssh session can't show macOS's prompt: it is refused there
 /// (`-60007`), so a run with nobody at the Mac goes unattended.
-pub(crate) fn as_administrator(elevation: Elevation, doing: &str, args: &[&str]) -> String {
+pub(crate) fn as_administrator(elevation: Elevation, doing: &str, prompt: &str, args: &[&str]) -> String {
     let words = args.join(" ");
     match elevation {
         Elevation::Prompt => {
@@ -226,9 +266,11 @@ pub(crate) fn as_administrator(elevation: Elevation, doing: &str, args: &[&str])
                 .map(|i| format!(" & \" \" & quoted form of (item {i} of argv)"))
                 .collect::<Vec<_>>()
                 .concat();
+            let prompt_item = args.len() + 2;
+            let prompt = format!("'{}'", prompt.replace('\'', r"'\''"));
             format!(
                 r#"echo "{doing}: macOS asks for your password."
-if ! out="$(osascript -e 'on run argv' -e 'do shell script "/bin/sh -c " & quoted form of (item 1 of argv) & " sh"{items} with administrator privileges' -e 'end run' "$1" {words} 2>&1)"; then
+if ! out="$(osascript -e 'on run argv' -e 'do shell script "/bin/sh -c " & quoted form of (item 1 of argv) & " sh"{items} with prompt (item {prompt_item} of argv) with administrator privileges' -e 'end run' "$1" {words} {prompt} 2>&1)"; then
   case "$out" in
     *-128*) echo "The password prompt was cancelled, so nothing was installed. Try again and enter your password." >&2 ;;
     *) printf '%s\n' "$out" | tr '\r' '\n' >&2 ;;
