@@ -1,0 +1,4 @@
+ Container lab-cache-1 Starting 
+ Container lab-cache-1 Error dependency cache failed to start
+ Container lab-web-1 not started: condition "service_healthy" of service "cache" not met 
+dependency failed to start: failed to connect to the docker API at unix:///Users/ada/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/ada/.docker/run/docker.sock: connect: no such file or directory

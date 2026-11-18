@@ -17,6 +17,10 @@ async fn an_up_the_engine_fails_under_is_said_by_the_engines_code() {
             ErrorCode::ToolUnanswered,
         ),
         (
+            include_str!("../../../tool_output/fixtures/compose/29.9-engine-stopped-during-up.txt"),
+            ErrorCode::ToolUnanswered,
+        ),
+        (
             include_str!("../../../tool_output/fixtures/compose/28.0-socket-denied.txt"),
             ErrorCode::ToolDenied,
         ),
