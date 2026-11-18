@@ -84,7 +84,7 @@ const NOT_TOOL_OUTPUT: [(&str, &str); 11] = [
 
 /// The scripts a shell's or an ssh's `-c` may run besides the shell scripts' module's, by file
 /// and the expression passed.
-const SCRIPTS: [(&str, &str, &str); 6] = [
+const SCRIPTS: [(&str, &str, &str); 5] = [
     (
         "crates/isothrum-machine/src/install/macos.rs",
         "script",
@@ -99,11 +99,6 @@ const SCRIPTS: [(&str, &str, &str); 6] = [
         "crates/isothrum-machine/src/install/linux.rs",
         "text",
         "a root step's script: a `RootScript` of the install's own scripts (`install::linux::scripts`), its prelude first",
-    ),
-    (
-        "crates/isothrum-machine/src/install/linux.rs",
-        "\"rm -rf \\\"$HOME/google-cloud-sdk\\\"\"",
-        "the per-user Google Cloud SDK's removal, a constant",
     ),
     (
         "crates/isothrum-runner/src/cli/vagrant.rs",

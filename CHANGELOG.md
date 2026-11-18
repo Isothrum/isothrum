@@ -260,6 +260,20 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **An install reports what it added, and a removal takes away only that.** A setup that
+  installed QEMU or libvirt again to bring the programs its VMs need (a hypervisor installed by
+  hand) left the whole hypervisor on record as its own, so a clean-up offered to remove what
+  someone else installed. Before a plan runs, `install::before` reads which of its items are there
+  (`install::items`: a Linux distribution's packages, `added::packages`, or the tool itself where
+  it comes in one piece, `Item::Tool`); after it, `Before::installed` reports what it added
+  (`Installed { added, waiting }`). `install::removal` takes away only what a record lists as
+  added (`NothingAdded` else), never a package of another tool's, and on Linux stops, removing
+  nothing, when the package manager would also take away a package that needs one of them.
+  Breaking: `record::InstalledTool` keeps `added` and `waiting` items in place of `pending`;
+  `record::outcome`, `Outcome` and `confirmed` are gone (`remember` takes an `Installed`, `settle`
+  the items found, `removable` replaces `confirmed`), `linux::uninstall` takes the added items, and
+  a Google Cloud CLI's removal no longer deletes `~/google-cloud-sdk`, which may be the user's own.
+
 - **A command holding a quote opens in Windows' console.** Its arguments were quoted for the
   console's `cmd.exe` line with a doubled quote (`""`), which PowerShell doesn't read back:
   `powershell -Command "... ""a"" ..."` stopped at "The string is missing the terminator" and the

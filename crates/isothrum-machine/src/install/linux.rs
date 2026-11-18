@@ -4,8 +4,8 @@
 
 use crate::host::{Arch, HostOs, LinuxPackages, Packages};
 use crate::install::root::RootScript;
-use crate::install::steps::{Step, step};
-use crate::install::{Dependency, Elevation, Refusal};
+use crate::install::steps::Step;
+use crate::install::{Dependency, Elevation, Item, Refusal};
 
 pub mod scripts;
 
@@ -166,15 +166,19 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, user: Op
     }])
 }
 
-/// The removal of `dep` on Linux, as root: what its install brought, through the package manager
-/// that installed it (a tool installed through dnf removed with `apt-get remove` failed with
-/// `apt-get: not found`).
+/// The removal on Linux, as root, of what `added` lists of `dep` ([`Item`], as an install's
+/// record has it), and of nothing else: those of its packages ([`super::added::packages`]: a name
+/// on record that isn't one of them is never removed) through the package manager that installed
+/// them (a tool installed through dnf removed with `apt-get remove` failed with `apt-get: not
+/// found`); the AWS CLI's folder when the install added it. The package manager would take away
+/// with them every package that needs one of them, whoever installed it: the removal stops,
+/// removing nothing, when it would ([`removal_script`]).
 ///
 /// # Errors
 ///
-/// [`Refusal`]: why it can't be removed here.
-pub fn uninstall(dep: Dependency, packages: Option<Packages>, root: &Root) -> Result<Vec<Step>, Refusal> {
-    let step_of = |script: &str| root.step(RootScript::new(script));
+/// [`Refusal::NothingAdded`] when `added` lists nothing of `dep`'s, or why it can't be removed
+/// here.
+pub fn uninstall(dep: Dependency, packages: Option<Packages>, added: &[Item], root: &Root) -> Result<Vec<Step>, Refusal> {
     if !dep.runs_on(HostOs::Linux) {
         return Err(Refusal::NotHere {
             dependency: dep,
@@ -183,45 +187,52 @@ pub fn uninstall(dep: Dependency, packages: Option<Packages>, root: &Root) -> Re
     }
     // AWS CLI is a folder on every distribution.
     if dep == Dependency::Awscli {
-        return Ok(vec![step_of(AWS_CLI_REMOVAL)?]);
+        return if added.contains(&Item::Tool(dep)) {
+            Ok(vec![root.step(RootScript::new(AWS_CLI_REMOVAL))?])
+        } else {
+            Err(Refusal::NothingAdded { dependency: dep })
+        };
     }
-    let script = match (dep, linux(dep, packages)?) {
-        (Dependency::Utm | Dependency::Wsl | Dependency::Hyperv, _) => {
-            return Err(Refusal::NotHere {
-                dependency: dep,
-                os: HostOs::Linux,
-            });
+    let manager = linux(dep, packages)?;
+    let own = super::added::packages(dep, manager);
+    let names: Vec<&str> = added
+        .iter()
+        .filter_map(|item| match item {
+            Item::Package(name) if package_name(name) && own.iter().any(|p| super::added::matches(p, name)) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    if names.is_empty() {
+        return Err(Refusal::NothingAdded { dependency: dep });
+    }
+    Ok(vec![root.step(removal_script(manager, &names))?])
+}
+
+/// A package's name a script may carry unquoted: letters, digits and `+-._`, starting with a
+/// letter or a digit (never an option).
+fn package_name(name: &str) -> bool {
+    name.len() <= 128
+        && name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.' | '_'))
+}
+
+/// The root script that removes the packages `names` (each a [`package_name`]) through
+/// `manager`, after checking it would remove nothing else: apt's simulated removal names every
+/// package it would take away (`Remv`), rpm's test refuses a package another needs. Either way,
+/// another package that needs one of them stops the removal before anything is removed.
+fn removal_script(manager: LinuxPackages, names: &[&str]) -> RootScript {
+    let list = names.join(" ");
+    match manager {
+        LinuxPackages::Apt => {
+            let ours: String = names.iter().flat_map(|n| [" -e ", n]).collect();
+            RootScript::new(format!(
+                r#"extra="$(apt-get -s remove {list} | awk '/^Remv /{{print $2}}' | sed 's/:.*//' | grep -vxF{ours} || true)"; if [ -n "$extra" ]; then echo "Removing $(echo {list}) would also remove packages that need them: $(echo $extra). Nothing was removed." >&2; exit 1; fi; apt-get remove -y {list}"#
+            ))
         }
-        (Dependency::Awscli, _) => AWS_CLI_REMOVAL,
-        // Fedora: what the dnf install brought from the vendors' repositories and RPM Fusion; the
-        // compiler, Ruby's headers and the shared tools (genisoimage) stay.
-        (Dependency::Docker, LinuxPackages::Dnf) => "dnf remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-        (Dependency::Docker, LinuxPackages::Apt) => "apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-        (Dependency::Vagrant, LinuxPackages::Dnf) => "dnf remove -y vagrant",
-        (Dependency::Vagrant, LinuxPackages::Apt) => "apt-get remove -y vagrant",
-        (Dependency::Terraform, LinuxPackages::Dnf) => "dnf remove -y terraform",
-        (Dependency::Terraform, LinuxPackages::Apt) => "apt-get remove -y terraform",
-        (Dependency::Virtualbox, LinuxPackages::Dnf) => "dnf remove -y VirtualBox akmod-VirtualBox 'kmod-VirtualBox*'",
-        (Dependency::Virtualbox, LinuxPackages::Apt) => "apt-get remove -y 'virtualbox*'",
-        // The install's metapackages (qemu-system, libvirt-daemon-system) leave the packages they
-        // pulled in behind, with the binaries a machine check looks for (qemu-system-x86_64,
-        // virsh): those go too, or the tool still reads as installed.
-        (Dependency::Qemu, LinuxPackages::Dnf) => "dnf remove -y qemu-kvm qemu-img",
-        (Dependency::Qemu, LinuxPackages::Apt) => "apt-get remove -y 'qemu-system*' qemu-utils",
-        (Dependency::Libvirt, LinuxPackages::Dnf) => "dnf remove -y libvirt libvirt-daemon-kvm virt-install virt-manager libvirt-devel",
-        (Dependency::Libvirt, LinuxPackages::Apt) => "apt-get remove -y 'libvirt-daemon*' libvirt-clients virt-manager",
-        (Dependency::Azurecli, LinuxPackages::Apt) => "apt-get remove -y azure-cli",
-        (Dependency::Gcloud, LinuxPackages::Apt) => "apt-get remove -y google-cloud-cli",
-        (Dependency::VmwareUtility, LinuxPackages::Apt) => "apt-get remove -y vagrant-vmware-utility",
-        // The cloud CLIs and VMware's utility install through apt only: nothing to remove.
-        (Dependency::Azurecli | Dependency::Gcloud | Dependency::VmwareUtility, LinuxPackages::Dnf) => return Err(Refusal::AptOnly { dependency: dep }),
-    };
-    let mut steps = vec![step_of(script)?];
-    // Google's apt package, and the per-user SDK earlier versions installed in its place.
-    if dep == Dependency::Gcloud {
-        steps.push(step("sh", &["-c", "rm -rf \"$HOME/google-cloud-sdk\""]));
+        LinuxPackages::Dnf => RootScript::new(format!(
+            r#"if ! rpm -e --test {list}; then echo "Other packages need $(echo {list}). Nothing was removed." >&2; exit 1; fi; dnf remove -y {list}"#
+        )),
     }
-    Ok(steps)
 }
 
 /// The AWS CLI's removal: its folder and its two links.

@@ -9,8 +9,9 @@
 //! ([`run_steps`]): the OS's own trusted flows, never a password prompt of the caller's (pkexec's
 //! on Linux, or `sudo -n` when nobody is there to answer one: [`Elevation`]). Why a plan can't be
 //! made ([`Refusal`]) and why a step failed ([`StepFailed`]) are codes a UI says in its own words.
-//! What an install leaves on record, so a clean-up removes only what it installed, is
-//! [`record`]'s.
+//! What an install added, read before and after its plan runs, is [`added`]'s; what it leaves on
+//! record, so a clean-up removes only what it added, [`record`]'s; the removal of only that,
+//! [`removal`].
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +19,7 @@ use crate::context::Context;
 use crate::host::{ALL_OSES, Arch, HostOs};
 use crate::providers::{Provider, ProviderRow};
 
+pub mod added;
 pub mod brew;
 pub mod exit_codes;
 pub mod linux;
@@ -29,10 +31,11 @@ mod steps;
 mod vmware_utility;
 pub mod windows;
 
+pub use added::{Before, Installed, Item, before, items, there};
 pub use steps::{NotServed, Note, Step, StepFailed, command_line, run_step, run_steps, step};
 
 /// A tool a setup installs.
-#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(any(test, feature = "ts-rs"), derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Dependency {
@@ -357,6 +360,12 @@ pub enum Refusal {
     /// The private file a root step's proxy settings go through couldn't be written: what the OS
     /// said.
     PrivateFile(String),
+    /// A removal of nothing an install added ([`removal`]): what was there before an install is
+    /// never removed.
+    NothingAdded {
+        /// The tool.
+        dependency: Dependency,
+    },
 }
 
 impl std::fmt::Display for Refusal {
@@ -371,6 +380,7 @@ impl std::fmt::Display for Refusal {
             Refusal::NoBuild { dependency, os, arch, why } => write!(f, "{dependency:?} isn't offered on {} {arch:?}: {why}", crate::host::os_name(*os)),
             Refusal::NoVirtualboxImage => f.write_str("VirtualBox's installer image is needed to run its uninstaller"),
             Refusal::PrivateFile(why) => write!(f, "a root step's private file couldn't be written: {why}"),
+            Refusal::NothingAdded { dependency } => write!(f, "nothing of {dependency:?} was added by an install, so nothing of it is removed"),
         }
     }
 }
@@ -404,12 +414,52 @@ pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, eleva
     }
 }
 
+/// The removal of what `added` lists of `dep` on `host` ([`Installed::added`], as on record),
+/// and of nothing else: on Linux those of its packages ([`added::packages`]), through the package
+/// manager that installed them, its root steps run `elevation`'s way with this process's proxy;
+/// elsewhere, and for the AWS CLI's folder, the tool itself when the record says the install
+/// added it ([`Item::Tool`]). On macOS, VirtualBox's uninstaller runs from its installer image
+/// (`virtualbox`).
+///
+/// # Errors
+///
+/// [`Refusal::NothingAdded`] when `added` lists nothing of `dep`'s, or why it can't be removed
+/// there.
+pub fn removal(dep: Dependency, host: &crate::host::Host, added: &[Item], elevation: Elevation, virtualbox: Option<&str>) -> Result<Vec<Step>, Refusal> {
+    if !dep.runs_on(host.os) {
+        return Err(Refusal::NotHere { dependency: dep, os: host.os });
+    }
+    match host.os {
+        HostOs::Linux => {
+            let root = linux::Root {
+                elevation,
+                proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
+            };
+            linux::uninstall(dep, host.packages, added, &root)
+        }
+        _ if !added.contains(&Item::Tool(dep)) => Err(Refusal::NothingAdded { dependency: dep }),
+        HostOs::Macos => macos::uninstall(dep, host.packages, virtualbox),
+        HostOs::Windows => windows::uninstall(dep),
+    }
+}
+
 /// Whether `dep` is installed on the context's host; `None` when that can't be told (WSL, Hyper-V).
-/// Its macOS app bundle, else its version probe ([`ToolRow::probe`]); VMware's utility, a service,
-/// as [`crate::providers::vmware_utility`] finds it. A hypervisor with the programs its VMs need
-/// beside it ([`crate::providers::helpers()`]), as its provider's detection reads it: one without
-/// them is installed again, which brings them.
+/// The tool itself ([`tool_found`]); a hypervisor with the programs its VMs need beside it
+/// ([`crate::providers::helpers()`]), as its provider's detection reads it: one without them is
+/// installed again, which brings them.
 pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
+    let found = tool_found(cx, dep).await?;
+    match dep.hypervisor() {
+        Some(provider) if found => Some(crate::providers::helper::missing(cx, provider).await.is_none()),
+        _ => Some(found),
+    }
+}
+
+/// Whether `dep` itself is on the context's host, its helpers aside; `None` when that can't be
+/// told (WSL, Hyper-V). Its macOS app bundle, else its version probe ([`ToolRow::probe`]; a
+/// hypervisor's, its provider's); VMware's utility, a service, as
+/// [`crate::providers::vmware_utility`] finds it.
+pub(crate) async fn tool_found(cx: &Context, dep: Dependency) -> Option<bool> {
     if dep == Dependency::VmwareUtility {
         return Some(crate::providers::vmware_utility(&cx.host).await != crate::providers::UtilityState::Missing);
     }
@@ -421,14 +471,10 @@ pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
     let probe = dep
         .hypervisor()
         .map_or(row.probe, |provider| crate::providers::hypervisor_probe(provider, cx.host.arch));
-    let found = match probe {
-        Some((program, args)) => cx.read_ok(program, args).await.is_ok(),
-        None if mac_app.is_some() => false,
-        None => return None,
-    };
-    match dep.hypervisor() {
-        Some(provider) if found => Some(crate::providers::helper::missing(cx, provider).await.is_none()),
-        _ => Some(found),
+    match probe {
+        Some((program, args)) => Some(cx.read_ok(program, args).await.is_ok()),
+        None if mac_app.is_some() => Some(false),
+        None => None,
     }
 }
 

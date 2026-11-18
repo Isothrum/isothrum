@@ -59,7 +59,10 @@ fn what_doesnt_run_on_linux_or_without_a_package_manager_is_refused() {
             install(dep, Some(Packages::Linux(LinuxPackages::Apt)), Arch::Amd64, None, &prompted()).unwrap_err(),
             refused
         );
-        assert_eq!(uninstall(dep, Some(Packages::Linux(LinuxPackages::Apt)), &prompted()).unwrap_err(), refused);
+        assert_eq!(
+            uninstall(dep, Some(Packages::Linux(LinuxPackages::Apt)), &[], &prompted()).unwrap_err(),
+            refused
+        );
     }
     assert_eq!(
         install(Dependency::Docker, None, Arch::Amd64, None, &prompted()).unwrap_err(),
@@ -67,17 +70,33 @@ fn what_doesnt_run_on_linux_or_without_a_package_manager_is_refused() {
             dependency: Dependency::Docker
         }
     );
-    // The AWS CLI is a folder anywhere: removed without a package manager.
-    assert!(uninstall(Dependency::Awscli, None, &prompted()).is_ok());
+    // The AWS CLI is a folder anywhere: removed without a package manager, when its install
+    // added it.
+    assert!(uninstall(Dependency::Awscli, None, &[Item::Tool(Dependency::Awscli)], &prompted()).is_ok());
+    assert_eq!(
+        uninstall(Dependency::Awscli, None, &[], &prompted()).unwrap_err(),
+        Refusal::NothingAdded {
+            dependency: Dependency::Awscli
+        }
+    );
 }
 
 #[test]
 fn a_removal_goes_through_the_package_manager_that_installed_it() {
-    let removal = |packages| uninstall(Dependency::Vagrant, Some(Packages::Linux(packages)), &prompted()).unwrap()[0].args[3].clone();
+    let vagrant = [Item::Package("vagrant".into())];
+    let removal = |packages| uninstall(Dependency::Vagrant, Some(Packages::Linux(packages)), &vagrant, &prompted()).unwrap()[0].args[3].clone();
     assert!(removal(LinuxPackages::Apt).ends_with("apt-get remove -y vagrant"));
     assert!(removal(LinuxPackages::Dnf).ends_with("dnf remove -y vagrant"));
-    let gcloud = uninstall(Dependency::Gcloud, Some(Packages::Linux(LinuxPackages::Apt)), &prompted()).unwrap();
-    assert_eq!(gcloud[1].args, ["-c", "rm -rf \"$HOME/google-cloud-sdk\""], "the per-user SDK too, as the user");
+    assert!(removal(LinuxPackages::Dnf).contains("rpm -e --test vagrant"), "what needs it stops the removal");
+    // Google's package only: never a folder in the user's home, which may be their own SDK.
+    let gcloud = uninstall(
+        Dependency::Gcloud,
+        Some(Packages::Linux(LinuxPackages::Apt)),
+        &[Item::Package("google-cloud-cli".into())],
+        &prompted(),
+    )
+    .unwrap();
+    assert_eq!(gcloud.len(), 1);
 }
 
 #[test]
