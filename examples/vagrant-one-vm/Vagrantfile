@@ -14,6 +14,12 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
+    # Hyper-V connects the VM to one virtual switch, and Vagrant asks which when there are several
+    # (WSL 2 adds its own): name Windows' Default Switch, so nobody has to answer.
+    server.vm.provider "hyperv" do |hv, override|
+      override.vm.network "public_network", bridge: "Default Switch"
+    end
+
     # Runs at the first `up`, and again at `isothrum provision`.
     server.vm.provision "shell", inline: <<~SHELL
       echo "set up by Vagrant's shell provisioner" > /etc/greeting

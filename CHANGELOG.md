@@ -260,6 +260,13 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **The Hyper-V self-test, and the Vagrant example on Hyper-V, never wait for a switch to be
+  chosen.** Hyper-V connects a VM to one virtual switch, and Vagrant asks which on its standard
+  input when there are several: WSL 2 adds its own beside the Default Switch, so on a Windows
+  computer with WSL 2 (Docker Desktop's) `vagrant up` waited for an answer nobody gives. The test's
+  Vagrantfile, and `examples/vagrant-one-vm`'s, name the Default Switch
+  (`selftest::hypervisor::HYPERV_SWITCH`).
+
 - **A running engine slow to answer reads as running (`docker::engines`).** Each context's probe
   had 4 s (`ENGINE_PROBE_TIMEOUT`, removed), every other probe of the daemon 25 s
   (`Context::probe_timeout`): Docker Desktop woken from its Resource Saver answered in 13 s on

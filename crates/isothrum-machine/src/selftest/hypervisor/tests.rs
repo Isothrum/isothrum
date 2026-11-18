@@ -208,6 +208,9 @@ fn the_vagrantfile_names_the_vm_and_marks_it_as_the_tests() {
         !hyperv.contains("private_network") && hyperv.contains("h.vmname = \"Isothrum test VM\""),
         "{hyperv}"
     );
+    // Never Vagrant's question of which switch, which nobody answers in a run.
+    assert!(hyperv.contains("config.vm.network \"public_network\", bridge: \"Default Switch\""), "{hyperv}");
+    assert!(!v.contains("public_network"), "{v}");
     assert_eq!(uname_line("\n Linux 6.6 x86_64\n"), "Linux 6.6 x86_64");
 }
 
