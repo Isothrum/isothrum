@@ -56,6 +56,19 @@ fn on_linux(script: Script) -> Script {
         .allow("virsh", Reply::missing())
         .allow("qemu-system-x86_64", Reply::missing())
         .allow("id", Reply::missing())
+        .allow("systemctl is-active vboxdrv", inactive())
+}
+
+/// `systemctl is-active` of a service that isn't running (or doesn't exist): exit 3.
+fn inactive() -> Reply {
+    service_is("inactive")
+}
+
+/// `systemctl is-active` saying `state`, a state it exits 3 with (all but `active`).
+fn service_is(state: &str) -> Reply {
+    let mut reply = Reply::ok(state);
+    reply.code = 3;
+    reply
 }
 
 /// The status `detect` gave `provider`; it must have given one.
