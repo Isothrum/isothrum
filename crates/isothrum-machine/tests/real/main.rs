@@ -41,6 +41,13 @@ async fn here() -> Context {
     reread(&Context::here(Arc::new(SystemProcesses::default())).await).await
 }
 
+/// The crate on this computer as this process started: its tools on its own `PATH`, as a
+/// launcher's are when it started before an install (a test's `PATH` is its runner's). What the
+/// crate does with this context it must do without [`reread`]'s help.
+async fn as_started() -> Context {
+    Context::here(Arc::new(SystemProcesses::default())).await
+}
+
 /// This computer's tools, each started with `path` as its `PATH`.
 struct OnPath {
     system: SystemProcesses,
