@@ -92,8 +92,8 @@ const SCRIPTS: [(&str, &str, &str); 6] = [
     ),
     (
         "crates/isothrum-machine/src/install/mac_image.rs",
-        "&users_half(brew",
-        "a vendor's disk image installed on macOS: a fixed cask and Homebrew's path single-quoted, its root half and the file arguments",
+        "&users",
+        "a vendor's disk image or package installed on macOS: a fixed cask and Homebrew's path, or the vendor's fixed HTTPS address, single-quoted; its root half and the file arguments",
     ),
     (
         "crates/isothrum-machine/src/install/vmware_utility.rs",

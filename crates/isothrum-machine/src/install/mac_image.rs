@@ -1,10 +1,13 @@
 //! A macOS tool installed from its vendor's disk image or package, the one way every such tool
-//! installs (Docker Desktop, Vagrant, VirtualBox, UTM): nothing is left for its user to drag or
-//! finish in a window of its own.
+//! installs (Docker Desktop, Vagrant, VirtualBox, UTM, the AWS CLI): nothing is left for its user
+//! to drag or finish in a window of its own, and nothing is built on this Mac.
 //!
-//! The step runs in two halves. The user's half downloads the vendor's file with Homebrew (`brew
-//! fetch --cask`, which checks the cask's checksum) and hands it to the root half through macOS's
-//! administrator prompt, or `sudo -n` where nobody is there to answer one ([`Elevation`]). The
+//! The step runs in two halves. The user's half downloads the vendor's file ([`Source`]): with
+//! Homebrew (`brew fetch --cask`, which checks the cask's checksum), or from the vendor's own
+//! address over HTTPS, where no cask carries it (the AWS CLI's package, whose signature is all
+//! that is checked: its address always serves the latest release). It hands the file to the root
+//! half through macOS's administrator prompt, or `sudo -n` where nobody is there to answer one
+//! ([`Elevation`]). The
 //! root half copies the file where only root writes, so nothing can swap it between the checks
 //! and the install, mounts a disk image there read-only and out of Finder's sight (`hdiutil attach
 //! -nobrowse -readonly`), checks what it installs as signed by the vendor's Developer ID team
@@ -12,7 +15,8 @@
 //! it: an app copied into Applications with `ditto` under a hidden name and moved into place once
 //! whole, a package through `installer`, Docker Desktop through its own unattended installer. The
 //! image is detached whatever happens. Last, the installed app is checked again (`codesign --verify
-//! --deep --strict`, `spctl`): the step fails unless it is whole and signed.
+//! --deep --strict`, `spctl`), or a package without an app answers as its vendor's program
+//! ([`Vendor::answers`]): the step fails unless it is whole and signed.
 //!
 //! A copied app counts as installed only once it is whole ([`complete`]): Finder's resumable-copy
 //! marks on a bundle are a copy still under way, or one cut short, and an app whose signature
@@ -50,11 +54,21 @@ impl Payload {
     }
 }
 
-/// A tool installed from its vendor's file, as Homebrew's cask downloads it.
+/// Where a vendor's file is downloaded from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Source {
+    /// The Homebrew cask that downloads it (Homebrew checks its checksum).
+    Cask(&'static str),
+    /// The vendor's own HTTPS address, where no cask carries it: its file name ends in `.pkg` or
+    /// `.dmg`. Needs no Homebrew.
+    Url(&'static str),
+}
+
+/// A tool installed from its vendor's file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Vendor {
-    /// The Homebrew cask that downloads it.
-    pub cask: &'static str,
+    /// Where its file is downloaded from.
+    pub source: Source,
     /// The tool's name, as its vendor writes it.
     pub name: &'static str,
     /// Who signs it, as their Developer ID certificate names them.
@@ -65,6 +79,9 @@ pub(crate) struct Vendor {
     pub payload: Payload,
     /// The licence its install accepts on its user's behalf, when it does.
     pub accepts: Option<Licence>,
+    /// The command its install must answer, once done, where it puts no app in Applications to
+    /// check (`/usr/local/aws-cli/aws --version`): the install fails unless it does.
+    pub answers: Option<&'static str>,
 }
 
 /// Docker's Subscription Service Agreement, which Docker Desktop's unattended install accepts.
@@ -75,69 +92,114 @@ pub(crate) const DOCKER_LICENCE: Licence = Licence {
 
 /// Docker Desktop, from Docker's disk image.
 pub(crate) const DOCKER: Vendor = Vendor {
-    cask: "docker-desktop",
+    source: Source::Cask("docker-desktop"),
     name: "Docker Desktop",
     signer: "Docker Inc",
     team: "9BNSXJN65R",
     payload: Payload::DockerDesktop,
     accepts: Some(DOCKER_LICENCE),
+    answers: None,
 };
 
 /// Vagrant, from HashiCorp's package in its disk image.
 pub(crate) const VAGRANT: Vendor = Vendor {
-    cask: "vagrant",
+    source: Source::Cask("vagrant"),
     name: "Vagrant",
     signer: "Hashicorp, Inc.",
     team: "D38WU7D763",
     payload: Payload::Pkg(None),
     accepts: None,
+    answers: None,
 };
 
 /// VirtualBox, from Oracle's package in its disk image.
 pub(crate) const VIRTUALBOX: Vendor = Vendor {
-    cask: "virtualbox",
+    source: Source::Cask("virtualbox"),
     name: "VirtualBox",
     signer: "Oracle America, Inc.",
     team: "VB5E2TV963",
     payload: Payload::Pkg(Some("VirtualBox.app")),
     accepts: None,
+    answers: None,
 };
 
 /// UTM, its app from its disk image.
 pub(crate) const UTM: Vendor = Vendor {
-    cask: "utm",
+    source: Source::Cask("utm"),
     name: "UTM",
     signer: "Turing Software, LLC",
     team: "WDNLXAD4W8",
     payload: Payload::App("UTM.app"),
     accepts: None,
+    answers: None,
 };
 
-/// The install of `dep` from `vendor`'s file, downloaded by Homebrew (`brew`), its root half run
-/// `elevation`'s way: macOS's administrator prompt, else `sudo -n` (or as is, when root).
-pub(crate) fn install(brew: &str, dep: Dependency, vendor: &Vendor, elevation: Elevation) -> Step {
-    let mut step = super::steps::step("sh", &["-c", &users_half(brew, vendor, elevation), "sh", &root_half(vendor)]);
+/// The AWS CLI, from Amazon's own package (one for both CPUs, notarized), never Homebrew's
+/// formula: on an Intel Mac Homebrew has no bottle and builds its C libraries from source, which
+/// fails (`aws-c-s3`).
+pub(crate) const AWS_CLI: Vendor = Vendor {
+    source: Source::Url("https://awscli.amazonaws.com/AWSCLIV2.pkg"),
+    name: "AWS CLI",
+    signer: "AMZN Mobile LLC",
+    team: "94KV3E626L",
+    payload: Payload::Pkg(None),
+    accepts: None,
+    answers: Some("/usr/local/aws-cli/aws --version"),
+};
+
+/// The install of `dep` from `vendor`'s file, downloaded by Homebrew (`brew`, when the file comes
+/// from a cask) or from its vendor's address, its root half run `elevation`'s way: macOS's
+/// administrator prompt, else `sudo -n` (or as is, when root).
+///
+/// # Errors
+///
+/// [`super::Refusal::NoHomebrew`] for a cask's file without Homebrew.
+pub(crate) fn install(brew: Option<&str>, dep: Dependency, vendor: &Vendor, elevation: Elevation) -> Result<Step, super::Refusal> {
+    let download = match vendor.source {
+        Source::Cask(cask) => cask_download(brew.ok_or(super::Refusal::NoHomebrew)?, cask, vendor.name),
+        Source::Url(url) => url_download(url, vendor.name),
+    };
+    let users = users_half(&download, vendor, elevation);
+    let mut step = super::steps::step("sh", &["-c", &users, "sh", &root_half(vendor)]);
     step.note = Some(Note::InstallingFromVendor {
         dependency: dep,
         accepts: vendor.accepts,
     });
-    step
+    Ok(step)
 }
 
-/// The user's half, run by `sh -c` with the root half as `$1`: the download (an old Homebrew that
-/// crashes reading today's cask data, `undefined method 'first' for nil` in `api/cask.rb`, is
-/// updated and the download tried once more), then the root half as an administrator, handed the
-/// file, this account's name and the Applications folder as arguments (never spliced into it).
-fn users_half(brew: &str, vendor: &Vendor, elevation: Elevation) -> String {
-    let Vendor { cask, name, .. } = vendor;
+/// The user's half, run by `sh -c` with the root half as `$1`: `download` (which leaves the file's
+/// path in `$f`), then the root half as an administrator, handed the file, this account's name
+/// and the Applications folder as arguments (never spliced into it).
+fn users_half(download: &str, vendor: &Vendor, elevation: Elevation) -> String {
+    let name = vendor.name;
     let licence = vendor
         .accepts
         .map(|l| format!("echo \"Installing {name} accepts the {} ({}) for you.\"\n", l.name, l.url))
         .unwrap_or_default();
     let elevated = as_administrator(elevation, &format!("Installing {name}"), &[r#""$f""#, r#""$(id -un)""#, "/Applications"]);
+    format!("set -e\n{download}\n{licence}{elevated}")
+}
+
+/// The vendor's file from its own address `url`, into a private folder removed when the user's
+/// half ends (the root half has its own copy by then): `$f`.
+fn url_download(url: &str, name: &str) -> String {
+    let file = url.rsplit('/').next().unwrap_or_default();
     format!(
-        r#"set -e
-if ! '{brew}' fetch --cask {cask}; then
+        r#"w="$(mktemp -d)"
+trap 'rm -rf "$w"' EXIT
+f="$w/{file}"
+echo "Downloading {name} from {url}"
+curl -fsSL --proto '=https' --tlsv1.2 '{url}' -o "$f" || {{ echo "{name} couldn't be downloaded from {url}. Nothing was installed." >&2; exit 1; }}"#
+    )
+}
+
+/// The vendor's file from Homebrew's `cask` (an old Homebrew that crashes reading today's cask
+/// data, `undefined method 'first' for nil` in `api/cask.rb`, is updated and the download tried
+/// once more): `$f`, in Homebrew's cache.
+fn cask_download(brew: &str, cask: &str, name: &str) -> String {
+    format!(
+        r#"if ! '{brew}' fetch --cask {cask}; then
   echo "Homebrew couldn't download {name}. Updating Homebrew and trying again (this can take a few minutes)…"
   '{brew}' update || true
   if ! '{brew}' fetch --cask {cask}; then
@@ -146,8 +208,7 @@ if ! '{brew}' fetch --cask {cask}; then
   fi
 fi
 f="$('{brew}' --cache --cask {cask})"
-[ -f "$f" ] || {{ echo "Homebrew downloaded {name}, but its file isn't where Homebrew says ($f). Nothing was installed." >&2; exit 1; }}
-{licence}{elevated}"#
+[ -f "$f" ] || {{ echo "Homebrew downloaded {name}, but its file isn't where Homebrew says ($f). Nothing was installed." >&2; exit 1; }}"#
     )
 }
 
@@ -234,11 +295,20 @@ rm -rf "$3/Docker.app"
 }
 
 /// The root half's last check: the app the install put in the Applications folder (`$3`), when
-/// it puts one there, whole and signed by the vendor, accepted by Gatekeeper.
+/// it puts one there, whole and signed by the vendor, accepted by Gatekeeper; else the command the
+/// install must answer, when there is one.
 fn installed_check(vendor: &Vendor) -> String {
-    let Vendor { name, team, payload, .. } = *vendor;
+    let Vendor {
+        name, team, payload, answers, ..
+    } = *vendor;
     let signed = signed_by(team);
-    payload.app().map_or_else(String::new, |app| {
+    let answered = answers.map_or_else(String::new, |command| {
+        format!(
+            r#"
+{command} || {{ echo "{name} was installed, but \`{command}\` doesn't answer." >&2; exit 1; }}"#
+        )
+    });
+    answered + &payload.app().map_or_else(String::new, |app| {
         format!(
             r#"
 i="$3/{app}"
@@ -272,7 +342,7 @@ case "$1" in
     cp "$1" "$d/package/"
     src="$d/package"
     ;;
-  *) fail "Homebrew's download of {name} is neither a disk image nor a package ($1)." ;;
+  *) fail "The download of {name} is neither a disk image nor a package ($1)." ;;
 esac
 {install}{verify}
 echo "{name} is installed, signed by {signer}.""#

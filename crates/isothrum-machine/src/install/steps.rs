@@ -69,7 +69,8 @@ pub fn step(program: impl Into<String>, args: &[&str]) -> Step {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Note {
-    /// The tool installed from its vendor's disk image or package, which Homebrew downloads, as
+    /// The tool installed from its vendor's disk image or package, which Homebrew (or the vendor's
+    /// own address) downloads, as
     /// an administrator (macOS asks for the user's password): its app copied into Applications or
     /// its package installed, each checked as signed by its vendor. No window is left to finish.
     InstallingFromVendor {
@@ -82,6 +83,9 @@ pub enum Note {
     },
     /// QEMU's install, Homebrew updated first if it is out of date for this macOS.
     QemuUpdatingHomebrewFirst,
+    /// The tool's Homebrew formula built from source, which takes long (QEMU: its dependencies
+    /// too, a quarter of an hour or more): Homebrew has no bottles for this Mac's CPU (Intel).
+    BuildsFromSource(super::Dependency),
     /// The Azure CLI's Homebrew tap trusted (Homebrew 7 asks for it; older ones don't).
     TrustingAzureTap,
     /// The prebuilt Azure CLI cask installed (no long source build).
