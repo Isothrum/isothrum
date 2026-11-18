@@ -532,8 +532,9 @@ async fn vmware_utility_is_installed_where_it_is_missing() {
 /// ([`setup::share_virtualization`]), where KVM holds it (Linux 6.12 and later) and
 /// `ISOTHRUM_E2E_INSTALL` names `share-virtualization` (or `all`): KVM set to take it only while
 /// one of its own VMs runs, which stays. Then VirtualBox reads usable and its self-test boots a VM.
-/// Skips where KVM was in use (a VM of its own running): the setting then applies from the next
-/// restart, after which this test runs again.
+/// Where VirtualBox then still waits for a restart, as a setup's pass ends for one
+/// ([`Action::ends_pass`]: KVM was in use, or VirtualBox's driver was built for the newer kernel
+/// its install brought), the computer restarts and this test carries on, resumed.
 #[tokio::test]
 #[ignore = "real machine: cargo xtask e2e --tier machine"]
 async fn virtualbox_shares_the_cpus_virtualization_with_kvm_where_kvm_holds_it() {
@@ -541,28 +542,36 @@ async fn virtualbox_shares_the_cpus_virtualization_with_kvm_where_kvm_holds_it()
     if cx.host.os != HostOs::Linux {
         skip!("KVM is Linux's")
     }
-    let Some(before) = providers::status(&cx, Provider::Virtualbox).await else {
-        skip!("VirtualBox isn't offered here")
-    };
-    if before.reason != Some(Unavailable::KvmHoldsVirtualization) {
-        skip!("KVM doesn't hold the CPU's virtualization here: {:?}", before.reason)
+    if !resumed() {
+        let Some(before) = providers::status(&cx, Provider::Virtualbox).await else {
+            skip!("VirtualBox isn't offered here")
+        };
+        if before.reason != Some(Unavailable::KvmHoldsVirtualization) {
+            skip!("KVM doesn't hold the CPU's virtualization here: {:?}", before.reason)
+        }
+        if before.hypervisor != Some(true) {
+            skip!("VirtualBox isn't installed here, which KVM would share the CPU's virtualization with")
+        }
+        if asked_by("share-virtualization") == Asked::No {
+            skip!("KVM holds the CPU's virtualization; ISOTHRUM_E2E_INSTALL doesn't ask to let it share (it changes this computer for good)")
+        }
+        let shared = setup::share_virtualization(&cx, elevation(&cx).await, &mut |line| println!("{line}"))
+            .await
+            .unwrap_or_else(|failed| panic!("KVM wasn't set to share the CPU's virtualization: {failed:?}"));
+        if shared == setup::Shared::AfterRestart {
+            restart!("KVM shares the CPU's virtualization from the next restart (it was in use)")
+        }
     }
-    if before.hypervisor != Some(true) {
-        skip!("VirtualBox isn't installed here, which KVM would share the CPU's virtualization with")
-    }
-    if asked_by("share-virtualization") == Asked::No {
-        skip!("KVM holds the CPU's virtualization; ISOTHRUM_E2E_INSTALL doesn't ask to let it share (it changes this computer for good)")
-    }
-    let shared = setup::share_virtualization(&cx, elevation(&cx).await, &mut |line| println!("{line}"))
-        .await
-        .unwrap_or_else(|failed| panic!("KVM wasn't set to share the CPU's virtualization: {failed:?}"));
-    if shared == setup::Shared::AfterRestart {
-        skip!("KVM is set to share the CPU's virtualization from the next restart (it was in use): restart, then run this again")
-    }
-    let param = std::fs::read_to_string(&cx.host.devices.kvm_virt_at_load).unwrap_or_default();
-    assert_eq!(param.trim(), "N", "KVM loaded again with enable_virt_at_load off");
     let after = providers::status(&reread(&cx).await, Provider::Virtualbox).await.expect("offered here");
     println!("{after:#?}");
+    if let Some(reason) = &after.reason
+        && !resumed()
+        && (Action::Blocked { reason: reason.clone() }).ends_pass()
+    {
+        restart!("VirtualBox waits for a restart: {reason:?}")
+    }
+    let param = std::fs::read_to_string(&cx.host.devices.kvm_virt_at_load).unwrap_or_default();
+    assert_eq!(param.trim(), "N", "KVM loaded with enable_virt_at_load off");
     assert_eq!(after.reason, None, "VirtualBox can run VMs");
     super::selftest::boots_on(Provider::Virtualbox).await;
 }
