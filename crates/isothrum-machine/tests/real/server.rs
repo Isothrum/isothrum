@@ -8,10 +8,13 @@
 //!   certificate's SHA-256 (`_FINGERPRINT`), `root@pam`'s password (`_PASSWORD`), an API token
 //!   (`_TOKEN_ID`, `user@realm!name`, and `_TOKEN_SECRET`), and where machines go (`_NODE`,
 //!   `_STORAGE`, `_BRIDGE`); its node over SSH is the SSH server's settings;
-//! - an ESXi host: `ISOTHRUM_TEST_ESXI_HOST` (`_PORT`, default 22).
+//! - an ESXi host: `ISOTHRUM_TEST_ESXI_HOST` (`_PORT`, default 22), its user (`_USER`, default
+//!   `root`) and password (`_PASSWORD`), and where machines go (`_DATASTORE`, `_NETWORK`: the
+//!   host's picks when unset).
 //!
 //! The server self-test (`selftest::server`) runs on the Proxmox VE server, reached through its
-//! node's SSH settings, with Terraform from this computer.
+//! node's SSH settings, with Terraform from this computer; and on the ESXi host, with Vagrant's
+//! `vagrant-vmware-esxi` plugin and VMware's OVF Tool from this computer.
 //!
 //! A secret is never printed.
 

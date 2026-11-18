@@ -1,15 +1,19 @@
 //! The server self-test (`selftest::server`) on the Proxmox VE server the settings name, as a
 //! caller runs it: its token signs in, a throwaway VM comes up on the bridge set, is reached over
 //! SSH through the node (the SSH server's settings: the bridge may be internal to the node) with
-//! the node's key, runs a command, and is taken down with everything the test made.
+//! the node's key, runs a command, and is taken down with everything the test made. The same on
+//! the ESXi host the settings name, as a caller runs it there: a VM uploaded from a Vagrant box
+//! by the `vagrant-vmware-esxi` plugin (with VMware's OVF Tool), reached over SSH, a command run,
+//! and taken down.
 
 use std::sync::{Mutex, PoisonError};
 
 use isothrum_machine::place;
 use isothrum_machine::place::proxmox::{Credentials, sign_in, terraform_token};
+use isothrum_machine::providers::{self, Provider};
 use isothrum_machine::selftest::Progress;
 use isothrum_machine::selftest::hypervisor::TestVm;
-use isothrum_machine::selftest::server::{self, Found, Key, Proxmox, Server, SignIn, Step, StepProgress};
+use isothrum_machine::selftest::server::{self, Esxi, Found, Key, Proxmox, Server, SignIn, Step, StepProgress};
 use isothrum_runner::SecretValue;
 use isothrum_runner::tls::Trust;
 
@@ -74,6 +78,55 @@ async fn the_server_self_test_brings_a_vm_up_on_proxmox_and_takes_it_down() {
     assert_eq!(ran.cleaned_up, Some(Ok(())), "taken down");
     let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
     assert_eq!(passed(&said), STEPS, "every step passes, in its order");
+    assert!(
+        said.iter()
+            .any(|step| matches!(step, Progress::Passed(Step::Exec, Found::Uname(u)) if u.contains("Linux"))),
+        "the command ran inside: {said:?}"
+    );
+}
+
+/// The test VM comes up on the ESXi host from a Vagrant box, a command runs inside, and it is
+/// taken down: every step passes, in its order, with the plugin and the OVF Tool of this computer.
+#[tokio::test]
+#[ignore = "real server: cargo xtask e2e --tier server"]
+async fn the_server_self_test_brings_a_vm_up_on_esxi_and_takes_it_down() {
+    let [host, password] = match settings(["ISOTHRUM_TEST_ESXI_HOST", "ISOTHRUM_TEST_ESXI_PASSWORD"]) {
+        Ok(set) => set,
+        Err(why) => skip!("no ESXi host to run the self-test on: {why}"),
+    };
+    let cx = here().await;
+    let plugin = providers::status(&cx, Provider::VmwareEsxi).await;
+    if !plugin.as_ref().is_some_and(|s| s.plugin_installed) {
+        skip!("Vagrant's vagrant-vmware-esxi plugin isn't installed here: {plugin:?}")
+    }
+    if answer(&cx, "ovftool", &["--version"]).await.is_none() {
+        skip!("VMware's OVF Tool isn't on this computer's PATH: the plugin uploads the VM with it")
+    }
+    let mut esxi = Esxi::new(
+        host,
+        setting("ISOTHRUM_TEST_ESXI_USER").unwrap_or_else(|| "root".into()),
+        SecretValue::new(password),
+    );
+    esxi.port = setting("ISOTHRUM_TEST_ESXI_PORT").and_then(|p| p.parse().ok()).unwrap_or(22);
+    esxi.datastore = setting("ISOTHRUM_TEST_ESXI_DATASTORE");
+    esxi.network = setting("ISOTHRUM_TEST_ESXI_NETWORK");
+    let dir = tempfile::tempdir().expect("a folder");
+    let said = Mutex::new(Vec::new());
+    let sink = |progress: StepProgress| {
+        if !matches!(progress, Progress::Passed(_, Found::Line { .. })) {
+            println!("{progress:?}");
+            said.lock().unwrap_or_else(PoisonError::into_inner).push(progress);
+        }
+    };
+    let ran = Box::pin(server::run(&cx, dir.path(), &Server::Esxi(esxi), &TestVm::new(VM_NAME, VM_HOST), &sink)).await;
+    if let Err(failed) = &ran.passed {
+        panic!("{failed}")
+    }
+    assert_eq!(ran.cleaned_up, Some(Ok(())), "taken down");
+    let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
+    let steps = passed(&said);
+    assert_eq!(steps.first(), Some(&Step::Host), "the host answers first: {steps:?}");
+    assert_eq!(steps.last(), Some(&Step::Down), "taken down last: {steps:?}");
     assert!(
         said.iter()
             .any(|step| matches!(step, Progress::Passed(Step::Exec, Found::Uname(u)) if u.contains("Linux"))),
