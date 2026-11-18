@@ -260,6 +260,15 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **A QEMU or libvirt without the programs its VMs need is installed again (Linux).** A setup
+  read QEMU and libvirt installed by their emulator and `virsh` alone (`install::present`), while
+  their detection read them not installed without `mkisofs` (QEMU) or a virtiofsd (both), so a
+  setup never ran the install that brings `genisoimage` and `virtiofsd`, and their VMs didn't
+  start. Each provider's programs are now one list, `providers::helpers` (`Helper`: its
+  `program`, its apt and dnf `package`, whether the hypervisor `found` it), which detection,
+  `install::present`, `requirements::needs` and the apt and dnf installs all read.
+  `providers::needs_mkisofs` is gone: `helpers(provider, os)` says it.
+
 - **The Hyper-V self-test, and the Vagrant example on Hyper-V, never wait for a switch to be
   chosen.** Hyper-V connects a VM to one virtual switch, and Vagrant asks which on its standard
   input when there are several: WSL 2 adds its own beside the Default Switch, so on a Windows

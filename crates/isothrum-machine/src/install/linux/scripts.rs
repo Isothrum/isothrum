@@ -2,8 +2,10 @@
 //! distributions' own packages. Every repository's signing key is checked against its
 //! fingerprint, pinned here, before apt or dnf trusts it; no vendor install script runs as root.
 
+use crate::host::{HostOs, LinuxPackages};
 use crate::install::root::{NEED_CURL, NEED_GPG, NEED_UNZIP, RootScript, check_keys};
 use crate::install::steps::NOT_SERVED;
+use crate::providers::{Helper, Provider, helpers};
 
 /// The distro's codename as the vendors' repos name it (`$codename`): an Ubuntu derivative like
 /// Mint uses its Ubuntu base's. For the Debian family (Debian itself, Kali, Devuan: `ID_LIKE`
@@ -310,38 +312,60 @@ pub fn gcloud_script() -> RootScript {
 /// libvirt, with what `vagrant plugin install vagrant-libvirt` compiles against: libvirt's headers
 /// (`libvirt-dev`), a C compiler and make (`build-essential`), `pkg-config`, and Ruby's headers
 /// for a distribution's Vagrant (which builds on the system Ruby). Without them the plugin's
-/// install fails building its native extension. Then the user joins the `libvirt` group (and
-/// `kvm`, where the distribution has one), so Vagrant reaches `qemu:///system` and `/dev/kvm`
-/// without root; the groups apply from the next login.
+/// install fails building its native extension. With the programs its VMs need beside it
+/// ([`apt_install_with_helpers`]). Then the user joins the `libvirt` group (and `kvm`, where the
+/// distribution has one), so Vagrant reaches `qemu:///system` and `/dev/kvm` without root; the
+/// groups apply from the next login.
 #[must_use]
 pub fn libvirt_script(user: Option<&str>) -> RootScript {
-    // virtiofsd: libvirt's shared folders (a VM's shared folder) need it, and it is its own
-    // package from Debian 12 and Ubuntu 23.10 on (QEMU's before); a release without it skips it.
-    // Separate statements: a failure inside an `&&` chain doesn't stop a script that runs `set -e`.
     then_libvirt_groups(
-        "apt-get update; apt-get install -y libvirt-daemon-system libvirt-dev build-essential pkg-config ruby-dev virt-manager; \
-         if apt-cache show virtiofsd >/dev/null 2>&1; then apt-get install -y virtiofsd; fi",
+        &apt_install_with_helpers(
+            Provider::Libvirt,
+            "libvirt-daemon-system libvirt-dev build-essential pkg-config ruby-dev virt-manager",
+        ),
         user,
     )
 }
 
-/// QEMU and its disk tools, then the user into the group `/dev/kvm` belongs to, so vagrant-qemu
-/// boots VMs with KVM (`accel=kvm`, as Vagrantfiles ask on Linux) without root; the
-/// group applies from the next login. With `genisoimage`, which has `mkisofs`: vagrant-qemu gives
-/// a VM on a private network its settings in a cloud-init seed, an ISO Vagrant builds with `mkisofs`
-/// on Linux ([`crate::providers::needs_mkisofs`]). Every Debian and Ubuntu release has
-/// the package; Debian's `xorriso` has no `mkisofs`, only `xorrisofs`. And `virtiofsd`, which
-/// vagrant-qemu starts to share a folder of this computer with a VM (a VM's shared
-/// folder): its own package from Debian 12 and Ubuntu 23.10 on, QEMU's own
-/// (`/usr/lib/qemu/virtiofsd`) before, so a release without the package skips it.
+/// QEMU and its disk tools, with the programs its VMs need beside it
+/// ([`apt_install_with_helpers`]: `mkisofs`, virtiofsd), then the user into the group `/dev/kvm`
+/// belongs to, so vagrant-qemu boots VMs with KVM (`accel=kvm`, as Vagrantfiles ask on Linux)
+/// without root; the group applies from the next login.
 #[must_use]
 pub fn qemu_script(user: Option<&str>) -> RootScript {
-    // Separate statements: a failure inside an `&&` chain doesn't stop a script that runs `set -e`.
-    then_kvm_group(
-        "apt-get update; apt-get install -y qemu-system qemu-utils genisoimage; \
-         if apt-cache show virtiofsd >/dev/null 2>&1; then apt-get install -y virtiofsd; fi",
-        user,
-    )
+    then_kvm_group(&apt_install_with_helpers(Provider::Qemu, "qemu-system qemu-utils"), user)
+}
+
+/// apt's install of `packages`, with the packages of the programs `provider`'s VMs need beside it
+/// on Linux ([`helpers`], the list its detection reads it installed by): `genisoimage` (which has
+/// `mkisofs`) in every Debian and Ubuntu release, so with the rest; `virtiofsd` its own package
+/// from Debian 12 and Ubuntu 23.10 on, QEMU's own (`/usr/lib/qemu/virtiofsd`) before, so
+/// installed where the release has it. Separate statements: a failure inside an `&&` chain doesn't
+/// stop a script that runs `set -e`.
+fn apt_install_with_helpers(provider: Provider, packages: &str) -> String {
+    let mut install = format!("apt-get update; apt-get install -y {packages}");
+    let mut where_released = Vec::new();
+    for &helper in helpers(provider, HostOs::Linux) {
+        let package = helper.package(LinuxPackages::Apt);
+        if helper == Helper::Virtiofsd {
+            where_released.push(format!("if apt-cache show {package} >/dev/null 2>&1; then apt-get install -y {package}; fi"));
+        } else {
+            install.push(' ');
+            install.push_str(package);
+        }
+    }
+    std::iter::once(install).chain(where_released).collect::<Vec<_>>().join("; ")
+}
+
+/// dnf's install of `packages`, with the packages of the programs `provider`'s VMs need beside it
+/// on Linux ([`helpers`]): every Fedora release from 36 on has them.
+fn dnf_install_with_helpers(provider: Provider, packages: &str) -> String {
+    let mut line = format!("dnf install -y {packages}");
+    for helper in helpers(provider, HostOs::Linux) {
+        line.push(' ');
+        line.push_str(helper.package(LinuxPackages::Dnf));
+    }
+    line
 }
 
 /// The KVM device.

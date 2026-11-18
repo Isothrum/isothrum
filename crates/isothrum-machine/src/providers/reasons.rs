@@ -1,6 +1,6 @@
 //! Why a provider can't run VMs here, from what detection found.
 
-use super::{Account, Findings, Need, Part, Provider, ProviderRow, Unavailable, UtilityState};
+use super::{Account, Findings, Helper, Need, Provider, ProviderRow, Unavailable, UtilityState};
 
 /// Why `provider` can't run VMs here (`None`: it can), from what is still to install for it
 /// (`needs`, which its status carries too, [`status_from`](super::status_from)) and what detection found: KVM holding the CPU's
@@ -27,9 +27,9 @@ pub(super) fn hypervisor_reason(provider: Provider, f: &Findings) -> Option<Unav
         Some(Unavailable::HypervOff)
     } else if f.account == Some(Account::HypervAdmin) {
         Some(Unavailable::HypervNeedsAdmin)
-    } else if f.part_missing == Some(Part::Mkisofs) {
+    } else if f.helper_missing == Some(Helper::Mkisofs) {
         Some(Unavailable::MkisofsMissing)
-    } else if f.part_missing == Some(Part::Virtiofsd) {
+    } else if f.helper_missing == Some(Helper::Virtiofsd) {
         Some(Unavailable::VirtiofsdMissing {
             hypervisor: hypervisor_name(provider).to_owned(),
         })

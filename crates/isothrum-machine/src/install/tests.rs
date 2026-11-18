@@ -61,7 +61,9 @@ async fn a_hypervisor_is_present_as_its_providers_detection_reads_it() {
         .expect("VBoxManage --version", Reply::ok("7.2.4r170995"))
         .build();
     let root = tempfile::tempdir().unwrap();
-    let cx = Context::new(std::sync::Arc::new(tools), crate::testing::linux_host(root.path()));
+    let host = crate::testing::linux_host(root.path());
+    crate::testing::install_virtiofsd(&host.devices);
+    let cx = Context::new(std::sync::Arc::new(tools), host);
     for (dep, expected) in [
         (Dependency::Qemu, Some(false)),
         (Dependency::Libvirt, Some(true)),
@@ -69,6 +71,34 @@ async fn a_hypervisor_is_present_as_its_providers_detection_reads_it() {
     ] {
         assert_eq!(present(&cx, dep).await, expected, "{dep:?}");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hypervisor_without_a_program_its_vms_need_beside_it_is_installed_again() {
+    use isothrum_runner::fake::{FakeProcesses, Reply};
+    // Regression: QEMU and libvirt installed without genisoimage and virtiofsd read as present to
+    // a setup (their emulator and `virsh` answered), so it never ran the install that brings them,
+    // while their detection read them not installed, and their VMs didn't start.
+    let without = FakeProcesses::script()
+        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0.13"))
+        .expect("mkisofs -version", Reply::missing())
+        .expect("virsh --version", Reply::ok("11.3.0"))
+        .build();
+    let root = tempfile::tempdir().unwrap();
+    let bare = Context::new(std::sync::Arc::new(without), crate::testing::linux_host(root.path()));
+    assert_eq!(present(&bare, Dependency::Qemu).await, Some(false), "no mkisofs");
+    assert_eq!(present(&bare, Dependency::Libvirt).await, Some(false), "no virtiofsd");
+
+    let with = FakeProcesses::script()
+        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0.13"))
+        .expect("mkisofs -version", Reply::ok("mkisofs 2.01"))
+        .expect("virsh --version", Reply::ok("11.3.0"))
+        .build();
+    let host = crate::testing::linux_host(root.path());
+    crate::testing::install_virtiofsd(&host.devices);
+    let helped = Context::new(std::sync::Arc::new(with), host);
+    assert_eq!(present(&helped, Dependency::Qemu).await, Some(true), "with mkisofs and virtiofsd");
+    assert_eq!(present(&helped, Dependency::Libvirt).await, Some(true), "with virtiofsd");
 }
 
 /// A host on `os` (x86-64), its package manager `packages`, its devices under `root`.

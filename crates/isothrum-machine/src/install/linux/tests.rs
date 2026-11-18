@@ -27,6 +27,28 @@ fn every_tool_installs_on_apt_and_each_one_but_the_apt_only_ones_on_dnf() {
 }
 
 #[test]
+fn a_hypervisors_install_brings_every_program_its_vms_need_beside_it() {
+    // Regression: QEMU and libvirt installed without genisoimage (mkisofs) and virtiofsd read as
+    // not installed, and their VMs failed to start. Each program on its provider's list
+    // (`providers::helpers`, which its detection reads) comes with its install, apt's and dnf's.
+    let mut checked = 0;
+    for dep in Dependency::ALL.into_iter().filter(|d| d.runs_on(HostOs::Linux)) {
+        let Some(provider) = dep.hypervisor() else { continue };
+        for packages in [LinuxPackages::Apt, LinuxPackages::Dnf] {
+            let steps = install(dep, Some(Packages::Linux(packages)), Arch::Amd64, Some("ada"), &prompted()).unwrap();
+            let script = steps[0].args.last().unwrap();
+            for helper in crate::providers::helpers(provider, HostOs::Linux) {
+                let package = helper.package(packages);
+                let brought = script.split(|c: char| c.is_whitespace() || c == ';').any(|w| w == package);
+                assert!(brought, "{dep:?} through {packages:?} brings {package}: {script}");
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 6, "QEMU's mkisofs and virtiofsd, libvirt's virtiofsd, through apt and dnf");
+}
+
+#[test]
 fn what_doesnt_run_on_linux_or_without_a_package_manager_is_refused() {
     for dep in [Dependency::Wsl, Dependency::Hyperv, Dependency::Utm] {
         let refused = Refusal::NotHere {

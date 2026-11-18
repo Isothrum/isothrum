@@ -52,6 +52,25 @@ pub(crate) fn linux_host(root: &std::path::Path) -> crate::host::Host {
     }
 }
 
+/// The virtiofsd package as Debian and Fedora install it under `devices`: `/usr/libexec/virtiofsd`,
+/// which QEMU finds there, named by libvirt's descriptor
+/// `/usr/share/qemu/vhost-user/50-virtiofsd.json`.
+pub(crate) fn install_virtiofsd(devices: &crate::host::Devices) {
+    let write = |path: &std::path::Path, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let binary = &devices.virtiofsd[0];
+    write(binary, "#!/bin/sh\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let descriptor = serde_json::json!({ "description": "virtiofsd", "type": "fs", "binary": binary });
+    write(&devices.vhost_user[0].join("50-virtiofsd.json"), &descriptor.to_string());
+}
+
 /// A context on a Linux host whose tools `runner` answers.
 pub(crate) fn answered_by(runner: impl isothrum_runner::ProcessRunner + 'static) -> crate::Context {
     shared(std::sync::Arc::new(runner))

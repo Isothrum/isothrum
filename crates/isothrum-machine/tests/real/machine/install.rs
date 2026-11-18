@@ -168,13 +168,23 @@ async fn works(cx: &Context, program: &str, args: &[&str]) -> String {
     said.unwrap_or_else(|| panic!("`{program} {}` fails once installed", args.join(" ")))
 }
 
-/// What uses `dep` once installed reads it so: a hypervisor its provider's detection, Docker its
-/// engine, started (the only engine a test starts: this one installed it); each other tool doing
-/// what a run asks of it first ([`works_as_a_run_needs`]), so a tool that is there but broken
-/// fails its cell.
+/// What uses `dep` once installed reads it so: a hypervisor its provider's detection, with each
+/// program its VMs need beside it ([`providers::helpers`]: QEMU's `mkisofs` and virtiofsd on
+/// Linux) found as the hypervisor finds it, Docker its engine, started (the only engine a test
+/// starts: this one installed it); each other tool doing what a run asks of it first
+/// ([`works_as_a_run_needs`]), so a tool that is there but broken fails its cell.
 async fn usable(cx: &Context, dep: Dependency) {
     works_as_a_run_needs(cx, dep).await;
     if let Some(provider) = dep.hypervisor() {
+        for &helper in providers::helpers(provider, cx.host.os) {
+            assert!(
+                helper.found(cx, provider).await,
+                "{} finds {} after its install",
+                provider.id(),
+                helper.program()
+            );
+            println!("{} finds {}", provider.id(), helper.program());
+        }
         let status = providers::status(cx, provider).await.expect("offered here");
         println!("{status:#?}");
         assert_eq!(status.hypervisor, Some(true), "{} reads it installed", provider.id());

@@ -406,7 +406,9 @@ pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, eleva
 
 /// Whether `dep` is installed on the context's host; `None` when that can't be told (WSL, Hyper-V).
 /// Its macOS app bundle, else its version probe ([`ToolRow::probe`]); VMware's utility, a service,
-/// as [`crate::providers::vmware_utility`] finds it.
+/// as [`crate::providers::vmware_utility`] finds it. A hypervisor with the programs its VMs need
+/// beside it ([`crate::providers::helpers()`]), as its provider's detection reads it: one without
+/// them is installed again, which brings them.
 pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
     if dep == Dependency::VmwareUtility {
         return Some(crate::providers::vmware_utility(&cx.host).await != crate::providers::UtilityState::Missing);
@@ -419,10 +421,14 @@ pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {
     let probe = dep
         .hypervisor()
         .map_or(row.probe, |provider| crate::providers::hypervisor_probe(provider, cx.host.arch));
-    match probe {
-        Some((program, args)) => Some(cx.read_ok(program, args).await.is_ok()),
-        None if mac_app.is_some() => Some(false),
-        None => None,
+    let found = match probe {
+        Some((program, args)) => cx.read_ok(program, args).await.is_ok(),
+        None if mac_app.is_some() => false,
+        None => return None,
+    };
+    match dep.hypervisor() {
+        Some(provider) if found => Some(crate::providers::helper::missing(cx, provider).await.is_none()),
+        _ => Some(found),
     }
 }
 

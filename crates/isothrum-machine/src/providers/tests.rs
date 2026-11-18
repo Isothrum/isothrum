@@ -29,22 +29,8 @@ fn host(os: HostOs, arch: Arch, root: &Path) -> Host {
 fn linux(root: &Path) -> Host {
     let host = host(HostOs::Linux, Arch::Amd64, root);
     write(&host.devices.kvm, "");
-    install_virtiofsd(&host.devices);
+    crate::testing::install_virtiofsd(&host.devices);
     host
-}
-
-/// The virtiofsd package as Debian and Fedora install it: `/usr/libexec/virtiofsd`, which QEMU
-/// finds there, named by libvirt's descriptor `/usr/share/qemu/vhost-user/50-virtiofsd.json`.
-fn install_virtiofsd(devices: &Devices) {
-    let binary = &devices.virtiofsd[0];
-    write(binary, "#!/bin/sh\n");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    let descriptor = serde_json::json!({ "description": "virtiofsd", "type": "fs", "binary": binary });
-    write(&devices.vhost_user[0].join("50-virtiofsd.json"), &descriptor.to_string());
 }
 
 /// Writes `text` to `path`, making its folder.
@@ -194,15 +180,7 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
 }
 
 #[test]
-fn only_qemu_on_linux_needs_mkisofs_and_only_vmware_desktop_the_utility() {
-    assert!(needs_mkisofs(Provider::Qemu, HostOs::Linux));
-    for (p, os) in [
-        (Provider::Qemu, HostOs::Macos),
-        (Provider::Libvirt, HostOs::Linux),
-        (Provider::Virtualbox, HostOs::Linux),
-    ] {
-        assert!(!needs_mkisofs(p, os), "{p:?} on {os:?}");
-    }
+fn only_vmware_desktop_needs_the_utility() {
     assert!(needs_vmware_utility(Provider::VmwareDesktop));
     assert_every!(all().into_iter().filter(|p| *p != Provider::VmwareDesktop), |p: &Provider| {
         !needs_vmware_utility(*p)
