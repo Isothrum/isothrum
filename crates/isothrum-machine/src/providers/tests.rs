@@ -282,3 +282,37 @@ fn the_typescript_types_are_the_wire_form() {
     assert!(Need::decl(&cfg).contains(r#""vmwareUtility""#) && UtilityState::decl(&cfg).contains(r#""running""#));
     assert!(AccountLacks::decl(&cfg).contains(r#""newLogin""#));
 }
+
+#[test]
+fn vmwares_plugin_without_its_utility_is_every_providers_reason_and_vmware_says_its_utility_is_missing() {
+    let alone = Findings {
+        vmware_plugin_alone: true,
+        ..installed()
+    };
+    for provider in [Provider::Qemu, Provider::Utm, Provider::Virtualbox, Provider::Libvirt] {
+        let status = status_from(provider, true, &alone);
+        assert_eq!(status.reason, Some(Unavailable::VmwarePluginWithoutUtility), "{provider:?}");
+        assert!(status.needs.is_empty(), "nothing of {provider:?}'s own is missing");
+    }
+    // Vagrant missing is said first; VMware's own status names its utility, which its setup installs
+    // (before the plugin).
+    assert_eq!(status_from(Provider::Qemu, false, &alone).reason, Some(Unavailable::VagrantMissing));
+    let vmware = status_from(
+        Provider::VmwareDesktop,
+        true,
+        &Findings {
+            utility: Some(UtilityState::Missing),
+            plugin: Some("vagrant-vmware-desktop"),
+            ..alone
+        },
+    );
+    assert_eq!(
+        (vmware.reason, vmware.needs),
+        (Some(Unavailable::VmwareUtilityMissing), vec![Need::VmwareUtility])
+    );
+    let said = Unavailable::VmwarePluginWithoutUtility.to_string();
+    assert!(
+        said.contains("Install the Vagrant VMware Utility") && said.contains("vagrant plugin uninstall vagrant-vmware-desktop"),
+        "{said}"
+    );
+}

@@ -299,6 +299,9 @@ struct Asked {
     plugins: Result<Vec<(String, Option<String>)>, String>,
     /// The groups this account joined since logging in, once a provider asked.
     pending_groups: Option<Vec<String>>,
+    /// Whether VMware's Vagrant plugin is installed without the VMware Utility, once a provider
+    /// asked ([`Asked::vmware_plugin_without_utility`]).
+    vmware_plugin_alone: Option<bool>,
 }
 
 impl Asked {
@@ -315,7 +318,22 @@ impl Asked {
             vagrant_installed,
             plugins,
             pending_groups: None,
+            vmware_plugin_alone: None,
         }
+    }
+
+    /// Whether VMware's Vagrant plugin is installed without the Vagrant VMware Utility installed
+    /// (one installed but stopped still has its key file, which is all Vagrant loads of it): then
+    /// every Vagrant command fails, whatever its provider. Asked the first time.
+    async fn vmware_plugin_without_utility(&mut self, cx: &Context) -> bool {
+        if !self.vagrant_installed {
+            return false;
+        }
+        if self.vmware_plugin_alone.is_none() {
+            let plugin = Provider::VmwareDesktop.plugin().and_then(|p| self.plugin(p)).is_some();
+            self.vmware_plugin_alone = Some(plugin && vmware_utility(&cx.host).await == UtilityState::Missing);
+        }
+        self.vmware_plugin_alone == Some(true)
     }
 
     /// The groups this account joined since logging in, asked the first time.
@@ -431,6 +449,9 @@ struct Findings {
     utility: Option<UtilityState>,
     /// What this account lacks to use it, if anything.
     account: Option<Account>,
+    /// VMware's Vagrant plugin is installed without the VMware Utility, which breaks Vagrant for
+    /// every provider ([`Unavailable::VmwarePluginWithoutUtility`]).
+    vmware_plugin_alone: bool,
     /// What keeps the installed hypervisor from starting a VM on this machine: KVM's device for
     /// libvirt and QEMU on Linux, Windows' hypervisor for Hyper-V.
     platform: Option<Unavailable>,
@@ -469,18 +490,24 @@ async fn findings(cx: &Context, provider: Provider, found: Found, asked: &mut As
         plugin_installed: plugin.is_none() || (asked.vagrant_installed && listed.is_some() && plugin_too_old(provider, plugin_version.as_deref()).is_none()),
         plugin_version,
         plugins_unknown: asked.plugins.as_ref().err().cloned(),
-        utility: if needs_vmware_utility(provider) {
-            Some(vmware_utility(host).await)
-        } else {
-            None
-        },
+        utility: utility_of(provider, host).await,
         account: if ready { account_lacks(cx, provider, asked).await } else { None },
+        vmware_plugin_alone: asked.vmware_plugin_without_utility(cx).await,
         platform: if ready { platform_problem(cx, provider).await } else { None },
         driver: if virtualbox && ready {
             vbox::driver_problem(cx, &found.said).await
         } else {
             None
         },
+    }
+}
+
+/// Where the Vagrant VMware Utility stands for `provider` on `host`; `None` when it doesn't use it.
+async fn utility_of(provider: Provider, host: &Host) -> Option<UtilityState> {
+    if needs_vmware_utility(provider) {
+        Some(vmware_utility(host).await)
+    } else {
+        None
     }
 }
 

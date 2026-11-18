@@ -582,8 +582,8 @@ async fn virtualbox_shares_the_cpus_virtualization_with_kvm_where_kvm_holds_it()
 }
 
 /// Installs `provider`'s Vagrant plugin for real, as a setup's step does (for this account, no
-/// administrator), when it is missing here and asked for, then reads it installed by the
-/// provider's detection; skips, saying why, else.
+/// administrator), when it is missing here and asked for (VMware's only once its utility runs),
+/// then reads it installed by the provider's detection; skips, saying why, else.
 async fn plugin_installs(provider: Provider) {
     let cx = here().await;
     let Some(before) = providers::status(&cx, provider).await else {
@@ -598,6 +598,12 @@ async fn plugin_installs(provider: Provider) {
     }
     if asked_by(&plugin) == Asked::No {
         skip!("{plugin} is missing here; ISOTHRUM_E2E_INSTALL doesn't ask for its install (it changes this computer for good)")
+    }
+    // VMware's plugin without its utility breaks Vagrant for every provider (it loads the
+    // utility's key file at every command): a setup installs it only once VMware and its utility
+    // are, and so does this test, never leaving the machine that way.
+    if providers::needs_vmware_utility(provider) && before.utility != Some(providers::UtilityState::Running) {
+        skip!("{plugin} waits for VMware's utility, which isn't running here: without it the plugin breaks Vagrant for every provider")
     }
     let step = install::vagrant_plugin(&plugin).unwrap_or_else(|| panic!("no install step for {plugin}"));
     println!("$ {}", install::command_line(&step));

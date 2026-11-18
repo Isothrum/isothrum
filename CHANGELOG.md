@@ -290,6 +290,16 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **VMware's Vagrant plugin is never installed without its utility.** `vagrant-vmware-desktop`
+  loads the Vagrant VMware Utility's key file at every Vagrant command, so installed without the
+  utility it broke Vagrant for every provider (`vagrant status` on QEMU failed). VMware's
+  `Need::VmwareUtility` now comes before `Need::Plugin`, and the run's requirements list the
+  utility before the plugin; the plugin waits for VMware, then for the utility
+  (`Plan::After`), and a setup plans it only with VMware installed and in the same plan as the
+  utility's install. Detection reports the state on every other provider as
+  `Unavailable::VmwarePluginWithoutUtility`, which says the fix: install the utility, or remove
+  the plugin. The machine test of the plugin's install skips until the utility runs.
+
 - **A VMware VM's first private network on a Mac comes up.** On a Mac whose Fusion runs on macOS's
   own networking, the Vagrant VMware Utility reports every new host-only network as "Failed to
   enable device" (Fusion's `vmnet-cli --start` exits 1 whatever happens), though it made the

@@ -94,6 +94,11 @@ pub enum Unavailable {
     },
     /// The Vagrant VMware Utility is installed, but its service doesn't answer.
     VmwareUtilityStopped,
+    /// Vagrant's VMware plugin (`vagrant-vmware-desktop`) is installed without the Vagrant VMware
+    /// Utility, whose key file it loads at every Vagrant command: Vagrant fails for every provider
+    /// (`vagrant status` on QEMU said "error while attempting to load the utility service key
+    /// file"). The fix: install the utility, or remove the plugin.
+    VmwarePluginWithoutUtility,
     /// The Vagrant VMware Utility, HashiCorp's service the VMware plugin drives VMware through,
     /// isn't installed.
     VmwareUtilityMissing,
@@ -165,6 +170,11 @@ impl Unavailable {
             }
             Unavailable::VmwareUtilityStopped => {
                 "The Vagrant VMware Utility is installed, but its service isn't running: install it again (that restarts it), or restart the computer."
+                    .to_owned()
+            }
+            Unavailable::VmwarePluginWithoutUtility => {
+                "Vagrant's VMware plugin (vagrant-vmware-desktop) is installed without the Vagrant VMware Utility, which breaks Vagrant for every provider. \
+                Install the Vagrant VMware Utility, or remove the plugin (`vagrant plugin uninstall vagrant-vmware-desktop`)."
                     .to_owned()
             }
             Unavailable::VmwareUtilityMissing => {
@@ -242,6 +252,7 @@ mod tests {
                 reason: s("exited with code 1"),
             },
             Unavailable::VmwareUtilityStopped,
+            Unavailable::VmwarePluginWithoutUtility,
             Unavailable::VmwareUtilityMissing,
             Unavailable::VirtualboxDriver {
                 kernel: s("6.12.86+deb13-amd64"),

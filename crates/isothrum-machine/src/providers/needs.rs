@@ -20,10 +20,12 @@ use crate::host::Host;
 pub enum Need {
     /// Vagrant itself.
     Vagrant,
+    /// HashiCorp's Vagrant VMware Utility, installed and its service running: before the VMware
+    /// plugin, which breaks Vagrant for every provider without it
+    /// ([`super::Unavailable::VmwarePluginWithoutUtility`]).
+    VmwareUtility,
     /// The provider's Vagrant plugin ([`super::ProviderStatus::plugin`]), or a newer one.
     Plugin,
-    /// HashiCorp's Vagrant VMware Utility, installed and its service running.
-    VmwareUtility,
 }
 
 /// Where HashiCorp's Vagrant VMware Utility stands on this machine.
@@ -48,11 +50,11 @@ pub fn needs(vagrant_installed: bool, plugin_installed: bool, utility: Option<Ut
     if !vagrant_installed {
         needs.push(Need::Vagrant);
     }
-    if !plugin_installed {
-        needs.push(Need::Plugin);
-    }
     if utility.is_some_and(|u| u != UtilityState::Running) {
         needs.push(Need::VmwareUtility);
+    }
+    if !plugin_installed {
+        needs.push(Need::Plugin);
     }
     needs
 }
@@ -87,7 +89,7 @@ mod tests {
     fn what_is_needed_is_in_setups_order_and_nothing_when_all_is_there() {
         assert_eq!(
             needs(false, false, Some(UtilityState::Missing)),
-            [Need::Vagrant, Need::Plugin, Need::VmwareUtility]
+            [Need::Vagrant, Need::VmwareUtility, Need::Plugin]
         );
         assert_eq!(needs(true, true, Some(UtilityState::Stopped)), [Need::VmwareUtility]);
         assert_eq!(needs(true, true, Some(UtilityState::Running)), []);
