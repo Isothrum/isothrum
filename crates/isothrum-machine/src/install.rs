@@ -305,6 +305,33 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+/// The install of `dep` on `host`, whatever its OS: macOS's Homebrew formulae and vendors'
+/// installers, Windows' winget packages and elevated installers, or Linux's root script for the
+/// user `user` (joined to the groups a tool's devices need), its root steps run `elevation`'s way
+/// with this process's proxy ([`linux::proxy_assignments`]). The one call a caller plans an
+/// install with: which OS's plan applies is the host's, never the OS the crate is built for.
+///
+/// # Errors
+///
+/// [`Refusal`]: why it can't be installed there ([`Refusal::NotHere`] first, before the package
+/// manager is looked at).
+pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
+    if !dep.runs_on(host.os) {
+        return Err(Refusal::NotHere { dependency: dep, os: host.os });
+    }
+    match host.os {
+        HostOs::Macos => macos::install(dep, host.packages, host.arch),
+        HostOs::Windows => windows::install(dep, host.arch),
+        HostOs::Linux => {
+            let root = linux::Root {
+                elevation,
+                proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
+            };
+            linux::install(dep, host.packages, user, &root)
+        }
+    }
+}
+
 /// Whether `dep` is installed on the context's host; `None` when that can't be told (WSL, Hyper-V).
 /// Its macOS app bundle, else its version probe ([`ToolRow::probe`]); VMware's utility, a service,
 /// as [`crate::providers::vmware_utility`] finds it.

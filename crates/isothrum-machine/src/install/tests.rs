@@ -70,3 +70,51 @@ async fn a_hypervisor_is_present_as_its_providers_detection_reads_it() {
         assert_eq!(present(&cx, dep).await, expected, "{dep:?}");
     }
 }
+
+/// A host on `os` (x86-64), its package manager `packages`, its devices under `root`.
+fn host_on(os: HostOs, packages: Option<crate::host::Packages>, root: &std::path::Path) -> crate::host::Host {
+    crate::host::Host {
+        os,
+        packages,
+        ..crate::testing::linux_host(root)
+    }
+}
+
+#[test]
+fn a_plan_is_the_hosts_os_one_whatever_the_os_built_for() {
+    use crate::host::{LinuxPackages, Packages};
+    let root = tempfile::tempdir().unwrap();
+    let mac = host_on(HostOs::Macos, Some(Packages::Homebrew("/opt/homebrew/bin/brew")), root.path());
+    let programs = |steps: Vec<Step>| steps.into_iter().map(|s| s.program).collect::<Vec<_>>();
+    assert_eq!(
+        programs(plan(Dependency::Terraform, &mac, None, Elevation::Prompt).unwrap()),
+        programs(macos::install(Dependency::Terraform, mac.packages, mac.arch).unwrap())
+    );
+    let windows = host_on(HostOs::Windows, Some(Packages::Winget), root.path());
+    assert_eq!(programs(plan(Dependency::Vagrant, &windows, None, Elevation::Prompt).unwrap()), ["winget"]);
+    let linux = host_on(HostOs::Linux, Some(Packages::Linux(LinuxPackages::Apt)), root.path());
+    assert_eq!(programs(plan(Dependency::Docker, &linux, Some("ada"), Elevation::Prompt).unwrap()), ["pkexec"]);
+    let unattended = plan(Dependency::Docker, &linux, Some("ada"), Elevation::Unattended { root: false }).unwrap();
+    assert_eq!(programs(unattended), ["sudo"], "unattended, nobody answers a prompt");
+}
+
+#[test]
+fn a_plan_is_refused_where_the_tool_doesnt_run_before_its_package_manager_is_read() {
+    let root = tempfile::tempdir().unwrap();
+    let linux = host_on(HostOs::Linux, None, root.path());
+    assert_eq!(
+        plan(Dependency::Utm, &linux, None, Elevation::Prompt).unwrap_err(),
+        Refusal::NotHere {
+            dependency: Dependency::Utm,
+            os: HostOs::Linux
+        }
+    );
+    assert_eq!(
+        plan(Dependency::Vagrant, &linux, None, Elevation::Prompt).unwrap_err(),
+        Refusal::WithoutPackages {
+            dependency: Dependency::Vagrant
+        }
+    );
+    let mac = host_on(HostOs::Macos, None, root.path());
+    assert_eq!(plan(Dependency::Vagrant, &mac, None, Elevation::Prompt).unwrap_err(), Refusal::NoHomebrew);
+}
