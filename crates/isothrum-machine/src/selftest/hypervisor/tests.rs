@@ -208,6 +208,8 @@ fn the_vagrantfile_names_the_vm_and_marks_it_as_the_tests() {
         !hyperv.contains("private_network") && hyperv.contains("h.vmname = \"Isothrum test VM\""),
         "{hyperv}"
     );
+    // Nor a hostname, whose DHCP renewal takes the VM off its SSH session's address on Hyper-V.
+    assert!(!hyperv.contains("config.vm.hostname"), "{hyperv}");
     // Never Vagrant's question of which switch, which nobody answers in a run.
     assert!(hyperv.contains("config.vm.network \"public_network\", bridge: \"Default Switch\""), "{hyperv}");
     assert!(!v.contains("public_network"), "{v}");

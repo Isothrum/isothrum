@@ -18,6 +18,9 @@ Vagrant.configure("2") do |config|
     # (WSL 2 adds its own): name Windows' Default Switch, so nobody has to answer.
     server.vm.provider "hyperv" do |hv, override|
       override.vm.network "public_network", bridge: "Default Switch"
+      # Vagrant sets a hostname by renewing the VM's DHCP lease, which on the Default Switch can
+      # move it off the address its SSH session is on: on Hyper-V it keeps its box's hostname.
+      override.vm.hostname = nil
     end
 
     # Runs at the first `up`, and again at `isothrum provision`.

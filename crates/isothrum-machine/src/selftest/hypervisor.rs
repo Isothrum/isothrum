@@ -202,10 +202,16 @@ pub fn vagrantfile(vm: &TestVm<'_>, p: Provider, name: &str, address: Option<&st
     let mut v = vec![
         "Vagrant.configure(\"2\") do |config|".to_owned(),
         format!("  config.vm.box = \"{name}\""),
-        format!("  config.vm.hostname = \"{}\"", vm.hostname),
         "  config.vm.boot_timeout = 600".to_owned(),
         "  config.vm.synced_folder \".\", \"/vagrant\", disabled: true".to_owned(),
     ];
+    // Vagrant sets a hostname by renewing the guest's DHCP lease (`ifdown -a; ifup -a` on Alpine),
+    // and on Hyper-V's Default Switch the address it then gets isn't the one its SSH session is
+    // on: `up` failed at "Setting hostname..." with "The SSH connection was unexpectedly closed".
+    // On Hyper-V the VM keeps its box's hostname.
+    if p != Provider::Hyperv {
+        v.push(format!("  config.vm.hostname = \"{}\"", vm.hostname));
+    }
     if let Some(address) = address.filter(|_| has_private_network(p)) {
         v.push(format!("  config.vm.network \"private_network\", ip: \"{address}\""));
     }

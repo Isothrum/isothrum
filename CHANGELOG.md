@@ -283,6 +283,12 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **The Hyper-V self-test, and the Vagrant example on Hyper-V, boot to the end.** Vagrant sets a
+  hostname by renewing the guest's DHCP lease (`ifdown -a; ifup -a` on Alpine), and on Hyper-V's
+  Default Switch the address the VM then gets isn't the one its SSH session is on: `up` failed at
+  "Setting hostname..." with "The SSH connection was unexpectedly closed by the remote end". On
+  Hyper-V the test VM, and the example's, keep their box's hostname.
+
 - **An install reports what it added, and a removal takes away only that.** A setup that
   installed QEMU or libvirt again to bring the programs its VMs need (a hypervisor installed by
   hand) left the whole hypervisor on record as its own, so a clean-up offered to remove what
