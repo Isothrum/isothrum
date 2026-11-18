@@ -10,13 +10,16 @@
 //! tool already installed skips, and so does one missing that isn't asked for. What is installed
 //! stays: the tests after these run on it.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use isothrum_machine::docker::{self, Engine};
 use isothrum_machine::host::os_name;
+use isothrum_machine::host::tool_path::{self, Env};
 use isothrum_machine::install::{self, Dependency, Elevation, linux};
 use isothrum_machine::providers;
 use isothrum_machine::{Context, HostOs};
+use isothrum_runner::{BoxFuture, Exit, OnLine, ProcessError, ProcessRunner, ProcessSpec, SystemProcesses};
 
 use crate::{answer, here, setting};
 
@@ -103,8 +106,38 @@ async fn not_tested(cx: &Context, dep: Dependency) -> Option<String> {
     }
 }
 
+/// This computer's tools, each started with `path` as its `PATH`.
+struct OnPath {
+    system: SystemProcesses,
+    path: String,
+}
+
+impl ProcessRunner for OnPath {
+    fn run<'a>(&'a self, spec: &'a ProcessSpec, on_line: OnLine<'a>) -> BoxFuture<'a, Result<Exit, ProcessError>> {
+        let mut spec = spec.clone();
+        spec.env.push(("PATH".to_owned(), self.path.clone()));
+        Box::pin(async move { self.system.run(&spec, on_line).await })
+    }
+}
+
+/// This computer as a setup reads it again after an install: on Windows, its tools found on the
+/// `PATH` the installers have since written to the registry, merged into this process's, as the
+/// launcher refreshes it before each check (a running process never reads it again by itself).
+async fn after_install(cx: &Context) -> Context {
+    let refreshed = tool_path::refreshed(cx, &Env::here()).await;
+    let path = refreshed.and_then(|dirs| std::env::join_paths(dirs).ok()).and_then(|p| p.into_string().ok());
+    let runner: Arc<dyn ProcessRunner> = match path {
+        Some(path) => Arc::new(OnPath {
+            system: SystemProcesses::default(),
+            path,
+        }),
+        None => Arc::clone(&cx.runner),
+    };
+    Context::new(runner, cx.host.clone())
+}
+
 /// Runs `dep`'s install, then waits until it is found installed (an installer its user finishes
-/// in its own window takes as long as they do, up to [`FINISH`]).
+/// in its own window takes as long as they do, up to [`FINISH`]), the `PATH` read again each time.
 async fn install(cx: &Context, dep: Dependency) {
     let steps = plan(cx, dep).await.unwrap_or_else(|refused| panic!("no install of {dep:?} here: {refused}"));
     for s in &steps {
@@ -114,7 +147,7 @@ async fn install(cx: &Context, dep: Dependency) {
         .await
         .unwrap_or_else(|failed| panic!("{dep:?}'s install failed: {failed:?}"));
     let start = Instant::now();
-    while install::present(cx, dep).await != Some(true) {
+    while install::present(&after_install(cx).await, dep).await != Some(true) {
         assert!(
             start.elapsed() < FINISH,
             "{dep:?} isn't found installed {} min after its install",
@@ -149,7 +182,7 @@ async fn installs(dep: Dependency) {
         skip!("{why}")
     }
     install(&cx, dep).await;
-    usable(&cx, dep).await;
+    usable(&after_install(&cx).await, dep).await;
 }
 
 #[tokio::test]
