@@ -1,13 +1,13 @@
-//! Installs and removals on macOS: Homebrew's formulae, and the vendors' own installers for the
-//! apps (Homebrew downloads them, then they open in their own window, the user finishing there in
-//! the OS's trusted flows), or HashiCorp's signed package for VMware's utility, which needs no
-//! Homebrew. A removal of what came from a vendor's package runs as its uninstaller does, through
-//! macOS's administrator prompt.
+//! Installs and removals on macOS: Homebrew's formulae, the vendors' own disk images and packages
+//! for the apps (Homebrew downloads them, then they are checked and installed as an administrator,
+//! with nothing left for the user to finish: [`super::mac_image`]), or HashiCorp's signed package
+//! for VMware's utility, which needs no Homebrew. A removal of what came from a vendor's package
+//! runs as its uninstaller does, through macOS's administrator prompt.
 
 use crate::context::Context;
 use crate::host::{Arch, HostOs, Packages};
 use crate::install::steps::{Note, Step, step};
-use crate::install::{Dependency, Refusal, vmware_utility};
+use crate::install::{Dependency, Elevation, Refusal, mac_image, vmware_utility};
 
 /// Homebrew's path, when the host has it; why not, as `refusal` says, else.
 fn homebrew(packages: Option<Packages>, refusal: Refusal) -> Result<&'static str, Refusal> {
@@ -24,55 +24,15 @@ fn sh(script: &str, note: Note) -> Step {
     step
 }
 
-/// The cask `cask` downloaded with Homebrew (no administrator needed), then opened so the tool's
-/// own installer runs and its user finishes there. A disk image is mounted quietly and its `.pkg`
-/// opened in Installer, which comes to the front; only an app to drag into Applications (Docker
-/// Desktop, UTM) is shown in Finder, brought forward. Either way the log says where to finish: a
-/// window behind the caller's went unnoticed. `brew fetch` doesn't update Homebrew, and an old
-/// Homebrew can crash reading today's cask data (`undefined method 'first' for nil` in
-/// `api/cask.rb`), so a failed fetch updates Homebrew and tries once more.
-#[must_use]
-pub fn fetch_and_open(brew: &str, cask: &str, name: &str, dep: Dependency) -> Step {
-    let script = format!(
-        r#"set -e
-if ! '{brew}' fetch --cask {cask}; then
-  echo "Homebrew couldn't download {name}. Updating Homebrew and trying again (this can take a few minutes)…"
-  '{brew}' update || true
-  if ! '{brew}' fetch --cask {cask}; then
-    echo "Homebrew still can't download {name}. Run 'brew update' in Terminal, or install {name} from its website, then try again." >&2
-    exit 1
-  fi
-fi
-f="$('{brew}' --cache --cask {cask})"
-case "$f" in
-  *.dmg)
-    m="$(hdiutil attach -nobrowse -noautoopen "$f" | awk -F'\t' '/\/Volumes\//{{print $NF; exit}}')"
-    p="$(find "$m" -maxdepth 1 -name '*.pkg' | head -n 1)"
-    if [ -n "$p" ]; then
-      open "$p"
-      echo "The {name} installer is open in its own window. Finish it there; this step updates by itself."
-    else
-      open "$m"
-      osascript -e 'tell application "Finder" to activate' >/dev/null 2>&1 || true
-      echo "A Finder window with {name} is open. Drag it into Applications, then open it once; this step updates by itself."
-    fi
-    ;;
-  *)
-    open "$f"
-    echo "The {name} installer is open in its own window. Finish it there; this step updates by itself."
-    ;;
-esac"#
-    );
-    sh(&script, Note::Downloading(dep))
-}
-
-/// The install of `dep` on macOS: Homebrew's formulae, or a cask whose installer its user
-/// finishes; VMware's utility from HashiCorp's own package, on this Mac's CPU `arch`.
+/// The install of `dep` on macOS: Homebrew's formulae, or a vendor's disk image or package
+/// (Homebrew downloads it), installed as an administrator `elevation`'s way (macOS's password
+/// prompt, else `sudo -n`); VMware's utility from HashiCorp's own package, on this Mac's CPU
+/// `arch`.
 ///
 /// # Errors
 ///
 /// [`Refusal::NotHere`] for what doesn't run on macOS, [`Refusal::NoHomebrew`] without Homebrew.
-pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch) -> Result<Vec<Step>, Refusal> {
+pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
     if !dep.runs_on(HostOs::Macos) {
         return Err(Refusal::NotHere {
             dependency: dep,
@@ -81,18 +41,19 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch) -> Resul
     }
     // HashiCorp's own package, not Homebrew's: needs no Homebrew.
     if dep == Dependency::VmwareUtility {
-        return Ok(vec![vmware_utility::mac_install(arch)]);
+        return Ok(vec![vmware_utility::mac_install(arch, elevation)]);
     }
     let brew = homebrew(packages, Refusal::NoHomebrew)?;
+    let vendor = |vendor: &mac_image::Vendor| vec![mac_image::install(brew, dep, vendor, elevation)];
     Ok(match dep {
-        // Docker Desktop: the app downloaded with brew, then its installer opened; its user
-        // finishes in Docker's own flow (the docker CLI and Compose come with it).
-        Dependency::Docker => vec![fetch_and_open(brew, "docker-desktop", "Docker Desktop", dep)],
-        // Needs an administrator: the tool's own installer.
-        Dependency::Vagrant => vec![fetch_and_open(brew, "vagrant", "Vagrant", dep)],
+        // The apps and Vagrant: their vendor's disk image or package, as an administrator (Docker
+        // Desktop's brings the docker CLI and Compose).
+        Dependency::Docker => vendor(&mac_image::DOCKER),
+        Dependency::Vagrant => vendor(&mac_image::VAGRANT),
+        Dependency::Virtualbox => vendor(&mac_image::VIRTUALBOX),
+        Dependency::Utm => vendor(&mac_image::UTM),
         // A formula (no administrator); its tap's full name since core dropped it.
         Dependency::Terraform => vec![step(brew, &["install", "hashicorp/tap/terraform"])],
-        Dependency::Virtualbox => vec![fetch_and_open(brew, "virtualbox", "VirtualBox", dep)],
         // A formula. Homebrew is updated first so an outdated one learns this macOS (it otherwise
         // refuses every install with "unknown or unsupported macOS version: :dunno"), but that
         // update never blocks the install: it runs best-effort, then the install with auto-update
@@ -102,7 +63,6 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch) -> Resul
             &format!("'{brew}' update || echo 'Homebrew was not updated; continuing with the install.'\nHOMEBREW_NO_AUTO_UPDATE=1 '{brew}' install qemu"),
             Note::QemuUpdatingHomebrewFirst,
         )],
-        Dependency::Utm => vec![fetch_and_open(brew, "utm", "UTM", dep)],
         Dependency::Libvirt | Dependency::Wsl | Dependency::Hyperv | Dependency::VmwareUtility => {
             return Err(Refusal::NotHere {
                 dependency: dep,

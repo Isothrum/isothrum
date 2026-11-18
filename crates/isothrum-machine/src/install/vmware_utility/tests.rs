@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn the_mac_install_checks_hashicorps_file_and_signature_before_installing_as_root() {
-    let step = mac_install(Arch::Arm64);
+    let step = mac_install(Arch::Arm64, Elevation::Prompt);
     assert_eq!(step.program, "sh");
     let [c, user, zero, root] = step.args.as_slice() else {
         panic!("{:?}", step.args)
@@ -22,6 +22,9 @@ fn the_mac_install_checks_hashicorps_file_and_signature_before_installing_as_roo
     let at = |needle: &str| root.find(needle).unwrap_or_else(|| panic!("{needle} missing: {root}"));
     assert!(at("cp \"$1\"") < at("shasum -a 256") && at("shasum -a 256") < at("pkgutil --check-signature"));
     assert!(at("pkgutil --check-signature") < at("spctl --assess --type install") && at("spctl --assess") < at("installer -pkg"));
+    // Regression (an Intel Mac's install run): the service, restarted by launchd after the
+    // install, answered 10 s after the step ended, and the run read it stopped. The step waits.
+    assert!(at("installer -pkg") < at("until nc -z 127.0.0.1 9922"), "{root}");
     assert!(
         root.contains("Hashicorp, Inc. (D38WU7D763)") && root.contains("mktemp -d /private/tmp/"),
         "{root}"
@@ -30,6 +33,17 @@ fn the_mac_install_checks_hashicorps_file_and_signature_before_installing_as_roo
     assert_eq!(mac_image(Arch::Arm64).1, mac_image(Arch::Amd64).1);
     assert!(mac_image(Arch::Amd64).0.ends_with("_darwin_amd64.dmg"));
     assert_eq!(step.note, Some(Note::DownloadingVmwareUtility { version: "1.0.24" }));
+}
+
+/// Regression (an Intel Mac's install run, over ssh): the root half always went through macOS's
+/// prompt, which an ssh session can't show (`-60007`), so the install failed in a second where
+/// `sudo -n` would have run it. Unattended, it goes through `sudo -n`.
+#[test]
+fn the_mac_install_unattended_runs_its_root_half_through_sudo() {
+    let step = mac_install(Arch::Amd64, Elevation::Unattended { root: false });
+    let user = &step.args[1];
+    assert!(user.contains(r#"sudo -n /bin/sh -c "$1" sh "$d/utility.dmg""#), "{user}");
+    assert!(!user.contains("osascript") && crate::testing::sh_parses(user), "{user}");
 }
 
 #[test]
@@ -59,14 +73,14 @@ fn a_download_that_isnt_hashicorps_file_fails_before_any_prompt_and_a_declined_p
     curl(r#"while [ $# -gt 0 ]; do [ "$1" = -o ] && echo tampered > "$2"; shift; done"#);
     osascript("echo prompted >&2; exit 0");
     let (file, sha256) = mac_image(Arch::Arm64);
-    let (code, stderr) = run_users_half(&mac_script(&file, sha256), bin.path());
+    let (code, stderr) = run_users_half(&mac_script(&file, sha256, Elevation::Prompt), bin.path());
     assert_eq!(code, Some(1), "{stderr}");
     assert!(stderr.contains("SHA-256 doesn't match") && !stderr.contains("prompted"), "{stderr}");
     // An empty download, whose checksum is pinned here, then a prompt the user declines.
     let empty_sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     curl(r#"while [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done"#);
     osascript("echo '0:0: execution error: User canceled. (-128)' >&2; exit 1");
-    let (declined, said) = run_users_half(&mac_script("x.dmg", empty_sha), bin.path());
+    let (declined, said) = run_users_half(&mac_script("x.dmg", empty_sha, Elevation::Prompt), bin.path());
     assert_eq!(declined, Some(1), "{said}");
     assert!(said.contains("password prompt was cancelled"), "{said}");
 }

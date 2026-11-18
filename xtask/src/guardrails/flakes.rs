@@ -85,7 +85,7 @@ const SLEEPS: [(&str, usize, &str); 15] = [
     (
         "crates/isothrum-machine/tests/real/machine/install.rs",
         1,
-        "the poll of a bounded wait for the owner to finish an installer in its own window: no event says it is done",
+        "the poll of a bounded wait for an install to be found once its steps are done: no event says it is",
     ),
     ("crates/isothrum-test-support/src/lib.rs", 1, "`wait_until`'s poll, bounded by its deadline"),
 ];
@@ -101,7 +101,7 @@ const PORTS_LET_GO: [(&str, usize, &str); 1] = [(
 /// installed once.
 const STAND_INS: [(&str, usize, &str); 9] = [
     (
-        "crates/isothrum-machine/src/install/macos/tests.rs",
+        "crates/isothrum-machine/src/install/mac_image/tests.rs",
         1,
         "a `brew` stand-in whose fetch always fails, logging its calls in the test's folder",
     ),

@@ -2,6 +2,7 @@ use super::*;
 
 const BREW: &str = "/opt/homebrew/bin/brew";
 const HOMEBREW: Option<Packages> = Some(Packages::Homebrew(BREW));
+const PROMPT: Elevation = Elevation::Prompt;
 
 /// Each step of `steps` as its program.
 fn programs(steps: &[Step]) -> Vec<&str> {
@@ -10,10 +11,10 @@ fn programs(steps: &[Step]) -> Vec<&str> {
 
 #[test]
 fn macos_installs_through_homebrew_and_the_vendors_installers() {
-    assert_eq!(install(Dependency::Docker, None, Arch::Arm64).unwrap_err(), Refusal::NoHomebrew);
-    assert!(install(Dependency::VmwareUtility, None, Arch::Arm64).is_ok(), "HashiCorp's own package");
+    assert_eq!(install(Dependency::Docker, None, Arch::Arm64, PROMPT).unwrap_err(), Refusal::NoHomebrew);
+    assert!(install(Dependency::VmwareUtility, None, Arch::Arm64, PROMPT).is_ok(), "HashiCorp's own package");
     for dep in Dependency::ALL {
-        let plan = install(dep, HOMEBREW, Arch::Arm64);
+        let plan = install(dep, HOMEBREW, Arch::Arm64, PROMPT);
         match dep {
             Dependency::Libvirt | Dependency::Wsl | Dependency::Hyperv => {
                 assert_eq!(
@@ -27,9 +28,17 @@ fn macos_installs_through_homebrew_and_the_vendors_installers() {
             _ => assert!(!plan.unwrap().is_empty(), "{dep:?}"),
         }
     }
-    let docker = install(Dependency::Docker, HOMEBREW, Arch::Arm64).unwrap();
-    assert_eq!((programs(&docker), docker[0].note), (vec!["sh"], Some(Note::Downloading(Dependency::Docker))));
-    let azure = install(Dependency::Azurecli, HOMEBREW, Arch::Arm64).unwrap();
+    // The apps and Vagrant: one step each, from their vendor's file, as an administrator; Docker
+    // Desktop's says it accepts Docker's licence.
+    for dep in [Dependency::Docker, Dependency::Vagrant, Dependency::Virtualbox, Dependency::Utm] {
+        let plan = install(dep, HOMEBREW, Arch::Arm64, PROMPT).unwrap();
+        let Some(Note::InstallingFromVendor { dependency, accepts }) = plan[0].note else {
+            panic!("{dep:?}: {:?}", plan[0].note)
+        };
+        assert_eq!((programs(&plan), dependency), (vec!["sh"], dep));
+        assert_eq!(accepts.is_some(), dep == Dependency::Docker, "{dep:?}");
+    }
+    let azure = install(Dependency::Azurecli, HOMEBREW, Arch::Arm64, PROMPT).unwrap();
     assert_eq!(
         azure.iter().map(|s| s.note).collect::<Vec<_>>(),
         [None, Some(Note::TrustingAzureTap), Some(Note::AzureCliCask)]
@@ -37,7 +46,7 @@ fn macos_installs_through_homebrew_and_the_vendors_installers() {
     assert!(azure[2].args.contains(&"azure-cli-preview".to_owned()));
     // QEMU is one shell step: a best-effort Homebrew update that never aborts the install (`|| …`),
     // then the install itself; never a second, fatal `brew update` step.
-    let qemu = install(Dependency::Qemu, HOMEBREW, Arch::Arm64).unwrap();
+    let qemu = install(Dependency::Qemu, HOMEBREW, Arch::Arm64, PROMPT).unwrap();
     let script = qemu[0].args.join(" ");
     assert_eq!(programs(&qemu), ["sh"]);
     assert!(script.contains("update ||") && script.contains("install qemu"), "{script}");
@@ -102,19 +111,4 @@ async fn the_image_is_fetched_again_then_read_from_homebrews_cache() {
     std::fs::write(&image, "").unwrap();
     assert_eq!(virtualbox_image(&cx, "/b/brew", &mut |_: &str| {}).await, Ok(image.display().to_string()));
     assert_eq!(lines, ["$ /b/brew fetch --cask virtualbox", "==> Downloading"]);
-}
-
-#[cfg(unix)]
-#[test]
-fn a_failed_cask_fetch_updates_homebrew_and_retries_once() {
-    // A Homebrew whose fetch always fails (an old one crashing on the cask data).
-    let dir = tempfile::tempdir().unwrap();
-    let log = dir.path().join("calls");
-    let brew = dir.path().join("brew");
-    crate::testing::write_executable(&brew, format!("#!/bin/sh\necho \"$1\" >> '{}'\n[ \"$1\" = update ]\n", log.display()));
-    let step = fetch_and_open(brew.to_str().unwrap(), "vagrant", "Vagrant", Dependency::Vagrant);
-    let out = crate::testing::sh(&step.args[1], &[]);
-    assert!(!out.status.success());
-    assert_eq!(std::fs::read_to_string(&log).unwrap(), "fetch\nupdate\nfetch\n");
-    assert!(String::from_utf8_lossy(&out.stderr).contains("Run 'brew update' in Terminal"));
 }

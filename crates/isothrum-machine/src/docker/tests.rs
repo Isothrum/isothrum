@@ -254,3 +254,34 @@ async fn the_cli_is_pointed_at_the_context_of_the_engine_asked_for() {
     use_engine(&cx, Engine::Colima).await.unwrap();
     assert_eq!(use_engine(&cx, Engine::Podman).await, Err(ContextError::None(Engine::Podman)));
 }
+
+/// Regression (a Mac installed from scratch): Docker Desktop installed, its first start's setup
+/// not done yet, so no `docker` on `PATH`: its engine read "the Docker CLI isn't installed". The
+/// CLI inside its app answers instead.
+#[tokio::test(start_paused = true)]
+async fn docker_desktops_own_cli_answers_while_path_has_none() {
+    let root = tempfile::tempdir().unwrap();
+    let mut host = linux_host(root.path());
+    host.os = HostOs::Macos;
+    let bundled = host.devices.applications.join("Docker.app/Contents/Resources/bin/docker");
+    let fake = |cli: &std::path::Path| {
+        FakeProcesses::script()
+            .expect("docker info --format {{.OperatingSystem}}", Reply::missing())
+            .expect(
+                &format!("{} info --format {{{{.OperatingSystem}}}}", cli.display()),
+                Reply::ok("Docker Desktop"),
+            )
+            .build()
+    };
+    // No app: no CLI at all.
+    let none = FakeProcesses::script().expect("docker info", Reply::missing()).build();
+    assert_eq!(daemon_os(&Context::new(Arc::new(none), host.clone())).await, Err(NoAnswer::NoCli));
+    std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+    std::fs::write(&bundled, "").unwrap();
+    let cx = Context::new(Arc::new(fake(&bundled)), host.clone());
+    assert_eq!(daemon_os(&cx).await.as_deref(), Ok("Docker Desktop"));
+    // Elsewhere than a Mac, none is looked for.
+    host.os = HostOs::Linux;
+    let linux = FakeProcesses::script().expect("docker info", Reply::missing()).build();
+    assert_eq!(daemon_os(&Context::new(Arc::new(linux), host)).await, Err(NoAnswer::NoCli));
+}

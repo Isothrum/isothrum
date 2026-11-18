@@ -19,9 +19,12 @@ fn utm_version_call(host: &Host) -> String {
     format!("defaults read {} CFBundleShortVersionString", plist.display())
 }
 
-/// A Mac's hypervisor probes, each missing unless the script answers it already.
+/// A Mac's hypervisor probes, each missing unless the script answers it already; UTM's bundle,
+/// where there is one, whole (no copy under way, its signature verifying).
 fn on_mac(script: Script, arch: Arch) -> Script {
     script
+        .allow("xattr", Reply::ok(""))
+        .allow("codesign --verify --strict", Reply::ok(""))
         .allow("VBoxManage", Reply::missing())
         .allow("vmrun", Reply::missing())
         .allow("prlctl", Reply::missing())
@@ -119,4 +122,23 @@ async fn an_intel_mac_is_offered_virtualbox_and_utm_only_once_installed() {
     // A Mac builds a VM's seed with hdiutil: mkisofs is never asked for (the script would fail).
     let qemu = status_of(&statuses, Provider::Qemu);
     assert_eq!((qemu.hypervisor, qemu.needs.as_slice()), (Some(true), [Need::Plugin].as_slice()));
+}
+
+/// Regression (a Mac installed from scratch): a UTM bundle Finder was still copying (or had cut
+/// short) read as UTM installed, and macOS said it was damaged when it was opened. It isn't
+/// installed until it is whole.
+#[tokio::test(start_paused = true)]
+async fn a_utm_bundle_copied_only_in_part_is_not_utm_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = mac(Arch::Arm64, dir.path(), true);
+    let tools = on_mac(FakeProcesses::script(), Arch::Arm64)
+        .expect(
+            &format!("xattr {}", host.devices.utm_app.display()),
+            Reply::ok("com.apple.metadata:kMDItemResumableCopy"),
+        )
+        .allow(PLUGINS, Reply::ok(""))
+        .build();
+    let (cx, _) = context(tools, host);
+    let statuses = detect(&cx, true).await;
+    assert!(!providers(&statuses).contains(&Provider::Utm) || status_of(&statuses, Provider::Utm).hypervisor == Some(false));
 }
