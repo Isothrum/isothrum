@@ -7,6 +7,7 @@ mod needs;
 mod net;
 mod ovftool;
 mod providers;
+mod run;
 mod selftest;
 mod terminal;
 mod tool_path;
