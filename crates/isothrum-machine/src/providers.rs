@@ -74,6 +74,9 @@ pub struct ProviderRow {
     /// The Mac CPU it is made for, when it is made for one: offered on the other only once
     /// installed ([`offered`]).
     pub mac_cpu: Option<Arch>,
+    /// The Linux CPU its vendor ships it for, when it ships for one only: offered on the other
+    /// only once installed ([`offered`]), as a setup can't install it there.
+    pub linux_cpu: Option<Arch>,
     /// Where its vendor offers it, when a setup doesn't install it (behind a login, a licence, or
     /// a Windows feature the user turns on by hand).
     pub vendor: Option<&'static str>,
@@ -100,6 +103,7 @@ impl ProviderRow {
             oses: &crate::host::ALL_OSES,
             windows_on_arm: true,
             mac_cpu: None,
+            linux_cpu: None,
             vendor: None,
             shares_folders: &crate::host::ALL_OSES,
             plugin_minimum: None,
@@ -111,10 +115,12 @@ impl ProviderRow {
         }
         match provider {
             // Neither ships for Windows on Arm (no installer, no Arm VMs there). VirtualBox runs a
-            // Mac's VMs on Intel only.
+            // Mac's VMs on Intel only, and Oracle's Linux packages (its apt and rpm repositories)
+            // are for x86-64 only.
             Provider::Virtualbox => ProviderRow {
                 windows_on_arm: false,
                 mac_cpu: Some(Arch::Amd64),
+                linux_cpu: Some(Arch::Amd64),
                 ..found_by(Check::Tool("VBoxManage", &["--version"]))
             },
             Provider::VmwareDesktop => ProviderRow {
@@ -177,13 +183,19 @@ pub fn applicable(provider: Provider, host: &Host) -> bool {
     row.oses.contains(&host.os) && (row.windows_on_arm || !host.is_windows_on_arm())
 }
 
-/// Whether `provider` is offered on `host` for VMs: applicable there, and, on a Mac, the
-/// hypervisor made for its CPU (UTM on Apple silicon, VirtualBox on an Intel Mac). One already
-/// `installed` is offered wherever it applies: the user chose it.
+/// Whether `provider` is offered on `host` for VMs: applicable there, and built for its CPU: on a
+/// Mac, the hypervisor made for its CPU (UTM on Apple silicon, VirtualBox on an Intel Mac); on
+/// Linux, one its vendor ships for that CPU (VirtualBox on x86-64 only). One already `installed` is
+/// offered wherever it applies: the user chose it.
 #[must_use]
 pub fn offered(provider: Provider, host: &Host, installed: bool) -> bool {
-    let for_this_mac = host.os != HostOs::Macos || ProviderRow::of(provider).mac_cpu.is_none_or(|cpu| cpu == host.arch);
-    applicable(provider, host) && (installed || for_this_mac)
+    let row = ProviderRow::of(provider);
+    let cpu = match host.os {
+        HostOs::Macos => row.mac_cpu,
+        HostOs::Linux => row.linux_cpu,
+        HostOs::Windows => None,
+    };
+    applicable(provider, host) && (installed || cpu.is_none_or(|cpu| cpu == host.arch))
 }
 
 /// Whether `provider`'s VMs need `mkisofs` on `os`: QEMU's on Linux. vagrant-qemu gives a VM on a
