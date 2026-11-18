@@ -49,3 +49,24 @@ async fn a_tool_is_present_when_its_probe_answers() {
     assert_eq!(present(&cx, Dependency::Wsl).await, None);
     assert_eq!(present(&cx, Dependency::VmwareUtility).await, Some(false), "its program isn't there");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_hypervisor_is_present_as_its_providers_detection_reads_it() {
+    use isothrum_runner::fake::{FakeProcesses, Reply};
+    // qemu-img alone (qemu-utils, which many images carry) isn't QEMU: its emulator is, as the
+    // provider's detection says. A setup that read qemu-img left QEMU "installed" and unusable.
+    let tools = FakeProcesses::script()
+        .expect("qemu-system-x86_64 --version", Reply::missing())
+        .expect("virsh --version", Reply::ok("11.3.0"))
+        .expect("VBoxManage --version", Reply::ok("7.2.4r170995"))
+        .build();
+    let root = tempfile::tempdir().unwrap();
+    let cx = Context::new(std::sync::Arc::new(tools), crate::testing::linux_host(root.path()));
+    for (dep, expected) in [
+        (Dependency::Qemu, Some(false)),
+        (Dependency::Libvirt, Some(true)),
+        (Dependency::Virtualbox, Some(true)),
+    ] {
+        assert_eq!(present(&cx, dep).await, expected, "{dep:?}");
+    }
+}

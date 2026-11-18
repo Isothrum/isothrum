@@ -242,6 +242,12 @@ Terraform), usable on any project of those formats.
 
 ### Fixed
 
+- **QEMU reads as installed only when its emulator is.** A setup read QEMU installed from
+  `qemu-img` (qemu-utils, which many images carry) while the provider's detection looked for
+  `qemu-system-<arch>`: QEMU was then neither installed by the setup nor usable. A hypervisor's
+  install is now read through its provider's probe (`providers::hypervisor_probe`), one table for
+  both.
+
 - **VMware Workstation isn't offered on Linux arm64.** VMware builds it for x86-64 only, and
   HashiCorp's VMware utility, which its Vagrant plugin needs, has no arm64 Linux package either.
 

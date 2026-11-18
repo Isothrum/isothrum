@@ -216,8 +216,10 @@ pub fn needs_vmware_utility(provider: Provider) -> bool {
     provider == Provider::VmwareDesktop
 }
 
-/// The local tool that proves `provider`'s hypervisor is installed on a CPU `arch`, if one does.
-fn probe_of(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&'static str])> {
+/// The local tool that proves `provider`'s hypervisor is installed on a CPU `arch`, if one does:
+/// for a setup's install of it too ([`crate::install::present`]), so both read it alike.
+#[must_use]
+pub fn hypervisor_probe(provider: Provider, arch: Arch) -> Option<(&'static str, &'static [&'static str])> {
     match ProviderRow::of(provider).check {
         Check::Tool(program, args) => Some((program, args)),
         Check::Qemu => Some((crate::host::qemu_system(arch), &["--version"])),
@@ -374,7 +376,7 @@ async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
             said: String::new(),
         },
         Check::Tool(..) | Check::Qemu => {
-            let Some((program, args)) = probe_of(provider, cx.host.arch) else {
+            let Some((program, args)) = hypervisor_probe(provider, cx.host.arch) else {
                 return installed(false);
             };
             let mut answer = cx.probe(program, args).await;
@@ -480,7 +482,7 @@ async fn findings(cx: &Context, provider: Provider, found: Found, asked: &mut As
         unresponsive: asked.vagrant_installed && virtualbox && ready && vbox::wedged(cx).await,
         hypervisor,
         part_missing,
-        program: probe_of(provider, host.arch).map(|(program, _)| program),
+        program: hypervisor_probe(provider, host.arch).map(|(program, _)| program),
         hypervisor_version: if ready { hypervisor_version(cx, provider).await } else { None },
         plugin,
         plugin_installed: plugin.is_none() || (asked.vagrant_installed && listed.is_some() && plugin_too_old(provider, plugin_version.as_deref()).is_none()),

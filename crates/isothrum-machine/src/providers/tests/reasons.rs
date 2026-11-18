@@ -128,7 +128,7 @@ fn libvirt_or_qemu_without_virtiofsd_says_its_shared_folders_need_it_vagrant_fir
     let without = |provider: Provider| Findings {
         hypervisor: Some(false),
         part_missing: Some(Part::Virtiofsd),
-        program: probe_of(provider, Arch::Amd64).map(|(program, _)| program),
+        program: hypervisor_probe(provider, Arch::Amd64).map(|(program, _)| program),
         plugin: provider.plugin(),
         ..installed()
     };
