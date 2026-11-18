@@ -257,6 +257,19 @@ isothrum serve [OPTIONS]
 - `--idle-timeout <SECONDS>`: Stop after this many seconds with no client and no operation (0: never) Default: `600`.
 - `--detach`: Run as a background service, as a client starts it: a terminal's hang-up doesn't stop it, and it logs at `info` unless `ISOTHRUM_LOG` says otherwise.
 
+## `isothrum check`
+
+Say what a project's run needs on this computer, and what of it is missing, with what brings each: an install, the engine's start, a vendor's download. Installs nothing. Exit 1 when something is missing. With `--json`, one document: `{"needs": […]}`.
+
+```text
+isothrum check [OPTIONS] [PATH]
+```
+
+- `<PATH>`: The project's folder (a file in it names its folder) Default: `.`.
+- `--format <FORMAT>`: The project's format, when its folder holds the files of several. One of `compose`, `vagrant`, `terraform`.
+- `--provider <PROVIDER>`: The Vagrant provider a Vagrant project runs on. One of `virtualbox`, `vmware_desktop`, `hyperv`, `parallels`, `libvirt`, `qemu`, `utm`, `vmware_esxi`.
+- `--target <TARGET>`: Where a Terraform module makes its machines: a cloud (`aws`, `azure`, `gcp`, `digitalocean`, `linode`, `oci`), `proxmox` or `esxi`. One of `aws`, `azure`, `gcp`, `digitalocean`, `linode`, `oci`, `proxmox`, `esxi`.
+
 ## `isothrum completions`
 
 Print the shell completion script for `shell` (e.g. `isothrum completions bash > /etc/bash_completion.d/isothrum`)

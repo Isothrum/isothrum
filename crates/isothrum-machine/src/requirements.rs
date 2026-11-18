@@ -293,6 +293,13 @@ pub struct Need {
 }
 
 impl Need {
+    /// `requirement`, `present` or not, brought by `plan`: what [`needs`] finds, made by hand
+    /// (an embedder's test).
+    #[must_use]
+    pub fn new(requirement: Requirement, present: Option<bool>, plan: Option<Plan>) -> Need {
+        Need { requirement, present, plan }
+    }
+
     /// Whether it is known to be missing.
     #[must_use]
     pub fn missing(&self) -> bool {

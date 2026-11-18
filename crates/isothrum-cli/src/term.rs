@@ -101,6 +101,8 @@ struct Last {
     run: Option<String>,
     op: Option<Op>,
     error: bool,
+    /// The fields of the `error` it was, when it said some.
+    detail: Option<isothrum_runner::Detail>,
 }
 
 impl Trail {
@@ -110,6 +112,10 @@ impl Trail {
             run: event.run.clone(),
             op: event.op,
             error: matches!(event.kind, EventKind::Error { .. }),
+            detail: match &event.kind {
+                EventKind::Error(report) => report.detail.as_ref().map(|d| d.data.clone()),
+                _ => None,
+            },
         };
         *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(last);
     }
@@ -121,6 +127,11 @@ impl Trail {
     /// Whether the last event was an `error`: the failure was said.
     pub(crate) fn ended_in_error(&self) -> bool {
         self.last().is_some_and(|l| l.error)
+    }
+
+    /// The fields of the `error` the command ended in, when it ended in one that said some.
+    pub(crate) fn error_detail(&self) -> Option<isothrum_runner::Detail> {
+        self.last().filter(|l| l.error).and_then(|l| l.detail)
     }
 
     /// The event of `kind` that follows the last one: its run and operation, else `run` and `op`.

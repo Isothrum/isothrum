@@ -16,6 +16,7 @@ publish = false
 isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
 isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
+isothrum-machine = { path = "crates/isothrum-machine", version = "3.0.0" }
 isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

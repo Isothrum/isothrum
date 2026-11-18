@@ -22,6 +22,8 @@ path = "src/main.rs"
 clap.workspace = true
 clap_complete.workspace = true
 isothrum-client.workspace = true
+# What a run needs on this computer and what of it is missing (`check`, a failed `up`).
+isothrum-machine.workspace = true
 isothrum-runner.workspace = true
 isothrum-service.workspace = true
 schemars.workspace = true

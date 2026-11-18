@@ -27,6 +27,7 @@ pub(crate) async fn run<R: Borrow<Runner>>(cli: &Cli, runner: impl FnOnce() -> R
         }
         Command::Runner(command) => command,
         Command::Serve(_) => return Err(Error::Usage("`serve` runs the service, not a command on a runner".into())),
+        Command::Check(args) => return crate::needs::check(args, cli.json, term).await,
     };
     let runner = runner()?;
     let (json, human) = (Json(term), Human(term));

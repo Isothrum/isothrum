@@ -776,6 +776,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "isothrum-client",
+ "isothrum-machine",
  "isothrum-runner",
  "isothrum-service",
  "isothrum-test-support",

@@ -38,6 +38,10 @@ pub(crate) enum Command {
     /// runs side by side) and streams their events to its clients. The other commands start it
     /// when it isn't running and talk to it (unless `--no-service`).
     Serve(ServeArgs),
+    /// Say what a project's run needs on this computer, and what of it is missing, with what
+    /// brings each: an install, the engine's start, a vendor's download. Installs nothing.
+    /// Exit 1 when something is missing. With `--json`, one document: `{"needs": […]}`.
+    Check(CheckArgs),
     /// Print the shell completion script for `shell` (e.g. `isothrum completions bash >
     /// /etc/bash_completion.d/isothrum`).
     Completions {
@@ -171,6 +175,38 @@ fn wire_parser<T: serde::de::DeserializeOwned + schemars::JsonSchema + Clone + S
     PossibleValuesParser::new(every_name::<T>()).try_map(|name| from_wire_name::<T>(&name).ok_or("not a name the runner gives"))
 }
 
+/// What `check` reads: the project, and what it would run on.
+#[derive(Debug, Args)]
+pub(crate) struct CheckArgs {
+    /// The project's folder (a file in it names its folder).
+    #[arg(default_value = ".")]
+    pub(crate) path: PathBuf,
+    /// The project's format, when its folder holds the files of several.
+    #[arg(long, value_enum)]
+    pub(crate) format: Option<FormatArg>,
+    /// The Vagrant provider a Vagrant project runs on.
+    #[arg(long, value_name = "PROVIDER", value_parser = wire_parser::<Provider>())]
+    pub(crate) provider: Option<Provider>,
+    /// Where a Terraform module makes its machines: a cloud (`aws`, `azure`, `gcp`,
+    /// `digitalocean`, `linode`, `oci`), `proxmox` or `esxi`.
+    #[arg(long, value_name = "TARGET", value_parser = target_parser())]
+    pub(crate) target: Option<isothrum_machine::requirements::Target>,
+}
+
+/// A Terraform target by its name: a cloud as the runner names it, `proxmox` or `esxi`.
+fn target_parser() -> impl TypedValueParser<Value = isothrum_machine::requirements::Target> {
+    use isothrum_machine::requirements::Target;
+    let mut names = every_name::<isothrum_runner::Cloud>();
+    names.extend(["proxmox".to_owned(), "esxi".to_owned()]);
+    PossibleValuesParser::new(names).try_map(|name| match name.as_str() {
+        "proxmox" => Ok(Target::Proxmox),
+        "esxi" => Ok(Target::Esxi),
+        cloud => from_wire_name::<isothrum_runner::Cloud>(cloud)
+            .map(|cloud| Target::Cloud { cloud })
+            .ok_or("not a target the runner names"),
+    })
+}
+
 /// How the service runs.
 #[derive(Debug, Args)]
 pub(crate) struct ServeArgs {
@@ -280,7 +316,7 @@ mod tests {
     fn on_runner(command: Command) -> RunnerCommand {
         match command {
             Command::Runner(command) => *command,
-            Command::Completions { .. } | Command::Serve(_) => panic!("not a runner command"),
+            Command::Completions { .. } | Command::Serve(_) | Command::Check(_) => panic!("not a runner command"),
         }
     }
 
