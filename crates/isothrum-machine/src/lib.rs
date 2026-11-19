@@ -5,8 +5,9 @@
 //! removing the tools it runs projects with ([`install`]); the self-tests that prove it runs
 //! deployments ([`selftest`]); what a run needs here and what of it is missing, with the plan that
 //! brings it ([`requirements`]); and the cloud accounts its cloud CLIs
-//! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers; and this
-//! computer's public address, as independent services agree on it ([`net`]).
+//! are signed in to ([`cloud`]): whether a sign-in holds, and what an account offers; the boxes
+//! Vagrant holds here and adds ([`boxes`]); and this computer's public address, as independent
+//! services agree on it ([`net`]).
 //!
 //! Every tool runs through the Isothrum runner's no-unsafe [`isothrum_runner::ProcessRunner`], so
 //! nothing here forks a shell or touches raw process APIs. A caller hands it a [`Context`]: the runner (the
@@ -14,6 +15,7 @@
 //! time limit. The crate keeps no statics and holds no UI types: a reason is a code
 //! ([`providers::Unavailable`]) a UI translates, with an English `message()`.
 
+pub mod boxes;
 pub mod check;
 pub mod cloud;
 mod context;

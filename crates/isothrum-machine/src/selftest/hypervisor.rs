@@ -18,9 +18,10 @@ mod vboxmanage;
 use std::path::Path;
 use std::time::Duration;
 
-use isothrum_runner::{Arch, BoxFuture, DownloadToAdopt, Provider, RunOptions, Runner};
+use isothrum_runner::{Arch, BoxFuture, Provider, RunOptions, Runner};
 
-pub use boxes::{add_box, box_for, box_provider, candidate_boxes};
+pub use crate::boxes::{add_box, box_provider};
+pub use boxes::{box_for, candidate_boxes};
 pub use leftover::hyperv_leftover_script;
 
 use super::{Progress, throwaway};
@@ -163,7 +164,7 @@ impl std::fmt::Display for Failure {
             Failure::NoTestBox { hypervisor, arch } => write!(
                 f,
                 "no test VM exists yet for {hypervisor} on {} computers, so the test has nothing to boot here",
-                boxes::arch_name(*arch)
+                crate::boxes::arch_name(*arch)
             ),
             Failure::NoReply { address, last } => write!(f, "{address} did not answer ping: {last}"),
         }
@@ -543,16 +544,6 @@ async fn network(cx: &Context, provider: Provider, address: Option<&'static str>
 /// What `uname -srm` printed: its first line that says something.
 fn uname_line(out: &str) -> String {
     out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_owned()
-}
-
-/// The box `name` added for `provider` by this process: for a caller that keeps a record of its
-/// downloads.
-fn adopted(name: &str, provider: Provider, version: String) -> DownloadToAdopt {
-    DownloadToAdopt::Box {
-        name: name.to_owned(),
-        provider: box_provider(provider).to_owned(),
-        version,
-    }
 }
 
 #[cfg(test)]
