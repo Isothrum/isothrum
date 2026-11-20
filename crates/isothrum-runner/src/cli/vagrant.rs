@@ -255,6 +255,16 @@ pub(crate) async fn provision_with(call: &Call<'_>, name: &ProvisionerName, mach
     call.ok(TOOL, args, Failure::of).await.map(drop)
 }
 
+/// Saves `machine` as a box file at `output` (`package <machine> --output <output>`): Vagrant
+/// halts it first, and keeps it.
+pub(crate) async fn package(call: &Call<'_>, machine: &str, output: &std::path::Path) -> Result<(), CliError<Failure>> {
+    let mut args = argv(["package"]);
+    args.push(machine.to_owned());
+    args.push("--output".to_owned());
+    args.push(output.display().to_string());
+    call.ok(TOOL, args, Failure::of).await.map(drop)
+}
+
 /// A verb on `machines` (all when empty): `halt`, `suspend`, `provision`, `destroy -f`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verb {

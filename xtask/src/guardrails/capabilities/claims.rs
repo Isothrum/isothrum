@@ -8,7 +8,7 @@ use super::Proof::{self, Contract, NoTool, Witness};
 
 /// Each driver's claims (the `FormatDriver` methods it defines) and how each is shown: Compose's
 /// and Vagrant's ([`TERRAFORM`]: Terraform's).
-pub(super) const CLAIMS: [(&str, &str, Proof); 38] = [
+pub(super) const CLAIMS: [(&str, &str, Proof); 39] = [
     (
         "compose",
         "probe",
@@ -219,6 +219,14 @@ pub(super) const CLAIMS: [(&str, &str, Proof); 38] = [
         Witness {
             test: "attach_boots_one_machine_and_retire_destroys_it",
             evidence: "vagrant destroy -f attack",
+        },
+    ),
+    (
+        "vagrant",
+        "package",
+        Witness {
+            test: "package_saves_the_machine_as_a_box_file",
+            evidence: "vagrant package base --output",
         },
     ),
     (

@@ -16,7 +16,7 @@ use status::status_of;
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::Result;
 use crate::console::ShellCommand;
@@ -66,6 +66,8 @@ enum Act<'a> {
     Attach(&'a str),
     /// Remove a machine.
     Retire(&'a str),
+    /// Save a machine as a box file.
+    Package(&'a str, &'a Path),
 }
 
 impl Act<'_> {
@@ -79,6 +81,7 @@ impl Act<'_> {
             Act::Provision(..) => Op::Provision,
             Act::Attach(_) => Op::Attach,
             Act::Retire(_) => Op::Retire,
+            Act::Package(..) => Op::Package,
         }
     }
 }
@@ -336,6 +339,7 @@ impl<'r> Running<'r> {
             Act::Provision(machine, with) => self.driver.provision(cx, machine, with).await,
             Act::Attach(machine) => self.driver.attach(cx, machine).await,
             Act::Retire(machine) => self.driver.retire(cx, machine).await,
+            Act::Package(machine, output) => self.driver.package(cx, machine, output).await,
         }
     }
 
@@ -506,6 +510,18 @@ impl<'r> Running<'r> {
         self.drive(Act::Retire(machine), opts, events).await.map(drop)
     }
 
+    /// Saves `machine` as a box file at `output`, which a later run boots from (`vagrant box add`
+    /// it first): the machine is stopped first and kept, so the run reads failed after, until it
+    /// is resumed or brought down.
+    ///
+    /// # Errors
+    ///
+    /// As the tool fails; `unsupported` where the format makes no box (Compose, Terraform);
+    /// `not_running`, before any tool acts, when the run isn't ready.
+    pub async fn package(&self, machine: &str, output: &Path, opts: &RunOptions, events: &dyn Events) -> Result<()> {
+        self.drive(Act::Package(machine, output), opts, events).await.map(drop)
+    }
+
     /// Runs `argv` in `machine`, with no terminal: what it said and how it ended. A command that
     /// runs and fails is a report, not an error.
     ///
@@ -576,6 +592,6 @@ fn op_goal(op: Op) -> Option<RunState> {
         Op::Up | Op::Resume | Op::Update => Some(RunState::Ready),
         Op::Park => Some(RunState::Parked),
         Op::Down => Some(RunState::Absent),
-        Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => None,
+        Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire | Op::Package => None,
     }
 }

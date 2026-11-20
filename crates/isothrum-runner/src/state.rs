@@ -34,11 +34,13 @@ pub enum Op {
     Update,
     /// Take a machine out of the running run, ahead of its removal from the manifest.
     Retire,
+    /// Save a machine of the running run as a box a later run boots from.
+    Package,
 }
 
 impl Op {
     /// Every operation, in the order they are declared.
-    pub(crate) const ALL: [Op; 10] = [
+    pub(crate) const ALL: [Op; 11] = [
         Op::Up,
         Op::Down,
         Op::Park,
@@ -49,6 +51,7 @@ impl Op {
         Op::Detach,
         Op::Update,
         Op::Retire,
+        Op::Package,
     ];
 
     /// The operation as written in events (`up`).
@@ -65,6 +68,7 @@ impl Op {
             Op::Detach => "detach",
             Op::Update => "update",
             Op::Retire => "retire",
+            Op::Package => "package",
         }
     }
 
@@ -78,7 +82,7 @@ impl Op {
             Op::Update => Some(RunState::Updating),
             // These change one machine of a run that keeps running, or nothing: the run stays
             // where it is meanwhile, and their journal says they ran.
-            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => None,
+            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire | Op::Package => None,
         }
     }
 }

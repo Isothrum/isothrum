@@ -977,6 +977,11 @@
           "const": "retire",
           "description": "Take a machine out of the running run, ahead of its removal from the manifest.",
           "type": "string"
+        },
+        {
+          "const": "package",
+          "description": "Save a machine of the running run as a box a later run boots from.",
+          "type": "string"
         }
       ]
     },
