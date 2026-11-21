@@ -348,6 +348,13 @@ pub(crate) trait FormatDriver {
     async fn attach(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()>;
     /// Removes `machine` from the running run.
     async fn retire(&self, cx: &ToolCx<'_>, machine: &str) -> Result<()>;
+    /// Saves `machine` as a box file at `output`, from which a later run boots (Vagrant's
+    /// `package`): the machine is stopped first and kept. Refused where the format makes no box.
+    async fn package(&self, _cx: &ToolCx<'_>, machine: &str, _output: &std::path::Path) -> Result<()> {
+        Err(crate::Error::Unsupported {
+            what: format!("packaging `{machine}`: its format makes no box"),
+        })
+    }
     /// Runs `argv` in `machine`, with no terminal, and returns what it said.
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran>;
     /// The command that opens an interactive console into `machine`, as `user` when given: the

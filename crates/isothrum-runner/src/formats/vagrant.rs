@@ -389,6 +389,14 @@ impl FormatDriver for Vagrant {
             .map_err(|e| vagrant_error(cx, "retire", e))
     }
 
+    async fn package(&self, cx: &ToolCx<'_>, machine: &str, output: &std::path::Path) -> Result<()> {
+        asked(cx)?;
+        // Halting and exporting a whole disk: as long as a start may take.
+        vagrant::package(&call(cx, UP_LIMIT), machine, output)
+            .await
+            .map_err(|e| vagrant_error(cx, "package", e))
+    }
+
     async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
         let script = argv.iter().map(|w| crate::console::sh_word(w)).collect::<Vec<_>>().join(" ");
         let out = vagrant::ssh_run(&call(cx, super::CHECK_LIMIT), machine, &script)

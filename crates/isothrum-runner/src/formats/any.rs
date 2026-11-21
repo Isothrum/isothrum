@@ -98,6 +98,10 @@ impl AnyFormat {
         dispatch!(self, d => d.retire(cx, machine).await)
     }
 
+    pub(crate) async fn package(&self, cx: &ToolCx<'_>, machine: &str, output: &std::path::Path) -> Result<()> {
+        dispatch!(self, d => d.package(cx, machine, output).await)
+    }
+
     pub(crate) async fn exec(&self, cx: &ToolCx<'_>, machine: &str, argv: &[String]) -> Result<Ran> {
         dispatch!(self, d => d.exec(cx, machine, argv).await)
     }

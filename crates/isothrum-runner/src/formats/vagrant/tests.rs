@@ -293,6 +293,15 @@ async fn attach_boots_one_machine_and_retire_destroys_it() {
 }
 
 #[tokio::test]
+async fn package_saves_the_machine_as_a_box_file() {
+    let f = Fixture::new();
+    let output = f.state.path().join("base.box");
+    let call = format!("vagrant package base --output {}", output.display());
+    let fake = FakeProcesses::script().expect_times(&call, 1, Reply::ok("")).build();
+    Vagrant.package(&cx(&f, &fake, LIBVIRT), "base", &output).await.expect("package");
+}
+
+#[tokio::test]
 async fn down_destroys_then_resets_the_dotfile_and_a_failed_destroy_keeps_it() {
     let f = Fixture::new();
     f.made("web", "libvirt", "uuid-web");

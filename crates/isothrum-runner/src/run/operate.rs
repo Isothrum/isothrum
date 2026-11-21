@@ -307,7 +307,7 @@ impl Running<'_> {
 /// anything is saved or run:
 /// - an `up` of a ready run (`already_running`: use it, or bring it down first);
 /// - a `resume` of a run of which nothing is left (`nothing_to_resume`: start it again);
-/// - an `update` or a `retire` of a run that isn't ready, and a command, an `attach` or a
+/// - an `update`, a `retire` or a `package` of a run that isn't ready, and a command, an `attach` or a
 ///   `provision` in a run of which nothing runs (never started, parked or brought down; a run
 ///   with a machine down, `failed`, still takes them): `not_running`, start it first. Run
 ///   anyway, an update would start a parked run's machines, and a command would start the
@@ -319,7 +319,7 @@ fn refuse_from(op: Op, recorded: Option<RunState>, name: &crate::RunName) -> Res
     match op {
         Op::Up if ready => Err(Error::AlreadyRunning { run: run() }),
         Op::Resume if matches!(recorded, None | Some(RunState::Absent)) => Err(Error::NothingToResume { run: run() }),
-        Op::Update | Op::Retire if !ready => Err(Error::NotRunning { run: run() }),
+        Op::Update | Op::Retire | Op::Package if !ready => Err(Error::NotRunning { run: run() }),
         Op::Check | Op::Attach | Op::Provision if !started => Err(Error::NotRunning { run: run() }),
         _ => Ok(()),
     }

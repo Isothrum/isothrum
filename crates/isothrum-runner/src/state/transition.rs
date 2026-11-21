@@ -43,7 +43,7 @@ impl Desired {
             Op::Up | Op::Resume => Some(Desired::Running),
             Op::Park => Some(Desired::Parked),
             Op::Down => Some(Desired::Gone),
-            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update | Op::Retire => None,
+            Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Update | Op::Retire | Op::Package => None,
         }
     }
 
@@ -139,7 +139,7 @@ fn begins_from(op: Op) -> (&'static [RunState], &'static str) {
         Op::Park => (&[Ready], "be parked"),
         Op::Update => (&[Ready], "be updated"),
         Op::Down => (&[Ready, Parked, Failed, Absent], "be brought down"),
-        Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire => (&[], "be moved by this operation"),
+        Op::Check | Op::Provision | Op::Attach | Op::Detach | Op::Retire | Op::Package => (&[], "be moved by this operation"),
     }
 }
 
