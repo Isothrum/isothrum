@@ -348,6 +348,21 @@ impl Client {
         self.submit(Command::Retire { target, options, machine }).await
     }
 
+    /// Queues `package` of `machine` into the box file `output`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::submit`].
+    pub async fn package(&self, target: Target, options: OpOptions, machine: String, output: std::path::PathBuf) -> Result<Accepted> {
+        self.submit(Command::Package {
+            target,
+            options,
+            machine,
+            output,
+        })
+        .await
+    }
+
     /// Queues `attach` of `machine`.
     ///
     /// # Errors

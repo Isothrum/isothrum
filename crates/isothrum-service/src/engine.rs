@@ -211,6 +211,7 @@ impl RunnerEngine {
             Command::Provision { machine, with, .. } => run.provision(machine.as_deref(), with.as_deref(), &opts, events).await,
             Command::Attach { machine, .. } => run.attach(machine, &opts, events).await,
             Command::Retire { machine, .. } => run.retire(machine, &opts, events).await,
+            Command::Package { machine, output, .. } => run.package(machine, output, &opts, events).await,
             Command::Exec { machine, argv, .. } => return run.exec(machine, argv, &opts, events).await.map(|report| report.exit == 0),
             // `execute` takes operations only.
             _ => Ok(()),
