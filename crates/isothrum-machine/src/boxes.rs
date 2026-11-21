@@ -1,12 +1,17 @@
 //! Vagrant's boxes on this computer: which are held for a provider and this CPU (`vagrant box
 //! list`), and a box added (`vagrant box add`), its download handed back for a caller that keeps
-//! a record of its downloads. What uses a box (a self-test's, a project's) picks it.
+//! a record of its downloads, or one built here from a base box and a script ([`build`]). What uses
+//! a box (a self-test's, a project's) picks it.
+
+mod build;
 
 use std::time::Duration;
 
 use isothrum_runner::{Arch, DownloadToAdopt, ProcessSpec, Provider};
 
 use crate::Context;
+
+pub use build::{Build, build};
 
 /// A box is hundreds of MB: past this the download is stalled, not just on a slow link.
 const ADD_LIMIT: Duration = Duration::from_secs(1800);
