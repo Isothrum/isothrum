@@ -1,17 +1,13 @@
 //! Vagrant's boxes on this computer: which are held for a provider and this CPU (`vagrant box
 //! list`), and a box added (`vagrant box add`), its download handed back for a caller that keeps
-//! a record of its downloads, or one built here from a base box and a script ([`build`]). What uses
-//! a box (a self-test's, a project's) picks it.
-
-mod build;
+//! a record of its downloads, or a box file saved here added under a name ([`add_file`]: a run's
+//! machine saved by `Running::package`). What uses a box (a self-test's, a project's) picks it.
 
 use std::time::Duration;
 
 use isothrum_runner::{Arch, DownloadToAdopt, ProcessSpec, Provider};
 
 use crate::Context;
-
-pub use build::{Build, build};
 
 /// A box is hundreds of MB: past this the download is stalled, not just on a slow link.
 const ADD_LIMIT: Duration = Duration::from_secs(1800);
@@ -88,7 +84,36 @@ pub(crate) fn held(list: &str, name: &str, p: Provider, arch: Arch) -> Option<St
 ///
 /// What Vagrant said (its last error lines), or that it stalled.
 pub async fn add_box(cx: &Context, p: Provider, name: &str, line: &mut (dyn FnMut(&str) + Send)) -> Result<Option<DownloadToAdopt>, String> {
-    let spec = ProcessSpec::new("vagrant", ["box", "add", name, "--provider", box_provider(p), "--force"]);
+    let args = ["box", "add", name, "--provider", box_provider(p), "--force"];
+    vagrant_add(cx, &args, &format!("vagrant box add {name}"), line).await?;
+    Ok(listed_as_added(cx, p, name).await)
+}
+
+/// Adds the box file `file` as box `name` for `p` (`vagrant box add --name <name> <file> --force`),
+/// each line Vagrant prints said to `line`: a run's machine saved by `Running::package`, which a
+/// later run boots by that name. The box as added, for a caller that keeps a record of what it
+/// added (none when its version can't be read back).
+///
+/// # Errors
+///
+/// What Vagrant said (its last error lines), or that it stalled.
+pub async fn add_file(
+    cx: &Context,
+    p: Provider,
+    name: &str,
+    file: &std::path::Path,
+    line: &mut (dyn FnMut(&str) + Send),
+) -> Result<Option<DownloadToAdopt>, String> {
+    let file = file.display().to_string();
+    let args = ["box", "add", "--name", name, file.as_str(), "--force"];
+    vagrant_add(cx, &args, &format!("vagrant box add --name {name}"), line).await?;
+    Ok(listed_as_added(cx, p, name).await)
+}
+
+/// Runs `vagrant <args>` (a `box add`), each line said to `line`; past [`ADD_LIMIT`] it is given
+/// up on. A failure says `what` failed, with Vagrant's last error lines.
+async fn vagrant_add(cx: &Context, args: &[&str], what: &str, line: &mut (dyn FnMut(&str) + Send)) -> Result<(), String> {
+    let spec = ProcessSpec::new("vagrant", args.iter().copied());
     let mut said: Vec<String> = Vec::new();
     let mut on_line = |stream: isothrum_runner::Stream, l: &str| {
         if stream == isothrum_runner::Stream::Stderr && !l.trim().is_empty() {
@@ -102,15 +127,20 @@ pub async fn add_box(cx: &Context, p: Provider, name: &str, line: &mut (dyn FnMu
     let added = tokio::time::timeout(ADD_LIMIT, cx.runner.run(&spec, &mut on_line)).await;
     let exit = added.map_err(|_| format!("vagrant box add stalled: nothing for {} minutes", ADD_LIMIT.as_secs() / 60))?;
     let exit = exit.map_err(|e| e.to_string())?;
-    if !exit.success() {
-        return Err(if said.is_empty() {
-            format!("vagrant box add {name} failed ({exit})")
-        } else {
-            format!("vagrant box add {name} failed: {} ({exit})", said.join("\n"))
-        });
+    if exit.success() {
+        return Ok(());
     }
+    Err(if said.is_empty() {
+        format!("{what} failed ({exit})")
+    } else {
+        format!("{what} failed: {} ({exit})", said.join("\n"))
+    })
+}
+
+/// Box `name` for `p` as `vagrant box list` now holds it, for a caller's record.
+async fn listed_as_added(cx: &Context, p: Provider, name: &str) -> Option<DownloadToAdopt> {
     let list = cx.read_ok("vagrant", &["box", "list"]).await.unwrap_or_default();
-    Ok(held(&list, name, p, cx.host.arch).map(|version| adopted(name, p, version)))
+    held(&list, name, p, cx.host.arch).map(|version| adopted(name, p, version))
 }
 
 /// The box `name` added for `provider` by this process: for a caller that keeps a record of its
@@ -162,5 +192,32 @@ mod tests {
             let failed = add_box(&cx, Provider::Virtualbox, "bento/debian-12", &mut |l| lines.push(l.to_owned())).await;
             assert_eq!(failed.err().as_deref(), Some(expected), "{expected}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_saved_box_file_is_added_under_its_name() {
+        use isothrum_runner::fake::{FakeProcesses, Reply};
+        let fake = FakeProcesses::script()
+            .expect("vagrant box add --name local/tools /tmp/saved.box --force", Reply::ok(""))
+            .expect("vagrant box list", Reply::ok("local/tools (virtualbox, 0)\n"))
+            .build();
+        let cx = crate::testing::answered_by(fake);
+        let added = add_file(&cx, Provider::Virtualbox, "local/tools", std::path::Path::new("/tmp/saved.box"), &mut |_| {}).await;
+        assert_eq!(added, Ok(Some(adopted("local/tools", Provider::Virtualbox, "0".to_owned()))));
+        let refused = FakeProcesses::script()
+            .expect("vagrant box add --name local/tools", Reply::fail(1, "not a box"))
+            .build();
+        let failed = add_file(
+            &crate::testing::answered_by(refused),
+            Provider::Virtualbox,
+            "local/tools",
+            std::path::Path::new("/tmp/saved.box"),
+            &mut |_| {},
+        )
+        .await;
+        assert_eq!(
+            failed.err().as_deref(),
+            Some("vagrant box add --name local/tools failed: not a box (exited with code 1)")
+        );
     }
 }

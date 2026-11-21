@@ -137,6 +137,18 @@ pub enum Command {
         /// The machine.
         machine: String,
     },
+    /// Save a machine of the running run as a box file (Vagrant's `package`).
+    Package {
+        /// The run.
+        target: Target,
+        /// The values it runs with.
+        #[serde(default)]
+        options: OpOptions,
+        /// The machine.
+        machine: String,
+        /// The box file written.
+        output: std::path::PathBuf,
+    },
     /// Run the set-up again on the running machines.
     Provision {
         /// The run.
@@ -343,6 +355,7 @@ impl Command {
             Command::Update { .. } => Op::Update,
             Command::Attach { .. } => Op::Attach,
             Command::Retire { .. } => Op::Retire,
+            Command::Package { .. } => Op::Package,
             Command::Provision { .. } => Op::Provision,
             Command::Exec { .. } => Op::Check,
             // Not an operation: a question about the home, or the conversation's own.
@@ -385,6 +398,7 @@ impl Command {
             | Command::Update { target, options }
             | Command::Attach { target, options, .. }
             | Command::Retire { target, options, .. }
+            | Command::Package { target, options, .. }
             | Command::Provision { target, options, .. }
             | Command::Exec { target, options, .. } => Some((target, options)),
             _ => None,
