@@ -137,10 +137,16 @@ async fn vagrant_add(cx: &Context, args: &[&str], what: &str, line: &mut (dyn Fn
     })
 }
 
+/// The version of box `name` Vagrant holds here for `p` and this computer's CPU (`vagrant box
+/// list`); none when it holds none, or Vagrant can't be read.
+pub async fn held_here(cx: &Context, p: Provider, name: &str) -> Option<String> {
+    let list = cx.read_ok("vagrant", &["box", "list"]).await.unwrap_or_default();
+    held(&list, name, p, cx.host.arch)
+}
+
 /// Box `name` for `p` as `vagrant box list` now holds it, for a caller's record.
 async fn listed_as_added(cx: &Context, p: Provider, name: &str) -> Option<DownloadToAdopt> {
-    let list = cx.read_ok("vagrant", &["box", "list"]).await.unwrap_or_default();
-    held(&list, name, p, cx.host.arch).map(|version| adopted(name, p, version))
+    held_here(cx, p, name).await.map(|version| adopted(name, p, version))
 }
 
 /// The box `name` added for `provider` by this process: for a caller that keeps a record of its
@@ -192,6 +198,15 @@ mod tests {
             let failed = add_box(&cx, Provider::Virtualbox, "bento/debian-12", &mut |l| lines.push(l.to_owned())).await;
             assert_eq!(failed.err().as_deref(), Some(expected), "{expected}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_box_is_held_here_as_vagrant_lists_it() {
+        use isothrum_runner::fake::{FakeProcesses, Reply};
+        let fake = FakeProcesses::script().expect("vagrant box list", Reply::ok("local/tools (utm, 0)\n")).build();
+        let cx = crate::testing::answered_by(fake);
+        assert_eq!(held_here(&cx, Provider::Utm, "local/tools").await.as_deref(), Some("0"));
+        assert_eq!(held_here(&cx, Provider::Utm, "other/box").await, None);
     }
 
     #[tokio::test]
