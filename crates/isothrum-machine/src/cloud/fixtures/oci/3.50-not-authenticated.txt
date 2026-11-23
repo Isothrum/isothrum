@@ -1,0 +1,10 @@
+ServiceError:
+{
+    "code": "NotAuthenticated",
+    "message": "The required information to complete authentication was not provided or was incorrect.",
+    "opc-request-id": "00000000000000000000000000000000/00000000000000000000000000000000/00000000000000000000000000000000",
+    "operation_name": "get_compartment",
+    "status": 401,
+    "target_service": "identity",
+    "timestamp": "2026-11-01T10:00:00.000000+00:00"
+}

@@ -1,0 +1,1901 @@
+{
+  "$defs": {
+    "Cloud": {
+      "description": "A public cloud.",
+      "oneOf": [
+        {
+          "const": "aws",
+          "description": "Amazon Web Services.",
+          "type": "string"
+        },
+        {
+          "const": "azure",
+          "description": "Microsoft Azure.",
+          "type": "string"
+        },
+        {
+          "const": "gcp",
+          "description": "Google Cloud.",
+          "type": "string"
+        },
+        {
+          "const": "digitalocean",
+          "description": "DigitalOcean.",
+          "type": "string"
+        },
+        {
+          "const": "linode",
+          "description": "Akamai Linode.",
+          "type": "string"
+        },
+        {
+          "const": "oci",
+          "description": "Oracle Cloud Infrastructure.",
+          "type": "string"
+        }
+      ]
+    },
+    "Desired": {
+      "description": "What a user wants of a run: set by the commands, never by an observation.",
+      "oneOf": [
+        {
+          "const": "running",
+          "description": "Up and ready.",
+          "type": "string"
+        },
+        {
+          "const": "parked",
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string"
+        },
+        {
+          "const": "gone",
+          "description": "Nothing of it left.",
+          "type": "string"
+        }
+      ]
+    },
+    "DownloadKind": {
+      "description": "What a download fetches.",
+      "oneOf": [
+        {
+          "const": "images",
+          "description": "Container images (a Compose start's pull).",
+          "type": "string"
+        },
+        {
+          "const": "boxes",
+          "description": "Vagrant boxes (what a Vagrant start boots).",
+          "type": "string"
+        }
+      ]
+    },
+    "ErrorCode": {
+      "description": "The stable code of a failure, the same in the Rust API and the event stream (`error.code`).",
+      "oneOf": [
+        {
+          "const": "project_invalid",
+          "description": "The folder isn't a project Isothrum runs: it holds no Compose file, Vagrantfile or\nTerraform module, or the files of several formats with none named.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported",
+          "description": "The manifest needs something this runner doesn't do (a target that doesn't run on this\nhost, a delivery its driver doesn't take, an action of another driver's, a step with no\ncommand for this host), or the call asks the run for something its target can't do (a\nconsole into a Compose service with no VM, a Vagrant VM joined to another network).",
+          "type": "string"
+        },
+        {
+          "const": "io",
+          "description": "A file or folder couldn't be read or written, or a socket on this computer bound.",
+          "type": "string"
+        },
+        {
+          "const": "locked",
+          "description": "Another process runs an operation on this run, or holds the home's slot pick.",
+          "type": "string"
+        },
+        {
+          "const": "tool_missing",
+          "description": "A tool a step runs isn't installed.",
+          "type": "string"
+        },
+        {
+          "const": "tool_failed",
+          "description": "A step's tool ran and failed.",
+          "type": "string"
+        },
+        {
+          "const": "tool_unanswered",
+          "description": "A tool the run needs is installed, but got no answer from its service: Docker's engine\nstopped, or quit while a step ran (the `step` says which): the message says what the tool\nsaid.",
+          "type": "string"
+        },
+        {
+          "const": "tool_too_old",
+          "description": "A tool answers at a version older than the run needs.",
+          "type": "string"
+        },
+        {
+          "const": "tool_denied",
+          "description": "A tool refused this account (Docker's engine its socket or named pipe): the account needs\nthe access (a group), not the tool started.",
+          "type": "string"
+        },
+        {
+          "const": "credentials_expired",
+          "description": "A cloud refused the sign-in the run's tools use: a CLI or SSO session that ran out, an\nexpired token, application-default credentials gone stale, a profile never signed in.\nSigning in again fixes it; the cloud refused before Terraform changed anything.",
+          "type": "string"
+        },
+        {
+          "const": "address_pool_overlap",
+          "description": "A network the run makes needs an address block another network on the engine already\nholds (Docker's `Pool overlaps with other one on this address space`).",
+          "type": "string"
+        },
+        {
+          "const": "timeout",
+          "description": "A step showed no progress for its time limit, or ran to the ceiling every step stops at,\nand was stopped, with what it started (the `error` event's `detail` says which).",
+          "type": "string"
+        },
+        {
+          "const": "download_stalled",
+          "description": "A download (what a step needs, fetched in a phase of its own before it: a Compose start's\nimages, a Vagrant start's boxes; or a step the manifest marks a download) showed no\nprogress for as long as a download may, and was stopped.",
+          "type": "string"
+        },
+        {
+          "const": "download_failed",
+          "description": "A download couldn't be made: its tool failed (the message says why: a registry or a box\ncatalog refusing it, a name it doesn't know, the network). A failure for the network that\npasses (a connection reset, refused or timed out, a gateway's 502, 503 or 504) was tried\nagain first, up to three more times: the message is the last try's.",
+          "type": "string"
+        },
+        {
+          "const": "already_running",
+          "description": "The run is already up.",
+          "type": "string"
+        },
+        {
+          "const": "running_elsewhere",
+          "description": "The run is recorded on another place (server or account) than the one asked for.",
+          "type": "string"
+        },
+        {
+          "const": "port_in_use",
+          "description": "A host port the run publishes is taken.",
+          "type": "string"
+        },
+        {
+          "const": "not_parkable",
+          "description": "The manifest has no park steps for that mode.",
+          "type": "string"
+        },
+        {
+          "const": "nothing_to_resume",
+          "description": "Nothing of the run, or not every one of its machines, is left to resume.",
+          "type": "string"
+        },
+        {
+          "const": "not_running",
+          "description": "The run isn't up.",
+          "type": "string"
+        },
+        {
+          "const": "not_ready",
+          "description": "A ready condition didn't hold.",
+          "type": "string"
+        },
+        {
+          "const": "secret_missing",
+          "description": "A required secret or input has no value.",
+          "type": "string"
+        },
+        {
+          "const": "input_invalid",
+          "description": "A value or secret that can't be handed to the tools (its name empty or holding `=`, a\nNUL in it).",
+          "type": "string"
+        },
+        {
+          "const": "run_name",
+          "description": "A run name that can't name a run.",
+          "type": "string"
+        },
+        {
+          "const": "provider_refused",
+          "description": "The run's Vagrant provider is missing, unknown, not on this host, refused by the run, or\nlacks its plugin, or the hypervisor lacks what it needs on this computer (virtiofsd, for a\nshared folder on Linux: the `detail`'s `need`).",
+          "type": "string"
+        },
+        {
+          "const": "elevation_failed",
+          "description": "The elevation Hyper-V's commands need couldn't be had or was lost: the permission prompt\ndeclined or unanswered, the elevated session not started or ended before the operation\n(the message says which).",
+          "type": "string"
+        },
+        {
+          "const": "machine_unknown",
+          "description": "A machine the run doesn't have.",
+          "type": "string"
+        },
+        {
+          "const": "machine_ambiguous",
+          "description": "The run has several machines the call could mean, and it named none.",
+          "type": "string"
+        },
+        {
+          "const": "network_unknown",
+          "description": "A network the run doesn't have.",
+          "type": "string"
+        },
+        {
+          "const": "adopt_refused",
+          "description": "A deployment can't be taken over as a run.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The operation was cut short before it ended (its future dropped: an embedder's cancel, the\ncommand line's Ctrl-C or SIGTERM); the tools it started were asked to stop, and are ended\nonce they have, or 30 seconds later.",
+          "type": "string"
+        },
+        {
+          "const": "usage",
+          "description": "The embedder was asked for something that makes no sense (the command line: a run folder\nwith no manifest, a value missing or malformed), so no operation started.",
+          "type": "string"
+        },
+        {
+          "const": "no_console",
+          "description": "The machine has no graphical console to reach: its target or provider gives none (the\nerror says why), it isn't running, or its hypervisor doesn't say where it is.",
+          "type": "string"
+        },
+        {
+          "const": "server_auth_failed",
+          "description": "The server the run is on (Proxmox VE, ESXi) refused the run's credentials: its API\nanswered 401 or 403, or its tool said the sign-in failed (an API token revoked, a password\nchanged).",
+          "type": "string"
+        },
+        {
+          "const": "corrupt",
+          "description": "A file of the runner's own (a record, a ledger entry) is there but isn't what it wrote:\nnot JSON, or another version's shape.",
+          "type": "string"
+        },
+        {
+          "const": "illegal_transition",
+          "description": "The run's state machine has no such move (a park of a parked run, a resume of a ready\none), or a resource row can't move that way.",
+          "type": "string"
+        },
+        {
+          "const": "state_conflict",
+          "description": "The run moved between the read and the write that would have moved it: try again.",
+          "type": "string"
+        },
+        {
+          "const": "store_version",
+          "description": "The home's store was written by a newer runner.",
+          "type": "string"
+        },
+        {
+          "const": "store_corrupt",
+          "description": "The home's store isn't a database this runner reads, or holds what it doesn't write.",
+          "type": "string"
+        },
+        {
+          "const": "lease_held",
+          "description": "A live process holds the lease asked for.",
+          "type": "string"
+        }
+      ]
+    },
+    "ErrorDetail": {
+      "description": "A failure's typed fields.",
+      "oneOf": [
+        {
+          "description": "A host port the run publishes is taken.",
+          "properties": {
+            "holder": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PortHolder"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The process listening on it, when it was found."
+            },
+            "kind": {
+              "const": "port_in_use",
+              "type": "string"
+            },
+            "port": {
+              "description": "The port.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protocol": {
+              "description": "`tcp` or `udp`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "port",
+            "protocol"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool isn't installed.",
+          "properties": {
+            "kind": {
+              "const": "tool_missing",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool is older than the run needs.",
+          "properties": {
+            "found": {
+              "description": "The version it answered with.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "tool_too_old",
+              "type": "string"
+            },
+            "required": {
+              "description": "The oldest version the run takes.",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool",
+            "found",
+            "required"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool's service didn't answer (Docker's engine).",
+          "properties": {
+            "kind": {
+              "const": "tool_unanswered",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step ran out of time.",
+          "properties": {
+            "kind": {
+              "const": "timeout",
+              "type": "string"
+            },
+            "timed_out": {
+              "$ref": "#/$defs/TimedOut",
+              "description": "Which limit it ran into."
+            }
+          },
+          "required": [
+            "kind",
+            "timed_out"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A download showed no progress for as long as a download may.",
+          "properties": {
+            "after_s": {
+              "description": "How long it went with no progress, in seconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "download_stalled",
+              "type": "string"
+            },
+            "what": {
+              "$ref": "#/$defs/DownloadKind",
+              "description": "What it downloads."
+            }
+          },
+          "required": [
+            "kind",
+            "what",
+            "after_s"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A download couldn't be made.",
+          "properties": {
+            "kind": {
+              "const": "download_failed",
+              "type": "string"
+            },
+            "reason": {
+              "description": "The last try's last error lines, or its exit status (masked).",
+              "type": "string"
+            },
+            "what": {
+              "$ref": "#/$defs/DownloadKind",
+              "description": "What it downloads."
+            }
+          },
+          "required": [
+            "kind",
+            "what",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The elevation the run's commands need couldn't be had.",
+          "properties": {
+            "kind": {
+              "const": "elevation",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why (the prompt declined, the elevated session ended).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ready condition didn't hold.",
+          "properties": {
+            "condition": {
+              "description": "The condition (`every machine of the run`, `tcp 127.0.0.1:8080`).",
+              "type": "string"
+            },
+            "detail": {
+              "description": "Why it didn't.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "not_ready",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "condition",
+            "detail"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The run is recorded on another place than the one asked for.",
+          "properties": {
+            "asked": {
+              "description": "Where it was asked for.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "running_elsewhere",
+              "type": "string"
+            },
+            "recorded": {
+              "description": "Where it is recorded.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "recorded",
+            "asked"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The run can't be parked in that mode.",
+          "properties": {
+            "kind": {
+              "const": "not_parkable",
+              "type": "string"
+            },
+            "mode": {
+              "description": "The mode.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Machines of the run are gone, so it can't be resumed whole.",
+          "properties": {
+            "kind": {
+              "const": "partly_gone",
+              "type": "string"
+            },
+            "machines": {
+              "description": "The machines gone.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "machines"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A secret the run needs has no value.",
+          "properties": {
+            "kind": {
+              "const": "secret_missing",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A value the run was given can't be used.",
+          "properties": {
+            "kind": {
+              "const": "input_invalid",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why (masked: it may quote the value).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step's tool ran and failed.",
+          "properties": {
+            "kind": {
+              "const": "tool_failed",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Its last error lines, or its exit status (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The folder isn't a project to run.",
+          "properties": {
+            "dir": {
+              "description": "The folder.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "project_invalid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "dir"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A machine the run doesn't have.",
+          "properties": {
+            "kind": {
+              "const": "machine_unknown",
+              "type": "string"
+            },
+            "machine": {
+              "description": "The machine asked for.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "machine"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A network the run doesn't have.",
+          "properties": {
+            "kind": {
+              "const": "network_unknown",
+              "type": "string"
+            },
+            "network": {
+              "description": "The network asked for.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "network"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Vagrant provider refused.",
+          "properties": {
+            "kind": {
+              "const": "provider_refused",
+              "type": "string"
+            },
+            "need": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProviderNeed"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What this computer lacks for it, when that is what refused it."
+            },
+            "provider": {
+              "description": "The provider.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "provider"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool refused this account.",
+          "properties": {
+            "kind": {
+              "const": "tool_denied",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cloud refused the sign-in the run's tools use.",
+          "properties": {
+            "cloud": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Cloud"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The cloud, when the failure names its Terraform provider."
+            },
+            "kind": {
+              "const": "credentials_expired",
+              "type": "string"
+            },
+            "reason": {
+              "description": "What the tool said (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A network the run makes needs an address block another network holds.",
+          "properties": {
+            "kind": {
+              "const": "address_pool_overlap",
+              "type": "string"
+            },
+            "reason": {
+              "description": "What the tool said (masked).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A machine has no graphical console to reach.",
+          "properties": {
+            "kind": {
+              "const": "no_console",
+              "type": "string"
+            },
+            "machine": {
+              "description": "The machine.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "machine"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The server the run is on refused its credentials.",
+          "properties": {
+            "kind": {
+              "const": "server_auth_failed",
+              "type": "string"
+            },
+            "server": {
+              "description": "The server, when known.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A file or folder couldn't be read or written.",
+          "properties": {
+            "action": {
+              "description": "What was being done (`read`, `create`).",
+              "type": "string"
+            },
+            "kind": {
+              "const": "io",
+              "type": "string"
+            },
+            "path": {
+              "description": "The path.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The run moved between a read and the write that would have moved it.",
+          "properties": {
+            "expected": {
+              "$ref": "#/$defs/RunState",
+              "description": "Where the write expected it."
+            },
+            "found": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RunState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Where it was."
+            },
+            "kind": {
+              "const": "state_conflict",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "expected"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A live process holds the lease asked for.",
+          "properties": {
+            "kind": {
+              "const": "lease_held",
+              "type": "string"
+            },
+            "pid": {
+              "description": "The holder's process id.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scope": {
+              "description": "What the lease covers.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "pid"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "v": {
+          "description": "The version of the fields ([`DETAIL_VERSION`]).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v"
+      ],
+      "type": "object"
+    },
+    "ErrorReport": {
+      "description": "A failure, as one value: its stable code, its message, the step it happened in, its typed\nfields, and whether the run was touched. An embedder branches on [`ErrorReport::code`] and\nreads [`ErrorReport::detail`]'s fields; it never needs the runner's [`Error`] variants.",
+      "properties": {
+        "changed": {
+          "default": true,
+          "description": "Whether the run may have changed: false only when the failure is a refusal made before\nanything acted on the run (another operation holds it, it is already up or isn't up, a\nvalue it needs is missing or unusable, a tool it needs is missing), so whatever the caller\nprepared for the operation can be put back. Read as true when absent.",
+          "type": "boolean"
+        },
+        "code": {
+          "$ref": "#/$defs/ErrorCode",
+          "description": "The stable code."
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The failure's typed fields, when it has any."
+        },
+        "message": {
+          "description": "The message: plain and technical, secrets masked.",
+          "type": "string"
+        },
+        "step": {
+          "description": "The step that failed, when one did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Op": {
+      "description": "An operation on a run.",
+      "oneOf": [
+        {
+          "const": "up",
+          "description": "Start the run.",
+          "type": "string"
+        },
+        {
+          "const": "down",
+          "description": "Remove everything the run created.",
+          "type": "string"
+        },
+        {
+          "const": "park",
+          "description": "Stop the run, keeping what it created.",
+          "type": "string"
+        },
+        {
+          "const": "resume",
+          "description": "Start a parked run again.",
+          "type": "string"
+        },
+        {
+          "const": "check",
+          "description": "Run the run's checks.",
+          "type": "string"
+        },
+        {
+          "const": "provision",
+          "description": "Run the set-up again on running machines.",
+          "type": "string"
+        },
+        {
+          "const": "attach",
+          "description": "Hot-add the on-demand access machine into the running run.",
+          "type": "string"
+        },
+        {
+          "const": "detach",
+          "description": "Hot-remove the on-demand access machine from the running run.",
+          "type": "string"
+        },
+        {
+          "const": "update",
+          "description": "Bring the running run up to date with its manifest.",
+          "type": "string"
+        },
+        {
+          "const": "retire",
+          "description": "Take a machine out of the running run, ahead of its removal from the manifest.",
+          "type": "string"
+        },
+        {
+          "const": "package",
+          "description": "Save a machine of the running run as a box a later run boots from.",
+          "type": "string"
+        }
+      ]
+    },
+    "OperationId": {
+      "description": "An operation's id: the journal's key, increasing in a home and never reused.",
+      "format": "int64",
+      "type": "integer"
+    },
+    "OperationPhase": {
+      "description": "Where a journaled operation stands.",
+      "oneOf": [
+        {
+          "const": "queued",
+          "description": "Accepted and waiting in its run's queue.",
+          "type": "string"
+        },
+        {
+          "const": "started",
+          "description": "Begun.",
+          "type": "string"
+        },
+        {
+          "const": "ended",
+          "description": "Ended (its `outcome` says how).",
+          "type": "string"
+        }
+      ]
+    },
+    "Outcome": {
+      "description": "How an operation ended.",
+      "oneOf": [
+        {
+          "const": "succeeded",
+          "description": "It reached its end without an error.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "It failed.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "It was cut short (an embedder's cancel, Ctrl-C).",
+          "type": "string"
+        },
+        {
+          "const": "abandoned",
+          "description": "Its process died before it ended: a later operation found it and closed it.",
+          "type": "string"
+        }
+      ]
+    },
+    "PortHolder": {
+      "description": "The process that holds a host port: what a `port_in_use` names so the user knows what to stop.",
+      "properties": {
+        "pid": {
+          "description": "Its process id.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "program": {
+          "description": "Its program's name, as the system lists it (`nginx`, `com.docke`: `lsof` cuts it to 9\ncharacters).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "program"
+      ],
+      "type": "object"
+    },
+    "ProviderNeed": {
+      "description": "What a computer lacks for a Vagrant provider to run a run.",
+      "oneOf": [
+        {
+          "const": "plugin",
+          "description": "The Vagrant plugin the provider runs through (`Provider::plugin`: vagrant-qemu,\nvagrant-libvirt, ...) isn't installed. A caller installs it for this account\n(`vagrant plugin install <plugin>`, no administrator), then starts again.",
+          "type": "string"
+        },
+        {
+          "const": "virtiofsd",
+          "description": "virtiofsd, which libvirt and QEMU start to share a host folder with a VM through virtiofs\n(Linux): none is installed where they look.",
+          "type": "string"
+        },
+        {
+          "const": "automation",
+          "description": "The automation of the hypervisor's app: the program driving it through Apple events (UTM,\nby `vagrant_utm`) may not send them (`-1743`, `Not authorized to send Apple events`, macOS's\nAutomation permission). Waiting doesn't fix it; the user's settings do.",
+          "type": "string"
+        },
+        {
+          "const": "app_approval",
+          "description": "The system's approval of the hypervisor's app: it answered the machine's start, driven\nthrough Apple events, with the system's `Operation not permitted` (UTM's `utmctl start`:\n`OSStatus error -2700`) though the events reached it. The system refused to run the app's\nown helper that launches machines: an app downloaded and quarantined, never approved when\nopened, whose sandboxed helper gets no prompt. Waiting doesn't fix it; opening the app once\nfrom the system's file manager, or reinstalling it, does.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResourceKind": {
+      "description": "What a resource is. The provider kinds are manifest v2's `resources[].kind`; the local ones\nthe runner's own.",
+      "oneOf": [
+        {
+          "const": "vm",
+          "description": "A virtual machine.",
+          "type": "string"
+        },
+        {
+          "const": "container",
+          "description": "A container.",
+          "type": "string"
+        },
+        {
+          "const": "network",
+          "description": "A network.",
+          "type": "string"
+        },
+        {
+          "const": "volume",
+          "description": "A volume.",
+          "type": "string"
+        },
+        {
+          "const": "hub",
+          "description": "A hub (a Docker host VM several runs share).",
+          "type": "string"
+        },
+        {
+          "const": "process",
+          "description": "A process a step leaves running.",
+          "type": "string"
+        },
+        {
+          "const": "module",
+          "description": "A Terraform module's resources, as one.",
+          "type": "string"
+        },
+        {
+          "const": "host_keys",
+          "description": "The machines' SSH host keys this computer trusts.",
+          "type": "string"
+        },
+        {
+          "const": "state_files",
+          "description": "The files the run's tools keep in its state folder.",
+          "type": "string"
+        },
+        {
+          "const": "archive",
+          "description": "The run's outputs archive.",
+          "type": "string"
+        },
+        {
+          "const": "consoles",
+          "description": "The graphical consoles the runner chose.",
+          "type": "string"
+        },
+        {
+          "const": "tool_process",
+          "description": "A tool process an operation runs.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResourceState": {
+      "description": "Where a resource stands, written ahead of the provider's call.",
+      "oneOf": [
+        {
+          "const": "creating",
+          "description": "Written before the call that makes it: it may or may not exist.",
+          "type": "string"
+        },
+        {
+          "const": "created",
+          "description": "The provider made it, with this id.",
+          "type": "string"
+        },
+        {
+          "const": "destroying",
+          "description": "Written before the call that removes it.",
+          "type": "string"
+        },
+        {
+          "const": "gone",
+          "description": "Removed, or found missing.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResultData": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "description": "An `up` that came up: where the run stands, and its outputs.",
+          "properties": {
+            "outputs": {
+              "description": "Its outputs, sensitive values shown as `***`.",
+              "items": {
+                "$ref": "#/$defs/ShownOutput"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/RunState",
+              "description": "Where the run stands (`ready`)."
+            }
+          },
+          "required": [
+            "state",
+            "outputs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A `reap`: the expired runs it destroyed or would.",
+          "properties": {
+            "destroyed": {
+              "description": "The runs destroyed.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "failed": {
+              "description": "The runs whose destroy failed, with why.",
+              "items": {
+                "$ref": "#/$defs/SweepFailure"
+              },
+              "type": "array"
+            },
+            "pending": {
+              "description": "The runs a dry run would destroy.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "destroyed",
+            "pending",
+            "failed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation on one machine or on all (`attach`, `retire`, `exec`, `provision`): which.",
+          "properties": {
+            "machine": {
+              "description": "Its name in the project; none for every machine (a `provision` of the whole run).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation that moved the run (`down`, `park`, `resume`): where it stands.",
+          "properties": {
+            "state": {
+              "$ref": "#/$defs/RunState",
+              "description": "Where the run stands now."
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "What an operation found or produced, by operation."
+    },
+    "RunState": {
+      "description": "Where a run stands.",
+      "oneOf": [
+        {
+          "const": "creating",
+          "description": "Being created by an `up`.",
+          "type": "string"
+        },
+        {
+          "const": "ready",
+          "description": "Up, every member machine running.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Something of it exists, but not every member machine runs (a failed start, a machine down).",
+          "type": "string"
+        },
+        {
+          "const": "parking",
+          "description": "Being parked.",
+          "type": "string"
+        },
+        {
+          "const": "parked",
+          "description": "Parked: stopped, what it created kept.",
+          "type": "string"
+        },
+        {
+          "const": "resuming",
+          "description": "Being resumed.",
+          "type": "string"
+        },
+        {
+          "const": "updating",
+          "description": "Being brought up to date with its manifest by an `update`.",
+          "type": "string"
+        },
+        {
+          "const": "destroying",
+          "description": "Being removed by a `down`.",
+          "type": "string"
+        },
+        {
+          "const": "absent",
+          "description": "Nothing of it exists.",
+          "type": "string"
+        }
+      ]
+    },
+    "ShownOutput": {
+      "additionalProperties": false,
+      "description": "An output as a `result` event shows it.",
+      "properties": {
+        "name": {
+          "description": "Its name.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Its value, when it can be read; `***` when it is sensitive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "StepCount": {
+      "description": "How far a step is: `done` of its `total` items, when the total is known.",
+      "properties": {
+        "done": {
+          "description": "The items done so far.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "description": "How many there are, once the tool says.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "done"
+      ],
+      "type": "object"
+    },
+    "StepState": {
+      "description": "Where a step stands.",
+      "oneOf": [
+        {
+          "const": "started",
+          "description": "Started, or moved on (said again with its new `count`).",
+          "type": "string"
+        },
+        {
+          "const": "done",
+          "description": "Finished and succeeded.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Finished and failed: the operation's failure is this step's.",
+          "type": "string"
+        },
+        {
+          "const": "skipped",
+          "description": "Cut short or not run: another step failed.",
+          "type": "string"
+        }
+      ]
+    },
+    "Stream": {
+      "description": "Which output of a tool a line came from.",
+      "oneOf": [
+        {
+          "const": "stdout",
+          "description": "Its standard output.",
+          "type": "string"
+        },
+        {
+          "const": "stderr",
+          "description": "Its standard error.",
+          "type": "string"
+        }
+      ]
+    },
+    "SweepFailure": {
+      "additionalProperties": false,
+      "description": "A run a `reap` couldn't destroy.",
+      "properties": {
+        "error": {
+          "description": "Why its destroy failed.",
+          "type": "string"
+        },
+        "run": {
+          "description": "The run.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run",
+        "error"
+      ],
+      "type": "object"
+    },
+    "TimedOut": {
+      "description": "Which limit a step ran into: a timeout's, also the `error` event's `timeout`.\n\nA step's limit (its `timeout_s`) counts the time it shows no progress: progress is an output\nline, on either stream, that isn't blank and isn't one of the last distinct lines it printed\n(a stuck download repeating `Downloading 1.121GB` makes none). A step that prints nothing has\nits limit from its start. A step that keeps making progress still stops at a ceiling: six\nhours from its start, or its limit when that is longer.",
+      "oneOf": [
+        {
+          "description": "It showed no progress for its limit.",
+          "properties": {
+            "after_s": {
+              "description": "The limit, in seconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "no_progress",
+              "type": "string"
+            },
+            "last_line": {
+              "description": "The last line it printed (secrets masked, cut to 300 bytes); none when it printed\nnothing.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "after_s"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was still running at the ceiling: a step still making progress, or a tool call at its\ndeadline (a command in a machine that never returned).",
+          "properties": {
+            "after_s": {
+              "description": "The ceiling, in seconds from the step's start.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "ceiling",
+              "type": "string"
+            },
+            "last_line": {
+              "description": "The last line it printed (secrets masked, cut to 300 bytes); none when it printed\nnothing, or when it isn't said.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "after_s"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WarningCode": {
+      "description": "What kind of warning a `warning` event is, the same in the Rust API and the event stream.",
+      "oneOf": [
+        {
+          "const": "step_tolerated",
+          "description": "A step whose failure the manifest tolerates failed.",
+          "type": "string"
+        },
+        {
+          "const": "check_runner_failed",
+          "description": "A check runner failed or ran out of time: its checks that didn't report fail.",
+          "type": "string"
+        },
+        {
+          "const": "check_cleanup_failed",
+          "description": "A clean-up of the checks failed: a check runner's that ran out of time (`on_timeout`), or\nthe teardown after a setup that failed too (the check ends with the setup's error).",
+          "type": "string"
+        },
+        {
+          "const": "leftovers_removed",
+          "description": "What an earlier run left is removed before a start.",
+          "type": "string"
+        },
+        {
+          "const": "orphan_removed",
+          "description": "A VM (or its folder) an earlier run left was removed.",
+          "type": "string"
+        },
+        {
+          "const": "other_provider",
+          "description": "The run last ran on another Vagrant provider: that run is cleared first.",
+          "type": "string"
+        },
+        {
+          "const": "saved_state_discarded",
+          "description": "A VM's saved state was cut off: it boots fresh.",
+          "type": "string"
+        },
+        {
+          "const": "recovering",
+          "description": "A start failed on stale state: cleared, then started again.",
+          "type": "string"
+        },
+        {
+          "const": "retrying",
+          "description": "A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a\nVagrant command another Vagrant process's lock on a machine refused, a UTM `up` an Apple\nevent failed in passing (once), or a download the network cut (a connection reset, a\ngateway's 502), up to three more times.",
+          "type": "string"
+        },
+        {
+          "const": "record_not_saved",
+          "description": "An operation that failed couldn't update the run's record either: the operation's own\nerror is the one it ends with.",
+          "type": "string"
+        },
+        {
+          "const": "output_unformatted",
+          "description": "An output's `format` couldn't be filled (it names a value the run doesn't have): the\noutput has no value.",
+          "type": "string"
+        },
+        {
+          "const": "already_gone",
+          "description": "A resource a destroy found already gone (its provider's error, which the manifest names) is\ndropped from the run's state, and the destroy runs again.",
+          "type": "string"
+        },
+        {
+          "const": "cleanup_failed",
+          "description": "A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its\nfolder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be\nthere, and the start goes on.",
+          "type": "string"
+        },
+        {
+          "const": "shared_state",
+          "description": "A Terraform module keeps its state in a backend of its own: every copy of it shares that\nstate.",
+          "type": "string"
+        },
+        {
+          "const": "ports_unknown",
+          "description": "A running machine's forwarded ports couldn't be read (its provider can't list them, and\nits hypervisor didn't say): it has no published port, and runs on.",
+          "type": "string"
+        },
+        {
+          "const": "ports_moved",
+          "description": "A machine's published host port is another than the one the run kept from its first\nstart (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.",
+          "type": "string"
+        },
+        {
+          "const": "version_unknown",
+          "description": "A tool printed no version the runner reads: it is used, its minimum version unchecked.",
+          "type": "string"
+        },
+        {
+          "const": "host_adapter_unaddressed",
+          "description": "On Windows, the host adapter of a VMware private network has no address of its own and\ncouldn't be given one (the administrator's prompt declined, VMware's `vnetlib` failed):\nthis computer reaches the run's machines on their forwarded ports, not at their private\naddresses.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One event of the stream.\n\nEvery event of an operation has `run` and `op`. An event written outside one ([`Event::new`])\nhas those its writer knows. The command line's own: a command line it refused has neither;\n`reap`'s closing `result` and `error` have neither; any other failure before an operation\nbegan has `op` when the command is an operation, and `run` when `--name` named it (a failure\nof `status`, `console`, `events` or `key` has no `op`).",
+  "oneOf": [
+    {
+      "description": "The run moved from one state to another.",
+      "properties": {
+        "event": {
+          "const": "state",
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/RunState",
+          "description": "Before."
+        },
+        "to": {
+          "$ref": "#/$defs/RunState",
+          "description": "After."
+        }
+      },
+      "required": [
+        "event",
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A step started, moved on, finished, failed or was skipped: one of the format's own\n([`crate::Phase`], whose `id` the step is).",
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepCount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How far it is, when it counts what it does (images, containers, resources)."
+        },
+        "event": {
+          "const": "step",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it is about, when it is one of several of its kind: a machine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/StepState",
+          "description": "Where it stands."
+        },
+        "step": {
+          "description": "The step's id ([`crate::Phase::id`]).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "step",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A line a step's tool printed.",
+      "properties": {
+        "event": {
+          "const": "log",
+          "type": "string"
+        },
+        "line": {
+          "description": "The line, without its line break.",
+          "type": "string"
+        },
+        "step": {
+          "description": "The step's id.",
+          "type": "string"
+        },
+        "stream": {
+          "$ref": "#/$defs/Stream",
+          "description": "Which output."
+        }
+      },
+      "required": [
+        "event",
+        "step",
+        "stream",
+        "line"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "An output's value, once the run is up.",
+      "properties": {
+        "event": {
+          "const": "output",
+          "type": "string"
+        },
+        "name": {
+          "description": "The output's name.",
+          "type": "string"
+        },
+        "sensitive": {
+          "description": "Whether the value is sensitive.",
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Its value (`***` when sensitive), or null when it can't be read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "name",
+        "sensitive"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Something the embedder may show, that didn't fail the operation.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode",
+          "description": "What kind."
+        },
+        "event": {
+          "const": "warning",
+          "type": "string"
+        },
+        "message": {
+          "description": "The text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The operation's outcome, when it ran to its end.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ResultData",
+          "description": "What it found or produced, by operation."
+        },
+        "event": {
+          "const": "result",
+          "type": "string"
+        },
+        "ok": {
+          "description": "Whether it reached its goal (false: a check failed).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "event",
+        "ok",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A journaled operation was queued, started or ended: what a runner service says of the\noperations it queues (the runner's own operation stream doesn't carry it: it still ends\nwith exactly one `result` or `error`).",
+      "properties": {
+        "event": {
+          "const": "operation",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How it ended, when `phase` is `ended`."
+        },
+        "phase": {
+          "$ref": "#/$defs/OperationPhase",
+          "description": "Where the operation stands."
+        },
+        "position": {
+          "description": "Its place in its run's queue (0: next), when `phase` is `queued`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "phase"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What the user wants of the run changed: an operation that moves it began (`up`, `resume`:\nrunning; `park`: parked; `down`: gone).",
+      "properties": {
+        "desired": {
+          "$ref": "#/$defs/Desired",
+          "description": "What is wanted now."
+        },
+        "event": {
+          "const": "desired",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "desired"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A resource of the run moved in the home's write-ahead ledger: written `creating` before\nthe call that makes it, `created` with the tool's id after it, `destroying` before the call\nthat removes it, `gone` after.",
+      "properties": {
+        "event": {
+          "const": "resource",
+          "type": "string"
+        },
+        "key": {
+          "description": "The resource's key in the run (`container:web-1`, a volume's name, a local thing's kind).",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResourceKind",
+          "description": "What it is."
+        },
+        "native_id": {
+          "description": "The tool's id for it, once it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/ResourceState",
+          "description": "Where it stands now."
+        }
+      },
+      "required": [
+        "event",
+        "key",
+        "kind",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "#/$defs/ErrorReport",
+      "description": "Why the operation failed: its code, message, step, typed fields and whether the run was\ntouched ([`crate::ErrorReport`]).",
+      "properties": {
+        "event": {
+          "const": "error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "op": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Op"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The operation: on every event of an operation; outside one, when its writer knows it (see\n[`Event`])."
+    },
+    "operation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OperationId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The operation's id in the home's journal: on every event of a journaled operation."
+    },
+    "run": {
+      "description": "The run's name: on every event of an operation; outside one, when its writer knows it\n(see [`Event`]).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "seq": {
+      "description": "Its place in the operation, from 1.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "time": {
+      "description": "When (`YYYY-MM-DDTHH:MM:SSZ`, UTC).",
+      "type": "string"
+    },
+    "v": {
+      "description": "The stream's version (1).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "v",
+    "seq",
+    "time"
+  ],
+  "title": "Isothrum runner event, version 1",
+  "type": "object"
+}

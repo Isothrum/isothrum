@@ -1,0 +1,9 @@
+An active machine was found with a different provider. Vagrant
+currently allows each machine to be brought up with only a single
+provider at a time. A future version will remove this limitation.
+Until then, please destroy the existing machine to up with a new
+provider.
+
+Machine name: web
+Active provider: virtualbox
+Requested provider: libvirt

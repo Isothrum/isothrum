@@ -1,0 +1,38 @@
+# One small Debian VM, `server`, set up by a shell provisioner.
+#
+# The box is `bento/debian-12` (VirtualBox, VMware, Parallels). Another one can be given with
+# `isothrum up --env BOX=<box>`, which reaches this file as `ENV["BOX"]`.
+
+Vagrant.configure("2") do |config|
+  config.vm.box = ENV.fetch("BOX", "bento/debian-12")
+
+  config.vm.define "server" do |server|
+    server.vm.hostname = "server"
+
+    server.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    # Broadcom's free Workstation Pro reports a "standard" licence, which vagrant-vmware-desktop
+    # takes for Workstation Player, whose `vmrun` can't snapshot (a linked clone's first step):
+    # off a Mac, run it as the Pro product it is.
+    server.vm.provider "vmware_desktop" do |v|
+      v.force_vmware_license = "workstation" unless RUBY_PLATFORM.include?("darwin")
+    end
+
+    # Hyper-V connects the VM to one virtual switch, and Vagrant asks which when there are several
+    # (WSL 2 adds its own): name Windows' Default Switch, so nobody has to answer.
+    server.vm.provider "hyperv" do |hv, override|
+      override.vm.network "public_network", bridge: "Default Switch"
+      # Vagrant sets a hostname by renewing the VM's DHCP lease, which on the Default Switch can
+      # move it off the address its SSH session is on: on Hyper-V it keeps its box's hostname.
+      override.vm.hostname = nil
+    end
+
+    # Runs at the first `up`, and again at `isothrum provision`.
+    server.vm.provision "shell", inline: <<~SHELL
+      echo "set up by Vagrant's shell provisioner" > /etc/greeting
+    SHELL
+  end
+end

@@ -1,0 +1,34 @@
+name: Feature request
+description: Something Isothrum should do, or do differently.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: The behaviour, command, option or API you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Command line
+        - Runner library (isothrum-runner)
+        - Provider detection (isothrum-machine)
+        - Compiler or WebAssembly
+        - Documentation
+        - Release, packaging or CI
+        - Other

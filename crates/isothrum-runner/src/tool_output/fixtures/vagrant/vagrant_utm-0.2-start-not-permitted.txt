@@ -1,0 +1,7 @@
+There was an error while executing `utmctl`, a CLI used by vagrant-utm
+for controlling UTM. The command and stderr is shown below.
+
+Command: ["start", "2D2607AB-D82F-4A13-A1FB-F025C1D06D12"]
+
+Stderr: Error from event: The operation couldn’t be completed. (OSStatus error -2700.)
+The operation couldn’t be completed. Operation not permitted

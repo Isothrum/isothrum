@@ -1,0 +1,7 @@
+name="stack · web"
+VMState="running"
+vrde="on"
+vrdeport=3390
+vrdeports="3390-3489"
+vrdeaddress="127.0.0.1"
+vrdeauthtype="null"

@@ -1,0 +1,356 @@
+# Real-host certification of the Isothrum runner on the targets it owns: server mode (Proxmox) and
+# the cloud (AWS), where the runner drives Terraform, the guest SSH and the cloud reaper. Isoloom
+# generates the tree; this workflow builds the runner from this repository and exercises
+# `isothrum up/check/down` (and `isothrum reap aws`) against the real infrastructure.
+#
+# Manual only (`workflow_dispatch`): no push, pull_request or schedule, matching the manual-only
+# cross-platform decision. Each job is skipped, not failed, without its runner and secrets, so a job
+# never sits queued for a runner that does not exist.
+#
+# The runner has no tier list of its own; tiers live in Isoloom. Each job uploads its evidence
+# (the up/check/down/reap records), which the maintainer records into Isoloom's tiers.json with
+# `cargo xtask tiers record`. See the Isoloom repository's docs/dev/ci-real-hosts.md.
+#
+# Every action is pinned to a commit. They stay on the majors that run on Node 20 here, since the
+# Proxmox job runs on a self-hosted runner whose version this file can't know (the Node 24 majors
+# need runner 2.327.1 or later).
+name: Cert — real runner (server + cloud)
+
+on:
+  workflow_dispatch:
+    inputs:
+      example:
+        description: "Example to certify (default: solo-web)"
+        type: string
+        default: solo-web
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-runner
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  EXAMPLE: ${{ inputs.example || 'solo-web' }}
+  # Isoloom generates the tree the runner executes; this ref is built to get the `isoloom` binary.
+  ISOLOOM_REF: ${{ vars.ISOLOOM_REF || 'main' }}
+  MAX_HOURS: ${{ vars.REAL_CLOUD_MAX_HOURS || '3' }}
+  AWS_REGION: ${{ vars.REAL_AWS_REGION || 'eu-west-3' }}
+
+jobs:
+  # Which jobs can run: Proxmox needs its runner and secrets, AWS needs credentials. Secrets cannot
+  # appear in a job's `if`, so this job reads them. Forks never get here.
+  gate:
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      proxmox: ${{ steps.check.outputs.proxmox }}
+      aws: ${{ steps.check.outputs.aws }}
+    steps:
+      - id: check
+        env:
+          PROXMOX_RUNNER: ${{ vars.REAL_PROXMOX_RUNNER }}
+          PROXMOX_SECRETS: ${{ secrets.PROXMOX_VE_ENDPOINT != '' && secrets.PROXMOX_VE_API_TOKEN != '' && secrets.PROXMOX_SSH_PRIVATE_KEY != '' }}
+          AWS_KEYS: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+          AWS_ROLE: ${{ vars.REAL_AWS_ROLE_ARN }}
+        run: |
+          if [ "$PROXMOX_RUNNER" = true ] && [ "$PROXMOX_SECRETS" = true ]; then
+            echo "proxmox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proxmox=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Proxmox skipped::need REAL_PROXMOX_RUNNER and the PROXMOX_* secrets (Isoloom docs/dev/ci-real-hosts.md)"
+          fi
+          if [ "$AWS_KEYS" = true ] || [ -n "$AWS_ROLE" ]; then
+            echo "aws=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "aws=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AWS skipped::need AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or REAL_AWS_ROLE_ARN (Isoloom docs/dev/ci-real-hosts.md)"
+          fi
+
+  proxmox:
+    needs: gate
+    if: ${{ needs.gate.outputs.proxmox == 'true' }}
+    runs-on: [self-hosted, proxmox]
+    timeout-minutes: 140
+    env:
+      TARGET: proxmox
+      PROXMOX_VE_ENDPOINT: ${{ secrets.PROXMOX_VE_ENDPOINT }}
+      PROXMOX_VE_API_TOKEN: ${{ secrets.PROXMOX_VE_API_TOKEN }}
+      # A self-signed cluster's certificate SHA-256: the runner's own API requests trust it alone
+      # (unset: the system's trust store checks the certificate).
+      PROXMOX_VE_TLS_FINGERPRINT: ${{ vars.PROXMOX_TLS_FINGERPRINT }}
+    steps:
+      - name: Check out Isothrum (the runner)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out Isoloom (the generator)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: isoloom/isoloom
+          ref: ${{ env.ISOLOOM_REF }}
+          path: .isoloom-src
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          # The release the macOS Proxmox targets run from Terraform's image.
+          terraform_version: 1.16.7
+          terraform_wrapper: false
+      - name: Rust toolchain
+        # rust-toolchain.toml's toolchain, the one the gates test.
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Build the runner and the generator
+        id: build
+        timeout-minutes: 25
+        run: |
+          cargo build -q -p isothrum-cli
+          cargo build -q -p isoloom --manifest-path .isoloom-src/Cargo.toml
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.isoloom-src/target/debug" >> "$GITHUB_PATH"
+          RECORD="$RUNNER_TEMP/record"
+          rm -rf "$RECORD" && mkdir -p "$RECORD"
+          {
+            echo "RECORD=$RECORD"
+            echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
+            # In-process: nothing outlives the job.
+            echo "ISOTHRUM_NO_SERVICE=1"
+            echo "RUN_DIR=$RUNNER_TEMP/run"
+          } >> "$GITHUB_ENV"
+
+      - name: Generate the tree with Isoloom
+        timeout-minutes: 10
+        run: |
+          cp -r ".isoloom-src/examples/$EXAMPLE" "$RUN_DIR"
+          isoloom generate --target "$TARGET" "$RUN_DIR"
+
+      # The runner takes the run's values as `--param` and `--secret-from-env`; it withholds inherited
+      # TF_VAR_* from Terraform. It connects with its home's key, so the node's key becomes that.
+      - name: Cluster, key and the run's arguments
+        env:
+          SSH_KEY: ${{ secrets.PROXMOX_SSH_PRIVATE_KEY }}
+          NODE: ${{ vars.PROXMOX_NODE }}
+          DATASTORE: ${{ vars.PROXMOX_DATASTORE }}
+          SNIPPETS_DATASTORE: ${{ vars.PROXMOX_SNIPPETS_DATASTORE }}
+          UPLINK_BRIDGE: ${{ vars.PROXMOX_UPLINK_BRIDGE }}
+          SSH_USERNAME: ${{ vars.PROXMOX_SSH_USERNAME }}
+          SSH_ADDRESS: ${{ vars.PROXMOX_SSH_ADDRESS }}
+          INSECURE: ${{ vars.PROXMOX_INSECURE }}
+        run: |
+          umask 077
+          mkdir -p "$ISOTHRUM_HOME/ssh"
+          printf '%s\n' "$SSH_KEY" > "$ISOTHRUM_HOME/ssh/id_ed25519"
+          ssh-keygen -y -f "$ISOTHRUM_HOME/ssh/id_ed25519" > "$ISOTHRUM_HOME/ssh/id_ed25519.pub"
+          manifest="$RUN_DIR/.isoloom/$TARGET/run.json"
+          secrets=(secret:proxmox_api_token=PROXMOX_VE_API_TOKEN)
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" \
+            param:proxmox_endpoint="$PROXMOX_VE_ENDPOINT" param:node="$NODE" param:datastore="$DATASTORE" \
+            param:snippets_datastore="$SNIPPETS_DATASTORE" param:uplink_bridge="$UPLINK_BRIDGE" \
+            param:proxmox_ssh_username="$SSH_USERNAME" param:proxmox_ssh_address="$SSH_ADDRESS" \
+            param:proxmox_insecure="$INSECURE" > "$RUNNER_TEMP/up.args"
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" > "$RUNNER_TEMP/secrets.args"
+
+      - name: Up
+        id: up
+        timeout-minutes: 60
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/up.args"
+          isothrum up "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/up.jsonl"
+      - name: Check
+        id: check
+        if: steps.up.outcome == 'success'
+        timeout-minutes: 20
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum check "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
+      - name: Down
+        id: down
+        if: always() && steps.build.outcome == 'success'
+        timeout-minutes: 25
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
+      - name: Down, again
+        if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
+        timeout-minutes: 25
+        run: |
+          sleep 30
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          if ! isothrum down "$RUN_DIR" --target "$TARGET" "${args[@]}"; then
+            echo "::error title=Proxmox leftovers::$EXAMPLE may still have VMs on the cluster: check it by hand"
+            exit 1
+          fi
+
+      - name: Runner cert summary
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          printf '%s\n' \
+            "## Isothrum runner — proxmox / $EXAMPLE" \
+            "up=${{ steps.up.outcome }}, check=${{ steps.check.outcome }}, down=${{ steps.down.outcome }}" \
+            "Record with: cargo xtask tiers record proxmox <host> <result> --server <name> --note '...' (in the Isoloom repo)" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Forget the keys
+        if: always()
+        run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
+      - name: Upload the runner cert record
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-cert-proxmox-${{ env.EXAMPLE }}
+          path: ${{ runner.temp }}/record
+          if-no-files-found: warn
+
+  aws:
+    needs: gate
+    if: ${{ needs.gate.outputs.aws == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Assuming the AWS role over OIDC, when REAL_AWS_ROLE_ARN is set.
+      id-token: write
+    timeout-minutes: 130
+    env:
+      TARGET: cloud-vm
+      CLOUD: aws
+      # Isoloom writes one manifest per cloud: `.isoloom/cloud-vm/aws/run.json`.
+      RUN_TARGET: cloud-vm/aws
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Check out Isothrum (the runner)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out Isoloom (the generator)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: isoloom/isoloom
+          ref: ${{ env.ISOLOOM_REF }}
+          path: .isoloom-src
+      - name: Assume the AWS role (OIDC)
+        if: ${{ vars.REAL_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.REAL_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          # The release the macOS Proxmox targets run from Terraform's image.
+          terraform_version: 1.16.7
+          terraform_wrapper: false
+      - name: Rust toolchain
+        # rust-toolchain.toml's toolchain, the one the gates test.
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Build the runner and the generator
+        id: build
+        timeout-minutes: 20
+        run: |
+          cargo build -q -p isothrum-cli
+          cargo build -q -p isoloom --manifest-path .isoloom-src/Cargo.toml
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.isoloom-src/target/debug" >> "$GITHUB_PATH"
+          RECORD="$RUNNER_TEMP/record"
+          rm -rf "$RECORD" && mkdir -p "$RECORD"
+          {
+            echo "RECORD=$RECORD"
+            echo "ISOTHRUM_HOME=$RUNNER_TEMP/isothrum-home"
+            # In-process: nothing outlives the job.
+            echo "ISOTHRUM_NO_SERVICE=1"
+            echo "RUN_DIR=$RUNNER_TEMP/run"
+          } >> "$GITHUB_ENV"
+
+      # A fresh home records no run, so this lists what earlier runs left past its expiry (the
+      # orphans) and destroys nothing.
+      - name: List expired leftovers
+        timeout-minutes: 15
+        continue-on-error: true
+        run: isothrum reap "$CLOUD" --region "$AWS_REGION" --json | tee "$RECORD/reap-pre.jsonl"
+
+      - name: Generate the tree with Isoloom
+        timeout-minutes: 10
+        run: |
+          cp -r ".isoloom-src/examples/$EXAMPLE" "$RUN_DIR"
+          isoloom generate --target "$TARGET" -s "defaults.cloud.aws.region=$AWS_REGION" "$RUN_DIR"
+
+      # The runner takes the run's values as `--param` and `--secret-from-env` (it withholds
+      # inherited TF_VAR_* and cloud credentials from Terraform), sets the expiry from --lifetime
+      # and installs its own SSH key. The size goes to whichever size param the module declares.
+      - name: Budget guard and the run's arguments
+        env:
+          AWS_SIZE: ${{ vars.REAL_AWS_SIZE || 't3.small' }}
+        run: |
+          manifest="$RUN_DIR/.isoloom/$RUN_TARGET/run.json"
+          secrets=(secret:AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID secret:AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY
+            secret:AWS_SESSION_TOKEN=AWS_SESSION_TOKEN)
+          sizes=()
+          for size in instance_type size vm_size machine_type shape type; do sizes+=("param:$size=$AWS_SIZE"); done
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" "${sizes[@]}" param:region="$AWS_REGION" \
+            param:allowed_cidr="$(curl -fsS --retry 3 https://checkip.amazonaws.com)/32" > "$RUNNER_TEMP/up.args"
+          .github/scripts/declared-args.sh "$manifest" "${secrets[@]}" > "$RUNNER_TEMP/secrets.args"
+
+      - name: Up
+        id: up
+        timeout-minutes: 35
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/up.args"
+          isothrum up "$RUN_DIR" --target "$RUN_TARGET" --lifetime $((MAX_HOURS * 60)) "${args[@]}" --json | tee "$RECORD/up.jsonl"
+      - name: Check
+        id: check
+        if: steps.up.outcome == 'success'
+        timeout-minutes: 15
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum check "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}" --json | tee "$RECORD/check.jsonl"
+      - name: Down
+        id: down
+        if: always() && steps.build.outcome == 'success'
+        timeout-minutes: 20
+        run: |
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          isothrum down "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}" --json | tee "$RECORD/down.jsonl"
+      # `reap` destroys only expired runs, and this one has hours left: a failed teardown is
+      # retried with `down`.
+      - name: Down, again
+        if: always() && steps.build.outcome == 'success' && steps.down.outcome != 'success'
+        timeout-minutes: 20
+        run: |
+          sleep 30
+          mapfile -t args < "$RUNNER_TEMP/secrets.args"
+          if ! isothrum down "$RUN_DIR" --target "$RUN_TARGET" "${args[@]}"; then
+            echo "::error title=AWS leftovers::$EXAMPLE may still have resources in $AWS_REGION: check the account by hand"
+            exit 1
+          fi
+      - name: List expired leftovers, after
+        if: always() && steps.build.outcome == 'success'
+        timeout-minutes: 15
+        continue-on-error: true
+        run: isothrum reap "$CLOUD" --region "$AWS_REGION" --json | tee "$RECORD/reap-post.jsonl"
+
+      - name: Runner cert summary
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          printf '%s\n' \
+            "## Isothrum runner — cloud-vm/aws / $EXAMPLE ($AWS_REGION)" \
+            "up=${{ steps.up.outcome }}, check=${{ steps.check.outcome }}, down=${{ steps.down.outcome }}" \
+            "Record with: cargo xtask tiers record cloud-vm/aws <host> <result> --os linux --note '...' (in the Isoloom repo)" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Forget the key and the arguments
+        if: always()
+        run: rm -rf "$ISOTHRUM_HOME/ssh" "$RUNNER_TEMP"/*.args
+      - name: Upload the runner cert record
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-cert-aws-${{ env.EXAMPLE }}
+          path: ${{ runner.temp }}/record
+          if-no-files-found: warn

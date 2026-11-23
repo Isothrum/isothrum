@@ -1,0 +1,14 @@
+[
+  {
+    "currentValue": "4",
+    "limit": "10",
+    "localName": "Standard DALSv6 Family vCPUs",
+    "name": { "localizedValue": "Standard DALSv6 Family vCPUs", "value": "standardDALSv6Family" }
+  },
+  {
+    "currentValue": 0,
+    "limit": 20,
+    "localName": "Total Regional vCPUs",
+    "name": { "localizedValue": "Total Regional vCPUs", "value": "cores" }
+  }
+]

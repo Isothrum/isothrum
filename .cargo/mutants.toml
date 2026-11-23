@@ -1,0 +1,20 @@
+# cargo-mutants (`cargo run -p xtask -- mutants`): mutation testing of the compiler, the runner's
+# executor and its readers of what Compose, Vagrant and Terraform answer (xtask/src/mutants.rs).
+#
+# Every mutant that survives is killed by a new test, unless no test can tell it apart from the
+# original (an equivalent mutant): then it is listed here, matched by the name `cargo mutants
+# --list` shows, with the reason it is equivalent. Nothing else goes here.
+exclude_re = []
+
+# Lints capped while mutants build: the workspace denies `unused`, so a mutant that replaces a
+# function's body (its arguments then unused) wouldn't compile and would count as unviable, never
+# tested. Capped, it builds and its tests must catch it.
+cap_lints = true
+
+# A test run slower than this is a timeout (a loop the mutant made endless), however fast the
+# unmutated run was: a busy machine doesn't turn a slow run into a false timeout. Each mutant's run
+# recompiles its doctests, so the floor is Isoloom's, five minutes.
+minimum_test_timeout = 300
+
+# The copies each mutant is built in leave out what git ignores: build folders.
+gitignore = true

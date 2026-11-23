@@ -1,0 +1,68 @@
+[package]
+name = "isothrum-runner"
+description = "The Isothrum runner: runs a Compose project, a Vagrantfile or a Terraform module through its own tool (lifecycle, state and locks, the format drivers, events)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/isothrum-runner"
+readme = "README.md"
+keywords = ["isothrum", "runner", "infrastructure", "environment"]
+categories = ["virtualization", "development-tools"]
+publish = true
+
+[features]
+# The test doubles (scripted processes, scripted host ports), for embedders' tests.
+fake = ["dep:tokio-rustls"]
+# The TypeScript type of `Provider` (`VagrantProvider`), for an embedder whose UI is TypeScript.
+ts-rs = ["dep:ts-rs"]
+
+[dependencies]
+# The test HTTPS server of the test doubles (`fake_https.rs`).
+tokio-rustls = { workspace = true, optional = true }
+# The random token of an elevated session (`process/elevated.rs`).
+getrandom.workspace = true
+# A Terraform module's input variables, read from its HCL (`project/variables.rs`).
+hcl.workspace = true
+process-wrap.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Proxmox VE's API (`proxmox.rs`), over rustls with ring's crypto: the server's certificate
+# checked by the system's trust store or pinned by its SHA-256 (`tls.rs`).
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+sha2.workspace = true
+# Binding a port without listening, to tell it is held on all interfaces (`net.rs`).
+socket2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+[dev-dependencies]
+# A test's HTTPS server, its certificate self-signed (`testing/https.rs`).
+tokio-rustls.workspace = true
+isothrum-test-support.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+# What a test reads of the runner's traces (`testing::traced`).
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

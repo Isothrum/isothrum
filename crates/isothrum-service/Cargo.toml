@@ -1,0 +1,40 @@
+[package]
+name = "isothrum-service"
+description = "The Isothrum runner service: one daemon per runner home that queues each run's operations, runs them, and streams their events to its clients over a local socket."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/isothrum-service"
+readme = "README.md"
+keywords = ["isothrum", "runner", "daemon", "ipc"]
+categories = ["virtualization", "development-tools"]
+publish = true
+
+[dependencies]
+getrandom.workspace = true
+interprocess.workspace = true
+isothrum-client.workspace = true
+isothrum-runner.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The SDDL string of the named pipe's security descriptor.
+widestring.workspace = true
+
+[dev-dependencies]
+isothrum-runner = { workspace = true, features = ["fake"] }
+isothrum-test-support.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

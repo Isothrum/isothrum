@@ -1,0 +1,3 @@
+ Image nginx:0.0.0-no-such-tag Pulling 
+ Image nginx:0.0.0-no-such-tag Error failed to resolve reference "docker.io/library/nginx:0.0.0-no-such-tag": docker.io/library/nginx:0.0.0-no-such-tag: not found
+Error response from daemon: failed to resolve reference "docker.io/library/nginx:0.0.0-no-such-tag": docker.io/library/nginx:0.0.0-no-such-tag: not found

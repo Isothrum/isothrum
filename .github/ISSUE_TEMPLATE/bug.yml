@@ -1,0 +1,80 @@
+name: Bug report
+description: Isothrum does something wrong, fails, or crashes.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security vulnerability, don't use this form: see SECURITY.md.
+        Remove secrets from anything you paste (Isothrum masks the values it knows as `***`; a
+        tool's own output may carry others).
+  - type: input
+    id: version
+    attributes:
+      label: Isothrum version
+      description: "`isothrum --version`, or the crate versions for an embedder."
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - Release binary
+        - cargo binstall
+        - cargo install
+        - Built from source
+        - As a library (crate)
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Ubuntu 24.04 x86_64, macOS 15 arm64, Windows 11 x86_64
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Target and provider
+      description: The Isoloom target (`docker`, `vagrant`, `proxmox`, `cloud-vm/aws`, ...) and, for a VM run, the Vagrant provider.
+    validations:
+      required: true
+  - type: textarea
+    id: tools
+    attributes:
+      label: Tool versions
+      description: The tools the target uses.
+      placeholder: |
+        docker compose version
+        vagrant --version
+        terraform version
+      render: text
+  - type: textarea
+    id: command
+    attributes:
+      label: What you ran
+      description: The command and its options.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The output. With `--json`, the last events (the `error` event above all). `ISOTHRUM_LOG=debug` adds traces on standard error.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: The relevant part of `.isoloom/<target>/run.json`, whether it happens every time, what you tried.

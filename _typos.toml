@@ -1,0 +1,20 @@
+# typos (a gate, CONTRIBUTING.md): words that are right here although they look like
+# misspellings.
+
+[default.extend-words]
+# whoami's output format option (`whoami /groups /fo csv /nh`).
+fo = "fo"
+# French, in a localized Windows message a test reads (`en raison de l'erreur`).
+raison = "raison"
+# gpg's `--with-colons` record of a fingerprint.
+fpr = "fpr"
+# French, in apt's localized label a test reads (`Candidat :`).
+Candidat = "Candidat"
+# A login name with an accented letter a test refuses (`caf\u{e9}`).
+caf = "caf"
+# Azure's VM size names (`Standard_D2als_v6`: AMD, low memory, local storage, premium storage).
+als = "als"
+
+[files]
+# A vendor's armoured signing key: base64, not words.
+extend-exclude = ["*.asc"]

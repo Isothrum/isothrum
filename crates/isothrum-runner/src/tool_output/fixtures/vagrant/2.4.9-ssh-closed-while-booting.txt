@@ -1,0 +1,4 @@
+The SSH connection was unexpectedly closed by the remote end. This
+usually indicates that SSH within the guest machine was unable to
+properly start up. Please boot the VM in GUI mode to check whether
+it is booting properly.

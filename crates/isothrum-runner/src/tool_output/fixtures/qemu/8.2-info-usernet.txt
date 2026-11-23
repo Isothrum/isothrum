@@ -1,0 +1,8 @@
+info usernet
+Hub -1 (net0):
+  Protocol[State]    FD  Source Address  Port   Dest. Address  Port RecvQ SendQ
+  TCP[HOST_FORWARD]  14       127.0.0.1  8080       10.0.2.15    80     0     0
+  UDP[HOST_FORWARD]  15       127.0.0.1  5353       10.0.2.15    53     0     0
+  TCP[HOST_FORWARD]  13               *  50022       10.0.2.15    22     0     0
+  TCP[ESTABLISHED]   25       10.0.2.15  48238   151.101.2.132   443     0     0
+(qemu) 

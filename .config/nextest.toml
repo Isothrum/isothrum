@@ -1,0 +1,6 @@
+# cargo nextest: each test in its own process; a slow test is reported, a flaky one fails loudly.
+[profile.default]
+retries = 0
+slow-timeout = { period = "30s", terminate-after = 4 }
+fail-fast = false
+test-threads = 4

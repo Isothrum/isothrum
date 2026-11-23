@@ -1,0 +1,214 @@
+use super::*;
+
+/// Regression: a public key that couldn't be read was no key, and `ssh-keygen` was run over
+/// the existing one, failing on its overwrite prompt.
+#[tokio::test]
+async fn a_public_key_that_cant_be_read_is_an_error_and_no_new_key_is_made() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(key_path(home.path()).with_extension("pub")).unwrap();
+    // Nothing is scripted: running `ssh-keygen` fails the test.
+    let fake = crate::process::fake::FakeProcesses::script().build();
+    let err = ensure_key(&fake, home.path()).await.unwrap_err();
+    assert_eq!(err.code(), crate::ErrorCode::Io, "{err}");
+    assert!(err.to_string().contains("id_ed25519.pub"), "{err}");
+    assert_eq!(public_key(&home.path().join("elsewhere")).unwrap(), None, "a missing key is none");
+}
+
+/// `ssh-keygen` as it runs: a while to make the key, then the private half, then the public
+/// one, each pair its own; over a key already there it fails on its overwrite prompt.
+struct SlowKeygen {
+    home: std::path::PathBuf,
+    made: std::sync::atomic::AtomicUsize,
+}
+
+impl ProcessRunner for SlowKeygen {
+    fn run<'a>(
+        &'a self,
+        _spec: &'a ProcessSpec,
+        _on_line: crate::process::OnLine<'a>,
+    ) -> crate::BoxFuture<'a, std::result::Result<crate::process::Exit, crate::process::ProcessError>> {
+        Box::pin(async move {
+            let key = key_path(&self.home);
+            if key.exists() {
+                return Ok(crate::process::Exit::new(Some(1)));
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let n = self.made.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::fs::write(&key, format!("private {n}")).unwrap();
+            std::fs::write(key.with_extension("pub"), format!("ssh-ed25519 AAAA{n} isothrum\n")).unwrap();
+            Ok(crate::process::Exit::new(Some(0)))
+        })
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_operations_needing_the_key_at_once_make_one_and_both_get_it() {
+    // Regression: each saw no key and ran `ssh-keygen`; the second wrote its key over the
+    // first's, which had already handed its public half on.
+    let home = tempfile::tempdir().unwrap();
+    let keygen = SlowKeygen {
+        home: home.path().to_path_buf(),
+        made: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let (a, b) = tokio::join!(ensure_key(&keygen, home.path()), ensure_key(&keygen, home.path()));
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert_eq!(keygen.made.load(std::sync::atomic::Ordering::SeqCst), 1, "one key made");
+    assert_eq!(a, b);
+    assert_eq!(
+        public_key(home.path()).unwrap().as_deref(),
+        Some(a.as_str()),
+        "the key handed on is the one kept"
+    );
+}
+
+/// Regression (#125): a private key left without its public half (an empty `.pub` from a
+/// disk that filled up) ran `ssh-keygen` over it, which stopped at its overwrite prompt and
+/// failed every later run. Its public half is derived from it again.
+#[tokio::test]
+async fn a_key_left_without_its_public_half_gets_it_back_from_the_private_one() {
+    let home = tempfile::tempdir().unwrap();
+    let key = key_path(home.path());
+    std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+    std::fs::write(&key, "private").unwrap();
+    std::fs::write(key.with_extension("pub"), "").unwrap();
+    let fake = crate::process::fake::FakeProcesses::script()
+        .expect("ssh-keygen -y", crate::process::fake::Reply::ok("ssh-ed25519 AAAAkept"))
+        .build();
+    let got = ensure_key(&fake, home.path()).await.unwrap();
+    assert_eq!(got, "ssh-ed25519 AAAAkept isothrum");
+    assert_eq!(public_key(home.path()).unwrap().as_deref(), Some(got.as_str()));
+    assert_eq!(std::fs::read_to_string(&key).unwrap(), "private", "the private key is kept");
+    // No new key: the script has no `ssh-keygen -q`, which would fail the test.
+}
+
+/// A private key that isn't one (a truncated write) is set aside and a new key made.
+#[tokio::test]
+async fn a_private_key_that_cant_be_read_is_set_aside_and_a_new_one_made() {
+    let home = tempfile::tempdir().unwrap();
+    let key = key_path(home.path());
+    std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+    std::fs::write(&key, "trunc").unwrap();
+    let made = key.clone();
+    // A model of `ssh-keygen`: `-y` can't read the key, a new key is written as it writes one.
+    let fake = crate::process::fake::FakeProcesses::model(move |call| {
+        if call.args.iter().any(|a| a == "-y") {
+            return crate::process::fake::Reply::fail(255, "Load key: invalid format");
+        }
+        if made.exists() {
+            return crate::process::fake::Reply::fail(1, "Overwrite (y/n)? ");
+        }
+        std::fs::write(&made, "new private").unwrap();
+        std::fs::write(made.with_extension("pub"), "ssh-ed25519 AAAAnew isothrum\n").unwrap();
+        crate::process::fake::Reply::ok("")
+    });
+    assert_eq!(ensure_key(&fake, home.path()).await.unwrap(), "ssh-ed25519 AAAAnew isothrum");
+    assert_eq!(std::fs::read_to_string(key.with_extension("unusable")).unwrap(), "trunc", "set aside, not lost");
+    let derived: Vec<bool> = fake.calls().iter().map(|c| c.args.iter().any(|a| a == "-y")).collect();
+    assert_eq!(derived, [true, false], "derived, then made once: {:?}", fake.lines());
+}
+
+/// Regression: a login with no user went out as `@host`, which ssh reads as a host named that.
+/// A user or host that isn't a plain word (none, an option's dash) is refused.
+#[test]
+fn a_login_with_no_user_or_a_dashed_word_is_refused_and_a_plain_one_is_user_at_host() {
+    assert!(Login::new("", "10.0.0.5").is_none(), "no user");
+    assert!(Login::new("root", "-oProxyCommand=x").is_none(), "an option, not a host");
+    assert!(Login::new("-l", "10.0.0.5").is_none(), "an option, not a user");
+    assert_eq!(Login::new("kali", "10.0.0.5").map(|l| l.target()).as_deref(), Some("kali@10.0.0.5"));
+}
+
+fn login(target: &str) -> Login {
+    let (user, host) = target.split_once('@').unwrap();
+    Login::new(user, host).unwrap()
+}
+
+#[test]
+fn a_host_behind_hops_is_reached_through_each_one_ssh_w_nested_its_percent_signs_doubled_per_level() {
+    let state = Path::new("/runs/stack state");
+    let key = Path::new("/home/me/key 1");
+    let hops = [login("root@node.stack"), login("ops@192.0.2.10")];
+    let proxy = proxy_command(key, state, &hops, First::Pinned, PathStyle::Unix).unwrap().unwrap();
+    // The last hop is reached through the first, a level down.
+    assert!(proxy.starts_with("ssh -F none -i '/home/me/key 1' "), "{proxy}");
+    assert!(proxy.ends_with(" -W %h:%p ops@192.0.2.10"), "{proxy}");
+    let inner = "'ProxyCommand=ssh -F none -i '\\''/home/me/key 1'\\''";
+    assert!(proxy.contains(inner), "the first hop's own ssh, quoted inside: {proxy}");
+    assert!(proxy.contains("-W %%h:%%p root@node.stack"), "its tokens doubled once: {proxy}");
+    // The first hop is pinned first; the router behind it, on first meeting.
+    assert!(proxy.contains("StrictHostKeyChecking=accept-new"), "{proxy}");
+    assert!(proxy.contains("StrictHostKeyChecking=yes"), "{proxy}");
+    // The run's known hosts, as the options name it, its `%` tokens never ours.
+    let odd = proxy_command(key, Path::new("/runs/100%"), &hops[..1], First::Pinned, PathStyle::Unix)
+        .unwrap()
+        .unwrap();
+    assert!(
+        odd.contains("/runs/100%%%%/known_hosts"),
+        "`%%` in the option, doubled again in the command: {odd}"
+    );
+    assert_eq!(
+        proxy_command(key, state, &[], First::Pinned, PathStyle::Unix).unwrap(),
+        None,
+        "no hop: no ProxyCommand"
+    );
+    let straight = options_through(key, state, &[], First::Pinned).unwrap();
+    assert!(straight.contains(&"StrictHostKeyChecking=yes".to_owned()) && !straight.iter().any(|o| o.starts_with("ProxyCommand=")));
+}
+
+#[test]
+fn a_windows_proxy_command_quotes_its_words_as_the_c_runtime_splits_them() {
+    let proxy = proxy_command(
+        Path::new(r"C:\Users\a b\key"),
+        Path::new("C:/runs/stack"),
+        &[login("root@node.stack")],
+        First::Pinned,
+        PathStyle::Windows,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(proxy.starts_with(r#"ssh -F none -i "C:\Users\a b\key" "#), "{proxy}");
+    assert_eq!(windows_quote(r#"a "b" c\"#), r#""a \"b\" c\\""#);
+    assert_eq!(windows_quote(r"C:\x\"), r#""C:\x\\""#);
+}
+
+#[test]
+fn a_first_host_whose_keys_are_given_is_checked_against_that_file_alone_and_the_hosts_behind_it_against_the_runs() {
+    let state = Path::new("/runs/stack");
+    let key = Path::new("/keys/run");
+    let given = Path::new("/app/nodes_known_hosts");
+    let straight = options(key, state, First::Given(given)).unwrap();
+    let option = |args: &[String], name: &str| args.iter().filter(|a| a.starts_with(name)).cloned().collect::<Vec<_>>();
+    assert_eq!(option(&straight, "UserKnownHostsFile="), ["UserKnownHostsFile=\"/app/nodes_known_hosts\""]);
+    assert_eq!(option(&straight, "StrictHostKeyChecking="), ["StrictHostKeyChecking=yes"]);
+    assert_eq!(option(&straight, "UpdateHostKeys="), ["UpdateHostKeys=no"], "the file never written");
+    let pinned = options(key, state, First::Pinned).unwrap();
+    assert_eq!(option(&pinned, "UserKnownHostsFile="), ["UserKnownHostsFile=\"/runs/stack/known_hosts\""]);
+    assert!(!pinned.iter().any(|a| a.starts_with("UpdateHostKeys=")), "{pinned:?}");
+    // Through the jump host to a router: the jump checked against the file, the router (met only
+    // through it) pinned in the run's own.
+    let hops = [login("root@node.stack"), login("ops@192.0.2.10")];
+    let proxy = proxy_command(key, state, &hops, First::Given(given), PathStyle::Unix).unwrap().unwrap();
+    let (outer, inner) = proxy.split_once("ProxyCommand=").unwrap();
+    assert!(outer.contains("/runs/stack/known_hosts") && outer.contains("accept-new"), "{proxy}");
+    assert!(
+        inner.contains("/app/nodes_known_hosts") && inner.contains("StrictHostKeyChecking=yes"),
+        "{proxy}"
+    );
+    assert!(!inner.contains("/runs/stack/known_hosts"), "{proxy}");
+}
+
+#[tokio::test]
+async fn a_given_known_hosts_file_is_never_pinned_in_and_one_not_there_is_refused() {
+    use crate::process::fake::{FakeProcesses, Reply};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("nodes_known_hosts");
+    std::fs::write(&file, "node.stack ssh-ed25519 AAAA\n").unwrap();
+    let fake = FakeProcesses::model(|_| Reply::ok("node.stack ssh-ed25519 BBBB"));
+    ready(&fake, dir.path(), "node.stack", First::Given(&file)).await.unwrap();
+    assert!(fake.calls().is_empty(), "no ssh-keyscan: {:?}", fake.calls());
+    assert!(!dir.path().join(KNOWN_HOSTS).exists(), "nothing pinned in the run's");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "node.stack ssh-ed25519 AAAA\n");
+    let gone = dir.path().join("gone");
+    let e = ready(&fake, dir.path(), "node.stack", First::Given(&gone)).await.unwrap_err();
+    assert_eq!(e.code(), crate::ErrorCode::ToolFailed);
+    assert!(e.to_string().contains("isn't there"), "{e}");
+}

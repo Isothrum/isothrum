@@ -1,0 +1,436 @@
+//! The event stream: what an operation does, as JSON values an embedder shows or a command line
+//! prints one per line (`isothrum … --json`): the `event` tag, `step`/`log`/`result`, with the
+//! run, the operation, a sequence number, the time on every event, and the stream's version `v`.
+//!
+//! Rules: a secret's value never appears (masked before the event is built); `log` lines are
+//! decoded lossily; an operation ends with exactly one `result` or `error`.
+
+mod emitter;
+mod result_data;
+
+#[cfg(test)]
+use std::sync::{Mutex, PoisonError};
+
+use serde::{Deserialize, Serialize};
+
+pub(crate) use emitter::{Emitter, MASK, StoreLog};
+
+use crate::state::{Op, RunState};
+pub use result_data::{ResultData, ShownOutput, SweepFailure};
+
+/// The event stream's version.
+pub(crate) const EVENTS_VERSION: u32 = 1;
+
+/// Where a step stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StepState {
+    /// Started, or moved on (said again with its new `count`).
+    Started,
+    /// Finished and succeeded.
+    Done,
+    /// Finished and failed: the operation's failure is this step's.
+    Failed,
+    /// Cut short or not run: another step failed.
+    Skipped,
+}
+
+/// Which output of a tool a line came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Stream {
+    /// Its standard output.
+    Stdout,
+    /// Its standard error.
+    Stderr,
+}
+
+/// Where a journaled operation stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OperationPhase {
+    /// Accepted and waiting in its run's queue.
+    Queued,
+    /// Begun.
+    Started,
+    /// Ended (its `outcome` says how).
+    Ended,
+}
+
+/// What happened.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "event", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EventKind {
+    /// The run moved from one state to another.
+    State {
+        /// Before.
+        from: RunState,
+        /// After.
+        to: RunState,
+    },
+    /// A step started, moved on, finished, failed or was skipped: one of the format's own
+    /// ([`crate::Phase`], whose `id` the step is).
+    Step {
+        /// The step's id ([`crate::Phase::id`]).
+        step: String,
+        /// Where it stands.
+        state: StepState,
+        /// What it is about, when it is one of several of its kind: a machine.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// How far it is, when it counts what it does (images, containers, resources).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<crate::StepCount>,
+    },
+    /// A line a step's tool printed.
+    Log {
+        /// The step's id.
+        step: String,
+        /// Which output.
+        stream: Stream,
+        /// The line, without its line break.
+        line: String,
+    },
+    /// An output's value, once the run is up.
+    Output {
+        /// The output's name.
+        name: String,
+        /// Its value (`***` when sensitive), or null when it can't be read.
+        value: Option<String>,
+        /// Whether the value is sensitive.
+        sensitive: bool,
+    },
+    /// Something the embedder may show, that didn't fail the operation.
+    Warning {
+        /// What kind.
+        code: WarningCode,
+        /// The text.
+        message: String,
+    },
+    /// The operation's outcome, when it ran to its end.
+    Result {
+        /// Whether it reached its goal (false: a check failed).
+        ok: bool,
+        /// What it found or produced, by operation.
+        data: ResultData,
+    },
+    /// A journaled operation was queued, started or ended: what a runner service says of the
+    /// operations it queues (the runner's own operation stream doesn't carry it: it still ends
+    /// with exactly one `result` or `error`).
+    Operation {
+        /// Where the operation stands.
+        phase: OperationPhase,
+        /// How it ended, when `phase` is `ended`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<crate::store::Outcome>,
+        /// Its place in its run's queue (0: next), when `phase` is `queued`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        position: Option<u32>,
+    },
+    /// What the user wants of the run changed: an operation that moves it began (`up`, `resume`:
+    /// running; `park`: parked; `down`: gone).
+    Desired {
+        /// What is wanted now.
+        desired: crate::state::Desired,
+    },
+    /// A resource of the run moved in the home's write-ahead ledger: written `creating` before
+    /// the call that makes it, `created` with the tool's id after it, `destroying` before the call
+    /// that removes it, `gone` after.
+    Resource {
+        /// The resource's key in the run (`container:web-1`, a volume's name, a local thing's kind).
+        key: String,
+        /// What it is.
+        kind: crate::store::ResourceKind,
+        /// Where it stands now.
+        state: crate::store::ResourceState,
+        /// The tool's id for it, once it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        native_id: Option<String>,
+    },
+    /// Why the operation failed: its code, message, step, typed fields and whether the run was
+    /// touched ([`crate::ErrorReport`]).
+    Error(crate::ErrorReport),
+}
+
+/// A run's logged events ([`crate::Runner::events`]), and how many of the log's lines it
+/// couldn't read as one: a line another version of the runner wrote (an event kind or a code
+/// this one doesn't know), or one cut short.
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct EventLog {
+    /// The events, oldest first.
+    pub events: Vec<Event>,
+    /// The lines that aren't an event this runner reads.
+    pub unreadable: usize,
+}
+
+/// One event of the stream.
+///
+/// Every event of an operation has `run` and `op`. An event written outside one ([`Event::new`])
+/// has those its writer knows. The command line's own: a command line it refused has neither;
+/// `reap`'s closing `result` and `error` have neither; any other failure before an operation
+/// began has `op` when the command is an operation, and `run` when `--name` named it (a failure
+/// of `status`, `console`, `events` or `key` has no `op`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[non_exhaustive]
+pub struct Event {
+    /// The stream's version (1).
+    pub v: u32,
+    /// Its place in the operation, from 1.
+    pub seq: u64,
+    /// When (`YYYY-MM-DDTHH:MM:SSZ`, UTC).
+    pub time: String,
+    /// The run's name: on every event of an operation; outside one, when its writer knows it
+    /// (see [`Event`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    /// The operation: on every event of an operation; outside one, when its writer knows it (see
+    /// [`Event`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<Op>,
+    /// The operation's id in the home's journal: on every event of a journaled operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<crate::store::OperationId>,
+    /// What happened.
+    #[serde(flatten)]
+    pub kind: EventKind,
+}
+
+impl Event {
+    /// An event an embedder writes itself, timed now, with the `run` and `op` it knows: the runner
+    /// numbers and writes its own. For what no operation reports, such as a command that couldn't
+    /// start one (an `error` with code `usage`).
+    #[must_use]
+    pub fn new(seq: u64, run: Option<String>, op: Option<Op>, kind: EventKind) -> Event {
+        Event {
+            v: EVENTS_VERSION,
+            seq,
+            time: crate::clock::rfc3339(std::time::SystemTime::now()),
+            run,
+            op,
+            operation: None,
+            kind,
+        }
+    }
+}
+
+/// Where an operation's events go. Implemented for closures (`|e: &Event| …`).
+pub trait Events: Send + Sync {
+    /// Receives one event.
+    fn emit(&self, event: &Event);
+}
+
+impl<F: Fn(&Event) + Send + Sync> Events for F {
+    fn emit(&self, event: &Event) {
+        self(event);
+    }
+}
+
+/// What kind of warning a `warning` event is, the same in the Rust API and the event stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WarningCode {
+    /// A step whose failure the manifest tolerates failed.
+    StepTolerated,
+    /// A check runner failed or ran out of time: its checks that didn't report fail.
+    CheckRunnerFailed,
+    /// A clean-up of the checks failed: a check runner's that ran out of time (`on_timeout`), or
+    /// the teardown after a setup that failed too (the check ends with the setup's error).
+    CheckCleanupFailed,
+    /// What an earlier run left is removed before a start.
+    LeftoversRemoved,
+    /// A VM (or its folder) an earlier run left was removed.
+    OrphanRemoved,
+    /// The run last ran on another Vagrant provider: that run is cleared first.
+    OtherProvider,
+    /// A VM's saved state was cut off: it boots fresh.
+    SavedStateDiscarded,
+    /// A start failed on stale state: cleared, then started again.
+    Recovering,
+    /// A step is tried again: an apply that failed, an `ssh.run` whose host doesn't answer yet, a
+    /// Vagrant command another Vagrant process's lock on a machine refused, a UTM `up` an Apple
+    /// event failed in passing (once), or a download the network cut (a connection reset, a
+    /// gateway's 502), up to three more times.
+    Retrying,
+    /// An operation that failed couldn't update the run's record either: the operation's own
+    /// error is the one it ends with.
+    RecordNotSaved,
+    /// An output's `format` couldn't be filled (it names a value the run doesn't have): the
+    /// output has no value.
+    OutputUnformatted,
+    /// A resource a destroy found already gone (its provider's error, which the manifest names) is
+    /// dropped from the run's state, and the destroy runs again.
+    AlreadyGone,
+    /// A clean-up the runner does on its own, best effort, failed (an earlier run's VM or its
+    /// folder, the hypervisor's list of them, the run on another Vagrant provider): what it would have removed may still be
+    /// there, and the start goes on.
+    CleanupFailed,
+    /// A Terraform module keeps its state in a backend of its own: every copy of it shares that
+    /// state.
+    SharedState,
+    /// A running machine's forwarded ports couldn't be read (its provider can't list them, and
+    /// its hypervisor didn't say): it has no published port, and runs on.
+    PortsUnknown,
+    /// A machine's published host port is another than the one the run kept from its first
+    /// start (a Vagrant provider's `auto_correct` re-picked it at a boot): its address moved.
+    PortsMoved,
+    /// A tool printed no version the runner reads: it is used, its minimum version unchecked.
+    VersionUnknown,
+    /// On Windows, the host adapter of a VMware private network has no address of its own and
+    /// couldn't be given one (the administrator's prompt declined, VMware's `vnetlib` failed):
+    /// this computer reaches the run's machines on their forwarded ports, not at their private
+    /// addresses.
+    HostAdapterUnaddressed,
+}
+
+/// Events kept in memory, for tests.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct Recorder(Mutex<Vec<Event>>);
+
+#[cfg(test)]
+impl Recorder {
+    /// An empty recorder.
+    #[must_use]
+    pub(crate) fn new() -> Recorder {
+        Recorder::default()
+    }
+
+    /// Every event so far, in order.
+    pub(crate) fn events(&self) -> Vec<Event> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+#[cfg(test)]
+impl Events for Recorder {
+    fn emit(&self, event: &Event) {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).push(event.clone());
+    }
+}
+
+/// The JSON Schema of one event.
+#[must_use]
+pub fn events_schema() -> serde_json::Value {
+    titled_schema::<Event>(&format!("Isothrum runner event, version {EVENTS_VERSION}"))
+}
+
+/// `T`'s JSON Schema, titled `title`.
+pub(crate) fn titled_schema<T: schemars::JsonSchema>(title: &str) -> serde_json::Value {
+    let schema = schemars::schema_for!(T);
+    // Written out as schemars writes a schema (its leading keys first, at every level); should that
+    // ever fail, the schema's own value, the same keys in another order, rather than nothing.
+    let mut value = serde_json::to_value(&schema).unwrap_or_else(|_| schema.to_value());
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("title".to_owned(), serde_json::json!(title));
+    }
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{ErrorCode, TimedOut};
+
+    fn event(kind: EventKind) -> Event {
+        Event {
+            v: 1,
+            seq: 1,
+            time: "2026-10-15T12:00:00Z".into(),
+            run: Some("web-portal".into()),
+            op: Some(Op::Up),
+            operation: None,
+            kind,
+        }
+    }
+
+    /// The JSON an embedder reads: the common fields, then the kind's own, an optional field
+    /// left out when it has no value; and each reads back as itself.
+    #[test]
+    fn each_event_is_written_as_documented_and_reads_back() {
+        let common = serde_json::json!({"v": 1, "seq": 1, "time": "2026-10-15T12:00:00Z", "run": "web-portal", "op": "up"});
+        let cases = [
+            (
+                EventKind::Step {
+                    step: "images".into(),
+                    state: StepState::Started,
+                    label: None,
+                    count: Some(crate::StepCount::new(1, Some(3))),
+                },
+                serde_json::json!({"event": "step", "step": "images", "state": "started", "count": {"done": 1, "total": 3}}),
+            ),
+            (
+                EventKind::Step {
+                    step: "provision".into(),
+                    state: StepState::Failed,
+                    label: Some("dc01".into()),
+                    count: None,
+                },
+                serde_json::json!({"event": "step", "step": "provision", "state": "failed", "label": "dc01"}),
+            ),
+            (
+                EventKind::Error(crate::ErrorReport {
+                    step: Some("up".into()),
+                    detail: Some(crate::ErrorDetail {
+                        v: 2,
+                        data: crate::Detail::Timeout {
+                            timed_out: TimedOut::NoProgress {
+                                after_s: 30,
+                                last_line: Some("pulling".into()),
+                            },
+                        },
+                    }),
+                    ..crate::ErrorReport::new(ErrorCode::Timeout, "m")
+                }),
+                serde_json::json!({
+                    "event": "error", "code": "timeout", "message": "m", "step": "up", "changed": true,
+                    "detail": {"v": 2, "kind": "timeout", "timed_out": {"kind": "no_progress", "after_s": 30, "last_line": "pulling"}}
+                }),
+            ),
+            (
+                EventKind::Error(crate::ErrorReport::new(ErrorCode::PortInUse, "m").unchanged()),
+                serde_json::json!({"event": "error", "code": "port_in_use", "message": "m", "changed": false}),
+            ),
+        ];
+        for (kind, own) in cases {
+            let e = event(kind);
+            let mut expected = common.clone();
+            expected.as_object_mut().unwrap().extend(own.as_object().unwrap().clone());
+            let json = serde_json::to_value(&e).unwrap();
+            assert_eq!(json, expected);
+            assert_eq!(serde_json::from_value::<Event>(json).unwrap(), e);
+        }
+    }
+
+    /// A kind is never removed or renamed within a version of the stream: the schema still names
+    /// each the stream has had (it may name more).
+    #[test]
+    fn the_schema_keeps_every_event_kind_the_stream_has_had() {
+        let schema = events_schema();
+        let kinds: Vec<&str> = schema["oneOf"]
+            .as_array()
+            .expect("one schema per kind")
+            .iter()
+            .filter_map(|kind| kind["properties"]["event"]["const"].as_str())
+            .collect();
+        for kind in [
+            "state",
+            "step",
+            "log",
+            "output",
+            "warning",
+            "result",
+            "operation",
+            "desired",
+            "resource",
+            "error",
+        ] {
+            assert!(kinds.contains(&kind), "{kind}: {kinds:?}");
+        }
+    }
+}

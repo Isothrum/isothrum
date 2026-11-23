@@ -1,0 +1,4 @@
+target/
+# wasm-pack output (`cargo run -p xtask -- wasm`)
+web/
+node_modules/

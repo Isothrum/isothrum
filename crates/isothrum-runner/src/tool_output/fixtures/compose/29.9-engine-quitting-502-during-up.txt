@@ -1,0 +1,4 @@
+ Container stack-cache-1 Starting 
+ Container stack-cache-1 Error dependency cache failed to start
+ Container stack-web-1 not started: condition "service_healthy" of service "cache" not met 
+dependency failed to start: request returned 502 Bad Gateway for API route and version http://%2FUsers%2Fada%2F.docker%2Frun%2Fdocker.sock/v1.56/containers/1358171828f5/json, check if the server supports the requested API version

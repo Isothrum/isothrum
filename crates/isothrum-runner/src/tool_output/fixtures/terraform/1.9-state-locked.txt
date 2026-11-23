@@ -1,0 +1,14 @@
+╷
+│ Error: Error acquiring the state lock
+│ 
+│ Error message: resource temporarily unavailable
+│ Lock Info:
+│   ID:        9db590f1-b6fe-c5f2-2678-8804f089deba
+│   Path:      terraform.tfstate
+│   Operation: OperationTypeApply
+│   Who:       u@host
+│   Version:   1.9.8
+│ 
+│ Terraform acquires a state lock to protect the state from being written
+│ by multiple users at the same time.
+╵

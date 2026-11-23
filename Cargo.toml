@@ -1,0 +1,120 @@
+[workspace]
+resolver = "3"
+members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-client", "crates/isothrum-service", "crates/isothrum-test-support", "xtask"]
+
+[workspace.package]
+version = "3.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+repository = "https://github.com/Isothrum/isothrum"
+homepage = "https://www.isothrum.com"
+# Default-deny: a crate opts in with `publish = true`. xtask stays unpublished.
+publish = false
+
+[workspace.dependencies]
+isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
+isothrum-test-support = { path = "crates/isothrum-test-support" }
+isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
+isothrum-machine = { path = "crates/isothrum-machine", version = "3.0.0" }
+isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+serde_json = "1"
+thiserror = "2"
+schemars = "1"
+# The TypeScript types of what an embedder's UI shows (the `ts-rs` features).
+ts-rs = "12"
+regex = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "net"] }
+process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
+nix = { version = "0.31", default-features = false, features = ["signal"] }
+clap = { version = "4", features = ["derive", "string"] }
+clap_complete = "4"
+tempfile = "3"
+proptest = { version = "1", default-features = false, features = ["std"] }
+insta = "1"
+toml = "1"
+hcl = { package = "hcl-rs", version = "0.19" }
+tar = "0.4"
+flate2 = "1"
+getrandom = "0.4"
+# A port checked on all interfaces bound without listening (`net.rs`), its address reuse set.
+socket2 = "0.6"
+# The runner's HTTPS client (Proxmox VE's API) and its certificate checks (`isothrum_runner::tls`):
+# rustls with ring's crypto, as the launcher links it, so one TLS stack serves both.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7"
+sha2 = "0.11"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# The home's transactional store (`isothrum_runner::store`), SQLite built in: the launcher links
+# the same version, so one `libsqlite3-sys` serves both.
+rusqlite = { version = "0.41", features = ["bundled"] }
+# The runner service's local endpoint: a Unix domain socket, a Windows named pipe (with its ACL).
+interprocess = { version = "2.4", features = ["tokio"] }
+# The client's event stream is a `Stream`.
+futures-core = "0.3"
+# The SDDL string of the service's named pipe security descriptor (Windows).
+widestring = "1"
+
+# Every crate inherits these (`[lints] workspace = true`): Isoloom's clean-code lints and the Rust
+# practices (no unsafe, no panic outside tests, documented public API), every one at "deny" now
+# that each crate is at zero. A lint ever back at "warn" is counted by
+# `cargo run -p xtask -- quality` (the ratchet, `quality-baseline.json`), which fails when a count
+# goes up. An exception is a local `#[expect(lint, reason = "…")]`, never an `#[allow]`.
+[workspace.lints.rust]
+# One exception: creating a Windows tool inside its job object, which std can't do
+# (`isothrum-runner`'s `process/job.rs`, each block under `#[expect(unsafe_code)]` with its
+# `SAFETY:` comment). Everything else is grouped and killed through `process-wrap` or std.
+unsafe_code = "deny"
+unused = { level = "deny", priority = -1 }
+missing_docs = "deny"
+unreachable_pub = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+missing_crate_level_docs = "deny"
+bare_urls = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -2 }
+pedantic = { level = "deny", priority = -1 }
+doc_markdown = "deny"
+similar_names = "deny"
+# Limits (pedantic or nursery; thresholds in clippy.toml): functions 60 lines, 5 parameters,
+# cognitive complexity 15.
+too_many_lines = "deny"
+too_many_arguments = "deny"
+cognitive_complexity = "deny"
+fn_params_excessive_bools = "deny"
+struct_excessive_bools = "deny"
+# Exceptions carry a reason and fail once unneeded: `#[expect(lint, reason = "...")]`.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"
+# Restriction lints (tests may unwrap, expect, panic, print and index: see clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+as_conversions = "deny"
+wildcard_imports = "deny"
+shadow_unrelated = "deny"
+let_underscore_must_use = "deny"
+clone_on_ref_ptr = "deny"
+rc_buffer = "deny"
+str_to_string = "deny"
+get_unwrap = "deny"

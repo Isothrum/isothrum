@@ -1,0 +1,6 @@
+1794306140,web,metadata,provider,virtualbox
+1794306140,web,provider-name,virtualbox
+1794306140,web,state,not_created
+1794306140,web,state-human-short,not created
+1794306140,web,state-human-long,The environment has not yet been created. Run `vagrant up` to\ncreate the environment. If a machine is not created%!(VAGRANT_COMMA) only the default\nprovider will be shown. So if a provider is not listed%!(VAGRANT_COMMA)\nthen the machine is not created for that environment.
+1794306140,,ui,info,Current machine states:\n\nweb                       not created (virtualbox)\n\nThe environment has not yet been created. Run `vagrant up` to\ncreate the environment. If a machine is not created%!(VAGRANT_COMMA) only the default\nprovider will be shown. So if a provider is not listed%!(VAGRANT_COMMA)\nthen the machine is not created for that environment.

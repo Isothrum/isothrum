@@ -1,0 +1,5 @@
+ERROR: (gcloud.billing.projects.link) FAILED_PRECONDITION: Precondition check failed.
+- '@type': type.googleapis.com/google.rpc.QuotaFailure
+  violations:
+  - description: 'Cloud billing quota exceeded: https://support.google.com/code/contact/billing_quota_increase'
+    subject: billingAccounts/0X0X0X-0X0X0X-0X0X0X
