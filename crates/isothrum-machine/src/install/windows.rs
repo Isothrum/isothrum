@@ -65,12 +65,7 @@ fn not_on_arm(dep: Dependency, arch: Arch) -> Option<Refusal> {
 ///
 /// [`Refusal`]: why it can't be installed here.
 pub fn install(dep: Dependency, arch: Arch) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(HostOs::Windows) {
-        return Err(Refusal::NotHere {
-            dependency: dep,
-            os: HostOs::Windows,
-        });
-    }
+    dep.runs_here(HostOs::Windows)?;
     if let Some(refusal) = not_on_arm(dep, arch) {
         return Err(refusal);
     }

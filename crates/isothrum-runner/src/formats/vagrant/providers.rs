@@ -4,16 +4,7 @@
 use crate::project::platform::{HostOs, Provider};
 
 /// Every provider the driver runs.
-pub(super) const ALL: [Provider; 8] = [
-    Provider::Virtualbox,
-    Provider::VmwareDesktop,
-    Provider::Hyperv,
-    Provider::Parallels,
-    Provider::Libvirt,
-    Provider::Qemu,
-    Provider::Utm,
-    Provider::VmwareEsxi,
-];
+pub(super) const ALL: [Provider; 8] = Provider::ALL;
 
 /// The host systems `provider` runs on: Hyper-V only on Windows, Parallels and UTM only on macOS,
 /// libvirt only on Linux, QEMU on Linux and macOS; the others everywhere (ESXi is a server).

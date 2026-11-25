@@ -63,26 +63,8 @@ async fn the_server_self_test_brings_a_vm_up_on_proxmox_and_takes_it_down() {
     let public = answer(&cx, "ssh-keygen", &["-y", "-f", &key]).await.expect("the key's public half");
     let token = SignIn::Token(SecretValue::new(terraform_token(&id, &secret)));
     let target = through_node(Proxmox::new(server.endpoint(), token, node), &node_ssh, Key::new(key, public.trim()));
-    let dir = tempfile::tempdir().expect("a folder");
-    let said = Mutex::new(Vec::new());
-    let sink = |progress: StepProgress| {
-        if !matches!(progress, Progress::Passed(_, Found::Line { .. })) {
-            println!("{progress:?}");
-            said.lock().unwrap_or_else(PoisonError::into_inner).push(progress);
-        }
-    };
-    let ran = Box::pin(server::run(&cx, dir.path(), &Server::Proxmox(target), &TestVm::new(VM_NAME, VM_HOST), &sink)).await;
-    if let Err(failed) = &ran.passed {
-        panic!("{failed}")
-    }
-    assert_eq!(ran.cleaned_up, Some(Ok(())), "taken down");
-    let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
-    assert_eq!(passed(&said), STEPS, "every step passes, in its order");
-    assert!(
-        said.iter()
-            .any(|step| matches!(step, Progress::Passed(Step::Exec, Found::Uname(u)) if u.contains("Linux"))),
-        "the command ran inside: {said:?}"
-    );
+    let steps = passes_and_takes_the_vm_down(&cx, &Server::Proxmox(target)).await;
+    assert_eq!(steps, STEPS, "every step passes, in its order");
 }
 
 /// The test VM comes up on the ESXi host from a Vagrant box, a command runs inside, and it is
@@ -110,28 +92,9 @@ async fn the_server_self_test_brings_a_vm_up_on_esxi_and_takes_it_down() {
     esxi.port = setting("ISOTHRUM_TEST_ESXI_PORT").and_then(|p| p.parse().ok()).unwrap_or(22);
     esxi.datastore = setting("ISOTHRUM_TEST_ESXI_DATASTORE");
     esxi.network = setting("ISOTHRUM_TEST_ESXI_NETWORK");
-    let dir = tempfile::tempdir().expect("a folder");
-    let said = Mutex::new(Vec::new());
-    let sink = |progress: StepProgress| {
-        if !matches!(progress, Progress::Passed(_, Found::Line { .. })) {
-            println!("{progress:?}");
-            said.lock().unwrap_or_else(PoisonError::into_inner).push(progress);
-        }
-    };
-    let ran = Box::pin(server::run(&cx, dir.path(), &Server::Esxi(esxi), &TestVm::new(VM_NAME, VM_HOST), &sink)).await;
-    if let Err(failed) = &ran.passed {
-        panic!("{failed}")
-    }
-    assert_eq!(ran.cleaned_up, Some(Ok(())), "taken down");
-    let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
-    let steps = passed(&said);
+    let steps = passes_and_takes_the_vm_down(&cx, &Server::Esxi(esxi)).await;
     assert_eq!(steps.first(), Some(&Step::Host), "the host answers first: {steps:?}");
     assert_eq!(steps.last(), Some(&Step::Down), "taken down last: {steps:?}");
-    assert!(
-        said.iter()
-            .any(|step| matches!(step, Progress::Passed(Step::Exec, Found::Uname(u)) if u.contains("Linux"))),
-        "the command ran inside: {said:?}"
-    );
 }
 
 /// `p` with the settings' storage and bridge, Terraform reading the certificate unchecked, and
@@ -154,6 +117,31 @@ fn through_node(mut p: Proxmox, node_ssh: &ssh::Server, key: Key) -> Proxmox {
     });
     p.key = Some(key);
     p
+}
+
+/// The server self-test on `server`, its progress printed: it passes, the command runs inside the
+/// VM, and the VM is taken down. The steps that passed, in order.
+async fn passes_and_takes_the_vm_down(cx: &isothrum_machine::Context, server: &Server) -> Vec<Step> {
+    let dir = tempfile::tempdir().expect("a folder");
+    let said = Mutex::new(Vec::new());
+    let sink = |progress: StepProgress| {
+        if !matches!(progress, Progress::Passed(_, Found::Line { .. })) {
+            println!("{progress:?}");
+            said.lock().unwrap_or_else(PoisonError::into_inner).push(progress);
+        }
+    };
+    let ran = Box::pin(server::run(cx, dir.path(), server, &TestVm::new(VM_NAME, VM_HOST), &sink)).await;
+    if let Err(failed) = &ran.passed {
+        panic!("{failed}")
+    }
+    assert_eq!(ran.cleaned_up, Some(Ok(())), "taken down");
+    let said = said.into_inner().unwrap_or_else(PoisonError::into_inner);
+    assert!(
+        said.iter()
+            .any(|step| matches!(step, Progress::Passed(Step::Exec, Found::Uname(u)) if u.contains("Linux"))),
+        "the command ran inside: {said:?}"
+    );
+    passed(&said)
 }
 
 /// The steps that passed in `said`, in order (not the preparation's word that it takes an
