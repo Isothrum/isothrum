@@ -62,3 +62,31 @@ pub(super) fn engine_error(step: &str, e: CliError<Failure>) -> Error {
         other => tool_error(&step, other),
     }
 }
+
+/// An `up`'s failure as the runner says it: a taken host port is `port_in_use`, with the port and
+/// protocol Docker names (0 and TCP when it names none), an image's pull the registry refused
+/// `download_failed` (step `pull-<step>`), anything else as any tool's.
+pub(super) fn up_error(step: &str, e: CliError<Failure>) -> Error {
+    match e {
+        CliError::Failed {
+            failure: Failure::PortTaken(taken),
+            ..
+        } => {
+            let (port, protocol) = taken.unwrap_or((0, crate::project::platform::Protocol::Tcp));
+            Error::PortInUse {
+                port: crate::port::HostPort::new(port),
+                protocol: crate::encoding::wire_name(&protocol),
+                holder: None,
+            }
+        }
+        CliError::Failed {
+            failure: Failure::PullRefused(reason),
+            ..
+        } => Error::DownloadFailed {
+            what: crate::error::DownloadKind::Images,
+            step: format!("pull-{step}"),
+            reason,
+        },
+        other => engine_error(step, other),
+    }
+}
