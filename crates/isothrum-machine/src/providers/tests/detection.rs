@@ -18,13 +18,34 @@ async fn detect_on_linux(tools: FakeProcesses) -> Vec<ProviderStatus> {
 
 // Linux.
 
+/// QEMU on Linux with Vagrant's `vagrant-qemu` plugin, `mkisofs -version` answering `mkisofs`.
+fn qemu_with_its_plugin(mkisofs: Reply) -> FakeProcesses {
+    on_linux(FakeProcesses::script())
+        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
+        .expect("mkisofs -version", mkisofs)
+        .expect(PLUGINS, listing(&[("vagrant-qemu", "0.6.3")]))
+        .build()
+}
+
+/// A Linux host under `root` just restarted into the kernel VirtualBox's install brought (its
+/// headers there), KVM loaded and VirtualBox's driver not yet.
+fn restarted_into_a_new_kernel(root: &std::path::Path) -> Host {
+    let host = linux(root);
+    write(&host.devices.proc_modules, "kvm 1404928 0 - Live 0x0\n");
+    write(&host.devices.kernel_release, "6.12.117+deb13-amd64\n");
+    std::fs::create_dir_all(host.devices.lib_modules.join("6.12.117+deb13-amd64/build")).unwrap();
+    host
+}
+
+/// Why `provider` is unavailable on `host` whose tools are `tools`, as detection reads it.
+async fn why_unavailable(tools: FakeProcesses, host: Host, provider: Provider) -> Option<Unavailable> {
+    let (cx, _) = context(tools, host);
+    status_of(&detect(&cx, true).await, provider).reason.clone()
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_qemu_with_its_plugin_and_mkisofs_is_ready() {
-    let tools = on_linux(FakeProcesses::script())
-        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
-        .expect("mkisofs -version", Reply::ok("mkisofs 2.01"))
-        .expect(PLUGINS, listing(&[("vagrant-qemu", "0.6.3")]))
-        .build();
+    let tools = qemu_with_its_plugin(Reply::ok("mkisofs 2.01"));
     let statuses = detect_on_linux(tools).await;
     let qemu = status_of(&statuses, Provider::Qemu);
     assert_eq!((qemu.reason.clone(), qemu.available, qemu.hypervisor), (None, true, Some(true)));
@@ -33,11 +54,7 @@ async fn a_qemu_with_its_plugin_and_mkisofs_is_ready() {
 
 #[tokio::test(start_paused = true)]
 async fn qemu_on_linux_reads_as_not_installed_without_mkisofs_which_its_install_brings() {
-    let tools = on_linux(FakeProcesses::script())
-        .expect("qemu-system-x86_64 --version", Reply::ok("QEMU 10.0"))
-        .expect("mkisofs -version", Reply::missing())
-        .expect(PLUGINS, listing(&[("vagrant-qemu", "0.6.3")]))
-        .build();
+    let tools = qemu_with_its_plugin(Reply::missing());
     let statuses = detect_on_linux(tools).await;
     let qemu = status_of(&statuses, Provider::Qemu);
     assert_eq!((qemu.hypervisor, qemu.reason.clone()), (Some(false), Some(Unavailable::MkisofsMissing)));
@@ -96,10 +113,8 @@ async fn an_arm_host_probes_its_own_qemu() {
         .expect("qemu-system-aarch64 --version", Reply::missing())
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, _) = context(tools, host);
-    let statuses = detect(&cx, true).await;
     assert_eq!(
-        status_of(&statuses, Provider::Qemu).reason,
+        why_unavailable(tools, host, Provider::Qemu).await,
         Some(Unavailable::NotInstalled {
             program: Some("qemu-system-aarch64".into())
         })
@@ -221,10 +236,8 @@ async fn a_virtualbox_driver_waiting_for_the_newer_kernel_asks_for_a_restart() {
         .expect("VBoxManage list runningvms", Reply::ok(""))
         .expect(PLUGINS, Reply::ok(""))
         .build();
-    let (cx, _) = context(tools, host);
-    let statuses = detect(&cx, true).await;
     assert_eq!(
-        status_of(&statuses, Provider::Virtualbox).reason,
+        why_unavailable(tools, host, Provider::Virtualbox).await,
         Some(Unavailable::KernelRestart {
             kernel: "6.12.116+deb13-amd64".into()
         })
@@ -237,10 +250,7 @@ async fn a_virtualbox_driver_waiting_for_the_newer_kernel_asks_for_a_restart() {
 #[tokio::test(start_paused = true)]
 async fn a_virtualbox_driver_its_boot_service_is_building_is_waited_for() {
     let dir = tempfile::tempdir().unwrap();
-    let host = linux(dir.path());
-    write(&host.devices.proc_modules, "kvm 1404928 0 - Live 0x0\n");
-    write(&host.devices.kernel_release, "6.12.117+deb13-amd64\n");
-    std::fs::create_dir_all(host.devices.lib_modules.join("6.12.117+deb13-amd64/build")).unwrap();
+    let host = restarted_into_a_new_kernel(dir.path());
     let modules = host.devices.proc_modules.clone();
     let looks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let seen = Arc::clone(&looks);
@@ -265,10 +275,7 @@ async fn a_virtualbox_driver_its_boot_service_is_building_is_waited_for() {
 #[tokio::test(start_paused = true)]
 async fn a_virtualbox_boot_service_that_never_ends_its_start_is_waited_for_a_while() {
     let dir = tempfile::tempdir().unwrap();
-    let host = linux(dir.path());
-    write(&host.devices.proc_modules, "kvm 1404928 0 - Live 0x0\n");
-    write(&host.devices.kernel_release, "6.12.117+deb13-amd64\n");
-    std::fs::create_dir_all(host.devices.lib_modules.join("6.12.117+deb13-amd64/build")).unwrap();
+    let host = restarted_into_a_new_kernel(dir.path());
     let tools = FakeProcesses::model(|_| service_is("activating"));
     let (cx, _) = context(tools, host);
     assert_eq!(
@@ -308,9 +315,7 @@ async fn libvirt_on_a_host_without_kvm_says_so_once_virsh_is_there() {
         .expect("virsh --version", Reply::ok("10.0.0"))
         .expect(PLUGINS, listing(&[("vagrant-libvirt", "0.12.2")]))
         .build();
-    let (cx, _) = context(tools, host);
-    let statuses = detect(&cx, true).await;
-    assert_eq!(status_of(&statuses, Provider::Libvirt).reason, Some(Unavailable::NoKvm));
+    assert_eq!(why_unavailable(tools, host, Provider::Libvirt).await, Some(Unavailable::NoKvm));
 }
 
 #[tokio::test(start_paused = true)]

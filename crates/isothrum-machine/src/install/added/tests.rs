@@ -21,9 +21,7 @@ fn debian(packages: &Arc<Mutex<Vec<&'static str>>>) -> Context {
             Reply::missing()
         }
     });
-    let mut host = crate::testing::linux_host(std::path::Path::new("/nonexistent/isothrum-machine-test"));
-    host.packages = Some(Packages::Linux(LinuxPackages::Apt));
-    Context::new(Arc::new(tools), host)
+    crate::testing::on_apt(tools)
 }
 
 fn package(name: &str) -> Item {

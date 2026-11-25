@@ -5,6 +5,7 @@ use isothrum_runner::fake::{FakeProcesses, Reply, Script};
 
 use super::*;
 use crate::host::Devices;
+use crate::testing::write;
 use isothrum_runner::ProcessRunner;
 use isothrum_test_support::assert_every;
 
@@ -31,12 +32,6 @@ fn linux(root: &Path) -> Host {
     write(&host.devices.kvm, "");
     crate::testing::install_virtiofsd(&host.devices);
     host
-}
-
-/// Writes `text` to `path`, making its folder.
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
 }
 
 /// Machine setup on `host`, its tools `tools`, which the test keeps to read the calls made.

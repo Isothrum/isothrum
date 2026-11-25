@@ -4,13 +4,7 @@ use std::sync::Arc;
 use isothrum_runner::fake::{FakeProcesses, Reply};
 
 use super::*;
-use crate::testing::linux_host;
-
-/// `text` written to `path`, its folders made.
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
+use crate::testing::{linux_host, write};
 
 /// A Linux host under `root` whose KVM is a module (`kvm_intel` over `kvm`) holding the CPU's
 /// virtualization, `vms` of its own VMs running.

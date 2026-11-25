@@ -42,6 +42,25 @@ impl ProcessRunner for StuckOn {
     }
 }
 
+/// `text` written to `path`, its folders made.
+pub(crate) fn write(path: &std::path::Path, text: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+/// `host`'s KVM loaded as a module holding the CPU's virtualization, `modules` its `/proc/modules`.
+pub(crate) fn kvm_holding(host: &crate::host::Host, modules: &str) {
+    write(&host.devices.proc_modules, modules);
+    write(&host.devices.kvm_virt_at_load, "Y\n");
+}
+
+/// A context on a Linux host with apt (its devices nowhere), its tools answered by `tools`.
+pub(crate) fn on_apt(tools: FakeProcesses) -> crate::Context {
+    let mut host = linux_host(std::path::Path::new("/nonexistent/isothrum-machine-test"));
+    host.packages = Some(crate::host::Packages::Linux(crate::host::LinuxPackages::Apt));
+    crate::Context::new(std::sync::Arc::new(tools), host)
+}
+
 /// A Linux x86-64 host whose devices are under `root`, with no package manager known.
 pub(crate) fn linux_host(root: &std::path::Path) -> crate::host::Host {
     crate::host::Host {

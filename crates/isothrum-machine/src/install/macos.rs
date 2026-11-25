@@ -49,12 +49,7 @@ fn sh(script: &str, note: Note) -> Step {
 ///
 /// [`Refusal::NotHere`] for what doesn't run on macOS, [`Refusal::NoHomebrew`] without Homebrew.
 pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(HostOs::Macos) {
-        return Err(Refusal::NotHere {
-            dependency: dep,
-            os: HostOs::Macos,
-        });
-    }
+    dep.runs_here(HostOs::Macos)?;
     // The vendors' own packages, downloaded from them: need no Homebrew.
     match dep {
         Dependency::VmwareUtility => return Ok(vec![vmware_utility::mac_install(arch, elevation)]),

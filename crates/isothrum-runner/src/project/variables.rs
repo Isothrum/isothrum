@@ -166,10 +166,7 @@ mod tests {
     use super::*;
 
     fn module(files: &[(&str, &str)]) -> (tempfile::TempDir, Project) {
-        let dir = tempfile::tempdir().unwrap();
-        for (name, text) in files {
-            std::fs::write(dir.path().join(name), text).unwrap();
-        }
+        let dir = isothrum_test_support::dir_with(files).unwrap();
         let project = Project::open(dir.path(), Some(Format::Terraform)).unwrap();
         (dir, project)
     }

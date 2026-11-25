@@ -1,10 +1,6 @@
-use std::sync::Arc;
-
 use isothrum_runner::fake::{FakeProcesses, Reply, Script};
 
 use super::*;
-use crate::host::{LinuxPackages, Packages};
-use crate::testing::linux_host;
 
 /// A Linux host's hypervisor probes, none installed, and Vagrant's plugins none.
 fn no_hypervisors(script: Script) -> Script {
@@ -15,9 +11,7 @@ fn no_hypervisors(script: Script) -> Script {
 
 /// The check on a Linux host with apt, its tools answered by `tools`.
 fn on_linux(tools: FakeProcesses) -> Context {
-    let mut host = linux_host(std::path::Path::new("/nonexistent/isothrum-machine-test"));
-    host.packages = Some(Packages::Linux(LinuxPackages::Apt));
-    Context::new(Arc::new(tools), host)
+    crate::testing::on_apt(tools)
 }
 
 /// A Debian machine with Docker Engine running, Docker's group joined since logging in, Vagrant
