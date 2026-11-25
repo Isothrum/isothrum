@@ -46,6 +46,15 @@ use std::time::Duration;
 /// The run's folder of tool entries, in its state folder.
 pub(crate) const DIR: &str = "tools";
 
+mod group;
+mod start;
+
+#[cfg(unix)]
+use group::group_members;
+use group::members_still_in_group;
+pub(crate) use start::os_started_at;
+use start::{os_start, recorded_start};
+
 /// The extension of a tool's entry.
 const TOOL: &str = "tool";
 
@@ -404,194 +413,6 @@ async fn remove_container(name: &str) {
             tracing::warn!(container = name, error = %e, "the container of a tool a killed operation recorded couldn't be removed: it may still run");
         }
     }
-}
-
-/// Whether a process of `members`, recorded in `leader`'s group, is still the very process
-/// recorded and still in that group: then the group is the one recorded, since a group's id isn't
-/// another group's while a process of it lives.
-#[cfg(unix)]
-async fn members_still_in_group(leader: u32, members: &[(u32, Start)]) -> bool {
-    if members.is_empty() {
-        return false;
-    }
-    let now = group_members(leader).await;
-    members
-        .iter()
-        .any(|(pid, start)| now.iter().any(|(id, now)| id == pid && start.same_process_as(now)))
-}
-
-/// On Windows the tool's job object ended its whole tree with the process that held it: nothing
-/// of the group is left to prove.
-#[cfg(windows)]
-fn members_still_in_group(_leader: u32, _members: &[(u32, Start)]) -> std::future::Ready<bool> {
-    std::future::ready(false)
-}
-
-/// The processes of process group `leader`, other than `leader` itself, each with its start.
-#[cfg(target_os = "linux")]
-async fn group_members(leader: u32) -> Vec<(u32, Start)> {
-    tokio::task::spawn_blocking(move || {
-        let Ok(boot) = std::fs::read_to_string("/proc/sys/kernel/random/boot_id") else {
-            return Vec::new();
-        };
-        let Ok(read) = std::fs::read_dir("/proc") else { return Vec::new() };
-        read.flatten()
-            .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
-            .filter(|pid| *pid != leader)
-            .filter_map(|pid| {
-                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-                if stat_group(&stat)? != leader {
-                    return None;
-                }
-                let ticks = stat_ticks(&stat)?;
-                Some((
-                    pid,
-                    Start::Boot {
-                        boot: boot.trim().to_owned(),
-                        ticks,
-                    },
-                ))
-            })
-            .collect()
-    })
-    .await
-    .unwrap_or_default()
-}
-
-/// The processes of process group `leader`, other than `leader` itself, each with its start, as
-/// `ps` reads them (`lstart`, in UTC and the C locale's words).
-#[cfg(all(unix, not(target_os = "linux")))]
-async fn group_members(leader: u32) -> Vec<(u32, Start)> {
-    let out = ps(&["-A", "-o", "pid=,pgid=,lstart="]).await;
-    match out {
-        Ok(out) => ps_group(&String::from_utf8_lossy(&out.stdout), leader),
-        Err(e) => {
-            tracing::debug!(error = %e, "ps couldn't run to read a tool's process group");
-            Vec::new()
-        }
-    }
-}
-
-/// The members of `leader`'s group, other than itself, in `ps -A -o pid=,pgid=,lstart=`'s lines.
-#[cfg(any(all(unix, not(target_os = "linux")), test))]
-fn ps_group(text: &str, leader: u32) -> Vec<(u32, Start)> {
-    text.lines()
-        .filter_map(|line| {
-            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
-            let (group, started) = rest.trim_start().split_once(char::is_whitespace)?;
-            let (pid, group): (u32, u32) = (pid.parse().ok()?, group.parse().ok()?);
-            if group != leader || pid == leader {
-                return None;
-            }
-            Some((pid, Start::At(lstart(started)?)))
-        })
-        .collect()
-}
-
-/// The process group in a `/proc/<pid>/stat` line (field 5).
-#[cfg(any(target_os = "linux", test))]
-fn stat_group(stat: &str) -> Option<u32> {
-    /// `pgrp` is field 5 (from 1); the first field after the name is field 3.
-    const PGRP_AFTER_NAME: usize = 5 - 3;
-    stat.rsplit_once(')')?.1.split_whitespace().nth(PGRP_AFTER_NAME)?.parse().ok()
-}
-
-/// The start to record for the tool `pid` that was just started.
-fn recorded_start(pid: u32) -> Option<Start> {
-    if cfg!(target_os = "linux") {
-        return proc_start(pid);
-    }
-    now_secs().map(Start::At)
-}
-
-/// This computer's clock now, in seconds since the epoch.
-fn now_secs() -> Option<u64> {
-    Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
-}
-
-/// Process `pid`'s start on Linux: field 22 of `/proc/<pid>/stat` (after its name, which may
-/// hold spaces and parentheses), and this boot's id.
-fn proc_start(pid: u32) -> Option<Start> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
-    Some(Start::Boot {
-        boot: boot.trim().to_owned(),
-        ticks: stat_ticks(&stat)?,
-    })
-}
-
-/// The start in a `/proc/<pid>/stat` line, in clock ticks since boot.
-fn stat_ticks(stat: &str) -> Option<u64> {
-    /// `starttime` is field 22 (from 1); the first field after the name is field 3.
-    const STARTTIME_AFTER_NAME: usize = 22 - 3;
-    stat.rsplit_once(')')?.1.split_whitespace().nth(STARTTIME_AFTER_NAME)?.parse().ok()
-}
-
-/// Process `pid`'s start as the OS has it now; none when there is no such process.
-async fn os_start(pid: u32) -> Option<Start> {
-    if cfg!(target_os = "linux") {
-        return proc_start(pid);
-    }
-    os_started_at(pid).await.map(Start::At)
-}
-
-/// `ps` with `args`, in UTC and the C locale's words (how `lstart` is read back), its error
-/// output dropped.
-#[cfg(unix)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the process module's own reading of processes and their starts, under the runner it serves"
-)]
-async fn ps(args: &[&str]) -> std::io::Result<std::process::Output> {
-    tokio::process::Command::new("ps")
-        .args(args)
-        .env("TZ", "UTC")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .await
-}
-
-/// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
-/// stored (`lstart`, in UTC and the C locale's words).
-#[cfg(unix)]
-pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
-    let out = ps(&["-o", "lstart=", "-p", &pid.to_string()]).await.ok()?;
-    out.status.success().then(|| lstart(&String::from_utf8_lossy(&out.stdout))).flatten()
-}
-
-/// When process `pid` started, as Windows stored its creation time (seconds since the epoch).
-#[cfg(windows)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the process module's own reading of a process's start time, under the runner it serves"
-)]
-pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
-    let script = format!("[DateTimeOffset]::new((Get-Process -Id {pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()");
-    let mut cmd = tokio::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .stdin(std::process::Stdio::null());
-    headless(&mut cmd);
-    let out = cmd.output().await.ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().parse().ok()).flatten()
-}
-
-/// `ps`'s `lstart` (`Wed Nov 11 16:43:35 2026`) as seconds since the epoch.
-#[cfg(any(unix, test))]
-fn lstart(text: &str) -> Option<u64> {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const SECS_PER_MINUTE: u64 = 60;
-    const SECS_PER_HOUR: u64 = 60 * SECS_PER_MINUTE;
-    const SECS_PER_DAY: u64 = 24 * SECS_PER_HOUR;
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let [_, month, day, time, year] = words.as_slice() else { return None };
-    let month = i64::try_from(MONTHS.iter().position(|m| m == month)? + 1).ok()?;
-    let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
-    let hms: Vec<u64> = time.split(':').map(str::parse).collect::<Result<_, _>>().ok()?;
-    // A leap second reads as 60.
-    let [h @ 0..24, m @ 0..60, s @ 0..=60] = hms.as_slice() else { return None };
-    Some(crate::clock::days_from_civil(year, month, day)? * SECS_PER_DAY + h * SECS_PER_HOUR + m * SECS_PER_MINUTE + s)
 }
 
 /// Asks the process group `pid` leads to stop (SIGINT, as a tool cut short is asked), and kills
