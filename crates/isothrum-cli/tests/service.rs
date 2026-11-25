@@ -10,7 +10,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use isothrum_client::{Client, ClientError, ServicePaths};
-use isothrum_test_support::{ChildGuard, PidGuard, TempHome, wait_until};
+use isothrum_test_support::{ChildGuard, PidGuard, TempHome, alive, wait_until};
 
 const BIN: &str = env!("CARGO_BIN_EXE_isothrum");
 
@@ -46,6 +46,8 @@ async fn a_client_starts_the_service_once_and_a_second_serve_is_refused() {
 
     first.shutdown().await.unwrap();
     assert!(wait_until(PATIENCE, || paths.read_info().is_none()), "the service stops and says so");
+    // Gone, not just withdrawn: on Windows the home can't be removed while its store is open.
+    assert!(wait_until(PATIENCE, || !alive(pid)), "the service's process ends");
     let gone = Client::connect_running(home.path()).await.err();
     assert!(matches!(gone, Some(ClientError::Unavailable(_))), "{gone:?}");
 }
