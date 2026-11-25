@@ -20,6 +20,7 @@ use crate::host::{Arch, Host, HostOs};
 /// A Vagrant provider (the value given to `vagrant up --provider`).
 pub use isothrum_runner::Provider;
 
+mod found;
 pub(crate) mod helper;
 mod hyperv;
 pub(crate) mod kvm;
@@ -33,20 +34,12 @@ pub(crate) mod virtiofsd;
 use reasons::hypervisor_too_old;
 use reasons::{plugin_too_old, unavailable_reason};
 
+use found::{Found, hypervisor_found, hypervisor_version};
 pub use helper::{Helper, helpers};
 pub use kvm::{groups_pending, kvm_group, login_groups, uses_kvm};
 pub use needs::{Need, UtilityState, needs, vmware_utility};
 pub use unavailable::Unavailable;
 pub use virtiofsd::{needs_virtiofsd, virtiofsd};
-
-/// Every provider, in its type's order: read from the type, so one added there is detected
-/// without a list here to keep in step.
-fn all() -> Vec<Provider> {
-    isothrum_runner::every_name::<Provider>()
-        .iter()
-        .filter_map(|name| isothrum_runner::from_wire_name(name))
-        .collect()
-}
 
 /// How this computer tells a provider's hypervisor is installed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -299,7 +292,7 @@ pub struct ProviderStatus {
 pub async fn detect(cx: &Context, vagrant_installed: bool) -> Vec<ProviderStatus> {
     let mut asked = Asked::of(cx, vagrant_installed).await;
     let mut statuses = Vec::new();
-    for provider in all() {
+    for provider in Provider::ALL {
         statuses.extend(detect_one(cx, provider, &mut asked).await);
     }
     statuses
@@ -386,52 +379,6 @@ async fn detect_one(cx: &Context, provider: Provider, asked: &mut Asked) -> Opti
     }
     let findings = findings(cx, provider, found, asked).await;
     Some(status_from(provider, asked.vagrant_installed, &findings))
-}
-
-/// What probing a hypervisor found.
-struct Found {
-    /// Whether it is installed, `None` when there is nothing local to probe.
-    installed: Option<bool>,
-    /// What its tool printed, standard output then error, when it has one and it answered.
-    said: String,
-}
-
-/// Whether `provider`'s hypervisor is installed on the context's host: its tool starts (or ran
-/// out of the probe's time: there, and slow), its app bundle whole (a copy under way or damaged
-/// isn't: [`crate::install::mac_image::complete`]) or its Windows feature there.
-async fn hypervisor_found(cx: &Context, provider: Provider) -> Found {
-    let devices = &cx.host.devices;
-    let installed = |installed| Found {
-        installed: Some(installed),
-        said: String::new(),
-    };
-    match ProviderRow::of(provider).check {
-        Check::UtmApp => installed(crate::install::mac_image::complete(cx, &devices.utm_app).await),
-        Check::HypervFeature => installed(devices.hyperv_service.is_file()),
-        Check::Remote => Found {
-            installed: None,
-            said: String::new(),
-        },
-        Check::Tool(..) | Check::Qemu => {
-            let Some((program, args)) = hypervisor_probe(provider, cx.host.arch) else {
-                return installed(false);
-            };
-            let mut answer = cx.probe(program, args).await;
-            // Not on PATH: where its app installs it (VMware's `vmrun`, Parallels' `prlctl`).
-            if matches!(answer, Err(ref unanswered) if !unanswered.tool_is_there())
-                && let Some(at) = devices.app_tool(program).into_iter().find(|t| t.is_file())
-            {
-                answer = cx.probe(&at.display().to_string(), args).await;
-            }
-            match answer {
-                Ok(captured) => Found {
-                    installed: Some(true),
-                    said: exec::all_lines(&captured),
-                },
-                Err(unanswered) => installed(unanswered.tool_is_there()),
-            }
-        }
-    }
 }
 
 /// What the account lacks, as detection found it.
@@ -563,21 +510,6 @@ async fn platform_problem(cx: &Context, provider: Provider) -> Option<Unavailabl
     } else {
         None
     }
-}
-
-/// The hypervisor's own version, when it says one and is held to one: UTM's app bundle
-/// (`CFBundleShortVersionString`).
-async fn hypervisor_version(cx: &Context, provider: Provider) -> Option<String> {
-    if ProviderRow::of(provider).check != Check::UtmApp {
-        return None;
-    }
-    let plist = cx.host.devices.utm_app.join("Contents").join("Info.plist");
-    let out = cx
-        .probe("defaults", &["read", &plist.to_string_lossy(), "CFBundleShortVersionString"])
-        .await
-        .ok()?;
-    let version = out.stdout.join("\n").trim().to_owned();
-    (!version.is_empty()).then_some(version)
 }
 
 /// The status `provider` gets from what was found of it, given whether Vagrant is installed.
