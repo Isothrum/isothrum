@@ -284,11 +284,19 @@ pub(crate) mod said {
                 .collect()
         }
     }
+
+    /// The steps said while `run` works through a [`super::Steps`], as [`Said::lines`] writes them.
+    pub(crate) fn said_by(run: impl FnOnce(&super::Steps<'_>)) -> Vec<String> {
+        let said = Said::default();
+        let say = |kind: EventKind| said.keep(kind);
+        run(&super::Steps::new(&say));
+        said.lines()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::said::Said;
+    use super::said::{Said, said_by};
     use super::*;
 
     #[test]
@@ -328,25 +336,23 @@ mod tests {
 
     #[test]
     fn a_failed_operation_fails_the_step_started_last_and_cuts_the_others_short() {
-        let said = Said::default();
-        let say = |kind: EventKind| said.keep(kind);
-        let s = Steps::new(&say);
-        s.start(Phase::Up, Some("dc01"));
-        s.start(Phase::Up, Some("ws01"));
-        s.end(false);
-        assert_eq!(said.lines(), ["up:dc01 started", "up:ws01 started", "up:dc01 skipped", "up:ws01 failed"]);
+        let said = said_by(|s| {
+            s.start(Phase::Up, Some("dc01"));
+            s.start(Phase::Up, Some("ws01"));
+            s.end(false);
+        });
+        assert_eq!(said, ["up:dc01 started", "up:ws01 started", "up:dc01 skipped", "up:ws01 failed"]);
     }
 
     #[test]
     fn a_step_said_failed_is_the_failure_and_the_others_are_cut_short() {
-        let said = Said::default();
-        let say = |kind: EventKind| said.keep(kind);
-        let s = Steps::new(&say);
-        s.start(Phase::Up, Some("dc01"));
-        s.start(Phase::Up, Some("ws01"));
-        s.failed(Phase::Up, Some("dc01"));
-        s.end(false);
-        s.end(false);
-        assert_eq!(said.lines(), ["up:dc01 started", "up:ws01 started", "up:dc01 failed", "up:ws01 skipped"]);
+        let said = said_by(|s| {
+            s.start(Phase::Up, Some("dc01"));
+            s.start(Phase::Up, Some("ws01"));
+            s.failed(Phase::Up, Some("dc01"));
+            s.end(false);
+            s.end(false);
+        });
+        assert_eq!(said, ["up:dc01 started", "up:ws01 started", "up:dc01 failed", "up:ws01 skipped"]);
     }
 }

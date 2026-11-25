@@ -414,3 +414,17 @@ pub(crate) struct Published {
     /// Its port there.
     pub(crate) port: u16,
 }
+
+/// The steps said while `run` works through a [`ToolCx`] made of `base` with steps of its own, as
+/// [`crate::steps::said::Said::lines`] writes them.
+#[cfg(test)]
+pub(crate) async fn steps_said(base: ToolCx<'_>, run: impl AsyncFnOnce(&ToolCx<'_>)) -> Vec<String> {
+    let said = crate::steps::said::Said::default();
+    let say = |kind: crate::events::EventKind| said.keep(kind);
+    let cx = ToolCx {
+        steps: crate::steps::Steps::new(&say),
+        ..base
+    };
+    run(&cx).await;
+    said.lines()
+}

@@ -210,19 +210,17 @@ fn every_one_started(read: &Read) -> bool {
 mod tests {
     use super::*;
     use crate::events::EventKind;
-    use crate::steps::said::Said;
+    use crate::steps::said::{Said, said_by};
 
     fn watched(lines: &[&str]) -> Vec<String> {
-        let said = Said::default();
-        let say = |kind: EventKind| said.keep(kind);
-        let steps = Steps::new(&say);
-        let watch = Watch::new(&steps);
-        watch.pulling();
-        for line in lines {
-            watch.see(line);
-        }
-        steps.end(true);
-        said.lines()
+        said_by(|steps| {
+            let watch = Watch::new(steps);
+            watch.pulling();
+            for line in lines {
+                watch.see(line);
+            }
+            steps.end(true);
+        })
     }
 
     #[test]

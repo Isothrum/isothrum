@@ -68,7 +68,7 @@ mod tests {
     use crate::secrets::SecretValue;
 
     fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        crate::testing::owned_map(pairs)
     }
 
     #[test]

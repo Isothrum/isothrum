@@ -136,9 +136,6 @@ fn web_behind_a_router() -> String {
 /// A module's outputs: its router's address, its user, and the machines behind it.
 const ROUTER_OUTPUTS: &str = r#"{"ip":{"sensitive":false,"type":"string","value":"192.0.2.10"},"ssh_user":{"sensitive":false,"type":"string","value":"ops"},"machines":{"sensitive":false,"type":["object",{"web":"string"}],"value":{"web":"10.60.0.10"}}}"#;
 
-/// The node every SSH of the run goes through first.
-const NODE_KEY: &str = "node.stack ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
-
 /// The values a run on a node's internal bridge is given: the module's key, and the node to go
 /// through first.
 const THROUGH_THE_NODE: &[(&str, &str)] = &[("ssh_private_key_file", "/keys/stack"), ("ssh_jump", "root@node.stack")];
@@ -191,9 +188,7 @@ async fn a_command_runs_in_a_vm_behind_the_modules_router_through_the_runs_jump_
 #[tokio::test]
 async fn a_command_through_a_jump_whose_known_hosts_the_run_gives_checks_it_there_and_scans_nothing() {
     let stack = stack().with_state();
-    let known = tempfile::tempdir().expect("a folder");
-    let file = known.path().join("nodes_known_hosts");
-    std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
+    let (_known, file) = nodes_known_hosts();
     let path = file.to_string_lossy().into_owned();
     let named = ssh_named(&file);
     let fake = FakeProcesses::script()
