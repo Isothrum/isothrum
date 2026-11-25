@@ -86,7 +86,8 @@ impl TempRoot {
     fn finish(self, keep: bool) -> Res<bool> {
         let left = leftovers(self.0.path())?;
         for name in &left {
-            eprintln!("xtask: a test left `{name}` in its temp folder: a test removes what it makes (a `tempfile::TempDir`)");
+            let inside = contents(&self.0.path().join(name));
+            eprintln!("xtask: a test left `{name}` in its temp folder{inside}: a test removes what it makes (a `tempfile::TempDir`)");
         }
         if keep {
             eprintln!("xtask: the tests' temp folder is kept ({KEEP}): {}", self.0.keep().display());
@@ -95,6 +96,30 @@ impl TempRoot {
         }
         Ok(left.is_empty())
     }
+}
+
+/// What the folder `dir` holds, as a test left it (a few paths in it, two levels deep), to tell
+/// which test it was; empty when it is a file or empty.
+fn contents(dir: &Path) -> String {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let below = std::fs::read_dir(entry.path()).into_iter().flatten().flatten();
+        let inner: Vec<String> = below.map(|e| format!("{name}/{}", e.file_name().to_string_lossy())).collect();
+        if inner.is_empty() {
+            found.push(name);
+        } else {
+            found.extend(inner);
+        }
+    }
+    found.sort();
+    if found.is_empty() {
+        return String::new();
+    }
+    let more = found.len().saturating_sub(6);
+    found.truncate(6);
+    let more = if more > 0 { format!(", and {more} more") } else { String::new() };
+    format!(" (holding {}{more})", found.join(", "))
 }
 
 /// The names at the top of `dir`, sorted.
