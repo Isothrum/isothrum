@@ -90,7 +90,7 @@ fn quoted(text: &str) -> String {
 }
 
 /// The step that sets KVM on `host` to share the CPU's virtualization, elevated by `elevation`:
-/// its modules loaded again when nothing uses KVM now ([`kvm::in_use`]).
+/// its modules loaded again when nothing uses KVM now (`kvm::in_use`).
 ///
 /// # Errors
 ///
