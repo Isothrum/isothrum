@@ -71,7 +71,14 @@ async fn the_server_self_test_brings_a_vm_up_on_proxmox_and_takes_it_down() {
             said.lock().unwrap_or_else(PoisonError::into_inner).push(progress);
         }
     };
-    let ran = Box::pin(server::run(&cx, dir.path(), &Server::Proxmox(target), &TestVm::new(VM_NAME, VM_HOST), &sink)).await;
+    let ran = Box::pin(server::run(
+        &cx,
+        dir.path(),
+        &Server::Proxmox(Box::new(target)),
+        &TestVm::new(VM_NAME, VM_HOST),
+        &sink,
+    ))
+    .await;
     if let Err(failed) = &ran.passed {
         panic!("{failed}")
     }

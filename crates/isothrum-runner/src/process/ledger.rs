@@ -113,13 +113,9 @@ impl Start {
 #[derive(Debug)]
 pub(crate) struct Recorded {
     path: PathBuf,
-    #[cfg_attr(
-        not(unix),
-        expect(
-            dead_code,
-            reason = "only Unix reads it, to note the members of the tool's process group; a Windows job object ends the tree"
-        )
-    )]
+    /// The tool's id, which Unix reads to note the members of its process group (a Windows job
+    /// object ends the tree).
+    #[cfg(unix)]
     pid: u32,
 }
 
@@ -146,7 +142,11 @@ impl Recorded {
             Ok(path)
         });
         match written {
-            Ok(path) => Some(Recorded { path, pid }),
+            Ok(path) => Some(Recorded {
+                path,
+                #[cfg(unix)]
+                pid,
+            }),
             Err(e) => {
                 tracing::warn!(error = %e, dir = %dir.display(), "a tool couldn't be recorded: a killed operation would leave it running");
                 None
@@ -423,9 +423,8 @@ async fn members_still_in_group(leader: u32, members: &[(u32, Start)]) -> bool {
 /// On Windows the tool's job object ended its whole tree with the process that held it: nothing
 /// of the group is left to prove.
 #[cfg(windows)]
-#[expect(clippy::unused_async, reason = "the same call as on Unix")]
-async fn members_still_in_group(_leader: u32, _members: &[(u32, Start)]) -> bool {
-    false
+fn members_still_in_group(_leader: u32, _members: &[(u32, Start)]) -> std::future::Ready<bool> {
+    std::future::ready(false)
 }
 
 /// The processes of process group `leader`, other than `leader` itself, each with its start.
