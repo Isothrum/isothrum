@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use isothrum_client::Client;
+use isothrum_client::proto::{Command, Reply};
 use isothrum_service::{ServeOptions, Service, StopSignal};
 
 /// What a helper's failure fails the test with.
@@ -45,6 +46,18 @@ pub(crate) async fn answering(home: &Path, task: &mut Serving) -> Outcome<Client
             () = tokio::time::sleep(Duration::from_millis(10)) => {}
         }
     }
+}
+
+/// Ends a test's service: `client` sends `asking` (a `shutdown`, or a `shutdown_if_idle` that must
+/// find it idle), then `task` is waited for until `serve` returned, when it no longer holds the
+/// home's files. Dropping `task` would leave it running, and on Windows the test's home couldn't
+/// be removed while its store is open.
+pub(crate) async fn stopped(client: &Client, asking: Command, task: Serving) -> Outcome<()> {
+    let reply = client.request(asking).await?;
+    if !matches!(reply, Reply::Ok { .. }) {
+        return Err(format!("the service didn't stop: {reply:?}").into());
+    }
+    ended(task).await
 }
 
 /// `task`, the service's, once it ended: how its `serve` ended, or a failure after [`PATIENCE`].
