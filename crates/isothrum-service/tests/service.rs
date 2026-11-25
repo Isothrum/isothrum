@@ -170,6 +170,24 @@ async fn begun(followed: &mut Followed) -> Result<(), ClientError> {
     Err(ClientError::Protocol("it ended before it began".to_owned()))
 }
 
+/// A service on a fresh home with a held `up` of `web` that has begun: the service, a client of
+/// it, and that start.
+async fn a_held_start() -> Outcome<(Running, Client, Followed)> {
+    let s = start(None).await?;
+    let client = Client::connect_running(s.home.path()).await?;
+    let mut long = client.follow(up("web", true)).await?;
+    begun(&mut long).await?;
+    Ok((s, client, long))
+}
+
+/// Ends a test whose run nothing holds any more: a new `up` of `web` goes through, then the
+/// service stops.
+async fn ends_with_the_run_free(s: Running, client: &Client) -> Outcome<()> {
+    client.follow(up("web", false)).await?.outcome().await?;
+    s.task.abort();
+    Ok(())
+}
+
 /// Whether `followed` ends cancelled (within [`PATIENCE`]).
 async fn ends_cancelled(followed: &mut Followed) -> bool {
     let outcome = tokio::time::timeout(PATIENCE, followed.outcome()).await;
@@ -281,10 +299,7 @@ async fn one_service_per_home() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_be_cancelled_too() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     // A stop cuts the start short: the start cancelled, the stop is taken, never refused (queued
     // behind the start while it is still being cut short, else begun at once).
     client.cancel(long.accepted.operation).await.unwrap();
@@ -306,8 +321,7 @@ async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_
     assert!(matches!(refused, Err(ClientError::Refused(_))), "an ended operation: {refused:?}");
     let engine_said = s.engine.log();
     assert!(!engine_said.iter().any(|l| l.starts_with("end web")), "{engine_said:?}");
-    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    ends_with_the_run_free(s, &client).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -324,10 +338,7 @@ async fn a_refused_run_is_answered_at_once() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     client.shutdown().await.unwrap();
     assert!(ends_cancelled(&mut long).await);
     common::ended(s.task).await.unwrap();
@@ -378,16 +389,12 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
     let row = ops.iter().find(|o| o.id == left).unwrap();
     assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
     // What held the run died with its service: nothing is left holding it.
-    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    ends_with_the_run_free(s, &client).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_if_idle_is_refused_while_an_operation_runs_and_stops_the_service_once_idle() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     let refused = client.request(Command::ShutdownIfIdle).await.unwrap();
     assert!(
         matches!(&refused, Reply::Busy { operations, .. } if operations == &[long.accepted.operation]),
