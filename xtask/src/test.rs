@@ -88,8 +88,8 @@ impl TempRoot {
         let left = leftovers(self.0.path())?;
         for name in &left {
             let path = self.0.path().join(name);
-            let (inside, when) = (contents(&path), when(&path, self.1));
-            eprintln!("xtask: a test left `{name}` in its temp folder{inside}{when}: a test removes what it makes (a `tempfile::TempDir`)");
+            let (inside, when, runs) = (contents(&path), when(&path, self.1), mirrored_runs(&path));
+            eprintln!("xtask: a test left `{name}` in its temp folder{inside}{when}{runs}: a test removes what it makes (a `tempfile::TempDir`)");
         }
         if keep {
             eprintln!("xtask: the tests' temp folder is kept ({KEEP}): {}", self.0.keep().display());
@@ -142,6 +142,18 @@ fn when(path: &Path, began: SystemTime) -> String {
     }
 }
 
+/// The runs a store's mirror in `dir` names (`"name":"…"` in its `state.mirror`): what the test
+/// that left it called its runs. Empty without a mirror.
+fn mirrored_runs(dir: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(dir.join("state.mirror")) else {
+        return String::new();
+    };
+    let mut names: Vec<&str> = text.split("\"name\":\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    names.sort_unstable();
+    names.dedup();
+    format!(", its runs named [{}]", names.join(", "))
+}
+
 /// The names at the top of `dir`, sorted.
 fn leftovers(dir: &Path) -> Res<Vec<String>> {
     let mut names = Vec::new();
@@ -164,6 +176,15 @@ mod tests {
         let said = when(dir.path(), began);
         assert!(said.starts_with(", made 5.") && said.contains("last written at 5."), "{said}");
         assert_eq!(when(&dir.path().join("gone"), began), "", "nothing to say of a path that isn't there");
+    }
+
+    #[test]
+    fn a_leftover_stores_mirror_says_its_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(mirrored_runs(dir.path()), "", "no mirror, nothing said");
+        let mirror = r#"{"schema":9,"runs":[{"name":"web","state":"ready"},{"name":"db"},{"name":"web"}]}"#;
+        std::fs::write(dir.path().join("state.mirror"), mirror).unwrap();
+        assert_eq!(mirrored_runs(dir.path()), ", its runs named [db, web]");
     }
 
     #[test]
