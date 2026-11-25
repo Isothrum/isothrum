@@ -51,7 +51,9 @@ async fn a_vmware_up_whose_new_host_only_network_was_said_not_enabled_runs_once_
     let f = Fixture::new();
     let fake = failing_first(1, VMNET_NOT_ENABLED);
     Vagrant.up(&cx(&f, &fake, VMWARE)).await.expect("through the second time: the network is there");
-    assert_eq!(verbs(&fake), ["vagrant up", "vagrant up"]);
+    // Vagrant's calls only: on a Windows host the up then reads VMware's host adapters too.
+    let vagrant: Vec<String> = verbs(&fake).into_iter().filter(|v| v.starts_with("vagrant")).collect();
+    assert_eq!(vagrant, ["vagrant up", "vagrant up"]);
     assert_eq!(f.warnings(), [WarningCode::Retrying]);
 }
 
