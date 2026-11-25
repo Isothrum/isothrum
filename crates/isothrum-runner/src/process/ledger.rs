@@ -462,19 +462,8 @@ async fn group_members(leader: u32) -> Vec<(u32, Start)> {
 /// The processes of process group `leader`, other than `leader` itself, each with its start, as
 /// `ps` reads them (`lstart`, in UTC and the C locale's words).
 #[cfg(all(unix, not(target_os = "linux")))]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the process module's own reading of a tool's process group, under the runner it serves"
-)]
 async fn group_members(leader: u32) -> Vec<(u32, Start)> {
-    let out = tokio::process::Command::new("ps")
-        .args(["-A", "-o", "pid=,pgid=,lstart="])
-        .env("TZ", "UTC")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .await;
+    let out = ps(&["-A", "-o", "pid=,pgid=,lstart="]).await;
     match out {
         Ok(out) => ps_group(&String::from_utf8_lossy(&out.stdout), leader),
         Err(e) => {
@@ -547,23 +536,29 @@ async fn os_start(pid: u32) -> Option<Start> {
     os_started_at(pid).await.map(Start::At)
 }
 
-/// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
-/// stored (`lstart`, in UTC and the C locale's words).
+/// `ps` with `args`, in UTC and the C locale's words (how `lstart` is read back), its error
+/// output dropped.
 #[cfg(unix)]
 #[expect(
     clippy::disallowed_methods,
-    reason = "the process module's own reading of a process's start time, under the runner it serves"
+    reason = "the process module's own reading of processes and their starts, under the runner it serves"
 )]
-pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
-    let out = tokio::process::Command::new("ps")
-        .args(["-o", "lstart=", "-p", &pid.to_string()])
+async fn ps(args: &[&str]) -> std::io::Result<std::process::Output> {
+    tokio::process::Command::new("ps")
+        .args(args)
         .env("TZ", "UTC")
         .env("LC_ALL", "C")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()
         .await
-        .ok()?;
+}
+
+/// When process `pid` started, in seconds since the epoch, as `ps` reads the start the kernel
+/// stored (`lstart`, in UTC and the C locale's words).
+#[cfg(unix)]
+pub(crate) async fn os_started_at(pid: u32) -> Option<u64> {
+    let out = ps(&["-o", "lstart=", "-p", &pid.to_string()]).await.ok()?;
     out.status.success().then(|| lstart(&String::from_utf8_lossy(&out.stdout))).flatten()
 }
 

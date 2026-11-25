@@ -121,17 +121,14 @@ impl<'s, 'a> Watch<'s, 'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EventKind;
-    use crate::steps::said::Said;
+    use crate::steps::said::said_by;
 
     fn watched(lines: &str, ok: bool) -> Vec<String> {
-        let said = Said::default();
-        let say = |kind: EventKind| said.keep(kind);
-        let steps = Steps::new(&say);
-        let watch = Watch::new(&steps);
-        lines.lines().for_each(|line| watch.see(line));
-        steps.end(ok);
-        said.lines()
+        said_by(|steps| {
+            let watch = Watch::new(steps);
+            lines.lines().for_each(|line| watch.see(line));
+            steps.end(ok);
+        })
     }
 
     #[test]

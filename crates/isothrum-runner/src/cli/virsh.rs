@@ -47,9 +47,8 @@ pub(crate) async fn remove(call: &Call<'_>, uri: Option<&str>, uuid: &str) -> Re
         args.extend(verb.iter().map(|w| (*w).to_owned()));
         args
     };
-    drop(call.run::<String>(TOOL, on(&["destroy", uuid])).await?);
-    let out = call.run::<String>(TOOL, on(&["undefine", uuid, "--remove-all-storage", "--nvram"])).await?;
-    super::done_or_gone(TOOL, &out, &NO_DOMAIN)
+    let undefine = on(&["undefine", uuid, "--remove-all-storage", "--nvram"]);
+    super::stop_then_delete(call, TOOL, on(&["destroy", uuid]), undefine, &NO_DOMAIN).await
 }
 
 #[cfg(test)]

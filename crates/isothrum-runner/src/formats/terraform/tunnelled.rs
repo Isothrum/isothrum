@@ -326,7 +326,7 @@ mod tests {
     }
 
     fn outputs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        crate::testing::owned_map(pairs)
     }
 
     #[test]

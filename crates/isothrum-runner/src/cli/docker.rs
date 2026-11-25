@@ -6,8 +6,6 @@
 
 mod stats;
 
-use std::fmt;
-
 pub(crate) use stats::ContainerStats;
 
 use super::{Call, CliError, argv, said_any};
@@ -39,14 +37,17 @@ impl Object {
 }
 
 /// A failed Docker call, as far as a driver acts on it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Failure {
     /// The object is gone already (`No such container`, `network … not found`, `no such volume`,
     /// `No such image`).
+    #[error("no such object")]
     NoSuchObject,
     /// A container still holds the object (`volume is in use`): its reason.
+    #[error("{0}")]
     InUse(String),
     /// Any other failure: its reason.
+    #[error("{0}")]
     Other(String),
 }
 
@@ -63,15 +64,6 @@ impl Failure {
             Failure::InUse(out.reason())
         } else {
             Failure::Other(out.reason())
-        }
-    }
-}
-
-impl fmt::Display for Failure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Failure::NoSuchObject => f.write_str("no such object"),
-            Failure::InUse(reason) | Failure::Other(reason) => f.write_str(reason),
         }
     }
 }

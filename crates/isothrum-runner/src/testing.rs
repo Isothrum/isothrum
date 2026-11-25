@@ -167,3 +167,8 @@ pub(crate) fn child_test_saying(exact: &str, var: &str, home: &Path, said: &str)
     let saying = lines.by_ref().map_while(Result::ok).any(|line| line.contains(said));
     (child, saying)
 }
+
+/// `pairs` as an owned map, as a run's values and a module's outputs are kept.
+pub(crate) fn owned_map(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+    pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+}

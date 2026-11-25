@@ -2,9 +2,7 @@
 //! what its pull and its `up` print.
 
 use super::*;
-use crate::events::EventKind;
-use crate::steps::Steps;
-use crate::steps::said::Said;
+use crate::formats::steps_said;
 
 const PULLED: &str = " web Pulling \n db Pulling \n36b0bafd7f97 Downloading [==>   ] 1.2MB/3MB\n db Pulled \n web Pulled \n";
 const STARTED: &str = " Network stack_default  Creating
@@ -32,14 +30,11 @@ async fn a_start_says_its_images_then_its_containers_made_started_and_healthy() 
         .expect(UP, Reply::ok(STARTED))
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .build();
-    let said = Said::default();
-    let say = |kind: EventKind| said.keep(kind);
-    let cx = ToolCx {
-        steps: Steps::new(&say),
-        ..cx(&project, &run, &fake)
-    };
-    Compose.up(&cx).await.expect("up");
-    let ended: Vec<String> = said.lines().into_iter().filter(|l| !l.contains(" started")).collect();
+    let said = steps_said(cx(&project, &run, &fake), async |cx| {
+        Compose.up(cx).await.expect("up");
+    })
+    .await;
+    let ended: Vec<String> = said.into_iter().filter(|l| !l.contains(" started")).collect();
     assert_eq!(ended, ["images done 2/2", "create done 2/2", "start done 2/2", "health done 2/2"]);
 }
 
@@ -54,17 +49,14 @@ async fn a_start_that_fails_making_its_containers_fails_that_step() {
         .expect(CONFIG, Reply::ok(NO_PORTS))
         .expect(ENGINE_ASKED, Reply::ok("29.9.3"))
         .build();
-    let said = Said::default();
-    let say = |kind: EventKind| said.keep(kind);
-    let cx = ToolCx {
-        steps: Steps::new(&say),
-        ..cx(&project, &run, &fake)
-    };
-    Compose.up(&cx).await.expect_err("no space");
-    // What the operation does with what is still open, once the driver failed.
-    cx.steps.end(false);
+    let said = steps_said(cx(&project, &run, &fake), async |cx| {
+        Compose.up(cx).await.expect_err("no space");
+        // What the operation does with what is still open, once the driver failed.
+        cx.steps.end(false);
+    })
+    .await;
     assert_eq!(
-        said.lines(),
+        said,
         ["images started", "images done", "create started", "create started 0/1", "create failed 0/1"]
     );
 }
