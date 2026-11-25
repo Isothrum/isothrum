@@ -107,11 +107,7 @@ impl Stack {
 
     /// Ends the service with `shutdown_if_idle` through `client`, and waits until it is gone.
     async fn end(self, client: &Client) -> Outcome<()> {
-        let reply = client.request(Command::ShutdownIfIdle).await?;
-        if !matches!(reply, Reply::Ok { .. }) {
-            return Err(format!("shutdown_if_idle: {reply:?}").into());
-        }
-        common::ended(self.task).await
+        common::stopped(client, Command::ShutdownIfIdle, self.task).await
     }
 }
 

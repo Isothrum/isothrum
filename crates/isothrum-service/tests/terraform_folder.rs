@@ -126,8 +126,7 @@ impl Stack {
 
     /// Shuts the service down, and waits until it ended well.
     async fn stop(self) -> Outcome<()> {
-        self.client.shutdown().await?;
-        common::ended(self.task).await
+        common::stopped(&self.client, Command::Shutdown, self.task).await
     }
 }
 

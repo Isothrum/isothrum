@@ -143,7 +143,7 @@ async fn a_client_finds_no_service_then_the_one_running_by_each_way_in() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_outcome() {
-    let (_home, _serving, client) = started().await.expect("a service answering");
+    let (_home, serving, client) = started().await.expect("a service answering");
 
     let mut followed = client.follow(up("stack")).await.expect("followed");
     assert_eq!((followed.accepted.run.as_str(), followed.accepted.position), ("stack", 0));
@@ -168,6 +168,7 @@ async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_out
         [accepted.operation],
         "the newest, as many as asked"
     );
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
 
 /// An operation whose sending went unanswered (the connection ended before the service
@@ -175,7 +176,7 @@ async fn a_followed_operation_reads_its_own_events_to_its_end_and_a_wait_its_out
 /// rather than queuing a second. Once that one ended, following again queues anew.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_operation_followed_again_is_the_one_queued_not_a_second() {
-    let (_home, _serving, client) = started().await.expect("a service answering");
+    let (_home, serving, client) = started().await.expect("a service answering");
     let run = RunName::new("held").expect("a name");
     let named = || Command::Up {
         target: Target::new(Path::new("/stacks/held"), Some(run.clone())),
@@ -198,11 +199,12 @@ async fn an_operation_followed_again_is_the_one_queued_not_a_second() {
     let mut anew = client.follow_again(named()).await.expect("queued anew");
     assert_ne!(anew.accepted.operation, first.operation, "the first ended: a new one");
     assert_eq!(word(&anew.outcome().await.expect("it ends well")), "result true");
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_failure_comes_back_with_its_code_and_typed_detail() {
-    let (_home, _serving, client) = started().await.expect("a service answering");
+    let (_home, serving, client) = started().await.expect("a service answering");
     let gone = Detail::PartlyGone {
         machines: vec!["web".to_owned()],
     };
@@ -226,11 +228,12 @@ async fn each_failure_comes_back_with_its_code_and_typed_detail() {
     assert_eq!(no_variables.code(), ErrorCode::Unsupported, "{no_variables}");
     let unknown = client.cancel(OperationId(999)).await.expect_err("no such operation");
     assert_eq!(unknown.code(), ErrorCode::Usage, "{unknown}");
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_a_cursor() {
-    let (_home, _serving, client) = started().await.expect("a service answering");
+    let (_home, serving, client) = started().await.expect("a service answering");
     let stack = RunName::new("stack").expect("a name");
 
     client.follow(up("other")).await.expect("followed").outcome().await.expect("other ends well");
@@ -262,4 +265,5 @@ async fn a_subscription_to_one_run_gets_that_runs_events_only_and_resumes_after_
         Some(OperationPhase::Queued),
         "the next operation's first event, nothing before the cursor: {first:?}"
     );
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
