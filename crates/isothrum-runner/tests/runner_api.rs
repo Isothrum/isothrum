@@ -73,9 +73,11 @@ impl ProcessRunner for Embedded {
 
 /// A runner on a fresh home over the modelled engine, and a Compose project beside it.
 struct Stack {
+    runner: Runner,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
     home: tempfile::TempDir,
     project: tempfile::TempDir,
-    runner: Runner,
 }
 
 fn stack() -> Outcome<Stack> {
@@ -84,7 +86,7 @@ fn stack() -> Outcome<Stack> {
     let mut config = RunnerConfig::new(home.path());
     config.processes = Arc::new(Embedded(Arc::default()));
     let runner = Runner::new(config)?;
-    Ok(Stack { home, project, runner })
+    Ok(Stack { runner, home, project })
 }
 
 /// Says nothing of an event: the test reads the run's state, not its stream.
