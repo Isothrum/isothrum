@@ -21,6 +21,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::time::SystemTime;
 
 use crate::{Res, process, repo};
 
@@ -54,8 +55,8 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
 /// The variables that name the temp folder, on one platform or another.
 const TEMP_VARS: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];
 
-/// The temp folder the tests run with, fresh for the run.
-struct TempRoot(tempfile::TempDir);
+/// The temp folder the tests run with, fresh for the run, and when it was made.
+struct TempRoot(tempfile::TempDir, SystemTime);
 
 impl TempRoot {
     /// A new folder under `/tmp` on Unix (a short path: a test that binds a Unix socket under its
@@ -67,7 +68,7 @@ impl TempRoot {
             .prefix("isothrum-test-")
             .tempdir_in(&base)
             .map_err(|e| format!("no temp folder for the tests in {}: {e}", base.display()))?;
-        Ok(TempRoot(dir))
+        Ok(TempRoot(dir, SystemTime::now()))
     }
 
     /// `cmd` with its temp folder this one, whichever variable its platform reads, and no compiler
@@ -86,8 +87,9 @@ impl TempRoot {
     fn finish(self, keep: bool) -> Res<bool> {
         let left = leftovers(self.0.path())?;
         for name in &left {
-            let inside = contents(&self.0.path().join(name));
-            eprintln!("xtask: a test left `{name}` in its temp folder{inside}: a test removes what it makes (a `tempfile::TempDir`)");
+            let path = self.0.path().join(name);
+            let (inside, when) = (contents(&path), when(&path, self.1));
+            eprintln!("xtask: a test left `{name}` in its temp folder{inside}{when}: a test removes what it makes (a `tempfile::TempDir`)");
         }
         if keep {
             eprintln!("xtask: the tests' temp folder is kept ({KEEP}): {}", self.0.keep().display());
@@ -122,6 +124,24 @@ fn contents(dir: &Path) -> String {
     format!(" (holding {}{more})", found.join(", "))
 }
 
+/// When `path` was made and last written, in seconds since the tests began at `began`: the tests
+/// running then, by the run's timed lines, are the ones that may have left it.
+fn when(path: &Path, began: SystemTime) -> String {
+    let since = |t: SystemTime| t.duration_since(began).map_or(0.0, |d| d.as_secs_f64());
+    let Ok(meta) = std::fs::metadata(path) else { return String::new() };
+    let made = meta.created().or_else(|_| meta.modified()).map(since);
+    let below = std::fs::read_dir(path).into_iter().flatten().flatten();
+    let written = below
+        .filter_map(|e| e.metadata().ok()?.modified().ok())
+        .chain(meta.modified().ok())
+        .max()
+        .map(since);
+    match (made, written) {
+        (Ok(made), Some(written)) => format!(", made {made:.1} s into the tests and last written at {written:.1} s"),
+        _ => String::new(),
+    }
+}
+
 /// The names at the top of `dir`, sorted.
 fn leftovers(dir: &Path) -> Res<Vec<String>> {
     let mut names = Vec::new();
@@ -135,6 +155,16 @@ fn leftovers(dir: &Path) -> Res<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_leftover_says_when_it_was_made_and_last_written_since_the_tests_began() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.db"), "").unwrap();
+        let began = SystemTime::now() - std::time::Duration::from_secs(5);
+        let said = when(dir.path(), began);
+        assert!(said.starts_with(", made 5.") && said.contains("last written at 5."), "{said}");
+        assert_eq!(when(&dir.path().join("gone"), began), "", "nothing to say of a path that isn't there");
+    }
 
     #[test]
     fn what_the_tests_leave_in_their_temp_folder_fails_the_run_and_the_folder_goes() {
