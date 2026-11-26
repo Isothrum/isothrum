@@ -101,9 +101,11 @@ impl Engine for Scripted {
 
 /// A service on a fresh home, its engine, and its task.
 struct Running {
-    home: tempfile::TempDir,
     engine: Arc<Scripted>,
     task: Serving,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    home: tempfile::TempDir,
 }
 
 async fn start(idle: Option<Duration>) -> Outcome<Running> {
@@ -120,7 +122,7 @@ async fn start_with(home: tempfile::TempDir, engine: Scripted, set: impl FnOnce(
     let mut options = ServeOptions::new(shared, common::never());
     set(&mut options);
     let (_, task) = common::serve_with(home.path(), options).await?;
-    Ok(Running { home, engine, task })
+    Ok(Running { engine, task, home })
 }
 
 /// What an operation's options say: held until released, or not.
@@ -170,6 +172,23 @@ async fn begun(followed: &mut Followed) -> Result<(), ClientError> {
     Err(ClientError::Protocol("it ended before it began".to_owned()))
 }
 
+/// A service on a fresh home with a held `up` of `web` that has begun: the service, a client of
+/// it, and that start.
+async fn a_held_start() -> Outcome<(Running, Client, Followed)> {
+    let s = start(None).await?;
+    let client = Client::connect_running(s.home.path()).await?;
+    let mut long = client.follow(up("web", true)).await?;
+    begun(&mut long).await?;
+    Ok((s, client, long))
+}
+
+/// Ends a test whose run nothing holds any more: a new `up` of `web` goes through, then the
+/// service stops.
+async fn ends_with_the_run_free(s: Running, client: &Client) -> Outcome<()> {
+    client.follow(up("web", false)).await?.outcome().await?;
+    common::stopped(client, Command::Shutdown, s.task).await
+}
+
 /// Whether `followed` ends cancelled (within [`PATIENCE`]).
 async fn ends_cancelled(followed: &mut Followed) -> bool {
     let outcome = tokio::time::timeout(PATIENCE, followed.outcome()).await;
@@ -217,7 +236,7 @@ async fn a_second_operation_on_a_busy_run_is_refused_and_other_runs_go_on() {
     b.follow(down("web")).await.unwrap().outcome().await.unwrap();
     let web_log: Vec<String> = s.engine.log().into_iter().filter(|l| l.contains(" web ")).collect();
     assert_eq!(web_log, ["begin web up", "end web up", "begin web down", "end web down"]);
-    s.task.abort();
+    common::stopped(&b, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -235,7 +254,7 @@ async fn a_start_during_a_stop_is_refused() {
     s.engine.release("web");
     stopping.outcome().await.unwrap();
     assert!(!s.engine.log().contains(&"begin web up".to_owned()), "{:?}", s.engine.log());
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -264,7 +283,7 @@ async fn a_reconnecting_subscriber_resumes_after_its_last_cursor_and_misses_noth
         == Some(isothrum_runner::Op::Down));
     let only_db = client.subscribe(Some(RunName::new("db").unwrap()), None).await.unwrap();
     drop(only_db);
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test]
@@ -276,15 +295,13 @@ async fn one_service_per_home() {
         "{held:?}"
     );
     assert!(held.to_string().contains("already holds"), "{held}");
-    s.task.abort();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_be_cancelled_too() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     // A stop cuts the start short: the start cancelled, the stop is taken, never refused (queued
     // behind the start while it is still being cut short, else begun at once).
     client.cancel(long.accepted.operation).await.unwrap();
@@ -306,8 +323,7 @@ async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_
     assert!(matches!(refused, Err(ClientError::Refused(_))), "an ended operation: {refused:?}");
     let engine_said = s.engine.log();
     assert!(!engine_said.iter().any(|l| l.starts_with("end web")), "{engine_said:?}");
-    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    ends_with_the_run_free(s, &client).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -319,15 +335,12 @@ async fn a_refused_run_is_answered_at_once() {
         matches!(&refused, Err(ClientError::Refused(report)) if report.code == ErrorCode::Unsupported),
         "{refused:?}"
     );
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_cancels_the_running_operation_and_the_service_stops() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     client.shutdown().await.unwrap();
     assert!(ends_cancelled(&mut long).await);
     common::ended(s.task).await.unwrap();
@@ -378,16 +391,12 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
     let row = ops.iter().find(|o| o.id == left).unwrap();
     assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
     // What held the run died with its service: nothing is left holding it.
-    client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    ends_with_the_run_free(s, &client).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_if_idle_is_refused_while_an_operation_runs_and_stops_the_service_once_idle() {
-    let s = start(None).await.unwrap();
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    let mut long = client.follow(up("web", true)).await.unwrap();
-    begun(&mut long).await.unwrap();
+    let (s, client, mut long) = a_held_start().await.unwrap();
     let refused = client.request(Command::ShutdownIfIdle).await.unwrap();
     assert!(
         matches!(&refused, Reply::Busy { operations, .. } if operations == &[long.accepted.operation]),
@@ -429,7 +438,8 @@ async fn a_run_past_its_lifetime_is_brought_down_by_the_service_itself() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(s.engine.log(), ["begin old down", "end old down"]);
-    s.task.abort();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -34,10 +34,7 @@ mod tests {
 
     /// What [`accepted_in`] reads of Docker Desktop's folder holding `files` (name, text).
     fn read(files: &[(&str, &str)]) -> Option<bool> {
-        let dir = tempfile::tempdir().unwrap();
-        for (name, text) in files {
-            std::fs::write(dir.path().join(name), text).unwrap();
-        }
+        let dir = isothrum_test_support::dir_with(files).unwrap();
         accepted_in(&[dir.path().join("settings-store.json"), dir.path().join("settings.json")])
     }
 

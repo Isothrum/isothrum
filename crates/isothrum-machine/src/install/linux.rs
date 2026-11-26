@@ -37,6 +37,14 @@ pub struct Root {
 }
 
 impl Root {
+    /// Root steps run `elevation`'s way, handed this process's proxy variables.
+    pub(crate) fn with_this_proxy(elevation: Elevation) -> Root {
+        Root {
+            elevation,
+            proxy: proxy_assignments(|name| std::env::var(name).ok()),
+        }
+    }
+
     /// `script` run as root. The proxy variables go in an owner-only file in a private folder
     /// kept as long as the step, which the script reads right after its prelude: on pkexec's
     /// command line, which every local user can read (`ps`, `/proc/<pid>/cmdline`) while the
@@ -111,12 +119,7 @@ fn linux(dependency: Dependency, packages: Option<Packages>) -> Result<LinuxPack
 ///
 /// [`Refusal`]: why it can't be installed here.
 pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, user: Option<&str>, root: &Root) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(HostOs::Linux) {
-        return Err(Refusal::NotHere {
-            dependency: dep,
-            os: HostOs::Linux,
-        });
-    }
+    dep.runs_here(HostOs::Linux)?;
     if let Some(why) = dep.no_build(HostOs::Linux, arch) {
         return Err(Refusal::NoBuild {
             dependency: dep,
@@ -173,19 +176,14 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, user: Op
 /// them (a tool installed through dnf removed with `apt-get remove` failed with `apt-get: not
 /// found`); the AWS CLI's folder when the install added it. The package manager would take away
 /// with them every package that needs one of them, whoever installed it: the removal stops,
-/// removing nothing, when it would ([`removal_script`]).
+/// removing nothing, when it would (`removal_script`).
 ///
 /// # Errors
 ///
 /// [`Refusal::NothingAdded`] when `added` lists nothing of `dep`'s, or why it can't be removed
 /// here.
 pub fn uninstall(dep: Dependency, packages: Option<Packages>, added: &[Item], root: &Root) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(HostOs::Linux) {
-        return Err(Refusal::NotHere {
-            dependency: dep,
-            os: HostOs::Linux,
-        });
-    }
+    dep.runs_here(HostOs::Linux)?;
     // AWS CLI is a folder on every distribution.
     if dep == Dependency::Awscli {
         return if added.contains(&Item::Tool(dep)) {

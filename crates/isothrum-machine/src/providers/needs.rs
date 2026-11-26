@@ -70,7 +70,7 @@ const UTILITY_WAIT: Duration = Duration::from_secs(2);
 /// vagrant-vmware-desktop reads the routing table with it before it makes any private network,
 /// and stops with "The external program used to read TCP/IP routing tables ... could not be
 /// found" without one (Debian 13 and recent Ubuntu and Fedora ship no `net-tools`). The utility's
-/// install brings it ([`crate::install::linux::vmware_utility_script`]), so a setup that
+/// install brings it ([`crate::install::linux::scripts::vmware_utility_script`]), so a setup that
 /// installs the utility again is what gives VMware what it needs here.
 pub async fn vmware_utility(host: &Host) -> UtilityState {
     if host.os == HostOs::Linux && !host.devices.netstat.iter().any(|p| p.is_file()) {

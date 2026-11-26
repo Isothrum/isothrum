@@ -70,6 +70,7 @@ jobs:
         with:
           # Only main writes the cache, so a pull request can't seed what it builds with.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: rustup target add x86_64-pc-windows-gnu
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - run: cargo run -q -p xtask --locked -- check --only windows-gnu
 

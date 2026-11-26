@@ -74,10 +74,12 @@ impl Docker {
 
 /// A service over a runner on the modelled Docker, on a fresh home, a Compose project beside it.
 struct Stack {
-    home: tempfile::TempDir,
-    project: tempfile::TempDir,
     client: Client,
     task: common::Serving,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    home: tempfile::TempDir,
+    project: tempfile::TempDir,
 }
 
 async fn stack() -> Outcome<Stack> {
@@ -88,7 +90,7 @@ async fn stack() -> Outcome<Stack> {
     )?;
     let docker = Docker::default();
     let (client, task) = serve(home.path(), move |call| docker.answer(call)).await?;
-    Ok(Stack { home, project, client, task })
+    Ok(Stack { client, task, home, project })
 }
 
 impl Stack {
@@ -105,11 +107,7 @@ impl Stack {
 
     /// Ends the service with `shutdown_if_idle` through `client`, and waits until it is gone.
     async fn end(self, client: &Client) -> Outcome<()> {
-        let reply = client.request(Command::ShutdownIfIdle).await?;
-        if !matches!(reply, Reply::Ok { .. }) {
-            return Err(format!("shutdown_if_idle: {reply:?}").into());
-        }
-        common::ended(self.task).await
+        common::stopped(client, Command::ShutdownIfIdle, self.task).await
     }
 }
 

@@ -316,7 +316,7 @@ pub fn gcloud_script() -> RootScript {
 /// (`libvirt-dev`), a C compiler and make (`build-essential`), `pkg-config`, and Ruby's headers
 /// for a distribution's Vagrant (which builds on the system Ruby). Without them the plugin's
 /// install fails building its native extension. With the programs its VMs need beside it
-/// ([`apt_install_with_helpers`]). Then the user joins the `libvirt` group (and `kvm`, where the
+/// (`apt_install_with_helpers`). Then the user joins the `libvirt` group (and `kvm`, where the
 /// distribution has one), so Vagrant reaches `qemu:///system` and `/dev/kvm` without root; the
 /// groups apply from the next login.
 #[must_use]
@@ -331,7 +331,7 @@ pub fn libvirt_script(user: Option<&str>) -> RootScript {
 }
 
 /// QEMU and its disk tools, with the programs its VMs need beside it
-/// ([`apt_install_with_helpers`]: `mkisofs`, virtiofsd), then the user into the group `/dev/kvm`
+/// (`apt_install_with_helpers`: `mkisofs`, virtiofsd), then the user into the group `/dev/kvm`
 /// belongs to, so vagrant-qemu boots VMs with KVM (`accel=kvm`, as Vagrantfiles ask on Linux)
 /// without root; the group applies from the next login.
 #[must_use]

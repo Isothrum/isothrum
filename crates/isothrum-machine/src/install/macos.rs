@@ -1,7 +1,7 @@
 //! Installs and removals on macOS: the vendors' own disk images and packages for the apps and the
 //! AWS CLI (Homebrew downloads the apps', the AWS CLI's comes from Amazon; then they are checked
 //! and installed as an administrator, with nothing left for the user to finish:
-//! [`super::mac_image`]), HashiCorp's signed package for VMware's utility, or Homebrew's formulae.
+//! `super::mac_image`), HashiCorp's signed package for VMware's utility, or Homebrew's formulae.
 //! A removal of what came from a vendor's package runs as its uninstaller does, through macOS's
 //! administrator prompt.
 //!
@@ -11,7 +11,7 @@
 //! Per tool:
 //!
 //! - Docker Desktop, Vagrant, VirtualBox, UTM: their vendor's disk image or package.
-//! - The AWS CLI: Amazon's package ([`mac_image::AWS_CLI`]), on both CPUs.
+//! - The AWS CLI: Amazon's package (`mac_image::AWS_CLI`), on both CPUs.
 //! - VMware's utility: HashiCorp's package.
 //! - Terraform: HashiCorp's tap, whose formula installs HashiCorp's own build (its checksum
 //!   pinned): nothing is built on either CPU.
@@ -49,12 +49,7 @@ fn sh(script: &str, note: Note) -> Step {
 ///
 /// [`Refusal::NotHere`] for what doesn't run on macOS, [`Refusal::NoHomebrew`] without Homebrew.
 pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(HostOs::Macos) {
-        return Err(Refusal::NotHere {
-            dependency: dep,
-            os: HostOs::Macos,
-        });
-    }
+    dep.runs_here(HostOs::Macos)?;
     // The vendors' own packages, downloaded from them: need no Homebrew.
     match dep {
         Dependency::VmwareUtility => return Ok(vec![vmware_utility::mac_install(arch, elevation)]),

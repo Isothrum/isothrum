@@ -95,11 +95,13 @@ fn files_holding(dir: &Path, needle: &[u8]) -> Vec<PathBuf> {
 /// A service over a runner whose Terraform is `terraform`, on a fresh home; the module copied to
 /// a folder of its own.
 struct Stack {
-    home: tempfile::TempDir,
-    module: tempfile::TempDir,
     terraform: Arc<Terraform>,
     client: Client,
     task: common::Serving,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    home: tempfile::TempDir,
+    module: tempfile::TempDir,
 }
 
 async fn stack() -> Outcome<Stack> {
@@ -109,11 +111,11 @@ async fn stack() -> Outcome<Stack> {
     let answering = Arc::clone(&terraform);
     let (client, task) = serve(home.path(), move |call| answering.answer(call)).await?;
     Ok(Stack {
-        home,
-        module,
         terraform,
         client,
         task,
+        home,
+        module,
     })
 }
 
@@ -124,8 +126,7 @@ impl Stack {
 
     /// Shuts the service down, and waits until it ended well.
     async fn stop(self) -> Outcome<()> {
-        self.client.shutdown().await?;
-        common::ended(self.task).await
+        common::stopped(&self.client, Command::Shutdown, self.task).await
     }
 }
 

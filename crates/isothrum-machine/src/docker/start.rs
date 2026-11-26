@@ -358,6 +358,7 @@ mod tests {
     /// in its window for its terms to be accepted, and its start gave up 180 s later with "no
     /// answer". Its backend never listening says it waits for its user, once its grace is over.
     #[tokio::test(start_paused = true)]
+    #[cfg_attr(not(unix), ignore = "macOS's Docker Desktop socket is a unix one, which only a unix host can find not listening")]
     async fn docker_desktop_waiting_for_its_user_says_so_instead_of_timing_out() {
         let root = tempfile::tempdir().unwrap();
         let (cx, fake) = desktop_never_answering(root.path());
