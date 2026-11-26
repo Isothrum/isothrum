@@ -101,9 +101,11 @@ impl Engine for Scripted {
 
 /// A service on a fresh home, its engine, and its task.
 struct Running {
-    home: tempfile::TempDir,
     engine: Arc<Scripted>,
     task: Serving,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    home: tempfile::TempDir,
 }
 
 async fn start(idle: Option<Duration>) -> Outcome<Running> {
@@ -120,7 +122,7 @@ async fn start_with(home: tempfile::TempDir, engine: Scripted, set: impl FnOnce(
     let mut options = ServeOptions::new(shared, common::never());
     set(&mut options);
     let (_, task) = common::serve_with(home.path(), options).await?;
-    Ok(Running { home, engine, task })
+    Ok(Running { engine, task, home })
 }
 
 /// What an operation's options say: held until released, or not.
