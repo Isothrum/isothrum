@@ -267,6 +267,20 @@ pub(crate) fn done_or_gone(tool: &'static str, out: &Captured, gone: &[&str]) ->
     Err(CliError::Failed { tool, failure: out.reason() })
 }
 
+/// A VM removed by `tool`: `stop` run first (a VM already stopped is fine), then `delete`, which
+/// is done when it succeeds or says (`gone`) the VM was gone already ([`done_or_gone`]).
+pub(crate) async fn stop_then_delete(
+    call: &Call<'_>,
+    tool: &'static str,
+    stop: Vec<String>,
+    delete: Vec<String>,
+    gone: &[&str],
+) -> Result<(), CliError<String>> {
+    drop(call.run::<String>(tool, stop).await?);
+    let out = call.run::<String>(tool, delete).await?;
+    done_or_gone(tool, &out, gone)
+}
+
 /// `args` as owned strings.
 pub(crate) fn argv<const N: usize>(args: [&str; N]) -> Vec<String> {
     args.map(str::to_owned).to_vec()

@@ -28,9 +28,7 @@ const NO_VM: [&str; 2] = ["virtual machine not found", "no virtual machine"];
 /// Removes VM `uuid` by its id: `stop --kill` (one already stopped is fine), then `delete` (its
 /// bundle goes). A VM UTM doesn't know is gone already.
 pub(crate) async fn remove(call: &Call<'_>, uuid: &str) -> Result<(), CliError<String>> {
-    drop(call.run::<String>(TOOL, argv(["stop", "--kill", uuid])).await?);
-    let out = call.run::<String>(TOOL, argv(["delete", uuid])).await?;
-    super::done_or_gone(TOOL, &out, &NO_VM)
+    super::stop_then_delete(call, TOOL, argv(["stop", "--kill", uuid]), argv(["delete", uuid]), &NO_VM).await
 }
 
 #[cfg(test)]

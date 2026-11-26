@@ -5,9 +5,6 @@ use std::time::Duration;
 
 use super::*;
 
-/// The jump host's key, as `ssh-keyscan` prints it.
-const NODE_KEY: &str = "node.stack ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
-
 /// The loopback port of a proxy `ssh` call, from its `-D 127.0.0.1:<port>`.
 fn proxy_port(call: &Made) -> Option<u16> {
     let at = call.args.iter().position(|a| a == "-D")?;
@@ -126,9 +123,7 @@ async fn a_jump_host_that_isnt_a_login_is_refused_before_anything_runs_through_i
 async fn a_jump_host_whose_known_hosts_the_run_gives_is_checked_against_that_file_and_never_scanned() {
     let stack = stack().with_state();
     let fake = through_a_node(Arc::default());
-    let known = tempfile::tempdir().expect("a folder");
-    let file = known.path().join("nodes_known_hosts");
-    std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
+    let (_known, file) = nodes_known_hosts();
     let path = file.to_string_lossy().into_owned();
     let given = [("ssh_jump", "root@node.stack"), ("ssh_jump_known_hosts_file", path.as_str())];
     with_cx_given(&stack, &fake, &given, async |cx| Terraform.up(cx).await).await.expect("up");

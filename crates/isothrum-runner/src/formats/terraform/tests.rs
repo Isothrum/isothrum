@@ -156,6 +156,18 @@ fn failing(stdout: &str) -> Reply {
 }
 
 /// `file` as the run's `ssh` options name it: with `/` (Windows' OpenSSH reads it as `\`).
+/// The node's host key, as `ssh-keyscan` prints it.
+const NODE_KEY: &str = "node.stack ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+
+/// A known-hosts file the run gives, pinning the node's key ([`NODE_KEY`]): its folder, kept
+/// while the test runs, and the file.
+fn nodes_known_hosts() -> (tempfile::TempDir, PathBuf) {
+    let known = tempfile::tempdir().expect("a folder");
+    let file = known.path().join("nodes_known_hosts");
+    std::fs::write(&file, format!("{NODE_KEY}\n")).expect("the file");
+    (known, file)
+}
+
 fn ssh_named(file: &std::path::Path) -> String {
     file.to_string_lossy().replace('\\', "/")
 }
