@@ -108,6 +108,15 @@ struct Running {
     home: tempfile::TempDir,
 }
 
+impl Running {
+    /// Stops the service through a client of its own, for a test that holds none, and waits
+    /// until `serve` returned.
+    async fn stop(self) -> Outcome<()> {
+        let client = Client::connect_running(self.home.path()).await?;
+        common::stopped(&client, Command::Shutdown, self.task).await
+    }
+}
+
 async fn start(idle: Option<Duration>) -> Outcome<Running> {
     start_in(tempfile::tempdir()?, idle).await
 }
@@ -295,8 +304,7 @@ async fn one_service_per_home() {
         "{held:?}"
     );
     assert!(held.to_string().contains("already holds"), "{held}");
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
+    s.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -438,8 +446,7 @@ async fn a_run_past_its_lifetime_is_brought_down_by_the_service_itself() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(s.engine.log(), ["begin old down", "end old down"]);
-    let client = Client::connect_running(s.home.path()).await.unwrap();
-    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
+    s.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
