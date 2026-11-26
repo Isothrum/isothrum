@@ -515,7 +515,7 @@ pub fn removal(dep: Dependency, host: &crate::host::Host, added: &[Item], elevat
 }
 
 /// Whether `dep` is installed on the context's host; `None` when that can't be told (WSL, Hyper-V).
-/// The tool itself ([`tool_found`]); a hypervisor with the programs its VMs need beside it
+/// The tool itself (`tool_found`); a hypervisor with the programs its VMs need beside it
 /// ([`crate::providers::helpers()`]), as its provider's detection reads it: one without them is
 /// installed again, which brings them.
 pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {

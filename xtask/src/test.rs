@@ -21,6 +21,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::time::SystemTime;
 
 use crate::{Res, process, repo};
 
@@ -54,8 +55,8 @@ pub(crate) fn run(a: &Args) -> Res<ExitCode> {
 /// The variables that name the temp folder, on one platform or another.
 const TEMP_VARS: [&str; 3] = ["TMPDIR", "TMP", "TEMP"];
 
-/// The temp folder the tests run with, fresh for the run.
-struct TempRoot(tempfile::TempDir);
+/// The temp folder the tests run with, fresh for the run, and when it was made.
+struct TempRoot(tempfile::TempDir, SystemTime);
 
 impl TempRoot {
     /// A new folder under `/tmp` on Unix (a short path: a test that binds a Unix socket under its
@@ -67,7 +68,7 @@ impl TempRoot {
             .prefix("isothrum-test-")
             .tempdir_in(&base)
             .map_err(|e| format!("no temp folder for the tests in {}: {e}", base.display()))?;
-        Ok(TempRoot(dir))
+        Ok(TempRoot(dir, SystemTime::now()))
     }
 
     /// `cmd` with its temp folder this one, whichever variable its platform reads, and no compiler
@@ -86,7 +87,9 @@ impl TempRoot {
     fn finish(self, keep: bool) -> Res<bool> {
         let left = leftovers(self.0.path())?;
         for name in &left {
-            eprintln!("xtask: a test left `{name}` in its temp folder: a test removes what it makes (a `tempfile::TempDir`)");
+            let path = self.0.path().join(name);
+            let (inside, when, runs) = (contents(&path), when(&path, self.1), mirrored_runs(&path));
+            eprintln!("xtask: a test left `{name}` in its temp folder{inside}{when}{runs}: a test removes what it makes (a `tempfile::TempDir`)");
         }
         if keep {
             eprintln!("xtask: the tests' temp folder is kept ({KEEP}): {}", self.0.keep().display());
@@ -95,6 +98,60 @@ impl TempRoot {
         }
         Ok(left.is_empty())
     }
+}
+
+/// What the folder `dir` holds, as a test left it (a few paths in it, two levels deep), to tell
+/// which test it was; empty when it is a file or empty.
+fn contents(dir: &Path) -> String {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let below = std::fs::read_dir(entry.path()).into_iter().flatten().flatten();
+        let inner: Vec<String> = below.map(|e| format!("{name}/{}", e.file_name().to_string_lossy())).collect();
+        if inner.is_empty() {
+            found.push(name);
+        } else {
+            found.extend(inner);
+        }
+    }
+    found.sort();
+    if found.is_empty() {
+        return String::new();
+    }
+    let more = found.len().saturating_sub(6);
+    found.truncate(6);
+    let more = if more > 0 { format!(", and {more} more") } else { String::new() };
+    format!(" (holding {}{more})", found.join(", "))
+}
+
+/// When `path` was made and last written, in seconds since the tests began at `began`: the tests
+/// running then, by the run's timed lines, are the ones that may have left it.
+fn when(path: &Path, began: SystemTime) -> String {
+    let since = |t: SystemTime| t.duration_since(began).map_or(0.0, |d| d.as_secs_f64());
+    let Ok(meta) = std::fs::metadata(path) else { return String::new() };
+    let made = meta.created().or_else(|_| meta.modified()).map(since);
+    let below = std::fs::read_dir(path).into_iter().flatten().flatten();
+    let written = below
+        .filter_map(|e| e.metadata().ok()?.modified().ok())
+        .chain(meta.modified().ok())
+        .max()
+        .map(since);
+    match (made, written) {
+        (Ok(made), Some(written)) => format!(", made {made:.1} s into the tests and last written at {written:.1} s"),
+        _ => String::new(),
+    }
+}
+
+/// The runs a store's mirror in `dir` names (`"name":"…"` in its `state.mirror`): what the test
+/// that left it called its runs. Empty without a mirror.
+fn mirrored_runs(dir: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(dir.join("state.mirror")) else {
+        return String::new();
+    };
+    let mut names: Vec<&str> = text.split("\"name\":\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    names.sort_unstable();
+    names.dedup();
+    format!(", its runs named [{}]", names.join(", "))
 }
 
 /// The names at the top of `dir`, sorted.
@@ -110,6 +167,25 @@ fn leftovers(dir: &Path) -> Res<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_leftover_says_when_it_was_made_and_last_written_since_the_tests_began() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.db"), "").unwrap();
+        let began = SystemTime::now() - std::time::Duration::from_secs(5);
+        let said = when(dir.path(), began);
+        assert!(said.starts_with(", made 5.") && said.contains("last written at 5."), "{said}");
+        assert_eq!(when(&dir.path().join("gone"), began), "", "nothing to say of a path that isn't there");
+    }
+
+    #[test]
+    fn a_leftover_stores_mirror_says_its_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(mirrored_runs(dir.path()), "", "no mirror, nothing said");
+        let mirror = r#"{"schema":9,"runs":[{"name":"web","state":"ready"},{"name":"db"},{"name":"web"}]}"#;
+        std::fs::write(dir.path().join("state.mirror"), mirror).unwrap();
+        assert_eq!(mirrored_runs(dir.path()), ", its runs named [db, web]");
+    }
 
     #[test]
     fn what_the_tests_leave_in_their_temp_folder_fails_the_run_and_the_folder_goes() {

@@ -35,12 +35,14 @@ enum Said {
 /// An example copied to a folder of its own (named as it is, so the run is too), and a runner
 /// whose tools are `fake`.
 struct Example {
-    _home: tempfile::TempDir,
-    _copy: tempfile::TempDir,
     dir: PathBuf,
     runner: Runner,
     term: Term,
     out: Buf,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    _home: tempfile::TempDir,
+    _copy: tempfile::TempDir,
 }
 
 /// The repository's `examples/<name>`.

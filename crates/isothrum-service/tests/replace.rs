@@ -20,7 +20,7 @@ mod tests {
     use isothrum_runner::store::{OperationId, Owner, Store};
     use isothrum_runner::{BoxFuture, ErrorCode, Op, RunName, Status};
     use isothrum_service::{Engine, Journal, Refusal, ServeOptions, Service};
-    use isothrum_test_support::{ChildGuard, PidGuard, wait_until};
+    use isothrum_test_support::{ChildGuard, PidGuard, alive, wait_until};
 
     /// How long a test waits for what a process does on its own: long, as it only bounds a
     /// failure, and a loaded machine starts a process slowly.
@@ -319,12 +319,16 @@ mod tests {
                 .expect("connect_exact took over a minute")
         }
 
-        /// Stops this release's service `client` connects to, and waits until it is gone.
+        /// Stops this release's service `client` connects to, and waits until it is gone: its
+        /// info withdrawn and its process ended (on Windows the home can't be removed while its
+        /// store is open).
         async fn stop(&self, client: Client) {
+            let pid = client.service().pid;
             client.shutdown().await.unwrap();
             drop(client);
             let paths = ServicePaths::new(self.home.path());
             assert!(wait_until(PATIENCE, || paths.read_info().is_none()), "the service didn't stop");
+            assert!(wait_until(PATIENCE, || !alive(pid)), "the service's process didn't end");
         }
     }
 

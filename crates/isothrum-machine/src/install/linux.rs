@@ -173,7 +173,7 @@ pub fn install(dep: Dependency, packages: Option<Packages>, arch: Arch, user: Op
 /// them (a tool installed through dnf removed with `apt-get remove` failed with `apt-get: not
 /// found`); the AWS CLI's folder when the install added it. The package manager would take away
 /// with them every package that needs one of them, whoever installed it: the removal stops,
-/// removing nothing, when it would ([`removal_script`]).
+/// removing nothing, when it would (`removal_script`).
 ///
 /// # Errors
 ///

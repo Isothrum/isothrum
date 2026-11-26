@@ -16,11 +16,13 @@ use crate::term::{Term, Trail};
 use crate::testing::Buf;
 
 struct Setup {
-    home: tempfile::TempDir,
-    run: tempfile::TempDir,
     runner: Runner,
     term: Term,
     out: Buf,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    home: tempfile::TempDir,
+    run: tempfile::TempDir,
 }
 
 /// A Compose project in a folder of its own, and a runner on an empty script: a tool these
