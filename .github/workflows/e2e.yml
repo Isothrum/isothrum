@@ -1,0 +1,101 @@
+name: E2E on hosted runners
+
+# isothrum-machine's machine tier (`cargo xtask e2e --tier machine`) on GitHub's own runners: each
+# is a clean machine, thrown away after the job, so the installs run for real as a setup runs them
+# (`ISOTHRUM_E2E_INSTALL`), then the tests on what they installed. A test whose tool isn't there
+# skips, saying why; the job fails only when a test fails.
+#
+# What a hosted runner can test:
+# - Linux (x86_64, KVM): the installs of Vagrant, Terraform, QEMU, libvirt and their Vagrant
+#   plugins, Docker Engine, and real VMs: the libvirt and QEMU self-tests and examples boot them.
+# - macOS (arm64, no nested virtualization): the installs from Homebrew and the providers'
+#   detection; no VM boots and no Docker.
+# - Windows: the installs of Vagrant and Terraform, the tool path and the terminal; no Hyper-V or
+#   WSL 2 (nested virtualization), so nothing that needs a restart.
+# VMware, Parallels, Hyper-V, UTM, VirtualBox, Docker Desktop and arm64 Linux stay on our own
+# machines (`./ws test`): their licences, their nested virtualization or their CPU.
+#
+# Before main and a release (gate.yml calls it), by hand, and on a pull request into dev that
+# changes these tests or this workflow: a run takes 15-30 minutes, too long for every pull request.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - .github/workflows/e2e.yml
+      - xtask/src/e2e.rs
+      - crates/isothrum-machine/tests/real/**
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  machine:
+    name: Machine tier (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            install: vagrant,terraform,qemu,libvirt,vagrant-libvirt,vagrant-qemu
+          - os: macos-15
+            install: vagrant,terraform,qemu,vagrant-qemu
+          - os: windows-2025
+            install: vagrant,terraform
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      ISOTHRUM_E2E_INSTALL: ${{ matrix.install }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+      - name: The machine tier
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e"
+          RESULTS="$RUNNER_TEMP/e2e/results.jsonl"
+          set +e
+          cargo run -q -p xtask --locked -- e2e --tier machine --results "$RESULTS"
+          code=$?
+          if [ "$code" = 76 ]; then
+            # The installs joined this account to groups (libvirt, kvm, docker) that apply from
+            # its next login: sudo, to the same account, reads its groups afresh as a login does.
+            sudo --preserve-env -u "$(id -un)" env PATH="$PATH" \
+              cargo run -q -p xtask --locked -- e2e --tier machine --results "$RESULTS"
+            code=$?
+          fi
+          exit "$code"
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          RESULTS="$RUNNER_TEMP/e2e/results.jsonl"
+          [ -f "$RESULTS" ] || exit 0
+          {
+            echo "### Machine tier on ${{ matrix.os }}"
+            echo
+            jq -rs 'group_by(.result) | map("- \(.[0].result): \(length)") | .[]' "$RESULTS"
+            echo
+            echo "| test | result | seconds | reason |"
+            echo "|---|---|---|---|"
+            jq -r '"| \(.case) | \(.result) | \(.seconds // "") | \((.reason // "") | gsub("[|\n]"; " ") | .[0:160]) |"' "$RESULTS"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: e2e-machine-${{ matrix.os }}
+          path: ${{ runner.temp }}/e2e
+          if-no-files-found: ignore
