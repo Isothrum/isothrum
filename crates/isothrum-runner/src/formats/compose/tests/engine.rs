@@ -6,6 +6,15 @@
 
 use super::*;
 use crate::ErrorCode;
+use crate::process::fake::Script;
+
+/// An `up` that fails saying `said`, its pull and its configuration fine.
+fn an_up_failing_with(said: &str) -> Script {
+    FakeProcesses::script()
+        .expect(UP, Reply::fail(1, said))
+        .allow(PULL, Reply::ok(""))
+        .expect(CONFIG, Reply::ok(NO_PORTS))
+}
 
 #[tokio::test]
 async fn an_up_the_engine_fails_under_is_said_by_the_engines_code() {
@@ -33,11 +42,7 @@ async fn an_up_the_engine_fails_under_is_said_by_the_engines_code() {
     ] {
         let (_dir, project) = folder();
         let run = run();
-        let fake = FakeProcesses::script()
-            .expect(UP, Reply::fail(1, said))
-            .allow(PULL, Reply::ok(""))
-            .expect(CONFIG, Reply::ok(NO_PORTS))
-            .build();
+        let fake = an_up_failing_with(said).build();
         let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("failed");
         let report = e.report();
         assert_eq!((report.code, report.step.as_deref()), (code, Some("up")), "{said}");
@@ -67,12 +72,7 @@ async fn an_up_failing_in_open_words_asks_the_engine_and_a_silent_one_is_down() 
     ] {
         let (_dir, project) = folder();
         let run = run();
-        let fake = FakeProcesses::script()
-            .expect(UP, Reply::fail(1, said))
-            .allow(PULL, Reply::ok(""))
-            .expect(CONFIG, Reply::ok(NO_PORTS))
-            .expect(ENGINE_ASKED, engine)
-            .build();
+        let fake = an_up_failing_with(said).expect(ENGINE_ASKED, engine).build();
         let e = Compose.up(&cx(&project, &run, &fake)).await.expect_err("failed");
         let report = e.report();
         assert_eq!((report.code, report.step.as_deref()), (code, Some("up")), "{report:?}");

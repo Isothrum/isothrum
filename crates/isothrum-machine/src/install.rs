@@ -264,6 +264,15 @@ impl Dependency {
             Runs::As(provider) => ProviderRow::of(provider).oses.contains(&os),
         }
     }
+
+    /// [`Dependency::runs_on`] as an install or a removal asks it: refused when it doesn't.
+    pub(crate) fn runs_here(self, os: HostOs) -> Result<(), Refusal> {
+        if self.runs_on(os) {
+            Ok(())
+        } else {
+            Err(Refusal::NotHere { dependency: self, os })
+        }
+    }
 }
 
 /// The step that installs the Vagrant plugin `plugin` (for this account, no administrator), when
@@ -469,17 +478,12 @@ pub fn plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, eleva
 
 /// [`plan`]'s steps, as the host's OS makes them.
 fn os_plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, elevation: Elevation) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(host.os) {
-        return Err(Refusal::NotHere { dependency: dep, os: host.os });
-    }
+    dep.runs_here(host.os)?;
     match host.os {
         HostOs::Macos => macos::install(dep, host.packages, host.arch, elevation),
         HostOs::Windows => windows::install(dep, host.arch),
         HostOs::Linux => {
-            let root = linux::Root {
-                elevation,
-                proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
-            };
+            let root = linux::Root::with_this_proxy(elevation);
             linux::install(dep, host.packages, host.arch, user, &root)
         }
     }
@@ -497,15 +501,10 @@ fn os_plan(dep: Dependency, host: &crate::host::Host, user: Option<&str>, elevat
 /// [`Refusal::NothingAdded`] when `added` lists nothing of `dep`'s, or why it can't be removed
 /// there.
 pub fn removal(dep: Dependency, host: &crate::host::Host, added: &[Item], elevation: Elevation, virtualbox: Option<&str>) -> Result<Vec<Step>, Refusal> {
-    if !dep.runs_on(host.os) {
-        return Err(Refusal::NotHere { dependency: dep, os: host.os });
-    }
+    dep.runs_here(host.os)?;
     match host.os {
         HostOs::Linux => {
-            let root = linux::Root {
-                elevation,
-                proxy: linux::proxy_assignments(|name| std::env::var(name).ok()),
-            };
+            let root = linux::Root::with_this_proxy(elevation);
             linux::uninstall(dep, host.packages, added, &root)
         }
         _ if !added.contains(&Item::Tool(dep)) => Err(Refusal::NothingAdded { dependency: dep }),
@@ -515,7 +514,7 @@ pub fn removal(dep: Dependency, host: &crate::host::Host, added: &[Item], elevat
 }
 
 /// Whether `dep` is installed on the context's host; `None` when that can't be told (WSL, Hyper-V).
-/// The tool itself ([`tool_found`]); a hypervisor with the programs its VMs need beside it
+/// The tool itself (`tool_found`); a hypervisor with the programs its VMs need beside it
 /// ([`crate::providers::helpers()`]), as its provider's detection reads it: one without them is
 /// installed again, which brings them.
 pub async fn present(cx: &Context, dep: Dependency) -> Option<bool> {

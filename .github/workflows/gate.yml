@@ -70,6 +70,7 @@ jobs:
         with:
           # Only main writes the cache, so a pull request can't seed what it builds with.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: rustup target add x86_64-pc-windows-gnu
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - run: cargo run -q -p xtask --locked -- check --only windows-gnu
 
@@ -216,3 +217,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: rustup component add llvm-tools
       - run: cargo run -q -p xtask --locked -- check --only windows-binary
+
+  e2e:
+    name: E2E on hosted runners
+    # isothrum-machine's machine tier on Linux (real VMs on KVM), macOS and Windows (e2e.yml).
+    uses: ./.github/workflows/e2e.yml

@@ -111,6 +111,11 @@ pub(crate) struct Args {
     exe: Option<PathBuf>,
     /// Only the tests whose name holds this.
     filter: Option<String>,
+    /// A test (`net::the_public_address_is_one_the_services_agree_on`) not run on this computer,
+    /// which can't run it (a CI runner without nested virtualization or a GUI session): recorded
+    /// as a skip that says so. Repeatable.
+    #[arg(long, value_name = "CASE")]
+    leave_out: Vec<String>,
 }
 
 impl Args {
@@ -246,6 +251,17 @@ fn run_test<'a>(a: &Args, root: &Path, logs: &Path, case: &'a str, resumed: bool
     let tier = a.tier();
     let log = logs.join(format!("isothrum-{}-{}.log", tier.name(), case.replace("::", ".")));
     let start = Instant::now();
+    if a.leave_out.iter().any(|l| l == case) {
+        let reason = "left out on this computer (--leave-out), which can't run it".to_owned();
+        std::fs::write(&log, format!("{SKIP}{reason}\n")).map_err(|e| format!("{}: {e}", log.display()))?;
+        return Ok(Ran {
+            tier,
+            case,
+            outcome: Outcome { result: "skip", reason },
+            seconds: 0,
+            log,
+        });
+    }
     let test = format!("{}::{case}", tier.name());
     let mut cmd = harness(root, a.exe.as_deref(), &["--ignored", "--exact", "--nocapture", &test]);
     if resumed {
@@ -503,6 +519,24 @@ fn append(file: &Path, ran: &Ran<'_>) -> Res<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A test `--leave-out` names isn't run: it is recorded as a skip that says why, with a log.
+    #[test]
+    fn a_test_left_out_is_a_skip_that_says_so_and_runs_nothing() {
+        let logs = tempfile::tempdir().unwrap();
+        let a = Args {
+            tier: Some(Tier::Machine),
+            list: false,
+            results: None,
+            exe: Some(logs.path().join("no-such-executable")),
+            filter: None,
+            leave_out: vec!["net::the_public_address".into()],
+        };
+        let ran = run_test(&a, logs.path(), logs.path(), "net::the_public_address", false).unwrap();
+        assert_eq!(ran.outcome.result, "skip");
+        assert!(ran.outcome.reason.contains("--leave-out"), "{:?}", ran.outcome);
+        assert_eq!(said(&std::fs::read_to_string(&ran.log).unwrap(), SKIP), Some(ran.outcome.reason));
+    }
 
     #[test]
     fn the_list_is_each_function_after_a_real_ignore_by_module() {

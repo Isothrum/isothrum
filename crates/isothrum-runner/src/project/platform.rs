@@ -52,6 +52,18 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// Every provider, in the order they are offered.
+    pub const ALL: [Provider; 8] = [
+        Provider::Virtualbox,
+        Provider::VmwareDesktop,
+        Provider::Hyperv,
+        Provider::Parallels,
+        Provider::Libvirt,
+        Provider::Qemu,
+        Provider::Utm,
+        Provider::VmwareEsxi,
+    ];
+
     /// The provider as `vagrant up --provider` takes it (`vmware_desktop`).
     #[must_use]
     pub const fn id(self) -> &'static str {

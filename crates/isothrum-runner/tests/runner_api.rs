@@ -73,9 +73,11 @@ impl ProcessRunner for Embedded {
 
 /// A runner on a fresh home over the modelled engine, and a Compose project beside it.
 struct Stack {
-    home: tempfile::TempDir,
-    project: tempfile::TempDir,
     runner: Runner,
+    // Folders last: fields drop in order, and on Windows a folder whose files a runner or
+    // service still holds open can't be removed.
+    _home: tempfile::TempDir,
+    project: tempfile::TempDir,
 }
 
 fn stack() -> Outcome<Stack> {
@@ -84,7 +86,7 @@ fn stack() -> Outcome<Stack> {
     let mut config = RunnerConfig::new(home.path());
     config.processes = Arc::new(Embedded(Arc::default()));
     let runner = Runner::new(config)?;
-    Ok(Stack { home, project, runner })
+    Ok(Stack { runner, _home: home, project })
 }
 
 /// Says nothing of an event: the test reads the run's state, not its stream.
@@ -189,6 +191,5 @@ async fn a_terraform_folder_reads_its_variables_and_an_outside_deployment_is_ado
     assert_eq!(stack.runner.expired(SystemTime::now())?, [], "not yet");
     let later = stack.runner.expired(in_an_hour + Duration::from_secs(1))?;
     assert_eq!(later.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["adopted"]);
-    drop(stack.home);
     Ok(())
 }

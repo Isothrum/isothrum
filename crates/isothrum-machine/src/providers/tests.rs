@@ -5,6 +5,7 @@ use isothrum_runner::fake::{FakeProcesses, Reply, Script};
 
 use super::*;
 use crate::host::Devices;
+use crate::testing::write;
 use isothrum_runner::ProcessRunner;
 use isothrum_test_support::assert_every;
 
@@ -31,12 +32,6 @@ fn linux(root: &Path) -> Host {
     write(&host.devices.kvm, "");
     crate::testing::install_virtiofsd(&host.devices);
     host
-}
-
-/// Writes `text` to `path`, making its folder.
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
 }
 
 /// Machine setup on `host`, its tools `tools`, which the test keeps to read the calls made.
@@ -99,7 +94,7 @@ fn listing(plugins: &[(&str, &str)]) -> Reply {
 /// listed.
 #[test]
 fn every_provider_is_listed_with_the_id_vagrant_uses() {
-    let ids: Vec<String> = all().iter().map(isothrum_runner::wire_name).collect();
+    let ids: Vec<String> = Provider::ALL.iter().map(isothrum_runner::wire_name).collect();
     assert_eq!(
         ids,
         ["virtualbox", "vmware_desktop", "hyperv", "parallels", "libvirt", "qemu", "utm", "vmware_esxi"]
@@ -133,7 +128,7 @@ fn a_provider_applies_where_its_hypervisor_runs() {
         (Provider::Qemu, [true, true, true, true, false, false]),
         (Provider::VmwareEsxi, [true; 6]),
     ];
-    assert_eq!(table.len(), all().len(), "every provider is in the table");
+    assert_eq!(table.len(), Provider::ALL.len(), "every provider is in the table");
     let root = Path::new("unused");
     for (provider, expected) in table {
         for ((os, arch), applies) in platforms.iter().zip(expected) {
@@ -178,8 +173,9 @@ fn linux_is_offered_a_hypervisor_where_its_vendor_ships_it() {
 fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_vendor_offers_it() {
     let esxi = ProviderRow::of(Provider::VmwareEsxi);
     assert!(esxi.remote() && esxi.shares_folders.is_empty());
-    assert_every!(all().into_iter().filter(|p| *p != Provider::VmwareEsxi), |p: &Provider| !ProviderRow::of(*p)
-        .remote());
+    assert_every!(Provider::ALL.into_iter().filter(|p| *p != Provider::VmwareEsxi), |p: &Provider| {
+        !ProviderRow::of(*p).remote()
+    });
     assert!(
         ProviderRow::of(Provider::Hyperv).shares_folders.is_empty(),
         "SMB folders ask for a password at every start"
@@ -195,7 +191,7 @@ fn the_hypervisor_table_says_where_each_provider_shares_folders_and_where_its_ve
 #[test]
 fn only_vmware_desktop_needs_the_utility() {
     assert!(needs_vmware_utility(Provider::VmwareDesktop));
-    assert_every!(all().into_iter().filter(|p| *p != Provider::VmwareDesktop), |p: &Provider| {
+    assert_every!(Provider::ALL.into_iter().filter(|p| *p != Provider::VmwareDesktop), |p: &Provider| {
         !needs_vmware_utility(*p)
     });
 }

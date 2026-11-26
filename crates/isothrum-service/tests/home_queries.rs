@@ -153,7 +153,7 @@ async fn a_run_s_record_is_read_and_forgotten_and_the_runs_past_their_lifetime_l
     let home = tempfile::tempdir().expect("a home");
     let far = 4_102_444_800;
     let records = [record("past", "ready", 1), record("future", "ready", far), record("gone", "absent", 1)].map(|r| r.expect("a record"));
-    let (client, _serving) = serve(home.path(), &records).await.expect("a service answering");
+    let (client, serving) = serve(home.path(), &records).await.expect("a service answering");
 
     let past = client.record(&run("past")).await.expect("read").expect("recorded");
     assert_eq!((past.state, past.record.expires_at), (RunState::Ready, Some(1)));
@@ -168,12 +168,13 @@ async fn a_run_s_record_is_read_and_forgotten_and_the_runs_past_their_lifetime_l
     assert!(client.record(&run("past")).await.expect("read").is_none());
     assert_eq!(names(client.expired().await.expect("listed")), Vec::<String>::new());
     assert_eq!(names(client.list().await.expect("listed")), ["future", "gone"]);
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_run_with_an_operation_under_way_is_not_forgotten() {
     let home = tempfile::tempdir().expect("a home");
-    let (client, _serving) = serve(home.path(), &[record("slow", "ready", 1).expect("a record")])
+    let (client, serving) = serve(home.path(), &[record("slow", "ready", 1).expect("a record")])
         .await
         .expect("a service answering");
     let up = Command::Up {
@@ -199,6 +200,7 @@ async fn a_run_with_an_operation_under_way_is_not_forgotten() {
     tokio::time::timeout(common::PATIENCE, ended).await.expect("it ends");
     client.forget(&run("slow")).await.expect("forgotten once nothing runs");
     assert!(client.record(&run("slow")).await.expect("read").is_none(), "forgotten once nothing runs");
+    common::stopped(&client, Command::Shutdown, serving).await.expect("the service stopped");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

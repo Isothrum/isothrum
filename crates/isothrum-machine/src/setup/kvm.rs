@@ -70,7 +70,8 @@ impl std::error::Error for ShareFailed {}
 /// the option for the next restart; the CPU module is loaded again either way.
 #[must_use]
 pub fn share_script(modprobe_d: &std::path::Path, reload: Option<&str>) -> RootScript {
-    let file = quoted(&modprobe_d.join(OPTION_FILE).to_string_lossy());
+    // A Linux path whatever builds the script: `Path::join` would put a `\` in it on Windows.
+    let file = quoted(&format!("{}/{OPTION_FILE}", modprobe_d.to_string_lossy().trim_end_matches('/')));
     let dir = quoted(&modprobe_d.to_string_lossy());
     let mut body = format!(
         "mkdir -p {dir}; printf '%s\\n' '# KVM takes the CPU'\\''s virtualization only while one of its VMs runs, so other hypervisors can use it.' '{OPTION}' > {file}"
@@ -90,7 +91,7 @@ fn quoted(text: &str) -> String {
 }
 
 /// The step that sets KVM on `host` to share the CPU's virtualization, elevated by `elevation`:
-/// its modules loaded again when nothing uses KVM now ([`kvm::in_use`]).
+/// its modules loaded again when nothing uses KVM now (`kvm::in_use`).
 ///
 /// # Errors
 ///

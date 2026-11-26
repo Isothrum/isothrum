@@ -28,6 +28,24 @@ fn on(host: Host, answer: impl Fn(&Call) -> Reply + Send + Sync + 'static) -> (C
     }
 }
 
+/// What a Vagrant run on `provider` needs on an apt host with Vagrant and no plugin, nothing else
+/// installed; and the tools, to read the calls made.
+async fn vagrant_needs(provider: Provider) -> (Vec<Need>, Arc<FakeProcesses>) {
+    let root = tempfile::tempdir().unwrap();
+    let (cx, fake) = on(apt_host(root.path()), |call| match call.line().as_str() {
+        "vagrant --version" => Reply::ok("Vagrant 2.4.9"),
+        "vagrant plugin list --machine-readable" => Reply::ok(""),
+        _ => Reply::missing(),
+    });
+    (needs(&cx, &Uses::vagrant(provider).requirements(), &Asking::default()).await, fake)
+}
+
+/// Whether Vagrant's plugin, among `found`, is planned after `requirement`.
+fn plugin_comes_after(found: &[Need], requirement: Requirement) -> bool {
+    let plugin = found.iter().find(|n| matches!(n.requirement, Requirement::VagrantPlugin { .. })).unwrap();
+    matches!(&plugin.plan, Some(Plan::After { requirement: r }) if *r == requirement)
+}
+
 #[test]
 fn a_compose_run_needs_the_engine_its_plugin_and_the_engine_answering() {
     assert_eq!(
@@ -214,13 +232,7 @@ async fn a_tool_without_packages_here_is_refused_with_why() {
 
 #[tokio::test(start_paused = true)]
 async fn a_vagrant_runs_needs_read_its_providers_status_once() {
-    let root = tempfile::tempdir().unwrap();
-    let (cx, fake) = on(apt_host(root.path()), |call| match call.line().as_str() {
-        "vagrant --version" => Reply::ok("Vagrant 2.4.9"),
-        "vagrant plugin list --machine-readable" => Reply::ok(""),
-        _ => Reply::missing(),
-    });
-    let found = needs(&cx, &Uses::vagrant(Provider::Libvirt).requirements(), &Asking::default()).await;
+    let (found, fake) = vagrant_needs(Provider::Libvirt).await;
     let [vagrant, hypervisor, plugin] = found.as_slice() else {
         panic!("{found:?}")
     };
@@ -239,13 +251,7 @@ async fn a_vagrant_runs_needs_read_its_providers_status_once() {
 async fn virtualbox_installed_while_kvm_holds_the_cpus_virtualization_is_planned_as_kvm_sharing_it() {
     let root = tempfile::tempdir().unwrap();
     let host = apt_host(root.path());
-    for (path, text) in [
-        (&host.devices.proc_modules, "kvm_intel 1 0 - Live 0x0\nkvm 2 1 kvm_intel, Live 0x0\n"),
-        (&host.devices.kvm_virt_at_load, "Y\n"),
-    ] {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    }
+    crate::testing::kvm_holding(&host, "kvm_intel 1 0 - Live 0x0\nkvm 2 1 kvm_intel, Live 0x0\n");
     let modprobe_d = host.devices.modprobe_d.clone();
     let (cx, _fake) = on(host, |call| match call.line().as_str() {
         "VBoxManage --version" => Reply::ok("7.2.4r170995"),
@@ -357,13 +363,7 @@ async fn the_ovf_tool_is_found_on_the_path_given_else_fetched_by_hand() {
 /// VMware, which its user gets from its vendor.
 #[tokio::test(start_paused = true)]
 async fn vmwares_utility_comes_after_vmware_which_its_user_gets_first() {
-    let root = tempfile::tempdir().unwrap();
-    let (cx, _fake) = on(apt_host(root.path()), |call| match call.line().as_str() {
-        "vagrant --version" => Reply::ok("Vagrant 2.4.9"),
-        "vagrant plugin list --machine-readable" => Reply::ok(""),
-        _ => Reply::missing(),
-    });
-    let found = needs(&cx, &Uses::vagrant(Provider::VmwareDesktop).requirements(), &Asking::default()).await;
+    let (found, _fake) = vagrant_needs(Provider::VmwareDesktop).await;
     let utility = found.iter().find(|n| n.requirement == tool(Dependency::VmwareUtility)).unwrap();
     assert!(utility.missing(), "{utility:?}");
     assert!(
@@ -388,17 +388,14 @@ async fn vmwares_utility_comes_after_vmware_which_its_user_gets_first() {
         .unwrap();
     assert!(matches!(vmware.plan, Some(Plan::ByHand { .. })), "VMware from its vendor first: {vmware:?}");
     // Its plugin too: without VMware's utility it breaks Vagrant for every provider.
-    let plugin = found.iter().find(|n| matches!(n.requirement, Requirement::VagrantPlugin { .. })).unwrap();
     assert!(
-        matches!(
-            plugin.plan,
-            Some(Plan::After {
-                requirement: Requirement::Hypervisor {
-                    provider: Provider::VmwareDesktop
-                }
-            })
+        plugin_comes_after(
+            &found,
+            Requirement::Hypervisor {
+                provider: Provider::VmwareDesktop
+            }
         ),
-        "{plugin:?}"
+        "{found:?}"
     );
     assert_eq!(Dependency::VmwareUtility.serves(), Some(Provider::VmwareDesktop));
     assert!(Dependency::ALL.iter().all(|d| *d == Dependency::VmwareUtility || d.serves().is_none()));
@@ -423,17 +420,14 @@ async fn vmwares_plugin_comes_after_its_utility_and_no_other_plugin_waits() {
         }
     });
     let found = needs(&cx, &Uses::vagrant(Provider::VmwareDesktop).requirements(), &Asking::default()).await;
-    let plugin = found.iter().find(|n| matches!(n.requirement, Requirement::VagrantPlugin { .. })).unwrap();
     assert!(
-        matches!(
-            plugin.plan,
-            Some(Plan::After {
-                requirement: Requirement::Tool {
-                    dependency: Dependency::VmwareUtility
-                }
-            })
+        plugin_comes_after(
+            &found,
+            Requirement::Tool {
+                dependency: Dependency::VmwareUtility
+            }
         ),
-        "{plugin:?}"
+        "{found:?}"
     );
     let utility = found.iter().find(|n| n.requirement == tool(Dependency::VmwareUtility)).unwrap();
     assert!(

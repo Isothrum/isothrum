@@ -29,12 +29,14 @@ mod namespaces;
 mod pins;
 mod progress;
 mod pull;
+mod reading;
 mod unpaused;
 mod usage;
 
 use std::time::Duration;
 
-use self::failures::{checked, engine_error};
+use self::failures::{checked, engine_error, up_error};
+use self::reading::{object_word, one_service, ran, run_state};
 use super::{Change, FormatDriver, Found, Ran, Seen, SeenMachine, SeenPort, ToolCx, tool_error};
 use crate::Result;
 use crate::cli::CliError;
@@ -218,53 +220,6 @@ impl Compose {
         let all = checked(cx, compose::ps(&cx.read(READ_LIMIT), &Self::project(cx)).await, |e| engine_error("status", e)).await?;
         Ok(all.into_iter().filter(|c| !c.one_off()).collect())
     }
-}
-
-/// An `up`'s failure as the runner says it: a taken host port is `port_in_use`, with the port and
-/// protocol Docker names (0 and TCP when it names none), an image's pull the registry refused
-/// `download_failed` (step `pull-<step>`), anything else as any tool's.
-fn up_error(step: &str, e: CliError<Failure>) -> Error {
-    match e {
-        CliError::Failed {
-            failure: Failure::PortTaken(taken),
-            ..
-        } => {
-            let (port, protocol) = taken.unwrap_or((0, crate::project::platform::Protocol::Tcp));
-            Error::PortInUse {
-                port: crate::port::HostPort::new(port),
-                protocol: crate::encoding::wire_name(&protocol),
-                holder: None,
-            }
-        }
-        CliError::Failed {
-            failure: Failure::PullRefused(reason),
-            ..
-        } => Error::DownloadFailed {
-            what: crate::error::DownloadKind::Images,
-            step: format!("pull-{step}"),
-            reason,
-        },
-        other => engine_error(step, other),
-    }
-}
-
-/// The run's state as `machines` show it: absent when nothing is there; parked when nothing runs;
-/// ready when every service that runs is up and healthy and every one that ended ended well (an
-/// init job); failed otherwise (one unhealthy, one that died, one missing among running ones).
-pub(super) fn run_state(machines: &[SeenMachine]) -> RunState {
-    if machines.is_empty() || machines.iter().all(|m| m.state == MachineState::Absent) {
-        return RunState::Absent;
-    }
-    if !machines.iter().any(|m| m.state.runs()) {
-        return RunState::Parked;
-    }
-    let fine = |m: &SeenMachine| matches!(m.state, MachineState::Running | MachineState::Exited(0));
-    if machines.iter().all(fine) { RunState::Ready } else { RunState::Failed }
-}
-
-/// The services a `retire` or `attach` names, refused when `machine` isn't one of the project's.
-fn one_service(machine: &str) -> Vec<String> {
-    vec![machine.to_owned()]
 }
 
 impl FormatDriver for Compose {
@@ -523,25 +478,6 @@ impl FormatDriver for Compose {
         docker::remove(&cx.call(CALL_LIMIT), object, &[native_id.to_owned()])
             .await
             .map_err(|e| tool_error("remove", e))
-    }
-}
-
-/// The word a [`Found`] key starts with for `object`.
-fn object_word(object: Object) -> &'static str {
-    match object {
-        Object::Container => "container",
-        Object::Network => "network",
-        Object::Volume => "volume",
-    }
-}
-
-/// A command's outcome as [`Ran`]: a command that ran and failed is its exit status and what it
-/// printed, not an error.
-fn ran(captured: &crate::process::Captured) -> Ran {
-    Ran {
-        exit: captured.exit.code.unwrap_or(-1),
-        stdout: captured.stdout.join("\n"),
-        stderr: captured.stderr_tail.join("\n"),
     }
 }
 

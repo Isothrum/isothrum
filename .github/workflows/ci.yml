@@ -54,4 +54,6 @@ jobs:
           tool: cargo-nextest@0.9.151
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - if: runner.os == 'Linux'
+        run: rustup target add x86_64-pc-windows-gnu
       - run: cargo run -q -p xtask --locked -- check ${{ matrix.check }}
