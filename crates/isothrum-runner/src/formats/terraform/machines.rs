@@ -5,8 +5,10 @@
 //! address is the one its provider writes in the state, else the one the module's `machines`
 //! output gives it ([`with_named_addresses`]).
 
+use crate::Result;
 use crate::cli::terraform as tf;
-use crate::formats::SeenMachine;
+use crate::error::Error;
+use crate::formats::{SeenMachine, ToolCx};
 use crate::state::RunState;
 use crate::status::MachineState;
 
@@ -131,6 +133,30 @@ pub(super) fn run_state(held: &tf::Shown) -> RunState {
     } else {
         RunState::Ready
     }
+}
+
+/// An output's value as text: a string as it is, anything else as JSON.
+pub(super) fn text_of(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The VM of `held` whose machine name is `machine`.
+///
+/// # Errors
+///
+/// `machine_unknown` when the state has no such VM.
+pub(super) fn vm_named<'h>(cx: &ToolCx<'_>, held: &'h tf::Shown, machine: &str) -> Result<&'h tf::Resource> {
+    held.managed
+        .iter()
+        .filter(|r| is_vm(&r.kind))
+        .find(|r| machine_name(&r.address, &r.kind) == machine)
+        .ok_or_else(|| Error::MachineUnknown {
+            run: cx.run.to_string(),
+            machine: machine.to_owned(),
+        })
 }
 
 #[cfg(test)]

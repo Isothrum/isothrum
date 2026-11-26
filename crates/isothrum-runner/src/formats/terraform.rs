@@ -43,6 +43,7 @@ mod required;
 mod route;
 use machines::{machines_of, run_state, with_named_addresses};
 mod screen;
+mod teardown;
 mod tunnelled;
 
 use std::path::{Path, PathBuf};
@@ -59,6 +60,7 @@ use crate::state::{Park, RunState};
 use crate::steps::{Phase, StepCount};
 use crate::store::{Lifetime, ResourceKind};
 use crate::tool_output::sign_in;
+use machines::{text_of, vm_named};
 
 /// The local backend's state file, in the run's state folder.
 const STATE_FILE: &str = "terraform.tfstate";
@@ -261,65 +263,6 @@ impl<'c, 'a> Module<'c, 'a> {
             .await
             .map_err(|e| self.error("show", e))
     }
-
-    /// `destroy`, with what a provider says is already gone dropped from the state and the
-    /// destroy made again, once.
-    async fn destroy(&self, state: StateAt<'_>) -> Result<()> {
-        let errors = match self.apply("destroy", state, tf::Change::Destroy).await {
-            Ok(()) => return Ok(()),
-            Err(CliError::Failed {
-                failure: Failure::Errors(errors),
-                ..
-            }) => errors,
-            Err(e) => return Err(self.error("destroy", e)),
-        };
-        let held = self.shown(state).await?;
-        let mut gone: Vec<String> = errors
-            .iter()
-            .filter(|d| d.says_missing())
-            .filter_map(|d| d.address.clone())
-            .filter(|at| held.managed.iter().any(|r| &r.address == at))
-            .collect();
-        gone.sort();
-        gone.dedup();
-        if gone.is_empty() {
-            return Err(self.error(
-                "destroy",
-                CliError::Failed {
-                    tool: "terraform",
-                    failure: Failure::Errors(errors),
-                },
-            ));
-        }
-        for at in &gone {
-            let why = errors
-                .iter()
-                .find(|d| d.address.as_deref() == Some(at))
-                .map(|d| d.summary.as_str())
-                .unwrap_or_default();
-            (self.cx.warn)(
-                WarningCode::AlreadyGone,
-                &self.mask(&format!("`{at}` is already gone ({why}): dropped from the state, then destroyed again")),
-            );
-        }
-        let say = |s: Stream, l: &str| self.say(s, l);
-        tf::state_rm(&self.call(READ_LIMIT, &say), state, &gone)
-            .await
-            .map_err(|e| self.error("state-rm", e))?;
-        self.apply("destroy", state, tf::Change::Destroy).await.map_err(|e| self.error("destroy", e))
-    }
-
-    /// The run's own state files, after a destroy that ended well: the local state, its backup and
-    /// the data folder. A backend's are the backend's, and its data folder stays (a later read of
-    /// that backend needs it).
-    fn forget(&self, state: StateAt<'_>) -> Result<()> {
-        if state == StateAt::Backend {
-            return Ok(());
-        }
-        [STATE_FILE, BACKUP_FILE, LOCK_INFO, DATA_DIR]
-            .iter()
-            .try_for_each(|f| crate::store::remove(&self.cx.state_dir.join(f)))
-    }
 }
 
 /// What Terraform refuses to do with a module's machines.
@@ -327,30 +270,6 @@ fn refused(what: &str) -> Error {
     Error::Declined {
         what: format!("{what} on a Terraform run: a module's machines are made and removed by its apply and destroy only"),
     }
-}
-
-/// An output's value as text: a string as it is, anything else as JSON.
-fn text_of(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
-
-/// The VM of `held` whose machine name is `machine`.
-///
-/// # Errors
-///
-/// `machine_unknown` when the state has no such VM.
-fn vm_named<'h>(cx: &ToolCx<'_>, held: &'h tf::Shown, machine: &str) -> Result<&'h tf::Resource> {
-    held.managed
-        .iter()
-        .filter(|r| machines::is_vm(&r.kind))
-        .find(|r| machines::machine_name(&r.address, &r.kind) == machine)
-        .ok_or_else(|| Error::MachineUnknown {
-            run: cx.run.to_string(),
-            machine: machine.to_owned(),
-        })
 }
 
 /// The plugin cache the runs use: the user's own (`TF_PLUGIN_CACHE_DIR`), else the one every run
