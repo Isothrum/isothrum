@@ -9,9 +9,10 @@ name: E2E on hosted runners
 # - Linux (x86_64, KVM): the installs of Vagrant, Terraform, QEMU, libvirt and their Vagrant
 #   plugins, Docker Engine, and real VMs: the libvirt and QEMU self-tests and examples boot them.
 # - macOS (arm64, no nested virtualization): the installs from Homebrew and the providers'
-#   detection; no VM boots and no Docker.
-# - Windows: the installs of Vagrant and Terraform, the tool path and the terminal; no Hyper-V or
-#   WSL 2 (nested virtualization), so nothing that needs a restart.
+#   detection; no VM boots, no Docker and no GUI session.
+# - Windows: the installs of Vagrant and Terraform, the tool path and the terminal; no Hyper-V VM
+#   or WSL 2 (nested virtualization), so nothing that needs a restart.
+# What a runner can't run is left out by name (`--leave-out`) and recorded as a skip.
 # VMware, Parallels, Hyper-V, UTM, VirtualBox, Docker Desktop and arm64 Linux stay on our own
 # machines (`./ws test`): their licences, their nested virtualization or their CPU.
 #
@@ -44,16 +45,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `leave_out`: what the runner can't run, recorded as a skip that says so.
           - os: ubuntu-24.04
             install: vagrant,terraform,qemu,libvirt,vagrant-libvirt,vagrant-qemu
+            leave_out: ""
+          # macOS: no nested virtualization (QEMU's HVF answers HV_UNSUPPORTED), no GUI session
+          # for osascript, and egress through more than one address.
           - os: macos-15
             install: vagrant,terraform,qemu,vagrant-qemu
+            leave_out: >-
+              selftest::the_hypervisor_self_test_boots_a_vm_on_qemu
+              run::the_vagrant_example_runs_on_qemu
+              terminal::a_command_opens_in_this_computers_terminal
+              net::the_public_address_is_one_the_services_agree_on
+          # Windows Server: Hyper-V is there, but with no virtual switch and no nested
+          # virtualization to boot a VM.
           - os: windows-2025
             install: vagrant,terraform
+            leave_out: >-
+              selftest::the_hypervisor_self_test_boots_a_vm_on_hyperv
+              run::the_vagrant_example_runs_on_hyperv
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
       ISOTHRUM_E2E_INSTALL: ${{ matrix.install }}
+      LEAVE_OUT: ${{ matrix.leave_out }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,14 +83,16 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/e2e"
           RESULTS="$RUNNER_TEMP/e2e/results.jsonl"
+          args=(--tier machine --results "$RESULTS")
+          for case in $LEAVE_OUT; do args+=(--leave-out "$case"); done
           set +e
-          cargo run -q -p xtask --locked -- e2e --tier machine --results "$RESULTS"
+          cargo run -q -p xtask --locked -- e2e "${args[@]}"
           code=$?
           if [ "$code" = 76 ]; then
             # The installs joined this account to groups (libvirt, kvm, docker) that apply from
             # its next login: sudo, to the same account, reads its groups afresh as a login does.
             sudo --preserve-env -u "$(id -un)" env PATH="$PATH" \
-              cargo run -q -p xtask --locked -- e2e --tier machine --results "$RESULTS"
+              cargo run -q -p xtask --locked -- e2e "${args[@]}"
             code=$?
           fi
           exit "$code"
