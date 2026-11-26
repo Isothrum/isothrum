@@ -1,9 +1,5 @@
 {
   "rules": {
-    "dup/clone": {
-      "isothrum-machine": 2,
-      "isothrum-runner": 4
-    },
     "exception/expect": {
       "isothrum-cli": 3,
       "isothrum-client": 2,
