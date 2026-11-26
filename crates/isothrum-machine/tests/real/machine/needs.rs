@@ -15,16 +15,7 @@ use isothrum_runner::{BoxFuture, Cloud, Exit, Format, OnLine, ProcessError, Proc
 use crate::answer;
 
 /// Every hypervisor a run can name.
-const PROVIDERS: [Provider; 8] = [
-    Provider::Virtualbox,
-    Provider::VmwareDesktop,
-    Provider::Hyperv,
-    Provider::Parallels,
-    Provider::Libvirt,
-    Provider::Qemu,
-    Provider::Utm,
-    Provider::VmwareEsxi,
-];
+const PROVIDERS: [Provider; 8] = Provider::ALL;
 
 /// The real tools, each command line they are asked kept.
 #[derive(Default)]

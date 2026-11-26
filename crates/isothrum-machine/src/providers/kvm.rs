@@ -232,13 +232,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut host = linux(dir.path());
         assert!(!holds_virtualization(&host), "no /proc/modules: can't be told");
-        for (path, text) in [
-            (&host.devices.proc_modules, "kvm_amd 1 0 - Live 0x0\n"),
-            (&host.devices.kvm_virt_at_load, "Y\n"),
-        ] {
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, text).unwrap();
-        }
+        crate::testing::kvm_holding(&host, "kvm_amd 1 0 - Live 0x0\n");
         assert!(holds_virtualization(&host));
         host.os = HostOs::Macos;
         assert!(!holds_virtualization(&host));

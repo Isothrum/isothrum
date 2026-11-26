@@ -3,7 +3,8 @@
 //! lock); [`wait_until`] waits for a condition with a deadline, never a fixed sleep; [`TempHome`]
 //! is a home folder a spawned command is given instead of the real one; [`every`] and
 //! [`assert_every!`] fail on an empty collection, where `iter().all(..)` passes; a program a test
-//! runs is written by `write_executable` (Unix only), never by the test's own process.
+//! runs is written by `write_executable` (Unix only), never by the test's own process;
+//! [`dir_with`] is a temporary folder holding the files a test reads.
 //!
 //! A test-only crate: it panics where a test should fail.
 
@@ -136,6 +137,19 @@ impl Drop for PidGuard {
         kill_group(self.0);
         kill(self.0);
     }
+}
+
+/// A temporary folder holding `files` (name, text).
+///
+/// # Errors
+///
+/// When the folder or a file can't be written.
+pub fn dir_with(files: &[(&str, &str)]) -> std::io::Result<tempfile::TempDir> {
+    let dir = tempfile::tempdir()?;
+    for (name, text) in files {
+        std::fs::write(dir.path().join(name), text)?;
+    }
+    Ok(dir)
 }
 
 /// Writes `contents` to `path` as an executable (on Unix) from a child process (`cat`), never
