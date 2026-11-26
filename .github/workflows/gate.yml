@@ -217,3 +217,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: rustup component add llvm-tools
       - run: cargo run -q -p xtask --locked -- check --only windows-binary
+
+  e2e:
+    name: E2E on hosted runners
+    # isothrum-machine's machine tier on Linux (real VMs on KVM), macOS and Windows (e2e.yml).
+    uses: ./.github/workflows/e2e.yml
