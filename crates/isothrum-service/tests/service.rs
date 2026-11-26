@@ -219,7 +219,7 @@ async fn a_second_operation_on_a_busy_run_is_refused_and_other_runs_go_on() {
     b.follow(down("web")).await.unwrap().outcome().await.unwrap();
     let web_log: Vec<String> = s.engine.log().into_iter().filter(|l| l.contains(" web ")).collect();
     assert_eq!(web_log, ["begin web up", "end web up", "begin web down", "end web down"]);
-    s.task.abort();
+    common::stopped(&b, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -237,7 +237,7 @@ async fn a_start_during_a_stop_is_refused() {
     s.engine.release("web");
     stopping.outcome().await.unwrap();
     assert!(!s.engine.log().contains(&"begin web up".to_owned()), "{:?}", s.engine.log());
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -266,7 +266,7 @@ async fn a_reconnecting_subscriber_resumes_after_its_last_cursor_and_misses_noth
         == Some(isothrum_runner::Op::Down));
     let only_db = client.subscribe(Some(RunName::new("db").unwrap()), None).await.unwrap();
     drop(only_db);
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test]
@@ -278,7 +278,8 @@ async fn one_service_per_home() {
         "{held:?}"
     );
     assert!(held.to_string().contains("already holds"), "{held}");
-    s.task.abort();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -309,7 +310,7 @@ async fn an_operation_asked_once_the_running_one_was_cancelled_is_taken_and_can_
     let engine_said = s.engine.log();
     assert!(!engine_said.iter().any(|l| l.starts_with("end web")), "{engine_said:?}");
     client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -321,7 +322,7 @@ async fn a_refused_run_is_answered_at_once() {
         matches!(&refused, Err(ClientError::Refused(report)) if report.code == ErrorCode::Unsupported),
         "{refused:?}"
     );
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -381,7 +382,7 @@ async fn a_dead_services_queued_operations_are_cancelled_when_the_next_one_start
     assert_eq!(row.ended.as_ref().map(|e| e.outcome), Some(isothrum_client::v1::Outcome::Cancelled), "{row:?}");
     // What held the run died with its service: nothing is left holding it.
     client.follow(up("web", false)).await.unwrap().outcome().await.unwrap();
-    s.task.abort();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -431,7 +432,8 @@ async fn a_run_past_its_lifetime_is_brought_down_by_the_service_itself() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(s.engine.log(), ["begin old down", "end old down"]);
-    s.task.abort();
+    let client = Client::connect_running(s.home.path()).await.unwrap();
+    common::stopped(&client, Command::Shutdown, s.task).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
