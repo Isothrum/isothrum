@@ -63,7 +63,7 @@ async fn the_server_self_test_brings_a_vm_up_on_proxmox_and_takes_it_down() {
     let public = answer(&cx, "ssh-keygen", &["-y", "-f", &key]).await.expect("the key's public half");
     let token = SignIn::Token(SecretValue::new(terraform_token(&id, &secret)));
     let target = through_node(Proxmox::new(server.endpoint(), token, node), &node_ssh, Key::new(key, public.trim()));
-    let steps = passes_and_takes_the_vm_down(&cx, &Server::Proxmox(target)).await;
+    let steps = passes_and_takes_the_vm_down(&cx, &Server::Proxmox(Box::new(target))).await;
     assert_eq!(steps, STEPS, "every step passes, in its order");
 }
 
