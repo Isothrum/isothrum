@@ -11,7 +11,8 @@ name: E2E on hosted runners
 # - macOS (arm64, no nested virtualization): the installs from Homebrew and the providers'
 #   detection; no VM boots, no Docker and no GUI session.
 # - Windows: the installs of Vagrant and Terraform, the tool path and the terminal; no Hyper-V VM
-#   or WSL 2 (nested virtualization), so nothing that needs a restart.
+#   or WSL 2 (nested virtualization), so nothing that needs a restart, and no Linux containers
+#   (its Docker Engine runs Windows ones).
 # What a runner can't run is left out by name (`--leave-out`) and recorded as a skip.
 # VMware, Parallels, Hyper-V, UTM, VirtualBox, Docker Desktop and arm64 Linux stay on our own
 # machines (`./ws test`): their licences, their nested virtualization or their CPU.
@@ -59,12 +60,15 @@ jobs:
               terminal::a_command_opens_in_this_computers_terminal
               net::the_public_address_is_one_the_services_agree_on
           # Windows Server: Hyper-V is there, but with no virtual switch and no nested
-          # virtualization to boot a VM.
+          # virtualization to boot a VM; its Docker Engine runs Windows containers only (no
+          # manifest of the Linux images for windows/amd64).
           - os: windows-2025
             install: vagrant,terraform
             leave_out: >-
               selftest::the_hypervisor_self_test_boots_a_vm_on_hyperv
               run::the_vagrant_example_runs_on_hyperv
+              selftest::the_engine_self_test_passes_on_this_computers_engine
+              run::the_compose_example_runs_here
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
