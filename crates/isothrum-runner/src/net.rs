@@ -367,18 +367,24 @@ mod tests {
     }
 
     /// A port a closed connection left in `TIME_WAIT` stays free: the check on all interfaces
-    /// reuses the address as a listener would.
+    /// reuses the address as a listener would. The port is an ephemeral one, which a connection
+    /// of a test running meanwhile can also be given: one of three ports reading free proves it,
+    /// where `TIME_WAIT` holding them would leave all three held.
     #[cfg(not(windows))]
     #[test]
     fn a_port_left_in_time_wait_is_free() {
-        let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let client = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
-        let (served, _) = listener.accept().unwrap();
-        drop(served); // The server closes first: its side waits in TIME_WAIT.
-        drop(client);
-        drop(listener);
-        assert!(!held_on_all(port, Protocol::Tcp), "{port}");
+        let left_in_time_wait = || {
+            let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let client = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            let (served, _) = listener.accept().unwrap();
+            drop(served); // The server closes first: its side waits in TIME_WAIT.
+            drop(client);
+            drop(listener);
+            port
+        };
+        let ports: Vec<u16> = (0..3).map(|_| left_in_time_wait()).collect();
+        assert!(ports.iter().any(|p| !held_on_all(*p, Protocol::Tcp)), "{ports:?}");
     }
 
     #[test]
