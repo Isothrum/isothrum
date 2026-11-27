@@ -16,7 +16,8 @@
 //!   `--accept-license`, no winget `--accept-*-agreements`, no EULA switch) in the crates' code;
 //! - `flakes`: no test waits on the clock (a `sleep` there is counted, each with why it is no
 //!   wait), none lets a free port go before it uses it, and a stand-in written by each test
-//!   is counted.
+//!   is counted;
+//! - `licences`: the release accepts the licences deny.toml allows, no fewer.
 //!
 //! Starting a process outside an adapter, and `unwrap()` outside tests, are clippy's
 //! (`disallowed-methods` in clippy.toml, `unwrap_used` in the workspace's lints).
@@ -26,6 +27,7 @@ mod capabilities;
 mod consent;
 mod flakes;
 mod layout;
+mod licences;
 mod scans;
 mod source;
 mod vocabulary;
