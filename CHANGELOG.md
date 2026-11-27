@@ -9,6 +9,19 @@ Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
+## [3.0.1] — 2026-11-27
+
+### Fixed
+
+- **The release ships its binaries.** The release's third-party licence list accepted fewer
+  licences than `deny.toml` allows (ISC, BSD-3-Clause and CDLA-Permissive-2.0 were missing), so
+  the v3.0.0 release built no binaries. The two lists are the same now, and a check keeps them so.
+
+- **A cold Docker Engine is found running.** The first `docker info` of a Windows Server's
+  Docker Engine just after boot ran past the probe's time, so the engine the CLI used was left
+  out of the engine list while `docker info` answered a second later. A Docker call that runs out
+  of time is now made once more.
+
 ## [3.0.0] — 2026-11-23
 
 ### Changed
