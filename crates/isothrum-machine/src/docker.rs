@@ -177,16 +177,22 @@ fn bundled_cli(cx: &Context) -> Option<String> {
 }
 
 /// What `docker args` printed when it exited 0, else why the daemon gave no answer. With no
-/// `docker` on `PATH`, Docker Desktop's own CLI is asked, where it is ([`bundled_cli`]).
+/// `docker` on `PATH`, Docker Desktop's own CLI is asked, where it is ([`bundled_cli`]). A call
+/// that runs out of time is made once more: the first call of a cold CLI and daemon (a Windows
+/// Server's Docker Engine just after boot) can take longer than a probe, and warms them for the
+/// next.
 async fn ask(cx: &Context, limit: Duration, spec: &ProcessSpec) -> Result<String, NoAnswer> {
     let missing = |answer: &Result<Captured, Unanswered>| matches!(answer, Err(Unanswered::NotStarted(isothrum_runner::ProcessError::Missing { .. })));
-    let mut answer = cx.probe_within(limit, spec).await;
+    let mut spec = spec.clone();
+    let mut answer = cx.probe_within(limit, &spec).await;
     if missing(&answer)
         && let Some(cli) = bundled_cli(cx)
     {
-        let mut bundled = spec.clone();
-        bundled.program = cli;
-        answer = cx.probe_within(limit, &bundled).await;
+        spec.program = cli;
+        answer = cx.probe_within(limit, &spec).await;
+    }
+    if matches!(answer, Err(Unanswered::TimedOut(_))) {
+        answer = cx.probe_within(limit, &spec).await;
     }
     match answer {
         Ok(captured) => captured.output().map_err(|failed| failure(&captured, failed.reason)),

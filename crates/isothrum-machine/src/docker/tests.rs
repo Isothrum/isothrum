@@ -133,6 +133,23 @@ async fn an_engine_slow_to_answer_reads_running_as_the_cli_finds_it() {
     assert_eq!(brief(&engines(&cx).await), [(Engine::DockerDesktop, "desktop-linux", true, true)]);
 }
 
+/// Regression (GitHub's windows-2025 runner): the first `docker info` of a Windows Server's cold
+/// Docker Engine ran past the probe, and the engine the CLI used was left out of the list while
+/// `docker info` answered a second later. A call that runs out of time is made once more.
+#[tokio::test(start_paused = true)]
+async fn an_engine_whose_first_answer_runs_out_of_time_is_asked_again() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let infos = AtomicUsize::new(0);
+    let tools = FakeProcesses::model(move |call| match call.args.first().map(String::as_str) {
+        Some("context") => Reply::ok("default\ttrue\n"),
+        _ if infos.fetch_add(1, Ordering::SeqCst) == 0 => Reply::ok("Windows Server\n").after(Duration::from_secs(3600)),
+        _ => Reply::ok("Microsoft Windows Server Version 24H2\n"),
+    });
+    let (cx, tools) = on(HostOs::Windows, tools);
+    assert_eq!(brief(&engines(&cx).await), [(Engine::Native, "default", true, true)]);
+    assert_eq!(tools.made("docker --context default info").len(), 2, "asked again once");
+}
+
 /// A context that says nothing by its name (`default` on a Mac) is known by the daemon it
 /// reaches; two contexts to one engine count once.
 #[tokio::test(start_paused = true)]
