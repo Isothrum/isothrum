@@ -771,7 +771,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isothrum-cli"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-client"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "futures-core",
  "interprocess",
@@ -810,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-machine"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "isothrum-runner",
  "isothrum-test-support",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-runner"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "getrandom 0.4.3",
  "hcl-rs",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-service"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "getrandom 0.4.3",
  "interprocess",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "isothrum-test-support"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "nix",
  "tempfile",
@@ -2364,7 +2364,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "clap",
  "isothrum-runner",

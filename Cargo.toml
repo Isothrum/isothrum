@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/isothrum-runner", "crates/isothrum-machine", "crates/isothrum-cli", "crates/isothrum-client", "crates/isothrum-service", "crates/isothrum-test-support", "xtask"]
 
 [workspace.package]
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -13,11 +13,11 @@ homepage = "https://www.isothrum.com"
 publish = false
 
 [workspace.dependencies]
-isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.0" }
+isothrum-runner = { path = "crates/isothrum-runner", version = "3.0.1" }
 isothrum-test-support = { path = "crates/isothrum-test-support" }
-isothrum-client = { path = "crates/isothrum-client", version = "3.0.0" }
-isothrum-machine = { path = "crates/isothrum-machine", version = "3.0.0" }
-isothrum-service = { path = "crates/isothrum-service", version = "3.0.0" }
+isothrum-client = { path = "crates/isothrum-client", version = "3.0.1" }
+isothrum-machine = { path = "crates/isothrum-machine", version = "3.0.1" }
+isothrum-service = { path = "crates/isothrum-service", version = "3.0.1" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
