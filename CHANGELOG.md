@@ -9,6 +9,13 @@ Terraform), usable on any project of those formats.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A cold Docker Engine is found running.** The first `docker info` of a Windows Server's
+  Docker Engine just after boot ran past the probe's time, so the engine the CLI used was left
+  out of the engine list while `docker info` answered a second later. A Docker call that runs out
+  of time is now made once more.
+
 ## [3.0.0] — 2026-11-23
 
 ### Changed
