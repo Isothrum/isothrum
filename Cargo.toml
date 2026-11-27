@@ -33,7 +33,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io
 process-wrap = { version = "10", default-features = false, features = ["tokio1", "process-group"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # Signals to a process group a killed operation left running (`process/ledger.rs`), safely.
-nix = { version = "0.31", default-features = false, features = ["signal"] }
+nix = { version = "0.32", default-features = false, features = ["signal"] }
 clap = { version = "4", features = ["derive", "string"] }
 clap_complete = "4"
 tempfile = "3"
